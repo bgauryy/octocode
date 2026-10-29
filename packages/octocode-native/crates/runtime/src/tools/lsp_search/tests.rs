@@ -27,6 +27,7 @@ mod hierarchy;
 mod hierarchy_caps;
 mod outline;
 mod pagination;
+mod receipts;
 mod references;
 mod requests;
 mod server_context;

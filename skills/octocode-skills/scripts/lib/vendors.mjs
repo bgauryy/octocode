@@ -74,6 +74,10 @@ export function resolvePlatformIds(spec) {
   if (!raw || raw === 'top') return [...TOP];
   if (raw === 'all') return [...PRIMARY];
   const ids = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  if (!ids.length) {
+    console.error('Select at least one platform.');
+    process.exit(1);
+  }
   const bad = ids.filter((id) => !VENDORS[id]);
   if (bad.length) {
     console.error(`Unknown platform(s): ${bad.join(', ')}. Valid: ${VENDOR_IDS.join(', ')}, top, all`);

@@ -1,6 +1,6 @@
-# Sources and crates
-
 Load when an idiom or API claim needs an authoritative anchor, or when you choose a library or vet one already in `Cargo.toml`. Why: memory and registry popularity are not evidence; upstream source and the canon are. `rustup doc` serves the canon offline. Vetting rules (std first, upstream source, consent) are in SKILL.md.
+
+# Sources and crates
 
 ## Canonical sources
 
@@ -56,10 +56,10 @@ When this skill runs inside Octocode, recheck these owners before applying a loc
 | Practice | Source under `<repo>` | Deciding evidence |
 |---|---|---|
 | Crate boundaries and host ownership | `packages/octocode-native/ARCHITECTURE.md` | Runtime is an `rlib`; hosts own conversion, not tool execution |
-| Resolver, LTO, codegen units, shared metadata | `packages/octocode-native/Cargo.toml` | Explicit resolver 2; thin LTO; engine regression note |
+| Resolver, LTO, codegen units, shared metadata | `packages/octocode-native/Cargo.toml` | Explicit resolver 3; thin LTO; engine regression note |
 | Request admission and cleanup | `packages/octocode-native/crates/runtime/src/execution/lifecycle.rs` | `RequestAdmission`, `RequestGuard`, cancellation and blocking-task join |
 | Contract generation and field effects | `packages/octocode-native/ARCHITECTURE.md`; `packages/octocode-native/crates/runtime/tests/contract_field_effects.rs` | One generator; generated wire types; effect coverage |
-| Native artifact staging | `packages/octocode-native/scripts/native-addon-utils.cjs` | `stageFile`, signing before rename, subprocess load check |
+| Native artifact staging | `packages/octocode-native/scripts/stage-binary.cjs`; `packages/octocode-native/scripts/build-native.cjs` | `stageFile` retains an unchanged inode; build stages and smoke-tests the CLI binary |
 | Test selection and page replay | `packages/octocode-native/package.json`; `packages/octocode-native/crates/runtime/tests/runtime_page_replay.rs` | Test-only features; snapshots and source-edit replay |
 
 Manifest timing notes are historical observations, not new benchmark results. Verify the current toolchain and rerun the relevant workload before claiming a gain.

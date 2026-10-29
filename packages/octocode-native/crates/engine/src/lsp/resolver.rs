@@ -80,12 +80,8 @@ pub fn code_occurrence_lines(
         return None;
     }
     let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
-    let spec = grammar_for_file(file_path)?;
-    let tree = spec.parse_before(content, deadline)?;
+    let tree = parse_as_code(file_path, content, deadline)?;
     let root = tree.root_node();
-    if root.has_error() {
-        return None;
-    }
     let mut candidates = Vec::new();
     let index = LineIndex::new(content);
     collect_symbol_candidates(
@@ -118,7 +114,10 @@ fn resolve_position_before(
     if let Some(hit) = resolve_position_with_grammar(file_path, content, &lines, fuzzy, deadline)? {
         return Ok(hit);
     }
+    // A miss near the line names where the symbol occurs as code, when the
+    // grammar can tell: the agent's next `line`.
     resolve_position_from_lines(&lines, fuzzy, deadline)
+        .map_err(|error| name_code_occurrences(error, file_path, content, &fuzzy.symbol_name))
 }
 
 fn resolve_position_from_lines(
@@ -147,6 +146,22 @@ fn resolve_position_from_lines(
 
 use crate::text::LineIndex;
 
+/// `content` parsed without errors by the grammar owning `file_path`'s
+/// extension, else by the grammar that also parses it (a C++ header under
+/// `.h`): a tree the resolver can tell code from comments with. `None` when
+/// no grammar applies, every parse has errors, or the budget runs out.
+fn parse_as_code(file_path: &str, content: &str, deadline: Instant) -> Option<tree_sitter::Tree> {
+    let owner = grammar_for_file(file_path)?;
+    let tree = owner.parse_before(content, deadline)?;
+    if !tree.root_node().has_error() {
+        return Some(tree);
+    }
+    let sibling = crate::lsp::grammar::sibling_grammar_for_file(file_path)?;
+    sibling
+        .parse_before(content, deadline)
+        .filter(|tree| !tree.root_node().has_error())
+}
+
 fn normalized_lines(content: &str) -> Vec<&str> {
     LineIndex::new(content).lines(content)
 }
@@ -158,16 +173,13 @@ fn resolve_position_with_grammar(
     fuzzy: &LspFuzzyPosition,
     deadline: Instant,
 ) -> Result<Option<LspResolvedSymbol>> {
-    let Some(spec) = grammar_for_file(file_path) else {
-        return Ok(None);
-    };
-    let tree = spec
-        .parse_before(content, deadline)
-        .ok_or_else(budget_error)?;
-    let root = tree.root_node();
-    if root.has_error() {
+    if grammar_for_file(file_path).is_none() {
         return Ok(None);
     }
+    let Some(tree) = parse_as_code(file_path, content, deadline) else {
+        return Ok(None);
+    };
+    let root = tree.root_node();
 
     let mut candidates = Vec::new();
     let index = LineIndex::new(content);
@@ -184,10 +196,34 @@ fn resolve_position_with_grammar(
     Ok(result)
 }
 
-/// An `orderHint` past the occurrences of `symbol_name` on `line_hint`.
+/// `error` (a miss at or near a line) naming the lines where the symbol
+/// occurs as code, when the grammar can tell: the agent's next `line`.
+fn name_code_occurrences(error: Error, file_path: &str, content: &str, symbol_name: &str) -> Error {
+    const LISTED: usize = 8;
+    match code_occurrence_lines(file_path, content, symbol_name) {
+        Some(lines) if !lines.is_empty() => {
+            let listed = lines
+                .iter()
+                .take(LISTED)
+                .map(|line| (line + 1).to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let more = match lines.len().saturating_sub(LISTED) {
+                0 => String::new(),
+                n => format!(" and {n} more"),
+            };
+            Error::new(format!(
+                "{error}; as code it occurs on line(s) {listed}{more}"
+            ))
+        }
+        _ => error,
+    }
+}
+
+/// An `occurrence` past the occurrences of `symbol_name` on `line_hint`.
 fn order_hint_error(symbol_name: &str, line_hint: u32, count: usize) -> Error {
     Error::new(format!(
-        "Line {line_hint} has {count} occurrence(s) of '{symbol_name}'; orderHint is 0-based, at most {}",
+        "Line {line_hint} has {count} occurrence(s) of '{symbol_name}'; occurrence is 0-based, at most {}",
         count - 1
     ))
 }

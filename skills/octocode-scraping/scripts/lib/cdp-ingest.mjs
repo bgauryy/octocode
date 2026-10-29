@@ -18,6 +18,29 @@ import { fail } from './fail.mjs';
 // Content-addressed ids: re-ingesting the same capture replaces its rows instead of duplicating them,
 // and two different captures never overwrite each other's files.
 const ingestId = (kind, text) => `cdp-${kind}-${createHash('sha256').update(text).digest('hex').slice(0, 12)}`;
+const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const recordList = (value) => value == null || (Array.isArray(value) && value.every(isRecord));
+
+function parseCapture(text, label) {
+  let value;
+  try { value = JSON.parse(text); }
+  catch { fail('invalidCapture', `${label} is not valid JSON`, 2); }
+  if (!isRecord(value)) {
+    fail('invalidCapture', `${label} must be a JSON object`, 2);
+  }
+  return value;
+}
+
+function parseBodyList(text) {
+  let bodies;
+  try { bodies = JSON.parse(text); }
+  catch { fail('invalidCapture', 'network bodies is not valid JSON', 2); }
+  const list = Array.isArray(bodies) ? bodies : isRecord(bodies) ? (bodies.bodies ?? bodies.entries ?? [bodies]) : null;
+  if (!recordList(list) || !Array.isArray(list)) {
+    fail('invalidCapture', 'network bodies must be an object or array of objects', 2);
+  }
+  return list;
+}
 
 /** Ingests a HAR file; returns its redaction counts and the number of rows that passed the filter. */
 // Redacts the HAR in place unless noRedact; returns the counts either way.
@@ -43,16 +66,24 @@ export async function ingestHar(harPath, { sessionDir, ingestedAt, noRedact, exi
     fail('notFound', `HAR not found: ${absHar}`, 1);
   }
   const harText = await readFile(absHar, 'utf8');
-  const har = JSON.parse(harText);
+  const har = parseCapture(harText, 'HAR');
+  if (!isRecord(har.log) || !Array.isArray(har.log.entries) ||
+      har.log.entries.some((entry) => !isRecord(entry) || !isRecord(entry.request) || !isRecord(entry.response) ||
+        ![entry.request.headers, entry.request.cookies, entry.request.queryString, entry.response.headers, entry.response.cookies].every(recordList))) {
+    fail('invalidCapture', 'HAR must contain log.entries as an array of objects', 2);
+  }
   const harId = ingestId('har', harText);
   const redactMeta = redactHar(har, noRedact, stripBodies);
+  // HAR page metadata and vendor extensions can carry URL query secrets outside
+  // request/response entries. Preserve their structure while masking those values.
+  const safeHar = noRedact ? har : redactSecretsInJson(har);
 
-  const allRows = (har.log?.entries || []).map(compactHarEntry);
+  const allRows = safeHar.log.entries.map(compactHarEntry);
   const rows = filterHarRows(allRows, filter, { minMs, domain });
 
   // Keep full redacted HAR on disk; extracts get filtered compact rows (pager-smart).
   const harOutRel = `cdp/${harId}.${noRedact ? 'raw' : 'redacted'}.har`;
-  await writeFile(join(sessionDir, harOutRel), `${JSON.stringify(har, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(join(sessionDir, harOutRel), `${JSON.stringify(safeHar, null, 2)}\n`, { mode: 0o600 });
   cdpFiles.push(harOutRel);
 
   const compactRel = `cdp/${harId}-network-summary.json`;
@@ -113,9 +144,8 @@ export async function ingestBodies(bodiesPath, { sessionDir, ingestedAt, noRedac
     fail('notFound', `bodies file not found: ${absBodies}`, 1);
   }
   const bodiesText = await readFile(absBodies, 'utf8');
-  const bodies = JSON.parse(bodiesText);
+  const list = parseBodyList(bodiesText);
   const bodiesId = ingestId('bodies', bodiesText);
-  const list = Array.isArray(bodies) ? bodies : (bodies.bodies || bodies.entries || [bodies]);
   const outRel = `cdp/${bodiesId}-network-bodies.json`;
   // Mask credential values in every body and URL; the rest of each body stays as evidence.
   const safeList = list.map((b, i) => {
@@ -209,7 +239,11 @@ export async function ingestCapture(capturePath, { sessionDir, ingestedAt, noRed
   const absCapture = resolve(capturePath);
   const name = basename(absCapture);
   const captureText = await readFile(absCapture, 'utf8');
-  const original = JSON.parse(captureText);
+  const original = parseCapture(captureText, name);
+  if (/^page-snapshot\.json$/i.test(name) && original.refs != null &&
+      (!isRecord(original.refs) || !Object.values(original.refs).every(isRecord))) {
+    fail('invalidCapture', 'page-snapshot refs must be an object of reference objects', 2);
+  }
   const captureId = ingestId('capture', captureText);
   const data = redactCapture(original, noRedact);
   const outRel = `cdp/${captureId}-${name}`;

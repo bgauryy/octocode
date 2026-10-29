@@ -1,6 +1,7 @@
 use super::client::*;
 use super::daemon::*;
 use super::identity::*;
+use super::served::*;
 use super::sockets::*;
 use super::*;
 use crate::cli::Printed;
@@ -223,4 +224,14 @@ fn slow_build(
         assert!(!waited.timed_out(), "no test let the {cwd:?} build finish");
     }
     octocode_native::runtime::ToolRuntime::from_host_with_lsp_pool(host, pool)
+}
+
+#[test]
+fn only_a_clasify_call_rechecks_a_failed_provider_and_only_once_it_is_old() {
+    let old = PROVIDER_RECHECK;
+    let fresh = PROVIDER_RECHECK - Duration::from_millis(1);
+    assert!(recheck_provider("clasify", true, old));
+    assert!(!recheck_provider("clasify", true, fresh));
+    assert!(!recheck_provider("clasify", false, old));
+    assert!(!recheck_provider("localSearch", true, old));
 }

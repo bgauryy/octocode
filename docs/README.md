@@ -20,7 +20,7 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 | [LSP_SERVER_LIFECYCLE.md](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) | Language servers: discovery, install, lifecycle |
 | [CODE_GRAPH.md](../packages/octocode-native/docs/engine/CODE_GRAPH.md) | The persisted code graph: `graph ingest` and `graph query` |
 
-Philosophy: [MANIFEST.md](../MANIFEST.md) (Research Driven Development). Releases: [CHANGELOG.md](../CHANGELOG.md). Legal: [PRIVACY.md](../PRIVACY.md) · [TERMS.md](../TERMS.md).
+Philosophy: [MANIFEST.md](../MANIFEST.md) (Research Driven Development). Legal: [PRIVACY.md](../PRIVACY.md) · [TERMS.md](../TERMS.md).
 
 Hosts and packages: [VS Code](../packages/octocode-vscode/README.md) · [Pi](../packages/octocode-pi-extension/README.md) · [Claude Code](../packages/octocode-claude-plugin/README.md) · [Codex](../packages/octocode-codex-plugin/README.md) · [Agents communication](../packages/octocode-agents-communication/README.md) · [Chrome DevTools](../packages/octocode-chrome-devtools/README.md) · [Benchmark](../packages/octocode-benchmark/README.md).
 

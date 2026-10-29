@@ -48,7 +48,8 @@
       "queries": [
         {
           "operation": "stats",
-          "path": "."
+          "path": ".",
+          "includeProvenance": true
         }
       ]
     }
@@ -71,6 +72,7 @@
         {
           "operation": "find",
           "path": ".",
+          "includeProvenance": true,
           "limit": 50,
           "kind": "symbol",
           "target": "server"
@@ -95,6 +97,7 @@
         {
           "operation": "node",
           "path": ".",
+          "includeProvenance": true,
           "target": "src/server.ts"
         }
       ]
@@ -117,6 +120,7 @@
         {
           "operation": "symbols",
           "path": ".",
+          "includeProvenance": true,
           "target": "src/server.ts",
           "limit": 50
         }
@@ -141,6 +145,7 @@
         {
           "operation": "deps",
           "path": ".",
+          "includeProvenance": true,
           "target": "src/server.ts",
           "confidence": "high",
           "limit": 50,
@@ -167,6 +172,7 @@
         {
           "operation": "dependents",
           "path": ".",
+          "includeProvenance": true,
           "target": "src/server.ts",
           "confidence": "high",
           "limit": 50,
@@ -193,6 +199,7 @@
         {
           "operation": "callers",
           "path": ".",
+          "includeProvenance": true,
           "target": "src/server.ts",
           "confidence": "high",
           "limit": 50,
@@ -219,6 +226,7 @@
         {
           "operation": "callees",
           "path": ".",
+          "includeProvenance": true,
           "target": "src/server.ts",
           "confidence": "high",
           "limit": 50,
@@ -245,6 +253,7 @@
         {
           "operation": "walk",
           "path": ".",
+          "includeProvenance": true,
           "target": "src/server.ts",
           "confidence": "high",
           "limit": 50,
@@ -271,6 +280,7 @@
         {
           "operation": "path",
           "path": ".",
+          "includeProvenance": true,
           "target": "src/a.ts",
           "confidence": "high",
           "to": "src/b.ts"
@@ -297,6 +307,7 @@
         {
           "operation": "cycles",
           "path": ".",
+          "includeProvenance": true,
           "edges": [
             "imports"
           ],
@@ -323,6 +334,7 @@
         {
           "operation": "hubs",
           "path": ".",
+          "includeProvenance": true,
           "confidence": "high",
           "limit": 50,
           "direction": "out"
@@ -347,6 +359,7 @@
         {
           "operation": "diagnostics",
           "path": ".",
+          "includeProvenance": true,
           "limit": 50,
           "target": "src/"
         }
@@ -374,6 +387,7 @@
         {
           "operation": "witnesses",
           "path": ".",
+          "includeProvenance": true,
           "limit": 1,
           "edges": [
             "calls"
@@ -401,6 +415,7 @@
         {
           "operation": "witnesses",
           "path": ".",
+          "includeProvenance": true,
           "limit": 50,
           "confidence": "high",
           "to": "src/worker.ts#run"
@@ -427,6 +442,7 @@
         {
           "operation": "witnesses",
           "path": ".",
+          "includeProvenance": true,
           "limit": 50,
           "edges": [
             "passes"
@@ -454,6 +470,7 @@
         {
           "operation": "unresolved",
           "path": ".",
+          "includeProvenance": true,
           "limit": 1,
           "target": "src/server.ts"
         }
@@ -480,6 +497,7 @@
         {
           "operation": "unresolved",
           "path": ".",
+          "includeProvenance": true,
           "limit": 1,
           "edges": [
             "passes"
@@ -509,6 +527,7 @@
         {
           "operation": "unresolved",
           "path": ".",
+          "includeProvenance": true,
           "limit": 1,
           "edges": [
             "calls",
@@ -534,6 +553,7 @@
         {
           "operation": "stale",
           "path": ".",
+          "includeProvenance": true,
           "limit": 50
         }
       ]
@@ -556,6 +576,7 @@
         {
           "operation": "impact",
           "path": ".",
+          "includeProvenance": true,
           "limit": 50,
           "target": "src/a.ts",
           "depth": 3
@@ -582,6 +603,7 @@
         {
           "operation": "impact",
           "path": ".",
+          "includeProvenance": true,
           "limit": 50,
           "changed": [
             "src/a.ts"
@@ -608,6 +630,7 @@
         {
           "operation": "impact",
           "path": ".",
+          "includeProvenance": true,
           "limit": 50,
           "since": "main",
           "depth": 3
@@ -636,6 +659,7 @@
         {
           "operation": "impact",
           "path": ".",
+          "includeProvenance": true,
           "limit": 50,
           "target": "src/a.ts",
           "changed": [
@@ -664,6 +688,7 @@
         {
           "operation": "drift",
           "path": ".",
+          "includeProvenance": true,
           "limit": 50,
           "baseline": "20261025-baseline"
         }
@@ -687,6 +712,7 @@
         {
           "operation": "candidates",
           "path": ".",
+          "includeProvenance": true,
           "target": "server",
           "limit": 50
         }
@@ -715,6 +741,7 @@
           "operation": "candidates",
           "path": "src",
           "graph": "20261026-snapshot",
+          "includeProvenance": true,
           "target": "./server",
           "kind": "symbol",
           "limit": 1
@@ -3533,6 +3560,7 @@
       "queries": [
         {
           "path": "src",
+          "view": "details",
           "page": 1,
           "operation": "tree",
           "maxDepth": 2
@@ -3567,6 +3595,7 @@
       "queries": [
         {
           "path": "src",
+          "view": "details",
           "page": 1,
           "operation": "files",
           "modifiedAt": {

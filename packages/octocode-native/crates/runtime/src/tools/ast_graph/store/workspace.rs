@@ -5,7 +5,7 @@
 //! trees (`node_modules`, build output) are never walked. Everything here is
 //! best effort: an unreadable or malformed manifest contributes nothing and
 //! never fails ingest.
-use super::classify::SourceMarks;
+use super::super::classify::SourceMarks;
 use octocode_engine::text::JS_TS_EXTENSIONS;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -50,6 +50,16 @@ impl Component {
         meta
     }
 }
+
+/// The manifests [`Workspace::discover`] reads components from.
+pub(crate) const MANIFEST_FILES: &[&str] = &[
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+];
 
 #[derive(Debug, Default)]
 pub(crate) struct Workspace {

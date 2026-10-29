@@ -22,6 +22,41 @@ fn insert_page(pending: &mut Pending, page: usize) -> String {
 }
 
 #[test]
+fn page_planning_reserves_the_issued_handle_width() {
+    let mut pending = Pending::new([3; 32], None).expect("randomness");
+    let issued = insert_page(&mut pending, 1);
+    assert_eq!(
+        issued.len(),
+        52,
+        "two 128-bit IDs use compact opaque encoding"
+    );
+    let response = crate::response::pager::prepare(
+        crate::response::pager::ResponseInput {
+            tool: "localSearch".into(),
+            structured: json!({"results":[{"index":0,"data":{"files":(0..30)
+                .map(|line|json!({"path":format!("file-{line}.rs"),"matches":[{"line":line+1,"value":"evidence"}]}))
+                .collect::<Vec<_>>()}}]}),
+            options: crate::response::page_model::ResponsePageOptions {
+                response_chars: Some(700),
+                paging: true,
+                ..Default::default()
+            },
+            remaining: Vec::new(),
+        },
+        &tokio_util::sync::CancellationToken::new(),
+    )
+    .expect("page");
+    let planned = response.value["responsePagination"]["next"]["input"]["cursor"]
+        .as_str()
+        .expect("continued page");
+    assert_eq!(
+        planned.len(),
+        issued.len(),
+        "reserve actual wire width, not schema admission maximum"
+    );
+}
+
+#[test]
 fn a_busy_store_honors_cancellation_and_deadline_without_publishing() {
     let disk = tempfile::tempdir().unwrap();
     let registry = Registry::new(

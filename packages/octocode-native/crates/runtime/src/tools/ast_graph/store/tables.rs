@@ -4,7 +4,7 @@
 //! Call edges are syntactic candidates. Each one records how it was linked
 //! (`local`, `import`, `namespace`, `unique-name`) and a confidence, so a
 //! consumer never mistakes a name match for proven symbol identity.
-use super::classify::{
+use super::super::classify::{
     ROLE_DECLARATION, ROLE_ENTRY, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED, file_roles,
 };
 use super::format::{
@@ -108,6 +108,9 @@ struct Symbols<'a> {
     targets: Vec<u8>,
     /// Symbol node → name of its containing declaration (`Box` for `Box.open`).
     container_names: HashMap<u32, &'a str>,
+    /// C-family prototype → the one definition it declares (see
+    /// `c_definitions`): a call bound to the prototype reaches it.
+    definitions: HashMap<u32, u32>,
 }
 
 /// A symbol a call can target ([`NON_CALLABLE`] kinds cannot).
@@ -118,6 +121,10 @@ const TYPE_TARGET: u8 = 2;
 const METHOD_TARGET: u8 = 4;
 const REFERENCE_TARGET: u8 = 8;
 const LEXICAL_SCOPE: u8 = 16;
+/// A declaration whose own extent was recovered, or a variable holding a
+/// `require`d module: never a call target, but it still occupies its name,
+/// so a same-named decoy cannot win a scope choice by its absence.
+const RECOVERED_TARGET: u8 = 32;
 
 fn target_bits(kind: &str) -> u8 {
     let call = if NON_CALLABLE.contains(&kind) {
@@ -178,6 +185,12 @@ fn symbol_keys(
 ) -> Vec<String> {
     let qualified = |decl: &Declaration| {
         let mut parts = vec![decl.name.as_str()];
+        // A Go method is `Type.Method`, as gopls names it; a C++ out-of-line
+        // definition `void Widget::draw() {}` is `Widget.draw` inside its
+        // enclosing namespaces.
+        if let Some(owner) = decl.owner.as_deref() {
+            parts.extend(owner.rsplit("::").filter(|segment| !segment.is_empty()));
+        }
         let mut seen = BTreeSet::from([decl.id.as_str()]);
         let mut parent = decl.parent.as_deref();
         while let Some(id) = parent.filter(|id| seen.insert(id)) {
@@ -218,6 +231,7 @@ fn symbol_keys(
         .collect()
 }
 
+mod c_definitions;
 mod edges;
 mod resolve;
 use resolve::*;

@@ -18,7 +18,7 @@ export const serverMeasurement = server => server.measurement === "measured"
 
 export function html(report) {
   const rank = { high: 0, medium: 1, low: 2 };
-  const rows = [...report.findings].sort((a, b) => rank[a.severity] - rank[b.severity] || (b.chars ?? 0) - (a.chars ?? 0));
+  const rows = [...report.findings].sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3) || (b.chars ?? 0) - (a.chars ?? 0));
   const table = (headers, body) => `<table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${body.join("")}</tbody></table>`;
   const bar = (value, max) => `<span class="bar" style="width:${Math.max(2, Math.round((100 * value) / Math.max(1, max)))}%"></span>`;
   const maxTool = Math.max(1, ...report.mcp.flatMap((server) => server.tools.map((tool) => tool.totalChars)));
@@ -38,24 +38,24 @@ th{color:var(--muted);font-weight:600}td.num{text-align:right;font-variant-numer
 .bar{display:inline-block;height:8px;background:var(--barc);border-radius:2px;vertical-align:middle}td.barcell{width:30%}
 code{font-size:12px;word-break:break-all}
 </style></head><body>
-<h1>Context audit</h1><div class="muted">${escape(report.workspace)} · ${escape(report.generatedAt)} · usage window ${report.usage.days} days, ${report.usage.sessions} sessions, ${report.usage.calls} tool calls</div>
+<h1>Context audit</h1><div class="muted">${escape(report.workspace)} · ${escape(report.generatedAt)} · usage window ${escape(report.usage.days)} days, ${escape(report.usage.sessions)} sessions, ${escape(report.usage.calls)} tool calls</div>
 <div class="kpis">
-<div class="kpi"><span class="muted">Always-loaded instructions</span><b>~${report.instructions.alwaysLoadedTokens.toLocaleString()} tok</b></div>
-<div class="kpi"><span class="muted">Skill descriptions (${report.skills.uniqueCount})</span><b>~${report.skills.descriptionTokens.toLocaleString()} tok</b></div>
+<div class="kpi"><span class="muted">Always-loaded instructions</span><b>~${escape(report.instructions.alwaysLoadedTokens.toLocaleString())} tok</b></div>
+<div class="kpi"><span class="muted">Skill descriptions (${escape(report.skills.uniqueCount)})</span><b>~${escape(report.skills.descriptionTokens.toLocaleString())} tok</b></div>
 <div class="kpi"><span class="muted">MCP servers (${report.mcp.length})</span><b>${escape(mcpCost(report.mcp))}</b></div>
 <div class="kpi"><span class="muted">Unused MCP tools</span><b>${report.unusedTools.length}</b></div>
 <div class="kpi"><span class="muted">Findings</span><b>${report.findings.length}</b></div>
 </div>
-<h2>Findings</h2><div class="wrap">${table(["Severity", "Area", "Subject", "Finding"], rows.map((f) => `<tr><td class="sev ${f.severity}">${f.severity}</td><td>${escape(f.area)}</td><td><code>${escape(f.subject)}</code></td><td>${escape(f.message)}</td></tr>`))}</div>
+<h2>Findings</h2><div class="wrap">${table(["Severity", "Area", "Subject", "Finding"], rows.map((f) => `<tr><td class="sev ${Object.hasOwn(rank, f.severity) ? f.severity : "unknown"}">${escape(f.severity)}</td><td>${escape(f.area)}</td><td><code>${escape(f.subject)}</code></td><td>${escape(f.message)}</td></tr>`))}</div>
 <h2>MCP tools</h2><div class="wrap">${table(["Server/tool", "Total chars", "", "Desc", "Schema", "Calls", "Errors"], report.mcp.flatMap((server) => [
   `<tr><td colspan="7"><b>${escape(server.name)}</b> <span class="muted">${escape(server.source)} · ${escape(serverMeasurement(server))}</span></td></tr>`,
-  ...[...server.tools].sort((a, b) => b.totalChars - a.totalChars).map((tool) => `<tr><td><code>${escape(tool.name)}</code></td><td class="num">${tool.totalChars.toLocaleString()}</td><td class="barcell">${bar(tool.totalChars, maxTool)}</td><td class="num">${tool.descriptionChars}</td><td class="num">${tool.schemaChars.toLocaleString()}</td><td class="num">${tool.calls ?? "–"}</td><td class="num">${tool.errors ?? "–"}</td></tr>`),
+  ...[...server.tools].sort((a, b) => b.totalChars - a.totalChars).map((tool) => `<tr><td><code>${escape(tool.name)}</code></td><td class="num">${escape(tool.totalChars.toLocaleString())}</td><td class="barcell">${bar(tool.totalChars, maxTool)}</td><td class="num">${escape(tool.descriptionChars)}</td><td class="num">${escape(tool.schemaChars.toLocaleString())}</td><td class="num">${escape(tool.calls ?? "–")}</td><td class="num">${escape(tool.errors ?? "–")}</td></tr>`),
 ]))}</div>
-<h2>Instruction files</h2><div class="wrap">${table(["File", "Loaded", "Chars", ""], [...report.instructions.files].sort((a, b) => b.chars - a.chars).map((file) => `<tr><td><code>${escape(path.relative(report.workspace, file.path) || file.path)}</code></td><td>${escape(file.loaded)}</td><td class="num">${file.chars.toLocaleString()}</td><td class="barcell">${bar(file.chars, maxFile)}</td></tr>`))}</div>
-<h2>Skills</h2><div class="wrap">${table(["Skill", "Scope", "Description chars", "Invocations"], [...report.skills.skills].sort((a, b) => b.descriptionChars - a.descriptionChars).map((skill) => `<tr><td><code>${escape(skill.name)}</code></td><td>${escape(skill.scope)}</td><td class="num">${skill.descriptionChars}</td><td class="num">${skill.calls ?? "–"}</td></tr>`))}</div>
-<h2>MCP usage by server (transcripts)</h2><div class="wrap">${table(["Server", "Calls", "Errors", "Tools called"], Object.entries(report.usage.servers).sort((a, b) => b[1].calls - a[1].calls).map(([name, server]) => `<tr><td><code>${escape(name)}</code></td><td class="num">${server.calls}</td><td class="num">${server.errors}</td><td>${Object.entries(server.tools).sort((a, b) => b[1] - a[1]).map(([tool, count]) => `${escape(tool)} ${count}`).join(" · ")}</td></tr>`))}</div>
-<h2>Shell calls by kind</h2><div class="wrap">${table(["Kind", "Calls"], Object.entries(report.usage.shell ?? {}).slice(0, 20).map(([kind, count]) => `<tr><td>${escape(kind)}</td><td class="num">${count}</td></tr>`))}</div>
-<h2>Most used tools</h2><div class="wrap">${table(["Tool", "Calls", "Errors"], Object.entries(report.usage.tools).slice(0, 30).map(([name, count]) => `<tr><td><code>${escape(name)}</code></td><td class="num">${count}</td><td class="num">${report.usage.errors[name] ?? 0}</td></tr>`))}</div>
+<h2>Instruction files</h2><div class="wrap">${table(["File", "Loaded", "Chars", ""], [...report.instructions.files].sort((a, b) => b.chars - a.chars).map((file) => `<tr><td><code>${escape(path.relative(report.workspace, file.path) || file.path)}</code></td><td>${escape(file.loaded)}</td><td class="num">${escape(file.chars.toLocaleString())}</td><td class="barcell">${bar(file.chars, maxFile)}</td></tr>`))}</div>
+<h2>Skills</h2><div class="wrap">${table(["Skill", "Scope", "Description chars", "Invocations"], [...report.skills.skills].sort((a, b) => b.descriptionChars - a.descriptionChars).map((skill) => `<tr><td><code>${escape(skill.name)}</code></td><td>${escape(skill.scope)}</td><td class="num">${escape(skill.descriptionChars)}</td><td class="num">${escape(skill.calls ?? "–")}</td></tr>`))}</div>
+<h2>MCP usage by server (transcripts)</h2><div class="wrap">${table(["Server", "Calls", "Errors", "Tools called"], Object.entries(report.usage.servers).sort((a, b) => b[1].calls - a[1].calls).map(([name, server]) => `<tr><td><code>${escape(name)}</code></td><td class="num">${escape(server.calls)}</td><td class="num">${escape(server.errors)}</td><td>${Object.entries(server.tools).sort((a, b) => b[1] - a[1]).map(([tool, count]) => `${escape(tool)} ${escape(count)}`).join(" · ")}</td></tr>`))}</div>
+<h2>Shell calls by kind</h2><div class="wrap">${table(["Kind", "Calls"], Object.entries(report.usage.shell ?? {}).slice(0, 20).map(([kind, count]) => `<tr><td>${escape(kind)}</td><td class="num">${escape(count)}</td></tr>`))}</div>
+<h2>Most used tools</h2><div class="wrap">${table(["Tool", "Calls", "Errors"], Object.entries(report.usage.tools).slice(0, 30).map(([name, count]) => `<tr><td><code>${escape(name)}</code></td><td class="num">${escape(count)}</td><td class="num">${escape(report.usage.errors[name] ?? 0)}</td></tr>`))}</div>
 <p class="muted">Tokens ≈ chars ÷ 4. Budgets are review points, not errors. Usage comes from Claude Code transcripts only.</p>
 </body></html>`;
 }

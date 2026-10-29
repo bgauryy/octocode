@@ -271,3 +271,5 @@ fn build_lock_symlink_cannot_create_an_outside_file() {
 mod candidates;
 
 mod constructors;
+
+mod projection;

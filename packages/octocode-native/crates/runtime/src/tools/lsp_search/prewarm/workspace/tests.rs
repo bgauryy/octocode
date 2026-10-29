@@ -44,7 +44,7 @@ fn the_workspace_warms_its_largest_project_per_family() {
     );
     write(&root.join("tool/main.py"), "x = 1\n");
     write(&root.join("README.md"), "docs\n");
-    let plans = workspace_plans(&root, &paths, &execution);
+    let plans = workspace_plans(&root, &paths, &execution, super::MAX_PREWARM_KEYS);
     let files = plans
         .iter()
         .map(|planned| {
@@ -65,5 +65,5 @@ fn a_workspace_without_supported_files_starts_nothing() {
     let paths = crate::tools::test_support::workspace_policy(&root);
     write(&root.join("README.md"), "docs\n");
     write(&root.join("data/rows.csv"), "a,b\n");
-    assert!(workspace_plans(&root, &paths, &execution).is_empty());
+    assert!(workspace_plans(&root, &paths, &execution, super::MAX_PREWARM_KEYS).is_empty());
 }

@@ -51,6 +51,7 @@ fn sort_then_cap_retains_deterministic_sorted_prefix() {
             declares: false,
             covered: 0,
             source: None,
+            not_utf8: false,
         }
     }
     let make = || {
@@ -176,6 +177,7 @@ fn bounded_retention_matches_a_full_sort() {
             declares: salt.is_multiple_of(4),
             covered: 0,
             source: None,
+            not_utf8: false,
         }
     }
     for sort in [SearchSort::MatchCount, SearchSort::Relevance] {

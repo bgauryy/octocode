@@ -25,15 +25,15 @@ const SafeInt = z.string().transform((val) => {
 ## Correct
 
 ```typescript
-// GOOD: validate first, then transform
+// GOOD: validate the whole decimal integer, then convert and check range
 const SafeInt = z.string()
-  .refine((val) => !isNaN(parseInt(val, 10)), {
-    error: "Must be a numeric string",
-  })
-  .transform((val) => parseInt(val, 10))
+  .regex(/^[+-]?\d+$/, { error: "Must be a decimal integer" })
+  .transform(Number)
+  .pipe(z.int())
 
-// BETTER: use pipe for staged parsing
+// Alternative: JavaScript numeric syntax, with empty strings rejected
 const SafeInt = z.string()
+  .trim().min(1)
   .pipe(z.coerce.number())
   .pipe(z.int())
 ```

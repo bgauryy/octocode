@@ -2,7 +2,7 @@ Load when using Octocode research tools through MCP or CLI. Source: `skills/comm
 
 ## Choose the surface
 
-Use the connected Octocode MCP tools when available. For CLI-only capabilities or unavailable MCP, use the task's selected local CLI; otherwise use `npx -y octocode`. In this checkout, use `node packages/octocode/out/octocode.js` after building. Do not switch versions to hide a failing call.
+Use the connected Octocode MCP tools when available. For CLI-only capabilities or unavailable MCP, prefer the built local CLI from a known Octocode checkout; otherwise use an installed `octocode` or `npx -y octocode`. In the checkout, the local command is `node packages/octocode/out/octocode.js`. From another workspace, use its absolute path and keep the task’s working directory so relative inputs still target that project. Examples use the portable `npx` prefix; substitute the selected CLI. Do not switch versions to hide a failing call.
 
 Research, Chrome DevTools and agents-communication are different executables. Their skills own their command envelopes and mutation rules.
 
@@ -16,7 +16,7 @@ npx -y octocode schema --view full
 npx -y octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"startLine":1,"endLine":40}]}]}'
 ```
 
-New requests contain `queries` (up to five independent rows of one tool) and optional `responseChars`. Resume only with an emitted `{cursor}` input. CLI and MCP use the same envelope. For long requests, save JSON under the active skill's scratch directory and use CLI `--input <file>`.
+New requests contain `queries` and optional `responseChars`. Use one tool per batch and respect its schema's maximum row count (at most five). Resume only with an emitted `{cursor}` input. CLI and MCP use the same envelope. For long requests, save JSON under the active skill's scratch directory and use CLI `--input <file>`.
 
 Use observed paths, lines, refs and identifiers. Shared fields have one form: `matchString` string arrays, `contextLines:{before,after}`, `ranges:[{startLine,endLine}]`, numeric `{min,max}`, dates `{from,to}`, `sort:{by,order}`. Live schemas own exact fields and limits. There are no input aliases, bare queries or guessed repairs.
 
@@ -30,11 +30,10 @@ Follow [configuration](configuration.md) for credentials/settings. Inline `class
 
 The default catalog contains 12 tools over MCP and 15 in the CLI; the full inventory includes clasify when its provider is configured and its ping succeeds. Discovery is authoritative for the configured environment.
 
-- Graph (CLI): graphBuild creates or reuses workspace snapshots; graphQuery explores them with freshness and pinned continuations. Verify graph candidates with LSP and source reads.
+- Graph: use graphBuild/graphQuery when MCP exposes them (`OCTOCODE_BETA=true`), otherwise the selected CLI. graphBuild writes and prunes workspace snapshots; graphQuery explores them with freshness and pinned continuations. Verify candidates with LSP and source reads.
 - GitHub: ghSearchRepo, ghSearchCode, ghStructure, ghGetFileContent, ghSearchHistory, ghGetHistoryItem, ghCloneRepo.
 - Local: localSearch, structureSearch, astSearch, localFetch, lspSearch.
 - Other: artifactSearch, clasify.
-- Graphs are CLI commands: `octocode graph ingest <dir>`, then graph query operations.
 
 ## Read results and recover
 

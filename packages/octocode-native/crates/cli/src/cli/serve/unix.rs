@@ -3,6 +3,7 @@
 mod client;
 mod daemon;
 mod identity;
+mod served;
 mod sockets;
 #[cfg(test)]
 mod tests;

@@ -7,6 +7,7 @@ use gaps::ScopeGaps;
 use groups::{group_files, rebuild_page};
 use memo::{SCANS, remember_scan, scan_key, shared_scan, stored_scan};
 use octocode_engine::structural::{StructuralDemand, StructuralDetailedMatch};
+use qualified::qualified_miss;
 use render::{file_page, render_match_page};
 use rows::{MatchRow, diag, match_value};
 use scope::{Inapplicable, compile_in_grammars, infer_grammar, resolve_scope};
@@ -32,19 +33,28 @@ fn row_chars(row: &MatchRow) -> usize {
     octocode_engine::json_size::utf16_units(&row.value).unwrap_or(0) + 1
 }
 
+/// A match's row under `q`'s row shape.
+fn match_row(
+    q: MatchQuery<'_>,
+    m: &StructuralDetailedMatch,
+    cancel: &dyn CancellationCheck,
+) -> Result<MatchRow, ToolError> {
+    match_value(
+        m,
+        q.capture_text().unwrap_or(false),
+        content_length(q),
+        q.provenance(),
+        cancel,
+    )
+}
+
 /// The row price of a match under `q`'s row shape.
 fn match_price(
     q: MatchQuery<'_>,
     m: &StructuralDetailedMatch,
     cancel: &dyn CancellationCheck,
 ) -> Result<u32, ToolError> {
-    let row = match_value(
-        m,
-        q.capture_text().unwrap_or(false),
-        content_length(q),
-        cancel,
-    )?;
-    Ok(u32_of_usize(row_chars(&row)))
+    Ok(u32_of_usize(row_chars(&match_row(q, m, cancel)?)))
 }
 
 /// What a directory scan keeps of each match: a file view needs only the
@@ -193,7 +203,9 @@ fn run_match(
     if scan.truncated {
         gaps.skipped = gaps.skipped.filter(|skipped| !skipped.disclosure.unchecked);
     }
-    let exact_miss_scope = grouped.total_matches == 0
+    let qualified = qualified_miss(q, &scope, &scan, (paths, row_paths), cancel);
+    let exact_miss_scope = qualified.is_none()
+        && grouped.total_matches == 0
         && grouped.scanned_files > 0
         && !scan.truncated
         && q.scan_offset() == 0;
@@ -207,6 +219,9 @@ fn run_match(
         (budget, row_paths),
         cancel,
     )?;
+    if let Some(qualified) = qualified {
+        qualified.attach(&mut out);
+    }
     if exact_miss_scope {
         match exact_miss(q, &scope, paths, cancel) {
             Some(miss) => miss.attach(&mut out),
@@ -234,6 +249,7 @@ mod exact_miss;
 mod gaps;
 mod groups;
 mod memo;
+mod qualified;
 mod query;
 mod render;
 mod rows;

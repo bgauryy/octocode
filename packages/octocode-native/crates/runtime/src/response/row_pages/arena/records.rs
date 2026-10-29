@@ -17,7 +17,15 @@ impl FragmentArena {
         window.check()?;
         let first = out.len();
         if let Some(rest) = self.lean_skeleton(&mut row, window, &pointer, catalog)? {
-            self.plan_in(rest, catalog, window, out)?;
+            self.plan_in(
+                rest,
+                catalog,
+                Window {
+                    terminal_budget: None,
+                    ..window
+                },
+                out,
+            )?;
         }
         let contexts = self.contexts(row, &pointer, catalog, window.cancelled)?;
         let enclosing = enclosing_element(&contexts[0].value, &pointer);
@@ -53,7 +61,8 @@ impl FragmentArena {
             let extra = usize::from(index > start)
                 + item
                 + self.evidence_delta(&evidence, &dependencies[index], window.cancelled)?;
-            if index > start && chars + extra > limit {
+            let tail = window.tail_of(index, sizes.len());
+            if index > start && chars + extra + tail > limit {
                 out.push((
                     Fragment {
                         kind: FragmentKind::Records {
@@ -74,14 +83,19 @@ impl FragmentArena {
             let extra = usize::from(index > start)
                 + item
                 + self.evidence_delta(&evidence, &dependencies[index], window.cancelled)?;
-            if index == start && chars + extra > limit {
+            if index == start && chars + extra + tail > limit {
                 let record = &mut self.records[split];
                 let mut single = record.contexts[usize::from(index > 0)].value.clone();
                 let (key, value) = &mut record.records[index];
                 if let Some(slot) = single.pointer_mut(&record.pointer) {
                     *slot = Value::Object(Map::from_iter([(key.clone(), std::mem::take(value))]));
                 }
-                self.plan_in(single, catalog, window.with_head(limit), out)?;
+                self.plan_in(
+                    single,
+                    catalog,
+                    window.for_item(index, sizes.len()).with_head(limit),
+                    out,
+                )?;
                 start = index + 1;
                 let base = &self.records[split].contexts[1];
                 chars = base.chars;

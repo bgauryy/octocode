@@ -250,6 +250,7 @@ pub(super) fn collect_rust_imports(
                     local_range: alias_node.or(imported_node).map(|name| index.range(name)),
                     resolution_hint: unsupported.then(|| "unsupported".to_owned()),
                     module_scope: Some(module_scope.to_vec()),
+                    scope_id: None,
                 });
             }
         }

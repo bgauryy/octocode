@@ -1,3 +1,5 @@
+Load when composing objects, containers, unions or recursive schemas.
+
 # Objects and Composition Reference
 
 ## Object Variants
@@ -73,11 +75,11 @@ const WithAge = User.extend({ age: z.number() })
 
 ### .safeExtend()
 
-Extend with compile-time error on conflicting keys.
+Extend while requiring overridden fields to remain assignable to the original types. Compatible refinements of an existing key are allowed; object refinements are retained.
 
 ```typescript
-const WithAge = User.safeExtend({ age: z.number() })
-// TypeScript error if "age" already exists in User
+const WithName = User.safeExtend({ name: z.string().min(1) })
+// Compatible override; changing name to z.number() is a TypeScript error
 ```
 
 ### .pick()
@@ -94,7 +96,7 @@ const NameOnly = User.pick({ name: true })
 Remove specific fields.
 
 ```typescript
-const NoPassword = User.omit({ password: true })
+const NameOnly = User.omit({ email: true })
 ```
 
 ### .partial()
@@ -129,7 +131,7 @@ const Config = z.object({ host: z.string() }).catchall(z.string())
 
 ## Recursive Objects
 
-Use the getter pattern (v4 — `z.lazy()` is removed).
+Use the getter pattern for recursive objects in v4. `z.lazy()` remains available; some recursive definitions need explicit type annotations.
 
 ```typescript
 const Category = z.object({
@@ -150,7 +152,7 @@ z.array(z.string())           // string[]
 z.array(z.string()).min(1)    // at least 1 element
 z.array(z.string()).max(10)   // at most 10 elements
 z.array(z.string()).length(5) // exactly 5 elements
-z.array(z.string()).nonempty() // at least 1, narrows type to [string, ...string[]]
+z.array(z.string()).nonempty() // at least 1 at runtime; inferred type stays string[]
 ```
 
 ## Tuples
@@ -179,11 +181,11 @@ z.record(z.enum(["a", "b"]), z.number())
 
 ### z.partialRecord()
 
-Values can be undefined.
+Keys may be absent; present values must satisfy the value schema.
 
 ```typescript
-z.partialRecord(z.string(), z.number())
-// Record<string, number | undefined>
+z.partialRecord(z.enum(["a", "b"]), z.number())
+// { a?: number; b?: number }; { a: undefined } fails validation
 ```
 
 ### z.looseRecord()
@@ -231,10 +233,10 @@ z.discriminatedUnion("type", [
 Exactly one must match.
 
 ```typescript
-z.xor(
+z.xor([
   z.object({ email: z.email() }),
   z.object({ phone: z.string() }),
-)
+])
 // Must have email OR phone, not both
 ```
 

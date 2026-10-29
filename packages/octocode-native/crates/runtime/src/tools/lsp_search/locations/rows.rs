@@ -126,16 +126,3 @@ pub(in super::super) fn attach_read_lead(row: &mut Value) {
         );
     }
 }
-
-/// Whether no ancestor of the anchor file holds a project marker: the server
-/// then indexes a bare directory, and an empty answer says nothing.
-pub(super) fn without_project(query: &LspSearchQuery) -> bool {
-    lsp_search_query::path(query)
-        .map(super::super::render::uri_to_path)
-        .and_then(|path| {
-            std::path::Path::new(&path)
-                .parent()
-                .map(std::path::Path::to_path_buf)
-        })
-        .is_some_and(|dir| octocode_engine::lsp::workspace::project_root_of_dir(&dir).is_none())
-}

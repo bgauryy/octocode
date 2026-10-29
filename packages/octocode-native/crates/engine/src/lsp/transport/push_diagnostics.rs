@@ -18,6 +18,11 @@ const MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT: usize = 256 * 1024;
 struct PushDiagnosticsRecord {
     params: Value,
     truncated: bool,
+    /// The document changed on the server after this report. A server that
+    /// publishes only when its diagnostics change (typescript-language-server)
+    /// never replaces it, so after a wait for a fresh report it still
+    /// stands, flagged.
+    superseded: bool,
 }
 
 #[derive(Default)]
@@ -77,11 +82,29 @@ impl PushDiagnosticsStore {
             state.records.remove(&oldest);
         }
         state.order.push_back(uri.clone());
-        state
-            .records
-            .insert(uri, PushDiagnosticsRecord { params, truncated });
+        state.records.insert(
+            uri,
+            PushDiagnosticsRecord {
+                params,
+                truncated,
+                superseded: false,
+            },
+        );
         drop(state);
         self.changed.notify_waiters();
+    }
+
+    /// The document's text changed on the server: its report, if any, is
+    /// kept but marked, so a reader prefers a fresh publish and falls back
+    /// to it only once none arrived in time.
+    pub(super) fn supersede(&self, uri: &str) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(record) = state.records.get_mut(uri) {
+            record.superseded = true;
+        }
     }
 
     pub(super) fn clear(&self, uri: &str) {
@@ -95,18 +118,31 @@ impl PushDiagnosticsStore {
         }
     }
 
-    pub(super) fn report(&self, uri: &str, min_version: Option<i64>) -> Option<Value> {
+    /// The report for `uri`: a fresh one (published since the last sync, at
+    /// or above `min_version`), or, with `allow_superseded`, the one the
+    /// last sync superseded, flagged `superseded: true`.
+    pub(super) fn report(
+        &self,
+        uri: &str,
+        min_version: Option<i64>,
+        allow_superseded: bool,
+    ) -> Option<Value> {
         let state = self
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let record = state.records.get(uri)?;
-        if let Some(min_version) = min_version {
+        if record.superseded && !allow_superseded {
+            return None;
+        }
+        if let Some(min_version) = min_version
+            && !record.superseded
+        {
             // A record tagged with an older version belongs to a superseded
-            // sync and must not be returned. A record WITHOUT a version (e.g.
-            // typescript-language-server never sends one) is accepted as
-            // current: every document sync clears the cached record first, so
-            // any record present afterwards was published after that sync.
+            // sync and must not be returned as fresh. A record WITHOUT a
+            // version (typescript-language-server never sends one) is
+            // accepted as current: every document sync marks the record it
+            // held, so an unmarked one was published after that sync.
             if let Some(version) = record.params.get("version").and_then(Value::as_i64)
                 && version < min_version
             {
@@ -119,9 +155,13 @@ impl PushDiagnosticsStore {
             "version": record.params.get("version").cloned().unwrap_or(Value::Null),
             "source": "push",
             "truncated": record.truncated,
+            "superseded": record.superseded,
         }))
     }
 
+    /// A fresh report within `timeout_ms`, else the superseded one when the
+    /// server kept it (a server that publishes only on change has nothing
+    /// new to say), else `None`.
     pub(super) async fn wait_for(
         &self,
         uri: &str,
@@ -130,18 +170,18 @@ impl PushDiagnosticsStore {
     ) -> Option<Value> {
         let deadline = Instant::now() + Duration::from_millis(u64::from(timeout_ms));
         loop {
-            if let Some(report) = self.report(uri, min_version) {
+            if let Some(report) = self.report(uri, min_version, false) {
                 return Some(report);
             }
             let notified = self.changed.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            if let Some(report) = self.report(uri, min_version) {
+            if let Some(report) = self.report(uri, min_version, false) {
                 return Some(report);
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() || timeout(remaining, notified).await.is_err() {
-                return None;
+                return self.report(uri, min_version, true);
             }
         }
     }
@@ -160,10 +200,10 @@ mod tests {
             "diagnostics": [{ "message": "stale" }]
         }));
 
-        assert!(store.report("file:///workspace/a.ts", Some(3)).is_none());
+        assert!(store.report("file:///workspace/a.ts", Some(3), false).is_none());
         assert_eq!(
             store
-                .report("file:///workspace/a.ts", Some(2))
+                .report("file:///workspace/a.ts", Some(2), false)
                 .expect("matching version")["items"][0]["message"],
             "stale"
         );
@@ -183,13 +223,13 @@ mod tests {
 
         assert_eq!(
             store
-                .report("file:///workspace/a.ts", Some(3))
+                .report("file:///workspace/a.ts", Some(3), false)
                 .expect("versionless report accepted for a min version")["items"][0]["message"],
             "no-version"
         );
         assert_eq!(
             store
-                .report("file:///workspace/a.ts", None)
+                .report("file:///workspace/a.ts", None, false)
                 .expect("versionless report readable without a min")["items"][0]["message"],
             "no-version"
         );
@@ -207,7 +247,7 @@ mod tests {
         }));
 
         let report = store
-            .report("file:///workspace/a.ts", Some(3))
+            .report("file:///workspace/a.ts", Some(3), false)
             .expect("bounded report");
         assert_eq!(report["truncated"], true);
         assert_eq!(report["items"].as_array().map(Vec::len), Some(0));
@@ -223,13 +263,14 @@ mod tests {
             }));
         }
         assert!(
-            store.report("file:///w/0.ts", None).is_none(),
+            store.report("file:///w/0.ts", None, false).is_none(),
             "oldest evicted"
         );
         let newest = store
             .report(
                 &format!("file:///w/{MAX_PUSH_DIAGNOSTIC_DOCUMENTS}.ts"),
                 None,
+                false,
             )
             .expect("newest kept");
         assert_eq!(newest["truncated"], true);
@@ -268,5 +309,39 @@ mod tests {
             .expect("wait task")
             .expect("target diagnostics report");
         assert_eq!(report["items"][0]["message"], "target");
+    }
+}
+
+#[cfg(test)]
+mod supersede_tests {
+    use super::*;
+
+    /// A document change keeps the server's last report, marked: a reader
+    /// prefers a fresh publish and falls back to it after its wait.
+    #[tokio::test(start_paused = true)]
+    async fn a_superseded_report_stands_in_only_after_the_wait() {
+        let store = PushDiagnosticsStore::new();
+        store.record(json!({
+            "uri": "file:///w/a.ts",
+            "diagnostics": [{ "message": "before" }]
+        }));
+        store.supersede("file:///w/a.ts");
+        assert!(store.report("file:///w/a.ts", None, false).is_none());
+        let fallback = store
+            .wait_for("file:///w/a.ts", 50, None)
+            .await
+            .expect("the superseded report stands in");
+        assert_eq!(fallback["superseded"], true);
+        assert_eq!(fallback["items"][0]["message"], "before");
+        // A fresh publish replaces it, unflagged.
+        store.record(json!({
+            "uri": "file:///w/a.ts",
+            "diagnostics": []
+        }));
+        let fresh = store
+            .report("file:///w/a.ts", None, false)
+            .expect("fresh report");
+        assert_eq!(fresh["superseded"], false);
+        assert_eq!(fresh["items"], json!([]));
     }
 }

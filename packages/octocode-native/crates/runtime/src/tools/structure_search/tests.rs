@@ -25,6 +25,7 @@ mod scans;
 mod skips;
 mod summaries;
 mod tree;
+mod views;
 mod walk_ceiling;
 
 /// Tests speak JSON rows, or a continuation's complete input (its one row);

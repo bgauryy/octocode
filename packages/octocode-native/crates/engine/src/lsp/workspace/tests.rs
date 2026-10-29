@@ -258,3 +258,74 @@ fn falls_back_to_file_dir_not_cwd() {
         assert_eq!(PathBuf::from(&result), root.0);
     }
 }
+
+/// rust-analyzer loads a Rust file only from a Cargo package or a
+/// `rust-project.json`: a `.git` (or any other marker) above it is no project
+/// for that server. Other servers need no project file.
+#[test]
+fn a_rust_file_needs_a_cargo_package_or_rust_project_json() {
+    let repo = TmpDir::new();
+    fs::create_dir_all(repo.join(".git")).expect("git dir");
+    let src = repo.join("src");
+    fs::create_dir_all(&src).expect("src");
+    let rust = src.join("lib.rs");
+    assert!(outside_required_project(&rust));
+    assert!(!outside_required_project(&src.join("app.ts")));
+    fs::write(repo.join("rust-project.json"), b"{}").expect("rust-project.json");
+    assert!(!outside_required_project(&rust));
+    fs::remove_file(repo.join("rust-project.json")).expect("remove");
+    fs::write(src.join("Cargo.toml"), b"[package]\nname = \"p\"\n").expect("manifest");
+    assert!(!outside_required_project(&rust));
+}
+
+/// A module of a multi-module project roots its server at the project's
+/// top: the `go.work` above a Go module, the Maven parent listing the
+/// module, the pyright configuration above a Python package.
+#[test]
+fn multi_module_projects_root_at_their_top() {
+    let top = TmpDir::new();
+    fs::write(top.join("go.work"), b"go 1.22\nuse ./svc\n").expect("go.work");
+    let svc = top.join("svc");
+    fs::create_dir_all(&svc).expect("svc");
+    fs::write(svc.join("go.mod"), b"module example.com/svc\n").expect("go.mod");
+    let go_file = svc.join("main.go");
+    fs::write(&go_file, b"package main\n").expect("main.go");
+    let resolved = resolve_workspace_root_for_file(go_file.to_string_lossy().into_owned())
+        .expect("resolve");
+    assert_eq!(PathBuf::from(resolved), top.0);
+
+    let maven = TmpDir::new();
+    fs::write(
+        maven.join("pom.xml"),
+        b"<project><modules><module>core</module><module>api</module></modules></project>",
+    )
+    .expect("parent pom");
+    let core = maven.join("core");
+    fs::create_dir_all(core.join("src")).expect("core");
+    fs::write(core.join("pom.xml"), b"<project/>").expect("module pom");
+    let java_file = core.join("src").join("App.java");
+    fs::write(&java_file, b"class App {}").expect("App.java");
+    let resolved = resolve_workspace_root_for_file(java_file.to_string_lossy().into_owned())
+        .expect("resolve");
+    assert_eq!(PathBuf::from(resolved), maven.0);
+    // A module the parent does not list keeps its own root.
+    let other = maven.join("other");
+    fs::create_dir_all(&other).expect("other");
+    fs::write(other.join("pom.xml"), b"<project/>").expect("other pom");
+    let other_file = other.join("Other.java");
+    fs::write(&other_file, b"class Other {}").expect("Other.java");
+    let resolved = resolve_workspace_root_for_file(other_file.to_string_lossy().into_owned())
+        .expect("resolve");
+    assert_eq!(PathBuf::from(resolved), other);
+
+    let python = TmpDir::new();
+    fs::write(python.join("pyrightconfig.json"), b"{}").expect("pyrightconfig");
+    let pkg = python.join("packages").join("lib");
+    fs::create_dir_all(&pkg).expect("pkg");
+    fs::write(pkg.join("pyproject.toml"), b"[project]\nname = \"lib\"\n").expect("pyproject");
+    let py_file = pkg.join("mod.py");
+    fs::write(&py_file, b"x = 1\n").expect("mod.py");
+    let resolved = resolve_workspace_root_for_file(py_file.to_string_lossy().into_owned())
+        .expect("resolve");
+    assert_eq!(PathBuf::from(resolved), python.0);
+}

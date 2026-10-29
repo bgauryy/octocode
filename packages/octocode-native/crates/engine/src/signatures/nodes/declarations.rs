@@ -16,6 +16,7 @@ pub(super) fn declaration_kind(kind: &str) -> Option<&'static str> {
         | "method_definition"
         | "method"
         | "singleton_method"
+        | "local_function_statement"
         | "function_clause" => Some("function"),
         "constructor_declaration" => Some("constructor"),
         "class_definition"
@@ -47,7 +48,7 @@ pub(super) fn declaration_kind(kind: &str) -> Option<&'static str> {
         | "type_alias_declaration"
         | "type_definition"
         | "type_spec" => Some("type"),
-        "macro_definition" | "macro_rule" => Some("macro"),
+        "macro_definition" => Some("macro"),
         // Generic Assembly grammars model navigation anchors as labels rather
         // than high-level function declarations.
         "label" => Some("label"),

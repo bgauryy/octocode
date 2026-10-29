@@ -1,7 +1,7 @@
 ---
 title: Track Validation Error Rates per Schema and Field
 impact: MEDIUM
-description: Wrap safeParse in a tracked helper that increments counters per schema and per field on failure. Identify too-strict schemas (high failure rate) and too-loose schemas (never fail).
+description: Add bounded validation metrics when operations need them; use rates to investigate failures, not to infer that constraints are wrong.
 tags: observability, metrics, monitoring, validation, production
 ---
 
@@ -9,7 +9,7 @@ tags: observability, metrics, monitoring, validation, production
 
 ## Problem
 
-Without metrics on validation failures, you have no visibility into schema behavior in production. Too-strict schemas silently reject valid user input (causing UX frustration), while too-loose schemas that never fail may not be providing any real protection.
+When operations need validation trends, counters can reveal changes that individual logs miss. A high or low rate does not by itself tell you whether the schema is too strict or too loose.
 
 ## Incorrect
 
@@ -33,8 +33,9 @@ import { z } from "zod"
 function trackedSafeParse<T extends z.ZodType>(
   schema: T,
   data: unknown,
-  schemaName: string
-): z.SafeParseReturnType<z.input<T>, z.output<T>> {
+  schemaName: string,
+  knownFields: ReadonlySet<string>
+): z.ZodSafeParseResult<z.output<T>> {
   const result = schema.safeParse(data)
 
   metrics.increment("zod.validation.attempt", { schema: schemaName })
@@ -47,7 +48,7 @@ function trackedSafeParse<T extends z.ZodType>(
     for (const field of Object.keys(flat.fieldErrors)) {
       metrics.increment("zod.validation.field_error", {
         schema: schemaName,
-        field,
+        field: knownFields.has(field) ? field : "other",
       })
     }
   }
@@ -55,9 +56,12 @@ function trackedSafeParse<T extends z.ZodType>(
   return result
 }
 
+// Stable labels derived from the application-owned object schema
+const orderMetricFields = new Set(Object.keys(OrderSchema.shape))
+
 // Usage
 app.post("/api/orders", (req, res) => {
-  const result = trackedSafeParse(OrderSchema, req.body, "OrderSchema")
+  const result = trackedSafeParse(OrderSchema, req.body, "OrderSchema", orderMetricFields)
   if (!result.success) {
     return res.status(400).json({
       errors: z.flattenError(result.error).fieldErrors,
@@ -69,13 +73,13 @@ app.post("/api/orders", (req, res) => {
 
 ## What the Metrics Tell You
 
-| Signal | Meaning | Action |
+| Signal | Possible cause | Investigation |
 |--------|---------|--------|
 | High failure rate on a schema | Schema may be too strict | Review constraints, check if users send valid data that gets rejected |
-| One field dominates failures | Confusing input format | Improve form UX, add coercion, clarify docs |
-| Schema never fails | Schema may be too loose | Review if it's actually validating anything meaningful |
-| Failure spike after deploy | Schema change broke clients | Roll back or make the change additive |
+| One field dominates failures | Format confusion, changed traffic or a producer bug | Inspect representative safe cases before changing coercion or constraints |
+| Schema never fails | Valid traffic, upstream validation or missing checks | Verify boundary tests and instrumentation; zero failures alone proves none of these |
+| Failure spike after deploy | Schema, producer or traffic changed | Compare deployments and evidence before rollback or relaxation |
 
 ## Why
 
-Validation metrics close the feedback loop between schema design and real-world usage. Without them, you're guessing whether schemas are helping or hurting. Tracking per-schema and per-field failure rates turns Zod from a silent gatekeeper into an observable system component.
+Use metrics when operational questions need them. Keep schema names and `orderMetricFields` application-defined and bounded; do not turn arbitrary record keys or user values into metric labels. Rates describe observed traffic, not correctness. This wrapper is synchronous: async schemas need an awaited async counterpart and coverage for its failure path.

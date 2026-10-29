@@ -25,7 +25,7 @@ impl Candidates<'_> {
     ) -> Result<(), GraphOutput> {
         let ids: Box<dyn Iterator<Item = u32> + '_> = match &self.matching {
             Match::Key(id) => Box::new(std::iter::once(*id)),
-            Match::Name(lower) => Box::new(self.g.name_range(lower, false)),
+            Match::Name(lower) => Box::new(self.g.name_range(lower)),
             _ => Box::new(0..self.g.t.nodes.len() as u32),
         };
         for id in ids {
@@ -193,17 +193,11 @@ impl Query<'_> {
                 ErrorCode::NotFound,
                 format!("no node matches {reference:?}; try `octocode graph query find <text>`"),
             );
-            let mut suggestions = Vec::new();
-            let lower = matches.normalized.to_lowercase();
-            for id in self.g.name_range(&lower, true) {
-                check(self.cancel)?;
-                if kind.is_none_or(|kind| self.g.t.nodes[id as usize].kind == kind) {
-                    suggestions.push(self.g.key(id).to_owned());
-                    if suggestions.len() == 5 {
-                        break;
-                    }
-                }
-            }
+            let suggestions = ranked(self.g, &matches.normalized, kind, self.cancel)?
+                .into_iter()
+                .take(MAX_SUGGESTIONS)
+                .map(|hit| self.g.key(hit.id).to_owned())
+                .collect::<Vec<_>>();
             if !suggestions.is_empty() {
                 out.value["suggestions"] = json!(suggestions);
             }
@@ -224,6 +218,7 @@ impl Query<'_> {
         if shown < page.total {
             let next = QueryOptions {
                 op: "candidates".into(),
+                include_provenance: self.options.include_provenance,
                 target: Some(matches.normalized),
                 kind: kind.map(|kind| kind.as_str().to_owned()),
                 workspace: self.options.workspace.clone(),

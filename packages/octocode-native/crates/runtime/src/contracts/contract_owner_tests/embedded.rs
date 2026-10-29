@@ -71,9 +71,10 @@ fn embedded_contract_is_compact_json() {
     // compactly (the source is pretty-printed at 3.4x the size).
     let text = contract_json();
     assert!(!text.contains('\n'), "embedded contract is pretty-printed");
-    // Includes strict graph operation alternatives in executable follow-up schemas.
+    // Includes strict graph operation alternatives in executable follow-up
+    // schemas and the described lspSearch location/receipt vocabulary.
     assert!(
-        text.len() < 2_850_000,
+        text.len() < 2_950_000,
         "embedded contract is {} bytes",
         text.len()
     );

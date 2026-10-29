@@ -40,6 +40,13 @@ pub(super) fn assess(
                 positions.range(parent),
             );
         }
+        // A C, C++ or CUDA block: tree-sitter parses before the
+        // preprocessor, so a conditional branch it cannot place (`else`
+        // followed by `#ifdef`) is an error in that one statement, and its
+        // clean sibling statements keep their parse.
+        if parent.kind() == "compound_statement" {
+            break;
+        }
         if parent.child_by_field_name("body").is_some_and(|body| {
             body.start_byte() <= child.start_byte() && child.end_byte() <= body.end_byte()
         }) {

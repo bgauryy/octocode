@@ -60,7 +60,12 @@ const FLAG_OPTIONS = new Map([
 // Reads the option at argv[i] into args; returns the index of the last argument it consumed.
 function readOption(args, argv, i) {
   const a = argv[i];
-  if (VALUE_OPTIONS.has(a)) { args[VALUE_OPTIONS.get(a)] = argv[i + 1]; return i + 1; }
+  if (VALUE_OPTIONS.has(a)) {
+    const value = argv[i + 1];
+    if (!value || value.startsWith('--') || FLAG_OPTIONS.has(value)) throw new Error(`${a} requires a value`);
+    args[VALUE_OPTIONS.get(a)] = value;
+    return i + 1;
+  }
   if (FLAG_OPTIONS.has(a)) { const [key, value] = FLAG_OPTIONS.get(a); args[key] = value; return i; }
   if (a === '--query') { args.query = argv[i + 1]; if (!args.query || args.query.startsWith('--')) throw new Error('--query requires text'); return i + 1; }
   if (a === '--limit' || a === '--offset') {

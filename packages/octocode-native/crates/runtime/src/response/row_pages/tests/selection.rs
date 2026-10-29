@@ -1,13 +1,10 @@
 use super::*;
 use tokio_util::sync::CancellationToken;
 
-/// The plan a response gets is the one the earlier two-step choice made:
-/// plan with the block of a finished page and keep it only when it is one
-/// page, else plan again with the block of a page with more behind it. The
-/// rows are now sized once ([`PreparedRows::size`]) and planned once; over
-/// many shapes and budgets the pages are the same.
+/// Vary row shapes, volatile facts and page budgets while preserving every
+/// ordered match and independent row context. Page boundaries may improve.
 #[test]
-fn the_reserve_is_chosen_before_planning_as_planning_twice_chose_it() {
+fn budget_selection_preserves_every_row_across_varied_shapes() {
     let mut seed = 0x2545_f491_4f6c_dd1d_u64;
     let mut next = move |bound: usize| {
         seed ^= seed << 13;
@@ -62,46 +59,62 @@ fn the_reserve_is_chosen_before_planning_as_planning_twice_chose_it() {
         )
         .expect("valid source");
 
-        let mut skeleton = structured;
-        let Some(Value::Array(rows)) = skeleton.remove("results") else {
-            unreachable!("rows");
-        };
-        let overhead =
-            octocode_engine::json_size::utf16_units(&skeleton).unwrap_or(0) + "results".len() + 6;
-        let banner = incomplete_banner_chars(&skeleton, rows.len());
-        let row_budget = |reserve: usize| budget.saturating_sub(overhead + banner + reserve).max(1);
-        let prepared = PreparedRows::new(rows, &volatile, None);
-        let earlier = if envelope.utf16_units + finished <= budget {
-            let plan = prepared
-                .clone()
-                .plan(row_budget(finished), &CancellationToken::new())
-                .expect("valid plan");
-            if plan.total_pages == 1 {
-                plan
-            } else {
-                prepared
-                    .plan(row_budget(widest), &CancellationToken::new())
-                    .expect("valid plan")
+        let originals = structured["results"].as_array().expect("rows");
+        let mut seen = vec![Vec::new(); originals.len()];
+        let mut parts = vec![Vec::new(); originals.len()];
+        let mut provider_facts = vec![0; originals.len()];
+        for page in 0..source.plan.total_pages {
+            for row in source
+                .plan
+                .build_page(page, &volatile, &[], &CancellationToken::new())
+                .expect("page")
+            {
+                let index = row["index"].as_u64().expect("index") as usize;
+                let part = row["rowPart"]["part"].as_u64().unwrap_or(1);
+                let of = row["rowPart"]["of"].as_u64().unwrap_or(1);
+                parts[index].push((part, of));
+                assert_eq!(
+                    row["data"]["note"], originals[index]["data"]["note"],
+                    "case {case}"
+                );
+                for file in row["data"]["files"].as_array().expect("files") {
+                    assert_eq!(file["path"], "a");
+                    seen[index]
+                        .extend(file["matches"].as_array().expect("matches").iter().cloned());
+                }
+                if let Some(facts) = row["data"].get("rateLimit") {
+                    assert_eq!(part, 1, "provider facts belong to the first/whole part");
+                    assert_eq!(
+                        Some(facts),
+                        volatile[index]
+                            .as_ref()
+                            .and_then(|value| value.get("rateLimit"))
+                    );
+                    provider_facts[index] += 1;
+                }
             }
-        } else {
-            prepared
-                .plan(row_budget(widest), &CancellationToken::new())
-                .expect("valid plan")
-        };
-        assert_eq!(source.plan.total_pages, earlier.total_pages, "case {case}");
-        for page in 0..earlier.total_pages {
+        }
+        for index in 0..originals.len() {
+            let of = parts[index].first().expect("each row is present").1;
             assert_eq!(
-                source
-                    .plan
-                    .build_page(page, &source.volatile, &[], &CancellationToken::new())
-                    .expect("valid build_page"),
-                earlier
-                    .build_page(page, &volatile, &[], &CancellationToken::new())
-                    .expect("valid build_page"),
-                "case {case} page {page}"
+                parts[index],
+                (1..=of).map(|part| (part, of)).collect::<Vec<_>>(),
+                "case {case} row {index} parts must occur exactly once in order"
+            );
+            assert_eq!(
+                seen[index],
+                originals[index]["data"]["files"][0]["matches"]
+                    .as_array()
+                    .unwrap()
+                    .to_vec(),
+                "case {case} row {index}"
+            );
+            assert_eq!(
+                provider_facts[index],
+                usize::from(volatile[index].is_some())
             );
         }
-        if earlier.total_pages == 1 {
+        if source.plan.total_pages == 1 {
             one_page += 1;
         } else {
             split += 1;

@@ -25,7 +25,7 @@ A rule in the wrong layer is never read; give each rule one owning layer.
 - Exclusive branches: discriminant (`kind`/`status`), strict field set per branch; define absent, `null`, empty, default, unknown-field behavior; strict mode where it fits; validate again where the call executes.
 - Results: bounded default, action-relevant fields first, security and capability diagnostics visible; opaque IDs or raw payloads only for evidence or continuation; `response_format: concise | detailed` only for a distinct evidence need.
 - Errors say what failed and give the corrected call: `Error 400` → `path must be workspace-relative; retry with path: "src/a.ts"`.
-- A page, truncation, or permission that hides results gets a partial-state field; never claim completeness.
+- Large results return complete pages with executable continuations; a terminal limit or denied scope is explicit. Never silently truncate evidence or claim completeness from a partial page.
 
 ## MCP wire
 

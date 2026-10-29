@@ -123,18 +123,34 @@ pub(crate) fn list_snapshots(home: &Path) -> Vec<String> {
     ids
 }
 
-/// Removes older snapshots of `root` beyond `keep` and abandoned temp dirs.
+/// Removes older snapshots of `root` beyond `keep`, snapshots of any root
+/// in an older format (no query of this build can read them; a newer
+/// format belongs to a newer build and stays), and abandoned temp dirs.
 /// Snapshots are grouped by the root they scanned, never by their scope
 /// name: two roots that share a name keep their own snapshots.
 pub(super) fn prune(home: &Path, root: &Path, keep: usize) -> Vec<String> {
     let mut removed = Vec::new();
     let root = root.to_string_lossy();
-    let same_scope = list_snapshots(home)
-        .into_iter()
-        .filter(|id| read_manifest(&home.join(id)).is_some_and(|m| m["root"] == root.as_ref()))
-        .collect::<Vec<_>>();
+    let mut same_scope = Vec::new();
+    let mut outdated = Vec::new();
+    for id in list_snapshots(home) {
+        let Some(manifest) = read_manifest(&home.join(&id)) else {
+            continue;
+        };
+        if manifest["formatVersion"]
+            .as_u64()
+            .is_some_and(|version| version < u64::from(format::FORMAT_VERSION))
+        {
+            outdated.push(id);
+        } else if manifest["root"] == root.as_ref() {
+            same_scope.push(id);
+        }
+    }
     let excess = same_scope.len().saturating_sub(keep.max(1));
-    for id in same_scope.into_iter().take(excess) {
+    for id in outdated
+        .into_iter()
+        .chain(same_scope.into_iter().take(excess))
+    {
         if std::fs::remove_dir_all(home.join(&id)).is_ok() {
             removed.push(id);
         }

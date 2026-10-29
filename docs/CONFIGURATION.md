@@ -120,7 +120,7 @@ A bad value is skipped and reported once per process on **stderr** (stdout carri
 ```
 octocode: config warning: /repo/.octocode/.octocoderc: lsp.prewarm: Must be one of: targeted, all, off; value ignored [invalid_config]
 octocode: config warning: /repo/.octocode/.octocoderc: Failed to parse config file: …; the whole file is ignored [config_load_error]
-octocode: config warning: /Users/me/.octocode/.env: OCTOCODE_GITHUB_GRAPHQL is not a valid boolean (true/false/1/0) for github.graphqlEnabled; value ignored [invalid_env_value]
+octocode: config warning: ~/.octocode/.env: OCTOCODE_GITHUB_GRAPHQL is not a valid boolean (true/false/1/0) for github.graphqlEnabled; value ignored [invalid_env_value]
 ```
 
 | Problem | Effect |

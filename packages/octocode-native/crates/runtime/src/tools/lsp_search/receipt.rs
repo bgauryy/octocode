@@ -1,14 +1,13 @@
 //! Server selection metadata: operation → provider capability, the Rust
-//! build-context overlay, and the provider receipt attached to every row.
+//! build-context overlay, the provider context of an answered row, and the
+//! server receipt of a row where the server's state decides the next step.
 
 use super::anchor::is_anchored;
+use super::{Exit, Op};
 use crate::tools::lsp_search::lsp_search_query;
 use octocode_contract_types::LspSearchQuery;
-use octocode_engine::digest::{Nulls, canonical_json};
-use octocode_engine::lsp::client::NativeLspClient;
 use octocode_engine::lsp::types::LspLanguageServerConfig;
 use serde_json::{Value, json};
-use std::path::Path;
 
 pub(super) fn provider_for_operation(operation: &str) -> Option<&'static str> {
     match operation {
@@ -29,10 +28,56 @@ pub(super) fn provider_for_operation(operation: &str) -> Option<&'static str> {
 pub(super) fn required_capability(operation: &str) -> Option<&'static str> {
     // Diagnostics may arrive as server pushes even when diagnosticProvider is
     // not advertised. Every other operation uses the same provider metadata
-    // for capability admission and for the returned receipt.
+    // for capability admission and for the returned `provider`.
     (operation != "diagnostic")
         .then(|| provider_for_operation(operation))
         .flatten()
+}
+
+/// Whether a server advertising `advertises` can run `operation`: it needs
+/// no capability, advertises the one it needs, or advertises the provider
+/// its fallback uses.
+pub(super) fn admits(operation: &str, advertises: &dyn Fn(&str) -> bool) -> bool {
+    required_capability(operation).is_none_or(advertises)
+        || super::heritage::fallback_provider(operation).is_some_and(advertises)
+}
+
+/// The operations [`admits`] lets through, spelled as the input spells
+/// them, so a capability failure's row names what to retry with.
+pub(super) fn advertised_operations(advertises: &dyn Fn(&str) -> bool) -> Vec<&'static str> {
+    Op::ALL
+        .into_iter()
+        .map(Op::name)
+        .filter(|operation| admits(operation, advertises))
+        .collect()
+}
+
+/// The server a failed row names: its command, the argv when `argv` asks
+/// for it (what a start failure needs to configure) and it has one, and
+/// where discovery found it.
+pub(super) fn server_receipt(config: &LspLanguageServerConfig, argv: bool) -> Value {
+    let mut receipt = json!({"command": config.command});
+    if argv && let Some(args) = config.args.as_ref().filter(|args| !args.is_empty()) {
+        receipt["argv"] = json!(args);
+    }
+    receipt["source"] = json!(config.source.as_str());
+    receipt
+}
+
+/// `exit` with `receipt` at `lsp.receipt` when it is an error row.
+pub(super) fn naming(exit: Exit, receipt: Value) -> Exit {
+    let Exit::Row(mut row) = exit else {
+        return exit;
+    };
+    if let Some(row_fields) = row.as_object_mut()
+        && let Some(lsp) = row_fields
+            .entry("lsp")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+    {
+        lsp.insert("receipt".into(), receipt);
+    }
+    Exit::Row(row)
 }
 
 /// rust-analyzer's own defaults for the `rustContext` keys the headless
@@ -197,7 +242,6 @@ pub(super) fn attach_provider_context(
     canonical_uri: &str,
     resolved_symbol: Option<Value>,
     config: &LspLanguageServerConfig,
-    client: &NativeLspClient,
 ) {
     let Some(envelope) = value.as_object_mut() else {
         return;
@@ -220,12 +264,6 @@ pub(super) fn attach_provider_context(
         lsp.insert("serverAvailable".into(), json!(true));
         settle_provider(lsp, lsp_search_query::operation(query));
         settle_source(lsp, anchored);
-        let mut receipt = resolved_server_receipt(config, client);
-        // Anchored rows already carry `workspaceRoot` at the top level.
-        if anchored && let Some(receipt) = receipt.as_object_mut() {
-            receipt.remove("workspaceRoot");
-        }
-        lsp.insert("receipt".into(), receipt);
     }
     if anchored {
         let mut ordered = serde_json::Map::new();
@@ -235,9 +273,11 @@ pub(super) fn attach_provider_context(
             }
         }
         ordered.append(envelope);
-        ordered.insert("workspaceRoot".into(), json!(config.workspace_root));
         *envelope = ordered;
     }
+    // Every row names the root its server searched: a workspace-wide
+    // answer's scope, and an anchored answer's project.
+    envelope.insert("workspaceRoot".into(), json!(config.workspace_root));
 }
 
 /// The anchor receipt a row shows: what the request did not say, the line a
@@ -312,63 +352,6 @@ pub(super) fn drop_same_uri(value: &mut Value, canonical_uri: &str) {
             object.shift_remove(key);
         }
     }
-}
-
-pub(super) fn resolved_server_receipt(
-    config: &LspLanguageServerConfig,
-    client: &NativeLspClient,
-) -> Value {
-    const CAPABILITIES: [&str; 10] = [
-        "definitionProvider",
-        "typeDefinitionProvider",
-        "implementationProvider",
-        "referencesProvider",
-        "hoverProvider",
-        "callHierarchyProvider",
-        "typeHierarchyProvider",
-        "documentSymbolProvider",
-        "workspaceSymbolProvider",
-        "diagnosticProvider",
-    ];
-    let capabilities = CAPABILITIES
-        .into_iter()
-        .map(|name| {
-            (
-                name.to_owned(),
-                json!(client.has_capability(name.to_owned())),
-            )
-        })
-        .collect::<serde_json::Map<_, _>>();
-    let workspace = Path::new(&config.workspace_root)
-        .canonicalize()
-        .unwrap_or_else(|_| Path::new(&config.workspace_root).to_path_buf())
-        .to_string_lossy()
-        .into_owned();
-    let configuration = canonical_json(
-        json!([
-            config
-                .initialization_options
-                .clone()
-                .unwrap_or_else(|| json!({})),
-            config.env.clone().unwrap_or_default()
-        ]),
-        Nulls::Keep,
-    );
-    let mut receipt = json!({
-        "command": config.command,
-        "source": config.source.as_str(),
-        "workspaceRoot": config.workspace_root,
-        "workspaceFingerprint": octocode_engine::digest::sha256(workspace.as_bytes()),
-        "configurationFingerprint": crate::digest::json_sha256(&configuration),
-        "capabilities": capabilities
-    });
-    if let Some(argv) = config.args.as_ref().filter(|argv| !argv.is_empty()) {
-        receipt["argv"] = json!(argv);
-    }
-    if let Some(readiness) = client.readiness() {
-        receipt["readiness"] = json!(readiness);
-    }
-    receipt
 }
 
 #[cfg(test)]

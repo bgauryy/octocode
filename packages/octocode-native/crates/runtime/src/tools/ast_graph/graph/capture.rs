@@ -2,7 +2,7 @@ use super::*;
 use octocode_engine::text::analysis::{
     MapBudget, MapLimits, ObservedSpan, OriginProjection, SourceDescriptors,
 };
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 type SpanKey = (u32, u32, u32);
 
@@ -12,6 +12,26 @@ pub(crate) struct CapturedSource {
     pub origins: BTreeMap<SpanKey, OriginProjection>,
 }
 
+impl CapturedSource {
+    /// The `(bytes, items)` admitting these origins charges the snapshot's
+    /// source table ([`read_charge`]): a lower bound of that admission, so
+    /// a scan whose running total passes the table's budget can never
+    /// publish.
+    ///
+    /// [`read_charge`]: super::super::limits::read_charge
+    pub(crate) fn admission(&self) -> (usize, usize) {
+        self.origins
+            .values()
+            .fold((0, 0), |(bytes, items), origin| {
+                let (more_bytes, more_items) = super::super::limits::read_charge(origin);
+                (
+                    bytes.saturating_add(more_bytes),
+                    items.saturating_add(more_items),
+                )
+            })
+    }
+}
+
 pub(crate) fn key(span: ObservedSpan) -> SpanKey {
     (span.unit.0, span.start_byte, span.end_byte)
 }
@@ -19,11 +39,12 @@ pub(crate) fn key(span: ObservedSpan) -> SpanKey {
 pub(super) fn capture(
     view: &octocode_engine::fact_scan::GraphFactsView<'_>,
     cancel: &dyn CancellationCheck,
+    limits: &super::super::limits::Limits,
 ) -> Result<CapturedSource, ToolError> {
     let stop = || cancel.check().is_err();
     let mut budget = MapBudget::new(
         MapLimits::default(),
-        Instant::now() + Duration::from_secs(30),
+        Instant::now() + limits.file_map_deadline,
         &stop,
     );
     let mut keys = Vec::new();

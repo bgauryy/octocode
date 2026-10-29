@@ -19,6 +19,11 @@ pub(crate) struct Declaration {
     pub exported_as: Vec<String>,
     /// Id of the containing declaration (class for a method).
     pub parent: Option<String>,
+    /// The type a method is declared on outside its body (a Go receiver,
+    /// a C++ out-of-line definition's written scope).
+    pub owner: Option<String>,
+    /// A C/C++ function declared without its body.
+    pub prototype: bool,
 }
 
 impl Declaration {
@@ -43,6 +48,19 @@ pub(crate) struct Import {
     /// Unlinked because it names a third-party/standard package, not because
     /// an internal path failed to resolve.
     pub external: bool,
+    /// Declaration id of the declaration whose body holds a Scala import;
+    /// `None` at file level.
+    pub scope_id: Option<String>,
+}
+/// A `require` binding the engine proved (`const x = require('./m')`): it
+/// links calls like an import, and the variable that holds it is never a
+/// call target of its own.
+#[derive(Clone, Debug)]
+pub(crate) struct CommonJsBinding {
+    /// `imported_name` is the property bound, else `module.exports`.
+    pub import: Import,
+    /// The variable declaration's occurrence id.
+    pub declaration_id: String,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Reexport {
@@ -65,6 +83,15 @@ pub(crate) struct Call {
     /// Syntactic receiver type of a member call (`Store` for `s.save()`),
     /// from the engine fact; `None` when the parser could not read it.
     pub receiver_type: Option<String>,
+    /// The callee's head is a term bound in scope that no declaration or
+    /// type stands for (a Scala parameter or pattern variable).
+    pub term_binding: bool,
+    /// The receiver is a Scala self alias declared by the enclosing template
+    /// of this name (see `GraphFactCall::self_template`).
+    pub self_template: Option<String>,
+    /// Rust expression macros whose arguments hold the call, outermost first
+    /// (`ready`, `std::task::ready`); empty for plain code.
+    pub macros: Vec<String>,
 }
 /// A declaration's base type (`class A extends Base`, `impl Display for A`),
 /// as written at the declaration site.
@@ -85,6 +112,8 @@ pub(crate) struct FileFacts {
     pub file_edges: Vec<(String, String, u32)>,
     pub declarations: Vec<Declaration>,
     pub imports: Vec<Import>,
+    /// Proven CommonJS bindings; their loads are file edges already.
+    pub commonjs: Vec<CommonJsBinding>,
     pub reexports: Vec<Reexport>,
     /// Line of each linked re-export statement (named or `*`), by target.
     pub reexport_lines: Vec<(String, u32)>,
@@ -103,7 +132,7 @@ pub(crate) struct FileFacts {
     /// Size and change times of the bytes `digest` hashed, when settled.
     pub stamp: Option<octocode_engine::stamp::SourceStamp>,
     /// What the scanned source says about the file (roles, entry markers).
-    pub marks: super::store::classify::SourceMarks,
+    pub marks: super::classify::SourceMarks,
     /// 1-based `[start, end]` spans of code compiled only under test (Rust
     /// `#[cfg(test)]` items): their edges and declarations are test code.
     pub test_lines: Vec<[u32; 2]>,
@@ -123,7 +152,6 @@ impl FileFacts {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum DiagnosticCode {
     FactsSchemaUnsupported,
-    GraphEdgeCap,
     ParseRecovery,
     ScanSkip,
     /// A bare import names a scanned file by path, but nothing links it.
@@ -137,7 +165,6 @@ impl DiagnosticCode {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::FactsSchemaUnsupported => "facts-schema-unsupported",
-            Self::GraphEdgeCap => "graph-edge-cap",
             Self::ParseRecovery => "parse-recovery",
             Self::ScanSkip => "scan-skip",
             Self::UnlinkedPathImport => "unlinked-path-import",
@@ -192,6 +219,7 @@ pub(crate) enum ImportOutcome {
 /// projects it into the persisted [`super::store::tables`].
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BuiltGraph {
+    pub construction: BuildProgress,
     pub resolution_inputs: BTreeMap<String, String>,
     pub parsed_files: usize,
     pub reused_files: usize,
@@ -201,10 +229,11 @@ pub(crate) struct BuiltGraph {
     pub files_skipped: u32,
     /// The file scan stopped at `maxFiles`.
     pub truncated: bool,
-    /// Total file-graph edges accepted so far; `add_edge` stops collecting at
-    /// the edge cap and sets `edges_capped` once (more files cannot lift it).
-    pub edge_count: u32,
-    pub edges_capped: bool,
+    /// The bounds linking refuses past.
+    pub limits: super::limits::Limits,
+    /// Snapshot rows the build certainly projects: the scan's nodes and
+    /// `contains` edges, plus each distinct file edge `add_edge` links.
+    pub tally: super::limits::Tally,
     pub languages: Vec<(String, u32, String)>,
     /// Import tallies indexed by [`ImportOutcome`].
     pub imports: [u32; 5],
@@ -215,6 +244,16 @@ pub(crate) struct BuiltGraph {
     pub diagnostics: Vec<Diagnostic>,
     pub namespace_targets: BTreeSet<String>,
     pub star_reexporters: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct BuildProgress {
+    pub resumed_files: usize,
+    pub checkpointed_files: usize,
+    pub spilled_bytes: u64,
+    pub memory_only_files: usize,
+    pub max_spill_bytes: u64,
+    pub max_memory_only_bytes: u64,
 }
 
 impl BuiltGraph {

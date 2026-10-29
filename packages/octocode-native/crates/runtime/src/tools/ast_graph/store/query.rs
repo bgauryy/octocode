@@ -24,6 +24,7 @@ mod answers;
 mod assess;
 mod coverage;
 mod evidence;
+mod find;
 mod flags;
 mod health;
 mod load;
@@ -35,6 +36,7 @@ mod traverse;
 mod walks;
 mod window;
 use answers::*;
+use find::*;
 use flags::*;
 use health::*;
 use load::*;
@@ -52,34 +54,59 @@ const DEFAULT_IMPACT_DEPTH: u32 = 3;
 /// `issues` hides findings below this tier unless `--min-tier` says otherwise.
 const DEFAULT_MIN_TIER: u8 = 90;
 const MAX_CANDIDATES: usize = 20;
+/// Ranked `find` rows an unknown reference suggests.
+const MAX_SUGGESTIONS: usize = 5;
 const MAX_CYCLE_MEMBERS: usize = 50;
 
-pub const OPS: &[&str] = &[
-    "stats",
-    "find",
-    "candidates",
-    "node",
-    "symbols",
-    "deps",
-    "dependents",
-    "callers",
-    "callees",
-    "path",
-    "walk",
-    "cycles",
-    "hubs",
-    "diagnostics",
-    "witnesses",
-    "unresolved",
-    "stale",
-    "issues",
-    "impact",
-    "drift",
-];
+/// Declares every operation once: its name (`OPS`, the CLI's choices) and the
+/// variant `run` dispatches on, so a listed operation cannot lack a handler.
+macro_rules! operations {
+    ($($variant:ident => $name:literal),+ $(,)?) => {
+        pub const OPS: &[&str] = &[$($name),+];
+
+        #[derive(Clone, Copy)]
+        enum Op {
+            $($variant),+
+        }
+
+        impl Op {
+            fn parse(name: &str) -> Option<Self> {
+                match name {
+                    $($name => Some(Self::$variant),)+
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+operations! {
+    Stats => "stats",
+    Find => "find",
+    Candidates => "candidates",
+    Node => "node",
+    Symbols => "symbols",
+    Deps => "deps",
+    Dependents => "dependents",
+    Callers => "callers",
+    Callees => "callees",
+    Path => "path",
+    Walk => "walk",
+    Cycles => "cycles",
+    Hubs => "hubs",
+    Diagnostics => "diagnostics",
+    Witnesses => "witnesses",
+    Unresolved => "unresolved",
+    Stale => "stale",
+    Issues => "issues",
+    Impact => "impact",
+    Drift => "drift",
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct QueryOptions {
     pub op: String,
+    pub include_provenance: Option<bool>,
     pub check_freshness: bool,
     /// Node reference: key, absolute path, name, or `Class.method`.
     pub target: Option<String>,
@@ -121,10 +148,13 @@ pub struct QueryOptions {
 
 #[derive(Default)]
 struct Graph {
+    compact_provenance: bool,
     explicit_path: Option<PathBuf>,
     id: String,
     manifest: Value,
     t: GraphTables,
+    selective: Option<std::cell::RefCell<super::format::SnapshotReader>>,
+    validation: Option<Value>,
     source_budget: std::cell::RefCell<crate::response::source_evidence::ProjectionBudget>,
 }
 
@@ -161,10 +191,19 @@ fn run(
     paths: &PathPolicy,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<GraphOutput, GraphOutput> {
+    run_with(options, paths, cancel, true)
+}
+
+fn run_with(
+    options: &QueryOptions,
+    paths: &PathPolicy,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+    selective: bool,
+) -> Result<GraphOutput, GraphOutput> {
     cancel
         .check()
         .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
-    if !OPS.contains(&options.op.as_str()) {
+    let Some(op) = Op::parse(&options.op) else {
         return Err(GraphOutput::error(
             ErrorCode::InvalidInput,
             format!(
@@ -173,9 +212,10 @@ fn run(
                 OPS.join(", ")
             ),
         ));
-    }
+    };
     let flags = Flags::parse(options)?;
-    let graph = load(options, paths, cancel).map_err(|failure| *failure)?;
+    let mut graph = load_with(options, paths, cancel, selective).map_err(|failure| *failure)?;
+    graph.compact_provenance = options.include_provenance == Some(false);
     let mut pinned = options.clone();
     if let Some(path) = &graph.explicit_path {
         pinned.graph = Some(path.to_string_lossy().into_owned());
@@ -198,11 +238,11 @@ fn run(
         json!({"fresh": checked.changes.is_empty() && checked.added_checked && analysis_current,
             "addedChecked": checked.added_checked, "analysisCurrent": analysis_current})
     });
-    let result = (|| match options.op.as_str() {
-        "stats" => stats(g, cancel),
-        "candidates" => query.candidates(),
-        "witnesses" | "unresolved" => query.evidence(),
-        "find" => {
+    let result = (|| match op {
+        Op::Stats => stats(g, cancel),
+        Op::Candidates => query.candidates(),
+        Op::Witnesses | Op::Unresolved => query.evidence(),
+        Op::Find => {
             let text = options.target.as_deref().ok_or_else(|| {
                 GraphOutput::error(ErrorCode::InvalidInput, "`find` needs search text")
             })?;
@@ -213,15 +253,15 @@ fn run(
                 find(g, text, query.flags.kind, query.window(), cancel)?,
             ))
         }
-        "node" => node(g, query.target("a node reference")?, options, cancel),
-        "symbols" => {
+        Op::Node => node(g, query.target("a node reference")?, options, cancel),
+        Op::Symbols => {
             let root = query.target("a file or symbol")?;
             let (extra, page) = symbols(g, root, query.window(), cancel)?;
             Ok(run_page(options, g, extra, page))
         }
-        "deps" | "dependents" | "callers" | "callees" | "walk" => query.traversal(),
-        "path" => query.path(),
-        "cycles" => {
+        Op::Deps | Op::Dependents | Op::Callers | Op::Callees | Op::Walk => query.traversal(),
+        Op::Path => query.path(),
+        Op::Cycles => {
             let filter = query.filter(&[EdgeKind::Imports]).production();
             let page = cycles(g, &filter, options)?;
             let mut extra = edges_extra(&filter);
@@ -231,17 +271,17 @@ fn run(
             }
             Ok(run_page(options, g, extra, page))
         }
-        "hubs" => query.hubs(),
-        "diagnostics" => Ok(run_page(
+        Op::Hubs => query.hubs(),
+        Op::Diagnostics => Ok(run_page(
             options,
             g,
             Map::new(),
             diagnostics(g, options.target.as_deref()),
         )),
-        "impact" => query.impact(),
-        "issues" => query.issues(paths),
-        "drift" => query.drift(paths),
-        "stale" => {
+        Op::Impact => query.impact(),
+        Op::Issues => query.issues(paths),
+        Op::Drift => query.drift(paths),
+        Op::Stale => {
             let (extra, page) = stale(g, paths);
             let mut out = run_page(options, g, extra, page);
             if out.value["fresh"] == true {
@@ -249,13 +289,17 @@ fn run(
             }
             Ok(out)
         }
-        _ => Err(GraphOutput::error(ErrorCode::InvalidInput, "unknown op")),
     })();
     let (mut output, failed) = match result {
         Ok(output) => (output, false),
         Err(output) => (output, true),
     };
     graph.close_sources(&mut output, cancel)?;
+    if let Some(reader) = &graph.selective {
+        output.value["validation"] = reader.borrow().validation();
+    } else if let Some(validation) = &graph.validation {
+        output.value["validation"] = validation.clone();
+    }
     if failed {
         return Err(output);
     }
@@ -302,3 +346,8 @@ mod traversal_limits_tests;
 
 #[cfg(test)]
 mod window_tests;
+
+#[cfg(test)]
+mod selective_evidence_tests;
+#[cfg(test)]
+mod selective_tests;

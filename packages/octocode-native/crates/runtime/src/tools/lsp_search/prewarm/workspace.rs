@@ -34,6 +34,7 @@ pub fn schedule_workspace(
     paths: &PathPolicy,
     execution: &Arc<LspExecutionConfig>,
     root: &Path,
+    starts: usize,
 ) {
     let (runner, pool, paths, execution, root) = (
         handle.clone(),
@@ -43,7 +44,7 @@ pub fn schedule_workspace(
         root.to_path_buf(),
     );
     drop(handle.spawn_blocking(move || {
-        for planned in workspace_plans(&root, &paths, &execution) {
+        for planned in workspace_plans(&root, &paths, &execution, starts) {
             start(&runner, &pool, &execution, planned);
         }
     }));
@@ -56,11 +57,13 @@ fn family(file: &Path) -> Option<String> {
     Some(family_of(&language).map_or(language, |family| family[0].to_owned()))
 }
 
-/// The starts [`schedule_workspace`] makes for `root`, most files first.
+/// The starts [`schedule_workspace`] makes for `root`, most files first,
+/// at most `starts` (itself at most [`MAX_PREWARM_KEYS`]).
 pub(super) fn workspace_plans(
     root: &Path,
     paths: &PathPolicy,
     execution: &LspExecutionConfig,
+    starts: usize,
 ) -> Vec<Planned> {
     // (directory, extension) → (first file, file count), in walk order.
     let mut groups: BTreeMap<(PathBuf, String), (PathBuf, usize)> = BTreeMap::new();
@@ -115,7 +118,7 @@ pub(super) fn workspace_plans(
         .collect::<Vec<_>>();
     best.sort_by(|(a, _), (b, _)| b.cmp(a));
     best.into_iter()
-        .take(MAX_PREWARM_KEYS)
+        .take(starts.min(MAX_PREWARM_KEYS))
         .map(|(_, planned)| planned)
         .collect()
 }

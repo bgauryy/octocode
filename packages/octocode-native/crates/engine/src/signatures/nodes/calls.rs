@@ -93,24 +93,10 @@ fn callee_text<'tree>(node: Node<'tree>, content: &str) -> Option<(String, Node<
         return Some((format!("{receiver}.{method}"), name));
     }
     for field in ["function", "name", "method", "macro", "constructor"] {
-        if let Some(child) = node.child_by_field_name(field) {
-            if let Some(name) = node_text(child, content).and_then(compact_identifier) {
-                return Some((name, child));
-            }
-            // rustfmt/prettier break method chains across lines: collapse
-            // the whitespace so `self\n    .config\n    .iter` keeps its
-            // receiver instead of degrading to a bare `iter`.
-            if let Some(name) = node_text(child, content)
-                .map(|text| text.split_whitespace().collect::<String>())
-                .and_then(|text| compact_identifier(&text))
-            {
-                return Some((name, child));
-            }
-            if let Some(descendant) = first_name_descendant(child, 3)
-                && let Some(name) = node_text(descendant, content).and_then(compact_identifier)
-            {
-                return Some((name, descendant));
-            }
+        if let Some(child) = node.child_by_field_name(field)
+            && let Some(label) = child_label(explicit_instance_of(child), content)
+        {
+            return Some(label);
         }
     }
     let child = first_name_descendant(node, 3)?;
@@ -118,6 +104,68 @@ fn callee_text<'tree>(node: Node<'tree>, content: &str) -> Option<(String, Node<
         node_text(child, content).and_then(compact_identifier)?,
         child,
     ))
+}
+
+/// The label of a call's callee node as written.
+/// Go `f[T](..)` and `pkg.F[T, U](..)` call the generic function `f`.
+fn explicit_instance_of(function: Node<'_>) -> Node<'_> {
+    if function.kind() == "index_expression"
+        && let Some(operand) = function.child_by_field_name("operand")
+    {
+        operand
+    } else {
+        function
+    }
+}
+
+fn child_label<'tree>(child: Node<'tree>, content: &str) -> Option<(String, Node<'tree>)> {
+    if let Some(name) = node_text(child, content).and_then(compact_identifier) {
+        return Some((name, child));
+    }
+    // rustfmt/prettier break method chains across lines: collapse
+    // the whitespace so `self\n    .config\n    .iter` keeps its
+    // receiver instead of degrading to a bare `iter`.
+    if let Some(name) = node_text(child, content)
+        .map(|text| text.split_whitespace().collect::<String>())
+        .and_then(|text| compact_identifier(&text))
+    {
+        return Some((name, child));
+    }
+    let descendant = first_name_descendant(child, 3)?;
+    Some((
+        node_text(descendant, content).and_then(compact_identifier)?,
+        descendant,
+    ))
+}
+
+/// The function a Scala application names: a curried chain
+/// (`f(a)(b)`) and explicit type arguments (`f[A](a)`) are peeled to `f`.
+pub(in crate::signatures) fn scala_applied_function(node: Node<'_>) -> Option<Node<'_>> {
+    let mut function = node.child_by_field_name("function")?;
+    while function.kind() == "call_expression" {
+        function = function.child_by_field_name("function")?;
+    }
+    if function.kind() == "generic_function" {
+        function = function.child_by_field_name("function")?;
+    }
+    Some(function)
+}
+
+/// A Scala call label. A curried chain is one site, at its outermost
+/// application: an inner application has none of its own.
+pub(in crate::signatures) fn scala_call_callee<'tree>(
+    node: Node<'tree>,
+    content: &str,
+) -> Option<(String, Node<'tree>)> {
+    if node.parent().is_some_and(|parent| {
+        parent.kind() == "call_expression" && parent.child_by_field_name("function") == Some(node)
+    }) {
+        return None;
+    }
+    // `new K(a)(b)`: a constructor with several parameter lists, no call.
+    let function = scala_applied_function(node).filter(|f| f.kind() != "instance_expression")?;
+    let (label, spelled) = child_label(function, content)?;
+    Some((elide_arguments(&label), spelled))
 }
 
 /// The last name-leaf under `node` (inclusive) spelling `name`: the token a

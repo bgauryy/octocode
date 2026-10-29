@@ -1,5 +1,6 @@
 //! Python-specific graph-fact collector for `import`/`from ... import`
-//! statements, preserving module paths and alias bindings.
+//! statements, preserving module paths and alias bindings. An import in the
+//! body of `if TYPE_CHECKING:` never runs: it is a `type` import.
 
 use tree_sitter::Node;
 
@@ -9,6 +10,7 @@ use super::{GraphAccumulator, NodePositions, push_language_import};
 
 pub(super) fn collect_python_imports(
     node: Node<'_>,
+    ancestors: &[Node<'_>],
     content: &str,
     li: &NodePositions,
     acc: &mut GraphAccumulator,
@@ -19,6 +21,11 @@ pub(super) fn collect_python_imports(
     let mut cursor = node.walk();
     let names: Vec<_> = node.children_by_field_name("name", &mut cursor).collect();
     let line = li.range(node).start.line + 1;
+    let kind = if type_checking_only(node, ancestors, content) {
+        "type"
+    } else {
+        "value"
+    };
     for item in &names {
         let name_node = item.child_by_field_name("name").unwrap_or(*item);
         let Some(name) = node_text(name_node, content) else {
@@ -31,7 +38,7 @@ pub(super) fn collect_python_imports(
             acc,
             specifier.to_owned(),
             line,
-            "value",
+            kind,
             Some(
                 alias
                     .unwrap_or_else(|| {
@@ -68,7 +75,7 @@ pub(super) fn collect_python_imports(
             acc,
             module.to_owned(),
             line,
-            "value",
+            kind,
             Some("*".to_owned()),
             Some("*".to_owned()),
             if module.starts_with('.') {
@@ -78,4 +85,30 @@ pub(super) fn collect_python_imports(
             },
         );
     }
+}
+
+/// Whether `node` sits in the body of an `if TYPE_CHECKING:` (or
+/// `typing.TYPE_CHECKING`) block, not in its `else`/`elif` branches.
+fn type_checking_only(node: Node<'_>, ancestors: &[Node<'_>], content: &str) -> bool {
+    let mut child = node;
+    for &parent in ancestors.iter().rev() {
+        if parent.kind() == "if_statement"
+            && parent
+                .child_by_field_name("consequence")
+                .is_some_and(|body| body.id() == child.id())
+            && parent
+                .child_by_field_name("condition")
+                .and_then(|condition| node_text(condition, content))
+                .is_some_and(|condition| {
+                    matches!(condition.trim(), "TYPE_CHECKING" | "typing.TYPE_CHECKING")
+                })
+        {
+            return true;
+        }
+        if parent.kind() == "function_definition" {
+            return false;
+        }
+        child = parent;
+    }
+    false
 }

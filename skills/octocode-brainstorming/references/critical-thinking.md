@@ -1,6 +1,6 @@
-# Critical thinking
-
 Load when thinking a question through with the user, framing hypotheses, choosing directions, judging verified claims, or briefing critics or debaters.
+
+# Critical thinking
 
 ## Thinking with the user
 
@@ -51,7 +51,7 @@ Pick lenses that can change the decision; each becomes a direction or a question
 
 - Delphi: independent first positions (each worker or critic commits before seeing another's), then share; keep dissent.
 - Workers reading the same sources count as one source.
-- Prefer a majority over independent answers; debate only when the [gate](#debate-when-and-how) holds.
+- Resolve disagreement with distinguishing evidence, not a majority vote; debate only when the [gate](#debate-when-and-how) holds.
 - Critics never gathered the evidence they check; they check evidence, not agreement.
 - Weigh by the author's stake: vendors, method authors, and advocates show a claim exists, not that it is true.
 

@@ -20,7 +20,7 @@ use files::search_files_detailed;
 pub use files::{Rebuilt, file_matches, search_files};
 pub use octo::{
     COMPILE_FAILED, EXAMPLE_RULE, MATCH_DEADLINE, PARSE_INTERRUPTED, PatternDeclaration,
-    RULE_INVALID,
+    QualifiedPattern, RULE_INVALID,
 };
 pub use query::QUERY_INVALID;
 pub use syntax_errors::count_syntax_errors;
@@ -95,6 +95,25 @@ pub(crate) fn search(
 pub fn pattern_declaration(pattern: &str, ext: &str) -> Option<PatternDeclaration> {
     let entry = languages::find_entry(ext)?;
     octo::pattern_declaration(&AgLanguage::new(entry), pattern)
+}
+
+/// Grammars whose paths qualify with `::`: there a longer path before a
+/// pattern's leftmost segment is a namespace qualification, not a member
+/// receiver as `.` can be.
+const QUALIFIED_PATH_GRAMMARS: [&str; 3] = ["Rust", "C++", "CUDA"];
+
+/// The longer spelling of a structural `pattern` in the grammar of `ext`: a
+/// `::` path (or a call on one) whose leftmost segment is a literal name,
+/// with a fresh capture and `::` before that segment, which matches the
+/// sites that spell a longer path the pattern as written does not; `None`
+/// for any other pattern, a grammar without `::` paths, or a pattern that
+/// does not compile.
+pub fn pattern_qualifier(pattern: &str, ext: &str) -> Option<QualifiedPattern> {
+    let entry = languages::find_entry(ext)?;
+    if !QUALIFIED_PATH_GRAMMARS.contains(&entry.name) {
+        return None;
+    }
+    octo::pattern_qualifier(&AgLanguage::new(entry), pattern)
 }
 
 /// The literals every match of `pattern` (or `rule`) spells, any one of

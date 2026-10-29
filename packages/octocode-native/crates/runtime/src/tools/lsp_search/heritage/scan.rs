@@ -13,10 +13,11 @@ pub(in super::super) struct HeritageScan {
 
 /// How long the server's `textDocument/implementation` answer may still
 /// arrive once the syntax scan has finished: its rows are resolved, the
-/// scan's are matched by name, so a server that is merely slow keeps the
-/// win, but one that has not answered by then costs no further wait.
+/// scan's are matched by name, so a server that is merely slow (a cold
+/// rust-analyzer index takes tens of seconds) keeps the win, but one that
+/// has not answered by then costs no further wait.
 pub(in super::super) const SERVER_GRACE_AFTER_SCAN: std::time::Duration =
-    std::time::Duration::from_secs(5);
+    std::time::Duration::from_secs(20);
 
 /// Run `primary` (the server's request) and `hedge` (its syntax-scan
 /// substitute) at the same time. A primary answer wins and drops the hedge,
@@ -125,7 +126,12 @@ pub(in super::super) fn subtype_snippets(
                     character: name.end.character,
                 },
             },
-            content: declaration.name.clone(),
+            // The declaration's own line, as a server location reads.
+            content: content
+                .lines()
+                .nth(name.start.line as usize)
+                .unwrap_or(&declaration.name)
+                .to_owned(),
             symbol_kind: None,
             display_range: None,
         });

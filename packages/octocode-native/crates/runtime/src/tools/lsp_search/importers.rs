@@ -157,6 +157,11 @@ pub(super) struct Window {
     /// Every candidate, sorted; window `n` is the `n`th run of
     /// [`MAX_CANDIDATE_FILES`].
     candidates: Vec<String>,
+    /// Candidates no window verifies: files the server's own answer already
+    /// covers, and files whose imports cannot reach the anchor's module.
+    /// They keep their place in the list, so the windows and the digest
+    /// depend on the text scan alone, never on what the server answered.
+    excluded: HashSet<String>,
 }
 
 /// A window cut from the candidate list, or a stale request.
@@ -190,7 +195,13 @@ impl Window {
             digest,
             total,
             candidates,
+            excluded: HashSet::new(),
         })
+    }
+
+    /// Leave `excluded` out of every window's verification (see the field).
+    pub(super) fn exclude(&mut self, excluded: HashSet<String>) {
+        self.excluded = excluded;
     }
 
     fn range(&self, page: u32) -> std::ops::Range<usize> {
@@ -198,9 +209,13 @@ impl Window {
         start.min(self.total)..(start + MAX_CANDIDATE_FILES).min(self.total)
     }
 
-    /// The candidates of the window verified last.
-    pub(super) fn files(&self) -> &[String] {
-        &self.candidates[self.range(self.page)]
+    /// The candidates of the window verified last, less the excluded ones.
+    pub(super) fn files(&self) -> Vec<String> {
+        self.candidates[self.range(self.page)]
+            .iter()
+            .filter(|file| !self.excluded.contains(*file))
+            .cloned()
+            .collect()
     }
 
     /// Verify the next window as well: the last one held no importer.

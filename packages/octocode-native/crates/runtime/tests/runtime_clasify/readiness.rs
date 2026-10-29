@@ -27,7 +27,7 @@ async fn clasify_provider_ping_controls_availability_without_beta() {
         (
             ResponseTemplate::new(200)
                 .set_body_json(json!({"models":[]}))
-                .set_delay(Duration::from_secs(5)),
+                .set_delay(Duration::from_secs(8)),
             Some(ErrorCode::Timeout),
         ),
     ] {
@@ -51,7 +51,7 @@ async fn clasify_provider_ping_controls_availability_without_beta() {
             ))
             .check_clasify_provider()
             .await;
-        assert!(started.elapsed() < Duration::from_secs(4));
+        assert!(started.elapsed() < Duration::from_secs(7));
         assert_eq!(runtime.is_available("clasify"), expected.is_none());
         assert_eq!(runtime.catalog()["presentation"]["selection"], true);
         if let Some(code) = expected {

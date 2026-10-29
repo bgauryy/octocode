@@ -90,7 +90,7 @@ async fn pages_at(server: &MockServer, reference: &str) {
     }
 
     let mut stale = next;
-    stale["cursor"] = json!(format!("cursor1.{}", "0".repeat(64)));
+    stale["cursor"] = json!(format!("cursor2.{}", "A".repeat(44)));
     let error = runtime
         .run("gh-page-stale".into(), "ghGetFileContent".into(), stale)
         .await

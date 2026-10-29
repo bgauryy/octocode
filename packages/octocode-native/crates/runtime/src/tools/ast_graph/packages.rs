@@ -218,8 +218,12 @@ impl PackageIndex {
     }
 
     fn resolve_java(&self, spec: &str, importer: &str) -> PackageLink {
-        let spec = spec.strip_prefix("static ").unwrap_or(spec).trim();
-        if let Some(package) = spec.strip_suffix(".*") {
+        // `import static a.b.C.*;` names class `C`'s members, not a package.
+        let (spec, static_member) = match spec.strip_prefix("static ") {
+            Some(member) => (member.trim(), true),
+            None => (spec.trim(), false),
+        };
+        if let Some(package) = spec.strip_suffix(".*").filter(|_| !static_member) {
             let tail = package.replace('.', "/");
             let best = self
                 .files_by_dir
@@ -238,8 +242,9 @@ impl PackageIndex {
                 None => PackageLink::External,
             };
         }
-        // `a.b.C`, `a.b.C.Inner`, and `static a.b.C.member` all name the
-        // file of the longest prefix that is a scanned class.
+        // `a.b.C`, `a.b.C.Inner`, `static a.b.C.member` and `static a.b.C.*`
+        // all name the file of the longest prefix that is a scanned class.
+        let spec = spec.strip_suffix(".*").unwrap_or(spec);
         let segments = spec.split('.').collect::<Vec<_>>();
         for end in (2..=segments.len()).rev() {
             let tail = format!("{}.java", segments[..end].join("/"));

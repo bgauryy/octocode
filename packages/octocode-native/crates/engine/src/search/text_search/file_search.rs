@@ -195,6 +195,8 @@ pub(super) struct FileOutcome {
     pub(super) generated_header: Option<bool>,
     /// The searched bytes, when file-level terms are checked.
     pub(super) copied: Option<CopiedRead>,
+    /// A returned line was not UTF-8 (see [`CollectSink::not_utf8`]).
+    pub(super) not_utf8: bool,
 }
 
 impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
@@ -213,6 +215,7 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             declares: sink.declares,
             generated_header: None,
             copied: None,
+            not_utf8: sink.not_utf8,
         }
     }
 }

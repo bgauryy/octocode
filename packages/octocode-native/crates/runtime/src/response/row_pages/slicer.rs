@@ -4,6 +4,8 @@ use super::{Fragment, FragmentArena, Planned, continues_chars, mark_continuation
 use serde_json::Value;
 use std::ops::Range;
 
+mod terminal;
+
 #[derive(Clone, Copy)]
 pub(super) enum Open {
     Chunk {
@@ -26,11 +28,19 @@ pub(super) struct Slicer<'a> {
     pub(super) catalog: Option<usize>,
     pub(super) open: Open,
     pub(super) open_evidence: Evidence,
+    pub(super) remaining_chars: usize,
+    pub(super) terminal_limit: Option<usize>,
+    pub(super) terminal_checked: bool,
 }
 
 impl Slicer<'_> {
-    fn limit(&self, at: usize) -> usize {
-        if at == self.first {
+    /// The room of fragment `at` when it holds item `index`, less the tail
+    /// room when that item ends the split.
+    fn limit(&self, arena: &FragmentArena, at: usize, index: usize) -> usize {
+        if let Some(limit) = self.terminal_limit {
+            return limit;
+        }
+        let room = if at == self.first {
             self.window.head
         } else {
             self.window.later_limit(
@@ -38,7 +48,9 @@ impl Slicer<'_> {
                     .as_ref()
                     .map_or(0, |(array, index)| continues_chars(array, *index)),
             )
-        }
+        };
+        let len = arena.splits[self.split].items.len();
+        room.saturating_sub(self.window.tail_of(index, len)).max(1)
     }
 
     fn start_chunk(
@@ -69,12 +81,15 @@ impl Slicer<'_> {
         out: &mut Vec<Planned>,
     ) -> Result<(), DependencyError> {
         self.window.check()?;
+        let remaining = self.remaining_chars;
+        self.remaining_chars = self.remaining_chars.saturating_sub(item);
+        self.prepare_terminal(arena, index, remaining, out)?;
         let added = arena.splits[self.split].evidence[index].clone();
         let base = &arena.splits[self.split].contexts[usize::from(index > 0)];
         if base.chars
             + item
             + arena.evidence_delta(&base.evidence, &added, self.window.cancelled)?
-            > self.limit(out.len())
+            > self.limit(arena, out.len(), index)
         {
             return self.oversized(arena, index, out);
         }
@@ -82,7 +97,7 @@ impl Slicer<'_> {
             item + arena.evidence_delta(&self.open_evidence, &added, self.window.cancelled)?;
         match self.open {
             Open::Chunk { start, chars }
-                if index > start && chars + delta > self.limit(out.len()) =>
+                if index > start && chars + delta > self.limit(arena, out.len(), index) =>
             {
                 self.flush(start, index, chars, out);
                 self.start_chunk(arena, index, item, &added)?;
@@ -94,7 +109,7 @@ impl Slicer<'_> {
                     chars: chars + delta,
                 };
             }
-            Open::Tail { at, start, chars } if chars + delta > self.limit(at) => {
+            Open::Tail { at, start, chars } if chars + delta > self.limit(arena, at, index) => {
                 self.close_tail(at, start..index, chars, out);
                 self.start_chunk(arena, index, item, &added)?;
             }
@@ -123,7 +138,7 @@ impl Slicer<'_> {
             let pending = (chars - arena.evidence_chars(&self.open_evidence)?)
                 - (base.chars - arena.evidence_chars(&base.evidence)?);
             let at = out.len();
-            let limit = self.limit(at);
+            let limit = self.limit(arena, at, index);
             let mut trial = Vec::new();
             // Reserve only neighbouring JSON here. The trial may share all of
             // its descriptors; the exact union decides whether the join fits.
@@ -131,7 +146,7 @@ impl Slicer<'_> {
             arena.plan_in(
                 self.single(arena, index, at),
                 self.catalog,
-                self.window
+                self.item_window(arena, index)
                     .with_head(head)
                     .with_continuation(continues_chars(&self.pointer, index)),
                 &mut trial,
@@ -151,8 +166,8 @@ impl Slicer<'_> {
                 arena.plan_in(
                     self.single(arena, index, at),
                     self.catalog,
-                    self.window
-                        .with_head(self.limit(at))
+                    self.item_window(arena, index)
+                        .with_head(self.limit(arena, at, index))
                         .with_continuation(continues_chars(&self.pointer, index)),
                     out,
                 )?;
@@ -164,8 +179,8 @@ impl Slicer<'_> {
             arena.plan_in(
                 self.single(arena, index, at),
                 self.catalog,
-                self.window
-                    .with_head(self.limit(at))
+                self.item_window(arena, index)
+                    .with_head(self.limit(arena, at, index))
                     .with_continuation(continues_chars(&self.pointer, index)),
                 out,
             )?;
@@ -179,6 +194,13 @@ impl Slicer<'_> {
         };
         self.open_evidence = out[last].0.evidence.clone();
         Ok(())
+    }
+
+    /// The window a single item plans in: the tail room only when it ends
+    /// the split.
+    fn item_window(&self, arena: &FragmentArena, index: usize) -> Window<'_> {
+        self.window
+            .for_item(index, arena.splits[self.split].items.len())
     }
 
     fn single(&self, arena: &FragmentArena, index: usize, at: usize) -> Value {

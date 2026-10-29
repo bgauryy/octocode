@@ -103,12 +103,7 @@ async fn admitted_sections_are_judged_concurrently_and_all_answer() {
     let sections_count = 4;
     let provider = Rendezvous::start(sections_count, Duration::from_secs(3));
     let workspace = Workspace::new();
-    workspace.write(
-        "four.rs",
-        (0..sections_count)
-            .map(|i| format!("pub fn section_{i}() {{ println!(\"restart {i}\"); }}\n"))
-            .collect::<String>(),
-    );
+    workspace.write("four.rs", super::separate_functions(sections_count));
     let runtime = workspace.runtime_with(
         &[
             ("OCTOCODE_BETA", "true".to_owned()),

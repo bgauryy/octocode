@@ -143,3 +143,84 @@ fn raw_identity_distinguishes_canonical_roots_and_is_stable_on_revisit() {
     assert_eq!(a.1, b.1);
     assert_eq!(a, scan(first.path()));
 }
+
+fn scan_with_source(
+    options: &GraphFactsScanOptions,
+    walked: &crate::types::FileSystemQueryResult,
+    source: FactsSource<'_>,
+    registry: RegistryView<'_>,
+) -> (GraphFactsTypedEntry, bool) {
+    scan_walked_graph_facts_with_registry(
+        options.clone(),
+        walked.clone(),
+        source,
+        &|_| true,
+        &|view| Some((view.to_entry(), view.reused)),
+        &|| false,
+        registry,
+        MapLimits::default(),
+    )
+    .unwrap()
+    .kept
+    .remove(0)
+    .1
+}
+
+#[test]
+fn caller_checkpoints_are_validated_before_memo_for_parsers_and_providers() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    for (file, text) in [
+        ("a.toml", "answer = 42\n"),
+        ("a.rs", "fn checkpointed() {}\n"),
+    ] {
+        let fixture = tempfile::tempdir().unwrap();
+        fs::write(fixture.path().join(file), text).unwrap();
+        let options = GraphFactsScanOptions {
+            path: path_string(fixture.path()),
+            max_files: Some(10),
+            ..Default::default()
+        };
+        let registry = crate::signatures::languages::conformance::toml_registry();
+        let walked =
+            walk_graph_fact_files_with_registry(&options, &|_, _| true, &|| false, registry)
+                .unwrap();
+        let (entry, _) = scan_with_source(&options, &walked, FactsSource::Graph, registry);
+        let visited = AtomicBool::new(false);
+        let reuse = |_: &GraphFactsReuseContext<'_>| {
+            visited.store(true, Ordering::SeqCst);
+            Some(entry.clone())
+        };
+        let (cached, reused) = scan_with_source(
+            &options,
+            &walked,
+            FactsSource::CachedGraph(&reuse),
+            registry,
+        );
+        assert!(
+            visited.load(Ordering::SeqCst),
+            "{file}: caller checkpoint bypassed by memo"
+        );
+        assert!(reused);
+        assert_eq!(cached.facts, entry.facts);
+        for invalid in 0..4 {
+            let mut wrong = entry.clone();
+            match invalid {
+                0 => wrong.content_digest = "wrong".into(),
+                1 => wrong.facts.source_digest = "wrong".into(),
+                2 => wrong.facts.schema_version = 0,
+                _ => wrong.facts.file = "other.rs".into(),
+            }
+            let reuse = |_: &GraphFactsReuseContext<'_>| Some(wrong.clone());
+            let (actual, _) = scan_with_source(
+                &options,
+                &walked,
+                FactsSource::CachedGraph(&reuse),
+                registry,
+            );
+            assert_eq!(
+                actual.facts, entry.facts,
+                "{file}: invalid checkpoint accepted"
+            );
+        }
+    }
+}

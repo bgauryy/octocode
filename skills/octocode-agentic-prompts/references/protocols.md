@@ -9,7 +9,7 @@ Load when an instruction describes a handoff, review, decision, reasoning proced
 
 ```text
 Before: Set Priority (URGENT, HIGH, NORMAL, LOW) and Severity (S1-S4). S1 = data loss or outage. URGENT for S1. Only S1 or S2 page on-call.
-After:  Judge Severity: S1 data loss or outage, S2, S3, S4. Priority follows it: S1 → URGENT, S2 → HIGH, S3 → NORMAL, S4 → LOW. S1 and S2 page on-call. Change note: Priority now derives from Severity; drop it if no tool reads it.
+After:  Judge Severity: S1 data loss or outage; retain S2-S4 definitions from their owner. S1 implies URGENT; other priority mappings are unspecified. S1 and S2 page on-call. Change note: derive only the stated mapping; keep the other priorities until the owner resolves them.
 
 Before: Think in this exact structure: list all causes; for each, "Evidence for:" and "Evidence against:"; then pick one.
 After:  Answer with the most likely cause, the measurement that supports it, and the result that would show it is not the cause. Change note: thinking template dropped; the answer requirements keep its purpose.

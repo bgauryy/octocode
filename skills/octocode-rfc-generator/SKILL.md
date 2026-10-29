@@ -1,6 +1,6 @@
 ---
 name: octocode-rfc-generator
-description: "Load this skill first whenever the user asks for a plan, proposal, design doc, decision document or migration plan before building, even without saying RFC; good for options, rollout, risks, rollback and auditing a proposal."
+description: "Load this skill first when the user asks for a technical plan, proposal, design document or migration decision before building, even without saying RFC; good for alternatives, rollout, risks, rollback and proposal review."
 ---
 
 # Octocode RFC Generator
@@ -14,10 +14,10 @@ flowchart LR
   D -- yes --> W[Write RFC with plan]
   D -- no --> B[Draft open choice, next check]
   W --> V[Verify]
-  B --> V
-  V -- "distinguishing evidence available" --> R
-  V -- "no distinguishing evidence" --> B
-  V -- ready --> O[Save, render, deliver]
+  B --> O[Deliver RFC or draft; offer HTML]
+  V -- "new evidence needed and available" --> R
+  V -- "unresolved prerequisite" --> B
+  V -- ready --> O
 ```
 
 ## One document
@@ -40,7 +40,7 @@ flowchart LR
 - Write per [output](output.md): proposal and effect first, then design and tradeoffs.
 - Check against current sources, dependencies, acceptance criteria, and project checks; `octocode-documentation` for readability. Report material gaps outside the RFC.
 - An RFC does not authorize implementation; reuse the user's authorization for scoped saves and edits.
-- Save and render every RFC per [output](output.md#saved-report); check `--manifest` for earlier RFCs first.
+- Save the RFC per [output](output.md#saved-report), then offer HTML; check `--manifest` for earlier RFCs first.
 
 ## Resources
 

@@ -1,7 +1,7 @@
 ---
 title: Use Zod Mini for Client Bundles
 impact: MEDIUM
-description: Use Zod Mini (1.88kb) for bundle-critical client-side apps. Functional API instead of methods.
+description: Consider Zod Mini when measured client bundle constraints justify its functional API; compare the actual bundle and integrations.
 tags: bundle-size, mini, client, tree-shaking
 ---
 
@@ -9,12 +9,12 @@ tags: bundle-size, mini, client, tree-shaking
 
 ## Problem
 
-Full Zod adds significant weight to client bundles. For form validation or client-side parsing where bundle size matters, Zod Mini provides the same core functionality at ~1.88kb gzipped.
+A bundle budget may justify a more tree-shakable API. Bundle size depends on the schema, version, imports and bundler; a published minimal example is not a guarantee for an application.
 
 ## Incorrect
 
 ```typescript
-// BAD: full Zod in a client bundle where size matters
+// Existing full-Zod form: keep it unless measurement justifies migration
 import { z } from "zod"
 
 const LoginForm = z.object({
@@ -26,7 +26,7 @@ const LoginForm = z.object({
 ## Correct
 
 ```typescript
-// GOOD: Zod Mini for client bundles — 1.88kb gzipped
+// Candidate: measure this Mini form with the same bundler and behavior tests
 import { z } from "zod/v4/mini"
 
 const LoginForm = z.object({
@@ -37,11 +37,11 @@ const LoginForm = z.object({
 
 ## Why
 
-Zod Mini uses a functional API (`.check()` with check functions) instead of the chainable method API. This enables better tree-shaking. Use full Zod on the server where bundle size doesn't matter, and Zod Mini on the client where it does.
+Zod Mini uses functions and `.check()` in place of most chainable methods. Check form-library compatibility and maintainability before switching. See the [official Mini guide](https://zod.dev/packages/mini); measure the production bundle rather than assigning a fixed size to the package.
 
 | | Full Zod | Zod Mini |
 |---|---|---|
-| Size (gzip) | ~13kb | ~1.88kb |
+| Bundle cost | Measure the actual imports and schema | Measure with the same configuration |
 | API style | Method chaining (`.min()`, `.max()`) | Functional (`.check(z.minLength())`) |
-| Features | All | Core (no `.describe()`, no JSON Schema) |
-| Use when | Server, Node.js, scripts | Client bundles, edge functions |
+| Composition | Chainable methods | Functional equivalents; JSON Schema conversion is available |
+| Use when | Existing API and integrations fit | Measured bundle savings justify API changes |

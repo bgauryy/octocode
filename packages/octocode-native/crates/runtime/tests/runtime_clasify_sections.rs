@@ -64,3 +64,16 @@ async fn judged(server: &MockServer) -> String {
 fn error_code(resource: &Value) -> &Value {
     &resource["error"]["errorCode"]
 }
+
+/// `count` functions, each over half a section page, so grouping keeps one
+/// section per function.
+pub(crate) fn separate_functions(count: usize) -> String {
+    let padding = "x".repeat(4_100);
+    (0..count)
+        .map(|i| {
+            format!(
+                "pub fn section_{i}() {{\n    // {padding}\n    println!(\"restart {i}\");\n}}\n"
+            )
+        })
+        .collect()
+}

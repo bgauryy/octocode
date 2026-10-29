@@ -175,6 +175,7 @@ pub(super) async fn run_target(
     if session.open_readiness.as_deref() == Some("timeout") {
         quarantine_responses();
     }
+    sync_watched_files(&scope, &session.client, cancel).await?;
     // One request reads each snippet file once, however many responses
     // name it.
     let snippet_policy = snippet_policy(paths).shared_reads();
@@ -197,7 +198,8 @@ pub(super) async fn run_target(
         response_window,
     }
     .run()
-    .await?;
+    .await
+    .map_err(|failure| crashed(query, &target.uri, &session.config, failure))?;
     if needs_text_scan(query, language_id, &result)
         && let Some(name) = lsp_search_query::symbol_name(query)
     {
@@ -215,6 +217,24 @@ pub(super) async fn run_target(
         locations::attach_read_lead(&mut result);
     }
     Ok(with_next(query, result))
+}
+
+/// A server stopped for its memory cannot answer this scope again: its
+/// row leads to a text search and names the server that was stopped. Any
+/// other failure stays as it is.
+pub(super) fn crashed(
+    query: &LspSearchQuery,
+    canonical_uri: &str,
+    config: &octocode_engine::lsp::types::LspLanguageServerConfig,
+    failure: LspFailure,
+) -> Exit {
+    if !failure.lexical_fallback {
+        return Exit::Failed(failure);
+    }
+    receipt::naming(
+        Exit::Row(failure.row(query, canonical_uri)),
+        receipt::server_receipt(config, true),
+    )
 }
 
 /// Whether coverage annotation may flag `row` with a text lead: an

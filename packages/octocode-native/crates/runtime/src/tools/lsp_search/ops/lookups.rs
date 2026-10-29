@@ -111,11 +111,10 @@ impl Operation<'_, '_> {
         )
         .await??;
         Ok(match hover {
-            Value::Null => empty(
+            Value::Null => no_answer(
                 query,
                 "noHover",
                 "hoverProvider returned no hover at this position",
-                true,
             ),
             hover => json!({
                 "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
@@ -274,13 +273,30 @@ impl Operation<'_, '_> {
             .await??
         };
         let published = report.is_some();
+        let superseded = report
+            .as_ref()
+            .and_then(|report| report.get("superseded"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let (items, truncated) = diagnostic_items(report);
         let mut row = items_payload(query, "diagnostics", dedupe_diagnostics(items), self.budget);
         if !published {
             mark_diagnostics_unpublished(&mut row, query, PUSH_DIAGNOSTICS_WAIT_MS);
         }
+        if superseded {
+            crate::response::paging::push_warnings(
+                &mut row,
+                [format!(
+                    "The server published these diagnostics before the document's last change and sent no newer report within {PUSH_DIAGNOSTICS_WAIT_MS} ms; a server that publishes only when its diagnostics change (typescript-language-server) has nothing newer to say."
+                )],
+            );
+        }
         if truncated {
-            crate::response::paging::terminal_limit(&mut row, "diagnosticsTruncated", &[]);
+            crate::response::paging::terminal_limit(
+                &mut row,
+                "diagnosticsTruncated",
+                &["The server published more diagnostics than one report keeps (2000 items, 256 KiB); fix the listed ones and rerun.".to_owned()],
+            );
         }
         // Success rows drop `hints` (response hint policy), so this note is a
         // warning: it explains results, it is not a recovery step.

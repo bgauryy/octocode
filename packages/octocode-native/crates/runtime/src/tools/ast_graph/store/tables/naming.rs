@@ -82,12 +82,14 @@ pub(super) fn unparsed_target<'a>(
 /// (oxc reports the extension, tree-sitter a language id): the selector of
 /// the file's grammar in the engine registry
 /// ([`octocode_engine::signatures::languages::label`]), except that the TSX
-/// grammar keeps its name (`tsx`); `raw` for an extension no grammar claims.
+/// grammar keeps its name (`tsx`) and a `.h` header read as C++ or CUDA
+/// keeps that dialect; `raw` for an extension no grammar claims.
 pub(crate) fn canonical_language(file: &str, raw: &str) -> String {
     use octocode_engine::signatures::languages;
     let extension = octocode_engine::text::extension_of(file, true, "");
     match languages::find_entry(&extension) {
         Some(entry) if entry.name == "TSX" => "tsx".to_owned(),
+        Some(entry) if entry.name == "C" && matches!(raw, "cpp" | "cuda") => raw.to_owned(),
         Some(entry) => languages::label(entry),
         None => raw.to_owned(),
     }
@@ -103,6 +105,16 @@ pub(super) fn ecosystem(language: &str) -> &'static str {
         "java" | "scala" => "maven",
         "c" | "cpp" | "cuda" => "system",
         _ => "other",
+    }
+}
+
+/// The languages whose declarations can bind each other's names without an
+/// import: one package ecosystem (JS/TS, C/C++/CUDA, Java/Scala), else the
+/// language alone.
+pub(super) fn link_family(language: &str) -> &str {
+    match ecosystem(language) {
+        "other" => language,
+        family => family,
     }
 }
 

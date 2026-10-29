@@ -1,6 +1,6 @@
-# Types and patterns
-
 Load when you design a struct/enum/trait, choose a primitive or smart pointer, port an OO object model, or need a named pattern. Why: the type shape fixes which states are representable and what every caller pays. Layout in memory: `references/performance-and-memory.md`. JS side of a napi type: `references/napi.md`.
+
+# Types and patterns
 
 ## Objects
 - Object = `struct` + `impl` + traits. Compose structs; share behavior with traits and default methods. `Deref` is not an inheritance tool (anti-patterns below).
@@ -13,7 +13,7 @@ Load when you design a struct/enum/trait, choose a primitive or smart pointer, p
 | Modeling | Use | Not |
 |---|---|---|
 | One of several states with own data | `enum` with data + `match` | struct of `Option`s + `kind: String` |
-| A yes/no argument | two-variant `enum` (`Overwrite::Yes`) | `bool` param (`f(true, false)`) |
+| An ambiguous yes/no argument at a call site | two-variant `enum` (`Overwrite::Yes`) | positional `bool` such as `f(true, false)`; a clearly named setter can keep `bool` |
 | Id, unit, validated string | newtype `struct UserId(NonZeroU32)` / `struct Email(String)` | bare `u32`/`String` |
 | Maybe absent | `Option<T>` | sentinel `-1`/`""`; undocumented `Option<Option<T>>` |
 | Tri-state | 3-variant enum | `Option<bool>` |

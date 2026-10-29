@@ -13,8 +13,8 @@ pub(super) fn add_edge(
     line: u32,
     test_scoped: &dyn Fn(u32) -> bool,
 ) {
-    // The cap counts distinct (target, kind) edges; a repeat of one only
-    // moves its evidence line.
+    // The tally counts distinct (target, kind) edges, each one EDGE row;
+    // a repeat only moves its evidence line.
     let rank = |line: u32| (test_scoped(line), line);
     let repeat = node
         .edges
@@ -26,23 +26,13 @@ pub(super) fn add_edge(
             }
         })
         .is_some();
-    if !repeat {
-        if b.edge_count >= edge_cap() {
-            if !b.edges_capped {
-                b.edges_capped = true;
-                b.diagnostics.push(Diagnostic::new(
-                    ".",
-                    None,
-                    DiagnosticCode::GraphEdgeCap,
-                    format!(
-                        "Edge collection stopped at the {}-edge cap; graph answers are partial. Narrow the scan root or exclude.",
-                        edge_cap()
-                    ),
-                ));
-            }
-            return;
-        }
-        b.edge_count += 1;
+    if repeat {
+        return;
+    }
+    b.tally.edges = b.tally.edges.saturating_add(1);
+    // Past the bound the build refuses after this file; the edge is
+    // counted, never held, so a fan-out cannot grow memory first.
+    if b.tally.edges <= b.limits.edge_rows() {
         node.edges
             .entry(target.into())
             .or_default()

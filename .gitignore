@@ -78,3 +78,5 @@ output
 __pycache__
 releases/**
 tmp
+packages/octocode-benchmark/compare
+*.log

@@ -1,3 +1,5 @@
+mod c_header;
+
 /// Canonical JavaScript/TypeScript family extensions (lowercase, no leading
 /// dot). Single source of truth for every JS/TS dispatch in the crate — native
 /// oxc symbols/references and the JS/TS content-view minifier both read this,
@@ -81,10 +83,13 @@ pub fn is_flow_source(content: &str, ext: &str) -> bool {
 }
 
 /// Grammar extension to parse `ext` with: `tsx` for Flow-typed JavaScript
-/// (see [`is_flow_source`]), otherwise `ext` unchanged.
+/// (see [`is_flow_source`]), the C++ or CUDA grammar for a `.h` header of
+/// that dialect (see [`c_header`]), otherwise `ext` unchanged.
 pub fn grammar_extension<'a>(content: &str, ext: &'a str) -> &'a str {
     if is_flow_source(content, ext) {
         "tsx"
+    } else if ext == "h" {
+        c_header::header_grammar(content).unwrap_or(ext)
     } else {
         ext
     }
@@ -121,6 +126,7 @@ mod tests {
         assert!(!is_flow_source("// @flow\n", "ts"), "TS is never Flow");
         assert_eq!(grammar_extension("// @flow\n", "js"), "tsx");
         assert_eq!(grammar_extension("const a = 1;\n", "js"), "js");
+        assert_eq!(grammar_extension("int f(void);\n", "h"), "h");
     }
 
     #[test]

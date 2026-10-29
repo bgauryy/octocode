@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 mod failures;
+mod grouped;
 mod scope;
 mod skipped_leads;
 

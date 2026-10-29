@@ -1,6 +1,6 @@
-# Discover, install, fetch, and sync
-
 Load when finding, installing, fetching, adapting, or symlinking skills. Ask only for a missing choice or new authority (source, destinations, scope, conflict policy).
+
+# Discover, install, fetch, and sync
 
 ## Discover
 

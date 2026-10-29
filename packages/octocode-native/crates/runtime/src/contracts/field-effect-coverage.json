@@ -1065,7 +1065,8 @@
         "src/tools/structure_search/tests/scans.rs",
         "src/tools/structure_search/tests/summaries.rs",
         "src/tools/structure_search/tests/probes.rs",
-        "tests/runtime_local/walks.rs"
+        "tests/runtime_local/walks.rs",
+        "src/tools/structure_search/tests/views.rs"
       ],
       "fields": {
         "access": [
@@ -1151,6 +1152,9 @@
         ],
         "sort.order": [
           "ordering"
+        ],
+        "view": [
+          "view"
         ]
       }
     },
@@ -1189,6 +1193,9 @@
         ],
         "includeIgnored": [
           "filter"
+        ],
+        "includeProvenance": [
+          "view"
         ],
         "line": [
           "navigation"
@@ -1525,6 +1532,7 @@
     },
     "graphBuild": {
       "evidence": [
+        "src/tools/ast_graph/graph/checkpoint/tests.rs",
         "src/tools/ast_graph/store/tools/tests.rs",
         "src/tools/ast_graph/store/tests/ingest.rs",
         "src/tools/ast_graph/store/tests/stale.rs"
@@ -1552,6 +1560,7 @@
     },
     "graphQuery": {
       "evidence": [
+        "src/tools/ast_graph/store/query/selective_tests.rs",
         "src/tools/ast_graph/store/query/window_tests.rs",
         "src/tools/ast_graph/store/tools/tests/candidates.rs",
         "src/tools/ast_graph/store/tools/tests/constructors.rs",
@@ -1561,7 +1570,9 @@
         "src/tools/ast_graph/store/tools/tests.rs",
         "src/tools/ast_graph/store/tests/queries.rs",
         "src/tools/ast_graph/store/tests/impact.rs",
-        "src/tools/ast_graph/store/tests/issues.rs"
+        "src/tools/ast_graph/store/tests/issues.rs",
+        "src/tools/ast_graph/store/query/sources.rs",
+        "src/tools/ast_graph/store/tools/tests/projection.rs"
       ],
       "fields": {
         "path": [
@@ -1608,6 +1619,9 @@
         ],
         "baseline": [
           "source"
+        ],
+        "includeProvenance": [
+          "view"
         ]
       }
     }

@@ -35,10 +35,11 @@ pub struct LspPoolOptions {
 /// language server costs seconds; an idle server holds only memory.
 impl Default for LspPoolOptions {
     fn default() -> Self {
+        let max_entries = 4;
         Self {
             idle_timeout_ms: 300_000,
-            max_entries: 4,
-            max_resident_bytes: super::spawn_limits::default_memory_cap_bytes(),
+            max_entries,
+            max_resident_bytes: super::spawn_limits::default_pool_memory_budget_bytes(max_entries),
             client: super::client::LspClientOptions::default(),
         }
     }
@@ -177,6 +178,8 @@ pub fn canonical_lsp_key(config: &LspLanguageServerConfig) -> Result<String> {
         config
             .initialization_options
             .clone()
+            // `null` options are no options: one server, not two.
+            .filter(|options| !options.is_null())
             .unwrap_or_else(|| Value::Object(serde_json::Map::new())),
         crate::digest::Nulls::Keep,
     );

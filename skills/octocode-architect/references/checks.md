@@ -1,6 +1,6 @@
-# Checks
+Load when reviewing the affected architecture paths for protocols, boundaries, correctness, algorithms, efficiency, resource lifetime, modularity or cleanup.
 
-Load in every architecture workflow for the concerns relevant to its paths: protocols, boundaries, correctness, algorithms, efficiency, memory and resource lifetime, modularity, and cleanup.
+# Checks
 
 ## Review angles
 
@@ -9,7 +9,7 @@ Review strengths and failure hypotheses together. A healthy signal needs evidenc
 | Angle | Healthy signal to preserve | Failure hypothesis | Distinguishing evidence |
 |---|---|---|---|
 | Protocol | One contract owner, explicit state transitions, compatible producer and consumer | Shape drift, ambiguous completion, duplicate effects, lost evidence, version skew | [Contract trace](#contract-trace), [protocol transitions](#protocol-state-and-delivery), real producer/consumer replay |
-| Architecture and modularity | Cohesive capabilities, explicit composition, stable dependency direction | Wrong-way dependency, leaky types, hidden effects, shared mutable state, cyclic ownership | Exact AST boundaries, LSP consumers, graph edges, declared layering rule, change impact |
+| Architecture and modularity | Cohesive capabilities, explicit composition, stable dependency direction | Wrong-way dependency, leaky types, hidden effects, shared mutable state, cyclic ownership | Exact AST boundaries, LSP consumers, graph edges, declared layering rule, change impact; [look-alike terms](concepts.md#look-alike-terms) before naming a role |
 | Bugs and correctness | Invariants hold on normal and exceptional paths | Off-by-one, wrong default, stale state, race, masked failure, incomplete implementation | Smallest distinguishing reproduction; assertion fails for the intended reason, then passes through the real boundary |
 | Algorithms | Defined input bounds, invariants, termination, and justified data structures | Unproved greedy choice, unstable ordering, repeated scans, numeric or concurrency error | [Algorithm checks](#algorithms), oracle or property checks, adversarial inputs, complexity in named variables |
 | Efficiency | Bounded work, batching or reuse with explicit lifetime and invalidation | N+1 calls, redundant parsing, serialization or copying, lock contention, retry amplification | [Efficiency checks](#efficiency), end-to-end profile, operation counts, comparable cold/warm workloads |
@@ -77,7 +77,7 @@ Flaws → strong evidence:
 
 ## Agent-authored work
 
-- A green suite is no evidence: these defects pass functional tests. Detect them structurally (dependency graph, static analysis, contract diff, clean-environment run). Removal bars: `octocode-clean-agentic-code` [code-smells](../../octocode-clean-agentic-code/references/code-smells.md).
+- A green functional suite does not rule out structural defects. Check dependency graphs, static analysis, contract diffs and clean-environment behavior as applicable. Removal bars: `octocode-clean-agentic-code` [code-smells](../../octocode-clean-agentic-code/references/code-smells.md).
 - State the intended boundary before a slice adds or moves dependencies; re-derive the graph after.
 
 Structure:

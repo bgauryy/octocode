@@ -16,8 +16,10 @@ use crate::text::LineIndex;
 
 mod compile;
 mod node_match;
+mod qualified;
 
 use compile::effective_pattern_root;
+pub use qualified::QualifiedPattern;
 
 /// Budget on `$$$` multi-metavar split attempts within a single top-level
 /// child-list match. Each `$$$` tries every split point (`for take in
@@ -39,6 +41,15 @@ pub struct PatternDeclaration {
     /// The name node's kind and text, when the pattern spells a name.
     pub name: Option<(String, String)>,
 }
+
+/// Nodes a grammar names by a `name` field that refer to a declaration
+/// rather than declare one: a Java method call, a `::` path.
+const REFERENCE_KINDS: [&str; 4] = [
+    "method_invocation",
+    "scoped_identifier",
+    "scoped_type_identifier",
+    "qualified_identifier",
+];
 
 pub(super) struct CompiledPattern {
     language: Language,
@@ -80,9 +91,12 @@ impl CompiledPattern {
 
     /// The declaration a pattern spells: its root's kind when the grammar
     /// gives that node a `name` field, with the name node's kind and text
-    /// unless the name is a metavariable. `None` for any other pattern.
+    /// unless the name is a metavariable. `None` for any other pattern,
+    /// including the calls and paths a grammar also names by `name`.
     pub(super) fn declaration(&self) -> Option<PatternDeclaration> {
-        let root = self.root()?;
+        let root = self
+            .root()
+            .filter(|root| !REFERENCE_KINDS.contains(&root.kind()))?;
         let name = root.child_by_field_name("name")?;
         let named = meta_from_node(name, &self.source, self.expando)
             .is_none()

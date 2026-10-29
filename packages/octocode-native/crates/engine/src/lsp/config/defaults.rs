@@ -18,7 +18,11 @@ pub fn rust_analyzer_headless_options() -> Value {
         },
         "procMacro": { "enable": false },
         "checkOnSave": false,
-        "cachePriming": { "enable": false }
+        "cachePriming": { "enable": false },
+        // The client sends no `workspace/didChangeWatchedFiles`: rust-analyzer
+        // watches the workspace itself, so an edit to a file no request
+        // opened still reaches its index.
+        "files": { "watcher": "server" }
     })
 }
 

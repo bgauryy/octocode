@@ -1,12 +1,12 @@
-# Write and verify docs
-
 Load when evidence spans files, writing an ADR or agent instruction file, or checking API behavior.
+
+# Write and verify docs
 
 ## Gather evidence
 
 - Inventory the root and `<workspace>/docs/`: README, CONTRIBUTING, `AGENTS.md`, ADRs, SECURITY, CI, manifests.
 - Find entrypoints, config keys, and contracts by path search; read focused slices.
-- Durable docs name manifest scripts ("Run `yarn test`"), not shell programs.
+- Durable docs use the repository's supported task entrypoint; verify it against the manifest or task runner before giving a command.
 - Spot-check symbols by lexical or structural search; LSP use: `octocode-research`.
 - For a complex review, track disputed claims beside their source and verification status; simple edits need no separate claim table. Only verified claims become firm.
 

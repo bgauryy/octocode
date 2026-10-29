@@ -1,9 +1,21 @@
 use super::*;
 mod admission;
+mod lazy;
 mod profile;
 use crate::execution::cancel::NeverCancel;
 use crate::response::source_evidence::{ProjectionBudget, ProjectionLimits};
+use crate::tools::ast_graph::limits::read_charge;
 use octocode_engine::text::analysis as domain;
+
+/// The snapshot bounds with the source table charged at most `bytes` and
+/// `items`.
+fn bounded(bytes: usize, items: usize) -> Limits {
+    Limits {
+        source_bytes: bytes,
+        table_items: items,
+        ..LIMITS
+    }
+}
 
 fn fixture() -> (SourceDescriptors, Vec<OriginProjection>) {
     use domain::*;
@@ -121,11 +133,8 @@ fn truncation_trailing_unknown_tags_and_unselected_corruption_fail() {
     let mut trailing = encoded.clone();
     trailing.push(0);
     assert!(decode(&trailing, &NeverCancel).is_err());
-    let mut budget = budget::Budget::new(&NeverCancel);
-    let mut input = budget::Input::new(&encoded, &mut budget);
-    catalog::read(&mut input).unwrap();
-    input.count().unwrap();
-    let begin = input.reader.at;
+    // The encoded records end the section, after the persisted index.
+    let begin = encoded.len() - value.origins.storage_bytes().0;
     let last = begin + value.origins.get(1).unwrap().offset as usize;
     // Last origin: unit, count, start, end, membership, branch-count, tag,
     // source-ref, raw-start, raw-end. Each fixture field occupies one byte.
@@ -217,7 +226,7 @@ fn expanded_identity_cost_is_admitted_before_selected_allocation() {
 fn encoded_counts_cannot_bypass_allocation_or_cancellation_limits() {
     let value = table();
     let encoded = encode(&value, &NeverCancel).unwrap();
-    let mut budget = budget::Budget::with_limits(&NeverCancel, 1, MAX_DECODED_ITEMS);
+    let mut budget = budget::Budget::new(&NeverCancel, &bounded(1, LIMITS.table_items));
     let mut input = budget::Input::new(&encoded, &mut budget);
     assert!(matches!(
         catalog::read(&mut input),
@@ -246,5 +255,26 @@ fn encoded_counts_cannot_bypass_allocation_or_cancellation_limits() {
         value
             .origin(0, &mut ProjectionBudget::default(), &stop)
             .is_err()
+    );
+}
+
+/// The charge a scan sums to bound a table before building it is what
+/// admitting the built table's origins back spends: every item, and every
+/// byte but the encoded records themselves (known only once encoded).
+#[test]
+fn read_charge_is_the_origin_admission_cost() {
+    let (descriptors, origins) = fixture();
+    let value = SourceTable::from_origins(descriptors, &origins, &NeverCancel).unwrap();
+    let mut spent = budget::Budget::new(&NeverCancel, &LIMITS);
+    value.origins.admit_read(&mut spent).unwrap();
+    let summed = origins
+        .iter()
+        .map(read_charge)
+        .fold((0, 0), |(bytes, items), (b, i)| (bytes + b, items + i));
+    assert_eq!(summed.1, spent.items);
+    assert!(
+        summed.0 > 0 && summed.0 <= spent.bytes,
+        "{summed:?} vs {}",
+        spent.bytes
     );
 }

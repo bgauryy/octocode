@@ -14,4 +14,6 @@ mod evidence_closure;
 
 mod evidence_siblings;
 
+mod guidance_room;
 mod heldout_pager_boundaries;
+mod terminal;

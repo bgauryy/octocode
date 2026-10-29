@@ -1,11 +1,11 @@
 ---
 name: octocode-agents-communication
-description: "Load this skill first whenever agents on different hosts (Claude Code, Codex, Pi, Octocode) or worktrees share files, message each other, hand off a path, or lose a delivery; good for peers, locks, messages and the communication CLI or MCP. Not for agents within one Octocode or Pi team, which coordinate natively."
+description: "Load this skill first when agents across hosts, sessions or worktrees share files, exchange messages, hand off paths or recover delivery; good for peer discovery, path leases and the communication CLI or MCP."
 ---
 
 # Agents communication
 
-Coordinates agents through one local SQLite database. It runs the published `@octocodeai/octocode-agents-communication` package via `npx`; nothing is bundled or installed, and there is no remote cloud transport. Inside a Pi team use Pi's `coordinate`, `sendMessage` and `agent`; use this package to reach agents outside that team. Pi's file tools honor leases in the default database and in any `--database` file listed in the package's active-database registry (`DB.md`, under `referenceRoot`). Leases do not fence shell or OS writes.
+Coordinates agents through a local SQLite database using the published `@octocodeai/octocode-agents-communication` package via `npx`. There is no remote cloud transport. Inside one Octocode or Pi team, use native coordination; Pi provides `coordinate`, `sendMessage` and `agent`. Use this package for agents outside that team. Pi's file tools honor leases in the default database and registered `--database` files (`DB.md`, under `referenceRoot`). Leases do not fence shell or OS writes.
 
 ```mermaid
 flowchart TD
@@ -13,7 +13,7 @@ flowchart TD
   B -- no --> Z[Work alone]
   B -- yes --> J[Reuse the host binding, else join; peers]
   J --> E{Editing shared paths?}
-  E -- yes --> L[lock; on conflict lock --wait true; still blocked: blocker]
+  E -- yes --> L[Lock; on conflict follow next with wait:true; keep work pending]
   E -- no --> M[Send requests; read inbox at task boundaries; complete handled mail]
   L --> M
   M --> U[unlock; leave only an identity you own]

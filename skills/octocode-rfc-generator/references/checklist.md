@@ -1,6 +1,6 @@
-# RFC checklist
-
 Load when finding or closing questions that could block the decision, or a section needs a diagram.
+
+# RFC checklist
 
 ## Completeness
 
@@ -19,7 +19,7 @@ Load when finding or closing questions that could block the decision, or a secti
 
 - Each open question sits beside its decision or in Open questions: what is unresolved, why it matters, supporting and conflicting evidence, owner, next check; IDs (`Q1`) when cross-referenced.
 - A proposed answer (reviewer, provider, or judge) is not a resolution; only deciding evidence closes a blocker.
-- Status: open, contested, resolved, deferred (or the project's terms); `Blocking:` marks a decision blocker, `Non-blocking:` an execution detail. Keep history; revisit when evidence or criteria change.
+- Status: open, contested, resolved, deferred (or the project's terms); `Blocking:` marks a decision blocker, `Non-blocking:` an execution detail. Retain the current rationale and material dissent; revisit when evidence or criteria change.
 
 | When a question becomes | Required basis |
 |---|---|
@@ -48,20 +48,13 @@ Load when finding or closing questions that could block the decision, or a secti
 - Argument rests on a `*-beta` chart: also give its numbers in a table (beta types may not render).
 - Check meaning, data, and scales yourself; rendering proves none of them.
 
-Types by purpose:
-- `flowchart` (`subgraph`): decisions, data or control flow, boundaries, the design; plan steps as a DAG of stated dependencies.
-- `sequenceDiagram` (`zenuml` if the team uses it): protocols, retries, handoffs.
-- `stateDiagram-v2`: lifecycles, legal and illegal transitions.
-- `classDiagram` / `erDiagram`: types and ownership / entities, keys, migrations.
-- `C4Context` / `C4Container` / `C4Component` / `architecture-beta`: system and service topology.
-- `block-beta` / `packet-beta`: layers / wire and bit formats.
-- `requirementDiagram`: requirement-design-test traceability.
-- `xychart-beta`: before/after metrics, trends; `bar [...]` measured, flat `line [...]` at target.
-- `pie` / `sankey-beta` / `treemap-beta`: composition / split-and-merge flows / hierarchical size.
-- `quadrantChart` / `radar-beta`: options on 2 criteria (benefit vs risk) / on 4 to 8.
-- `gantt`: rollout only with committed dates or durations; else a flowchart DAG or `timeline`.
-- `timeline` / `gitGraph`: rollout phases or decision history / branch, release, rollback.
-- `journey` / `mindmap`: steps with friction scores / scope and non-goals.
-- `kanban`: status snapshot (rare; prefer the plan table).
+Choose the type with the [shared Mermaid guide](report-mermaid.md); keep the RFC-specific purpose explicit:
+
+| Need | Use |
+|---|---|
+| Dependency-ordered implementation or rollout | `flowchart`; `gantt` only with committed dates or durations |
+| Retries, handoffs or legal state changes | `sequenceDiagram` or `stateDiagram-v2` |
+| Requirement → design → verification | `requirementDiagram` |
+| Comparing options or measurements | A table, or the [shared chart schema](report-widgets.md) for sourced numeric data |
 
 Next: the section being drafted ([structure](../output.md#structure)).

@@ -15,7 +15,8 @@ for (const entry of readdirSync(skillsRoot)) {
   const match=source.match(/<!-- report-contract ([\s\S]*?) -->/);if(!match) continue;
   const contract=JSON.parse(match[1]);
   test(`${entry}: explicit contract rejects missing sections, including headings inside fences`,t=>{
-    assert.deepEqual(source.match(/^status: (.+)$/m)[1].split(' | '),contract.statuses);
+    const documented = source.match(/Accepted `status` values: ([^\n]+)/)?.[1] ?? '';
+    assert.deepEqual([...documented.matchAll(/`([^`]+)`/g)].map(status=>status[1]),contract.statuses);
     const root=workspace(t),dir=join(root,'.octocode',entry);mkdirSync(dir,{recursive:true});const file=join(dir,`${today}-report.md`);
     const sections=[...contract.required,...contract.anyOf.map(g=>g[0])];
     const header=`---\nstatus: ${contract.statuses[0]}\nquestion: Q?\n---\n# Report\n\nAnswer.\n\n`;
@@ -44,4 +45,20 @@ test('strict CLI refuses bad data without replacing an older artifact and marks 
   assert.equal(run().status,2);assert.equal(readFileSync(html,'utf8'),'previous artifact');
   writeFileSync(md,'# Valid\n\nContent.');const valid=run();assert.equal(valid.status,0);assert.equal(JSON.parse(valid.stdout).render,'unverified');
   const page=readFileSync(html,'utf8');assert.ok(page.includes('id="verify-render"'));assert.ok(!page.includes('class="meta-item"'));
+});
+test('value options reject missing values and following flags before writing',t=>{
+  const root=workspace(t),md=join(root,'input.md');writeFileSync(md,'# Valid\n\nContent.');
+  for (const option of ['--out','--title','--workspace']) {
+    for (const suffix of [[],['--json'],['-h']]) {
+      const run=spawnSync(process.execPath,[renderer,md,option,...suffix],{cwd:root,encoding:'utf8'});
+      assert.equal(run.status,1,`${option} ${suffix.join(' ')}`);
+      assert.match(run.stderr,new RegExp(`${option} requires a value`));
+      assert.deepEqual(readdirSync(root),['input.md']);
+    }
+  }
+  const html=join(root,'custom.html');
+  const valid=spawnSync(process.execPath,[renderer,md,'--title','Custom title','--workspace',root,'--out',html,'--json'],{cwd:root,encoding:'utf8'});
+  assert.equal(valid.status,0,valid.stderr);
+  assert.equal(JSON.parse(valid.stdout).out,html);
+  assert.match(readFileSync(html,'utf8'),/<title>Custom title<\/title>/);
 });

@@ -37,6 +37,8 @@ pub(super) struct FileRec {
     pub(super) covered: u32,
     /// The bytes the values came from (see [`SourceValues::Hashed`](crate::types::SourceValues::Hashed)).
     pub(super) source: Option<SearchedSource>,
+    /// A returned line was not UTF-8: the values are decoded text.
+    pub(super) not_utf8: bool,
 }
 
 /// Everything one search accumulated. Totals (`files_matched`, `submatches`,

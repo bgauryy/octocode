@@ -24,8 +24,11 @@ pub(super) fn build_continuation(
         .iter()
         .filter_map(|field| field["maxLength"].as_u64())
         .max()?;
-    // Reserve the contract's maximum token size; the issued handle replaces it before publication.
-    Some(
-        json!({"kind":"continue", "tool":tool, "input":{"cursor":"0".repeat(usize::try_from(maximum).ok()?)}}),
-    )
+    // Plan for the issuer's exact wire shape; maxLength is an admission bound,
+    // not the size of a handle. Publication replaces only the placeholder's value.
+    let cursor = super::super::cursor::issued::placeholder();
+    if cursor.len() > usize::try_from(maximum).ok()? {
+        return None;
+    }
+    Some(json!({"kind":"continue", "tool":tool, "input":{"cursor":cursor}}))
 }

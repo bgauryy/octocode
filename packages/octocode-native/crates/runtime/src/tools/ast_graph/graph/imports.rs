@@ -84,7 +84,7 @@ impl FileLink<'_, '_> {
         declarations: Vec<octocode_engine::graph::GraphFactDeclaration>,
     ) {
         for edge in edges {
-            if matches!(edge.relation.as_str(), "extends" | "implements") {
+            if matches!(edge.relation.as_str(), "extends" | "implements" | "embeds") {
                 self.facts.heritage.push(Heritage {
                     decl_id: edge.from.clone(),
                     relation: edge.relation.clone(),
@@ -107,6 +107,8 @@ impl FileLink<'_, '_> {
                 exported: d.exported,
                 exported_as: d.exported_as,
                 parent: d.parent,
+                owner: d.owner,
+                prototype: d.prototype,
             });
         }
     }
@@ -191,15 +193,13 @@ impl FileLink<'_, '_> {
             line: i.line,
             target,
             external,
+            scope_id: i.scope_id,
         });
     }
 
     /// Go and Java imports name packages: one import fact per linked file,
     /// so every package edge keeps its import line (`importLine`).
     pub(super) fn package_import(&mut self, i: octocode_engine::graph::GraphFactImport) {
-        if self.b.edges_capped {
-            return;
-        }
         let mut external = false;
         let targets = match self
             .inputs
@@ -240,9 +240,6 @@ impl FileLink<'_, '_> {
         for target in targets {
             if target != self.file {
                 self.edge(&target, self.lang.import_edge("value"), i.line);
-                if self.b.edges_capped {
-                    break;
-                }
             }
             linked_targets.push(target);
         }
@@ -251,28 +248,40 @@ impl FileLink<'_, '_> {
                 .namespace_targets
                 .extend(linked_targets.iter().cloned());
         }
-        let imported_name = i.imported_name.unwrap_or_default();
         if linked_targets.is_empty() {
             self.facts.imports.push(Import {
                 id: i.id.clone(),
-                imported_name,
+                imported_name: i.imported_name.unwrap_or_default(),
                 local_name: i.local_name,
                 specifier: i.specifier,
                 line: i.line,
                 target: None,
                 external,
+                scope_id: i.scope_id,
             });
             return;
         }
+        // `import static a.b.C.member;` binds `member` of `C`'s file;
+        // `import static a.b.C.*;` binds all of them, like a glob.
+        let (imported_name, local_name) = match java_static_member(&i.specifier)
+            .filter(|_| self.lang == Linker::Java && linked_targets.len() == 1)
+        {
+            Some(member) => (
+                member.to_owned(),
+                (member != "*").then(|| member.to_owned()),
+            ),
+            None => (i.imported_name.unwrap_or_default(), i.local_name),
+        };
         for target in linked_targets {
             self.facts.imports.push(Import {
                 id: i.id.clone(),
                 imported_name: imported_name.clone(),
-                local_name: i.local_name.clone(),
+                local_name: local_name.clone(),
                 specifier: i.specifier.clone(),
                 line: i.line,
                 target: Some(target),
                 external: false,
+                scope_id: i.scope_id.clone(),
             });
         }
     }
@@ -322,4 +331,11 @@ impl FileLink<'_, '_> {
             }
         }
     }
+}
+
+/// The member a Java `import static a.b.C.member;` names (`*` for a static
+/// glob); `None` for a type or package import.
+fn java_static_member(specifier: &str) -> Option<&str> {
+    let (_, member) = specifier.strip_prefix("static ")?.trim().rsplit_once('.')?;
+    (!member.is_empty()).then_some(member)
 }

@@ -34,8 +34,8 @@ Scale depth to risk: a lookup ends at exact evidence; deletions, merge verdicts,
 
 - Task class and Definition of Done: [method](references/method.md#classify-the-task).
 - Literal: `localSearch`, `ghSearchCode`. Named file: `localFetch`, `ghGetFileContent`.
-- Code shape: `astSearch`; identity, callers, implementors: `lspSearch` at the declaration line. History: `ghSearchHistory`, `ghGetHistoryItem`.
-- Repo-wide topology: `npx octocode graph ingest <path>`, then `graph query <op>`; re-ingest on a new revision.
+- Code shape: `astSearch`; identity, callers, implementors: `lspSearch` at any observed occurrence line. History: `ghSearchHistory`, `ghGetHistoryItem`.
+- Repeated topology questions: use available graph tools or the CLI with an explicit scope and snapshot; [graph workflow](references/workflows.md#graph) covers capability checks, witnesses, gaps and continuation order.
 
 Trace only `entry → transformations → state → output → consumers`; switch tools only when the next claim needs different evidence. Prefer a local checkout; after a 404, never substitute another ref.
 
@@ -48,9 +48,9 @@ Trace only `entry → transformations → state → output → consumers`; switc
 
 ## Classifiers or clasify?
 
-Start with exact or structural retrieval; use classification only when remaining ambiguity changes what you read next. For noisy searches or large fetches with many plausible passages, use `classification:{predicates:[...]}` on `localSearch`, `localFetch` or scoped `ghGetFileContent` to receive selected evidence. On `ghSearchCode` it judges listed hit lines only (`next.judgeHits` judges the rest); to screen whole files, discover paths there, then classify pinned sources. To choose among unread files, docs or images, use `clasify` with source references or image assets; discover concrete targets first. For shared questions about individual text regions across resources, use its `sections` operation when the live schema exposes it. Exact anchors, small reads, identity and exhaustive coverage use ordinary tools.
+Start with exact or structural retrieval. When ambiguity changes the next read, use inline `classification:{predicates:[...]}` to select captured search/fetch evidence, or `clasify` to screen discovered unread sources and images. `sections` assesses regions across resources when exposed by the live schema. Read [clasify](references/clasify.md) before constructing requests; it owns source scope, question types and recovery.
 
-Ask one observable question per missing fact. Optional `classification.context` adds the task context to inline selection. Read [clasify](references/clasify.md) for scopes and typed requests; avoid repeating the same relevance decision in both routes. Read deciding evidence before a source claim; stop when it answers the question. If an unknown/error could change the conclusion, [inspect the underlying evidence](references/clasify.md#recover-from-unknown-or-error); otherwise name the unresolved scope.
+Ask one observable question per missing fact; optional `classification.context` supplies task context. Search classification sees admitted hits, not hidden whole files. Read deciding source before a factual claim; stop once answered. Unknown/error that could change the conclusion needs [underlying evidence](references/clasify.md#recover-from-unknown-or-error). Exact anchors, identity and exhaustive coverage use ordinary tools.
 
 ## Tools and setup
 
@@ -64,6 +64,7 @@ Use the [shared Octocode guide](references/octocode-usage.md) for discovery, MCP
 | Outline, exact span, or full file | [method](references/method.md#read-the-smallest-span) | Selectors, minify |
 | Loops, budgets, workers, handoffs, repo landscapes | [method](references/method.md#campaigns) | Multi-pass control |
 | Checkout, artifact, or dependency | [workflows](references/workflows.md#local) | Local, AST, LSP, graph |
+| Analysis completeness, missing relationships, or source origins | [analysis evidence](references/workflows.md#analysis-evidence) | Capability, context, provenance and coverage checks |
 | Remote repo, package, history, docs | [workflows](references/workflows.md#external-and-github) | GitHub, packages, history |
 | Behavior change or refactor | [workflows](references/workflows.md#change-impact) | RED-GREEN, blast radius |
 | PR, diff, staged changes, one file to review | [workflows](references/workflows.md#pr-review) | Modes, order, report |

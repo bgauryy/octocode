@@ -288,3 +288,35 @@ fn declarations_only_matches_full_graph_facts_declarations() {
         assert_eq!(light["calls"], serde_json::json!([]), "{path}");
     }
 }
+
+/// `export default memo(X)` renders `X`: React's `memo` and `forwardRef`
+/// (imported from `react`) wrap the component without replacing it. Any
+/// other wrapper may return anything, so it exports no local binding.
+#[test]
+fn react_wrapped_default_export_records_the_component() {
+    for source in [
+        "import React, { memo } from 'react';\nconst Box = () => null;\nexport default memo(Box);\n",
+        "import React from 'react';\nconst Box = () => null;\nexport default React.memo(Box, eq);\n",
+        "import * as R from 'react';\nconst Box = () => null;\nexport default R.memo(R.forwardRef(Box));\n",
+        "import { forwardRef as fr } from 'react';\nfunction Box() { return null; }\nexport default fr(Box);\n",
+    ] {
+        let facts = graph(source, "box.tsx");
+        assert_eq!(
+            declaration(&facts, "Box")["exportedAs"],
+            serde_json::json!(["default"]),
+            "{source}"
+        );
+    }
+    for source in [
+        "import memo from 'lodash/memoize';\nconst Box = () => null;\nexport default memo(Box);\n",
+        "import { memo } from 'react';\nconst Box = () => null;\nexport default wrap(Box);\n",
+        "const Box = () => null;\nexport default memo(Box);\n",
+        "import { memo } from 'react';\nconst Box = () => null;\nexport default memo(Box.inner);\n",
+    ] {
+        let facts = graph(source, "box.tsx");
+        assert!(
+            declaration(&facts, "Box").get("exportedAs").is_none(),
+            "{source}"
+        );
+    }
+}

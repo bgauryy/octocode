@@ -53,6 +53,8 @@ pub(crate) fn max_state_chars(long_context: bool) -> usize {
 
 /// One parsed row: its id, the provider model it asks for, its question keys
 /// and provider questions (in key order), and its state or source.
+/// `long_context` is the row's explicit choice; omitted, evaluation picks the
+/// long-context window only when the state needs it.
 struct Row {
     context: Option<String>,
     model: Option<String>,
@@ -60,7 +62,7 @@ struct Row {
     questions: Vec<Value>,
     input: Input,
     assets: Option<Value>,
-    long_context: bool,
+    long_context: Option<bool>,
 }
 
 enum Input {

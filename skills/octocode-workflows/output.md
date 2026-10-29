@@ -22,23 +22,14 @@ Selection or completion → decisive evidence → limits and next action. The do
 | `swimlane-beta` / `sequenceDiagram` | Show responsibility boundaries / ordered handoffs and acknowledgements. |
 | Acceptance table / linked ledger | Distinguish verified, failed and pending work without copying process logs. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
 Save a workflow selection, handoff, or multi-file completion report at `<workspace>/.octocode/octocode-workflows/<YYYY-MM-DD>-<slug>.md` when the user requests it or it needs durable resume evidence. Working ledgers and captures belong under that task's `tmp/`; reuse an existing ledger rather than moving it.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Proposed | Accepted | Needs work
-confidence: high | medium | low
-question: <workflow goal>
-next: <one next action>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Proposed`, `Accepted`, `Needs work`.
 
 Include `## Selection` or `## Completion`, `## Evidence`, and `## Limits`. The ledger may be linked, not copied. A saved handoff is a Handoff packet: current state and next action under `## Completion`, evidence anchors under `## Evidence`, blockers and constraints under `## Limits`, and the header's `next`.
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

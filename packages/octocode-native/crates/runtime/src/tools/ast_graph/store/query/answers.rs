@@ -1,4 +1,4 @@
-//! Single-node answers: stats, find, node and symbols.
+//! Single-node answers: stats, node and symbols.
 use super::*;
 
 pub(super) fn stats(
@@ -43,45 +43,6 @@ pub(super) fn stats(
     })))
 }
 
-pub(super) fn find(
-    g: &Graph,
-    text: &str,
-    kind: Option<NodeKind>,
-    range: std::ops::Range<usize>,
-    cancel: &dyn crate::execution::cancel::CancellationCheck,
-) -> Result<Page, GraphOutput> {
-    let lower = text.to_lowercase();
-    let mut window = Window::new(range);
-    for phase in ["exact", "prefix", "contains", "path"] {
-        let ids: Box<dyn Iterator<Item = u32> + '_> = match phase {
-            "exact" => Box::new(g.name_range(&lower, false)),
-            "prefix" => Box::new(g.name_range(&lower, true)),
-            _ => Box::new(0..g.t.nodes.len() as u32),
-        };
-        for id in ids {
-            check(cancel)?;
-            if kind.is_some_and(|kind| g.t.nodes[id as usize].kind != kind) {
-                continue;
-            }
-            let name = g.t.str(g.t.nodes[id as usize].name).to_lowercase();
-            let admits = match phase {
-                "exact" => true,
-                "prefix" => name != lower,
-                "contains" => name.contains(&lower) && !name.starts_with(&lower),
-                _ => !name.contains(&lower) && g.key(id).to_lowercase().contains(&lower),
-            };
-            if admits {
-                window.try_push(|| {
-                    let mut row = g.node_json(id, cancel)?;
-                    row.insert("match".into(), json!(phase));
-                    Ok(Value::Object(row))
-                })?;
-            }
-        }
-    }
-    Ok(window.finish())
-}
-
 pub(super) fn degree_counts<'a>(
     edges: impl Iterator<Item = &'a EdgeRec>,
 ) -> BTreeMap<&'static str, u64> {
@@ -98,13 +59,20 @@ pub(super) fn node(
     options: &QueryOptions,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<GraphOutput, GraphOutput> {
-    let record = &g.t.nodes[id as usize];
+    let record = g.node_record(id, cancel)?;
     let mut out = g.node_json(id, cancel)?;
     if record.kind == NodeKind::Symbol && record.parent != NONE {
         out.insert("parent".into(), json!(g.key(record.parent)));
     }
-    out.insert("out".into(), json!(degree_counts(g.t.out(id).iter())));
-    out.insert("in".into(), json!(degree_counts(g.t.incoming(id))));
+    if let Some(reader) = &g.selective
+        && reader.borrow().is_point()
+    {
+        out.insert("out".into(), json!(reader.borrow().degrees(id, false)));
+        out.insert("in".into(), json!(reader.borrow().degrees(id, true)));
+    } else {
+        out.insert("out".into(), json!(degree_counts(g.t.out(id).iter())));
+        out.insert("in".into(), json!(degree_counts(g.t.incoming(id))));
+    }
     // Each lead is pinned to this snapshot, like every `next`.
     let lead = |op: &str, depth: Option<u32>| {
         let next = QueryOptions {
@@ -176,7 +144,9 @@ pub(super) fn symbols(
         if id != root {
             window.try_push(|| {
                 let mut row = g.node_json(id, cancel)?;
-                row.remove("file");
+                if !g.compact_provenance {
+                    row.remove("file");
+                }
                 row.insert("depth".into(), json!(depth));
                 Ok(Value::Object(row))
             })?;

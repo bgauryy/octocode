@@ -1,10 +1,12 @@
+Load when writing a schema assertion, fixture or test helper.
+
 # Zod Testing API Reference
 
 ## Schema Correctness Testing
 
 ### safeParse() for Tests
 
-Always use `safeParse()` in tests. `parse()` throws, which crashes the test instead of producing a clear failure.
+Use `safeParse()` to inspect success, transformed data and validation issues. Use a throwing assertion when the contract under test is `parse()`; both forms can give clear failures.
 
 ```typescript
 // GOOD: assertion-based
@@ -13,8 +15,8 @@ expect(result.success).toBe(true)
 // or
 expect(result.success).toBe(false)
 
-// BAD: crash-based — if schema changes, test behavior is unpredictable
-expect(() => schema.parse(data)).toThrow()
+// Also valid: assert the throwing API's contract
+expect(() => schema.parse(invalidData)).toThrow(z.ZodError)
 ```
 
 ### Testing Valid Data
@@ -40,12 +42,13 @@ describe("UserSchema", () => {
 ### Testing Invalid Data
 
 ```typescript
+const validUser = { name: "Alice", email: "alice@example.com", age: 30 }
 const invalidInputs = [
   { input: {}, desc: "empty object" },
-  { input: { name: "" }, desc: "empty name" },
-  { input: { name: "A", email: "bad" }, desc: "invalid email" },
-  { input: { name: "A", email: "a@b.com", age: -1 }, desc: "negative age" },
-  { input: { name: "A", email: "a@b.com", age: 151 }, desc: "age over max" },
+  { input: { ...validUser, name: "" }, desc: "empty name" },
+  { input: { ...validUser, email: "bad" }, desc: "invalid email" },
+  { input: { ...validUser, age: -1 }, desc: "negative age" },
+  { input: { ...validUser, age: 151 }, desc: "age over max" },
 ]
 
 it.each(invalidInputs)("rejects $desc", ({ input }) => {
@@ -82,20 +85,24 @@ const Schema = z.object({
   both: z.string().optional().nullable(),
 })
 
-it("accepts all optional/nullable combinations", () => {
-  expect(Schema.safeParse({ required: "a" }).success).toBe(true)
-  expect(Schema.safeParse({ required: "a", optional: undefined }).success).toBe(true)
-  expect(Schema.safeParse({ required: "a", nullable: null }).success).toBe(true)
-  expect(Schema.safeParse({ required: "a", both: null }).success).toBe(true)
-  expect(Schema.safeParse({ required: "a", both: undefined }).success).toBe(true)
+const valid = { required: "a", nullable: null }
+it("accepts optional/nullable combinations", () => {
+  expect(Schema.safeParse(valid).success).toBe(true)
+  expect(Schema.safeParse({ ...valid, optional: undefined }).success).toBe(true)
+  expect(Schema.safeParse({ ...valid, both: null }).success).toBe(true)
+  expect(Schema.safeParse({ ...valid, both: undefined }).success).toBe(true)
 })
 
-it("rejects null for non-nullable", () => {
-  expect(Schema.safeParse({ required: "a", optional: null }).success).toBe(false)
+it("rejects null for non-nullable optional", () => {
+  expect(Schema.safeParse({ ...valid, optional: null }).success).toBe(false)
 })
 
-it("rejects undefined for non-optional", () => {
-  expect(Schema.safeParse({ required: undefined }).success).toBe(false)
+it("requires the nullable field to be present", () => {
+  expect(Schema.safeParse({ required: "a" }).success).toBe(false)
+})
+
+it("rejects undefined for required", () => {
+  expect(Schema.safeParse({ ...valid, required: undefined }).success).toBe(false)
 })
 ```
 
@@ -174,13 +181,15 @@ it("reports all validation errors at once", () => {
   const result = UserSchema.safeParse({})
   expect(result.success).toBe(false)
   if (!result.success) {
-    // Zod reports all issues, not just the first
+    // Assert expected independent issues; earlier type failures may skip refinements
     expect(result.error.issues.length).toBeGreaterThanOrEqual(3)
   }
 })
 ```
 
 ## Mock Data Generation
+
+Check the generator’s peer-version support before installing it. These are optional tools, not requirements. Generated fixtures supplement independent contract cases and may not satisfy arbitrary custom refinements.
 
 ### Using zod-schema-faker
 
@@ -302,6 +311,7 @@ it("accepts valid request", async () => {
 ```typescript
 it("produces form-compatible errors", () => {
   const result = FormSchema.safeParse(formData)
+  expect(result.success).toBe(false)
   if (!result.success) {
     const errors = z.flattenError(result.error)
     // Structure matches what form libraries expect
@@ -320,9 +330,11 @@ it("produces form-compatible errors", () => {
 ```typescript
 it("validates before insert", async () => {
   const invalidUser = { name: "", email: "bad" }
-  const result = UserSchema.safeParse(invalidUser)
+  db.insert.mockClear()
+  // Exercise the application entry point that owns parsing and persistence.
+  // This example assumes its contract returns a validation result.
+  const result = await createUser(invalidUser)
   expect(result.success).toBe(false)
-  // Verify no database call was made
   expect(db.insert).not.toHaveBeenCalled()
 })
 ```
@@ -330,6 +342,8 @@ it("validates before insert", async () => {
 ## Property-Based Testing
 
 ### With fast-check
+
+The first example checks generator/schema consistency, not the application contract. Also generate inputs independently of the schema, such as negative integers for a documented nonnegative age, and assert rejection while all other fields remain valid.
 
 ```bash
 npm install -D fast-check
@@ -351,22 +365,20 @@ it("schema always accepts its own generated data", () => {
 })
 ```
 
-### Transform Round-Trip Testing
+### Codec Round-Trip Testing
+
+Output-shape validation alone is not a round trip. Check the inverse property and separately test invalid input and intended normalization:
 
 ```typescript
-it("transform preserves data integrity", () => {
-  fc.assert(
-    fc.property(fc.integer({ min: 0, max: 10000 }), (s) => {
-      seed(s)
-      const input = fake(InputSchema)
-      const result = InputSchema.safeParse(input)
-      if (result.success) {
-        // Verify output type matches expected shape
-        expect(OutputSchema.safeParse(result.data).success).toBe(true)
-      }
-      return true
-    }),
-  )
+const DateField = z.codec(z.iso.datetime(), z.date(), {
+  decode: (s) => new Date(s),
+  encode: (d) => d.toISOString(),
+})
+it("round-trips the timestamp", () => {
+  fc.assert(fc.property(fc.integer({ min: 0, max: 2_000_000_000_000 }), (ms) => {
+    const date = new Date(ms)
+    return z.decode(DateField, z.encode(DateField, date)).getTime() === ms
+  }), { seed: 42 })
 })
 ```
 
@@ -379,6 +391,7 @@ it("validates async refinements", async () => {
     { error: "Already registered" }
   )
 
+  // Configure the db.exists fake to resolve true for this address.
   // Must use safeParseAsync
   const result = await UniqueEmail.safeParseAsync("taken@example.com")
   expect(result.success).toBe(false)
@@ -423,26 +436,7 @@ it("rejects invalid email", () => {
 
 ### Schema Dependency Direction
 
-Assert that schemas are imported from boundary layers, not from domain code. This enforces the architectural rule that parsing happens at boundaries.
-
-```typescript
-import { execSync } from "child_process"
-
-describe("schema architecture", () => {
-  it("domain layer does not import raw schemas", () => {
-    // grep for Zod schema imports in domain code
-    const result = execSync(
-      'grep -r "from.*schemas" src/domain/ || true',
-      { encoding: "utf-8" }
-    )
-    // Domain should only import types (z.infer), not raw schemas
-    const rawImports = result
-      .split("\n")
-      .filter((line) => line && !line.includes("type {") && !line.includes("type{"))
-    expect(rawImports).toHaveLength(0)
-  })
-})
-```
+When the repository separates boundary schemas from domain code, inspect resolved imports with an AST/type-aware architecture rule. Distinguish type-only imports from runtime imports, handle aliases and re-exports, and test both permitted and forbidden edges. Grepping for `from.*schemas` misses multiline imports and aliases and is not proof of a boundary.
 
 ### Circular Import Detection
 
@@ -467,56 +461,7 @@ describe("schema dependencies", () => {
 
 ### JSON Schema Snapshot Workflow
 
-Export schemas as JSON Schema and commit snapshots. CI fails when schemas change without updating snapshots.
-
-```typescript
-// scripts/export-schemas.ts
-import { z } from "zod"
-import { writeFileSync, mkdirSync } from "fs"
-import { UserSchema, OrderSchema } from "../src/api/schemas"
-
-const schemas = { User: UserSchema, Order: OrderSchema }
-
-mkdirSync("snapshots", { recursive: true })
-for (const [name, schema] of Object.entries(schemas)) {
-  writeFileSync(
-    `snapshots/${name}.json`,
-    JSON.stringify(z.toJSONSchema(schema), null, 2) + "\n"
-  )
-}
-```
-
-### Snapshot Test
-
-```typescript
-import { readFileSync } from "fs"
-
-describe("schema drift detection", () => {
-  it("UserSchema matches committed snapshot", () => {
-    const current = z.toJSONSchema(UserSchema)
-    const committed = JSON.parse(
-      readFileSync("snapshots/User.json", "utf-8")
-    )
-    expect(current).toEqual(committed)
-  })
-})
-```
-
-### CI Integration
-
-```yaml
-# .github/workflows/schema-check.yml
-- run: npx tsx scripts/export-schemas.ts
-- name: Check for schema drift
-  run: |
-    if git diff --exit-code snapshots/; then
-      echo "Schemas unchanged"
-    else
-      echo "::error::Schema snapshots changed. Update snapshots if intentional."
-      git diff snapshots/
-      exit 1
-    fi
-```
+Use the [maintained exporter and CI example](linter-and-ci.md#ci-schema-snapshot-regression). Check changed, added and removed snapshot files, and verify the expected filename set. JSON Schema snapshots cover representable shape; custom refinements and transforms still need behavioral tests.
 
 ## Observable Error Testing
 
@@ -557,24 +502,7 @@ describe("error observability", () => {
 
 ## Performance Testing
 
-### Benchmark Parse Time
-
-```typescript
-describe("schema performance", () => {
-  it("UserSchema parses within acceptable time", () => {
-    const validUser = { name: "Alice", email: "alice@example.com", age: 30 }
-
-    const start = performance.now()
-    for (let i = 0; i < 10_000; i++) {
-      UserSchema.safeParse(validUser)
-    }
-    const elapsed = performance.now() - start
-
-    // 10k parses should complete in under 100ms
-    expect(elapsed).toBeLessThan(100)
-  })
-})
-```
+Measure representative valid and invalid inputs with the repository's benchmark harness. Record version, machine and baseline; do not introduce a universal wall-clock threshold into unit tests. Require a regression budget only when repeatable measurements support it.
 
 ### With Vitest Bench
 

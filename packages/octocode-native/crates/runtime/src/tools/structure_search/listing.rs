@@ -14,7 +14,7 @@ use crate::contracts::listing_roles::structure_search;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
-use octocode_contract_types::StructureSearchQueryFilesSort;
+use octocode_contract_types::{StructureSearchQueryFilesSort, StructureSearchView};
 use octocode_engine::types::FileSystemQueryOptions;
 
 mod walk;
@@ -30,6 +30,7 @@ pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned
     const LAYOUT: &'static str;
 
     fn path(&self) -> &str;
+    fn view(&self) -> StructureSearchView;
     /// Which paths the request's own walk takes.
     fn walk(&self) -> Walk;
     /// This query with `relaxed` lifting skips, walking from its first
@@ -95,6 +96,9 @@ macro_rules! listing_fields {
         impl super::listing::Listing for $query {
             fn path(&self) -> &str {
                 self.path.as_str()
+            }
+            fn view(&self) -> octocode_contract_types::StructureSearchView {
+                self.view
             }
             fn walk(&self) -> crate::tools::empty_walk::Walk {
                 crate::tools::empty_walk::Walk {
@@ -172,6 +176,7 @@ pub(super) fn execute_listing<Q: Listing>(
     // so the digest matches what the follow-up request carries.
     let identity = json!([
         q.walk_identity(root),
+        q.view(),
         q.sort(),
         requested,
         q.scan_offset(),
@@ -200,9 +205,13 @@ pub(super) fn execute_listing<Q: Listing>(
         return Ok(restart);
     }
     let prefix = listing_prefix(paths, root);
-    let deferred_detail = super::files::sort_key(&q.sort())
-        != Some(octocode_contract_types::StructureSearchQueryFilesSortVariant0By::LineCount);
-    let pages = page_ranges(&rows::costs(&walk.rows, &prefix, deferred_detail), budget);
+    let deferred_detail = q.view() == StructureSearchView::Details
+        && super::files::sort_key(&q.sort())
+            != Some(octocode_contract_types::StructureSearchQueryFilesSortVariant0By::LineCount);
+    let pages = page_ranges(
+        &rows::costs(&walk.rows, &prefix, q.view(), deferred_detail),
+        budget,
+    );
     if !stored && pages.len() > 1 {
         memo::put(snapshot.clone(), policy, paths, root, &walk);
     }
@@ -247,7 +256,7 @@ fn listing_page<Q: Listing>(
     let shown = pages.get(page - 1).cloned().unwrap_or(total..total);
     let shown_rows = walk.rows[shown.clone()]
         .iter()
-        .map(|row| Ok((row.dir.clone(), row.page_entry(detail, cancel)?)))
+        .map(|row| Ok((row.dir.clone(), row.page_entry(q.view(), detail, cancel)?)))
         .collect::<Result<Vec<_>, ToolError>>()?;
     let files = rows::dir_groups(&shown_rows, prefix);
     let mut out = json!({
@@ -271,7 +280,7 @@ fn listing_page<Q: Listing>(
     // The walk's summary, what it skipped, its retries and its read
     // describe the whole listing: page 1 states them once.
     if page == 1 {
-        walk.meta.disclose(&mut out, root, true)?;
+        walk.meta.disclose(&mut out, root)?;
         lead_to_skipped(&mut out, q, &walk.meta.uncovered, q.walk(), q.filtered());
         if let Some(read) = rows::read_lead(&walk.rows[shown], root) {
             out["calls"]["read"] = read;

@@ -65,14 +65,20 @@ impl ToolRuntime {
     /// The tool behind `tool` when this surface may run it, else the
     /// actionable reason it may not.
     pub(super) fn admit_tool(&self, tool: &str, mcp: bool) -> Result<ToolId, RuntimeError> {
-        // Contract `cliOnly` tools run only from the CLI. MCP never executes
-        // them, even if an embedder used a CLI host surface. A parked tool
-        // says so on every surface.
+        // MCP policy also applies when an embedder invokes run_mcp on a CLI host.
+        // A parked tool keeps its all-surface disabled reason.
         let requested = ToolId::from_name(tool);
-        if mcp && requested.is_some_and(|id| id.is_cli_only() && !id.is_disabled()) {
+        if mcp
+            && let Some(id) = requested.filter(|id| !id.is_disabled())
+            && let Some(restriction) =
+                crate::execution::availability::mcp_restriction(&self.config, id)
+        {
             return Err(RuntimeError::new(
                 ErrorCode::ToolUnavailable,
-                format!("Tool {tool} is not available through MCP; run `octocode {tool}`."),
+                format!(
+                    "Tool {tool} is not available through MCP: {}",
+                    restriction.reason_text()
+                ),
             ));
         }
         let (Some(id), Some(availability)) = (requested, self.availability(tool)) else {

@@ -25,7 +25,7 @@ use crate::policy::path::PathPolicy;
 use octocode_engine::search::text_search::search_cancellable;
 use octocode_engine::types::TextSearchOptions;
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -41,8 +41,16 @@ use scan::{fingerprint, scan_text};
 pub(super) use text::imports_in_code;
 
 /// Project files whose edits change what a language server answers.
-const PROJECT_FILES: [&str; 12] = [
+const PROJECT_FILES: [&str; 20] = [
     "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "go.sum",
+    "uv.lock",
+    "poetry.lock",
+    "Pipfile.lock",
+    "requirements.txt",
     "tsconfig.json",
     "jsconfig.json",
     "Cargo.toml",
@@ -117,6 +125,9 @@ pub(super) struct Scope {
     /// Digest of every family and project file under `root`, when the
     /// request computed one within its bounds (see `fingerprint`).
     fingerprint: Mutex<Option<String>>,
+    /// The files that fingerprint covers (relative path → stamp), for the
+    /// file events a watching server is owed (see `watched_files_sync`).
+    walk_entries: Mutex<Option<Arc<BTreeMap<String, String>>>>,
     /// Canonical files the language server's answer covers (listed, or
     /// verified as importers), recorded by the operation.
     answered: Mutex<BTreeSet<String>>,
@@ -135,6 +146,7 @@ impl Scope {
             include,
             text: Mutex::new(None),
             fingerprint: Mutex::new(None),
+            walk_entries: Mutex::new(None),
             answered: Mutex::new(BTreeSet::new()),
             code_uses: Mutex::new(HashMap::new()),
             anchor_lines: Mutex::new(None),
@@ -161,6 +173,21 @@ impl Scope {
         if let Ok(mut slot) = self.fingerprint.lock() {
             *slot = Some(fingerprint);
         }
+    }
+
+    /// Record the walk entries behind the fingerprint.
+    pub(super) fn set_walk_entries(&self, entries: Arc<BTreeMap<String, String>>) {
+        if let Ok(mut slot) = self.walk_entries.lock() {
+            *slot = Some(entries);
+        }
+    }
+
+    /// The walk entries behind this request's fingerprint, if any.
+    pub(super) fn walk_entries(&self) -> Option<Arc<BTreeMap<String, String>>> {
+        self.walk_entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// The scope fingerprint this request computed, if any.
@@ -261,7 +288,10 @@ impl WalkInputs {
     /// Digest of every family and project file under the scope (relative
     /// path, length, mtime; content too for a fresh mtime), so any edit,
     /// addition, or removal changes it. `None` past the walk's bounds.
-    pub(super) fn fingerprint(&self, stopped: &(dyn Fn() -> bool + Sync)) -> Option<String> {
+    pub(super) fn fingerprint(
+        &self,
+        stopped: &(dyn Fn() -> bool + Sync),
+    ) -> Option<(String, Arc<BTreeMap<String, String>>)> {
         fingerprint(&self.root, &self.include, stopped, FINGERPRINT_BUDGET)
     }
 }

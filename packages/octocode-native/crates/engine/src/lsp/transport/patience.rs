@@ -81,6 +81,19 @@ impl WaitBudget {
         }
     }
 
+    /// A budget that never extends: `base_ms` once, whatever the caller's
+    /// deadline or the server's activity, for a request not worth outwaiting
+    /// (a `shutdown` sent to a server being replaced).
+    pub(crate) fn fixed(base_ms: u32) -> Self {
+        let base = Duration::from_millis(u64::from(base_ms));
+        let created = Instant::now();
+        Self {
+            base,
+            created,
+            ceiling: created + base,
+        }
+    }
+
     /// `true` once no further attempt can be granted any time.
     pub(crate) fn is_spent(&self) -> bool {
         Instant::now() >= self.ceiling

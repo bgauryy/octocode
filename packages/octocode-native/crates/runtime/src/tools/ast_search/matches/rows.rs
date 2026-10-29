@@ -122,12 +122,18 @@ fn display_value(
     }
 }
 
+/// One match's row; byte ranges, origins and digests only on request
+/// (`includeProvenance`).
 pub(super) fn match_value(
     matched: &StructuralDetailedMatch,
     capture_text: bool,
     content_length: usize,
+    provenance: bool,
     cancel: &dyn CancellationCheck,
 ) -> Result<MatchRow, ToolError> {
+    if !provenance {
+        return Ok(display_value(matched, capture_text, content_length));
+    }
     let descriptors = matched
         .source_descriptors
         .as_ref()

@@ -98,6 +98,12 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
         "{first}"
     );
     assert_eq!(first["lsp"]["serverAvailable"], true, "{first}");
+    // The server is not ready: the row names the one still indexing.
+    assert_eq!(
+        first["lsp"]["receipt"],
+        serde_json::json!({"command": script.to_string_lossy(), "source": "user"}),
+        "{first}"
+    );
     assert_eq!(first["isPartial"], true, "{first}");
     let retry = first["related"]
         .as_array()
@@ -131,6 +137,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
     assert_row_contract(ToolId::LspSearch, &second);
     assert_eq!(second["kind"], "hover", "{second}");
     assert_eq!(second["hover"]["contents"], "ready", "{second}");
+    assert!(second["lsp"].get("receipt").is_none(), "{second}");
     let pids = std::fs::read_to_string(root.join("pids.txt")).expect("server pid");
     assert_eq!(
         pids.lines().count(),
@@ -337,6 +344,11 @@ fn a_tsgo_that_fails_to_start_falls_back_to_tsserver_and_says_so() {
         match acquire_leased_client(&query, &target(None), &pool, &NeverCancel).await {
             Err(Exit::Row(row)) => {
                 assert_eq!(row["errorCode"], "serverUnavailable", "{row}");
+                assert_eq!(
+                    row["lsp"]["receipt"]["command"],
+                    missing.to_string_lossy().as_ref(),
+                    "{row}"
+                );
             }
             _ => panic!("no fallback means a serverUnavailable row"),
         }

@@ -46,7 +46,7 @@ pub(super) fn link_entry(
     built: &mut BuiltGraph,
     inputs: &LinkInputs,
     entry: octocode_engine::graph::GraphFactsTypedEntry,
-    marks: super::super::store::classify::SourceMarks,
+    marks: super::super::classify::SourceMarks,
 ) {
     let file = normalize(&entry.relative_path);
     let parsed: GraphFactsDocument = entry.facts;

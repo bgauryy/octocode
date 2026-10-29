@@ -158,14 +158,30 @@ async fn failed_snapshot_retention_returns_complete_result_without_display_next(
 
 #[tokio::test]
 async fn tampered_and_unissued_handles_never_execute() {
+    use base64::Engine as _;
+
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     let (_, next) = saved_fixture(&workspace, &runtime).await;
     let mut token = next["cursor"].as_str().unwrap().to_owned();
     let last = token.pop().unwrap();
-    token.push(if last == '0' { '1' } else { '0' });
+    token.push(if last == 'A' { 'Q' } else { 'A' });
+    let encoded = token.strip_prefix("cursor2.").expect("current format");
+    assert_eq!(encoded.len(), 44);
+    let (ids, remainder) = encoded.as_bytes().as_chunks::<22>();
+    assert!(remainder.is_empty());
+    for id in ids {
+        assert_eq!(
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(id)
+                .expect("tampered ID remains canonical")
+                .len(),
+            16
+        );
+    }
     for input in [
         json!({"cursor":token}),
+        json!({"cursor":format!("cursor2.{}","A".repeat(44))}),
         json!({"cursor":format!("cursor1.{}","0".repeat(64))}),
     ] {
         let error = runtime

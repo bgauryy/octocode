@@ -15,6 +15,16 @@ const WORKSPACE_ROOT_MARKERS: &[(&str, &str)] = &[
     ("go.mod", ".go"),
     ("pyproject.toml", ".py"),
     ("setup.py", ".py"),
+    ("requirements.txt", ".py"),
+    ("go.work", ".go"),
+    ("compile_commands.json", ".cpp"),
+    (".clangd", ".cpp"),
+    ("CMakeLists.txt", ".cpp"),
+    ("meson.build", ".cpp"),
+    ("pom.xml", ".java"),
+    ("build.gradle", ".java"),
+    ("build.gradle.kts", ".java"),
+    ("build.sbt", ".scala"),
     ("jsconfig.json", ".js"),
     ("package.json", ".ts"),
 ];
@@ -138,6 +148,11 @@ pub fn representative_source_for(workspace_root: &str, extension: &str) -> Optio
         ".rs" => &["rs"],
         ".go" => &["go"],
         ".py" => &["py"],
+        ".cpp" => &[
+            "cpp", "cc", "cxx", "c", "hpp", "hh", "hxx", "h", "cu", "cuh",
+        ],
+        ".java" => &["java"],
+        ".scala" => &["scala", "sc"],
         _ => return None,
     };
     let project = if matches!(extension, ".ts" | ".js") {

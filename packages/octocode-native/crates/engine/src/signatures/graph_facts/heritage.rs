@@ -17,6 +17,8 @@
 //! | C# | interface bases | `extends` |
 //! | C# | struct / record struct bases | `implements` |
 //! | C# | class / record: first base `extends`, later bases `implements` |
+//! | Scala | class/trait/object `extends A with B`, anonymous classes (see `scala.rs`) | `extends` |
+//! | Go | embedded struct fields and embedded interfaces (see `go.rs`) | `embeds` |
 //!
 //! C# syntax does not distinguish a base class from an interface: only the
 //! first entry of a class base list can be a class, so it is reported as
@@ -26,7 +28,7 @@
 use tree_sitter::Node;
 
 use super::super::nodes::node_text;
-use super::{GraphAccumulator, NodePositions};
+use super::{GraphAccumulator, NodePositions, scala};
 use crate::graph::GraphFactEdge;
 
 pub(super) fn collect_heritage(
@@ -81,6 +83,13 @@ pub(super) fn collect_heritage(
                 push_type_list(&mut bases, interfaces, "implements");
             }
         }
+        ("go", "type_spec") => {
+            bases.extend(
+                super::go::embedded_types(node)
+                    .into_iter()
+                    .map(|base| ("embeds", base)),
+            );
+        }
         ("java", "interface_declaration") => {
             let mut cursor = node.walk();
             let extends = node
@@ -130,6 +139,26 @@ pub(super) fn collect_heritage(
                 });
             }
         }
+        (ext, _) if scala::is_scala(ext) => {
+            for base in scala::bases(node) {
+                let (to, at) = match base {
+                    scala::Base::Named(base) => {
+                        let Some(to) = node_text(base, content).and_then(base_type_name) else {
+                            continue;
+                        };
+                        (to, base)
+                    }
+                    scala::Base::Opaque(marker, at) => (marker.to_owned(), at),
+                };
+                push_edge(
+                    acc,
+                    from,
+                    to,
+                    "extends",
+                    line_index.range(at).start.line + 1,
+                );
+            }
+        }
         _ => {}
     }
     for (relation, base) in bases {
@@ -137,16 +166,47 @@ pub(super) fn collect_heritage(
             continue;
         };
         let line = line_index.range(base).start.line + 1;
-        acc.edges.push(GraphFactEdge {
-            id: format!("{from}->{to}:{relation}:{line}:{}", acc.edges.len()),
-            from: from.to_owned(),
-            to,
-            relation: relation.to_owned(),
-            source: "tree-sitter".to_owned(),
-            line,
-            resolution: "syntax".to_owned(),
-        });
+        push_edge(acc, from, to, relation, line);
     }
+}
+
+/// A Scala anonymous class that is not a declaration's whole value: its
+/// members belong to the enclosing declaration `from`, whose scope then
+/// inherits from bases the syntax cannot attribute.
+pub(super) fn collect_scala_anonymous(
+    node: Node<'_>,
+    parent: Option<Node<'_>>,
+    content: &str,
+    line_index: &NodePositions<'_>,
+    acc: &mut GraphAccumulator,
+    from: Option<&str>,
+) {
+    if let Some(from) = from
+        && scala::is_scala(&acc.ext)
+        && scala::is_anonymous_class(node)
+        && !scala::is_declaration_value(node, parent, content)
+    {
+        let line = line_index.range(node).start.line + 1;
+        push_edge(
+            acc,
+            from,
+            scala::ANONYMOUS_TEMPLATE.to_owned(),
+            "extends",
+            line,
+        );
+    }
+}
+
+fn push_edge(acc: &mut GraphAccumulator, from: &str, to: String, relation: &str, line: u32) {
+    acc.edges.push(GraphFactEdge {
+        id: format!("{from}->{to}:{relation}:{line}:{}", acc.edges.len()),
+        from: from.to_owned(),
+        to,
+        relation: relation.to_owned(),
+        source: "tree-sitter".to_owned(),
+        line,
+        resolution: "syntax".to_owned(),
+    });
 }
 
 fn is_java_type(kind: &str) -> bool {

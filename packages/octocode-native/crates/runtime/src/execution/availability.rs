@@ -188,14 +188,13 @@ pub fn classification_key(config: &ConfigOutput) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-/// Settings a tool needs. Family and beta come from the contract; clone and
+/// Settings a tool needs on every surface. Family comes from the contract; clone and
 /// clasify add their own prerequisite. Clasify needs a credential;
 /// the credential stays separate, so hiding public clasify never disables
 /// goals on other tools.
 fn prerequisites(id: ToolId) -> impl Iterator<Item = &'static ConfigFieldSpec> {
     [
         id.is_local().then_some(field::LOCAL_ENABLED),
-        id.is_beta().then_some(field::LOCAL_BETA),
         match id {
             ToolId::GhCloneRepo => Some(field::STORAGE_MODE),
             ToolId::Clasify => Some(field::CLASSIFICATION_API),
@@ -219,6 +218,18 @@ fn is_met(config: &ConfigOutput, setting: &ConfigFieldSpec) -> bool {
     }
 }
 
+/// The MCP-only restriction, shared by discovery, admission and emitted leads.
+/// CLI callers retain access to beta tools without opting into MCP exposure.
+pub(crate) fn mcp_restriction(config: &ConfigOutput, id: ToolId) -> Option<Availability> {
+    if id.is_cli_only() {
+        Some(Availability::CliOnly)
+    } else if id.is_beta() && !config.resolved.local.beta {
+        Some(Availability::MissingConfiguration(vec![field::LOCAL_BETA]))
+    } else {
+        None
+    }
+}
+
 fn resolve(config: &ConfigOutput, surface: RuntimeSurface, id: ToolId) -> Availability {
     let tools = &config.resolved.tools;
     let listed = |names: &Option<Vec<String>>| {
@@ -232,8 +243,10 @@ fn resolve(config: &ConfigOutput, surface: RuntimeSurface, id: ToolId) -> Availa
     if listed(&tools.enabled) == Some(false) {
         return Availability::ToolList(field::TOOLS_ENABLED);
     }
-    if surface != RuntimeSurface::Cli && id.is_cli_only() {
-        return Availability::CliOnly;
+    if surface != RuntimeSurface::Cli
+        && let Some(restriction) = mcp_restriction(config, id)
+    {
+        return restriction;
     }
     let missing: Vec<_> = prerequisites(id)
         .filter(|setting| !is_met(config, setting))

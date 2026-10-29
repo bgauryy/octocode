@@ -2,9 +2,14 @@
 use super::*;
 use crate::execution::cancel::CancellationCheck;
 use crate::response::result::ToolError;
+mod publication;
+pub(crate) use publication::write_for_publish;
+#[cfg(test)]
+use publication::write_snapshot;
 
 // ── Encoding ────────────────────────────────────────────────────────────────
 
+#[cfg(test)]
 pub(super) struct Section {
     pub(super) tag: [u8; 4],
     pub(super) bytes: Vec<u8>,
@@ -47,7 +52,7 @@ pub(super) fn varints(values: &[u32]) -> Vec<u8> {
     out
 }
 
-/// Serializes the snapshot. Returns `(bytes, body SHA-256 hex)`; identical
+/// Serializes the snapshot. Returns `(bytes, directory SHA-256 hex)`; identical
 /// tables always produce identical bytes.
 #[cfg(test)]
 pub(crate) fn encode(tables: &GraphTables) -> (Vec<u8>, String) {
@@ -57,114 +62,23 @@ pub(crate) fn encode(tables: &GraphTables) -> (Vec<u8>, String) {
 }
 
 /// Publication must not create a snapshot that this format's reader rejects for size.
+#[cfg(test)]
 pub(crate) fn encode_for_publish(
     tables: &GraphTables,
     cancel: &dyn CancellationCheck,
 ) -> Result<(Vec<u8>, String), ToolError> {
-    cancel.check().map_err(ToolError::cancelled)?;
-    let encoder = Encoder::new(tables);
-    tables
-        .sources
-        .validate_with_cancel(cancel)
-        .map_err(ToolError::source)?;
-    tables
-        .sources
-        .validate_records(tables, cancel)
-        .map_err(|error| {
-            cancel.check().map_or_else(ToolError::cancelled, |()| {
-                ToolError::new(octocode_contract_types::ErrorCode::ScopeTooBroad, error)
-            })
-        })?;
-    limits::validate(&encoder).map_err(|error| {
-        ToolError::new(octocode_contract_types::ErrorCode::ScopeTooBroad, error)
-    })?;
+    let encoder = checked_encoder(tables, &LIMITS, cancel)?;
     encode_with(&encoder, cancel)
 }
 
-fn encode_with(
+#[cfg(test)]
+pub(super) fn encode_with(
     encoder: &Encoder<'_>,
     cancel: &dyn CancellationCheck,
 ) -> Result<(Vec<u8>, String), ToolError> {
-    let tables = encoder.tables;
-    let (t, sid) = (tables, |old: u32| encoder.sid(old));
-    let mut sections = vec![
-        Section {
-            tag: *b"STRS",
-            bytes: encoder.strings(),
-        },
-        Section {
-            tag: *b"NODE",
-            bytes: encoder.nodes(),
-        },
-        Section {
-            tag: *b"EDGE",
-            bytes: encoder.edges(),
-        },
-        Section {
-            tag: *b"KEYX",
-            bytes: varints(&t.key_index),
-        },
-        Section {
-            tag: *b"NAMX",
-            bytes: varints(&t.name_index),
-        },
-        Section {
-            tag: *b"DIAG",
-            bytes: encoder.diagnostics(),
-        },
-        Section {
-            tag: *b"WITN",
-            bytes: encoder.witnesses(),
-        },
-        Section {
-            tag: *b"UNRS",
-            bytes: encoder.unresolved(),
-        },
-        Section {
-            tag: *b"SRCE",
-            bytes: sources::encode(&t.sources, cancel).map_err(ToolError::source)?,
-        },
-        Section {
-            tag: *b"DECL",
-            bytes: encoder.declarations(),
-        },
-    ];
-    let digests = t
-        .digests
-        .iter()
-        .flat_map(|(node, digest)| [*node, sid(*digest)])
-        .collect::<Vec<_>>();
-    let components = t
-        .components
-        .iter()
-        .flat_map(|(node, dir, name, meta)| [*node, sid(*dir), sid(*name), sid(*meta)])
-        .collect::<Vec<_>>();
-    let entries = t
-        .entries
-        .iter()
-        .flat_map(|(node, rule)| [*node, sid(*rule)])
-        .collect::<Vec<_>>();
-    sections.extend([
-        Section {
-            tag: *b"FDIG",
-            bytes: varints(&digests),
-        },
-        Section {
-            tag: *b"FCMP",
-            bytes: varints(&components),
-        },
-        Section {
-            tag: *b"ENTR",
-            bytes: varints(&entries),
-        },
-    ]);
-    if !t.stamps.is_empty() {
-        sections.push(Section {
-            tag: *b"FSTM",
-            bytes: stamp_section(&t.stamps),
-        });
-    }
-    Ok(assemble(sections))
+    let mut output = std::io::Cursor::new(Vec::new());
+    let (_, digest) = write_snapshot(encoder, &mut output, &LIMITS, cancel)?;
+    Ok((output.into_inner(), digest))
 }
 
 /// Count, then per file: node, size, modified, changed and inode varints.
@@ -185,41 +99,26 @@ pub(super) fn stamp_section(stamps: &[(u32, octocode_engine::stamp::SourceStamp)
     out
 }
 
-/// The string table every section references by id.
+/// The string dictionary every section references by id: record strings
+/// (`texts[..records]`, section `STRS`) sorted before the strings only
+/// occurrence evidence references (`STRE`), so a reader that skips
+/// evidence also skips its text.
 pub(super) struct Encoder<'t> {
     pub(super) tables: &'t GraphTables,
     pub(super) texts: Vec<&'t str>,
+    pub(super) records: usize,
     pub(super) ids: HashMap<&'t str, u32>,
 }
 
 impl<'t> Encoder<'t> {
     pub(super) fn new(tables: &'t GraphTables) -> Self {
         let mut texts = Vec::<&str>::new();
-        for (index, node) in tables.nodes.iter().enumerate() {
-            texts.push(key_text(tables, index).0);
+        for node in &tables.nodes {
+            texts.push(tables.str(node.key));
             texts.push(tables.str(node.name));
             texts.push(tables.str(node.detail));
         }
         texts.extend(tables.edges.iter().map(|edge| tables.str(edge.detail)));
-        for witness in &tables.witnesses {
-            texts.extend([
-                tables.str(witness.edge.detail),
-                tables.str(witness.occurrence),
-                tables.str(witness.argument),
-                tables.str(witness.provenance.source_digest),
-                tables.str(witness.provenance.derivation_version),
-            ]);
-        }
-        for site in &tables.unresolved {
-            texts.extend([
-                tables.str(site.occurrence),
-                tables.str(site.argument),
-                tables.str(site.callee),
-                tables.str(site.reason),
-                tables.str(site.provenance.source_digest),
-                tables.str(site.provenance.derivation_version),
-            ]);
-        }
         for decl in &tables.declarations {
             texts.extend([
                 tables.str(decl.occurrence),
@@ -242,12 +141,42 @@ impl<'t> Encoder<'t> {
         texts.extend(tables.entries.iter().map(|(_, rule)| tables.str(*rule)));
         texts.sort_unstable();
         texts.dedup();
+        let records = texts.len();
+        let mut evidence = Vec::<&str>::new();
+        for witness in &tables.witnesses {
+            evidence.extend([
+                tables.str(witness.edge.detail),
+                tables.str(witness.occurrence),
+                tables.str(witness.argument),
+                tables.str(witness.provenance.source_digest),
+                tables.str(witness.provenance.derivation_version),
+            ]);
+        }
+        for site in &tables.unresolved {
+            evidence.extend([
+                tables.str(site.occurrence),
+                tables.str(site.argument),
+                tables.str(site.callee),
+                tables.str(site.reason),
+                tables.str(site.provenance.source_digest),
+                tables.str(site.provenance.derivation_version),
+            ]);
+        }
+        evidence.retain(|text| texts.binary_search(text).is_err());
+        evidence.sort_unstable();
+        evidence.dedup();
+        texts.extend(evidence);
         let ids = texts
             .iter()
             .enumerate()
             .map(|(index, text)| (*text, index as u32))
             .collect();
-        Self { tables, texts, ids }
+        Self {
+            tables,
+            texts,
+            records,
+            ids,
+        }
     }
 
     pub(super) fn id(&self, text: &str) -> u32 {
@@ -258,33 +187,23 @@ impl<'t> Encoder<'t> {
         self.id(self.tables.str(old))
     }
 
-    /// Front-coded strings: shared prefix length, suffix length, suffix.
-    pub(super) fn strings(&self) -> Vec<u8> {
-        let mut strs = Vec::new();
-        put(&mut strs, self.texts.len() as u64);
-        let mut previous: &[u8] = &[];
-        for text in &self.texts {
-            let bytes = text.as_bytes();
-            let shared = previous
-                .iter()
-                .zip(bytes)
-                .take_while(|(a, b)| a == b)
-                .count();
-            put(&mut strs, shared as u64);
-            put(&mut strs, (bytes.len() - shared) as u64);
-            strs.extend(&bytes[shared..]);
-            previous = bytes;
-        }
-        strs
+    /// `STRS`: the record strings.
+    pub(super) fn record_strings(&self) -> Vec<u8> {
+        front_coded(&self.texts[..self.records])
+    }
+
+    /// `STRE`: strings only witnesses and unresolved sites reference.
+    pub(super) fn evidence_strings(&self) -> Vec<u8> {
+        front_coded(&self.texts[self.records..])
     }
 
     pub(super) fn nodes(&self) -> Vec<u8> {
         let tables = self.tables;
         let mut nodes = Vec::new();
         put(&mut nodes, tables.nodes.len() as u64);
-        for (index, node) in tables.nodes.iter().enumerate() {
-            let (key, suffix) = key_text(tables, index);
-            nodes.push(node.kind as u8 | if suffix { KEY_SUFFIX } else { 0 });
+        for node in &tables.nodes {
+            let key = tables.str(node.key);
+            nodes.push(node.kind as u8);
             nodes.push(node.flags);
             put(&mut nodes, u64::from(self.id(key)));
             put(&mut nodes, u64::from(self.sid(node.name)));
@@ -337,48 +256,82 @@ impl<'t> Encoder<'t> {
     }
 }
 
-/// A node's key text: symbol keys shrink to their suffix after `path#`.
-pub(super) fn key_text(tables: &GraphTables, index: usize) -> (&str, bool) {
-    let node = &tables.nodes[index];
-    let key = tables.str(node.key);
-    if node.kind == NodeKind::Symbol && node.file != NONE {
-        let file = tables.str(tables.nodes[node.file as usize].key);
-        if let Some(suffix) = key
-            .strip_prefix(file)
-            .and_then(|rest| rest.strip_prefix('#'))
-        {
-            return (suffix, true);
-        }
+/// Sorted strings, front-coded: shared prefix length, suffix length, suffix.
+fn front_coded(texts: &[&str]) -> Vec<u8> {
+    let mut strs = Vec::new();
+    put(&mut strs, texts.len() as u64);
+    let mut previous: &[u8] = &[];
+    for text in texts {
+        let bytes = text.as_bytes();
+        let shared = previous
+            .iter()
+            .zip(bytes)
+            .take_while(|(a, b)| a == b)
+            .count();
+        put(&mut strs, shared as u64);
+        put(&mut strs, (bytes.len() - shared) as u64);
+        strs.extend(&bytes[shared..]);
+        previous = bytes;
     }
-    (key, false)
+    strs
 }
 
 /// Header, section table and 8-byte-aligned section bodies; returns the
 /// file bytes and the hex body digest.
+#[cfg(test)]
 pub(super) fn assemble(sections: Vec<Section>) -> (Vec<u8>, String) {
-    let section_count = sections.len() as u32;
-    let table_len = sections.len() * TABLE_ENTRY_LEN;
-    let mut body = Vec::new();
-    let mut offset = ((HEADER_LEN + table_len) as u64).next_multiple_of(8);
-    let padding_before_body = offset as usize - (HEADER_LEN + table_len);
-    for section in &sections {
-        body.extend(section.tag);
-        body.extend(offset.to_le_bytes());
-        body.extend((section.bytes.len() as u64).to_le_bytes());
-        offset += (section.bytes.len() as u64).next_multiple_of(8);
-    }
-    body.extend(vec![0u8; padding_before_body]);
+    let sections = sections
+        .into_iter()
+        .map(|mut section| {
+            if blocks::blocked(&section.tag) {
+                section.bytes =
+                    blocks::pack(&section.tag, &section.bytes).expect("fixture record blocks");
+            }
+            section
+        })
+        .collect::<Vec<_>>();
+    let count = sections.len();
+    let start = (HEADER_LEN + count * TABLE_ENTRY_LEN).next_multiple_of(8);
+    let mut out = vec![0; start];
+    let mut directory = Vec::new();
     for section in sections {
-        let pad = section.bytes.len().next_multiple_of(8) - section.bytes.len();
-        body.extend(section.bytes);
-        body.extend(vec![0u8; pad]);
+        directory.extend(section.tag);
+        directory.extend((out.len() as u64).to_le_bytes());
+        directory.extend((section.bytes.len() as u64).to_le_bytes());
+        directory.extend(blocks::digest(&section.tag, &section.bytes).unwrap());
+        out.extend(section.bytes);
+        out.resize(out.len().next_multiple_of(8), 0);
     }
-    let digest = Sha256::digest(&body);
-    let mut out = Vec::with_capacity(HEADER_LEN + body.len());
-    out.extend(MAGIC);
-    out.extend(FORMAT_VERSION.to_le_bytes());
-    out.extend(section_count.to_le_bytes());
-    out.extend(digest);
-    out.extend(body);
+    let digest = Sha256::digest(&directory);
+    out[..8].copy_from_slice(MAGIC);
+    out[8..12].copy_from_slice(&FORMAT_VERSION.to_le_bytes());
+    out[12..16].copy_from_slice(&(count as u32).to_le_bytes());
+    out[16..HEADER_LEN].copy_from_slice(&digest);
+    out[HEADER_LEN..HEADER_LEN + directory.len()].copy_from_slice(&directory);
     (out, hex::encode(digest))
+}
+
+pub(super) fn checked_encoder<'a>(
+    tables: &'a GraphTables,
+    limits: &Limits,
+    cancel: &dyn CancellationCheck,
+) -> Result<Encoder<'a>, ToolError> {
+    cancel.check().map_err(ToolError::cancelled)?;
+    let encoder = Encoder::new(tables);
+    tables
+        .sources
+        .validate_with_cancel(cancel)
+        .map_err(ToolError::source)?;
+    tables
+        .sources
+        .validate_records(tables, cancel)
+        .map_err(|error| {
+            cancel.check().map_or_else(ToolError::cancelled, |()| {
+                ToolError::new(octocode_contract_types::ErrorCode::ScopeTooBroad, error)
+            })
+        })?;
+    limits::validate(&encoder, limits).map_err(|error| {
+        ToolError::new(octocode_contract_types::ErrorCode::ScopeTooBroad, error)
+    })?;
+    Ok(encoder)
 }

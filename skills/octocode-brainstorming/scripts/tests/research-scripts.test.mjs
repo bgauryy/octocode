@@ -127,6 +127,10 @@ test('verify-claims exits 1 when nothing verifies and 2 on a malformed ledger', 
     const bad = await run('verify-claims.mjs', ['--ledger', broken]);
     assert.equal(bad.status, 2);
     assert.equal(bad.json.error.code, 'invalidArguments');
+    writeFileSync(broken, 'null\n42\n[]\n{"claim":"x","quote":"long enough source words to test"}');
+    const invalidRows = await run('verify-claims.mjs', ['--ledger', broken]);
+    assert.equal(invalidRows.status, 1);
+    assert.deepEqual(invalidRows.json.claims.map((c) => c.status), ['missing-field', 'missing-field', 'missing-field', 'missing-field']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -182,8 +186,8 @@ test('fetch-asset accepts only https public hosts and document or image types', 
 test('fetch-asset plans without saving, downloads only with --approve, and records a manifest', async () => {
   const pdf = Buffer.from('%PDF-1.4 fixture');
   const { server, base } = await serve((req, res) => {
-    if (req.url === '/paper.pdf') { res.setHeader('content-type', 'application/pdf'); res.setHeader('content-length', pdf.length); return res.end(req.method === 'HEAD' ? undefined : pdf); }
-    if (req.url === '/notes.txt') { res.setHeader('content-type', 'text/plain'); return res.end(req.method === 'HEAD' ? undefined : 'Teams that consider the opposite reduced their overconfidence in the study.'); }
+    if (req.url === '/paper.pdf' || req.url === '/paper-copy.pdf') { res.setHeader('content-type', 'application/pdf'); res.setHeader('content-length', pdf.length); return res.end(req.method === 'HEAD' ? undefined : pdf); }
+    if (req.url === '/notes.txt' || req.url === '/notes-copy.txt') { res.setHeader('content-type', 'text/plain'); return res.end(req.method === 'HEAD' ? undefined : 'Teams that consider the opposite reduced their overconfidence in the study.'); }
     if (req.url === '/bundle.zip') { res.setHeader('content-type', 'application/zip'); return res.end(); }
     if (req.url === '/big.pdf') { res.setHeader('content-type', 'application/pdf'); res.setHeader('content-length', String(3_000_000)); return res.end(req.method === 'HEAD' ? undefined : Buffer.alloc(3_000_000)); }
     res.statusCode = 404; return res.end();
@@ -215,7 +219,36 @@ test('fetch-asset plans without saving, downloads only with --approve, and recor
       { id: 'T2', claim: 'Invented', url: `${base}/notes.txt`, asset: txt, quote: 'consider the opposite eliminated every bias completely' },
     ].map((r) => JSON.stringify(r)).join('\n'));
     const verified = await run('verify-claims.mjs', ['--ledger', ledger], env);
-    assert.deepEqual(verified.json.claims.map((c) => c.status), ['verified', 'quote-not-found']);
+    assert.deepEqual(verified.json.claims.map((c) => c.status), ['verified', 'quote-not-found'], verified.stdout);
+
+    writeFileSync(ledger, [
+      { id: 'B1', claim: 'Wrong origin', url: `${base}/different.txt`, asset: txt, quote: 'consider the opposite reduced their overconfidence' },
+      { id: 'B2', claim: 'Outside run', url: `${base}/notes.txt`, asset: '../ledger.jsonl', quote: 'consider the opposite reduced their overconfidence' },
+    ].map((r) => JSON.stringify(r)).join('\n'));
+    const unbound = await run('verify-claims.mjs', ['--ledger', ledger], env);
+    assert.deepEqual(unbound.json.claims.map((c) => c.status), ['refused', 'refused']);
+
+    const sameBytes = await run('fetch-asset.mjs', ['--run-dir', runDir, '--url', `${base}/notes-copy.txt`, '--approve'], env);
+    assert.equal(sameBytes.status, 0);
+    assert.equal(sameBytes.json.results[0].status, 'already-downloaded');
+    assert.equal(readFileSync(join(runDir, 'assets', 'manifest.jsonl'), 'utf8').trim().split('\n').length, 3);
+    writeFileSync(ledger, JSON.stringify({ id: 'B4', claim: 'Second origin', url: `${base}/notes-copy.txt`, asset: sameBytes.json.results[0].file, quote: 'consider the opposite reduced their overconfidence' }));
+    const secondOrigin = await run('verify-claims.mjs', ['--ledger', ledger], env);
+    assert.equal(secondOrigin.json.claims[0].status, 'verified');
+
+    const manifestPath = join(runDir, 'assets', 'manifest.jsonl');
+    const manifest = readFileSync(manifestPath, 'utf8');
+    writeFileSync(manifestPath, 'null\n' + manifest);
+    const nullEntry = await run('verify-claims.mjs', ['--ledger', ledger], env);
+    assert.equal(nullEntry.json.claims[0].status, 'verified');
+    writeFileSync(manifestPath, '{broken json\n');
+    const malformedManifest = await run('verify-claims.mjs', ['--ledger', ledger], env);
+    assert.equal(malformedManifest.json.claims[0].status, 'missing-field');
+    writeFileSync(manifestPath, manifest);
+
+    writeFileSync(got.json.results[1].path, 'consider the opposite reduced their overconfidence in a changed file');
+    const changed = await run('verify-claims.mjs', ['--ledger', ledger], env);
+    assert.deepEqual(changed.json.claims.map((c) => c.status), ['refused']);
 
     const outside = await run('fetch-asset.mjs', ['--run-dir', join(dir, 'elsewhere'), '--url', `${base}/paper.pdf`], env);
     assert.equal(outside.status, 2);

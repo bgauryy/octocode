@@ -1,35 +1,41 @@
 ---
 name: octocode-context-audit
-description: "Use when agent sessions feel bloated, slow, or confused, or before adding instructions, skills, or MCP servers: measures what the harness loads every session (AGENTS.md/CLAUDE.md, memory index, skill descriptions, MCP instructions and tool schemas), probes configured MCP servers live, mines Claude Code transcripts for tool/skill usage and error rates, and flags oversize, broken, duplicate, unused, or bypassed surfaces. Not for rewriting prompt text → octocode-agentic-prompts."
+description: "Load this skill first when agent context feels bloated, slow or confused, or before adding instructions, skills or MCP servers; inventories context size, probes server availability and compares Claude transcript usage to find routing and duplication candidates."
 ---
 # Context audit
 
-tools: `node` (zero dependencies)
-related-skill: `octocode-agentic-prompts`
-output: `<workspace>/.octocode/context-audit/` (`context-audit.json`, `context-audit.html`)
-routes: use `octocode-skills` for skill fixes.
+Inventory configured context, compare it with observed usage, and identify what to investigate or cut. File size estimates do not prove what a model received or its billed cost. The script uses Node without external dependencies.
 
-Every session pays for its always-loaded context before the first task token. This skill measures that cost, compares it with real use, and ranks what to cut.
+```mermaid
+flowchart LR
+  A[Capture baseline] --> R[Review findings and usage limits]
+  R --> F{Repair authorized and supported?}
+  F -- yes --> E[Edit owner] --> V[Re-audit to a new path]
+  V --> C[Compare evidence and retained behavior]
+  F -- no --> D[Deliver findings; offer HTML]
+  C --> D
+```
 
-Flow, as PDCA: `Plan: RUN → READ REPORT` · `Do: FIX high first` · `Check: RE-RUN and compare totals against the baseline` · `Act: keep or revert each fix`.
 The baseline is the first run's `context-audit.json`. A re-run into the same `--out` overwrites it, so give the re-run a different `--out` (or copy the baseline first).
 
 ## Run
 [scripts/context-audit.mjs](scripts/context-audit.mjs) does the whole audit:
 ```bash
-node <skill>/scripts/context-audit.mjs --workspace <repo> [--days 30] [--all-projects] [--no-probe] [--out DIR] [--json]  # run when auditing
+node <skill>/scripts/context-audit.mjs --workspace <repo> --no-probe
 ```
 - `--days` bounds the transcript window (by file mtime); `--all-projects` mines every Claude Code project, not only this workspace.
 - `--no-probe` skips spawning stdio MCP servers (use when a server has side effects on start).
-- Open `context-audit.html` for the ranked preview; feed `context-audit.json` to an agent for follow-up.
+- MCP pagination follows every page within the probe deadline. A timeout, invalid page or repeated cursor marks the server unmeasured; the report never prices a partial tool list.
+- Default output is `context-audit.json` under `<workspace>/.octocode/context-audit/`; `--out DIR` changes the destination and `--json` prints the report.
+- After delivering findings, offer HTML. If requested initially, use `--html`; if accepted later, use `--render <saved-context-audit.json>` to render the same snapshot without probing again.
 
 ## What it collects
 | Area | Source | Flags |
 |---|---|---|
 | Instructions | root and nested `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`/rules, `<home>/.claude/CLAUDE.md`, the project memory index | file > 8K chars, always-loaded total > 20K, memory index > 10K; nested repos and agent worktrees are listed, not counted |
 | Skills | `<home>/.claude/skills`, `.claude/skills`, `.agents/skills` | broken links, one name from different sources, description > 1,024 chars, descriptions total > 12K |
-| MCP | `<home>/.claude.json` (user + project), `.mcp.json`, `<home>/.cursor/mcp.json`; stdio servers answer `initialize` + `tools/list` | server that fails to start (with its stderr), instructions > 4K, tool schema > 8K, server total > 60K |
-| Usage | `<home>/.claude/projects/<workspace>/*.jsonl` | Claude servers or tools never called, skills never invoked, tools with ≥20% error rate, raw grep/cat/find shell calls outnumbering research-tool calls |
+| MCP | `<home>/.claude.json` (user + project), `.mcp.json`, `<home>/.cursor/mcp.json`; stdio servers answer `initialize` + `tools/list` | server that fails to start (without exposing stderr), instructions > 4K, tool schema > 8K, server total > 60K |
+| Usage | `<home>/.claude/projects/<workspace>/*.jsonl` | Claude servers or tools never called, skills never invoked, tools with ≥20% error rate, raw grep/cat/find shell calls outnumbering research-tool calls; malformed lines or read failures flag incomplete coverage and suppress absence-based judgments |
 
 Budgets are review points (≈ 4 chars per token), not failures. Cursor/other-client servers are measured but not judged by Claude transcripts.
 
@@ -38,6 +44,17 @@ Budgets are review points (≈ 4 chars per token), not failures. Cursor/other-cl
 2. Move reference detail out of always-loaded files into linked docs or skills; keep rules the agent must follow every turn.
 3. Remove broken skill links and duplicate installs; keep one canonical source.
 4. For unused or error-prone tools, check routing text and schemas with `octocode-agentic-prompts` before deleting — zero calls in a short window is a candidate, not proof.
+
+## Resources
+
+| When | Read or run | Why |
+|---|---|---|
+| Audit configured context | [context-audit.mjs](scripts/context-audit.mjs) | Inventory and usage evidence; `--help` owns flags |
+| Change the output modes | `node --test <skill>/scripts/tests/output.test.mjs` | Saved-snapshot rendering, artifact preservation and HTML escaping |
+
+## Related skills
+
+Use `octocode-agentic-prompts` when findings require prompt or routing edits; use `octocode-skills` when skill structure or installation needs repair.
 
 ## Output
 Follow [output.md](output.md): a BLUF reply with each `high` finding in 5W2H, and one saved report.

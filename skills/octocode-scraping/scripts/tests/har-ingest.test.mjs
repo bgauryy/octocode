@@ -23,6 +23,7 @@ const SECRETS = {
   body: 'body-secret-HHHH8888',
   bearer: 'bearer-secret-IIII9999',
   capture: 'capture-secret-JJJJ0000',
+  metadata: 'metadata-secret-KKKK1111',
 };
 // Non-secret evidence that must survive redaction.
 const KEEP = ['offer-42', 'Widget Pro', 'itemId'];
@@ -38,7 +39,7 @@ beforeEach(() => {
   mkdirSync(cdpDir, { recursive: true });
 
   const respJson = JSON.stringify({ itemId: 'offer-42', name: 'Widget Pro', access_token: SECRETS.response });
-  const har = { log: { entries: [{
+  const har = { log: { pages: [{ title: `https://shop.test/dashboard?token=${SECRETS.metadata}`, api_key: SECRETS.metadata }], entries: [{
     request: {
       method: 'POST',
       url: `https://shop.test/api/login?token=${SECRETS.query}&page=2`,
@@ -168,4 +169,38 @@ test('har-ingest reruns replace rows, label raw HARs honestly, and accept --min-
   assert.equal(out.filteredNetworkRows, 1, '--min-ms 0 must keep a 0 ms entry');
   const handoff = readFileSync(join(harSession, 'extracts/bridge-handoff.json'), 'utf8');
   assert.ok(!handoff.includes('graph-actionability-check'), 'handoff names a script that does not exist');
+}));
+
+test('invalid HAR, network bodies, and captures fail with a bounded JSON error', () => withDir((dir) => {
+  const sessionDir = join(dir, 'sess');
+  mkdirSync(sessionDir);
+  const cases = [
+    ['--har', 'bad.har', 'not JSON'],
+    ['--har', 'null.har', 'null'],
+    ['--har', 'scalar.har', '42'],
+    ['--har', 'entries.har', '{"log":{"entries":[null]}}'],
+    ['--har', 'headers.har', '{"log":{"entries":[{"request":{"headers":[null]},"response":{}}]}}'],
+    ['--bodies', 'null-bodies.json', 'null'],
+    ['--bodies', 'scalar-bodies.json', '42'],
+    ['--bodies', 'mixed-bodies.json', '[{"url":"https://x.test"},null]'],
+  ];
+  for (const [flag, name, content] of cases) {
+    const path = join(dir, name);
+    writeFileSync(path, content);
+    const result = node('har-ingest.mjs', ['--session-dir', sessionDir, flag, path]);
+    assert.equal(result.status, 2, `${name}: ${result.stdout}${result.stderr}`);
+    assert.equal(JSON.parse(result.stdout).error.code, 'invalidCapture', name);
+    assert.equal(result.stderr, '', name);
+  }
+  const captureDir = join(dir, 'capture');
+  mkdirSync(captureDir);
+  writeFileSync(join(captureDir, 'page-snapshot.json'), 'null');
+  const capture = node('har-ingest.mjs', ['--session-dir', sessionDir, '--from-cdp-dir', captureDir]);
+  assert.equal(capture.status, 2, capture.stdout + capture.stderr);
+  assert.equal(JSON.parse(capture.stdout).error.code, 'invalidCapture');
+  assert.equal(capture.stderr, '');
+  writeFileSync(join(captureDir, 'page-snapshot.json'), '{"refs":[{"role":"button"}]}');
+  const badRefs = node('har-ingest.mjs', ['--session-dir', sessionDir, '--from-cdp-dir', captureDir]);
+  assert.equal(badRefs.status, 2, badRefs.stdout + badRefs.stderr);
+  assert.equal(JSON.parse(badRefs.stdout).error.code, 'invalidCapture');
 }));

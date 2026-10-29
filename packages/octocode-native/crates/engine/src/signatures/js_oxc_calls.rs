@@ -60,7 +60,7 @@ pub(super) fn collect_program_calls(
         li,
         calls,
         heritage,
-        receivers: ReceiverScopes::default(),
+        receivers: ReceiverScopes::for_program(program),
     };
     collector.visit_program(program);
 }

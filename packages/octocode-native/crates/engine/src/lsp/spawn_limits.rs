@@ -106,10 +106,21 @@ pub(crate) fn memory_cap_bytes(max_memory_mb: Option<u32>) -> Option<u64> {
     effective_memory_cap_mb(max_memory_mb).map(|mb| u64::from(mb) * 1024 * 1024)
 }
 
-/// The default cap in bytes: what all pooled servers may hold together
-/// before the pool stops idle ones (see `LspPoolOptions::max_resident_bytes`).
-pub(crate) fn default_memory_cap_bytes() -> u64 {
-    memory_cap_bytes(None).unwrap_or(0)
+/// What all pooled servers may hold together before the pool stops idle
+/// ones (`LspPoolOptions::max_resident_bytes`): half the host's memory,
+/// never under one server's default cap (a single server must fit) and
+/// never over `max_entries` such caps (more than the pool holds). A host
+/// whose memory cannot be read keeps one cap.
+pub(crate) fn default_pool_memory_budget_bytes(max_entries: usize) -> u64 {
+    pool_memory_budget_bytes(host_memory_mb(), max_entries)
+}
+
+fn pool_memory_budget_bytes(host_memory_mb: Option<u64>, max_entries: usize) -> u64 {
+    let per_server = u64::from(default_memory_cap_mb(host_memory_mb)) * 1024 * 1024;
+    let ceiling = per_server.saturating_mul(max_entries.max(1) as u64);
+    host_memory_mb.map_or(per_server, |host| {
+        (host * 1024 * 1024 / 2).clamp(per_server, ceiling)
+    })
 }
 
 /// Unix targets without the RSS watchdog: cap the child's address space
@@ -203,6 +214,22 @@ impl Drop for AbortOnDrop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pool_budget_holds_several_servers_within_half_the_host() {
+        let mib = 1024 * 1024;
+        // 16 GiB host: one server caps at 4 GiB; the pool gets 8 GiB.
+        assert_eq!(pool_memory_budget_bytes(Some(16 * 1024), 4), 8 * 1024 * mib);
+        // 8 GiB host: half is under one cap, so one cap.
+        assert_eq!(pool_memory_budget_bytes(Some(8 * 1024), 4), 4 * 1024 * mib);
+        // 128 GiB host: half exceeds four 8 GiB caps, so four caps.
+        assert_eq!(
+            pool_memory_budget_bytes(Some(128 * 1024), 4),
+            32 * 1024 * mib
+        );
+        // Unreadable host memory: one cap.
+        assert_eq!(pool_memory_budget_bytes(None, 4), 4 * 1024 * mib);
+    }
 
     #[test]
     fn configured_memory_cap_resolves_default_disable_and_explicit_values() {

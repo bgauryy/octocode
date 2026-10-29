@@ -19,7 +19,7 @@ impl NativeLspClient {
                 let readiness = self
                     .inner
                     .progress
-                    .wait_until_idle(timeout_ms, self.settle_ms(STARTUP_SETTLE_MS))
+                    .wait_until_idle(timeout_ms, self.settle_ms(self.startup_settle_ms()))
                     .await
                     .as_str()
                     .to_owned();
@@ -76,6 +76,18 @@ impl NativeLspClient {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+    }
+
+    /// How long startup waits for a first `$/progress`: none for a server
+    /// that announces its project load only once a document is open (the
+    /// TypeScript family: tsserver starts loading after `didOpen`), where the
+    /// open wait catches it; [`STARTUP_SETTLE_MS`] otherwise.
+    fn startup_settle_ms(&self) -> u64 {
+        if crate::lsp::family::is_typescript_family(self.inner.config.language_id.as_deref()) {
+            0
+        } else {
+            STARTUP_SETTLE_MS
+        }
     }
 
     /// `settle` bounded by [`LspClientOptions::settle_cap`].

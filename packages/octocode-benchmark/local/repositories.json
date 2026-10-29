@@ -2,87 +2,87 @@
   "repositories": [
     {
       "id": "asm",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/asm",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/asm",
       "commit": "03c9a9d795c08ab06d625e5fc3bf0ae8b26f9652"
     },
     {
       "id": "c",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/c",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/c",
       "commit": "20bb2cfc54aa08c8fdfb8c4c0a8b8258e811711e"
     },
     {
       "id": "cpp",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/cpp",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/cpp",
       "commit": "f422b753cca0143b2c8545df2e1422171a2f9cd5"
     },
     {
       "id": "csharp",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/csharp",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/csharp",
       "commit": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa"
     },
     {
       "id": "go",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/go",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/go",
       "commit": "ea954809ceafceb53ecfa295ab0947753929de9e"
     },
     {
       "id": "java",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/java",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/java",
       "commit": "4d41665af1b05bad09039b82cb2a1a474a7bceaf"
     },
     {
       "id": "javascript",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/javascript",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/javascript",
       "commit": "2b5e6f7399a7b48005140b5d5c6bc6c0e62919a8"
     },
     {
       "id": "python",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/python",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/python",
       "commit": "4fab678a0739d54401ccee7eb587553657c9f76e"
     },
     {
       "id": "rust",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/rust",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/rust",
       "commit": "facc6fc47eb2ba13a465a3179f8e34db620561ec"
     },
     {
       "id": "scala",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/scala",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/scala",
       "commit": "4a2ea736632c64aaf2e4915e6922e3585379382f"
     },
     {
       "id": "tsx",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/tsx",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/tsx",
       "commit": "f3d99c42e905706c1899bd887cfec59f2e92f425"
     },
     {
       "id": "huge-ts",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/huge-ts",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/huge-ts",
       "commit": "43dd9070f75d527ab38035c0562acbfe9de4209b"
     },
     {
       "id": "huge-go",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/huge-go",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/huge-go",
       "commit": "6c1c7702cf2052245ef10e699d45f071af306f59"
     },
     {
       "id": "langchain",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/langchain",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/langchain",
       "commit": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125"
     },
     {
       "id": "nextjs",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/nextjs",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/nextjs",
       "commit": "d155ba9ebfffe4742efefda8d68c2e0e8e490924"
     },
     {
       "id": "terraform",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/terraform",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/terraform",
       "commit": "c0fcd5b52b08f607fbd1e2f164b323f7523146c9"
     },
     {
       "id": "typescript",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/typescript",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/typescript",
       "commit": "4f5ddae224b9529a69b571f631fe3a2cb283162f"
     }
   ],

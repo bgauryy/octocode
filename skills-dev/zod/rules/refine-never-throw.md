@@ -1,15 +1,15 @@
 ---
-title: Never Throw in Refinements
+title: Return Issues for Expected Validation Failures
 impact: HIGH
-description: Refinement and transform functions must never throw. Return false or use ctx.addIssue().
+description: Return false or add issues for expected validation failures in refinements and transforms; unexpected callback exceptions still propagate.
 tags: refine, superRefine, throw, error
 ---
 
-# Never Throw in Refinements
+# Return Issues for Expected Validation Failures
 
 ## Problem
 
-Throwing inside a `.refine()` or `.transform()` callback bypasses Zod's error handling. The exception won't be wrapped in a `ZodError` — it will crash the parse operation and bubble as an unhandled exception.
+Throwing for an expected invalid value inside `.refine()` or `.transform()` bypasses Zod's validation result. The exception is not wrapped in a `ZodError`; even `safeParse()` will propagate it. An unexpected dependency failure is a separate application error and should not be disguised as invalid input.
 
 ## Incorrect
 
@@ -49,4 +49,4 @@ const Password = z.string().superRefine((val, ctx) => {
 
 ## Why
 
-`.refine()` expects a boolean return (or a Promise<boolean> for async). `.superRefine()` with `ctx.addIssue()` allows multiple issues per field. Both integrate cleanly with Zod's error system — throwing does not.
+`.refine()` expects a boolean return (or a Promise<boolean> for async). `.superRefine()` with `ctx.addIssue()` allows multiple issues per field. Use these for values the consumer may normally reject. Handle unexpected callback or dependency exceptions at the application boundary.

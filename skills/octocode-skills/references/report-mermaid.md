@@ -1,6 +1,6 @@
-# Mermaid chooser
-
 Load only when choosing a specialized diagram. Author a `mermaid` fence; the shared viewer owns configuration, colors and controls. Target its pinned Mermaid **12.1.0**, not unversioned examples. Start with the smallest diagram that answers the reader's question.
+
+# Mermaid chooser
 
 | Reader needs | Syntax keyword | Selection rule |
 |---|---|---|

@@ -18,6 +18,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { PRIMARY, printVendors, resolvePlatformIds } from './lib/vendors.mjs';
 import {
@@ -79,7 +80,15 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (FLAGS.has(a)) out[FLAGS.get(a)] = true;
-    else if (VALUES.has(a)) out[VALUES.get(a)] = argv[++i] || '';
+    else if (VALUES.has(a)) {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('-')) {
+        console.error(`${a} requires a value.`);
+        process.exit(1);
+      }
+      out[VALUES.get(a)] = value;
+      i++;
+    }
     else if (a.startsWith('-')) {
       console.error(`Unknown flag: ${a}`);
       process.exit(1);
@@ -148,6 +157,22 @@ function symlinkChecks(failures, temp) {
 function runSelfTest() {
   const failures = [];
   nameAndPathChecks(failures);
+  const source = resolve(HERE, '..');
+  const cases = [
+    { args: ['--platforms'], error: '--platforms requires a value.' },
+    { args: ['--platforms', '--approve'], error: '--platforms requires a value.' },
+    { args: ['--platforms', ','], error: 'Select at least one platform.' },
+    { args: ['--name', ''], error: '--name requires a value.' },
+  ];
+  for (const { args, error } of cases) {
+    const result = spawnSync(process.execPath, [join(HERE, 'skill-sync.mjs'), source, ...args, '--json'], { encoding: 'utf8' });
+    if (result.status !== 1 || !result.stderr.includes(error)) failures.push(`invalid option did not report ${error}: ${JSON.stringify(args)}`);
+  }
+  const valid = spawnSync(process.execPath, [join(HERE, 'skill-sync.mjs'), source, '--platforms', 'codex', '--json'], { encoding: 'utf8' });
+  try {
+    const plan = JSON.parse(valid.stdout);
+    if (valid.status !== 0 || plan.mode !== 'dry-run' || plan.platforms?.join() !== 'codex' || plan.rows?.length !== 1) failures.push('valid dry-run control failed');
+  } catch { failures.push('valid dry-run control did not return JSON'); }
   const temp = mkdtempSync(join(tmpdir(), 'skill-sync-'));
   try {
     symlinkChecks(failures, temp);
@@ -192,7 +217,7 @@ function resolveSkill(args) {
   const fmName = readFrontmatterName(skillMd);
   let skillName;
   try {
-    skillName = assertSafeSkillName(args.name || basename(sourcePath));
+    skillName = assertSafeSkillName(args.name === null ? basename(sourcePath) : args.name);
   } catch (err) {
     console.error(err.message || String(err));
     process.exit(1);

@@ -15,10 +15,12 @@ use crate::signatures::js_oxc_shared::SpanPositions;
 
 use super::DocumentSymbol;
 use super::symbols::{
-    class_symbol, collect_variable, container, enum_symbol, external_module_symbol, global_symbol,
-    interface_symbol, namespace_symbol, type_alias_symbol,
+    class_members, class_symbol, collect_variable, container, enum_symbol, external_module_symbol,
+    global_symbol, interface_symbol, namespace_symbol, type_alias_symbol,
 };
 use crate::lsp::symbol_kind;
+use crate::signatures::js_oxc_commonjs::DefinedExport;
+use std::collections::HashSet;
 
 pub(super) fn collect_program(
     program: &Program,
@@ -136,6 +138,45 @@ pub(super) fn collect_member_functions(
             li,
         ));
     }
+}
+
+/// The declarations of CommonJS exports defined in place, each named as
+/// callers write it; returns the `(local, public)` export names they add. A
+/// name the module already declares keeps that declaration's identity, so
+/// its in-place definition is not declared.
+pub(super) fn push_defined_exports(
+    defined: Vec<(String, DefinedExport)>,
+    li: &SpanPositions,
+    out: &mut Vec<DocumentSymbol>,
+) -> Vec<(String, String)> {
+    let declared = out
+        .iter()
+        .map(|symbol| symbol.name.clone())
+        .collect::<HashSet<_>>();
+    let mut names = Vec::new();
+    for (public, definition) in defined {
+        if declared.contains(&definition.name) {
+            continue;
+        }
+        let Some((symbol_kind, value)) = assigned_definition(definition.value) else {
+            continue;
+        };
+        let children = match value.without_parentheses() {
+            Expression::ClassExpression(class) => class_members(class, li),
+            value => function_value_children(value, li).unwrap_or_default(),
+        };
+        out.push(container(
+            &definition.name,
+            symbol_kind,
+            definition.span,
+            definition.name_span,
+            children,
+            li,
+        ));
+        names.push((definition.name, public));
+    }
+    out.sort_by_key(|symbol| (symbol.range.start.line, symbol.range.start.character));
+    names
 }
 
 /// Whether `expression` is `a`, `this`, or a static member chain `a.b.c`

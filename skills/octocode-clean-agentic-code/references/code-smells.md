@@ -1,6 +1,6 @@
-# Code smells
-
 Load when classifying code as dead, duplicate, kludge, bloat, redundant declaration, or tangled structure. Signal → removal bar; defects to report: [agent-defects](agent-defects.md).
+
+# Code smells
 
 ## Dead, duplicate, kludge
 
@@ -57,14 +57,14 @@ Sweep:
 - Internal monorepo package: `workspace:*` (or configured protocol), never a version pin.
 - Declared, never imported → `localSearch` all sources. Imported but undeclared or only transitive → declare at the correct version, or drop the import.
 - Test-only in `dependencies` → `devDependencies` once no production import. Peer also direct → does the package ship its own copy?
-- Versions differ across workspace packages → highest compatible; transitive at two versions → root resolution; pin duplicating root `resolutions` → remove.
+- Versions differ across workspace packages → inspect consumer ranges and compatibility before deduplicating. Multiple transitive versions may be required; use a root resolution only after checking every affected consumer.
 - In root and workspace `package.json` → keep where used; in `dependencies` and `devDependencies` → keep the correct one; build tool as dev and peer → per consumer intent.
 
 ## Structure
 
 - Mixed responsibilities (IO, parsing, formatting, domain policy) → one file per responsibility under its owning layer; update callers; build and test. Size is no signal; large pure data is fine.
-- Prefixed flat names (`user-api.ts`, `user-db.ts`) → one sub-directory per domain; update imports.
-- One doc as a domain's sole entry → focused pages under a concise index.
+- Prefixed flat names (`user-api.ts`, `user-db.ts`) → group only when shared ownership or navigation improves; naming alone does not justify a move.
+- One document → split only when readers load distinct parts for different tasks; otherwise keep the single entry.
 - Wrong layer (`utils/auth-logic.ts` → `domain/auth/`, `api/db-queries.ts` → `repositories/`) → move, update imports, verify with build and LSP; rename only a wrong name.
 
 ## Spaghetti

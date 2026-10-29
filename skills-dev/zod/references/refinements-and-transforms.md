@@ -1,3 +1,5 @@
+Load when adding validation, conversion, defaults or pipelines.
+
 # Refinements and Transforms Reference
 
 ## .refine(fn, opts)
@@ -109,7 +111,7 @@ const PortNumber = z
 
 ## .preprocess(fn, schema)
 
-Transform input before parsing. Legacy — prefer `.pipe()`.
+Transform unknown input before parsing it with a schema. Use this when preprocessing must precede type validation; `.pipe()` instead consumes an already parsed output.
 
 ```typescript
 const TrimmedString = z.preprocess(
@@ -120,7 +122,7 @@ const TrimmedString = z.preprocess(
 
 ## .overwrite(fn)
 
-Modify value in place without changing type.
+Return a replacement value without changing the inferred type. This does not imply mutation of the original input.
 
 ```typescript
 const NormalizedEmail = z.email().overwrite((email) => email.toLowerCase())
@@ -129,7 +131,7 @@ const NormalizedEmail = z.email().overwrite((email) => email.toLowerCase())
 
 ## .default(value)
 
-Provides default for undefined input. Applied after validation.
+Returns an output-typed default immediately for undefined input, skipping the wrapped validation and transforms. Use `.prefault()` when the fallback must pass through parsing.
 
 ```typescript
 const Port = z.number().default(3000)
@@ -154,7 +156,7 @@ Name.parse(undefined) // "Anonymous" (validated against min(1) first)
 
 ## .catch(value)
 
-Fallback on any error — never fails.
+Fallback on validation failure. Exceptions thrown by user callbacks still propagate; a fallback callback can also throw.
 
 ```typescript
 const SafeNumber = z.number().catch(0)

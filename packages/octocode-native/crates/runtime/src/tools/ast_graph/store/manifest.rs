@@ -1,8 +1,6 @@
 //! The snapshot manifest written beside `graph.bin`.
+use super::super::ANALYSIS_VERSION;
 use super::*;
-
-/// Bump when persisted linking semantics change without a binary format change.
-pub(super) const ANALYSIS_VERSION: u32 = 9;
 
 pub(super) fn analysis_current(manifest: &Value) -> bool {
     manifest["analysisVersion"] == ANALYSIS_VERSION
@@ -86,10 +84,8 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         "scan": {
             "filesScanned": input.built.facts.len(),
             "filesSkipped": input.built.files_skipped,
-            // The file scan stopped at `maxFiles`; the edge cap is apart:
-            // more files cannot lift it, and it leaves the scan complete.
+            // The file scan stopped at `maxFiles`.
             "truncated": input.built.truncated,
-            "edgesCapped": input.built.edges_capped,
             "maxFiles": input.max_files,
             "excludeDir": input.exclude_dir,
         },
@@ -108,7 +104,16 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         },
         "calls": input.projection.calls,
         "argumentCoverage": argument_coverage::coverage(input.built, tables),
-        "extraction": {"parsedFiles":input.built.parsed_files,"reusedFiles":input.built.reused_files},
+        "extraction": {
+            "parsedFiles": input.built.parsed_files,
+            "reusedFiles": input.built.reused_files,
+            "resumedFiles": input.built.construction.resumed_files,
+            "checkpointedFiles": input.built.construction.checkpointed_files,
+            "spilledBytes": input.built.construction.spilled_bytes,
+            "memoryOnlyFiles": input.built.construction.memory_only_files,
+            "maxSpillBytes": input.built.construction.max_spill_bytes,
+            "maxMemoryOnlyBytes": input.built.construction.max_memory_only_bytes,
+        },
         "linkage": input.projection.calls.linkage(),
         "linkageByLanguage": input.projection.calls.linkage_by_language(),
         "callExtractionByLanguage": call_extraction,

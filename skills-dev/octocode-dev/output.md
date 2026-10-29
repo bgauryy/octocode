@@ -1,6 +1,6 @@
 # Output
 
-Follow the [shared visual-first, content-only rules](references/presentation.md) when presenting results; retain this skill’s artifact format.
+Follow the [shared presentation and HTML delivery rules](references/presentation.md); retain this skill’s artifact format.
 
 BLUF in chat: the verdict, then the commands and what they returned, each claim beside its evidence (claim–evidence). Name anything not verified as unknown. A plain task writes no file.
 

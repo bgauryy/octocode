@@ -156,7 +156,7 @@ usage primer. Keep those original packets as historical evidence rather than edi
 into current instructions.
 
 The requested binary is
-`/Users/bgaryy/code/octocode/packages/octocode-native/npm/darwin-arm64/octocode`.
+`packages/octocode-native/npm/darwin-arm64/octocode`.
 The two worker roles used Terra, with a third continuation session when the Octocode worker
 ran out of context. The native arm's research used that binary only. The shell arm could use
 rg and ast-grep, but did not use ast-grep. This was a measured exploration rather than a

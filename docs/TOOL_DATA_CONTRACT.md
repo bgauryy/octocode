@@ -26,6 +26,8 @@ Structure listings group entries by `dir`. Entries may append a byte count in pa
 
 The default response includes evidence, provenance, required coverage facts and executable next steps. Rendered-size counters and cache warmth stay internal. There is no extras switch or hidden field-restoration mode. Size reductions may remove duplicate metadata, never evidence. Choose an explicit view to change the requested representation; compact and symbols views are transformed evidence, not verbatim source.
 
+`structureSearch` offers `view:"paths"` for names and kind markers; its default `details` view includes metadata. Graph queries default to full provenance. Their explicit `includeProvenance:false` projection replaces only proven unchanged UTF-8 source mappings with an `"identity"` origin marker beside the row's file, digest and byte spans. Complex mappings remain explicit. Neither projection removes requested paths, graph rows, coverage facts or continuations.
+
 ## Evidence boundaries
 
 A result proves only its stated scope. Preserve `isPartial`, `partialReasons`, warnings, skipped-path disclosures, selection receipts and terminal limits. Search-index gaps, provider caps and unavailable language servers constrain absence claims. A complete page can still belong to an incomplete collection.

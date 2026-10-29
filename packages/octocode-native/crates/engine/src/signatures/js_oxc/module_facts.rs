@@ -12,6 +12,8 @@ use crate::signatures::js_oxc_shared::{SpanPositions, module_export_name};
 
 use super::LocalExports;
 
+mod react;
+
 pub(super) fn collect_module_facts(
     program: &Program,
     li: &SpanPositions,
@@ -19,6 +21,7 @@ pub(super) fn collect_module_facts(
     exports: &mut Vec<GraphFactExport>,
     local_exports: &mut LocalExports,
 ) {
+    let react = react::ReactNames::of(program);
     for stmt in &program.body {
         match stmt {
             Statement::ImportDeclaration(decl) => collect_import_declaration(decl, li, imports),
@@ -59,6 +62,11 @@ pub(super) fn collect_module_facts(
                     ExportDefaultDeclarationKind::Identifier(ident) => {
                         Some(ident.name.as_str().to_string())
                     }
+                    ExportDefaultDeclarationKind::CallExpression(_) => decl
+                        .declaration
+                        .as_expression()
+                        .and_then(|expression| react.wrapped(expression))
+                        .map(str::to_owned),
                     _ => None,
                 };
                 if let Some(local) = &local_name {
@@ -121,6 +129,7 @@ pub(super) fn collect_module_facts(
                     local_range: Some(li.range(decl.id.span)),
                     resolution_hint: None,
                     module_scope: None,
+                    scope_id: None,
                 });
             }
             _ => {}
@@ -176,6 +185,7 @@ fn collect_import_declaration(
                 local_range,
                 resolution_hint: None,
                 module_scope: None,
+                scope_id: None,
             });
         }
     } else {
@@ -190,6 +200,7 @@ fn collect_import_declaration(
             local_range: None,
             resolution_hint: None,
             module_scope: None,
+            scope_id: None,
         });
     }
 }

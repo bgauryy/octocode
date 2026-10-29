@@ -131,6 +131,7 @@ impl WalkScope<'_> {
             generated,
             declares: outcome.declares && self.identifier,
             source,
+            not_utf8: outcome.not_utf8,
         });
         WalkState::Continue
     }

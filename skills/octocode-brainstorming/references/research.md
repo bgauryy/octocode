@@ -1,6 +1,6 @@
-# Research surfaces
-
 Load when a gatherer or the parent starts searching or picks surfaces for trends, papers, products, releases, or advisories.
+
+# Research surfaces
 
 ## Searching
 

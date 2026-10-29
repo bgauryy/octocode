@@ -61,6 +61,8 @@ export function parityView(json, tool) {
     }
     if (path.at(-1) === 'hints') return undefined;
     if (path.at(-1) === 'expiresAt') return '<retention deadline>';
+    if (tool === 'graphBuild' && path.length === 4 && path[0] === 'results'
+      && path[2] === 'data' && path[3] === 'totalMs' && Number.isFinite(value)) return '<per-call elapsed>';
     return value;
   });
 }

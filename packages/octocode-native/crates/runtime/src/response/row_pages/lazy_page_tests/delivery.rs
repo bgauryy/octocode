@@ -65,7 +65,7 @@ fn a_page_with_rows_left_over_leads_with_an_incomplete_warning() {
     assert_eq!(first.keys().next().map(String::as_str), Some("warnings"));
     let banner = first["warnings"][0].as_str().expect("banner");
     assert!(
-        banner.starts_with("incomplete — 2 of 3 rows continue"),
+        banner.starts_with("incomplete: 2/3 rows; more response pages"),
         "{banner}"
     );
     // How to follow `next` lives once in the instructions, not per page.

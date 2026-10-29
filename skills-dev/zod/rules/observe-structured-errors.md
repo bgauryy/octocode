@@ -1,7 +1,7 @@
 ---
 title: Log Structured Errors, Not Raw ZodError
 impact: HIGH
-description: Use z.flattenError() for compact, structured logs with request correlation IDs. Never console.log a raw ZodError — it's noisy, unstructured, and impossible to query.
+description: Choose explicit error fields and correlation IDs for the log consumer; formatting alone does not redact sensitive values.
 tags: observability, logging, errors, flattenError, structured-logging
 ---
 
@@ -9,18 +9,17 @@ tags: observability, logging, errors, flattenError, structured-logging
 
 ## Problem
 
-Raw `ZodError` objects contain deeply nested issue arrays with internal metadata. Logging them directly produces noisy, unstructured output that's impossible to filter, alert on, or query in log aggregation tools (Datadog, Grafana, ELK).
+Logging an Error object depends on the logger's serializer and may omit useful fields. Select an explicit shape for the consumer. `flattenError` groups by top-level field; use issue paths or `treeifyError` when nested detail matters. Formatting does not sanitize custom messages or user-controlled keys.
 
 ## Incorrect
 
 ```typescript
-// BUG: raw ZodError is noisy and unqueryable
+// Fragile: behavior depends on the logger's Error serializer
 app.post("/api/users", (req, res) => {
   const result = UserSchema.safeParse(req.body)
   if (!result.success) {
     logger.error("Validation failed", { error: result.error })
-    // Logs a massive nested object with internal Zod metadata
-    // Cannot search by field name, schema, or request
+    // Check which fields the serializer actually retains
     return res.status(400).json({ error: "Invalid input" })
   }
 })

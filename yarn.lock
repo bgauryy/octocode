@@ -823,12 +823,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
+"@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 21.0.1
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=abddec&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core#../octocode-mcp-host/packages/octocode-core::hash=2a3d8d&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/049932f69e33aabcb64b035a976116f671f72d2cb17e3f6f1370976aa9f263aead12ac841f19d4e9c6ccd4176dd7aae266fa22bd82169e3aeb7e7e0180a1d9a8
+  checksum: 10c0/5dfcbc6bdf9e389434d5a90e3941d805f4f99f3c001887176186c4e704d83f306abb831da8900eca48115b9026e4f13245728e4b528fef749f2bc7da888897c4
   languageName: node
   linkType: hard
 

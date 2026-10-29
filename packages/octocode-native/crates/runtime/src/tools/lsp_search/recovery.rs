@@ -96,14 +96,15 @@ async fn settled_locations(
 }
 
 /// [`get_locations`], also saying whether the server spelled any location
-/// through a symlink (see [`one_spelling`]).
+/// through a symlink (see [`one_spelling`]) and how many locations the
+/// read policy withheld.
 pub(super) async fn get_spelled_locations(
     client: &NativeLspClient,
     snippet_policy: &SnippetReadPolicy,
     cancel: &dyn CancellationCheck,
     request: LocationRequest,
     (path, line, character): (&str, u32, u32),
-) -> Result<(Vec<LspCodeSnippet>, bool), LspFailure> {
+) -> Result<(Vec<LspCodeSnippet>, bool, usize), LspFailure> {
     let mut snippets = cancellable(
         cancel,
         client.get_locations(
@@ -116,8 +117,13 @@ pub(super) async fn get_spelled_locations(
         ),
     )
     .await??;
+    // Locations outside the read roots are withheld, and counted: an
+    // answer missing them is partial, not smaller.
+    let before = snippets.len();
     snippets.retain(|snippet| snippet.content != SNIPPET_CONTENT_WITHHELD);
-    Ok(one_spelling(snippets))
+    let withheld = before - snippets.len();
+    let (snippets, respelled) = one_spelling(snippets);
+    Ok((snippets, respelled, withheld))
 }
 
 /// Each location once, named by its real path. A server that reaches one

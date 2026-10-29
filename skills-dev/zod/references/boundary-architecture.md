@@ -1,19 +1,23 @@
+Load when choosing where a schema parses data or which layer owns it.
+
 # Boundary Architecture — Where Zod Fits
 
 ## Overview
 
 Zod belongs at **system boundaries** — the points where your application receives data it doesn't control. Parse once at the boundary, then pass typed data inward. Domain logic should never see `unknown`.
 
-## Express / Fastify — Route Handler vs Middleware
+## Express — Route Handler vs Middleware
+
+The examples use Express response methods. For Fastify, use its request/reply types and validation integration. Follow the framework's async error path, and use async Zod parsing when the schema contains asynchronous work.
 
 ### In the Route Handler (Recommended for Most Cases)
 
 ```typescript
-app.post("/api/users", (req, res) => {
+app.post("/api/users", async (req, res) => {
   const result = CreateUserSchema.safeParse(req.body)
   if (!result.success) {
     return res.status(400).json({
-      errors: z.flattenError(result.error).fieldErrors,
+      errors: z.flattenError(result.error),
     })
   }
   const user = await createUser(result.data)
@@ -29,16 +33,16 @@ function validate<T extends z.ZodType>(schema: T) {
     const result = schema.safeParse(req.body)
     if (!result.success) {
       return res.status(400).json({
-        errors: z.flattenError(result.error).fieldErrors,
+        errors: z.flattenError(result.error),
       })
     }
-    req.body = result.data // typed from here on
+    req.body = result.data // validated output; this does not refine a later handler's TS type
     next()
   }
 }
 
-app.post("/api/users", validate(CreateUserSchema), (req, res) => {
-  // req.body is already validated and typed
+app.post("/api/users", validate(CreateUserSchema), async (req, res) => {
+  // Supply the parsed body type through Express route generics or a typed wrapper.
   const user = await createUser(req.body)
   res.status(201).json(user)
 })
@@ -58,7 +62,7 @@ tRPC handles boundary parsing for you via `.input()`:
 ```typescript
 export const userRouter = router({
   create: publicProcedure
-    .input(CreateUserSchema) // tRPC calls safeParse internally
+    .input(CreateUserSchema) // tRPC owns the schema's parsing integration
     .mutation(async ({ input }) => {
       // input is fully typed — z.infer<typeof CreateUserSchema>
       return createUser(input)
@@ -72,7 +76,7 @@ export const userRouter = router({
 })
 ```
 
-You don't call `safeParse()` yourself — tRPC does it and returns a typed error response automatically.
+Do not add duplicate parsing around a framework integration that already validates this boundary. Follow its configured error response contract.
 
 ## Next.js Server Actions
 
@@ -110,7 +114,7 @@ export async function POST(request: Request) {
 
   if (!result.success) {
     return Response.json(
-      { errors: z.flattenError(result.error).fieldErrors },
+      { errors: z.flattenError(result.error) },
       { status: 400 }
     )
   }
@@ -156,7 +160,7 @@ function ProfileEditor() {
 
 ## Environment Variables — Startup Parsing
 
-Parse env vars once at application startup. Fail fast if the environment is misconfigured.
+Parse env vars through the application's config owner at startup. Fail fast if misconfigured; in Octocode that owner is `@octocodeai/config`, so do not add a second env loader. HTTP examples omit transport handling: malformed JSON, non-success upstream responses and network failures need their own error path before schema validation.
 
 ### Manual Approach
 

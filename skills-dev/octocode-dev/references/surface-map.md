@@ -1,6 +1,6 @@
-# Surface map
-
 Load when locating any layer of a tool before auditing or editing it. A fix in the wrong layer drifts from the source of truth.
+
+# Surface map
 
 Paths beginning `crates/` are relative to `packages/octocode-native/`; other paths are relative to the monorepo root (`<repo>`). `CORE` is the sibling `../octocode-mcp-host/packages/octocode-core`.
 

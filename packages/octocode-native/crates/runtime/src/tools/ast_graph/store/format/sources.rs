@@ -1,7 +1,7 @@
 use super::*;
 use crate::execution::cancel::CancellationCheck;
 use octocode_engine::text::analysis::{
-    ByteRange, OriginProjection, SourceDescriptors, SourceError,
+    ByteRange, OriginProjection, SourceCatalog, SourceDescriptors, SourceError,
 };
 mod budget;
 mod catalog;
@@ -31,11 +31,11 @@ fn map_budget(stop: &(dyn Fn() -> bool + Sync)) -> octocode_engine::text::analys
     use octocode_engine::text::analysis::{MapBudget, MapLimits};
     MapBudget::new(
         MapLimits {
-            bytes: super::super::MAX_GRAPH_BYTES,
-            work: super::super::MAX_GRAPH_BYTES,
+            bytes: LIMITS.source_bytes,
+            work: LIMITS.source_work,
             ..Default::default()
         },
-        std::time::Instant::now() + std::time::Duration::from_secs(30),
+        std::time::Instant::now() + LIMITS.source_deadline,
         stop,
     )
 }
@@ -50,7 +50,7 @@ impl SourceTable {
             descriptors,
             ..Default::default()
         };
-        let mut budget = budget::Budget::new(cancel);
+        let mut budget = budget::Budget::new(cancel, &LIMITS);
         for origin in origins {
             output
                 .origins
@@ -83,9 +83,9 @@ impl SourceTable {
             self.descriptors.units.iter().map(|row| row.id.as_str()),
             cancel,
         )?;
-        self.admit_read(&mut budget::Budget::new(cancel))?;
+        self.admit_read(&mut budget::Budget::new(cancel, &LIMITS))?;
         self.origins
-            .validate(&self.descriptors, &mut budget::Budget::new(cancel))
+            .validate(&self.descriptors, &mut budget::Budget::new(cancel, &LIMITS))
     }
     pub(crate) fn origin(
         &self,
@@ -94,19 +94,66 @@ impl SourceTable {
         cancel: &dyn CancellationCheck,
     ) -> Result<OriginProjection, crate::response::result::ToolError> {
         use crate::response::result::ToolError;
-        let entry = self.origins.get(reference).map_err(ToolError::source)?;
+        let entry = *self.origins.get(reference).map_err(ToolError::source)?;
         projection.reserve(entry.bytes as usize, entry.items as usize, cancel)?;
+        let scope = self.unit_scope(entry.unit).map_err(ToolError::source)?;
+        let stop = || cancel.check().is_err();
+        let mut map = map_budget(&stop);
+        let catalog = SourceCatalog::new(&scope, &mut map).map_err(ToolError::source)?;
         self.origins
-            .origin(
+            .checked_origin(
                 reference,
                 &self.descriptors,
-                &mut budget::Budget::with_limits(
+                &catalog,
+                &mut map,
+                // Exactly what this origin's index entry admitted.
+                &mut budget::Budget::new(
                     cancel,
-                    entry.bytes as usize,
-                    entry.items as usize,
+                    &Limits {
+                        source_bytes: entry.bytes as usize,
+                        table_items: entry.items as usize,
+                        ..LIMITS
+                    },
                 ),
             )
             .map_err(ToolError::source)
+    }
+
+    /// The descriptors one origin's validation reads: its unit, the unit's
+    /// representation and that representation's sources. A projection may
+    /// cite only those sources, so this catalog decides it exactly as the
+    /// whole one does, at the cost of three lookups.
+    fn unit_scope(&self, unit: u32) -> Result<SourceDescriptors, SourceError> {
+        let missing = || budget::invalid("source origin unit has no representation descriptor");
+        let unit = self
+            .descriptors
+            .units
+            .get(unit as usize)
+            .ok_or_else(|| budget::invalid("source origin unit index out of bounds"))?;
+        let representation = self
+            .descriptors
+            .representations
+            .binary_search_by(|row| row.id.cmp(&unit.representation_id))
+            .ok()
+            .map(|at| &self.descriptors.representations[at])
+            .ok_or_else(missing)?;
+        let mut snapshots = representation
+            .source_ids
+            .iter()
+            .filter_map(|id| {
+                self.descriptors
+                    .snapshots
+                    .binary_search_by(|row| row.id.cmp(id))
+                    .ok()
+                    .map(|at| self.descriptors.snapshots[at].clone())
+            })
+            .collect::<Vec<_>>();
+        snapshots.sort_unstable_by(|a, b| a.id.cmp(&b.id));
+        Ok(SourceDescriptors {
+            snapshots,
+            representations: vec![representation.clone()],
+            units: vec![unit.clone()],
+        })
     }
     pub(crate) fn check_range(&self, reference: u32, start: u32, end: u32) -> Result<(), String> {
         if start == NONE || end == NONE {
@@ -242,26 +289,79 @@ fn sorted_ids<'a>(
     Ok(())
 }
 
+/// How much of the origin pool a read validates before use.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Admission {
+    /// Every origin record, decoded and validated against the catalog.
+    Every,
+    /// The catalog and the persisted origin index; each origin is decoded
+    /// and validated when it is read.
+    Accessed,
+}
+
+/// The source table from `SRCE` (the catalog) and the unpacked `SRCO` (the
+/// origin pool), which together are the encoded table.
 pub(super) fn read(
     sections: &Sections,
     tables: &mut GraphTables,
+    admission: Admission,
     cancel: &dyn CancellationCheck,
 ) -> Result<(), String> {
-    let reader = sections.get(b"SRCE", "SRCE")?;
-    tables.sources = decode(reader.bytes, cancel)
+    let catalog = sections.get(b"SRCE", "SRCE")?;
+    let origins = sections.get(b"SRCO", "SRCO")?;
+    let mut bytes = Vec::with_capacity(catalog.bytes.len() + origins.bytes.len());
+    bytes.extend_from_slice(catalog.bytes);
+    bytes.extend_from_slice(origins.bytes);
+    tables.sources = decode_admitted(&bytes, &mut budget::Budget::new(cancel, &LIMITS), admission)
         .map_err(|error| format!("graph source correspondence is invalid: {error}"))?;
     Ok(())
 }
-fn decode(bytes: &[u8], cancel: &dyn CancellationCheck) -> Result<SourceTable, SourceError> {
-    decode_with_budget(bytes, &mut budget::Budget::new(cancel))
-}
-fn decode_with_budget(
+
+/// The catalog alone, with an origin pool that reads its blocks on demand
+/// ([`SourceTable::insert_origin_block`]); `origins` is the pool's size.
+pub(super) fn read_catalog(
     bytes: &[u8],
-    budget: &mut budget::Budget<'_>,
-) -> Result<SourceTable, SourceError> {
-    let cancel = budget.cancel;
-    let mut input = budget::Input::new(bytes, budget);
-    let descriptors = catalog::read(&mut input)?;
+    origins: usize,
+    cancel: &dyn CancellationCheck,
+) -> Result<SourceTable, String> {
+    let invalid = |error: SourceError| format!("graph source correspondence is invalid: {error}");
+    let mut budget = budget::Budget::new(cancel, &LIMITS);
+    let mut input = budget::Input::new(bytes, &mut budget);
+    let descriptors = catalog::read(&mut input).map_err(invalid)?;
+    input.finish().map_err(invalid)?;
+    check_catalog(&descriptors, cancel).map_err(invalid)?;
+    Ok(SourceTable {
+        descriptors,
+        origins: pool::OriginPool::sparse(origins),
+    })
+}
+
+impl SourceTable {
+    /// Whether origin `reference` is available without reading a block.
+    pub(super) fn has_origin(&self, reference: u32) -> bool {
+        self.origins.has(reference)
+    }
+
+    /// Admits one authenticated `SRCO` block of `count` origins starting at
+    /// `first`: its entries are checked structurally, its records when read.
+    pub(super) fn insert_origin_block(
+        &mut self,
+        first: u32,
+        count: u32,
+        body: &[u8],
+        cancel: &dyn CancellationCheck,
+    ) -> Result<(), String> {
+        self.origins
+            .insert_block(first, count, body, &self.descriptors, cancel)
+            .map_err(|error| format!("graph source correspondence is invalid: {error}"))
+    }
+}
+
+/// Sorted, unique descriptor ids and a valid catalog.
+fn check_catalog(
+    descriptors: &SourceDescriptors,
+    cancel: &dyn CancellationCheck,
+) -> Result<(), SourceError> {
     sorted_ids(
         descriptors.snapshots.iter().map(|row| row.id.as_str()),
         cancel,
@@ -274,19 +374,73 @@ fn decode_with_budget(
         cancel,
     )?;
     sorted_ids(descriptors.units.iter().map(|row| row.id.as_str()), cancel)?;
-    let origins = pool::OriginPool::read(&mut input, &descriptors)?;
+    let stop = || cancel.check().is_err();
+    SourceCatalog::new(descriptors, &mut map_budget(&stop))?;
+    Ok(())
+}
+#[cfg(test)]
+fn decode(bytes: &[u8], cancel: &dyn CancellationCheck) -> Result<SourceTable, SourceError> {
+    decode_with_budget(bytes, &mut budget::Budget::new(cancel, &LIMITS))
+}
+#[cfg(test)]
+fn decode_with_budget(
+    bytes: &[u8],
+    budget: &mut budget::Budget<'_>,
+) -> Result<SourceTable, SourceError> {
+    decode_admitted(bytes, budget, Admission::Every)
+}
+fn decode_admitted(
+    bytes: &[u8],
+    budget: &mut budget::Budget<'_>,
+    admission: Admission,
+) -> Result<SourceTable, SourceError> {
+    let cancel = budget.cancel;
+    let mut input = budget::Input::new(bytes, budget);
+    let descriptors = catalog::read(&mut input)?;
+    let origins = match admission {
+        Admission::Every => {
+            sorted_ids(
+                descriptors.snapshots.iter().map(|row| row.id.as_str()),
+                cancel,
+            )?;
+            sorted_ids(
+                descriptors
+                    .representations
+                    .iter()
+                    .map(|row| row.id.as_str()),
+                cancel,
+            )?;
+            sorted_ids(descriptors.units.iter().map(|row| row.id.as_str()), cancel)?;
+            pool::OriginPool::read(&mut input, &descriptors)?
+        }
+        Admission::Accessed => {
+            check_catalog(&descriptors, cancel)?;
+            pool::OriginPool::read_index(&mut input, &descriptors)?
+        }
+    };
     Ok(SourceTable {
         descriptors,
         origins,
     })
 }
+#[cfg(test)]
 pub(super) fn encode(
     sources: &SourceTable,
     cancel: &dyn CancellationCheck,
 ) -> Result<Vec<u8>, SourceError> {
-    let mut out = Vec::new();
-    let mut budget = budget::Budget::new(cancel);
-    catalog::write(&sources.descriptors, &mut out, &mut budget)?;
-    sources.origins.write(&mut out, &mut budget)?;
-    Ok(out)
+    let (mut catalog, origins) = encode_parts(sources, cancel)?;
+    catalog.extend(origins);
+    Ok(catalog)
+}
+
+/// The catalog (`SRCE`) and the origin pool (`SRCO`, before packing).
+pub(super) fn encode_parts(
+    sources: &SourceTable,
+    cancel: &dyn CancellationCheck,
+) -> Result<(Vec<u8>, Vec<u8>), SourceError> {
+    let (mut catalog, mut origins) = (Vec::new(), Vec::new());
+    let mut budget = budget::Budget::new(cancel, &LIMITS);
+    catalog::write(&sources.descriptors, &mut catalog, &mut budget)?;
+    sources.origins.write(&mut origins, &mut budget)?;
+    Ok((catalog, origins))
 }

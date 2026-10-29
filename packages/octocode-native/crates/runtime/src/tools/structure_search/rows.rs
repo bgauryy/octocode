@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
-use octocode_contract_types::StructureSearchQueryFilesSort;
+use octocode_contract_types::{StructureSearchQueryFilesSort, StructureSearchView};
 use octocode_engine::types::{FileKind, FileSystemEntry};
 
 mod line_counts;
@@ -119,8 +119,8 @@ impl Row {
             name,
             kind,
             size,
-            // The line sort's own key, counted for every file it ranks, shows
-            // whatever the detail.
+            // The line sort's own key, counted for every file it ranks,
+            // is available to the details view without another read.
             lines,
             // Whole epoch milliseconds, shown as an ISO 8601 instant.
             modified_ms
@@ -145,13 +145,21 @@ impl Row {
         }
     }
 
-    /// The row as its page shows it: with `detail`, a file's line count and
-    /// modified time, read for this page's files only.
+    fn path_entry(&self) -> String {
+        entry_text(&self.display_name, self.kind, None, None, None)
+    }
+
+    /// The row as its requested view shows it: paths keeps names and kinds;
+    /// with `detail`, file line counts are read for this page only.
     pub(super) fn page_entry(
         &self,
+        view: StructureSearchView,
         detail: Option<&PathPolicy>,
         cancel: &dyn CancellationCheck,
     ) -> Result<String, ToolError> {
+        if view == StructureSearchView::Paths {
+            return Ok(self.path_entry());
+        }
         let Some(paths) = detail.filter(|_| self.kind != EntryKind::Directory) else {
             return Ok(self.entry.clone());
         };
@@ -160,7 +168,7 @@ impl Row {
             &self.display_name,
             self.kind,
             Some(self.size),
-            lines.shown_in_details(),
+            lines.and_then(Lines::shown_in_details),
             Some(self.modified.round() as i64),
         ))
     }
@@ -265,8 +273,7 @@ fn drop_grouped_dirs(rows: &mut Vec<Row>) {
 /// being its spelling), so `dir + "/" + name` is a path a local tool takes.
 /// A path-ordered page holds each directory in one run, so it names each
 /// once; a ranked page (`sort` by size, lines, name or time) keeps its rank
-/// order exactly, and a directory it returns to opens a new group. Each
-/// entry keeps the key it ranks by.
+/// order exactly, and a directory it returns to opens a new group.
 pub(super) fn dir_groups(rows: &[(String, String)], prefix: &str) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
     for (dir, entry) in rows {
@@ -288,7 +295,12 @@ pub(super) fn dir_groups(rows: &[(String, String)], prefix: &str) -> Vec<Value> 
 /// (a page repeats the header of a group it continues). `deferred_detail`
 /// reserves the detail fields a page adds. Costs are bound by the
 /// snapshot, so every page of it cuts at the same rows.
-pub(super) fn costs(rows: &[Row], prefix: &str, deferred_detail: bool) -> Vec<RowCost> {
+pub(super) fn costs(
+    rows: &[Row],
+    prefix: &str,
+    view: StructureSearchView,
+    deferred_detail: bool,
+) -> Vec<RowCost> {
     let mut headers = std::collections::HashMap::<&str, usize>::new();
     rows.iter()
         .enumerate()
@@ -300,10 +312,17 @@ pub(super) fn costs(rows: &[Row], prefix: &str, deferred_detail: bool) -> Vec<Ro
                 .unwrap_or(0)
                     + 1
             });
+            let entry = match view {
+                StructureSearchView::Paths => {
+                    octocode_engine::json_size::utf16_units(&row.path_entry())
+                }
+                StructureSearchView::Details => octocode_engine::json_size::utf16_units(&row.entry),
+            }
+            .unwrap_or(0);
             RowCost {
                 // Reserve the deferred detail fields before paging so
                 // they cannot overflow the window.
-                entry: octocode_engine::json_size::utf16_units(&row.entry).unwrap_or(0)
+                entry: entry
                     + 1
                     + usize::from(deferred_detail && row.kind != EntryKind::Directory)
                         * DETAIL_FIELDS_RESERVE,

@@ -106,10 +106,12 @@ impl ChannelRun {
         let rejected = std::mem::take(&mut self.rejected_rows);
         let mcp = self.mcp;
         let available = |target: &str| {
-            // An MCP-mode call can never execute a contract `cliOnly` tool
-            // (see the admission check in `execute_channel`).
-            !(mcp && ToolId::from_name(target).is_some_and(ToolId::is_cli_only))
-                && self.dispatcher.availability.is_available(target)
+            self.dispatcher.availability.is_available(target)
+                && (!mcp
+                    || ToolId::from_name(target).is_none_or(|id| {
+                        crate::execution::availability::mcp_restriction(&self.dispatcher.config, id)
+                            .is_none()
+                    }))
         };
         let scope = continuations::Scope {
             is_available: &available,

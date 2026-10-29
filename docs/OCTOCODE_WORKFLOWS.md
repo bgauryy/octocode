@@ -27,7 +27,7 @@ flowchart LR
 |---|---|
 | Known local path or source span | localFetch |
 | Text spelling in a local scope | localSearch |
-| File names or directory shape | structureSearch |
+| File names or directory shape | structureSearch with `view:"paths"` |
 | Syntax pattern or declarations | astSearch |
 | Verified symbol references/callers | lspSearch |
 | Repository discovery | ghSearchRepo |
@@ -55,6 +55,12 @@ octocode lspSearch '{"queries":[{"operation":"references","path":"src/registry.t
 ```
 
 The latter path and line are illustrative; replace them with evidence from the preceding call. Read skipped-scope and indexing disclosures before making absence claims.
+
+Choose the smallest representation that answers the question. Request `localSearch` with `view:"files"` for matching paths, `countLines` or `countMatches` for counts, and content when the matching source matters. Use `structureSearch` with `view:"paths"` for discovery and its default `details` view when file metadata matters. Read known ranges directly; widen context or request an enclosing block when the evidence is incomplete.
+
+Use AST for syntax and LSP for resolved identity. A graph snapshot is useful for repeated relationship or impact queries over one scope; a single known caller or declaration lookup usually starts with LSP or AST. Verify graph candidates against source and LSP before treating them as resolved relationships. Graph query `includeProvenance:false` can compact proven identity source mappings; transformed mappings retain their provenance.
+
+Measure token cost across every continuation required by the claim, with equal evidence scope and a named tokenizer. Output bytes, tokens and elapsed time are separate measurements. A small `responseChars` target increases repeated page overhead; narrow the source scope or choose a suitable view before shrinking pages. A targeted `rg` result can cost fewer tokens than structured output for a literal lookup. Syntax, resolved identity, coverage and executable continuations provide additional capabilities that a text-only comparison does not measure.
 
 ## GitHub research
 

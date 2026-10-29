@@ -52,11 +52,15 @@ fn facts(src: &str, path: &str) -> Value {
 /// Facts under a wall-clock deadline that a loaded machine cannot reach, for
 /// the complexity tests: they bound the work by thread CPU time instead
 /// (`crate::test_cpu`), so scheduler delay neither cuts the walk short nor
-/// fails the bound.
-fn facts_with_load_proof_deadline(src: &str, path: &str) -> Value {
+/// fails the bound. Return typed facts so callers measure complete extraction
+/// before converting to JSON values for assertions. Ordinary facts tests still
+/// exercise the serialized API.
+fn facts_with_load_proof_deadline(src: &str, path: &str) -> GraphFactsDocument {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
-    let raw = extract_graph_facts_before(src, path, deadline).expect("graph facts expected");
-    serde_json::from_str(&raw).expect("valid graph json")
+    let extension = extension_of(path, true, "txt");
+    let extraction = extract_graph_facts_with_metadata_before(src, path, &extension, deadline)
+        .expect("graph facts expected");
+    extraction.facts
 }
 
 fn facts_json(source: &str, path: &str) -> Value {
@@ -116,9 +120,11 @@ fn codes(facts: &Value) -> Vec<String> {
 mod calls_and_diagnostics;
 mod deadlines;
 mod declarations;
+mod go_facts;
 mod heritage_edges;
 mod language_facts;
 mod references;
+mod rust_macro_calls;
 mod rust_modules;
 
 mod test_discovery;
@@ -129,3 +135,6 @@ mod adapter_repairs;
 mod adapter_visibility;
 
 mod namespaces;
+
+#[cfg(feature = "tree-sitter-scala")]
+mod scala;

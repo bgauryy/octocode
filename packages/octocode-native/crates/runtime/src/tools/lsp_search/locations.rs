@@ -8,7 +8,7 @@
 //! an emitted `startLine` feeds back unchanged as the one-based `line`
 //! input.
 
-use super::failure::{empty, offer_next_page};
+use super::failure::{empty, no_answer, offer_next_page};
 use super::render::{
     Pages, document_symbol_rows, flatten_document_symbol, into_items, page_window, paginate,
     plain_sizes, symbol_kind_name, uri_to_path,
@@ -22,8 +22,8 @@ use serde_json::{Value, json};
 mod rows;
 mod shaping;
 mod snapshots;
+use rows::location_sort_key;
 pub(super) use rows::{attach_read_lead, group_by_file};
-use rows::{location_sort_key, without_project};
 #[cfg(test)]
 pub(super) use shaping::MAX_DECLARATION_CONTENT_LINES;
 use shaping::{DECLARATION_CLIPPED, location_payload, location_sizes};
@@ -79,7 +79,12 @@ pub(super) fn public_workspace_symbol(symbol: &Value) -> Value {
     if let Some(uri) = symbol.pointer("/location/uri").and_then(Value::as_str) {
         public.insert("path".into(), json!(uri_to_path(uri)));
     }
-    if let Some(display) = symbol.pointer("/location/range").and_then(public_range) {
+    if let Some(mut display) = symbol.pointer("/location/range").and_then(public_range) {
+        // A `SymbolInformation` range starts at the declaration (`export`),
+        // not at the name: no column, which would mislocate the symbol.
+        if let Some(display) = display.as_object_mut() {
+            display.remove("startCharacter");
+        }
         public.insert("displayRange".into(), display);
     }
     Value::Object(public)
@@ -144,19 +149,10 @@ pub(super) async fn salted_locations(
         if out_of_policy > 0 {
             return withheld(query, out_of_policy);
         }
-        if without_project(query) {
-            return empty(
-                query,
-                "noProject",
-                "No project file (Cargo.toml, package.json, tsconfig.json, go.mod, pyproject.toml, …) is above this file, so the language server has no project to index; empty is not absence.",
-                true,
-            );
-        }
-        return empty(
+        return no_answer(
             query,
             "noLocations",
             &format!("{provider} returned no locations"),
-            true,
         );
     }
     let snapshot = salted_snapshot(query, kind, &locations, salt);

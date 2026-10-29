@@ -201,3 +201,22 @@ fn counts_and_inversion_keep_occurrence_and_line_meanings_distinct() {
     );
     assert_eq!(paths(&without), ["b.txt".to_owned()].into_iter().collect());
 }
+
+/// A search of the workspace root (`.`) leads to a read of its top hit by
+/// the path its row shows, not a `./`-prefixed second spelling of it.
+#[test]
+fn a_root_search_reads_its_hit_by_the_row_path() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    fs::create_dir_all(root.path().join("src")).expect("src");
+    fs::write(root.path().join("src/a.rs"), "fn needle() {}\n").expect("source");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path":".","matchString":["needle"]}),
+        None,
+    );
+    let body = serde_json::to_value(search_in(&request, &policy, &security, None).expect("search"))
+        .expect("serialize");
+    assert_eq!(body["files"][0]["path"], "src/a.rs", "{body}");
+    let read = crate::tools::test_support::checks::related_call(&body, "localFetch", |_| true);
+    assert_eq!(read["input"]["queries"][0]["path"], "src/a.rs", "{body}");
+}

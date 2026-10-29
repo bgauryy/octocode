@@ -4,6 +4,7 @@ use super::mode::MatchWork;
 use crate::search::relevance;
 use crate::search::text_parser::{FileEntry, RawMatch, strip_trailing_newline};
 use crate::text::utf8_offsets::byte_to_utf16_offset;
+use crate::text::{Decoded, interior_offset};
 use crate::types::TextSearchMatch;
 use aho_corasick::AhoCorasick;
 use grep_matcher::Matcher;
@@ -17,18 +18,16 @@ use std::time::Instant;
 /// stats.
 pub(super) const MAX_ONLY_MATCHING_PER_FILE: u32 = 200_000;
 
-/// Map a byte offset in the raw line `bytes` to the matching byte offset in
-/// `String::from_utf8_lossy(bytes)`. Each invalid byte becomes a 3-byte U+FFFD,
-/// so raw offsets must not be applied to the lossy text directly.
-fn lossy_offset(bytes: &[u8], offset: usize) -> usize {
-    let offset = offset.min(bytes.len());
-    match std::str::from_utf8(bytes) {
-        Ok(_) => offset,
-        Err(_) => String::from_utf8_lossy(&bytes[..offset]).len(),
-    }
+/// A matched or context block's text as every reader decodes it
+/// ([`Decoded::interior`]: UTF-8, else Latin-1 or U+FFFD for invalid bytes),
+/// and whether it was not UTF-8. Raw byte offsets map into it with
+/// [`interior_offset`].
+fn block_text(bytes: &[u8]) -> (String, bool) {
+    let decoded = Decoded::interior(bytes);
+    (decoded.text.into_owned(), decoded.warning.is_some())
 }
 
-/// Maps raw submatch offsets in a matched block to lossy-text offsets and UTF-16
+/// Maps raw submatch offsets in a matched block to decoded-text offsets and UTF-16
 /// columns. `find_iter` yields non-overlapping matches left to right, so a
 /// forward cursor keeps a line with k spans at O(line + k) instead of
 /// rescanning the prefix per span (O(line · k)). The line's UTF-8 validity is
@@ -60,7 +59,7 @@ impl<'a> SpanColumns<'a> {
         if self.valid_utf8 {
             raw.min(self.bytes.len())
         } else {
-            lossy_offset(self.bytes, raw)
+            interior_offset(self.bytes, raw)
         }
     }
 
@@ -129,6 +128,9 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     pub(super) words: Option<&'a AhoCorasick>,
     /// Bit `i`: word `i` of `words` matched a line.
     pub(super) covered: u64,
+    /// A matched or context line was not UTF-8, so its value is decoded
+    /// text, not verbatim bytes ([`block_text`]).
+    pub(super) not_utf8: bool,
 }
 
 impl<'a, M: Matcher> CollectSink<'a, M> {
@@ -155,6 +157,7 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             binary_offset: None,
             line_weight: 0,
             declares: false,
+            not_utf8: false,
         }
     }
 }
@@ -180,8 +183,8 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         let mut first_start = None;
 
         if self.work.collect_spans {
-            let line_cow = String::from_utf8_lossy(bytes);
-            let line_text = line_cow.into_owned();
+            let (line_text, not_utf8) = block_text(bytes);
+            self.not_utf8 |= not_utf8;
             // Emit one span per submatch with its own UTF-16 column, rather than
             // one whole-line match. find_iter yields non-overlapping matches L→R.
             let matcher = self.matcher;
@@ -248,11 +251,12 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                 })
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
             if self.work.materialize_line {
-                let line_cow = String::from_utf8_lossy(bytes);
-                let line_text = strip_trailing_newline(line_cow.into_owned());
+                let (line_text, not_utf8) = block_text(bytes);
+                self.not_utf8 |= not_utf8;
+                let line_text = strip_trailing_newline(line_text);
                 let column = byte_to_utf16_offset(
                     &line_text,
-                    lossy_offset(bytes, first_start.unwrap_or(0)).min(line_text.len()),
+                    interior_offset(bytes, first_start.unwrap_or(0)).min(line_text.len()),
                 ) as u32;
                 if let Some(limit) = self.work.deferred_snippet {
                     let mut hit = crate::search::text_parser::line_match(
@@ -301,8 +305,9 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
 
     fn context(&mut self, _searcher: &Searcher, ctx: &SinkContext<'_>) -> std::io::Result<bool> {
         let line_number = ctx.line_number().unwrap_or(0) as u32;
-        let line_cow = String::from_utf8_lossy(ctx.bytes());
-        let line_text = strip_trailing_newline(line_cow.into_owned());
+        let (line_text, not_utf8) = block_text(ctx.bytes());
+        self.not_utf8 |= not_utf8;
+        let line_text = strip_trailing_newline(line_text);
         self.entry.contexts.insert(line_number, line_text);
         Ok(true)
     }

@@ -1,6 +1,6 @@
-# RFC workflow
-
 Load when planning evidence, auditing an RFC, or a disagreement survives source review. [output](../output.md) owns structure; `octocode-research` owns tools and verification.
+
+# RFC workflow
 
 ## Gather evidence
 
@@ -26,7 +26,7 @@ Only when a consequential disagreement survives source review, no direct check s
 
 ```mermaid
 flowchart TD
-  N[Note the intended next action] --> S["Run: npx octocode schema clasify --view query"]
+  N[Note the intended next action] --> S["Run: npx -y octocode schema clasify --view query"]
   S --> K{"Key present? Check presence without displaying it"}
   K -- no --> P[Partial, not approved]
   K -- yes --> Q["Submit typed questions over the exact evidence and competing arguments; uncertainty outcome where needed"]

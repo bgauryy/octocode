@@ -189,7 +189,7 @@ async fn an_oversized_or_missing_source_fails_its_row_without_provider_work() {
     let workspace = Workspace::new();
     workspace.write(
         "big.txt",
-        "x".repeat(80) + &"\nfiller line of text".repeat(3000),
+        "x".repeat(80) + &"\nfiller line of text".repeat(14_000),
     );
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let out = clasify(
@@ -294,5 +294,45 @@ async fn a_github_source_reads_its_requested_ref_and_pins_the_lead_to_that_commi
                 .contains(text)
         );
     }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn an_omitted_long_context_picks_the_window_the_state_needs() {
+    let server = provider(2).await;
+    let workspace = Workspace::new();
+    workspace.write(
+        "mid.txt",
+        "x".repeat(80) + &"\nfiller line of text".repeat(3000),
+    );
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = |long_context: Option<bool>| {
+        let mut row = json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"mid.txt"}},
+            "questions":{"q":noul("Is it big?")}});
+        if let Some(long_context) = long_context {
+            row["longContext"] = json!(long_context);
+        }
+        row
+    };
+    let out = clasify(&runtime, vec![row(None), row(Some(false)), content_row()]).await;
+    let rows = out["results"].as_array().unwrap();
+    assert!(rows[0]["data"]["answers"]["q"].is_object(), "{out}");
+    assert_eq!(
+        rows[1]["data"]["errorCode"], "classificationContextTooLarge",
+        "{out}"
+    );
+    let long = |request: &wiremock::Request| {
+        request
+            .headers
+            .get("typesafe-danger-zone-long-context")
+            .is_some()
+    };
+    let requests = server.received_requests().await.unwrap();
+    let judged: Vec<_> = requests
+        .iter()
+        .filter(|r| r.method.as_str() == "POST")
+        .collect();
+    assert_eq!(judged.len(), 2);
+    assert_eq!(judged.iter().filter(|request| long(request)).count(), 1);
     runtime.close().await;
 }

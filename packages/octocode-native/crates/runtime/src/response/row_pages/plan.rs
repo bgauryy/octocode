@@ -2,18 +2,27 @@ use super::super::result::Remaining;
 use super::arena::Window;
 use super::evidence::DependencyError;
 use super::{
-    FragmentArena, PartShare, Placed, fair_shares, keep_row_next, row_next_chars, row_part_chars,
-    volatile_reserve,
+    FragmentArena, PartShare, Placed, delivered_collections, drop_delivered_elsewhere, fair_shares,
+    keep_row_next, row_next_chars, row_part_chars, volatile_reserve,
 };
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
 use tokio_util::sync::CancellationToken;
+
+mod fields;
+use fields::{insert_field, restore_fields, take_guidance};
 
 /// The page plan of a row-scoped response: every fragment of every row,
 /// placed on a page by its size.
 pub(super) struct RowPlan {
     arena: FragmentArena,
     first_fields: Vec<Map<String, Value>>,
+    /// Each row's continuations, hints and related calls, set aside while
+    /// its parts are packed and restored on the parts that carry them.
+    guidance: Vec<Map<String, Value>>,
+    /// Each row's fixed collections that held items: a part carrying one
+    /// empty had it delivered on another part.
+    delivered: Vec<Vec<String>>,
     placed: Vec<Placed>,
     pub(super) total_pages: usize,
     pub(super) rows: usize,
@@ -108,10 +117,20 @@ impl PreparedRows {
         self.sizes.iter().sum()
     }
 
-    /// The plan that packs these rows into pages of `row_budget` chars.
+    #[cfg(test)]
     pub(super) fn plan(
         self,
         row_budget: usize,
+        cancelled: &CancellationToken,
+    ) -> Result<RowPlan, DependencyError> {
+        self.plan_with_terminal(row_budget, None, cancelled)
+    }
+
+    /// Only the final query row's tail may use the finished envelope allowance.
+    pub(super) fn plan_with_terminal(
+        self,
+        row_budget: usize,
+        terminal_budget: Option<usize>,
         cancelled: &CancellationToken,
     ) -> Result<RowPlan, DependencyError> {
         let Self {
@@ -131,8 +150,19 @@ impl PreparedRows {
         };
         let mut heads = Vec::with_capacity(rows.len());
         let mut tails = Vec::new();
+        let mut guidance = Vec::with_capacity(rows.len());
+        let mut delivered = Vec::with_capacity(rows.len());
         for (position, mut row) in rows.into_iter().enumerate() {
+            // Each part carries only its share of the row's guidance
+            // ([`PartShare`]): parts are packed without it, then sized with
+            // the share they carry.
+            let kept = [PartShare::Whole, PartShare::First, PartShare::Last]
+                .map(|share| row_next_chars(&row, share));
+            guidance.push(take_guidance(&mut row));
             let catalog = arena.take_catalog(&mut row, cancelled)?;
+            delivered.push(page_context.map_or_else(Vec::new, |context| {
+                delivered_collections(&row, &context.fixed_paths)
+            }));
             let mut extra = arena.dependencies(
                 catalog,
                 &Value::Object(first_fields[position].clone()),
@@ -151,15 +181,26 @@ impl PreparedRows {
                 catalog,
                 position,
                 Window {
-                    head: head.saturating_sub(extra_chars).max(1),
+                    head: head.saturating_sub(extra_chars + kept[1]).max(1),
                     budget: row_budget
                         .saturating_sub(1 + row_part_chars(sizes[position], sizes[position]))
                         .max(1),
+                    terminal_budget: terminal_budget.filter(|_| position + 1 == sizes.len()).map(
+                        |budget| {
+                            budget
+                                .saturating_sub(
+                                    1 + row_part_chars(sizes[position], sizes[position]),
+                                )
+                                .max(1)
+                        },
+                    ),
                     cancelled,
                     continuation_chars: 0,
+                    tail: kept[2],
                 },
                 reserves[position],
                 &extra,
+                kept,
             )?;
             for placed in parts {
                 if placed.0.part == 1 {
@@ -173,6 +214,8 @@ impl PreparedRows {
         Ok(RowPlan {
             arena,
             first_fields,
+            guidance,
+            delivered,
             placed,
             total_pages,
             rows: sizes.len(),
@@ -199,6 +242,16 @@ impl RowPlan {
                     return Err(DependencyError::Cancelled);
                 }
                 let mut value = self.arena.materialize(&p.fragment);
+                if let Some(context) = self.arena.page_context {
+                    drop_delivered_elsewhere(
+                        &mut value,
+                        &self.delivered[p.row],
+                        &context.optional_paths,
+                    );
+                }
+                if let Some(row) = value.as_object_mut() {
+                    restore_fields(row, self.guidance[p.row].clone());
+                }
                 if p.part == 1
                     && let Some(row) = value.as_object_mut()
                 {
@@ -273,10 +326,8 @@ fn plan_row(
     window: Window<'_>,
     reserve: usize,
     extra: &super::arena::Evidence,
+    [whole, first, last]: [usize; 3],
 ) -> Result<Vec<(Placed, usize)>, DependencyError> {
-    let next_chars = row_next_chars(&row, PartShare::Whole);
-    let kept_next_chars = [PartShare::First, PartShare::Middle, PartShare::Last]
-        .map(|share| row_next_chars(&row, share));
     let mut fragments = Vec::new();
     arena.plan_in(row, catalog, window, &mut fragments)?;
     if let Some((first, chars)) = fragments.first_mut() {
@@ -290,11 +341,11 @@ fn plan_row(
         .map(|(index, (fragment, chars))| {
             let part = index + 1;
             let added = if part == 1 { reserve } else { 0 };
-            let stripped = match PartShare::of(part, of) {
-                PartShare::Whole => 0,
-                PartShare::First => next_chars - kept_next_chars[0],
-                PartShare::Middle => next_chars - kept_next_chars[1],
-                PartShare::Last => next_chars - kept_next_chars[2],
+            let kept = match PartShare::of(part, of) {
+                PartShare::Whole => whole,
+                PartShare::First => first,
+                PartShare::Middle => 0,
+                PartShare::Last => last,
             };
             let part_chars = if of > 1 { row_part_chars(part, of) } else { 0 };
             let placed = Placed {
@@ -304,10 +355,7 @@ fn plan_row(
                 of,
                 page: 0,
             };
-            Ok((
-                placed,
-                (chars + 1 + part_chars + added).saturating_sub(stripped),
-            ))
+            Ok((placed, chars + 1 + part_chars + added + kept))
         })
         .collect()
 }
@@ -338,28 +386,4 @@ fn assign_pages(
         placed.push(fragment);
     }
     (placed, page + 1)
-}
-
-fn restore_fields(row: &mut Map<String, Value>, fields: Map<String, Value>) {
-    for (key, value) in fields {
-        match (row.get_mut(&key), value) {
-            (Some(Value::Object(target)), Value::Object(fields)) => restore_fields(target, fields),
-            (_, value) => {
-                row.insert(key, value);
-            }
-        }
-    }
-}
-
-fn insert_field(target: &mut Map<String, Value>, path: &[String], value: Value) {
-    let Some((key, rest)) = path.split_first() else {
-        return;
-    };
-    if rest.is_empty() {
-        target.insert(key.clone(), value);
-        return;
-    }
-    if let Value::Object(nested) = target.entry(key.clone()).or_insert_with(|| json!({})) {
-        insert_field(nested, rest, value);
-    }
 }

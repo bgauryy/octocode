@@ -157,3 +157,49 @@ top.topH();
         ],
     );
 }
+
+#[test]
+fn a_constructed_receiver_is_typed_by_its_class() {
+    assert_receivers(
+        "function f() { new Store().saveA(); new ns.Repo().findB(); make().runC(); }",
+        "a.ts",
+        &[
+            ("saveA", Some("Store")),
+            ("findB", Some("ns.Repo")),
+            ("runC", None),
+        ],
+    );
+}
+
+#[test]
+fn destructured_parameters_take_their_object_type_property_types() {
+    let source = r#"
+interface Props { scene: Scene; app?: App | null; count: number }
+export type Alias = { store: Store };
+export const A = ({ scene, app: renamed, count }: Props) => {
+  scene.mutateA();
+  renamed.stateB();
+  count.toFixedC();
+};
+function b({ store = fallback }: Alias, { repo }: { repo: Repo }, { other }: Unknown) {
+  store.putD();
+  repo.findE();
+  other.nopeF();
+}
+function c(props: Props) { props.scene.mutateG(); props.missing.nopeH(); }
+"#;
+    assert_receivers(
+        source,
+        "src/a.tsx",
+        &[
+            ("mutateA", Some("Scene")),
+            ("stateB", Some("App")),
+            ("toFixedC", None),
+            ("putD", Some("Store")),
+            ("findE", Some("Repo")),
+            ("nopeF", None),
+            ("mutateG", Some("Scene")),
+            ("nopeH", None),
+        ],
+    );
+}

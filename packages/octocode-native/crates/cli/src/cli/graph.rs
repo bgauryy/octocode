@@ -46,8 +46,9 @@ OUTPUT
 
 STORAGE
   <workspace>/.octocode/graph/<UTC time>-<scope>-<root tag>/{graph.bin, manifest.json}; latest
-  names the newest. --graph takes an id, a scope, or a substring of exactly one id (several:
-  exit 2). The workspace is --workspace, else the nearest .git ancestor of the current directory
+  names the newest. --graph takes an id, a scope, or a substring naming one root's snapshots
+  (its newest; several roots: exit 2).
+  The workspace is --workspace, else the nearest .git ancestor of the current directory
   inside the allowed roots (WORKSPACE_ROOT, else the current directory).
   Oversized or unreadable files stay as unparsed nodes with scan gaps. Bundled source retains
   extracted symbols and relationships; role-based analysis exclusions remain explicit.";
@@ -57,9 +58,9 @@ pub(super) enum GraphCommand {
     /// Parse a directory and publish a snapshot (graph.bin + manifest.json).
     ///
     /// Writes <workspace>/.octocode/graph/<UTC time>-<scope>-<root tag>/ and updates `latest`;
-    /// keeps the newest 3 snapshots per scanned root (--keep). Honors .gitignore; prunes hidden
-    /// directories and dependency, build-output, and environment directories (node_modules,
-    /// target, venv, ...).
+    /// keeps the newest 3 snapshots per scanned root (--keep) and drops older-format snapshots.
+    /// Honors .gitignore; prunes hidden directories and dependency, build-output, and
+    /// environment directories (node_modules, target, venv, ...).
     /// Prints a receipt: counts, call-link rate, scan gaps, and a `next` command.
     #[command(verbatim_doc_comment)]
     Ingest(Box<IngestArgs>),
@@ -129,8 +130,8 @@ pub(super) struct QueryArgs {
     target: Option<String>,
     /// Destination reference for `path`.
     to: Option<String>,
-    /// Snapshot directory, graph.bin path, snapshot id, scope, or a substring of exactly one id
-    /// (a scope or substring naming several snapshots exits 2 and lists them).
+    /// Snapshot directory, graph.bin path, snapshot id, scope, or a substring of one root's ids
+    /// (its newest snapshot; a scope or substring naming several roots exits 2 and lists them).
     #[arg(long)]
     graph: Option<String>,
     /// Workspace whose .octocode/graph holds the snapshots.
@@ -240,6 +241,7 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand, mode: super::O
             } = *args;
             let options = QueryOptions {
                 check_freshness: false,
+                include_provenance: None,
                 op,
                 target,
                 to,

@@ -232,7 +232,8 @@ pub(super) fn visit_values(
                 .split(|byte| *byte == 0)
                 .next()
                 .unwrap_or_default();
-            let text = String::from_utf8_lossy(value_bytes);
+            // Decoded as the search decoded it, and as localFetch reads it.
+            let text = octocode_engine::text::Decoded::interior(value_bytes).text;
             let text = text
                 .strip_suffix('\n')
                 .map(|s| s.strip_suffix('\r').unwrap_or(s))

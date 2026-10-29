@@ -1,6 +1,8 @@
 /// Bump when response planning changes page boundaries. Replay storage and
 /// issued handles share this version so a new binary cannot reinterpret offsets.
-pub(crate) const ROW_PLAN_VERSION: u32 = 8;
+pub(crate) const ROW_PLAN_VERSION: u32 = 11;
+
+pub(crate) mod issued;
 
 /// The content snapshot of a row plan at `budget` chars per page, of an
 /// envelope whose compact rendering has the hex SHA-256 `digest`.

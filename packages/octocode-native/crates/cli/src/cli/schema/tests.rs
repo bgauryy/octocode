@@ -48,7 +48,7 @@ fn full_catalog_serves_the_core_instructions_then_the_cli_notes() {
         assert!(text.starts_with(shared), "{off:?}: {text}");
         assert!(
             text.ends_with(
-                "<cli>CLI only: ghCloneRepo, graphBuild, graphQuery. Fields: schema <name> --view query. A next.* page still exits 0.</cli>"
+                "<cli>CLI only: ghCloneRepo. Graph tools also use MCP when OCTOCODE_BETA=true. Fields: schema <name> --view query. A next.* page still exits 0.</cli>"
             ),
             "{text}"
         );
@@ -135,7 +135,7 @@ fn lsp_search_names_its_servers_at_the_end_of_when() {
             "<when>Resolve symbols.</when><workflow>Read hits.</workflow>",
             &["rust", "ts/js"]
         ),
-        "<when>Resolve symbols. Servers: rust, ts/js.</when><workflow>Read hits.</workflow>"
+        "<when>Resolve symbols. Servers found here: rust, ts/js.</when><workflow>Read hits.</workflow>"
     );
     assert_eq!(
         super::with_lsp_servers("<when>Resolve symbols.</when><workflow>x</workflow>", &[]),

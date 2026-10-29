@@ -12,7 +12,7 @@
 //! mount) is never production evidence: its edges carry `test`.
 //!
 //! Generated, bundled, vendored, and declaration files are never subjects.
-use super::classify::{
+use super::super::classify::{
     ROLE_CONFIG, ROLE_DECLARATION, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED, role_names,
 };
 use super::format::{
@@ -48,23 +48,49 @@ use primitives::*;
 use reach::*;
 use view::*;
 
-pub(crate) const DETECTORS: &[&str] = &[
-    "cycle",
-    "dir-cycle",
-    "unreachable-file",
-    "test-only",
-    "unused-export",
-    "export-only-local",
-    "undeclared-dependency",
-    "dev-dependency-in-production",
-    "boundary-violation",
-    "unresolved-import",
-    "god-file",
-    "critical-file",
-    "single-point-of-failure",
-    "unstable-dependency",
-    "main-sequence",
-    "misplaced-file",
+/// Every detector, in run order: a timing label, the detector names it
+/// reports, and the step. The one list `--detectors` is checked against.
+const STEPS: &[DetectorStep] = &[
+    ("cycle", &["cycle"], detect_cycles),
+    ("dir-cycle", &["dir-cycle"], detect_dir_cycles),
+    (
+        "reachability",
+        &["unreachable-file", "test-only"],
+        detect_reachability,
+    ),
+    (
+        "unused-export",
+        &["unused-export", "export-only-local"],
+        detect_unused_exports,
+    ),
+    (
+        "dependencies",
+        &["undeclared-dependency", "dev-dependency-in-production"],
+        detect_dependencies,
+    ),
+    (
+        "boundary-violation",
+        &["boundary-violation"],
+        detect_boundaries,
+    ),
+    (
+        "unresolved-import",
+        &["unresolved-import"],
+        detect_unresolved,
+    ),
+    ("god-file", &["god-file"], detect_hubs),
+    ("critical-file", &["critical-file"], detect_critical),
+    (
+        "single-point-of-failure",
+        &["single-point-of-failure"],
+        detect_spof,
+    ),
+    (
+        "components",
+        &["unstable-dependency", "main-sequence"],
+        detect_components,
+    ),
+    ("misplaced-file", &["misplaced-file"], detect_misplaced),
 ];
 
 /// Languages whose named imports link to declarations, so an export no
@@ -165,11 +191,12 @@ pub(crate) fn run(
     root: Option<&std::path::Path>,
     entries: Option<&[String]>,
 ) -> Result<Report, String> {
+    let names = || STEPS.iter().flat_map(|(_, names, _)| names.iter().copied());
     for name in only {
-        if !DETECTORS.contains(&name.as_str()) {
+        if !names().any(|known| known == name) {
             return Err(format!(
                 "unknown detector {name:?}; expected one of: {}",
-                DETECTORS.join(", ")
+                names().collect::<Vec<_>>().join(", ")
             ));
         }
     }
@@ -180,45 +207,7 @@ pub(crate) fn run(
         notes: Vec::new(),
     };
     let mut timings = BTreeMap::<&str, u64>::new();
-    let steps: [DetectorStep; 12] = [
-        ("cycle", &["cycle"], detect_cycles),
-        ("dir-cycle", &["dir-cycle"], detect_dir_cycles),
-        (
-            "reachability",
-            &["unreachable-file", "test-only"],
-            detect_reachability,
-        ),
-        ("unused-export", &["unused-export"], detect_unused_exports),
-        (
-            "dependencies",
-            &["undeclared-dependency", "dev-dependency-in-production"],
-            detect_dependencies,
-        ),
-        (
-            "boundary-violation",
-            &["boundary-violation"],
-            detect_boundaries,
-        ),
-        (
-            "unresolved-import",
-            &["unresolved-import"],
-            detect_unresolved,
-        ),
-        ("god-file", &["god-file"], detect_hubs),
-        ("critical-file", &["critical-file"], detect_critical),
-        (
-            "single-point-of-failure",
-            &["single-point-of-failure"],
-            detect_spof,
-        ),
-        (
-            "components",
-            &["unstable-dependency", "main-sequence"],
-            detect_components,
-        ),
-        ("misplaced-file", &["misplaced-file"], detect_misplaced),
-    ];
-    for (label, detectors, step) in steps {
+    for &(label, detectors, step) in STEPS {
         if detectors.iter().any(|d| wants(d)) {
             let started = std::time::Instant::now();
             step(&mut c);

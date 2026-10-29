@@ -6,9 +6,9 @@ use super::imports::{
 };
 use super::positions::NodePositions;
 use super::python::collect_python_imports;
-use super::walk::{
-    RustNodeContext, is_grouped_go_import, is_item_level, method_kind, push_macro_gap,
-};
+use super::rust_macro_args::record_rust_macro;
+use super::scala::is_scala;
+use super::walk::{RustNodeContext, is_grouped_go_import, method_kind};
 use super::{GraphAccumulator, heritage};
 use tree_sitter::Node;
 
@@ -81,14 +81,20 @@ pub(super) fn collect_node_facts(
     deadline: std::time::Instant,
 ) -> Option<(String, String)> {
     acc.test_context.observe(node, content);
-    // Only item-level macro calls can generate `mod`/`use` items; their
-    // bodies are re-read as Rust items after the main walk.
     if acc.ext == "rs"
         && node.kind() == "macro_invocation"
-        && is_item_level(node)
         && let Some(rust) = rust.as_ref()
     {
-        record_macro_body(node, acc, active_decl, active_name, rust);
+        record_rust_macro(
+            node,
+            ancestors,
+            content,
+            line_index,
+            acc,
+            active_decl,
+            active_name,
+            rust,
+        );
     }
     let decl = declaration_fact(node, ancestors, content, line_index, acc, active_decl);
 
@@ -118,7 +124,7 @@ pub(super) fn collect_node_facts(
         collect_rust_include(node, content, line_index, acc);
     } else if acc.ext == "py" && matches!(node.kind(), "import_statement" | "import_from_statement")
     {
-        collect_python_imports(node, content, line_index, acc);
+        collect_python_imports(node, ancestors, content, line_index, acc);
     } else if node.kind() == "preproc_include" {
         collect_c_include(node, content, line_index, acc);
     } else if acc.ext == "cs" && node.kind() == "using_directive" {
@@ -127,21 +133,37 @@ pub(super) fn collect_node_facts(
         && !is_grouped_go_import(node)
         && let Some(specifier) = import_specifier(node, content)
     {
-        let line = line_index.range(node).start.line + 1;
+        let (line, scala) = (line_index.range(node).start.line + 1, is_scala(&acc.ext));
+        let (local_name, imported_name) = if acc.ext == "go" {
+            super::go::import_binding(node, content)
+        } else {
+            (None, None)
+        };
         acc.imports.push(GraphFactImport {
             id: format!("import:{}:{}:{}", specifier, line, acc.imports.len()),
             specifier,
             line,
             import_kind: "value".to_owned(),
-            local_name: None,
-            imported_name: None,
+            local_name,
+            imported_name,
             imported_range: None,
             local_range: None,
             resolution_hint: None,
             module_scope: None,
+            scope_id: active_decl.filter(|_| scala).map(str::to_owned),
         });
     }
 
+    if node.kind() == "instance_expression" {
+        heritage::collect_scala_anonymous(
+            node,
+            ancestors.last().copied(),
+            content,
+            line_index,
+            acc,
+            active_decl,
+        );
+    }
     if acc.export_forwarding_node == Some(node.kind()) {
         let mut diagnostic = super::note(crate::graph::GraphFactCode::UnsupportedExportForwarding);
         diagnostic.line = Some(line_index.range(node).start.line + 1);
@@ -159,46 +181,6 @@ pub(super) fn collect_node_facts(
     }
 
     next_decl_identity
-}
-
-/// Record a Rust item-level macro call's body to re-read as items, or an
-/// explicit gap when it has no body.
-fn record_macro_body(
-    node: Node<'_>,
-    acc: &mut GraphAccumulator,
-    active_decl: Option<&str>,
-    active_name: Option<&str>,
-    rust: &RustNodeContext<'_>,
-) {
-    let mut cursor = node.walk();
-    let body = node
-        .named_children(&mut cursor)
-        .find(|child| child.kind() == "token_tree")
-        .filter(|body| body.end_byte() > body.start_byte() + 2);
-    if body.is_none() {
-        // `make_imports!();` expands from its definition, which is not
-        // visible here: the generated items stay an explicit gap.
-        push_macro_gap(acc);
-    }
-    if let Some(body) = body {
-        let inner = tree_sitter::Range {
-            start_byte: body.start_byte() + 1,
-            end_byte: body.end_byte() - 1,
-            start_point: tree_sitter::Point {
-                row: body.start_position().row,
-                column: body.start_position().column + 1,
-            },
-            end_point: tree_sitter::Point {
-                row: body.end_position().row,
-                column: body.end_position().column.saturating_sub(1),
-            },
-        };
-        let container = active_decl
-            .zip(active_name)
-            .map(|(id, name)| (id.to_owned(), name.to_owned()));
-        acc.macro_bodies
-            .push((inner, rust.module_scope.to_vec(), container));
-    }
 }
 
 /// The declaration `node` introduces, if any; marks its name token as a
@@ -265,8 +247,19 @@ fn declaration_fact(
                     test_identity,
                     exported,
                     parent,
+                    owner: match acc.visibility_adapter {
+                        _ if acc.ext == "go" => super::go::method_owner(node, content),
+                        crate::signatures::visibility::VisibilityAdapter::CFamily => {
+                            super::c_family::out_of_line_scope(node, content)
+                        }
+                        _ => None,
+                    },
                     doc_line: None,
                     exported_as: Vec::new(),
+                    prototype: matches!(
+                        acc.visibility_adapter,
+                        crate::signatures::visibility::VisibilityAdapter::CFamily
+                    ) && super::c_family::is_prototype(node, kind),
                 }
             })
     })
@@ -368,6 +361,9 @@ fn collect_call(
         kind: observation.kind.to_owned(),
         binding: observation.binding,
         receiver_type: None,
+        term_binding: false,
+        self_template: None,
+        macros: acc.macro_chain.clone().unwrap_or_default(),
     });
     acc.edges.push(GraphFactEdge {
         id: format!("{from}->{callee}:calls:{line}:{}", acc.edges.len()),

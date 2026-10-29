@@ -129,6 +129,7 @@ const helperFiles = {
   'protocol-corpus': 'protocol-corpus.mjs',
   'har-ingest': 'har-ingest-to-scrape.mjs',
   'corpus-query': 'corpus-run-local.mjs',
+  session: 'session-cli.mjs',
 };
 export const helpers: Record<string, [file: string, description: string]> =
   Object.fromEntries(

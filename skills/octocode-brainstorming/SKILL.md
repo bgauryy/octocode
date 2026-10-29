@@ -24,7 +24,7 @@ Pick the lowest effort that can change the decision; state it with a one-line re
 | Effort | Choose when | Execution |
 |---|---|---|
 | `low` | Gist or short answer; low-stakes, reversible; established guidance answers it | Direct: research and verify locally. Orchestrated: one bounded evidence actor. |
-| `medium` (default) | Most requests | Direct: separate directions sequentially. Orchestrated: assign independently useful gatherer and critic duties. |
+| `medium` | Several plausible directions remain | Direct: separate directions sequentially. Orchestrated: assign independently useful gatherer and critic duties. |
 | `high` | Costly, hard to reverse, or for others (a board, a multi-quarter bet); or an explicit deep investigation. Asking for sources alone is `medium` | Orchestrated: assign the distinct directions that can change the decision; use the debate gate and approved downloads. |
 
 - Escalate one level when verified evidence conflicts or a deciding source is missing; drop one when the first searches settle it.
@@ -33,10 +33,10 @@ Pick the lowest effort that can change the decision; state it with a one-line re
 
 ## Run in phases
 
-Each phase ends in a [checkpoint](output.md#checkpoints): write `<workspace>/.octocode/octocode-brainstorming/tmp/<run>/state.md` and show an interim from verified claims only, with Sources.
+For work that spans phases or needs resuming, keep a [checkpoint](output.md#checkpoints) at `<workspace>/.octocode/octocode-brainstorming/tmp/<run>/state.md`. Interims use verified claims with Sources; a short `low` answer needs no separate state file.
 
 - Stop at a checkpoint at `high` (after framing), when the user asked to steer, or for the user's decisions (asset download, scope change); else continue.
-- Continue: `ls -t <workspace>/.octocode/octocode-brainstorming/tmp/*/state.md`, read it, resume at the next phase; never redo a phase or reread verified pages.
+- Continue from the relevant saved state and next unfinished phase. Reopen verified evidence only when source identity, applicability or the claim changes.
 - User stops: the interim is the answer; say what the remaining phases would add.
 
 ### 1 Frame

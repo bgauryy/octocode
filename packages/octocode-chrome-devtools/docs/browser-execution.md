@@ -60,8 +60,8 @@ Typed CLI/MCP execution replies return direct `data`, a compact `flow`, or a cap
 For web content and arbitrary CDP text, use Octocode on the returned `search.paths`. Supply a task-specific literal; preserve the returned capture-search flags because artifacts are hidden and ignored. Run from the capture workspace. Inspect Octocode's live schema before constructing an unfamiliar query.
 
 ```sh
-npx octocode localSearch '{"queries":[{"path":"<capture-directory>","matchString":"<task anchor>","regex":"literal","includeHidden":true,"includeIgnored":true,"defaultExcludes":false}]}'
-npx octocode localFetch '{"queries":[{"path":"<observed-result-file>","ranges":["<observed-start>-<observed-end>"]}]}'
+npx -y octocode localSearch '{"queries":[{"path":"<capture-directory>","matchString":["<task anchor>"],"regexEngine":"literal","includeHidden":true,"includeIgnored":true,"defaultExcludes":false}]}'
+npx -y octocode localFetch '{"queries":[{"path":"<observed-result-file>","ranges":[{"startLine":1,"endLine":40}]}]}'
 ```
 
 Use indexed `query` for arrays, JSONL, HAR `/log/entries`, or a CDP array such as `/result/value`: filter before paging, choose a small page only when useful, and copy its digest-pinned next call unchanged. Use `artifact` for selected objects, text or binary sources. Local tools provide their own complete matches, exact line anchors, read leads and continuations; the browser package delegates that search rather than copying native tool logic.

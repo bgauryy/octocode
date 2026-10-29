@@ -1,6 +1,6 @@
 # Output
 
-<!-- report-contract {"statuses":["Proposed","Accepted","Rejected","Superseded"],"required":["Summary","Proposed design","Validation and success","Open questions"],"anyOf":[]} -->
+<!-- report-contract {"statuses":["Proposed","Accepted","Implemented","Rejected","Superseded"],"required":["Summary","Proposed design","Validation and success","Open questions"],"anyOf":[]} -->
 
 ## Structure
 
@@ -31,7 +31,7 @@ Always include `## Summary`, `## Proposed design`, `## Validation and success`, 
 
 ## Delivery
 
-Save at `<workspace>/.octocode/octocode-rfc-generator/<YYYY-MM-DD>-<slug>/RFC.md`; `<workspace>` is the project root (repository root, else current directory), never inside an existing `.octocode/`. A user-named path wins (including the repository's RFC folder); a scratch folder like `.octocode/tmp/` does not. Reply BLUF: decision and confidence first, then any unresolved blocker, the `.html` path, and the `RFC.md` path. Review-only request: findings, no files.
+Save at `<workspace>/.octocode/octocode-rfc-generator/<YYYY-MM-DD>-<slug>/RFC.md`; `<workspace>` is the project root (repository root, else current directory), never inside an existing `.octocode/`. A user-named path wins (including the repository's RFC folder); a scratch folder like `.octocode/tmp/` does not. Reply BLUF: decision and confidence first, then any unresolved blocker, the `RFC.md` path, and the HTML link if requested. Review-only request: findings, no files.
 
 No companion `PLAN.md`, `KPI.md`, `PREREQUISITES.md`, `IMPLEMENTATION.md`, or `RESOURCES.md`.
 
@@ -45,23 +45,14 @@ Summary → proposed behavior → alternatives and rollout → validation → op
 | Alternatives table / `gantt` | Compare tradeoffs / show a schedule only when dates and dependencies are justified. |
 | Markdown images / linked prototype | Show proposed UI with a clear mockup label / let readers inspect a separate interactive prototype. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
-Save every RFC; render its folder after each revision.
+Save every RFC; when HTML was requested, rerender its folder after each revision.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Proposed | Accepted | Rejected | Superseded
-confidence: high | medium | low
-question: <the question or decision>
-next: <the one next action for whoever continues, in the imperative>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Proposed`, `Accepted`, `Implemented` (built and verified; `next` names any eval still owed), `Rejected`, `Superseded` (name the replacement in the lead).
 
 Then the `#` title, a lead paragraph stating the answer, and the Structure sections.
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

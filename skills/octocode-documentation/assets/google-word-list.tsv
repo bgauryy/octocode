@@ -216,7 +216,7 @@ functionality	avoid	Use with caution. With respect to hardware or software, func
 future, in the future	avoid	Avoid in timeless documentation because this word or phrase can become outdated. See also eventually and soon. For more information, see Timeless documentation.
 GBps	caution	Short for gigabytes per second. By convention, we don't use GB/s. For more information, see Units of measurement.
 Gbps	caution	Short for gigabits per second. By convention, we don't use Gb/s. For more information, see Units of measurement.
-`gcloud` CLI	usage	Use the full name Google Cloud CLI the first time that you mention the product on a page. gender-neutral he, him, or his (or she or her)
+`gcloud` CLI	usage	Use the full name Google Cloud CLI the first time that you mention the product on a page.
 gender-neutral he, him, or his (or she or her)	dont-use	Don't use. Instead, use the singular they (see Jane Austen and other famous authors violate what everyone learned in their English class). Don't use he/she or (s)he or other such punctuational approaches. For more information, see Pronouns.
 generative AI	caution	Spell out generative. Use sentence case. Don't use gen AI or Gen AI. Don't hyphenate generative AI as an adjective unless you must do so for clarity. See also AI.
 ghetto	dont-use	Don't use. Instead use more precise terms like clumsy, workaround, or inelegant to refer to code that isn't in a production-ready state.
@@ -292,13 +292,13 @@ internet	usage	Lowercase except at the beginning of a sentence, heading, or list
 Internet Key Exchange (IKE)	usage	Write out and capitalize each word on first use. OK to abbreviate IKE after first use.
 I/O (see also Google I/O)	usage	Not I-O or IO.
 IoT	usage	OK to use as an abbreviation for Internet of Things. Note the lowercase o.
-IPsec	usage	Not IPSec or IPSECShort. Short for Internet Protocol Security. No need to spell out on first mention.
+IPsec	usage	Not IPSec or IPSEC. Short for Internet Protocol Security. No need to spell out on first mention.
 jank, janky	caution	Use only to refer to a glitch or problem with graphics that is caused by a loss of data or inadequate refresh rate. Don't use otherwise. Use a less figurative term to refer to something of poor or unreliable quality.
 just	avoid	Avoid. Usually, just is a filler word that you can delete without affecting your meaning. Recommended: BigQuery skips the row. Not recommended: BigQuery just skips the row. If your meaning is unclear without just, then use a more specific term such as only, instead, or previously, or revise your language to be more specific. (Even if one of these replacement terms fits, you often don't need it.) Recommended: You can run DML statements in the same way that you'd run a `SELECT` statement. Not recommended: You can run DML statements just as you'd run a `SELECT` statement. Recommended: Let a user query only the table without full dataset access. Recommended: Let a user query the table without full dataset access. Not recommended: Let a user query just the table without full dataset access. In those cases, use just instead of simply. Recommended: Use the namespace ID `namespace:example-kind` or just `example-kind`.
 k8s	dont-use	Don't use. Instead, use Kubernetes.
 KBps	caution	Short for kilobytes per second. By convention, we don't use KB/s. For more information, see Units of measurement.
 Kbps	caution	Short for kilobits per second. By convention, we don't use Kb/s. For more information, see Units of measurement.
-kebab, kabob, kebab menu, kabob menu	dont-use	Don't use. Instead use the `aria-label` for that particular icon. For example, more_vert More. For more information, see Buttons and icons. kebab case, kabob case, kebab-case, kabob-case
+kebab, kabob, kebab menu, kabob menu	dont-use	Don't use. Instead use the `aria-label` for that particular icon. For example, more_vert More. For more information, see Buttons and icons.
 kebab case, kabob case, kebab-case, kabob-case	dont-use	Don't use. Instead, use dash-case.
 key	dont-use	Don't use as an adjective in the sense of crucial or important. If you use key as a noun, specify which kind of key you're referring to on first mention, because there are many kinds of keys in technical contexts.
 key pair	usage	A pair of keys, such as a public key and a private key. Contrast with key-value pair, which refers to a pairing that specifies a value for a variable (as in configuration files).
@@ -598,4 +598,4 @@ World Wide Web	dont-use	Don't use. Instead, use web.
 would	avoid	Avoid using. Instead, use can where possible. See also can, could, may, might, must, and should. For information about clarifying who's performing an action, see Active voice. For information about tenses, see Present tense.
 ymmv	dont-use	Don't use. Instead, use something like Your results might vary.
 you	usage	Use you instead of user to address the reader of your document. For more information, see Second person and first person.
-zippy	dont-use	Don't use to refer to expander arrows, unless you're specifically referring to the Zippy widget in Closure. Send feedback
+zippy	dont-use	Don't use to refer to expander arrows, unless you're specifically referring to the Zippy widget in Closure.

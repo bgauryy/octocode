@@ -148,9 +148,6 @@ split-debuginfo = "unpacked"
 [profile.dev.package."*"]
 debug = false
 
-[profile.dev.package."regex-automata"]
-opt-level = 3
-
 # Every CLI process builds the secret sanitizer's literal prescan (regex-syntax
 # parse + aho-corasick) and compiles its no-literal fallback patterns on first
 # output. Unoptimized, that one-time init cost ~50 ms per debug tool call
@@ -168,12 +165,6 @@ opt-level = 3
 # differential test, streamed large-source paging); opt-level 3 here took the
 # union differential test from ~110 to ~70 CPU-seconds.
 [profile.dev.package."serde_json"]
-opt-level = 3
-[profile.dev.package."indexmap"]
-opt-level = 3
-[profile.dev.package."hashbrown"]
-opt-level = 3
-[profile.dev.package."memchr"]
 opt-level = 3
 [profile.dev.package."sha2"]
 opt-level = 3

@@ -48,13 +48,15 @@ fn find_windows_keep_rank_unicode_kind_and_exact_totals() {
         ("d.ts#éa", "éa", NodeKind::Symbol, 1),
         ("e.ts#xé", "xé", NodeKind::Symbol, 1),
     ]);
+    // Word hits (name words, then the path word `é`) rank above the inner
+    // substring `xé`; equal strengths order by key.
     let expected = [
         "a.ts#é",
         "b.ts#É",
-        "d.ts#éa",
         "c.ts#éz",
-        "e.ts#xé",
+        "d.ts#éa",
         "path-é.ts",
+        "e.ts#xé",
     ];
     let full = find(&g, "É", None, 0..100, &NeverCancel).unwrap();
     assert_eq!(ids(&full), expected);
@@ -63,7 +65,7 @@ fn find_windows_keep_rank_unicode_kind_and_exact_totals() {
             .iter()
             .map(|r| r["match"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["exact", "exact", "prefix", "prefix", "contains", "path"]
+        ["exact", "exact", "words", "words", "words", "contains"]
     );
     let mut union = Vec::new();
     for start in (0..8).step_by(2) {

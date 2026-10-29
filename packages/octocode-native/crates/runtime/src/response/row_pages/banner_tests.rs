@@ -8,6 +8,6 @@ fn the_incomplete_banner_states_only_the_count() {
     lead_with_incomplete_banner(&mut structured, 2, 2);
     assert_eq!(
         structured["warnings"],
-        serde_json::json!(["incomplete — 2 of 2 rows continue on later response pages"])
+        serde_json::json!(["incomplete: 2/2 rows; more response pages"])
     );
 }

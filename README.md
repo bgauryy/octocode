@@ -89,31 +89,35 @@ No MCP client? Run `npx octocode`. Your agent reads the tool list it prints and 
 
 ## Benchmarks
 
-30 GitHub research questions, each answered 3 times by agents and graded by a blind judge (August 2026, Octocode v18 CLI):
+**TL;DR:** on 30 GitHub research questions, Octocode v20 is the most correct setup measured (9.57 out of 10). It sends the model 29% fewer characters than v18 and 3–6× fewer than the `gh` CLI setups. In a working session it is about 2× faster per call than v18.
 
 ```mermaid
 xychart-beta
-    title "Characters sent to the model (Octocode = 100, lower is better)"
-    x-axis ["Octocode", "plain gh", "gh + Headroom", "gh + RTK"]
-    y-axis "relative characters" 0 --> 350
-    bar [100, 199, 262, 321]
+    title "Characters sent to the model (Octocode v20 = 100, lower is better)"
+    x-axis ["Octocode v20", "Octocode v18", "plain gh", "gh + Headroom", "gh + RTK"]
+    y-axis "relative characters" 0 --> 600
+    bar [100, 143, 291, 500, 557]
 ```
 
-| Compared with | Octocode sends the model | Correctness (Octocode / other, of 10) |
-|---|---|---|
-| plain `gh` | **2.0× less** | 9.2 / 9.3 |
-| `gh` + Headroom | **2.6× less** | 9.3 / 8.6 |
-| `gh` + RTK | **3.2× less** | 9.3 / 9.4 |
+| Setup | Characters vs Octocode v20 | Correctness (of 10) |
+|---|---:|---:|
+| **Octocode v20** | **1.0×** | **9.57** |
+| Octocode v18 | 1.4× | 9.26 |
+| plain `gh` | 2.9× | 9.28 |
+| `gh` + RTK | 5.6× | 9.40 |
+| `gh` + Headroom | 5.0× | 8.66 |
 
-In October 2026, on the same campaign and agent, Octocode v20 MCP tied correctness with a lean `gh` setup (`--json`/`--jq` plus `grep`/`sed` filters), which used 0.71× Octocode's characters.
+Every answer was scored by a blind judge against the source, and correctness was decided before cost.
+- **v20:** October 2026, 1 pass.
+- **v18 and the `gh` setups:** August 2026, 3 passes.
 
-Details: [benchmark method](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/docs/method.md) · [clasify guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md).
+Full results, the speed comparison and the evaluation: [benchmark README](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/README.md) · [benchmark method](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/docs/method.md).
 
 ---
 
 ## Tools
 
-**16 tools.** Your agent gets 12 tools over MCP and 15 in the CLI (which adds `ghCloneRepo`, `graphBuild` and `graphQuery`). Beta (`OCTOCODE_BETA=true`) adds `clasify` to both when a classification key is set.
+**16 tools.** Your agent gets 12 tools over MCP and 15 in the CLI by default. Beta (`OCTOCODE_BETA=true`) exposes `graphBuild` and `graphQuery` through MCP; their CLI availability is unchanged. `ghCloneRepo` stays CLI-only. A classification credential and successful provider ping add `clasify` independently of beta.
 
 Every tool runs from the CLI with the same JSON input as MCP: `npx octocode <tool> '{"queries":[…]}'`. Use `npx octocode schema <tool>` to inspect its fields. Resume an issued continuation by passing its `{ "cursor": "…" }` input unchanged.
 
@@ -200,7 +204,7 @@ Install with `npx octocode skill install <name>` ([all skills](https://github.co
 | [octocode-skills](https://github.com/bgauryy/octocode/tree/main/skills/octocode-skills) | creating and maintaining skills |
 | [octocode-agents-communication](https://github.com/bgauryy/octocode/tree/main/skills/octocode-agents-communication) | coordinating several agents |
 
-Unpublished: [octocode-architecture-view](https://github.com/bgauryy/octocode/tree/main/skills-beta/octocode-architecture-view) (tested), and the repository skills in [`skills-dev/`](https://github.com/bgauryy/octocode/tree/main/skills-dev).
+Unpublished: [octocode-graph-view](https://github.com/bgauryy/octocode/tree/main/skills-beta/octocode-graph-view) (tested), and the repository skills in [`skills-dev/`](https://github.com/bgauryy/octocode/tree/main/skills-dev).
 
 ---
 
@@ -234,7 +238,7 @@ All docs: [documentation hub](https://github.com/bgauryy/octocode/blob/main/docs
 | Tools | [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Data contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) · [clasify](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md) |
 | Setup | [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [All settings](https://github.com/bgauryy/octocode/blob/main/docs/generated/CONFIG_SETTINGS.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) |
 | Engine | [Languages](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) · [Language servers](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) · [Code graph](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/CODE_GRAPH.md) |
-| Results | [Benchmark](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/README.md) · [Changelog](https://github.com/bgauryy/octocode/blob/main/CHANGELOG.md) |
+| Results | [Benchmark](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/README.md) |
 | Contributing | [AGENTS.md](https://github.com/bgauryy/octocode/blob/main/AGENTS.md) · [Development](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/DEVELOPMENT.md) · [Release](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/RELEASE.md) |
 | Legal | [Privacy](https://github.com/bgauryy/octocode/blob/main/PRIVACY.md) · [Terms](https://github.com/bgauryy/octocode/blob/main/TERMS.md) · [MIT license](https://github.com/bgauryy/octocode/blob/main/LICENSE) |
 

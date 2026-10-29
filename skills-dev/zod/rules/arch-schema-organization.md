@@ -1,7 +1,7 @@
 ---
 title: Co-locate Schemas with Their Boundary Layer
 impact: HIGH
-description: Place schemas next to the boundary that uses them. API schemas in api/users/schemas.ts, form schemas in features/profile/form-schema.ts. Domain types use z.infer, never re-export raw schemas across layers.
+description: Place schemas near their owning boundary; derive types without making domain modules import API modules.
 tags: architecture, organization, co-location, project-structure
 ---
 
@@ -50,7 +50,7 @@ src/
   config/
     env.ts             // env var schema, parsed at startup
   domain/
-    types.ts           // z.infer types only — no raw schemas
+    types.ts           // domain-owned types and invariants
 ```
 
 ```typescript
@@ -68,14 +68,13 @@ export const UserResponse = z.object({
   email: z.email(),
 })
 
-// domain/types.ts — inferred types only, no raw schemas
-import type { CreateUserBody, UserResponse } from "../api/users/schemas"
-import type { z } from "zod"
+// api/users/schemas.ts — expose boundary input/output types with the schema
+export type CreateUserBody = z.input<typeof CreateUserBody>
+export type UserResponse = z.output<typeof UserResponse>
 
-export type CreateUser = z.infer<typeof CreateUserBody>
-export type User = z.infer<typeof UserResponse>
+// Domain modules do not import from api/users/schemas.ts.
 ```
 
 ## Why
 
-Co-location makes ownership clear: the API route handler and its schemas live in the same directory. When a route changes, the schema changes with it. Domain types are derived via `z.infer` so the domain layer never depends on Zod directly — only on TypeScript types. This keeps parsing at the boundary and business logic free of validation concerns.
+Co-location makes ownership clear: the API route handler and its schemas live in the same directory. Derive boundary types from their schemas, including `z.input` when transforms make input and output differ. A domain type may have a separate owner and invariants; map validated boundary output into it at the adapter. Do not reverse the dependency by importing API types into the domain.

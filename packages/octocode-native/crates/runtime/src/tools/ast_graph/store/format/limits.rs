@@ -1,13 +1,11 @@
-//! The encoder admits only table sizes accepted by the decoder.
+//! The encoder admits only table sizes accepted by the decoder. Row counts
+//! are checked on the projection, before redaction (which rewrites strings,
+//! never rows); string bytes once the redacted strings are encoded.
 use super::*;
 
-pub(super) fn validate(encoder: &writer::Encoder<'_>) -> Result<(), String> {
-    validate_with_limits(
-        encoder,
-        MAX_DECODED_ITEMS,
-        MAX_DECODED_EDGES,
-        MAX_DECODED_STRING_BYTES,
-    )?;
+pub(super) fn validate(encoder: &writer::Encoder<'_>, limits: &Limits) -> Result<(), String> {
+    validate_counts(encoder.tables, limits)?;
+    validate_strings(encoder, limits)?;
     let t = encoder.tables;
     for witness in &t.witnesses {
         arguments::validate(
@@ -33,15 +31,10 @@ pub(super) fn validate(encoder: &writer::Encoder<'_>) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_with_limits(
-    encoder: &writer::Encoder<'_>,
-    items: usize,
-    edges: usize,
-    string_bytes: usize,
-) -> Result<(), String> {
-    let t = encoder.tables;
+/// The first table of `t` with more rows than a reader of `limits` admits.
+pub(crate) fn validate_counts(t: &GraphTables, limits: &Limits) -> Result<(), String> {
+    let items = limits.table_items;
     for (section, count, width) in [
-        ("STRS", encoder.texts.len(), 1),
         ("NODE", t.nodes.len(), 1),
         ("KEYX", t.key_index.len(), 1),
         ("NAMX", t.name_index.len(), 1),
@@ -60,10 +53,21 @@ fn validate_with_limits(
             ));
         }
     }
-    if t.edges.len() > edges.min(items) {
+    if t.edges.len() > limits.edge_rows() {
         return Err(format!(
             "graph EDGE table exceeds the reader's {}-edge limit; this is a terminal snapshot bound, ingest a narrower scope",
-            edges.min(items),
+            limits.edge_rows(),
+        ));
+    }
+    Ok(())
+}
+
+/// The record dictionary's count and both dictionaries' expanded bytes.
+fn validate_strings(encoder: &writer::Encoder<'_>, limits: &Limits) -> Result<(), String> {
+    let (items, string_bytes) = (limits.table_items, limits.string_bytes);
+    if encoder.texts.len() > items {
+        return Err(format!(
+            "graph STRS table exceeds the reader's {items}-item limit; this is a terminal snapshot bound, ingest a narrower scope"
         ));
     }
     encoder.texts.iter().try_fold(0_usize, |total, text| {
@@ -78,6 +82,24 @@ fn validate_with_limits(
 mod tests {
     use super::*;
 
+    /// The pre-encoding checks, at `items` rows, `edges` EDGE rows and
+    /// `string_bytes` expanded string bytes.
+    fn validate_with(
+        encoder: &writer::Encoder<'_>,
+        items: usize,
+        edges: usize,
+        string_bytes: usize,
+    ) -> Result<(), String> {
+        let limits = Limits {
+            table_items: items,
+            edges,
+            string_bytes,
+            ..LIMITS
+        };
+        validate_counts(encoder.tables, &limits)?;
+        validate_strings(encoder, &limits)
+    }
+
     #[test]
     fn publication_preflight_counts_flattened_file_tables() {
         for table in ["FDIG", "FCMP", "ENTR"] {
@@ -91,9 +113,9 @@ mod tests {
                 _ => t.entries = vec![(0, 0); 2],
             }
             let encoder = writer::Encoder::new(&t);
-            let error = validate_with_limits(&encoder, 3, 3, 100).unwrap_err();
+            let error = validate_with(&encoder, 3, 3, 100).unwrap_err();
             assert!(error.contains(table), "{error}");
-            assert!(validate_with_limits(&encoder, 4, 4, 100).is_ok());
+            assert!(validate_with(&encoder, 4, 4, 100).is_ok());
         }
     }
 
@@ -106,10 +128,10 @@ mod tests {
             ..Default::default()
         };
         let encoder = writer::Encoder::new(&t);
-        assert!(encoder.strings().len() < 500);
-        let error = validate_with_limits(&encoder, 10, 10, 500).unwrap_err();
+        assert!(encoder.record_strings().len() < 500);
+        let error = validate_with(&encoder, 10, 10, 500).unwrap_err();
         assert!(error.contains("expanded string limit"));
-        assert!(validate_with_limits(&encoder, 10, 10, 1000).is_ok());
+        assert!(validate_with(&encoder, 10, 10, 1000).is_ok());
     }
 
     #[test]
@@ -143,7 +165,7 @@ mod tests {
             };
             3
         ];
-        let error = validate_with_limits(&writer::Encoder::new(&t), 2, 2, 100).unwrap_err();
+        let error = validate_with(&writer::Encoder::new(&t), 2, 2, 100).unwrap_err();
         assert!(error.contains("WITN"));
         assert_eq!(t.witnesses.len(), 3);
         t.witnesses.clear();
@@ -161,7 +183,7 @@ mod tests {
             3
         ];
         assert!(
-            validate_with_limits(&writer::Encoder::new(&t), 2, 2, 100)
+            validate_with(&writer::Encoder::new(&t), 2, 2, 100)
                 .unwrap_err()
                 .contains("UNRS")
         );
@@ -169,7 +191,7 @@ mod tests {
         t.unresolved.clear();
         t.edges = vec![edge; 3];
         assert!(
-            validate_with_limits(&writer::Encoder::new(&t), 4, 2, 100)
+            validate_with(&writer::Encoder::new(&t), 4, 2, 100)
                 .unwrap_err()
                 .contains("EDGE")
         );

@@ -1,4 +1,4 @@
-//! The node walk: main traversal, deadline polls and Rust item-level macro bodies.
+//! The node walk: main traversal and deadline polls.
 
 use super::collect::collect_node_facts;
 use super::positions::NodePositions;
@@ -40,122 +40,6 @@ pub(super) fn push_macro_gap(acc: &mut GraphAccumulator) {
     }
 }
 
-/// Read recorded Rust item-level macro bodies as items (nested bodies too,
-/// bounded), in the order the walk met them, each under the declaration that
-/// holds the macro call. A body that does not parse as items stays an
-/// explicit gap. Declarations found in bodies are then put back in source
-/// order (a stable sort by start byte keeps parents before their members).
-pub(super) fn visit_macro_bodies(
-    content: &str,
-    language: &tree_sitter::Language,
-    line_index: &NodePositions<'_>,
-    acc: &mut GraphAccumulator,
-    deadline: std::time::Instant,
-) -> bool {
-    const MAX_MACRO_BODIES: usize = 256;
-    let mut visited = 0;
-    let declared_before = acc.declarations.len();
-    while visited < acc.macro_bodies.len() {
-        let (range, scope, container) = acc.macro_bodies[visited].clone();
-        visited += 1;
-        let parsed = (visited <= MAX_MACRO_BODIES)
-            .then(|| {
-                crate::signatures::extractor::parse_ranges_before(
-                    content,
-                    language,
-                    &[range],
-                    deadline,
-                )
-            })
-            .flatten();
-        match parsed {
-            Some(tree) if !tree.root_node().has_error() => {
-                let starts = (
-                    acc.declarations.len(),
-                    acc.calls.len(),
-                    acc.argument_sites.len(),
-                );
-                let operation = acc.source_templates.units[0].operation;
-                let Ok(unit) = acc.source_templates.add_unit(
-                    crate::text::analysis::Producer::new("rust-item-macro-body", "1"),
-                    operation,
-                    crate::text::analysis::RepresentationHandle(0),
-                    vec![crate::text::analysis::ByteRange::new(
-                        range.start_byte as u32,
-                        range.end_byte as u32,
-                    )],
-                ) else {
-                    return false;
-                };
-                let outer_bindings = acc.argument_bindings.take();
-                if let Some(adapter) = acc.argument_adapter {
-                    acc.argument_bindings = Some(
-                        crate::signatures::arguments::binding::Bindings::collect(
-                            tree.root_node(),
-                            adapter,
-                            content,
-                            deadline,
-                        )
-                        .in_region(unit),
-                    );
-                }
-                let completed = visit_node(
-                    tree.root_node(),
-                    content,
-                    line_index,
-                    acc,
-                    deadline,
-                    &scope,
-                    container.as_ref(),
-                );
-                acc.argument_bindings = outer_bindings;
-                if !completed {
-                    return false;
-                }
-                for declaration in &mut acc.declarations[starts.0..] {
-                    if let Some(span) = &mut declaration.source_range {
-                        span.unit = unit;
-                    }
-                    if let Some(span) = &mut declaration.selection_byte_range {
-                        span.unit = unit;
-                    }
-                }
-                for call in &mut acc.calls[starts.1..] {
-                    if let Some(span) = &mut call.source_range {
-                        span.unit = unit;
-                    }
-                }
-                for site in &mut acc.argument_sites[starts.2..] {
-                    site.set_unit(unit);
-                }
-            }
-            _ => {
-                if std::time::Instant::now() >= deadline {
-                    return false;
-                }
-                push_macro_gap(acc);
-            }
-        }
-    }
-    if acc.declarations.len() > declared_before {
-        let mut order: Vec<usize> = (0..acc.declarations.len()).collect();
-        order.sort_by_key(|&index| acc.declaration_spans[index].0);
-        let mut declarations = std::mem::take(&mut acc.declarations)
-            .into_iter()
-            .map(Some)
-            .collect::<Vec<_>>();
-        acc.declarations = order
-            .iter()
-            .filter_map(|&index| declarations[index].take())
-            .collect();
-        acc.declaration_spans = order
-            .iter()
-            .map(|&index| acc.declaration_spans[index])
-            .collect();
-    }
-    true
-}
-
 pub(super) fn visit_node(
     root: Node<'_>,
     content: &str,
@@ -178,6 +62,9 @@ pub(super) fn visit_node(
     } else {
         receiver::ReceiverTypes::new(&acc.ext, root)
     };
+    #[cfg(feature = "tree-sitter-scala")]
+    let mut scala_terms = (!acc.declarations_only && super::scala::is_scala(&acc.ext))
+        .then(receiver::ScalaTerms::default);
     let mut frames = vec![Frame::Enter(root, RustContext::default(), 0)];
     let mut declarations: Vec<(String, String)> = outer_declaration.into_iter().cloned().collect();
     // Names of the enclosing `mod` items, outermost first.
@@ -249,7 +136,9 @@ pub(super) fn visit_node(
             rust_node,
             deadline,
         );
-        if rust && !acc.declarations_only {
+        // An expression macro body's paths are the flat tokens the outer
+        // walk already read.
+        if rust && !acc.declarations_only && acc.macro_chain.is_none() {
             collect_rust_paths(
                 node,
                 &path,
@@ -266,6 +155,16 @@ pub(super) fn visit_node(
             && let Some(call) = acc.calls.last_mut()
         {
             call.receiver_type = receivers.receiver_type(node, &path, content);
+        }
+        #[cfg(feature = "tree-sitter-scala")]
+        if acc.calls.len() > calls_before
+            && let Some(terms) = scala_terms.as_mut()
+            && let Some(call) = acc.calls.last_mut()
+        {
+            let scope = terms.observe(node, &path, content);
+            call.receiver_type = scope.receiver_type;
+            call.term_binding = scope.term_binding;
+            call.self_template = scope.self_template;
         }
         let depth = path.len();
         if let Some(identity) = identity {

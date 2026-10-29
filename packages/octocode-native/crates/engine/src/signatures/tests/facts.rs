@@ -129,6 +129,12 @@ fn declaration_facts_equal_the_graph_facts_without_call_or_argument_observations
         let json =
             |value: &crate::graph::GraphFactsDocument| serde_json::to_value(value).expect("json");
         let mut declaration_coordinates = full.clone();
+        // Expression-macro bodies are read for calls only, after every item
+        // body, so their units come last and a declarations read has none.
+        declaration_coordinates
+            .source_templates
+            .units
+            .retain(|unit| unit.adapter.id != "rust-expression-macro-body");
         for unit in &mut declaration_coordinates.source_templates.units {
             unit.operation = AnalysisOperation::Declarations;
         }

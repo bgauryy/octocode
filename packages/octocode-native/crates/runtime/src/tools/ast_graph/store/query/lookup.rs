@@ -3,6 +3,45 @@
 use super::*;
 
 impl Graph {
+    pub(super) fn node_record(
+        &self,
+        id: u32,
+        cancel: &dyn crate::execution::cancel::CancellationCheck,
+    ) -> Result<super::super::format::NodeRec, GraphOutput> {
+        if let Some(reader) = &self.selective
+            && reader.borrow().is_point()
+        {
+            reader
+                .borrow_mut()
+                .node(id, &self.t, cancel)
+                .map_err(|message| *decode_failure(message, cancel))
+        } else {
+            Ok(self.t.nodes[id as usize])
+        }
+    }
+
+    fn declaration(
+        &self,
+        id: u32,
+        cancel: &dyn crate::execution::cancel::CancellationCheck,
+    ) -> Result<Option<super::super::format::DeclarationRec>, GraphOutput> {
+        if let Some(reader) = &self.selective
+            && reader.borrow().is_point()
+        {
+            reader
+                .borrow_mut()
+                .declaration(id, &self.t, cancel)
+                .map_err(|message| *decode_failure(message, cancel))
+        } else {
+            Ok(self
+                .t
+                .declarations
+                .binary_search_by_key(&id, |d| d.node)
+                .ok()
+                .map(|index| self.t.declarations[index]))
+        }
+    }
+
     pub(super) fn key(&self, id: u32) -> &str {
         self.t.str(self.t.nodes[id as usize].key)
     }
@@ -12,7 +51,7 @@ impl Graph {
         id: u32,
         cancel: &dyn crate::execution::cancel::CancellationCheck,
     ) -> Result<Map<String, Value>, GraphOutput> {
-        let node = &self.t.nodes[id as usize];
+        let node = self.node_record(id, cancel)?;
         let mut out = Map::new();
         out.insert("id".into(), json!(self.key(id)));
         out.insert("kind".into(), json!(node.kind.as_str()));
@@ -22,14 +61,15 @@ impl Graph {
                 if !detail.is_empty() {
                     out.insert("language".into(), json!(detail));
                 }
-                let roles = super::super::classify::role_names(node.flags);
+                let roles = super::super::super::classify::role_names(node.flags);
                 if !roles.is_empty() {
                     out.insert("roles".into(), json!(roles));
                 }
             }
             NodeKind::Symbol => {
-                if let Ok(index) = self.t.declarations.binary_search_by_key(&id, |d| d.node) {
-                    let decl = &self.t.declarations[index];
+                if let Some(decl) = self.declaration(id, cancel)? {
+                    let file = self.key(node.file);
+                    let digest = self.t.str(decl.source_digest);
                     if let Ok(identity) =
                         serde_json::from_str::<Value>(self.t.str(decl.test_identity))
                         && !identity.is_null()
@@ -48,7 +88,8 @@ impl Graph {
                         );
                         out.insert(
                             "sourceOrigin".into(),
-                            self.origin(decl.source_origin, cancel)?,
+                            self.project_origin(decl.source_origin, file, digest, cancel)?
+                                .value,
                         );
                     }
                     if decl.selection_start != NONE {
@@ -61,7 +102,8 @@ impl Graph {
                         );
                         out.insert(
                             "selectionOrigin".into(),
-                            self.origin(decl.selection_origin, cancel)?,
+                            self.project_origin(decl.selection_origin, file, digest, cancel)?
+                                .value,
                         );
                     }
                     if let Ok(assessment) = serde_json::from_str(self.t.str(decl.assessment)) {
@@ -107,16 +149,16 @@ impl Graph {
     }
 
     /// The snapshot every answer names. A scan cut (the `maxFiles` bound,
-    /// the edge cap, files skipped as unreadable or oversized) leaves every
-    /// answer partial: `partialReasons` names the cuts, and `reingest` the
-    /// widened ingest that lifts a file-scan cut (the others it cannot).
+    /// files skipped as unreadable or oversized) leaves every answer
+    /// partial: `partialReasons` names the cuts, and `reingest` the widened
+    /// ingest that lifts a file-scan cut (the other it cannot). A snapshot
+    /// bound is no cut: a build past one is refused, never published.
     pub(super) fn summary(&self) -> Value {
         let mut out = json!({"id": self.id, "root": self.manifest["root"], "createdAt": self.manifest["createdAt"]});
         let scan = &self.manifest["scan"];
         let truncated = scan["truncated"] == true;
         let reasons = [
             (truncated, "maxFiles"),
-            (scan["edgesCapped"] == true, "edgeCap"),
             (
                 scan["filesSkipped"].as_u64().unwrap_or(0) > 0,
                 "filesSkipped",
@@ -134,13 +176,8 @@ impl Graph {
         out
     }
 
-    /// Node ids whose lowercase name equals (or, with `prefix`, starts with)
-    /// `lower`, via the sorted name index.
-    pub(super) fn name_range<'a>(
-        &'a self,
-        lower: &'a str,
-        prefix: bool,
-    ) -> impl Iterator<Item = u32> + 'a {
+    /// Node ids whose lowercase name equals `lower`, via the sorted name index.
+    pub(super) fn name_range<'a>(&'a self, lower: &'a str) -> impl Iterator<Item = u32> + 'a {
         let lowered = |id: u32| self.t.str(self.t.nodes[id as usize].name).to_lowercase();
         let start = self
             .t
@@ -149,14 +186,7 @@ impl Graph {
         self.t.name_index[start..]
             .iter()
             .copied()
-            .take_while(move |id| {
-                let name = lowered(*id);
-                if prefix {
-                    name.starts_with(lower)
-                } else {
-                    name == lower
-                }
-            })
+            .take_while(move |id| lowered(*id) == lower)
     }
 
     pub(super) fn neighbors<'a>(

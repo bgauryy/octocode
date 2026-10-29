@@ -1,46 +1,49 @@
 ---
 name: rust-best-practices
-description: "Use when writing, structuring, reviewing, or hardening Rust and a choice is open: which crate, idiomatic errors/ownership, modeling structs/enums/traits, design patterns (good vs bad), splitting a workspace into npm-style crates, Cargo profiles, compile time, target/ size and build/test rebuild churn, dev tools and testing, lint floors and which Clippy groups to leave off, performance, memory and allocation (malloc/calloc equivalents), unsafe and supply-chain security, CLI or ratatui TUI apps, napi-rs Node addons with TypeScript types and per-platform npm packages, subprocesses, or parsing/codegen. Not for non-Rust code or a settled mechanical edit."
+description: "Load this skill first when writing or reviewing Rust with an open choice about ownership, types, crates, workspace design, builds, testing, performance, memory or safety; also CLI/TUI, subprocess, napi-rs and parsing boundaries."
 ---
 
 # Rust Best Practices
 
-tools: [shared Octocode MCP/CLI guide](references/octocode-usage.md)
-related-skill: `octocode-research`
-output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+Use the [shared Octocode guide](references/octocode-usage.md) for source evidence. A settled mechanical edit needs only the repository's checks.
 
 ```mermaid
 flowchart TD
-    F[FRAME: axis and constraint] --> L[LOAD its one page] --> I[INSPECT real code and manifests] --> D{Choice unresolved?}
+    F[FRAME: axis and constraint] --> L[LOAD relevant pages] --> I[INSPECT real code and manifests] --> D{Choice unresolved?}
     D -- yes --> C[COMPARE options and test the unknown] --> A[APPLY smallest change]
     D -- no --> A
     A --> V[VERIFY with repo checks]
-    L -. "when a doc must settle a claim; choose or vet a crate" .-> R1["references/sources-and-crates.md"]
-    L -. "for errors, ownership, async admission, cancellation and cleanup" .-> R2["references/idioms.md"]
-    L -. "for struct vs enum, generics vs dyn, smart pointers, OO port, named pattern" .-> R3["references/types-and-patterns.md"]
-    L -. "for modules, layers, what goes in which crate" .-> R4["references/crate-structure.md"]
-    L -. "when adding a workspace crate; root Cargo.toml, MSRV, lockfile, features" .-> R5["references/workspace.md"]
-    L -. "for [profile.*], compile time, target/ size, build/test rebuilds, cleanup" .-> R6["references/build-profiles.md"]
-    L -. "for tests, dev loop, CI and merge gate, which tool" .-> R7["references/testing-and-tooling.md"]
-    L -. "for slow hot path, RSS, type size, malloc/calloc" .-> R8["references/performance-and-memory.md"]
-    L -. "for unsafe, untrusted input, supply chain, cdylib, napi threads/panics" .-> R9["references/safety-and-ffi.md"]
-    L -. "for #[napi] types, .d.ts, per-platform npm packages" .-> R10["references/napi.md"]
-    L -. "when building CLI args/streams/exit codes, ratatui TUI, child processes" .-> R11["references/cli-tui-subprocess.md"]
-    L -. "for generated tool contracts, source parsing and byte-range rewrites" .-> R12["references/parsing-and-codegen.md"]
 ```
 
-Skill map: solid edges are the flow; each dotted edge names the trigger that loads that `references/` page. Load only the page in play.
+## Resources
+
+Start with the decision area in play. Follow a page's cross-reference when the change crosses that boundary.
+
+| When | Read | Why |
+|---|---|---|
+| Verify a claim or choose a crate | [Sources and crates](references/sources-and-crates.md) | Official sources and selection checks |
+| Errors, ownership or async cleanup | [Idioms](references/idioms.md) | Conversions and lifecycle |
+| Structs, enums, generics, traits or pointers | [Types and patterns](references/types-and-patterns.md) | Model the contract |
+| Module boundaries or crate extraction | [Crate structure](references/crate-structure.md) | Ownership and dependency direction |
+| Add a crate or change root manifest/features | [Workspace](references/workspace.md) | MSRV, lockfile and features |
+| Compile time, build profiles or target size | [Build profiles](references/build-profiles.md) | Rebuild causes and measurements |
+| Tests, dev loop or CI gate | [Testing and tooling](references/testing-and-tooling.md) | Select relevant checks |
+| Hot paths, RSS or allocation | [Performance and memory](references/performance-and-memory.md) | Measure before changing |
+| Unsafe, untrusted input or FFI | [Safety and FFI](references/safety-and-ffi.md) | Invariants, panics and threads |
+| napi-rs signatures or platform packages | [napi](references/napi.md) | JS mapping and generated types |
+| CLI, TUI or child processes | [CLI/TUI/subprocess](references/cli-tui-subprocess.md) | Streams, exits and cleanup |
+| Parsing or generated contracts | [Parsing and codegen](references/parsing-and-codegen.md) | Source coordinates and one generator |
 
 ## Rules
 - Read the real `Cargo.toml`, `src/` layout, and target code before advising; match the crate's edition, MSRV, and conventions.
-- FRAME as a Task contract: objective (the requested behavior), constraints (the axis, owning crate, authorization), Definition of Done (the success check). Inside Octocode, load `octocode-dev` first.
-- COMPARE only an unresolved choice, recorded as an ADR: context, the existing approach against one viable alternative, decision, consequences (evidence, cost, a counterexample). Test the smallest unknown that can change the decision; mark unmeasured claims as unknowns. Broader scope exploration routes to `octocode-brainstorming`.
+- FRAME the requested behavior, owning crate, constraints, and success check. Use a Task contract when delegating. Inside Octocode, load `octocode-dev` first.
+- COMPARE only an unresolved choice. For a consequential design choice, record an ADR: context, the existing approach against a viable alternative, decision, consequences (evidence, cost, a counterexample). Test the smallest unknown that can change the decision; mark unmeasured claims as unknowns. Broader scope exploration routes to `octocode-brainstorming`.
 - Prefer std or an already-present dependency. Claim–evidence for a new crate: maintenance, license, and API each beside an upstream source link (`octocode-research`), not registry stars.
 - Claim–evidence for idiom/API claims: cite the official canon (API Guidelines, Reference) by name; crate behavior comes from upstream source.
-- Format on the edit. `cargo clippy` is the handoff gate (`references/testing-and-tooling.md`). Never hand-argue a lint clippy decides.
+- Format on the edit. Run the repository's applicable Clippy gate before handoff (`references/testing-and-tooling.md`); inspect a lint's intent before changing behavior to satisfy it.
 - Never change observable behavior while cleaning up; behavior-preserving cleanup belongs to `octocode-clean-agentic-code`.
 - No performance claim without a `--release` benchmark or profile. `unsafe` only for a proven need, each block with a written safety invariant.
-- Stay within the requested axis. Adding a dependency, bumping MSRV/edition, or touching a lockfile needs explicit consent: ask it as a Decision request ([output.md](output.md)).
+- Stay within the requested axis. Check existing authorization before adding dependencies, changing MSRV/edition or updating lockfiles; ask a Decision request only for scope it does not cover ([output.md](output.md)).
 - Public tool types and limits follow the repository's contract generator. Native owns execution and response policy; host adapters convert values.
 - Bound work without losing evidence: return a complete page and executable continuation. Disclose terminal limits; never silently clip results.
 - VERIFY against the Definition of Done: the repository's build and test commands pass. After native changes, rebuild hosts and exercise the actual CLI or fresh MCP.

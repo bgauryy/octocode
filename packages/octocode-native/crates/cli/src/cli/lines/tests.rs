@@ -151,13 +151,21 @@ fn declarations_and_listings_print_one_line_each() {
             {"dir":"src","files":["a (1).rs (12)","b.rs (34, symlink)","sub/"]}],
             "summary":{"files":2,"dirs":1,"bytes":46}}}]});
     let files = json!({"operation":"files","path":"src"});
+    // `details` (the default view): every field the entry carries, the size as bytes.
     let lines = render(ToolId::StructureSearch, &listed, &files, None).expect("lines");
-    assert_eq!(lines.out, "src/a (1).rs\nsrc/b.rs  [symlink]\nsrc/sub/");
-    let sized = json!({"operation":"files","path":"src","sort":{"by":"sizeBytes","order":"asc"}});
-    let lines = render(ToolId::StructureSearch, &listed, &sized, None).expect("lines");
     assert_eq!(
         lines.out,
         "src/a (1).rs  [12 B]\nsrc/b.rs  [34 B, symlink]\nsrc/sub/"
+    );
+    // `paths`: bare names, never parsed, however they spell ` (…)`.
+    let named = json!({"results":[{"index":0,"data":{"path":".","files":[
+            {"dir":".","files":["report (123)","report (draft)","report (draft).md","dir (x)/"]}],
+            "summary":{"files":3,"dirs":1,"bytes":0}}}]});
+    let paths = json!({"operation":"files","path":".","view":"paths"});
+    let lines = render(ToolId::StructureSearch, &named, &paths, None).expect("lines");
+    assert_eq!(
+        lines.out,
+        "report (123)\nreport (draft)\nreport (draft).md\ndir (x)/"
     );
     assert!(
         render(
@@ -192,6 +200,16 @@ fn lsp_results_print_as_lines() {
         lines.out,
         "m.rs:79: function walk  [79-89 sites 83:36,85:4]"
     );
+    // A callee declared in another file prints under its own file, with the
+    // sites under the row's, so every location is the real one.
+    let callees = json!({"results":[{"index":0,"data":{"kind":"callees","files":[{"path":"src/calls.ts","matches":[
+            {"symbolName":"target","kind":"function","line":9,"endLine":11,"path":"src/lib.ts","sites":[{"line":19,"column":14},{"line":21,"column":12}]}]}]}}]});
+    let lines = render(ToolId::LspSearch, &callees, &json!({}), None).expect("lines");
+    assert_eq!(
+        lines.out,
+        "src/lib.ts:9: function target  [9-11 sites src/calls.ts:19:14,src/calls.ts:21:12]"
+    );
+    assert!(!lines.notes.contains("path src/lib.ts"), "{}", lines.notes);
     // `view:"files"`: a `path:N` line per site; the count is theirs.
     let grouped = json!({"results":[{"index":0,"data":{"matchCount":3,"files":[
             {"path":"a.rs","matchCount":2,"lines":[14,275]},{"path":"b.rs","matchCount":1,"lines":[3]}]}}]});

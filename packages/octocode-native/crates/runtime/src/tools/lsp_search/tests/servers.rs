@@ -1,5 +1,5 @@
 //! Language servers and workspace roots: launch reports, inferred roots,
-//! provider receipts and workspace-relative paths.
+//! start-failure receipts and workspace-relative paths.
 
 use super::*;
 
@@ -130,80 +130,52 @@ fn the_receipt_keeps_the_provider_a_fallback_answered_with() {
     assert_eq!(bare["provider"], "typeHierarchyProvider");
 }
 
-#[test]
-fn provider_receipt_exposes_effective_invocation_and_omits_empty_optional_fields() {
-    let config = octocode_engine::lsp::types::LspLanguageServerConfig {
-        command: "rust-analyzer".into(),
-        args: Some(vec!["--stdio".into()]),
-        workspace_root: "/repo".into(),
-        language_id: Some("rust".into()),
-        initialization_options: None,
-        env: None,
-        max_memory_mb: None,
-        source: Default::default(),
+/// A configured server that does not start names itself on the row: the
+/// command, argv and source the user must fix. With no server discovered
+/// there is nothing to name, and the row names nothing.
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn a_server_that_fails_to_start_names_its_invocation() {
+    let (_dir, root, paths) = temp_workspace();
+    std::fs::write(root.join("a.ts"), "const a = 1;\n").expect("file");
+    std::fs::write(root.join("a.unknown"), "a\n").expect("file");
+    let command = executable(&root.join("server"));
+    let config = root.join("lsp-servers.json");
+    std::fs::write(
+        &config,
+        serde_json::json!({"languageServers": {".ts": {
+            "command": command, "args": ["--stdio"], "languageId": "plaintext"
+        }}})
+        .to_string(),
+    )
+    .expect("config");
+    let execution = super::super::LspExecutionConfig {
+        config_path: Some(config.to_string_lossy().into_owned()),
+        ..super::super::LspExecutionConfig::default()
     };
-    let client = octocode_engine::lsp::client::NativeLspClient::new(config.clone());
-    let receipt = resolved_server_receipt(&config, &client);
-
-    assert_eq!(receipt["command"], "rust-analyzer");
-    assert_eq!(receipt["argv"], serde_json::json!(["--stdio"]));
-    assert_eq!(receipt["source"], "path");
-    assert_eq!(receipt["workspaceRoot"], "/repo");
+    let hover = |file: &str| {
+        serde_json::json!({
+            "operation": "hover", "path": root.join(file).to_string_lossy(),
+            "symbolName": "a", "line": 1
+        })
+    };
+    let failed = run_row(hover("a.ts"), &paths, &execution).await;
+    assert_eq!(failed["errorCode"], "serverUnavailable", "{failed}");
     assert_eq!(
-        receipt["capabilities"]
-            .as_object()
-            .expect("capabilities should be an object")
-            .len(),
-        10
+        failed["lsp"],
+        serde_json::json!({"serverAvailable": false,
+            "receipt": {"command": command, "argv": ["--stdio"], "source": "user"}}),
+        "{failed}"
     );
-    assert_eq!(receipt["capabilities"]["definitionProvider"], false);
-    assert!(receipt.get("identity").is_none());
-    assert!(
-        receipt["workspaceFingerprint"]
-            .as_str()
-            .is_some_and(|value| value.len() == 64)
+    let undiscovered = run_row(hover("a.unknown"), &paths, &execution).await;
+    assert_eq!(
+        undiscovered["errorCode"], "serverUnavailable",
+        "{undiscovered}"
     );
     assert!(
-        receipt["configurationFingerprint"]
-            .as_str()
-            .is_some_and(|value| value.len() == 64)
+        undiscovered["lsp"].get("receipt").is_none(),
+        "{undiscovered}"
     );
-    assert!(receipt.get("readiness").is_none());
-
-    let config_without_args = octocode_engine::lsp::types::LspLanguageServerConfig {
-        args: Some(Vec::new()),
-        ..config
-    };
-    let client = octocode_engine::lsp::client::NativeLspClient::new(config_without_args.clone());
-    let receipt = resolved_server_receipt(&config_without_args, &client);
-    assert!(receipt.get("argv").is_none());
-
-    // The source is discovery's, not a guess from the argv: a user entry
-    // whose program sits in node_modules is still the user's, and a
-    // bundled server whose argv names no node_modules is still bundled.
-    for (source, argv, expected) in [
-        (
-            octocode_engine::lsp::types::ServerSource::User,
-            "/x/node_modules/typescript-language-server/lib/cli.mjs",
-            "user",
-        ),
-        (
-            octocode_engine::lsp::types::ServerSource::Bundled,
-            "--lsp",
-            "bundled",
-        ),
-    ] {
-        let config = octocode_engine::lsp::types::LspLanguageServerConfig {
-            args: Some(vec![argv.into()]),
-            source,
-            ..config_without_args.clone()
-        };
-        let client = octocode_engine::lsp::client::NativeLspClient::new(config.clone());
-        assert_eq!(
-            resolved_server_receipt(&config, &client)["source"],
-            expected
-        );
-    }
 }
 
 #[test]
@@ -223,7 +195,9 @@ fn workspace_symbols_are_flat_named_and_one_based() {
             "symbolName": "run",
             "kind": "function",
             "path": "/repo/a.ts",
-            "displayRange": {"startLine": 10, "startCharacter": 3, "endLine": 13}
+            // A SymbolInformation range starts at the declaration, not the
+            // name: no column.
+            "displayRange": {"startLine": 10, "endLine": 13}
         })
     );
 }

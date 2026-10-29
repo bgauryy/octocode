@@ -21,7 +21,7 @@ enum Role {
   Guest = "guest",
 }
 
-const RoleSchema = z.nativeEnum(Role) // Error: z.nativeEnum is not a function
+const RoleSchema = z.nativeEnum(Role) // still works; deprecated in v4
 ```
 
 ## Correct
@@ -42,4 +42,4 @@ const StatusSchema = z.enum(["active", "inactive", "pending"])
 
 ## Why
 
-Zod v4 unifies enum handling. `z.enum()` accepts both string literal arrays and TypeScript enums (string or numeric). This is a breaking change from v3 where they were separate functions.
+Zod v4 unifies enum handling. `z.enum()` accepts both string literal arrays and TypeScript enums (string or numeric). Prefer it for new v4 code; the deprecated `z.nativeEnum()` remains available.

@@ -44,7 +44,7 @@ fn enabled(machine: &Value, name: &str) -> bool {
 }
 
 /// The CLI's own notes, after the shared instructions in the full catalog.
-const CLI_INSTRUCTIONS: &str = "<cli>CLI only: ghCloneRepo, graphBuild, graphQuery. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
+const CLI_INSTRUCTIONS: &str = "<cli>CLI only: ghCloneRepo. Graph tools also use MCP when OCTOCODE_BETA=true. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
 
 /// Core's one instruction string (embedded through config), served by MCP
 /// `initialize` and, with the CLI's own notes, by the full catalog.
@@ -171,12 +171,13 @@ pub(super) fn tool_view(
 }
 
 /// The lspSearch description with the language servers this runtime
-/// resolves, as the last sentence of its `<when>` text: `Servers: rust, ts/js.`
+/// resolves, as the last sentence of its `<when>` text:
+/// `Servers found here: rust, ts/js.` (what this host has, not what Octocode supports).
 pub(super) fn with_lsp_servers(description: &str, servers: &[&str]) -> String {
     let note = if servers.is_empty() {
         "No language server found.".to_owned()
     } else {
-        format!("Servers: {}.", servers.join(", "))
+        format!("Servers found here: {}.", servers.join(", "))
     };
     description.replacen("</when>", &format!(" {note}</when>"), 1)
 }

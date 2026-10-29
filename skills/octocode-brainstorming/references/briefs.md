@@ -1,6 +1,6 @@
-# Worker briefs and the claim ledger
-
 Load when you dispatch a gatherer, critic, debater, or judge. Each brief is the worker's only context and a Task contract: objective, inputs, constraints, output, plus a Definition of Done (a Stop condition for open-ended search); the worker picks the method. Fill the `<…>` slots; keep the rules.
+
+# Worker briefs and the claim ledger
 
 ## Claim ledger
 

@@ -64,8 +64,8 @@ npm view octocode-mcp dist-tags.latest                      # → <v>
 
 Run `node skills-dev/octocode-dev/scripts/dev.mjs setup` to restore the dev resolutions.
 
-- **No `prepublishOnly` gates.** Run the gates below yourself before `npm publish`; nothing blocks a publish automatically.
-- **Config is never published.** `@octocodeai/config` is a private workspace package bundled by MCP and the launcher. MCP declares `@octocodeai/octocode-core` as an external runtime dependency. The launcher bundles only config's development-override guard and the shared native launch scripts; it does not import core or tool contracts.
+- **The native platform packages and Node launchers have no `prepublishOnly` gates.** Run the gates below before publishing them. Core has its own `prepublishOnly` checks.
+- **Config is never published.** Both Node launchers bundle config's development-override guard and the shared native launch scripts. Core supplies the contract at build time; the native binary embeds it. Neither launcher imports core or implements tools at runtime.
 
 ## Gates (all must be green)
 

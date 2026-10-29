@@ -118,7 +118,25 @@ fn order_hint_skips_duplicate_string_nodes_and_prefers_identifiers() {
     let source = "const x = \"foo\"; foo(); foo();\n";
     assert_eq!(resolve_with_order(source, "foo", 1, 0), 17);
     assert_eq!(resolve_with_order(source, "foo", 1, 1), 24);
-    assert_eq!(resolve_with_order(source, "foo", 1, 2), 11);
+    // The string-literal mention is not indexable while the line has
+    // identifiers: an `occurrence` past them is an error naming their count.
+    let literal = resolve_position_in_file_content(
+        "demo.ts",
+        source,
+        &LspFuzzyPosition {
+            symbol_name: "foo".to_owned(),
+            line_hint: Some(1),
+            order_hint: Some(2),
+        },
+    );
+    assert!(
+        literal
+            .as_ref()
+            .is_err_and(|err| err.to_string().contains("at most 1")),
+        "{literal:?}"
+    );
+    // A line spelling the name only inside a literal still anchors there.
+    assert_eq!(resolve_with_order("const y = \"foo\";\n", "foo", 1, 0), 11);
 }
 
 #[test]

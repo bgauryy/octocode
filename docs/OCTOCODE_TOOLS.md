@@ -1,6 +1,6 @@
 # Octocode tools reference
 
-The full catalog has 16 tools. The default catalog contains 12 tools over MCP and 15 in the CLI. `ghCloneRepo`, `graphBuild` and `graphQuery` are CLI-only; `clasify` requires a classification credential and a successful provider ping. Live discovery reports availability for the current configuration.
+The full catalog has 16 tools. The default catalog contains 12 tools over MCP and 15 in the CLI. `ghCloneRepo` is CLI-only; `OCTOCODE_BETA=true` adds `graphBuild` and `graphQuery` to MCP while CLI graph tools remain available; `clasify` requires a classification credential and a successful provider ping. Live discovery reports availability for the current configuration.
 
 ## How every tool call works
 
@@ -15,10 +15,10 @@ A query selects an explicit operation or view when required by that tool's schem
 ```bash
 octocode schema
 octocode schema localSearch --view query
-octocode schema localSearch --view full
+octocode schema localSearch --view variants
 ```
 
-The query view describes authored fields. The full view includes the envelope, variants, examples and rules. Core owns all schemas, descriptions, defaults and limits; use discovery for the exact field inventory instead of constructing private progress fields.
+The query view describes authored fields. The variants view lists each operation shape with its required fields and one example. The catalog form `octocode schema --view full` prints every tool with envelope and rules. Core owns all schemas, descriptions, defaults and limits; use discovery for the exact field inventory instead of constructing private progress fields.
 
 | Concept | Canonical form |
 |---|---|
@@ -137,10 +137,10 @@ Use `operation:"match"` with a typed `rule` object, `"symbols"` for declarations
 
 ### `structureSearch`
 
-Use `operation:"tree"` to inspect a directory scope or `"files"` to discover paths. Shared include/exclude globs and explicit metadata filters control the walk. `entryType` uses descriptive enum values such as `file` and `directory`. A listing groups file entries by directory; read source separately.
+Use `operation:"tree"` to inspect a directory scope or `"files"` to discover paths. Shared include/exclude globs and explicit metadata filters control the walk. `entryType` uses descriptive enum values such as `file` and `directory`. A listing groups file entries by directory; read source separately. `view:"paths"` requests names with directory and symlink markers, omitting size, time and line-count details. The default `view:"details"` retains those details. Sorting by `lineCount` still reads file content in either view.
 
 ```json
-{"queries":[{"maxDepth":2,"operation":"tree","path":"."}]}
+{"queries":[{"maxDepth":2,"operation":"tree","path":".","view":"paths"}]}
 ```
 
 ### `localFetch`
@@ -155,7 +155,7 @@ Read a known local file. Path-only reads exact content; `ranges` uses inclusive 
 
 ### `lspSearch`
 
-Use observed `path`, `line` and `symbolName` anchors for definitions, references, callers, callees, hover and type navigation. `orderHint` distinguishes repeated names on one line. `workspaceSymbol` takes `symbolQuery` and a path or workspaceRoot; document operations take a path. Location output uses `view:"content"` or `"files"`; contextLines is a before/after object. Follow importer, hierarchy and result continuations. Missing or indexing servers do not prove absence.
+Use observed `path`, `line` and `symbolName` anchors for definitions, references, callers, callees, hover and type navigation. `occurrence` distinguishes repeated names on one line (zero-based). `workspaceSymbol` takes `symbolQuery` and a path or workspaceRoot; document operations take a path. Location output uses `view:"content"` or `"files"`. Follow importer, hierarchy and result continuations. Missing or indexing servers do not prove absence.
 
 ```json
 {"queries":[{"line":10,"path":"src/index.ts","symbolName":"run"}]}
@@ -195,7 +195,7 @@ Evaluate supplied `content` or an unread `source`, discover models, or assess se
 
 ### Root selection
 
-Without `workspaceRoot`, the root is the nearest ancestor of the file with a project marker (`package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, `pyproject.toml`), even inside `WORKSPACE_ROOT`; with no marker, the process cwd.
+Without `workspaceRoot`, the root is the nearest ancestor of the file holding a project marker (`package.json`, `pnpm-workspace.yaml`, `yarn.lock`, `tsconfig.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements.txt`, `pom.xml`, `build.gradle`, `Makefile`, `.git`), even inside `WORKSPACE_ROOT`, widened for Rust to the Cargo workspace root and for TypeScript to the directory of the governing `tsconfig.json`/`jsconfig.json`; with no marker anywhere, the file's own directory, never the process cwd. An explicit `workspaceRoot` must contain the file. A `workspaceRoot`-only query infers its language from the root's markers (`tsconfig.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `go.work`, `compile_commands.json`, `.clangd`, `CMakeLists.txt`, `meson.build`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `build.sbt`, `jsconfig.json`, `package.json`).
 
 ### Server fidelity and the no-fallback contract
 
@@ -203,12 +203,12 @@ Without `workspaceRoot`, the root is the nearest ancestor of the file with a pro
 
 ### Subtypes and implementations without an answer in time
 
-`subtypes` on a server with no type hierarchy asks `textDocument/implementation`; `implementation` on a class, interface, struct or trait asks it directly. For both, a syntax scan of the files that spell the name (declarations whose `extends`/`implements` clause names it) runs at the same time. For `subtypes` it adds no wait; for `implementation`, a server answer also waits for the scan, and the declarations it found that the server left out (a function-local impl, say) follow as rows labelled `source: "native-graph-facts"`, partial (`partialReasons: ["scanOnlyImplementations"]`, no retry); page 1 states their count once (the `source` label's meaning is in the output schema). The server's rows win when they arrive: while the scan runs and for up to 5 s after it finishes. If the request fails (timeout, crash, rejected) or is still silent after that grace, the scan's rows are the answer, labelled `lsp.source: "native-graph-facts"`, partial (`partialReasons: ["serverUnanswered"]`) with `next.retry` to ask the server again, and a note that they are unverified (the base is matched by name, not resolved to the declaration) and direct only (run the operation on each to descend). Files the scan could not read are named in a warning, add `heritageUnread` to `partialReasons`, and get a `next.findText` text search over them. A server answer is labelled `lsp.source: "implementation"`; for `subtypes`, direct and transitive subtypes are not told apart. rust-analyzer answers a trait with its impl blocks: each trait impl (`impl Trait for Type`) is a direct subtype row with `kind: "impl"`, named by its self type, and has no subtypes of its own. A `subtypes` walk checks the anchor type's candidates 200 at a time: past the first window the row is partial (`hierarchyCandidateLimit`) and its last page offers `next.nextCandidatePage`; a deeper type with more than 200 candidates stays a terminal limit. `implementation` on a function, method or other member has no scan: a timeout stays an error with the retry tip and the astSearch/localSearch route.
+`subtypes` on a server with no type hierarchy asks `textDocument/implementation`; `implementation` on a class, interface, struct or trait asks it directly. For both, a syntax scan of the files that spell the name (declarations whose `extends`/`implements` clause names it) runs at the same time. For `subtypes` it adds no wait; for `implementation`, a server answer also waits for the scan, and the declarations it found that the server left out (a function-local impl, say) follow as rows labelled `source: "native-graph-facts"`, partial (`partialReasons: ["scanOnlyImplementations"]`, no retry); page 1 states their count once (the `source` label's meaning is in the output schema). The server's rows win when they arrive: while the scan runs and for up to 20 s after it finishes. If the request fails (timeout, crash, rejected) or is still silent after that grace, the scan's rows are the answer, labelled `lsp.source: "native-graph-facts"`, partial (`partialReasons: ["serverUnanswered"]`) with `next.retry` to ask the server again, and a note that they are unverified (the base is matched by name, not resolved to the declaration) and direct only (run the operation on each to descend). Files the scan could not read are named in a warning, add `heritageUnread` to `partialReasons`, and get a `next.findText` text search over them. A server answer is labelled `lsp.source: "implementation"`; for `subtypes`, direct and transitive subtypes are not told apart. rust-analyzer answers a trait with its impl blocks: each trait impl (`impl Trait for Type`) is a direct subtype row with `kind: "impl"`, named by its self type, and has no subtypes of its own. A `subtypes` walk checks the anchor type's candidates 200 at a time: past the first window the row is partial (`hierarchyCandidateLimit`) and its last page offers `next.nextCandidatePage`; a deeper type with more than 200 candidates stays a terminal limit. `implementation` on a function, method or other member has no scan: a timeout stays an error with the retry tip and the astSearch/localSearch route.
 
 ### TypeScript backends
 
 1. An `lsp-servers.json` entry for the extension ([custom servers](#custom--bring-your-own-servers)); it always wins and gets no substitute.
-2. `tsgo`, for TypeScript (`.ts`, `.mts`, `.cts`, `.tsx`) only: the workspace's own `node_modules/.bin/tsgo` when `lsp.trustProjectConfig` (`OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`) is on, else the `@typescript/native-preview` platform executable in Octocode's install tree (`octocode-mcp` and the `octocode` CLI depend on it). JavaScript stays on `typescript-language-server`, because tsgo drops constructor functions and `this` expandos. tsgo returns at most 256 workspace symbols; a `workspaceSymbol` answer that reaches 256 warns that the server capped it (narrow `symbolName`, or route `.ts` to `typescript-language-server` in `lsp-servers.json`).
+2. `tsgo`, for TypeScript (`.ts`, `.mts`, `.cts`, `.tsx`) only: the workspace's own `node_modules/.bin/tsgo` when `lsp.trustProjectConfig` (`OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`) is on, else the `@typescript/native-preview` platform executable in Octocode's install tree (`octocode-mcp` and the `octocode` CLI depend on it). JavaScript stays on `typescript-language-server`, because tsgo drops constructor functions and `this` expandos. tsgo returns at most 256 workspace symbols; a `workspaceSymbol` answer that reaches 256 warns that the server capped it (narrow `symbolQuery`, or route `.ts` to `typescript-language-server` in `lsp-servers.json`).
 3. `typescript-language-server`, for JavaScript, and for TypeScript when no `tsgo` is found or it fails to start (the answer says so): an executable on `PATH`; else `node_modules/typescript-language-server/lib/cli.mjs` through the current Node, from Octocode's install tree, then the workspace's `node_modules` only when the workspace is trusted, then the start directory. Trusted here means `lsp.trustProjectConfig` or a workspace at or inside the start directory, so a scanned checkout such as a clone cannot supply the executable.
 
 Definition locations stay server output; import targets are never rewritten. LSP reads minified `.js`, but original source gives far better results.
@@ -241,13 +241,16 @@ Clone a verified repository/ref, then use the returned path with localSearch, st
 
 Storage and cache ownership are documented in [configuration](CONFIGURATION.md#cache-storage-and-lifecycle). A cursor belongs to its issuing tool, access context and saved state. Expiry requires an explicit fresh request.
 
-### `graphBuild` and `graphQuery` (CLI)
+### `graphBuild` and `graphQuery`
 
 Build or reuse a syntax graph with `graphBuild`, then explore the exact scope with
-`graphQuery`. Both use `{queries:[...]}` and `--json` for machine output, and are
-absent from MCP `tools/list`. Query the build's exact path even when pinning its ID.
+`graphQuery`. Both use `{queries:[...]}`; use `--json` for CLI machine output.
+MCP lists and executes both when `OCTOCODE_BETA=true` or `local.beta` is enabled.
+`graphBuild` writes snapshots and prunes older retained snapshots; `graphQuery` is read-only. Query the build's exact path even when pinning its ID.
 Snapshots live under the current workspace's `.octocode/graph`. `keep` defaults
 to three per scope; increase it when retaining comparison baselines. Query
 continuations pin the snapshot, and every successful query reports freshness.
 Call traversal defaults to high confidence. Verify consequential findings with
-LSP and source reads. See [code graph architecture](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli).
+LSP and source reads. See [code graph architecture](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli-and-beta-mcp).
+
+`includeProvenance` defaults to `true`. Set it to `false` to represent proven unchanged UTF-8 mappings as `sourceOrigin:"identity"` (and the corresponding selection, binding or recipient origin). Their file, source digest and byte spans remain on the row. Transcoded, transformed, excluded and multi-source mappings retain explicit origins and source descriptors. This projection changes neither graph scope nor reachable rows; continuations preserve it.

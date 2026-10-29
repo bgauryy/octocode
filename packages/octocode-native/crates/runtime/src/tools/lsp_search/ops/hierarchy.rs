@@ -70,20 +70,9 @@ impl Operation<'_, '_> {
         {
             Ok(walk) => walk,
             Err(failure) if failure.is_cancelled() => return Err(failure),
-            Err(failure) => {
-                let mut row = empty(
-                    query,
-                    "noLocations",
-                    "The fallback could not establish the type hierarchy anchor.",
-                    true,
-                );
-                crate::response::paging::mark_partial(
-                    &mut row,
-                    "typeHierarchyExpansionFailed",
-                    &[failure.message],
-                );
-                return Ok(row);
-            }
+            // Nothing was established: a typed failure, never an empty
+            // answer an agent could read as absence.
+            Err(failure) => return Err(failure),
         };
         self.scope.answer(
             std::iter::once(self.path).chain(
@@ -336,6 +325,13 @@ impl Operation<'_, '_> {
             hierarchy(self.client, self.sources, self.cancel, request).await?;
         if let Some(importers) = &importers {
             importers.annotate(&mut row, query, self.scope);
+            // A deeper walk follows the last importer window, not a page
+            // that still has windows to verify.
+            if row.pointer("/next/nextImporterPage").is_some()
+                && let Some(next) = row.get_mut("next").and_then(Value::as_object_mut)
+            {
+                next.remove("walkDeeper");
+            }
         }
         Ok(row)
     }

@@ -94,7 +94,7 @@ async function download(plan, assetsDir, maxBytes, manifest) {
   const data = Buffer.concat(chunks);
   const sha256 = createHash('sha256').update(data).digest('hex');
   const existing = manifest.find((row) => row.sha256 === sha256);
-  if (existing) return { ...existing, reused: true };
+  if (existing) return { ...existing, url: plan.url, finalUrl: res.finalUrl, reused: true };
   const file = join('assets', fileNameFor(res.finalUrl, type, sha256));
   writeFileSync(join(assetsDir, '..', file), data, { mode: 0o600 });
   return { url: plan.url, finalUrl: res.finalUrl, file, contentType: type, bytes: data.length, sha256, fetchedAt: new Date().toISOString() };
@@ -141,7 +141,11 @@ if (isMainModule(import.meta.url)) {
     if (!plan.accepted) { results.push({ url: plan.url, status: 'refused', reason: plan.reason }); continue; }
     try {
       const row = await download(plan, assetsDir, maxBytes, manifest);
-      if (!row.reused) { appendFileSync(manifestPath, `${JSON.stringify(row)}\n`); manifest.push(row); }
+      if (!row.reused || !manifest.some((entry) => entry.file === row.file && entry.url === row.url && entry.finalUrl === row.finalUrl)) {
+        const { reused: _reused, ...record } = row;
+        appendFileSync(manifestPath, `${JSON.stringify(record)}\n`);
+        manifest.push(record);
+      }
       results.push({ status: row.reused ? 'already-downloaded' : 'downloaded', ...row, path: join(runDir, row.file) });
     } catch (error) {
       results.push({ url: plan.url, status: 'failed', reason: error.message });

@@ -34,6 +34,27 @@ pub(super) const LSP_SERVER_ENV_ALLOWLIST: &[&str] = &[
     "HOMEPATH",
     "SYSTEMROOT",
     "SystemRoot",
+    // Toolchain selection the servers of other languages read: a Python
+    // interpreter and its import paths (pyright), the Go module cache,
+    // flags and workspace file (gopls), the JVM (jdtls, Metals), locale and
+    // scratch space.
+    "VIRTUAL_ENV",
+    "CONDA_PREFIX",
+    "PYTHONPATH",
+    "GOPATH",
+    "GOMODCACHE",
+    "GOFLAGS",
+    "GOWORK",
+    "GOPROXY",
+    "GOPRIVATE",
+    "GONOSUMDB",
+    "JAVA_HOME",
+    "XDG_CONFIG_HOME",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
 ];
 // Read from the process, so declared there (`crate::process_env`).
 const _: () = {

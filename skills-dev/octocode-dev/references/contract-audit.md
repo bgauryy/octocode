@@ -1,6 +1,6 @@
-# Contract, config, and docs audit
-
 Load when judging a tool's input schema, descriptions, MCP/CLI instructions, configuration knobs, or documentation truth. Agents see only this text; a wrong or bloated word misroutes every call.
+
+# Contract, config, and docs audit
 
 ## Input schema
 - Every field has one job. Flag two fields with the same intent (`limit` vs `pageSize`, `maxResults` vs `maxFiles`), aliases kept after a rename, and booleans that should be one enum.

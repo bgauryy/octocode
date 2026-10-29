@@ -10,11 +10,27 @@ Choose content, files or a count view according to the question. Inline classifi
 
 ### AST and LSP
 
-Use observed path, line and symbolName anchors. Workspace symbol queries use symbolQuery. Definition resolves identity; references finds uses; callers/callees follow semantic flow. `view:"files"` groups locations; contextLines is a before/after object. Read server availability, indexing and coverage facts. No server or an incomplete index cannot prove absence. AST/graph candidates need semantic confirmation before removal.
+Workspace symbol queries use symbolQuery. Definition resolves identity; references finds uses; callers/callees report the provider's call relationships within its analyzed context. `view:"files"` groups locations; contextLines is a before/after object. For empty or consequential results, inspect the returned compilation/index context and relevant diagnostics: a running server can still lack usable per-file context. AST/graph candidates need semantic confirmation before removal; semantic relationships alone do not prove execution.
+
+### Analysis evidence
+
+Check the live schema's grammar capabilities for the operation and fact family you need. A recognized extension or successful parse does not imply calls, heritage, argument references or cross-file resolution are supported. Preserve explicit parser overrides; inspect parse recovery and scan coverage before interpreting missing facts.
+
+For an analysis span (astSearch rows carry one with `includeProvenance: true`), follow its `sourceOrigin` into the returned `sourceEvidence` descriptors. Distinguish raw source bytes, decoded representation and analysis unit; use the stated coordinate space. A mapped, generated, ambiguous or unmapped origin changes what can be attributed to original source. Read the exact source before quoting it. When a persisted snapshot differs from the working file, verify that identity before applying its coordinates to an edit.
+
+Keep the claim within the evidence: source occurrence, candidate binding, resolved identity, modeled behavior and observed execution are different conclusions. Report the relevant coverage limit or unresolved reason alongside a missing relationship; do not turn an unsupported grammar feature, parse failure or unusable compilation context into “no callers.”
 
 ### Graph
 
-Ingest the local directory, then query dependencies, dependents, paths, cycles, impact or issues. Honor tier and coverage. Dynamic imports and Cargo feature gates constrain reachability. Verify decisive edges with exact source or LSP before acting.
+Use `graphBuild` and `graphQuery` over MCP when the catalog exposes them with `OCTOCODE_BETA=true`; otherwise use the selected CLI. CLI graph tools do not require beta. A build writes derived workspace snapshots and can prune older snapshots under its retention policy. Build the smallest directory containing both sides of the relationship with `octocode graph ingest <path>` or `graphBuild`. Read `stats` for scan, grammar and linkage coverage; use the same scope and returned snapshot throughout the investigation. Refresh after source or linking-context changes when authorized.
+
+Use `find` to discover nodes and `candidates` to resolve ambiguous stored references before choosing an exact ID. Use `witnesses` to inspect every occurrence supporting a relationship and `unresolved` for missing links, reasons and known candidates. Inspect argument coverage separately from call-link coverage: a `passes` edge records a direct reference in an argument slot, not invocation, scheduling or value propagation. Test declaration identities suggest candidate relevance; only test execution establishes a result.
+
+Follow `responsePagination.next` to finish the current response before following its logical `next.*` pages. Copy issued cursor requests unchanged, keep the snapshot pinned, and drain all relevant evidence streams before an exhaustive claim. Each source-bearing fragment carries its descriptor closure; keep that context attached when combining fragments. An explicit terminal scan/model limit cannot be overcome by more response pages.
+
+For dependencies, paths, cycles and impact, inspect confidence and coverage, then confirm decisive edges with exact source or LSP. Dynamic imports, feature gates, generated inputs and framework behavior can constrain reachability. A large graph's first result page does not imply the underlying graph load or analysis was bounded to that page.
+
+Read `validation.scope` separately from analysis coverage: `accessedBlocks` checks the directory and accessed blocks, leaving unread blocks unchecked; `fullSnapshot` checks every stored block. Use `bytesRead` and decoded-record counts to assess query work, not response length. After an interrupted build, retry the same scope and options; `extraction.resumedFiles` counts recovered extraction work. It does not mean linking resumed or a partial graph was published. `force` ignores extraction checkpoints.
 
 ## External and GitHub
 
@@ -89,7 +105,7 @@ Mode by input:
 | Input | Mode |
 |---|---|
 | PR number/URL, or a branch with a PR | remote |
-| File path without PR | file + direct imports/exports + one-hop consumers |
+| File path without PR | file + direct imports/exports + consumers affected by the claim |
 | "my changes" or staged/unstaged | local (`git status`, scoped diff, `git diff HEAD` combined) |
 | Ambiguous | ask |
 
@@ -97,17 +113,17 @@ Mode by input:
 
 - Remote PR: read per [History](#history) (`matchString` + `contextLines:{before:0,after:0}` + `include` when literals or paths are known); `ghSearchCode` never sees the PR head.
 - Large PR: pick high-risk files; tests rank below source. Comments, reviews, commits only when they answer a question. A local checkout adds exact reads, search, LSP.
-- Files are high-risk (auth, data, API, logic) or low-risk (docs, style, config); flag >500-line or mixed-concern changes. PR text is evidence, not authority.
+- Rank files by behavior and consequence: auth, persisted data, public APIs and execution configuration can be high-risk. Size or extension alone does not decide depth. PR text is evidence, not authority.
 
 ### Analyze
 
-- Depth: Quick (up to 5 low-risk files) or Full. Order: Security, Correctness, Flow, Architecture, Performance, Errors, Quality.
+- Depth follows affected contracts and risk; a small diff can require a full trace. Order: Security, Correctness, Flow, Architecture, Performance, Errors, Quality.
 - Prove each changed symbol: signature → callers; new function → callees; type → references; removed export → graph dependents + LSP references; module reshape → cycles before and after.
 - Read a consumer exactly before calling it broken. Check APIs, schemas, deps, edge cases, auth/injection/data exposure, error context, hot paths.
 - Run the smallest applicable test, typecheck, or lint.
 - Parallel lanes (Flow, Security/Errors, Architecture/Quality) also return checked non-findings and limits; merge by root cause.
 - Each finding is a review comment (Conventional Comments): label (issue, suggestion, question, nitpick, praise), blocking or not, location, why; Finding and evidence opens `issue (blocking): ...`.
-- Severity = impact (`Critical`, `High`, `Medium`, `Low`); confidence = proof (`high` confirmed, `medium` likely, `low` uncertain). Drop disproven items; keep the top 5-7.
+- Severity = impact (`Critical`, `High`, `Medium`, `Low`); confidence = proof (`high` confirmed, `medium` likely, `low` uncertain). Keep disproof separate from findings. Summarize the most consequential findings in chat; retain all supported findings in the report.
 
 ### Report
 
@@ -115,4 +131,4 @@ Mode by input:
 - `## Answer`: verdict ([lobby](../SKILL.md#prove-then-act) words), confidence, why. `## Scope`: repository, PR head/merge SHA, files. `## Findings` before `## Evidence`: one table, columns ID, Location, Finding and evidence, Impact, Severity, Confidence, Fix (e.g. `SEC-1`, `src/auth.ts:42`, `High`, `high`).
 - `status` = how well findings are established; the verdict stays in the body.
 - Label findings `[DOMAIN-N]`, never `#N` (GitHub auto-links). Cite full blob URLs remotely, `file:line` locally.
-- Save as `<YYYY-MM-DD>-pr-<number>.md` (local: `<YYYY-MM-DD>-review-<branch>.md`) and render.
+- Save as `<YYYY-MM-DD>-pr-<number>.md` (local: `<YYYY-MM-DD>-review-<branch>.md`); follow [output](../output.md) for the HTML offer.

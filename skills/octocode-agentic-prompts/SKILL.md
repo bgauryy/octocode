@@ -50,14 +50,15 @@ Before and after the change, run realistic requests and edge cases: action clear
 | Overflow, compaction, cost, caching, untrusted text | [Context](references/context.md) | Cut vs keep, data vs authority |
 | Small models must follow a protocol or tool surface | [Interview](references/interview.md) | Study, cold predict, execute, fix loop |
 | Grading interview cold calls | [interview-grade.mjs](scripts/interview-grade.mjs) | Replays calls, valid-cold rate |
+| Changing the interview grader | [interview-grade.test.mjs](scripts/interview-grade.test.mjs) | Checks runner and input failure paths |
 | Saving or listing reports | [render-report.mjs](scripts/render-report.mjs) | [output.md](output.md) |
 
 ## Related skills
 
-- `octocode-skills`: skill structure, packaging.
-- `octocode-documentation`: explanatory prose.
-- `octocode-research`: tool contracts, runtime wiring, source claims.
-- `octocode-eval-benchmark`: measure activation and outcomes.
+- Use `octocode-skills` when skill structure or packaging changes.
+- Use `octocode-documentation` when writing explanatory prose.
+- Use `octocode-research` when tool contracts, runtime wiring or source claims need evidence.
+- Use `octocode-eval-benchmark` when measuring activation or outcomes.
 - For an orchestrated multi-actor task: [octocode-workflows composition](../octocode-workflows/references/composition.md).
 
 ## Output

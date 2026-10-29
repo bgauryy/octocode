@@ -5,8 +5,9 @@
 use super::anchor::Position;
 use super::cancellable;
 use super::failure::{
-    ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, LspFailure, RequestFailures, empty,
-    mark_diagnostics_unpublished, partial_with_related_rerun, shown_paths, text_search_lead,
+    ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, LspFailure, RequestFailures,
+    mark_diagnostics_unpublished, no_answer, partial_with_related_rerun, shown_paths,
+    text_search_lead,
 };
 use super::heritage;
 use super::importers::{self, Importers, WindowRequest};

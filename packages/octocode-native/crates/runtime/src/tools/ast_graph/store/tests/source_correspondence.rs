@@ -197,6 +197,7 @@ fn registry_only_toml_provider_reaches_normal_ingest_store_find_and_stats() {
         &NeverCancel,
         None,
         registry,
+        &crate::tools::ast_graph::limits::LIMITS,
     );
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
     let found = ask(&dir.0, "find", Some("設定"), |_| {});
@@ -221,6 +222,7 @@ fn registry_only_toml_provider_reaches_normal_ingest_store_find_and_stats() {
         &NeverCancel,
         None,
         registry,
+        &crate::tools::ast_graph::limits::LIMITS,
     );
     assert_eq!(reused.class, ExitClass::Success, "{}", reused.value);
     assert_eq!(reused.value["id"], built.value["id"]);

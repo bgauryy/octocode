@@ -193,7 +193,7 @@ fn other_languages() -> Vec<LanguageEntry> {
             syntax_tree_operation: true,
             outline_operation: true,
             name: "Python",
-            call_adapter: Some(CallAdapter::Ordinary),
+            call_adapter: Some(CallAdapter::Python),
             visibility_adapter: VisibilityAdapter::TopLevel,
             export_forwarding_node: None,
             argument_adapter: Some(crate::signatures::arguments::ArgumentAdapter::Python),
@@ -219,7 +219,7 @@ fn other_languages() -> Vec<LanguageEntry> {
             export_forwarding_node: None,
             argument_adapter: Some(crate::signatures::arguments::ArgumentAdapter::Go),
             test_frameworks: &[],
-            fact_capabilities: MODULE_FACTS,
+            fact_capabilities: HERITAGE_FACTS,
             pattern_syntax: PatternSyntax {
                 terminated_fragment_kind: Some("call_expression"),
                 ..PatternSyntax::DEFAULT

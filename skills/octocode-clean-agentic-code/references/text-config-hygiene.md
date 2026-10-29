@@ -1,6 +1,6 @@
-# Text and config hygiene
-
 Load when comments, docs, agent instructions, or configuration hold stale or duplicate guidance.
+
+# Text and config hygiene
 
 ## Comments and documents
 

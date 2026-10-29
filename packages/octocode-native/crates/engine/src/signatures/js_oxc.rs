@@ -36,7 +36,7 @@ mod walk;
 
 use outline::{module_outline, push_heritage_edges};
 use validity::assess_recovery;
-use walk::{collect_member_functions, collect_program};
+use walk::{collect_member_functions, collect_program, push_defined_exports};
 
 /// The kind of a TypeScript type alias, module-private: LSP has no type-alias
 /// kind, and the tree never leaves this module, so declarations name it
@@ -177,12 +177,34 @@ fn extract_graph_facts_with_metadata_inner(
         let line_index = SpanPositions::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
+        // One semantic build serves CommonJS shapes, arguments and references.
+        let semantic = SemanticBuilder::new()
+            .with_build_nodes(true)
+            .build(&parser_ret.program)
+            .semantic;
+        let (common_js_exports, common_js_note) =
+            if js_oxc_commonjs::may_contain_exports(&parser_ret.tokens, content) {
+                js_oxc_commonjs::collect_common_js_exports(
+                    &semantic,
+                    &parser_ret.program,
+                    &line_index,
+                )
+            } else {
+                Default::default()
+            };
+        let mut common_js_names = common_js_exports.names;
+        common_js_names.extend(push_defined_exports(
+            common_js_exports.defined,
+            &line_index,
+            &mut symbols,
+        ));
         let (mut declarations, mut edges, imports, exports) = module_outline(
             &parser_ret.program,
             &line_index,
             file_path,
             content,
             &symbols,
+            common_js_names,
         );
         if job_cancelled() {
             return None;
@@ -198,7 +220,12 @@ fn extract_graph_facts_with_metadata_inner(
         // OXC tokens make this an absence check, not a binding claim. Candidate
         // loaders still require the full native scope inventory, including escapes.
         let common_js = if js_oxc_commonjs::may_contain_loader(&parser_ret.tokens, content) {
-            js_oxc_commonjs::collect_common_js_loads(&parser_ret.program, &line_index)
+            js_oxc_commonjs::collect_common_js_loads(
+                &semantic,
+                &parser_ret.program,
+                &line_index,
+                &declarations,
+            )
         } else {
             Vec::new()
         };
@@ -258,10 +285,6 @@ fn extract_graph_facts_with_metadata_inner(
         }
         push_heritage_edges(&declarations, heritage, &mut edges);
 
-        let semantic = SemanticBuilder::new()
-            .with_build_nodes(true)
-            .build(&parser_ret.program)
-            .semantic;
         let argument_sites = super::js_oxc_arguments::collect(
             &semantic,
             &parser_ret,
@@ -285,6 +308,7 @@ fn extract_graph_facts_with_metadata_inner(
                 .diagnostics
                 .into_iter()
                 .map(|error| parse_error(error.message.to_string()))
+                .chain(common_js_note)
                 .collect(),
             ..super::native_graph_facts(ext, file_path, content)
         };
@@ -330,6 +354,7 @@ fn extract_declarations_inner(content: &str, file_path: &str) -> Option<GraphFac
             file_path,
             content,
             &symbols,
+            Vec::new(),
         );
         assess_recovery(&parser_ret, &line_index, &mut declarations, &mut []);
         if job_cancelled() {

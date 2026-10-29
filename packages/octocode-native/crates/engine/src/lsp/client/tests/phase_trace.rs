@@ -94,7 +94,7 @@ async fn real_client_path_attributes_readiness_sync_and_request_separately() {
     let _server = server.await.unwrap();
     let summary = trace.summary();
     for phase in [
-        "readiness: 300ms",
+        "readiness: 0ms",
         "documentSync: 0ms",
         "openReadiness: 20ms",
         "request: 50ms",

@@ -1,6 +1,6 @@
 //! Logical module ancestry derived from declarations, independently of paths.
 use super::*;
-use octocode_engine::graph::{GraphFactImport, GraphFactRustModule, GraphFactsTypedEntry};
+use octocode_engine::graph::{GraphFactImport, GraphFactRustModule};
 
 #[derive(Default)]
 struct Module {
@@ -48,30 +48,23 @@ fn child_file(
 
 impl RustModules {
     pub(in crate::tools::ast_graph::graph) fn build<'a>(
-        entries: impl Iterator<Item = &'a GraphFactsTypedEntry>,
+        entries: impl Iterator<Item = (&'a str, &'a [GraphFactRustModule])>,
         known: &BTreeSet<String>,
         cargo: &CargoCrates,
     ) -> Self {
-        let entries = entries
-            .filter(|entry| entry.facts.language == "rust")
-            .collect::<Vec<_>>();
+        let entries = entries.collect::<Vec<_>>();
         let mut targeted = BTreeSet::new();
         let mut relocated = BTreeSet::new();
         let mut ordinary = BTreeSet::new();
         // Before choosing crate roots, conservatively exclude every file a
         // declaration can own. Cargo metadata supplies explicit target roots.
-        for entry in &entries {
-            for module in entry
-                .facts
-                .modules
+        for (file, modules) in &entries {
+            for module in modules
                 .iter()
                 .filter(|module| !module.inline && !module.unsupported)
             {
-                for base in [
-                    rust_module_child_dir(&entry.relative_path),
-                    dirname(&entry.relative_path).into(),
-                ] {
-                    if let Some(child) = child_file(&entry.relative_path, module, &base, known) {
+                for base in [rust_module_child_dir(file), dirname(file).into()] {
+                    if let Some(child) = child_file(file, module, &base, known) {
                         targeted.insert(child.clone());
                         if module.path.is_some() {
                             relocated.insert(child);
@@ -83,22 +76,20 @@ impl RustModules {
             }
         }
         let mut out = Self::default();
-        for entry in &entries {
-            let file = &entry.relative_path;
+        for &(file, modules) in &entries {
             let name = file.rsplit('/').next().unwrap_or(file);
             let root = cargo.roots.contains(file)
                 || (!targeted.contains(file)
-                    && (matches!(name, "lib.rs" | "main.rs") || !entry.facts.modules.is_empty()));
+                    && (matches!(name, "lib.rs" | "main.rs") || !modules.is_empty()));
             let id = out.nodes.len();
-            out.files.insert(file.clone(), id);
+            out.files.insert(file.to_owned(), id);
             out.nodes.push(Module {
-                file: file.clone(),
+                file: file.to_owned(),
                 root,
                 ..Default::default()
             });
         }
-        for entry in entries {
-            let file = &entry.relative_path;
+        for (file, modules) in entries {
             let file_id = out.files[file];
             let mut bases = BTreeSet::new();
             if out.nodes[file_id].root || relocated.contains(file) {
@@ -107,12 +98,7 @@ impl RustModules {
             if ordinary.contains(file) || bases.is_empty() {
                 bases.insert(rust_module_child_dir(file));
             }
-            for module in entry
-                .facts
-                .modules
-                .iter()
-                .filter(|module| !module.unsupported)
-            {
+            for module in modules.iter().filter(|module| !module.unsupported) {
                 let mut parent = file_id;
                 for name in &module.scope {
                     parent = out.inline(parent, name);

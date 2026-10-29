@@ -102,6 +102,16 @@ pub(super) fn declarations(
     })
 }
 
+/// The per-symbol provenance keys `includeProvenance` adds to a row.
+const PROVENANCE_KEYS: [&str; 6] = [
+    "occurrenceId",
+    "sourceDigest",
+    "sourceRange",
+    "sourceOrigin",
+    "selectionByteRange",
+    "selectionOrigin",
+];
+
 /// [`reduce_file`] over one file's declarations facts.
 pub(super) fn reduce_document(
     q: &AstSearchQuerySymbols,
@@ -133,7 +143,18 @@ pub(super) fn reduce_document(
         .iter()
         .map(|row| (row.id.as_str(), row))
         .collect::<std::collections::HashMap<_, _>>();
+    let provenance = q.include_provenance.unwrap_or(false);
     for row in rows.iter_mut().chain(&mut off_kind) {
+        if !provenance {
+            // Per-symbol provenance only on request (`includeProvenance`):
+            // without it the outline names each declaration once.
+            if let Some(fields) = row.as_object_mut() {
+                for key in PROVENANCE_KEYS {
+                    fields.shift_remove(key);
+                }
+            }
+            continue;
+        }
         let id = row["occurrenceId"].as_str().unwrap_or("");
         let declaration = declarations.get(id).ok_or_else(|| {
             ToolError::new(

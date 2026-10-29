@@ -28,10 +28,10 @@ const WithRole = WithEmail.extend({ role: z.enum(["admin", "user"]) })
 const Base = z.object({ id: z.string(), created: z.date() })
 const Extra = { name: z.string(), email: z.email(), role: z.enum(["admin", "user"]) }
 
-// GOOD: single z.object with spread — one type instantiation
+// Candidate: compose the shape without a chain of extensions
 const Full = z.object({ ...Base.shape, ...Extra })
 ```
 
 ## Why
 
-`.extend()` is fine for one-off extensions. But when building large type hierarchies, spreading `.shape` keeps compile times manageable. The runtime behavior is identical — this is purely a TypeScript compiler performance optimization.
+`.extend()` is fine for one-off extensions. For large chains, measure TypeScript checking before and after spreading `.shape`. A new `z.object` does not inherit object refinements, metadata or strict/loose/catchall behavior: preserve those deliberately, or use `.safeExtend()` when retaining refinements. Verify behavior before treating this as a performance-only change.

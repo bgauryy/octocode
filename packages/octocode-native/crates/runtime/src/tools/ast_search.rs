@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod delivered_page_tests;
+#[cfg(test)]
+mod encoding_tests;
 mod errors;
 mod evidence;
 #[cfg(test)]

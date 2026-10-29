@@ -92,6 +92,10 @@ pub struct TextSearchStats {
     /// real text, every one in path order; `binary_file_count` counts them.
     pub binary_files: Option<Vec<String>>,
     pub binary_file_count: Option<u32>,
+    /// Matched files with a returned line that is not UTF-8, in path order:
+    /// their values are decoded text (Latin-1, or U+FFFD for invalid bytes,
+    /// as [`crate::text::Decoded::interior`] reads them), not verbatim bytes.
+    pub not_utf8_files: Option<Vec<String>>,
     /// Files binary from their leading bytes (a NUL before any text, or
     /// after a short header that matched nothing), skipped as opaque
     /// binary. Nothing text-searchable was lost, so they are not a coverage gap.

@@ -1,3 +1,5 @@
+Load when choosing primitive, format, enum or date syntax.
+
 # Schema Types Reference
 
 ## Primitives
@@ -39,7 +41,7 @@ z.string().includes("@")
 ```typescript
 z.email()       // email address
 z.url()         // URL
-z.uuid()        // UUID (v4)
+z.uuid()        // UUID; use z.uuid({ version: "v4" }) to require UUID v4
 z.cuid()        // CUID
 z.cuid2()       // CUID2
 z.ulid()        // ULID
@@ -75,7 +77,7 @@ const UserID = z.templateLiteral([z.literal("user_"), z.string()])
 ## Numbers
 
 ```typescript
-z.number()                // any number
+z.number()                // finite number; rejects NaN and Infinity
 z.int()                   // integer only
 z.float32()               // finite number within float32 bounds
 z.float64()               // finite number within float64 bounds
@@ -89,7 +91,7 @@ z.number().nonnegative()  // >= 0
 z.number().nonpositive()  // <= 0
 z.number().multipleOf(5)  // divisible by 5
 z.number().finite()       // not Infinity
-z.number().safe()         // within Number.MAX_SAFE_INTEGER
+z.number().safe()         // deprecated alias for integer validation; prefer z.int()
 ```
 
 ## BigInt
@@ -127,7 +129,7 @@ z.date().max(new Date("2030-01-01")) // before date
 // String literal array
 z.enum(["active", "inactive", "pending"])
 
-// TypeScript enum (v4 — unified, no more nativeEnum)
+// TypeScript enum (v4 — nativeEnum is deprecated; z.enum handles both)
 enum Status {
   Active = "active",
   Inactive = "inactive",
@@ -177,18 +179,20 @@ z.literal(100n)      // exactly 100n (bigint)
 z.file()                         // File instance
 z.file().min(1024)               // minimum size in bytes
 z.file().max(5 * 1024 * 1024)    // maximum size (5MB)
-z.file().type("image/png")       // MIME type
-z.file().type("image/*")         // MIME type wildcard
+z.file().mime("image/png")       // MIME type
+z.file().mime(["image/png", "image/jpeg"]) // accepted MIME types
 ```
 
 ## JSON
 
 ```typescript
-// Validates that the input is a valid JSON string, then parses it
+// Validates an already decoded JSON-compatible value
 z.json()
 
-z.json().parse('{"name":"Alice"}')  // { name: "Alice" }
-z.json().parse("invalid json")     // ZodError
+z.json().parse({ name: "Alice" }) // { name: "Alice" }
+z.json().parse("invalid json")   // "invalid json": strings are JSON values
+// Decode JSON text with JSON.parse (handle syntax errors), then validate
+// with the application's schema. z.json() does not decode strings.
 ```
 
 ## Custom Types

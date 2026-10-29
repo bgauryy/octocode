@@ -2,7 +2,9 @@ use super::ToolRuntime;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const PING_TIMEOUT: Duration = Duration::from_secs(2);
+/// The provider's model listing answers in about 0.3 s, with spikes near
+/// 2 s (measured 2026-10-29); one slow answer must not hide clasify.
+const PING_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl ToolRuntime {
     /// Finish host startup before publishing discovery or admitting calls.

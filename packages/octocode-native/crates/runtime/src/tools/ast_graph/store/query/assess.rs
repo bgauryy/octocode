@@ -177,6 +177,15 @@ impl Query<'_> {
             .collect::<Vec<_>>();
         let mut extra = Map::new();
         let mut summary = report.summary.clone();
+        if let Some(note) = manifest_above(
+            &root,
+            g.manifest["workspace"].as_str(),
+            g.t.components.is_empty(),
+            &detectors,
+        ) && let Some(notes) = summary["notes"].as_array_mut()
+        {
+            notes.push(note);
+        }
         summary["minTier"] = json!(min_tier);
         summary["hiddenBelowTier"] = json!(total_before - findings.len());
         extra.insert("summary".into(), summary);
@@ -308,4 +317,50 @@ impl Query<'_> {
             "resolvedFindings": resolved,
         }))
     }
+}
+
+/// The note of a snapshot whose root holds no package manifest while a
+/// directory above it, inside its workspace, does: entrypoints came from
+/// file conventions only, so the reachability findings miss the manifest's
+/// entries (`main`, `exports`, `bin`, crate targets).
+fn manifest_above(
+    root: &Path,
+    workspace: Option<&str>,
+    no_components: bool,
+    detectors: &[String],
+) -> Option<Value> {
+    let judged = detectors.is_empty()
+        || detectors.iter().any(|detector| {
+            matches!(
+                detector.as_str(),
+                "unreachable-file" | "unused-export" | "test-only"
+            )
+        });
+    if !judged || !no_components {
+        return None;
+    }
+    let workspace = Path::new(workspace?);
+    let (dir, manifest) = root
+        .ancestors()
+        .skip(1)
+        .take_while(|dir| dir.starts_with(workspace))
+        .find_map(|dir| {
+            super::super::workspace::MANIFEST_FILES
+                .iter()
+                .find(|file| dir.join(file).is_file())
+                .map(|file| (dir, *file))
+        })?;
+    let shown = dir
+        .strip_prefix(workspace)
+        .ok()
+        .map(|relative| relative.to_string_lossy().into_owned())
+        .filter(|relative| !relative.is_empty())
+        .unwrap_or_else(|| ".".into());
+    Some(json!({
+        "detector": "unreachable-file",
+        "skipped": format!(
+            "the snapshot root holds no package manifest, so entrypoints came from file conventions only; {shown} holds {manifest}: run `octocode graph ingest {}` so its entries count",
+            octocode_io::shell::quote(&dir.to_string_lossy())
+        ),
+    }))
 }

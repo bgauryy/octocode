@@ -19,9 +19,10 @@ pub(super) fn single_row(structured: &Value) -> Option<&Map<String, Value>> {
 }
 
 /// `structureSearch files` as fd prints it: one root-relative path per line,
-/// a directory's ending in `/`. An entry's fields follow in `[ … ]`, its
-/// size only when the query sorts or filters by size. The tree view keeps
-/// the rendered text.
+/// a directory's ending in `/`. A `details` entry's fields (every one the
+/// result carries, the size as `N B`) follow in `[ … ]`; a `paths` entry is
+/// its bare name, parsed for nothing, so a name spelling ` (…)` stays whole.
+/// The tree view keeps the rendered text.
 pub(super) fn listing(
     structured: &Value,
     query: &Value,
@@ -31,8 +32,7 @@ pub(super) fn listing(
     if asked["operation"].as_str() != Some("files") {
         return None;
     }
-    let sized =
-        asked["sort"]["by"].as_str() == Some("sizeBytes") || asked.get("sizeBytes").is_some();
+    let detailed = asked["view"].as_str() != Some("paths");
     let row = single_row(structured)?;
     let data = row.get("data")?.as_object()?;
     let mut out = Vec::new();
@@ -43,7 +43,12 @@ pub(super) fn listing(
     {
         let dir = group.get("dir")?.as_str()?;
         for entry in group.get("files")?.as_array()? {
-            let (name, fields) = entry_fields(entry.as_str()?);
+            let entry = entry.as_str()?;
+            let (name, fields) = if detailed {
+                entry_fields(entry)
+            } else {
+                (entry, Vec::new())
+            };
             let path = if dir.is_empty() || dir == "." {
                 name.to_owned()
             } else {
@@ -51,12 +56,8 @@ pub(super) fn listing(
             };
             let shown: Vec<String> = fields
                 .iter()
-                .enumerate()
-                .filter(|(index, field)| {
-                    sized || *index > 0 || !field.bytes().all(|byte| byte.is_ascii_digit())
-                })
                 // The bare number is the size in bytes: say so.
-                .map(|(_, field)| {
+                .map(|field| {
                     if field.bytes().all(|byte| byte.is_ascii_digit()) {
                         format!("{field} B")
                     } else {
@@ -77,8 +78,10 @@ pub(super) fn listing(
     })
 }
 
-/// A listed entry's name and fields: the fields follow the last ` (` of an
-/// entry ending in `)` (sizes, `symlink`, line counts, `modified=<instant>`).
+/// A `details` entry's name and fields: the fields follow the last ` (` of
+/// an entry ending in `)` (sizes, `symlink`, line counts,
+/// `modified=<instant>`); they never spell ` (` themselves, whatever the
+/// name holds.
 pub(super) fn entry_fields(entry: &str) -> (&str, Vec<&str>) {
     match entry
         .strip_suffix(')')
@@ -91,6 +94,8 @@ pub(super) fn entry_fields(entry: &str) -> (&str, Vec<&str>) {
 
 /// `path:line: kind name` per declaration, members indented under their
 /// parent, as the outline nests them. Span, doc comments and other fields follow.
+/// A call row declared in another file (`path`, with `line` the
+/// declaration's) prints under that file, and each site under the row's.
 pub(super) fn declarations(
     path: &str,
     symbols: &[Value],
@@ -101,10 +106,27 @@ pub(super) fn declarations(
     for symbol in symbols {
         let mut symbol = symbol.as_object()?.clone();
         let line = symbol.shift_remove("line")?.as_u64()?;
-        let name = symbol.shift_remove("symbolName")?;
+        // A module-level caller has no name of its own: the file's stands in.
+        let name = symbol.shift_remove("symbolName").unwrap_or_else(|| {
+            Value::String(
+                std::path::Path::new(path)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.to_owned()),
+            )
+        });
         let kind = symbol.shift_remove("kind");
         let kind = kind.as_ref().and_then(Value::as_str).unwrap_or("symbol");
         let members = symbol.shift_remove("members");
+        let declared = match symbol.get("path").and_then(Value::as_str) {
+            Some(declared) => {
+                let declared = declared.to_owned();
+                symbol.shift_remove("path");
+                Some(declared)
+            }
+            None => None,
+        };
+        let location = declared.as_deref().unwrap_or(path);
         let mut note = Vec::new();
         if let Some(end) = symbol.shift_remove("endLine").and_then(|end| end.as_u64()) {
             note.push(format!("{line}-{end}"));
@@ -116,13 +138,24 @@ pub(super) fn declarations(
             // Named like every other field: no abbreviation to look up.
             note.push(format!("docStartLine {doc}"));
         }
-        // Call sites as `line:column`: `sites 83:36,90:4`.
+        // Call sites as `line:column`: `sites 83:36,90:4`; each names its
+        // file (`sites a.ts:83:36`) when the declaration is elsewhere.
         if let Some(sites) = symbol
             .get("sites")
             .and_then(Value::as_array)
             .and_then(|sites| sites.iter().map(site).collect::<Option<Vec<_>>>())
         {
             symbol.shift_remove("sites");
+            let sites: Vec<String> = sites
+                .into_iter()
+                .map(|site| {
+                    if declared.is_some() {
+                        format!("{path}:{site}")
+                    } else {
+                        site
+                    }
+                })
+                .collect();
             note.push(format!("sites {}", sites.join(",")));
         }
         if !symbol.is_empty() {
@@ -131,7 +164,7 @@ pub(super) fn declarations(
         let name = name
             .as_str()
             .map_or_else(|| name.to_string(), str::to_owned);
-        let mut entry = format!("{path}:{line}: {indent}{kind} {name}");
+        let mut entry = format!("{location}:{line}: {indent}{kind} {name}");
         if !note.is_empty() {
             entry.push_str(&format!("  [{}]", note.join(" ")));
         }

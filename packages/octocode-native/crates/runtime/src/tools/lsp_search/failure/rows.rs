@@ -47,6 +47,35 @@ pub(in super::super) fn empty(
     row
 }
 
+/// The empty row of a language server that answered nothing about the
+/// query's file: `category` with `reason`, unless the file lies outside the
+/// project its server needs ([`without_project`]). The server then analyzes
+/// nothing, so the row is `noProject` and partial: the empty answer is no
+/// absence.
+pub(in super::super) fn no_answer(query: &LspSearchQuery, category: &str, reason: &str) -> Value {
+    if !without_project(query) {
+        return empty(query, category, reason, true);
+    }
+    let mut row = empty(query, NO_PROJECT, NO_PROJECT_REASON, true);
+    crate::response::paging::mark_partial(&mut row, NO_PROJECT, &[]);
+    row
+}
+
+/// Category and partial reason of an empty answer about a file no project
+/// holds ([`no_answer`]).
+const NO_PROJECT: &str = "noProject";
+const NO_PROJECT_REASON: &str = "No Cargo.toml or rust-project.json is above this file, and rust-analyzer analyzes no file outside one; empty is not absence.";
+
+/// Whether the query's file lies outside the project its language server
+/// needs ([`octocode_engine::lsp::workspace::outside_required_project`]).
+fn without_project(query: &LspSearchQuery) -> bool {
+    lsp_search_query::path(query)
+        .map(uri_to_path)
+        .is_some_and(|path| {
+            octocode_engine::lsp::workspace::outside_required_project(std::path::Path::new(&path))
+        })
+}
+
 pub(in super::super) fn annotate_empty_includes(
     row: &mut Value,
     query: &LspSearchQuery,

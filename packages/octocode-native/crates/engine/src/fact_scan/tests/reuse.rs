@@ -48,17 +48,20 @@ fn persistent_facts_are_reused_only_for_verified_source_and_schema() {
             "schema" => entry.facts.schema_version = 0,
             _ => {}
         }
-        let (actual, reused) = scan_cached(fixture.path(), &|requested, digest, parser| {
-            assert_eq!(requested, path);
-            assert_eq!(digest, crate::digest::sha256(source.as_bytes()));
-            assert_eq!(parser, None);
+        let (actual, reused) = scan_cached(fixture.path(), &|context| {
+            assert_eq!(context.relative_path, path);
+            assert_eq!(
+                context.content_digest,
+                crate::digest::sha256(source.as_bytes())
+            );
+            assert_eq!(context.parser, None);
             Some(entry.clone())
         });
         assert_eq!(reused, invalid == "none", "{invalid}");
         assert_eq!(actual.facts, persisted(&source, &path).facts);
         let updated = format!("fn changed_{invalid}() {{}}\n");
         fs::write(fixture.path().join(&path), &updated).expect("edit");
-        let (after, reused) = scan_cached(fixture.path(), &|_, _, _| Some(entry.clone()));
+        let (after, reused) = scan_cached(fixture.path(), &|_| Some(entry.clone()));
         assert!(!reused, "changed bytes cannot reuse {invalid}");
         assert_eq!(after.facts, persisted(&updated, &path).facts);
     }
@@ -71,12 +74,12 @@ fn prior_schema_facts_cannot_be_reused_for_unchanged_bytes() {
     let source = "class C { C(){ super(); } }";
     fs::write(fixture.path().join(path), source).unwrap();
     let expected = persisted(source, path);
-    assert_eq!(expected.facts.schema_version, 6);
+    assert_eq!(expected.facts.schema_version, 12);
     assert_eq!(expected.facts.calls.len(), 1);
     let mut old = expected.clone();
     old.facts.schema_version = 4;
     old.facts.calls.clear();
-    let (actual, reused) = scan_cached(fixture.path(), &|_, _, _| Some(old.clone()));
+    let (actual, reused) = scan_cached(fixture.path(), &|_| Some(old.clone()));
     assert!(!reused);
     assert_eq!(actual.facts, expected.facts);
 }

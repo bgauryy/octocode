@@ -129,9 +129,11 @@ impl NativeLspClient {
         {
             return Ok(None);
         }
-        // A content sync invalidates any push diagnostics for the prior
-        // document version. The next diagnostic read waits for a fresh publish.
-        connection.clear_push_diagnostics(&uri);
+        // A content sync supersedes the push diagnostics of the prior
+        // document version: the next diagnostic read waits for a fresh
+        // publish, and falls back to them only when none comes (a server
+        // that publishes only when its diagnostics change keeps silent).
+        connection.supersede_push_diagnostics(&uri);
 
         // Decide didOpen-vs-didChange and reserve the version under the lock,
         // then release it before awaiting the notify (never hold a std mutex

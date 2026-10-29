@@ -187,14 +187,19 @@ pub(super) fn scoped(
         name,
         accept: &admitted,
         receiver_type: None,
+        term_binding: false,
+        self_template: None,
+        value_qualifier: false,
     };
     linker.link(&lookup).ok_or_else(|| {
         unlinked_reason(
             &unit.bindings,
             qualifier,
             name,
-            linker.global_names,
-            &admitted,
+            linker
+                .named(caller, name)
+                .filter(|id| admitted(*id))
+                .count(),
         )
     })
 }

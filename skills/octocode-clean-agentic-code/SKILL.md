@@ -54,4 +54,4 @@ flowchart LR
 
 ## Output
 
-Follow [output.md](output.md); render with [render-report.mjs](scripts/render-report.mjs).
+Follow [output.md](output.md); use [render-report.mjs](scripts/render-report.mjs) when HTML is requested.

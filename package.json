@@ -29,7 +29,7 @@
   ],
   "resolutions": {
     "@octocodeai/config": "workspace:*",
-    "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core",
+    "@octocodeai/octocode-core": "file:../octocode-mcp-host/packages/octocode-core",
     "@octocodeai/octocode-native-darwin-arm64": "workspace:*",
     "@octocodeai/octocode-native-darwin-x64": "workspace:*",
     "@octocodeai/octocode-native-linux-arm64-gnu": "workspace:*",

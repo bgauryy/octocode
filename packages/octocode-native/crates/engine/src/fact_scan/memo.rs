@@ -4,8 +4,9 @@
 use std::sync::Arc;
 
 use crate::graph::{
-    GraphFactCall, GraphFactCommonJs, GraphFactDeclaration, GraphFactEdge, GraphFactExport,
-    GraphFactImport, GraphFactPath, GraphFactRustModule, GraphFactsDocument,
+    GraphFactCall, GraphFactCommonJs, GraphFactCommonJsBinding, GraphFactDeclaration,
+    GraphFactEdge, GraphFactExport, GraphFactImport, GraphFactPath, GraphFactRustModule,
+    GraphFactsDocument,
 };
 
 /// Graph facts of one parsed file.
@@ -70,6 +71,7 @@ pub(super) fn facts_heap_bytes(
                 + option(&i.imported_name)
                 + option(&i.resolution_hint)
                 + option_list(&i.module_scope)
+                + option(&i.scope_id)
         })
         .sum::<usize>();
     bytes += facts
@@ -95,6 +97,7 @@ pub(super) fn facts_heap_bytes(
                 + text(&c.callee)
                 + text(&c.kind)
                 + option(&c.receiver_type)
+                + option(&c.self_template)
         })
         .sum::<usize>();
     bytes += (facts.calls.capacity() - facts.calls.len()) * size_of::<GraphFactCall>();
@@ -107,6 +110,11 @@ pub(super) fn facts_heap_bytes(
                 + text(&c.kind)
                 + text(&c.binding)
                 + option(&c.reason)
+                + c.bindings.capacity() * size_of::<GraphFactCommonJsBinding>()
+                + c.bindings
+                    .iter()
+                    .map(|b| text(&b.local) + option(&b.imported) + text(&b.declaration_id))
+                    .sum::<usize>()
         })
         .sum::<usize>();
     bytes += facts

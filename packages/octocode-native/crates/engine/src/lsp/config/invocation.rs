@@ -60,7 +60,11 @@ fn resolve_spec_invocation(
     let trust_workspace = options.trusts_project();
     if spec.language_id == "python" {
         let path_var = crate::process_env::var_os("PATH");
-        if let Some((command, args)) = resolve_pyright_family(workspace_root, path_var.as_deref()) {
+        if let Some((command, args)) = resolve_pyright_family(
+            workspace_root,
+            path_var.as_deref(),
+            std::env::home_dir().as_deref(),
+        ) {
             return (command, args, ServerSource::Path);
         }
     }
@@ -134,21 +138,28 @@ fn workspace_tsgo(workspace_root: &str) -> Option<PathBuf> {
 /// implements none of them.
 const PYRIGHT_FAMILY: &[&str] = &["basedpyright-langserver", "pyright-langserver"];
 
-/// The first pyright-family server installed on `path_var`, as
-/// `(command, ["--stdio"])`. Only `PATH` is searched: this preference is
-/// automatic, so a checkout's own `node_modules/.bin` must not be able to
-/// swap in an executable it ships. Users who want a workspace-local server add
-/// an `lsp-servers.json` entry. `None` means neither
-/// is installed and the caller falls back to `pylsp`.
+/// The first pyright-family server installed on `path_var` or in the user's
+/// Python script directories under `home` (`pip install --user` lands outside
+/// `PATH` as often as not), as `(command, ["--stdio"])`. A checkout's own
+/// `node_modules/.bin` is never searched: this preference is automatic, so
+/// a checkout must not be able to swap in an executable it ships. Users
+/// who want a workspace-local server add an `lsp-servers.json` entry.
+/// `None` means neither is installed and the caller falls back to `pylsp`.
 pub(super) fn resolve_pyright_family(
     workspace_root: &str,
     path_var: Option<&OsStr>,
+    home: Option<&Path>,
 ) -> Option<(String, Vec<String>)> {
     let cwd = Path::new(workspace_root);
     PYRIGHT_FAMILY.iter().find_map(|name| {
         let found = path_var
             .and_then(|paths| which::which_in(name, Some(paths), cwd).ok())
-            .filter(|path| is_executable_path(path))?;
+            .filter(|path| is_executable_path(path))
+            .or_else(|| {
+                find_python_user_script_under(home?, name)
+                    .map(PathBuf::from)
+                    .filter(|path| is_executable_path(path))
+            })?;
         Some((
             found.to_string_lossy().into_owned(),
             vec!["--stdio".to_owned()],
@@ -257,7 +268,12 @@ pub(super) fn resolve_known_server_command(command: &str) -> String {
 }
 
 fn find_python_user_script(script_name: &str) -> Option<String> {
-    let home = std::env::home_dir()?;
+    find_python_user_script_under(&std::env::home_dir()?, script_name)
+}
+
+/// `script_name` in `home`'s Python user script directories (`~/.local/bin`,
+/// `~/Library/Python/*/bin`).
+fn find_python_user_script_under(home: &Path, script_name: &str) -> Option<String> {
     let candidate = home.join(".local/bin").join(script_name);
     if candidate.exists() {
         return Some(candidate.to_string_lossy().into_owned());

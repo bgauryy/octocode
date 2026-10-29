@@ -24,6 +24,7 @@ mod fallback_graph;
 mod heritage_fallback;
 mod importers;
 mod lifecycle;
+mod receipts;
 mod warm_repeat;
 mod workspace_symbols;
 

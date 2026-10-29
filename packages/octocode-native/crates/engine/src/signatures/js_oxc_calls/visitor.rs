@@ -78,7 +78,12 @@ impl<'a> VisitJs<'a> for CallCollector<'_, '_> {
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
-        walk_js::walk_assignment_expression(self, it);
+        match assigned_owner(it).filter(|_| self.owner.as_deref() == Some(MODULE_OWNER)) {
+            Some(owner) => self.with_owner(Some(owner), |this| {
+                walk_js::walk_assignment_expression(this, it);
+            }),
+            None => walk_js::walk_assignment_expression(self, it),
+        }
         self.receivers.assign(it);
     }
 
@@ -280,5 +285,32 @@ pub(super) fn first_pattern_identifier(pattern: &BindingPattern) -> Option<Strin
                     .and_then(|rest| first_pattern_identifier(&rest.argument))
             }),
         BindingPattern::AssignmentPattern(assignment) => first_pattern_identifier(&assignment.left),
+    }
+}
+
+/// Module code assigning a function or class to a member
+/// (`exports.k = function () {}`, `a.b.k = () => {}`) is owned by the member
+/// name, the name its declaration carries; `module.exports = function f() {}`
+/// by the value's own name.
+fn assigned_owner(it: &AssignmentExpression) -> Option<String> {
+    let AssignmentTarget::StaticMemberExpression(member) = &it.left else {
+        return None;
+    };
+    let mut value = &it.right;
+    while let Expression::AssignmentExpression(next) = value.without_parentheses() {
+        value = &next.right;
+    }
+    let own = match value.get_inner_expression() {
+        Expression::FunctionExpression(function) => function.id.as_ref(),
+        Expression::ArrowFunctionExpression(_) => None,
+        Expression::ClassExpression(class) => class.id.as_ref(),
+        _ => return None,
+    };
+    let whole = member.property.name == "exports"
+        && matches!(member.object.without_parentheses(), Expression::Identifier(object) if object.name == "module");
+    if whole {
+        own.map(|id| id.name.as_str().to_owned())
+    } else {
+        Some(member.property.name.as_str().to_owned())
     }
 }

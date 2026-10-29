@@ -15,6 +15,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 }
 const checks = [
   'architecture.test.mjs',
+  'unit/copy-package.test.mjs',
   'unit/connection.test.mjs',
   'unit/invocation.test.mjs',
   'unit/cli.test.mjs',
@@ -23,6 +24,8 @@ const checks = [
   'unit/cookie-jar.test.mjs',
   'unit/helper-inputs.test.mjs',
   'unit/engine-io.test.mjs',
+  'unit/session-store.test.mjs',
+  'unit/session-command.test.mjs',
   'unit/plan.test.mjs',
   'unit/plan-targets.test.mjs',
   'unit/detached-ref.test.mjs',

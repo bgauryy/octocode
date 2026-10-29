@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
-const PAGE_REPLAY_TTL: Duration = Duration::from_secs(120);
+const PAGE_REPLAY_TTL: Duration = Duration::from_secs(600);
 
 /// Immutable settled output. Page reads never consult its original sources.
 #[derive(Serialize, Deserialize)]

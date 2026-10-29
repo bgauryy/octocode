@@ -1,6 +1,6 @@
-# Idioms and gotchas
-
 Load when you shape errors, ownership, conversions, control flow, or a public API, or when code fights the borrow checker, spams `.clone()`, or mishandles async. Why: idiomatic ownership and errors remove most clones, panics, and borrow fights before they spread. Type shapes, generics vs `dyn`: `references/types-and-patterns.md`.
+
+# Idioms and gotchas
 
 ## Errors
 - A fallible function returns `Result<T, E>` and propagates with `?`. No `.unwrap()`/`.expect()` in production paths; `expect` only for a true invariant, with a message that says why it cannot fail.
@@ -23,18 +23,18 @@ Load when you shape errors, ownership, conversions, control flow, or a public AP
 | Return a reference to a local | Return owned, or let the caller own the storage. |
 
 ## Control flow and iterators
-- Iterator chains over index loops: zero-cost, bounds checks elided.
+- Prefer iterator traversal over manual index loops when it expresses the operation clearly; inspect generated code or benchmark before claiming a bounds-check or speed benefit.
 - `for i in 0..v.len()` with `v[i]` → `for x in &v` or `.iter().enumerate()`.
 - `.collect()` then one iteration → iterate the source.
 - `if let` / `let ... else` / `while let` for one variant; `matches!` for a boolean test.
-- Edition 2024 let chains replace nested `if let`: `if let Some(x) = expr && let Some(y) = x.field() && cond`. `clippy::collapsible_if` (inside denied `clippy::all`) rejects the nested form. The chain's borrow ends before the body, so the body may mutably use the binding (`retain`, `push`).
+- Edition 2024 let chains can replace nested `if let`: `if let Some(x) = expr && let Some(y) = x.field() && cond`. Follow applicable `clippy::collapsible_if` diagnostics. A borrow used in the body remains live; a let chain does not itself make mutation of the borrowed collection safe.
 - Return early with `?` and guard clauses.
 - Shadowing can hide an unintended type change.
 
 ## Async
 1. **Missing `.await`**: an `async fn` does nothing until awaited or spawned.
 2. **Blocking in async**: `std::fs`, `std::net`, `std::process`, `std::thread::sleep`, `std::sync::mpsc`, or a CPU-heavy loop starves the executor thread. Use tokio equivalents, `tokio::task::spawn_blocking`, or rayon.
-3. **`Mutex` guard across `.await`**: a `std::sync::Mutex` guard is `!Send`, so holding it across `.await` does not compile. A `Send` guard (`parking_lot`) still deadlocks a current-thread runtime. Keep the section short and await-free. `tokio::sync::Mutex` is for the rare guard that must cross `.await`.
+3. **`Mutex` guard across `.await`**: a `std::sync::Mutex` guard makes the future `!Send`, so it fails where a `Send` future is required. Local execution can still compile; blocking lock contention can then deadlock the executor. Keep synchronous lock sections short and await-free. Use `tokio::sync::Mutex` when a guard must cross `.await`.
 
 One owner uses `join!` or `select!`. `select!` can cancel a future mid-operation, so that future must be cancellation-safe. A dynamic set uses `tokio::task::JoinSet`; dropping the set aborts its tasks. Work that must outlive the caller is `tokio::spawn` plus an explicit shutdown. Dropping a `JoinHandle` detaches the task and drops its result. An actor is that task, a handle, and a bounded channel (`references/performance-and-memory.md`). Skip an actor framework.
 

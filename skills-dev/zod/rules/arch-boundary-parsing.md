@@ -1,7 +1,7 @@
 ---
 title: Parse at System Boundaries, Not in Domain Logic
 impact: CRITICAL
-description: Call safeParse() at entry points (API handlers, env startup, form resolvers, external fetches) and pass typed data inward. Domain logic receives typed values, not unknown.
+description: Parse at entry points using the consumer's result or throwing contract; pass validated values inward and avoid duplicate boundary parsing.
 tags: architecture, boundaries, parsing, safeParse, separation-of-concerns
 ---
 
@@ -67,7 +67,7 @@ type Order = z.infer<typeof OrderSchema>
 
 ## Decision Table: Where to Parse
 
-| Boundary | Where to call safeParse() |
+| Boundary | Parsing owner |
 |----------|--------------------------|
 | Express/Fastify route | In the route handler, before calling service functions |
 | tRPC | `.input(Schema)` — framework parses for you |
@@ -80,4 +80,4 @@ type Order = z.infer<typeof OrderSchema>
 
 ## Why
 
-Parsing at the boundary means domain functions are pure — they accept typed values and return typed values. This eliminates redundant validation, centralizes error handling, and makes business logic easier to test (no need to construct invalid inputs). The boundary layer is the only place that deals with `unknown` data.
+Boundary parsing separates decoding from domain work; it does not make a function pure or enforce every business invariant. Domain code still checks rules that depend on state, authorization or relationships. Revalidate at a new trust boundary or after untrusted mutation, rather than repeatedly parsing the same unchanged value.

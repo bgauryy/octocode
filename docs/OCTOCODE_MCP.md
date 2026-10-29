@@ -47,18 +47,18 @@ Results use `results: [{index, data, status?, rowPart?}]`. Required work appears
 
 ## Tool catalog
 
-The contract has 14 tools. With default settings MCP registers 12; a classification credential and successful provider ping add `clasify` (13). Unavailable tools are left out of `tools/list`, not registered as failing calls.
+The contract has 16 tools. With default settings MCP registers 12; `OCTOCODE_BETA=true` adds `graphBuild` and `graphQuery` (14). A classification credential and successful provider ping add `clasify` (15 with beta). Unavailable tools are left out of `tools/list`, not registered as failing calls.
 
 | Family | Tools |
 |--------|-------|
 | GitHub | `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` (CLI-only) |
-| Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch` |
+| Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch`, `graphBuild` and `graphQuery` (beta) |
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
 
-- `ghCloneRepo` is never registered on MCP, and no MCP description or lead names it. Run `npx octocode ghCloneRepo`. File graphs (imports, cycles, dead code) come from the CLI's `npx octocode graph ingest` and `graph query`.
+- `ghCloneRepo` is never registered on MCP, and no MCP description or lead names it. Run `npx octocode ghCloneRepo`. Graph tools share the native CLI implementation. Set `OCTOCODE_BETA=true` or `local.beta: true` in home configuration and restart MCP to expose them; CLI graph tools stay available without beta. `graphBuild` writes and prunes derived snapshots under workspace `.octocode/graph`; its MCP annotation is not read-only. `graphQuery` reads snapshots.
 - `clasify` needs a nonblank classification API credential and a successful provider ping; `classification` on four readers needs only the credential. See [availability](OCTOCODE_CLASIFY.md#availability).
-- Every tool takes up to 5 `queries` per call. MCP publishes input schemas, titles, and descriptions, not output schemas.
+- Tools take up to 5 `queries` per call; `graphBuild` accepts one. MCP publishes input schemas, titles, and descriptions, not output schemas.
 - Server instructions are one prompt of at most 2,000 characters, as a project instruction-size budget; tool-specific parts follow the enabled tool set, and `<clasify>` follows classification availability. The CLI adds a `<cli>` line and the grammar inventory; MCP clients get schemas through `tools/list`.
 
 ## Configuration

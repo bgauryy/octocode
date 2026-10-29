@@ -19,10 +19,10 @@ pub use algorithms::{
     Condensed, FileGraphNode, condense, scc, scc_filtered, strongly_connected_components,
 };
 pub use model::{
-    GraphCallBinding, GraphCallBoundary, GraphFactCall, GraphFactCode, GraphFactCommonJs,
-    GraphFactDeclaration, GraphFactDiagnostic, GraphFactEdge, GraphFactExport, GraphFactImport,
-    GraphFactPath, GraphFactRustModule, GraphFactsDocument, GraphFactsTypedEntry, GraphPosition,
-    GraphRange,
+    COMMONJS_WHOLE_EXPORT, GraphCallBinding, GraphCallBoundary, GraphFactCall, GraphFactCode,
+    GraphFactCommonJs, GraphFactCommonJsBinding, GraphFactDeclaration, GraphFactDiagnostic,
+    GraphFactEdge, GraphFactExport, GraphFactImport, GraphFactPath, GraphFactRustModule,
+    GraphFactsDocument, GraphFactsTypedEntry, GraphPosition, GraphRange,
 };
 
 pub use crate::text::analysis::{ByteRange, ObservedSpan};

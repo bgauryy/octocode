@@ -34,7 +34,7 @@ Load when reading script output, searching a session, mapping a site, or extract
 
 ## Stdout contract
 
-- Every script prints compact JSON only, never scraped content. `fetch.mjs` fields: `ok`, `sessionId`, `sessionDir`, `route`, `status`, `contentType`, `pages` (session total), `newPages` (this run), `antCreditsKnownTotal`, `providerDetail`, `warnings`, `next` (a `route` handoff such as `octocode-chrome-devtools`, or `null`), `robots`, `agentIndex`, `analysis`, `searchFirst`, `rawAudit`.
+- Capture commands return JSON metadata; query commands can return evidence snippets or byte pages. `fetch.mjs` fields: `ok`, `sessionId`, `sessionDir`, `route`, `status`, `contentType`, `pages` (session total), `newPages` (this run), `antCreditsKnownTotal`, `providerDetail`, `warnings`, `next` (a `route` handoff such as `octocode-chrome-devtools`, or `null`), `robots`, `agentIndex`, `analysis`, `searchFirst`, `rawAudit`.
 - Errors print `{"ok":false,"error":{"code","message"}}` on stdout: exit 2 for invalid input (`invalidArguments`, `sessionExists`, `refusedHost` for a private start URL); exit 1 for a runtime failure such as `sessionNotFound` (`--session-dir` is not a scrape session). Exception: `corpus-inspect`, `dom-find`, `graph-navigate`, `resource-list` print bad-argument usage on stderr.
 - An `--append` run that fetches no new page warns and exits 1.
 - A refused crawled link, sitemap entry, or `cdp` request appears in `warnings` as `refused <url>: <reason>`; a refused redirect is that page's `error` in `sources.jsonl`.
@@ -83,6 +83,7 @@ Load when reading script output, searching a session, mapping a site, or extract
 
 ```json
 {"queries": [{
+  "operation": "evaluate",
   "source": {"tool": "localFetch", "query": {
     "path": "/abs/.octocode/octocode-scraping/tmp/<sessionId>/text/page.clean.md",
     "view": "content"
@@ -95,4 +96,4 @@ Load when reading script output, searching a session, mapping a site, or extract
 ```
 
 - Run: `npx -y octocode clasify --input .octocode/octocode-scraping/tmp/clasify-request.json` (MCP `clasify` takes the same JSON when available; inspect the live catalog). A capture over the state limit fails its row: select `ranges`.
-- Before citing, run the row's `read` in `hints` (the exact text judged) or read the deciding lines with `localFetch`; verify the deciding source. A low answer never proves whole-site absence.
+- Before citing, follow the emitted captured-source continuation or read the deciding lines with `localFetch`; `hints` are prose, not executable reads. A low answer never proves whole-site absence.

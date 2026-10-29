@@ -1,6 +1,6 @@
-# Implementation audit
-
 Load when tracing a tool's inputs and data flow through the native runtime. This lane proves the code keeps the schema's promise without waste.
+
+# Implementation audit
 
 ## Schema ↔ implementation alignment
 

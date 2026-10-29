@@ -74,7 +74,7 @@ Cold-call line:
 
 ## Grade
 
-- Replay every cold call yourself: `node scripts/interview-grade.mjs <round-dir> --cmd '<runner {tool} {input}>' --reject <regex>`. Exclude placeholder steps and intended-error scenarios; report valid-cold rate and rejection count per group.
+- Replay every cold call yourself: `node scripts/interview-grade.mjs <round-dir> --cmd '<runner {tool} {input}>' --reject <regex>`. The runner must accept both substituted arguments. The grader skips placeholder steps; exclude intended-error scenarios. Resolve malformed lines and ensure at least one gradable call before reporting valid-cold rate and rejection count per group.
 - Phase B prediction misses are findings: the agent's model of the output was wrong.
 - Self-rated confidence is a tiebreaker only; it moves less than behavior does.
 

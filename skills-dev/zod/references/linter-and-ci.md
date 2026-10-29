@@ -1,3 +1,5 @@
+Load when automating Zod checks in lint or CI.
+
 # Linting and CI Rules for Zod
 
 ## Overview
@@ -6,118 +8,33 @@ Mechanical enforcement catches mistakes before code review. Use ESLint rules, CI
 
 ## ESLint: `no-restricted-syntax` Rules
 
-### Ban `parse()` in Application Code
+### Choose the parsing contract
 
-Force `safeParse()` usage. `parse()` throws, which leads to unhandled exceptions.
+Use `safeParse()` for expected validation failures and `parse()` where throwing is intentional. A selector matching every `.parse()` also catches unrelated APIs such as `JSON.parse`; do not apply a blanket method-name ban. Any custom lint must resolve Zod bindings and preserve intentionally throwing call sites. Test it against both Zod and unrelated parsers before enabling it.
 
-```jsonc
-// .eslintrc.json
-{
-  "rules": {
-    "no-restricted-syntax": [
-      "error",
-      {
-        "selector": "CallExpression[callee.property.name='parse'][callee.object.type!='ThisExpression']",
-        "message": "Use safeParse() instead of parse(). parse() throws on invalid input. See: rules/parse-use-safeParse.md"
-      }
-    ]
-  }
-}
-```
+### Flag candidate calls, then resolve their owners
 
-To allow `parse()` in specific files (e.g., env config where crashing on invalid env is intentional), use ESLint overrides:
+A syntax selector can identify a property name, but cannot prove it belongs to Zod. Scope rules to resolved Zod imports/schema bindings; include unrelated methods, aliases and intentional exceptions in lint tests. Do not disable every syntax rule for an entire env file.
 
-```jsonc
-{
-  "overrides": [
-    {
-      "files": ["**/config/env.ts", "**/env.ts"],
-      "rules": {
-        "no-restricted-syntax": "off"
-      }
-    }
-  ]
-}
-```
+| Candidate | Check before reporting | Remediation |
+|---|---|---|
+| `reportInput: true` | Is real or secret data being reported? | Omit input reporting; synthetic fixture inspection may be intentional |
+| `.nativeEnum(...)` | Is this Zod v4? | Prefer `z.enum(...)`; the old function remains exported |
+| `z.string().email()` | Is this the resolved Zod constructor? | Prefer `z.email()` for new v4 code |
+| `.parse(...)` | Does the caller intend a throwing contract? | Suggest `safeParse` only for expected validation failures handled as results |
 
-### Detect `reportInput` Usage
-
-`reportInput: true` leaks sensitive data in production.
-
-```jsonc
-{
-  "rules": {
-    "no-restricted-syntax": [
-      "error",
-      {
-        "selector": "Property[key.name='reportInput'][value.value=true]",
-        "message": "reportInput: true leaks sensitive data in production. Use: reportInput: process.env.NODE_ENV === 'development'. See: rules/error-input-security.md"
-      }
-    ]
-  }
-}
-```
-
-### Ban `z.nativeEnum()` (deprecated in v4)
-
-```jsonc
-{
-  "selector": "CallExpression[callee.property.name='nativeEnum']",
-  "message": "z.nativeEnum() is deprecated in Zod v4. Use z.enum(YourTSEnum) instead. See: rules/migrate-native-enum.md"
-}
-```
-
-### Ban `z.string().email()` (Use `z.email()`)
-
-```jsonc
-{
-  "selector": "CallExpression[callee.property.name='email'][callee.object.callee.property.name='string']",
-  "message": "Use z.email() instead of z.string().email() in Zod v4. See: rules/migrate-string-formats.md"
-}
-```
-
-### Full ESLint Config Example
-
-```jsonc
-{
-  "rules": {
-    "no-restricted-syntax": [
-      "error",
-      {
-        "selector": "CallExpression[callee.property.name='parse'][callee.object.type!='ThisExpression']",
-        "message": "Use safeParse() instead of parse(). See: rules/parse-use-safeParse.md"
-      },
-      {
-        "selector": "Property[key.name='reportInput'][value.value=true]",
-        "message": "reportInput: true leaks sensitive data. See: rules/error-input-security.md"
-      },
-      {
-        "selector": "CallExpression[callee.property.name='nativeEnum']",
-        "message": "z.nativeEnum() deprecated in v4. Use z.enum(). See: rules/migrate-native-enum.md"
-      }
-    ]
-  },
-  "overrides": [
-    {
-      "files": ["**/config/env.ts", "**/env.ts"],
-      "rules": {
-        "no-restricted-syntax": "off"
-      }
-    }
-  ]
-}
-```
+These are candidate checks, not a method-name ban. [Parsing](../rules/parse-use-safeParse.md) and [input privacy](../rules/error-input-security.md) own the decisions.
 
 ## CI: Schema Snapshot Regression
 
-Detect unintended schema changes by committing JSON Schema snapshots and failing CI when they drift.
+Use snapshots when consumers need review of the exported contract. They cover representable JSON Schema, not arbitrary refinements or transform behavior; retain behavioral tests. Review the expected snapshot filenames too, so removing a schema cannot leave a stale snapshot unnoticed.
 
 ### Setup
 
 ```typescript
 // scripts/export-schemas.ts
 import { z } from "zod"
-import { writeFileSync, mkdirSync } from "fs"
+import { writeFileSync, mkdirSync, readdirSync } from "fs"
 import { UserSchema, OrderSchema } from "../src/api/schemas"
 
 const schemas = {
@@ -126,6 +43,14 @@ const schemas = {
 }
 
 mkdirSync("snapshots", { recursive: true })
+
+const expectedFiles = new Set(Object.keys(schemas).map((name) => `${name}.json`))
+const staleFiles = readdirSync("snapshots").filter(
+  (file) => file.endsWith(".json") && !expectedFiles.has(file)
+)
+if (staleFiles.length) {
+  throw new Error(`Remove or reassign stale schema snapshots: ${staleFiles.join(", ")}`)
+}
 
 for (const [name, schema] of Object.entries(schemas)) {
   const jsonSchema = z.toJSONSchema(schema)
@@ -153,7 +78,7 @@ jobs:
       - run: npx tsx scripts/export-schemas.ts
       - name: Check for schema drift
         run: |
-          if git diff --exit-code snapshots/; then
+          if [ -z "$(git status --porcelain --untracked-files=all -- snapshots/)" ]; then
             echo "Schemas unchanged"
           else
             echo "::error::Schema snapshots have changed. Review the diff and update snapshots if intentional."
@@ -166,7 +91,7 @@ jobs:
 
 1. Developer changes a schema
 2. CI runs `export-schemas.ts` and diffs against committed snapshots
-3. If diff exists, CI fails with the exact changes shown
+3. If tracked, added or removed snapshots differ, CI fails; inspect `git status` and the diff (untracked contents need an explicit read)
 4. Developer reviews the diff, runs `npx tsx scripts/export-schemas.ts` locally, commits updated snapshots
 
 ## Unused Schema Detection
@@ -195,11 +120,11 @@ knip detects unused exports including schemas. Configure in `knip.json`:
 npx ts-prune | grep -i schema
 ```
 
-Shows exported symbols with no imports. Review and remove dead schemas.
+Treat hits as candidates. Check public exports, dynamic loading, generated consumers and tests before removing a schema.
 
 ## Circular Dependency Detection
 
-Schemas that import each other create circular dependencies that cause runtime crashes.
+Circular schema imports can fail during module initialization. Inspect the evaluated dependency and initialization order; a cycle alone does not prove a crash.
 
 ### With madge
 
@@ -223,22 +148,15 @@ npx madge --image graph.svg --extensions ts src/
     fi
 ```
 
-## Custom ESLint Rule Messages
+## Custom lint messages
 
-Include remediation instructions in ESLint messages so developers know exactly what to do:
-
-```jsonc
-{
-  "selector": "CallExpression[callee.property.name='parse']",
-  "message": "Use safeParse() instead of parse().\n\nparse() throws ZodError on invalid input.\nsafeParse() returns { success, data | error }.\n\nReplace:\n  schema.parse(data)\nWith:\n  const result = schema.safeParse(data)\n  if (!result.success) { /* handle error */ }\n\nSee: rules/parse-use-safeParse.md"
-}
-```
+Name the resolved Zod API, explain the observed contract mismatch, link the owning rule and propose a fix. Avoid advice based solely on a method's spelling.
 
 ## Summary
 
 | Tool | What It Catches | When |
 |------|----------------|------|
-| ESLint `no-restricted-syntax` | Banned API usage (parse, reportInput, nativeEnum) | On save / pre-commit |
+| Binding-aware ESLint rule | Applicable Zod misuse, with explicit exceptions | On save / pre-commit |
 | Schema snapshot CI | Unintended schema changes | On pull request |
 | knip / ts-prune | Unused schemas | On pull request / periodic |
 | madge | Circular schema dependencies | On pull request |

@@ -133,6 +133,23 @@ pub(crate) fn context_lines(q: &LspSearchQuery) -> Option<octocode_engine::types
 pub(crate) fn rust_context(q: &LspSearchQuery) -> Option<&octocode_contract_types::LspRustContext> {
     each_shape!(q,rust_context=>rust_context.as_ref())
 }
+/// The query as a row, without the fields at their schema default: a lead
+/// or saved progress names only what the agent set, and the defaults
+/// re-apply on parse.
 pub(crate) fn to_row(q: &LspSearchQuery) -> Value {
-    serde_json::to_value(q).unwrap_or_else(|_| json!({}))
+    let mut row = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
+    if let Some(fields) = row.as_object_mut() {
+        for (key, default) in [
+            ("occurrence", json!(0)),
+            ("view", json!("content")),
+            ("contextLines", json!({"before": 0, "after": 0})),
+            ("includeDeclaration", json!(true)),
+            ("graphDepth", json!(1)),
+        ] {
+            if fields.get(key) == Some(&default) {
+                fields.remove(key);
+            }
+        }
+    }
+    row
 }

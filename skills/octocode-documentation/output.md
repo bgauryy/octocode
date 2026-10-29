@@ -27,22 +27,13 @@ Preserve the shipped document’s natural structure. For reviews, lead with the 
 | `flowchart` / `sequenceDiagram` / `erDiagram` | Explain decisions / interactions / data relationships that prose alone obscures. |
 | Markdown images / comparison tables | Show relevant UI states / compare options; keep screenshots captioned and long explanations outside table cells. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
-Save and render a review, audit, or draft when it has a table, a diagram, over ~40 lines, or five findings, or when asked. Keep every result when instructions say so.
+Save a review, audit, or draft when it has a table, a diagram, over ~40 lines, or five findings, or when asked. Keep every result when instructions say so.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Needs work | Ready
-confidence: high | medium | low
-question: <the question or decision>
-next: <the one next action for whoever continues, in the imperative>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Needs work`, `Ready`.
 
 Open the `#` title with a lead stating the answer.
 
@@ -58,4 +49,4 @@ Every saved report has either `## Findings` (a review) or `## Destination` (a dr
 
 Severity: `Critical`, `High`, `Medium`, `Low`; `Verified`: `Yes` or `No`.
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

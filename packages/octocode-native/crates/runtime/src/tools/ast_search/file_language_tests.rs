@@ -265,7 +265,7 @@ fn symbols_of_a_file_without_a_grammar_are_unsupported_not_empty() {
 
 /// Symbols of a file whose grammar is known but has no declaration
 /// extractor (JSON) is `symbolsUnsupported` for that file type: setting
-/// `language` cannot help, so the row says so and leads to the localFetch
+/// `parser` cannot help, so the row says so and leads to the localFetch
 /// outline of the file instead.
 #[test]
 fn symbols_of_a_grammar_without_an_extractor_lead_to_the_fetch_outline() {
@@ -280,7 +280,7 @@ fn symbols_of_a_grammar_without_an_extractor_lead_to_the_fetch_outline() {
     assert_eq!(out["status"], "error", "{out}");
     assert_eq!(out["errorCode"], "symbolsUnsupported", "{out}");
     let text = out.to_string();
-    assert!(!text.contains("Set language"), "{out}");
+    assert!(!text.contains("Set parser"), "{out}");
     assert_eq!(
         out["hints"],
         json!([

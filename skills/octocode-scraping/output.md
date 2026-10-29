@@ -22,22 +22,13 @@ Answer → covered pages → blocked or unread portions → source artifacts. Ke
 | Markdown images | Show a relevant captured figure or UI state with attribution and capture context. |
 | `flowchart` / linked JSON or CSV | Explain a meaningful crawl relationship / provide reusable extracted records; avoid decorative page-count charts. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
-Save and render when the result has a table, a diagram, over ~40 lines or five findings, or the user or project instructions (`AGENTS.md`) ask; keep a short answer in chat. Link fetched pages and `reports/summary.md`; never paste them.
+Save when the result has a table, a diagram, over ~40 lines or five findings, or the user or project instructions (`AGENTS.md`) ask; keep a short answer in chat. Link fetched pages and `reports/summary.md`; never paste them.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Complete | Partial | Blocked
-confidence: high | medium | low
-question: <the question or decision>
-next: <the one next action for whoever continues, in the imperative>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Complete`, `Partial`, `Blocked`.
 
 Then the `#` title and a BLUF lead paragraph (answer first). Add `session: <workspace-relative session folder>` to the header. Always include `## Answer`, `## Pages covered`, `## Blocked or unread`, and `## Session` (the folder and its `AGENT_INDEX.json`):
 
@@ -46,4 +37,4 @@ Then the `#` title and a BLUF lead paragraph (answer first). Add `session: <work
 
 `## Blocked or unread` is the stop report: a `Partial` result hands over unfinished work as a Handoff packet; a `Blocked` one asks for someone else's action as an SBAR ([recovery](references/recovery.md#on-a-stop)). The header `next` is that report's next action.
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

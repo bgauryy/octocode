@@ -10,6 +10,8 @@ use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
+mod fit;
+
 pub(crate) struct CapturedAssets {
     pub provider: Value,
     pub(crate) provenance: Value,
@@ -39,13 +41,20 @@ pub(crate) fn capture(
     for (key, asset) in assets {
         check(context)?;
         let (bytes, origin) = acquire(&asset["source"], dispatcher, context)?;
+        let Fitted {
+            format,
+            width,
+            height,
+            bytes,
+            source,
+        } = fit(bytes)?;
         total = total.saturating_add(bytes.len());
         if total > clasify_policy::MAX_TOTAL_IMAGE_BYTES {
             return Err(too_large(
                 "The combined images exceed the per-row byte limit.",
             ));
         }
-        let (format, width, height) = dimensions(&bytes)?;
+        // The saved snapshot is the judged image, so box fractions map onto it.
         let saved = store.save_bytes(&bytes, &format!("source.{format}"))?;
         provider.insert(
             key.clone(),
@@ -53,14 +62,16 @@ pub(crate) fn capture(
                 "type":"image", "format":format, "data_base64":STANDARD.encode(&bytes),
             }),
         );
-        provenance.insert(
-            key.clone(),
-            json!({
-                "source":origin, "snapshot":saved["snapshot"],
-                "format":format, "bytes":bytes.len(), "width":width, "height":height,
-                "path":saved["path"], "expiresAt":saved["expiresAt"],
-            }),
-        );
+        let mut provenance_row = json!({
+            "source":origin, "snapshot":saved["snapshot"],
+            "format":format, "bytes":bytes.len(), "width":width, "height":height,
+            "path":saved["path"], "expiresAt":saved["expiresAt"],
+        });
+        if let Some((source_width, source_height)) = source {
+            provenance_row["sourceWidth"] = json!(source_width);
+            provenance_row["sourceHeight"] = json!(source_height);
+        }
+        provenance.insert(key.clone(), provenance_row);
     }
     check(context)?;
     Ok(CapturedAssets {
@@ -180,33 +191,65 @@ fn dimensions(bytes: &[u8]) -> Result<(&'static str, usize, usize), Classificati
     Ok((format, size.width, size.height))
 }
 
+/// Source images this large are refused before decoding; anything smaller
+/// is fitted into the provider window.
 fn validate_dimensions(width: usize, height: usize) -> Result<(), ClassificationError> {
+    let max = clasify_policy::MAX_SOURCE_IMAGE_DIMENSION;
     let bounds = || {
-        format!(
-            "Image width and height must each be {}..={} pixels, and image area {}..={} pixels; received {width}x{height}.",
-            clasify_policy::MIN_IMAGE_DIMENSION,
-            clasify_policy::MAX_IMAGE_DIMENSION,
-            clasify_policy::MIN_IMAGE_PIXELS,
-            clasify_policy::MAX_IMAGE_PIXELS,
-        )
+        format!("Image width and height must each be 1..={max} pixels; received {width}x{height}.")
     };
     if width == 0 || height == 0 {
         return Err(invalid(&bounds()));
     }
-    let pixels = width.checked_mul(height);
-    if width > clasify_policy::MAX_IMAGE_DIMENSION
-        || height > clasify_policy::MAX_IMAGE_DIMENSION
-        || pixels.is_none_or(|pixels| pixels > clasify_policy::MAX_IMAGE_PIXELS)
-    {
+    if width > max || height > max {
         return Err(too_large(&bounds()));
     }
-    if width < clasify_policy::MIN_IMAGE_DIMENSION
-        || height < clasify_policy::MIN_IMAGE_DIMENSION
-        || pixels.is_some_and(|pixels| pixels < clasify_policy::MIN_IMAGE_PIXELS)
-    {
-        return Err(invalid(&bounds()));
-    }
     Ok(())
+}
+
+/// The image the provider judges, and the source size when it differs.
+#[derive(Debug, PartialEq)]
+struct Fitted {
+    format: &'static str,
+    width: usize,
+    height: usize,
+    bytes: Vec<u8>,
+    source: Option<(usize, usize)>,
+}
+
+/// Admits an image already inside the provider window as-is; otherwise
+/// scales it down (aspect kept) and pads a side below the minimum. A square
+/// window bounds the area as well as each side.
+fn fit(bytes: Vec<u8>) -> Result<Fitted, ClassificationError> {
+    let (format, width, height) = dimensions(&bytes)?;
+    let (min, max) = (
+        clasify_policy::MIN_IMAGE_DIMENSION,
+        clasify_policy::MAX_IMAGE_DIMENSION,
+    );
+    debug_assert!(min * min >= clasify_policy::MIN_IMAGE_PIXELS);
+    debug_assert!(max * max <= clasify_policy::MAX_IMAGE_PIXELS);
+    if (min..=max).contains(&width) && (min..=max).contains(&height) {
+        return Ok(Fitted {
+            format,
+            width,
+            height,
+            bytes,
+            source: None,
+        });
+    }
+    let (fitted_width, fitted_height, fitted) = fit::fit(&bytes, format, width, height, min, max)?;
+    if fitted.len() > clasify_policy::MAX_IMAGE_BYTES {
+        return Err(too_large(
+            "The fitted image exceeds the per-image byte limit.",
+        ));
+    }
+    Ok(Fitted {
+        format: "png",
+        width: fitted_width,
+        height: fitted_height,
+        bytes: fitted,
+        source: Some((width, height)),
+    })
 }
 
 fn check(context: &ExecutionContext) -> Result<(), ClassificationError> {
@@ -272,7 +315,7 @@ mod tests {
                 ErrorCode::InvalidClassificationContext
             );
         }
-        for bytes in [header(8193, 1), header(1, 8193), header(4097, 4097)] {
+        for bytes in [header(8193, 1), header(1, 8193), header(8193, 8193)] {
             assert_eq!(
                 dimensions(&bytes).unwrap_err().code,
                 ErrorCode::ClassificationContextTooLarge
@@ -285,33 +328,24 @@ mod tests {
     }
 
     #[test]
-    fn dimensions_reject_each_axis_below_the_minimum() {
-        for (width, height) in [(256, 400), (400, 256), (279, 400), (400, 279)] {
-            let error = dimensions(&header(width, height)).unwrap_err();
-            assert_eq!(
-                error.code,
-                ErrorCode::InvalidClassificationContext,
-                "{width}x{height}"
-            );
-            assert!(error.message.contains("280..=1568"));
-            assert!(error.message.contains("78400..=2458624"));
-        }
+    fn fit_rejects_short_images_whose_pixels_do_not_decode() {
+        assert_eq!(
+            fit(header(500, 104)).unwrap_err().code,
+            ErrorCode::InvalidClassificationContext
+        );
     }
 
     #[test]
-    fn dimensions_reject_area_below_the_minimum() {
-        for (width, height) in [(256, 256), (256, 306), (279, 281)] {
-            assert_eq!(
-                dimensions(&header(width, height)).unwrap_err().code,
-                ErrorCode::InvalidClassificationContext,
-                "{width}x{height}"
-            );
-        }
+    fn fit_rejects_large_images_whose_pixels_do_not_decode() {
+        assert_eq!(
+            fit(header(1600, 900)).unwrap_err().code,
+            ErrorCode::InvalidClassificationContext
+        );
     }
 
     #[test]
-    fn dimensions_accept_inclusive_dimension_and_area_edges() {
-        for (width, height) in [(280, 280), (280, 1568), (1568, 280), (1568, 1568)] {
+    fn dimensions_accept_every_side_up_to_the_source_maximum() {
+        for (width, height) in [(1, 1), (280, 1568), (1569, 280), (8192, 8192)] {
             assert_eq!(
                 dimensions(&header(width, height)).unwrap(),
                 ("png", width as usize, height as usize)
@@ -320,19 +354,8 @@ mod tests {
     }
 
     #[test]
-    fn dimensions_reject_maximum_dimension_and_area_overages() {
-        for (width, height) in [(1569, 280), (280, 1569), (1569, 1568)] {
-            assert_eq!(
-                dimensions(&header(width, height)).unwrap_err().code,
-                ErrorCode::ClassificationContextTooLarge,
-                "{width}x{height}"
-            );
-        }
-    }
-
-    #[test]
-    fn dimensions_reject_checked_pixel_area_overflow() {
-        for (width, height) in [(usize::MAX, 2), (2, usize::MAX)] {
+    fn dimensions_reject_sides_beyond_the_source_maximum() {
+        for (width, height) in [(usize::MAX, 2), (2, usize::MAX), (8193, 8192)] {
             assert_eq!(
                 validate_dimensions(width, height).unwrap_err().code,
                 ErrorCode::ClassificationContextTooLarge

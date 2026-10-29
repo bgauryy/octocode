@@ -1,6 +1,6 @@
-# Style guide
-
 Load when running a style pass, ruling on wording, structure, formatting, code, claims, or links, writing controlled English, drawing a diagram, or matching a reader. Each linked [Google style guide](https://developers.google.com/style) page holds the full rule.
+
+# Style guide
 
 ## Review procedure
 
@@ -22,7 +22,7 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 
 ## Words ([word list](https://developers.google.com/style/word-list), [inclusive](https://developers.google.com/style/inclusive-documentation), [abbreviations](https://developers.google.com/style/abbreviations))
 
-- Word in question: the bundled list decides: `grep -iP "^[^\t]*allows you to" assets/google-word-list.tsv`.
+- Word in question: search the bundled `assets/google-word-list.tsv` with `localSearch`; use the matching entry in context.
 - `allows you to` → lets you; `utilize`, `leverage` → use; `click on` → click; `abort`, `kill` → stop.
 - Inclusive: `whitelist`/`blacklist` → allowlist/denylist; `master`/`slave` → primary/replica; `sanity check` → quick check; `guys` → everyone; generic `he` → they.
 - Code-fixed terms stay in code font; prose uses the preferred word.

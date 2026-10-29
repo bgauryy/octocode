@@ -105,3 +105,27 @@ fn a_fifo_or_link_in_place_of_a_source_is_never_reread() {
     );
     assert!(sources::read_entry(&real, 1024).is_some());
 }
+
+/// A match in a file that is not UTF-8 shows the text localFetch reads
+/// (Latin-1 here, not U+FFFD), and the row names the file as decoded.
+#[test]
+fn a_non_utf8_match_reads_as_localfetch_decodes_it_and_says_so() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    fs::write(root.path().join("latin1.txt"), b"caf\xe9 needle\n").expect("latin-1");
+    fs::write(root.path().join("plain.txt"), "needle\n").expect("utf-8");
+    let result = search_root(root.path(), serde_json::json!({"matchString":["needle"]}));
+    let body = serde_json::to_value(&result).expect("serialize");
+    let latin = body["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .find(|file| file["path"] == "latin1.txt")
+        .unwrap_or_else(|| panic!("latin1.txt listed: {body}"));
+    assert_eq!(latin["matches"][0]["value"], "café needle", "{body}");
+    let warnings = body["warnings"].to_string();
+    assert!(
+        warnings.contains("latin1.txt") && warnings.contains("not valid UTF-8"),
+        "{body}"
+    );
+    assert!(!warnings.contains("plain.txt"), "{body}");
+}

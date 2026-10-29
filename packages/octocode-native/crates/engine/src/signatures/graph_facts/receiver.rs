@@ -164,6 +164,19 @@ impl<'t> ReceiverTypes<'t> {
         } else {
             lang.member_parts(function)?.0
         };
+        // `T(..).m()`, `T::new(..).m()`, `NewT(..).m()`, `new T(..).m()`:
+        // the constructed type.
+        let constructed = match lang {
+            Lang::Python => python::python_constructor(receiver, content),
+            Lang::Go => go::go_constructor(receiver, false, content),
+            Lang::Rust => self.rust_constructor(receiver, content),
+            Lang::Java => java::java_constructor(receiver, content),
+            Lang::CSharp => csharp::csharp_constructor(receiver, content),
+            Lang::Cpp => None,
+        };
+        if constructed.is_some() {
+            return constructed;
+        }
         if receiver.kind() == "identifier" {
             let name = node_text(receiver, content)?;
             if matches!(name, "self" | "this") {
@@ -335,11 +348,15 @@ mod go;
 mod java;
 mod python;
 mod rust;
+#[cfg(feature = "tree-sitter-scala")]
+mod scala;
 mod type_text;
 
 use crate::signatures::receiver_fields::{Fields, merge};
 use bindings::{bind_pattern, push};
 use cpp::cpp_declarator_name;
+#[cfg(feature = "tree-sitter-scala")]
+pub(super) use scala::ScalaTerms;
 use type_text::is_identifier;
 pub(super) use type_text::{clean_type_text, python_type_text};
 

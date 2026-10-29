@@ -21,12 +21,15 @@ use std::{
 
 mod cache;
 pub(crate) mod capture;
+pub(super) mod checkpoint;
 mod exports;
 mod imports;
 mod link;
 mod paths;
 mod resolve;
 mod rust;
+mod scan;
+pub(crate) mod scope;
 use link::*;
 pub(crate) use paths::normalize;
 pub(super) use paths::{climb, dirname, join, join_within_root, parent};
@@ -38,12 +41,15 @@ use rust::*;
 /// bound, parser overrides, and how Rust links.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct GraphScan {
-    pub fact_cache: Option<PathBuf>,
+    pub checkpoint: Option<PathBuf>,
+    pub force: bool,
     /// The scan root (validated under the path policy before the walk).
     pub root: PathBuf,
     /// Directory names pruned on top of the default excluded directories.
     pub exclude_dir: Vec<String>,
     pub max_files: u32,
+    /// The snapshot bounds the scan and linking refuse past.
+    pub limits: super::limits::Limits,
     /// AST parsers by root-relative glob.
     pub language_globs: BTreeMap<String, Vec<String>>,
     /// Link Rust through `cargo metadata` (else syntax only).
@@ -73,87 +79,42 @@ pub(crate) fn build_graph_with_registry(
     cancel.check().map_err(ToolError::cancelled)?;
     let validated = paths.validate(&scan.root).map_err(ToolError::policy)?;
     let cancelled = ToolError::cancelled;
-    // The one default prune (a git-tracked `build/` is scanned, as every
-    // local tool walks it); the credential stores are the path policy's.
-    let options = GraphFactsScanOptions {
-        path: validated.canonical.to_string_lossy().into_owned(),
-        exclude_dir: Some(scan.exclude_dir.clone()),
-        default_exclude_dir: Some(crate::policy::prune::walk_names(true, &[])),
-        exclude: None,
-        max_files: Some(scan.max_files.max(1)),
-        skip_files: None,
-        max_file_bytes: Some(octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES),
-        language_globs: (!scan.language_globs.is_empty())
-            .then(|| crate::tools::ast_rule::language_globs(&scan.language_globs)),
-        ignore: octocode_engine::search::walk::IgnorePolicy::default(),
-    };
-    let discovery = paths.discovery_walk();
-    let admit = |path: &Path, file_type| discovery.permits_entry(path, file_type);
-    let capture_error = std::sync::Mutex::new(None);
-    let stop = || {
-        cancel.check().is_err()
-            || capture_error
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .is_some()
-    };
-    let scan_error = |error| ToolError::graph_scan(&error, cancel);
-    let walk = octocode_engine::fact_scan::walk_graph_fact_files_with_registry(
-        &options, &admit, &stop, registry,
-    )
-    .map_err(scan_error)?;
-    let cache = cache::FactCache::new(scan, &validated.canonical, paths, security, registry)?;
-    let reused_files = std::sync::atomic::AtomicUsize::new(0);
-    let reuse = |relative: &str, digest: &str, _: Option<&str>| cache.load(relative, digest);
-    let facts = octocode_engine::fact_scan::scan_walked_graph_facts_with_registry(
-        options,
-        walk,
-        octocode_engine::fact_scan::FactsSource::CachedGraph(&reuse),
-        &|_: &str| true,
-        &|view: &octocode_engine::fact_scan::GraphFactsView<'_>| {
-            if view.reused {
-                reused_files.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-            cache.store(view);
-            let marks = super::store::classify::SourceMarks::of(view.relative_path, view.content);
-            match capture::capture(view, cancel) {
-                Ok(source) => Some((view.to_entry(), marks, source)),
-                Err(error) => {
-                    capture_error
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .get_or_insert(error);
-                    None
-                }
-            }
-        },
-        &stop,
+    let scan::Extracted {
+        facts,
+        job,
+        reused_files,
+        tally,
+    } = scan::extract(
+        scan,
+        &validated.canonical,
+        paths,
+        security,
+        cancel,
         registry,
-        octocode_engine::text::analysis::MapLimits::default(),
-    );
-    if let Some(error) = capture_error
-        .into_inner()
-        .unwrap_or_else(PoisonError::into_inner)
-    {
-        return Err(error);
-    }
-    let facts = facts.map_err(scan_error)?;
+    )?;
     cancel.check().map_err(cancelled)?;
+    if let Some(job) = &job {
+        job.linking()?;
+    }
     // A discovered path is not linkable until its facts were actually parsed.
     // Otherwise an unread or oversized target becomes a false resolved edge.
     let known: BTreeSet<String> = facts
         .kept
         .iter()
-        .map(|(_, (entry, _, _))| normalize(&entry.relative_path))
+        .map(|(relative, _)| normalize(relative))
         .collect();
     let mut built = BuiltGraph {
-        reused_files: reused_files.load(std::sync::atomic::Ordering::Relaxed),
-        parsed_files: facts
-            .parsed
-            .saturating_sub(reused_files.load(std::sync::atomic::Ordering::Relaxed)),
+        construction: job
+            .as_ref()
+            .map(checkpoint::Job::progress)
+            .unwrap_or_default(),
+        reused_files,
+        parsed_files: facts.parsed.saturating_sub(reused_files),
         root: validated.canonical,
         files_skipped: facts.files_skipped,
         truncated: facts.truncated,
+        limits: scan.limits,
+        tally,
         ..Default::default()
     };
     built.resolution_inputs = super::freshness::config_inputs(
@@ -169,7 +130,7 @@ pub(crate) fn build_graph_with_registry(
     );
     let (rust_cargo_unavailable, cargo_crates) = cargo_linking(scan, &mut built, &known, cancel);
     let rust_modules = RustModules::build(
-        facts.kept.iter().map(|(_, (entry, _, _))| entry),
+        facts.kept.iter().filter_map(|(_, kept)| kept.modules()),
         &known,
         &cargo_crates,
     );
@@ -202,12 +163,26 @@ pub(crate) fn build_graph_with_registry(
         ctx: &resolve_context,
         packages: &packages,
     };
-    for (_, (entry, marks, source)) in facts.kept {
+    for (relative, kept) in facts.kept {
         cancel.check().map_err(cancelled)?;
+        let (entry, marks, source) = kept.restore(&relative, job.as_ref())?;
         let file = normalize(&entry.relative_path);
         link_entry(&mut built, &inputs, entry, marks);
         if let Some(facts) = built.facts.get_mut(&file) {
             facts.source = source;
+        }
+        // Past a bound the snapshot cannot publish: refuse now, not after
+        // projection, redaction and encoding.
+        if let Err((table, bound)) = scan.limits.admit(&built.tally) {
+            return Err(scope::too_broad(
+                &built.root,
+                known.iter().map(String::as_str),
+                &format!(
+                    "{} files are too many for one graph snapshot: linking the first {} projects more than the snapshot's {bound} {table} rows",
+                    known.len(),
+                    built.facts.len()
+                ),
+            ));
         }
     }
     diagnose_unlinked_path_imports(&mut built, security);
@@ -266,29 +241,6 @@ fn diagnose_unlinked_path_imports(b: &mut BuiltGraph, security: &ContentSecurity
         }
     }
     b.diagnostics.extend(found);
-}
-
-/// Upper bound on file-graph edges. File count is already capped by the scan
-/// (`max_files` ≤ 50k), but per-file import counts are attacker-sized; without
-/// an edge cap a pathological tree can exhaust memory in the edge maps and the
-/// evidence graph. Hitting the cap degrades to a truncated (diagnosed) graph.
-pub(super) const MAX_GRAPH_EDGES: u32 = 2_000_000;
-
-#[cfg(test)]
-thread_local! {
-    /// The edge cap this test thread builds under (tests lower it).
-    pub(super) static EDGE_CAP: std::cell::Cell<u32> = const { std::cell::Cell::new(MAX_GRAPH_EDGES) };
-}
-
-pub(super) fn edge_cap() -> u32 {
-    #[cfg(test)]
-    {
-        EDGE_CAP.with(std::cell::Cell::get)
-    }
-    #[cfg(not(test))]
-    {
-        MAX_GRAPH_EDGES
-    }
 }
 
 #[cfg(test)]

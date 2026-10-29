@@ -6,4 +6,4 @@ Measure what an agent harness loads every session, compare it with real tool and
 node scripts/context-audit.mjs --workspace <repo> --no-probe
 ```
 
-See `SKILL.md` for flags, collected surfaces, and how to act on the report.
+Start with [SKILL.md](SKILL.md) for collected surfaces and follow-up actions. The audit saves JSON by default. Request `--html` for a viewer, or use `--render <saved-context-audit.json>` after reviewing the findings to render that snapshot without rerunning probes.

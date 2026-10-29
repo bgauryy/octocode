@@ -3,8 +3,16 @@ use super::*;
 
 #[derive(Default)]
 pub(crate) struct BaseIndex {
-    parents: HashMap<u32, Vec<(u32, Confidence)>>,
-    unresolved: HashSet<u32>,
+    pub(super) parents: HashMap<u32, Vec<(u32, Confidence)>>,
+    /// `implements` bases: Java default methods come after the superclasses.
+    pub(super) interfaces: HashMap<u32, Vec<(u32, Confidence)>>,
+    pub(super) unresolved: HashSet<u32>,
+    /// Scala bases of each declaration in written order, for linearization.
+    pub(super) scala: HashMap<u32, Vec<super::scala::ScalaBase>>,
+    /// Memoized Scala linearizations.
+    pub(super) linearizations: super::scala::Linearizations,
+    /// Memoized C# file-scoped namespaces.
+    pub(super) namespaces: super::classes::Namespaces,
 }
 
 pub(super) enum TypedMember {
@@ -13,15 +21,29 @@ pub(super) enum TypedMember {
     Linked(Linked),
 }
 
-pub(crate) fn base_index(edges: &[PendingEdge], unresolved: HashSet<u32>) -> BaseIndex {
+pub(crate) fn base_index(
+    edges: &[PendingEdge],
+    unresolved: HashSet<u32>,
+    scala: HashMap<u32, Vec<super::scala::ScalaBase>>,
+) -> BaseIndex {
     let mut bases = BaseIndex {
         unresolved,
+        scala,
         ..BaseIndex::default()
     };
     for (from, to, kind, confidence, detail, _) in edges {
-        if *kind == EdgeKind::Inherits && detail.starts_with("extends:") {
+        // A Go embedded field promotes its methods as a base type would.
+        if *kind == EdgeKind::Inherits
+            && (detail.starts_with("extends:") || detail.starts_with("embeds:"))
+        {
             bases
                 .parents
+                .entry(*from)
+                .or_default()
+                .push((*to, *confidence));
+        } else if *kind == EdgeKind::Inherits && detail.starts_with("implements:") {
+            bases
+                .interfaces
                 .entry(*from)
                 .or_default()
                 .push((*to, *confidence));
@@ -107,6 +129,9 @@ impl Linker<'_> {
     /// Bind the receiver's type through its own import/local scope before
     /// searching bases. Rust impl members use the existing type-name index.
     pub(super) fn typed_member(&self, site: &Site, name: &str, via: &'static str) -> TypedMember {
+        if self.is_go(site.caller) {
+            return self.go_typed_member(site, name, via);
+        }
         let type_site = Site {
             bindings: site.bindings,
             index: site.index,
@@ -115,6 +140,9 @@ impl Linker<'_> {
             name,
             accept: self.is_type,
             receiver_type: None,
+            term_binding: false,
+            self_template: None,
+            value_qualifier: false,
         };
         let Some((owners, _, confidence)) = self.link(&type_site) else {
             return TypedMember::Unbound;

@@ -24,8 +24,9 @@ flowchart LR
 
 - Use the [catalog](references/catalog.md) to select one primary workflow from the missing evidence or outcome, then add an evidence technique or role pattern only when it adds a distinct check.
 - Outside an invoked workflow, perform ordinary direct domain tasks with their owner skill; do not add an orchestration wrapper.
-- Every workflow run has RACI roles ([table](references/composition.md#orchestrator-and-actor-contract)): one accountable orchestrator owns the goal, authority, role selection, sequence, sole ledger, evidence merge, verification, and user-facing result; at least one responsible actor executes assigned work and returns evidence.
-- A bounded former “solo” task is one actor under the orchestrator. BFS/DFS uses one traversal actor; it does not fan out. Runtime surgery uses a code/architecture actor and a runtime actor.
+- When executing a workflow, use one accountable orchestrator and at least one responsible actor; [composition](references/composition.md#orchestrator-and-actor-contract) owns their RACI duties and sole-ledger contract. A selection alone needs no ledger.
+- Honor a user-directed order or actor assignment. Keep sequential work sequential; add an optional actor only within the user's authority and when that actor has a distinct check or required capability.
+- Bounded execution and BFS/DFS use one actor; traversal does not fan out. Runtime surgery separates code/architecture and runtime actors.
 - Actors do not recursively spawn. The orchestrator may reassign a role only within the user's authority. If a required actor capability is absent, report that execution limitation; do not silently have the orchestrator perform all actor work.
 
 ## Composition boundary

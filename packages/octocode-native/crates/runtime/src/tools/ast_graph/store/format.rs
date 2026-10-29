@@ -1,41 +1,63 @@
-//! `graph.bin`: a sectioned, varint-coded snapshot.
+//! `graph.bin`: an authenticated section directory over varint-coded tables.
 //!
 //! ```text
 //! header   magic "OCGRAPH\0" · u32 format version · u32 section count
-//!          · [u8; 32] SHA-256 of every byte after the header
-//! table    per section: [u8; 4] tag · u64 offset · u64 length
+//!          · [u8; 32] SHA-256 of the section directory
+//! table    per section: [u8; 4] tag · u64 offset · u64 length · SHA-256
 //! sections 8-byte aligned, in table order
 //! ```
 //!
-//! v2 layout (LEB128 varints throughout):
-//! - `STRS` sorted unique strings, front-coded (shared-prefix length, suffix).
-//!   A symbol stores only its key suffix (`Struct.member`); the reader rebuilds
-//!   `path#Struct.member` from its file, so each path is stored once.
+//! Table payloads use LEB128 varints:
+//! - `STRS` sorted unique record strings, front-coded (shared-prefix length,
+//!   suffix): every string a node, edge, declaration, diagnostic or file table
+//!   references. Full node keys permit selective record reads without decoding
+//!   owning files.
+//! - `STRE` the strings only witnesses and unresolved sites reference, sorted
+//!   and front-coded the same way; their ids follow the `STRS` ids. Stored in
+//!   blocks of 256 strings whose front coding restarts, so one block decodes
+//!   alone.
 //! - `NODE` kind/flags bytes and varint columns (`+1` encodes an absent ref).
 //! - `EDGE` sorted by source: source delta, zig-zag target delta, one byte for
 //!   kind and confidence, detail, line.
-//! - `KEYX`/`NAMX` lookup permutations; `DIAG`, `FDIG`, `FCMP`, `ENTR` extras.
+//! - `LOOK` identity and degree index; `KEYX`/`NAMX` lookup permutations.
+//! - `NODE`/`DECL`/`STRE` independently hashed blocks; their directory hash is
+//!   stored in the outer directory. Other sections hash their entire payload.
+//! - `DIAG`, `FDIG`, `FCMP`, `ENTR` extras.
 //! - `FSTM` (optional) size and change times of the bytes each `FDIG` digest
 //!   hashed, so an unchanged-tree check can skip the re-hash.
 //!
-//! Adjacency (both CSR directions) is rebuilt on load in O(V + E) instead of
-//! being stored. Readers reject an unknown major version and ignore unknown
-//! section tags, so additive sections never break older binaries.
+//! - `SRCE` the source catalog (snapshots, representations, analysis units);
+//!   `SRCO` the origin pool in blocks of 256 origins, each block holding its
+//!   origins' index entries and then their records.
+//!
+//! Topology queries rebuild both CSR adjacency directions without occurrence
+//! evidence or its strings. Point and evidence queries load selected record
+//! blocks, and read `SRCE` and the `SRCO` blocks they need only when they render
+//! a declaration or origin; each origin is validated when it is read. Readers
+//! reject unknown versions.
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 pub(crate) mod arguments;
+mod blocks;
 mod evidence;
 mod indexes;
 mod limits;
 mod reader;
 mod sections;
+mod selective;
 pub(crate) mod sources;
 mod writer;
+use super::super::limits::{LIMITS, Limits, MAX_SECTIONS};
+pub(crate) use limits::validate_counts;
 use reader::*;
 pub(crate) use reader::{decode_files, decode_with_cancel};
 use sections::*;
+pub(crate) use selective::SnapshotReader;
+pub(crate) use selective::full_validation;
+#[cfg(test)]
 pub(crate) use writer::encode_for_publish;
+pub(crate) use writer::write_for_publish;
 #[cfg(test)]
 pub(crate) use {reader::decode, writer::encode};
 
@@ -51,15 +73,21 @@ pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// v9: typed named-argument observations, separate from invocation.
 /// v10: captured raw-source correspondence and per-span analysis units.
 /// v11: bounded typed source catalogs and compact numeric-reference origin pools.
-pub(crate) const FORMAT_VERSION: u32 = 11;
+/// v12: authenticated directory, indexed node/declaration blocks and selective lookup.
+/// v13: evidence-only strings move from `STRS` to `STRE`.
+/// v14: `SRCE` persists its origin index, so a reader validates only the
+/// origins it reads.
+/// v15: `STRE` is stored in authenticated blocks of front-coded strings that
+/// each restart, so an evidence page reads only the blocks its rows name.
+/// v16: the source origin pool moves from `SRCE` (now the catalog) to the
+/// blocked `SRCO`, so a page reads only the origin blocks it renders.
+pub(crate) const FORMAT_VERSION: u32 = 16;
 /// Packed edge byte bit: the edge's evidence is test code.
 const EDGE_TEST: u8 = 0x80;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;
-const TABLE_ENTRY_LEN: usize = 4 + 8 + 8;
+const TABLE_ENTRY_LEN: usize = 4 + 8 + 8 + 32;
 /// Sentinel for an absent `u32` reference (no file, no parent, no line).
 pub(crate) const NONE: u32 = u32::MAX;
-/// Node kind byte bit: the key column holds only the symbol's key suffix.
-const KEY_SUFFIX: u8 = 0x80;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(u8)]
@@ -315,6 +343,8 @@ pub(crate) struct GraphTables {
     pub entries: Vec<(u32, u32)>,
 }
 
+#[cfg(test)]
+mod dictionary_tests;
 #[cfg(test)]
 pub(crate) mod evidence_tests;
 #[cfg(test)]

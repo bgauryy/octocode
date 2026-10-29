@@ -49,6 +49,36 @@ async fn unread_local_image_is_byte_exact_hidden_and_saved_with_box() {
 }
 
 #[tokio::test]
+async fn short_local_image_is_sent_padded_and_saved_as_judged() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let short = include_bytes!("../fixtures/clasify/short.jpg");
+    std::fs::write(workspace.workspace.join("short.jpg"), short).unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(&runtime, vec![row("short.jpg")]).await;
+    let asset = &out["results"][0]["data"]["assets"]["image_a"];
+    assert_eq!(
+        (
+            asset["format"].as_str(),
+            asset["width"].as_u64(),
+            asset["height"].as_u64()
+        ),
+        (Some("png"), Some(280), Some(280)),
+        "{out}"
+    );
+    let saved = std::fs::read(asset["path"].as_str().unwrap()).unwrap();
+    assert_eq!(asset["bytes"].as_u64(), Some(saved.len() as u64));
+    let sent = requests(&server).await;
+    let body: Value = serde_json::from_slice(&sent[0].body).unwrap();
+    assert_eq!(body["assets"]["image_a"]["format"], "png");
+    assert_eq!(
+        body["assets"]["image_a"]["data_base64"],
+        STANDARD.encode(&saved)
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn image_mutation_invalidates_judgment_and_old_evidence_survives() {
     let server = provider().await;
     let workspace = Workspace::new();

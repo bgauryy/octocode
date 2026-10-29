@@ -1,6 +1,6 @@
 # Output
 
-Follow the [shared visual-first, content-only rules](references/presentation.md) when presenting results; retain this skill’s artifact format.
+Follow the [shared presentation and HTML delivery rules](references/presentation.md); retain this skill’s artifact format.
 
 ## Response
 
@@ -8,6 +8,6 @@ BLUF in chat: always-loaded totals against their budgets and the count of `high`
 
 ## Saved result
 
-One report in `<workspace>/.octocode/context-audit/` (the script's default `--out`; a re-run for comparison takes another `--out`). `context-audit.html` is the document a person reads. `context-audit.json` sits beside it because an agent reads the json. Do not add a third file.
+One report in `<workspace>/.octocode/context-audit/` (the script's default `--out`; a re-run for comparison takes another `--out`). `context-audit.json` is the saved evidence. After the task, offer HTML; when accepted, run `node <skill>/scripts/context-audit.mjs --render <saved-context-audit.json>` to create its sibling `context-audit.html` without collecting again. Use `--html` during the audit only when HTML was already requested. Do not add a third report file.
 
 Protocol definitions: [shared catalog](references/protocol-catalog.md#catalog).

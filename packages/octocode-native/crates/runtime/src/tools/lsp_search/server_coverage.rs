@@ -142,7 +142,7 @@ pub(super) fn workspace_symbols(
         ));
     }
     if !warnings.is_empty() {
-        crate::response::paging::mark_partial(row, WORKSPACE_SYMBOL_CAPPED_REASON, &warnings);
+        crate::response::paging::terminal_limit(row, WORKSPACE_SYMBOL_CAPPED_REASON, &warnings);
     }
     if let Some(path) = anchor {
         // This is an optional lead, moved to hints by continuation shaping;

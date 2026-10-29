@@ -9,11 +9,12 @@ mod workspace_root;
 use crate::lsp::commands::command_resolves_to_executable;
 #[cfg(test)]
 use crate::lsp::types::LspLanguageServerConfig;
+pub(crate) use catalog::configuration_section;
+pub use catalog::install_hint;
 pub use catalog::{
     available_server_languages, default_server_for_file, detect_language_id,
     typescript_server_fallback,
 };
-pub(crate) use catalog::{configuration_section, install_hint};
 pub(crate) use defaults::{apply_server_default_options, project_config_files};
 pub use defaults::{
     rust_analyzer_headless_options, serves_requests_concurrently, workspace_symbol_limit,

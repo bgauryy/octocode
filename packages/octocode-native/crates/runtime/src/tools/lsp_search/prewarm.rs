@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Simultaneous starts and recently completed servers per runtime.
-const MAX_PREWARM_KEYS: usize = 3;
+pub(crate) const MAX_PREWARM_KEYS: usize = 3;
 /// A pooled server may have exited or been evicted; retry its prewarm after
 /// this interval instead of treating a former success as permanent.
 const PREWARM_COOLDOWN: Duration = Duration::from_secs(30);

@@ -293,8 +293,9 @@ fn authored_lib_javascript_keeps_its_symbols() {
 }
 
 /// `ingest --language-glob` picks a parser by root-relative glob, as for
-/// astSearch: a C++ header named `.h` declares its class only when a glob
-/// parses it as C++, and the globs are part of what a reuse compares.
+/// astSearch: a `.h` header holding C++ reads as C++ (its class is a class)
+/// until a glob parses it as C, and the globs are part of what a reuse
+/// compares.
 #[test]
 fn ingest_language_globs_choose_the_parser() {
     let dir = git_app(&[("include/widget.h", "namespace Space { class Widget {}; }\n")]);
@@ -324,22 +325,22 @@ fn ingest_language_globs_choose_the_parser() {
     };
     let plain = with_globs(&[]);
     assert_eq!(plain.class, ExitClass::Success, "{}", plain.value);
-    assert_ne!(widget(), "class", "C reads no class");
-    let cpp = with_globs(&[("cpp", "include/**/*.h")]);
-    assert_eq!(cpp.class, ExitClass::Success, "{}", cpp.value);
+    assert_eq!(widget(), "class", "a C++ header reads as C++");
+    let c = with_globs(&[("c", "include/**/*.h")]);
+    assert_eq!(c.class, ExitClass::Success, "{}", c.value);
     assert!(
-        cpp.value.get("reused").is_none(),
+        c.value.get("reused").is_none(),
         "globs changed: {}",
-        cpp.value
+        c.value
     );
     assert_eq!(
-        cpp.value["scan"]["languageGlobs"],
-        json!({"cpp": ["include/**/*.h"]}),
+        c.value["scan"]["languageGlobs"],
+        json!({"c": ["include/**/*.h"]}),
         "{}",
-        cpp.value
+        c.value
     );
-    assert_eq!(widget(), "class");
-    let again = with_globs(&[("cpp", "include/**/*.h")]);
+    assert_ne!(widget(), "class", "C reads no class");
+    let again = with_globs(&[("c", "include/**/*.h")]);
     assert_eq!(again.value["reused"], true, "{}", again.value);
     let stale = ask(root, "stale", None, |_| {});
     assert_eq!(stale.value["fresh"], true, "{}", stale.value);
@@ -364,4 +365,19 @@ fn a_malformed_language_glob_is_an_invalid_glob_error() {
     );
     assert_eq!(out.value["errorCode"], "invalidGlob", "{}", out.value);
     assert_eq!(out.class, ExitClass::InvalidInput, "{}", out.value);
+}
+
+#[test]
+fn a_published_graph_leaves_no_extraction_checkpoint() {
+    let dir = git_app(&[(
+        "a.ts",
+        "export function a() { return b(); }\nfunction b() {}\n",
+    )]);
+    let built = ingest_root(&dir.0, &dir.0.join("app"), None, false);
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let jobs = dir.0.join(".octocode/graph/.facts/jobs");
+    let left = std::fs::read_dir(&jobs)
+        .map(|entries| entries.flatten().count())
+        .unwrap_or(0);
+    assert_eq!(left, 0, "published builds retire their checkpoint jobs");
 }

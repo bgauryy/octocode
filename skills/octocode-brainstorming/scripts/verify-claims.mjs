@@ -6,17 +6,18 @@
  */
 import { fail } from './lib/fail.mjs';
 import { isMainModule } from './lib/entrypoint.mjs';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { dirname, extname, isAbsolute, resolve } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { guardedFetch } from './lib/net-guard.mjs';
 
 const USAGE = `Usage: verify-claims.mjs --ledger <claims.jsonl|claims.json> [--out <verified.jsonl>] [--concurrency <1-8>]
 
 Each ledger row: {"id","claim","url","quote", ...}. A row with "asset" (a file saved by fetch-asset.mjs, relative to the
-ledger) is checked against that file: text, Markdown, CSV, JSON, and HTML directly, PDF through pdftotext when installed. The quote must be copied from the page, at least 20 characters;
+ledger) must match that run's assets/manifest.jsonl by path, URL, and SHA-256. It is checked as text, Markdown, CSV, JSON, or HTML directly, PDF through pdftotext when installed. The quote must be copied from the page, at least 20 characters;
 separate non-adjacent passages with "..." or "…". Statuses: verified, quote-not-found, quote-too-short, missing-field,
-fetch-failed, blocked (a bot check answered), unsupported-content, refused (a private, local, or non-http host).
+fetch-failed, blocked (a bot check answered), unsupported-content, refused (a private or non-http host, or an unbound/changed asset).
 A row the script cannot read (blocked, unsupported-content, fetch-failed) that a person or the host fetch tool checked
 may carry "verifiedBy":"manual" and a "method" naming how; it then reports verified-manual. Manual marks never
 override quote-not-found. --out writes every row with a "verification" object added.
@@ -138,7 +139,7 @@ const MANUAL_OK = new Set(['blocked', 'unsupported-content', 'fetch-failed']);
 
 export async function verifyClaim(row, options = {}) {
   const result = await checkClaim(row, options);
-  if (row.verifiedBy === 'manual' && MANUAL_OK.has(result.status) && typeof row.method === 'string' && row.method.trim()) {
+  if (row?.verifiedBy === 'manual' && MANUAL_OK.has(result.status) && typeof row.method === 'string' && row.method.trim()) {
     return { ...result, status: 'verified-manual', automatic: result.status, method: row.method.trim() };
   }
   return result;
@@ -146,15 +147,48 @@ export async function verifyClaim(row, options = {}) {
 
 /** Why a ledger row cannot be checked at all, or null. */
 function rowProblem(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return { status: 'missing-field', reason: 'ledger row must be an object' };
   for (const field of ['url', 'quote', 'claim']) if (!row[field] || typeof row[field] !== 'string') return { status: 'missing-field', reason: `no ${field}` };
+  if (row.asset != null && (typeof row.asset !== 'string' || !row.asset.trim())) return { status: 'missing-field', reason: 'asset must be a non-empty path' };
   if (!/^https?:\/\//i.test(row.url)) return { status: 'missing-field', reason: 'url must be http(s)' };
   if (normalize(row.quote).replace(/\s*(\.\.\.|…)\s*/g, '').length < 20) return { status: 'quote-too-short', reason: 'quote needs at least 20 characters of the source text' };
   return null;
 }
 
-function checkAsset(row, baseDir) {
+function assetPath(row, baseDir) {
   const file = isAbsolute(row.asset) ? row.asset : resolve(baseDir, row.asset);
-  const local = loadAsset(file);
+  const assetsDir = join(baseDir, 'assets');
+  const inside = relative(assetsDir, file);
+  if (!inside || inside.startsWith(`..${sep}`) || inside === '..' || isAbsolute(inside)) return { error: { status: 'refused', reason: 'asset must be inside the ledger run assets directory' } };
+  if (!existsSync(file) || !existsSync(join(assetsDir, 'manifest.jsonl'))) return { error: { status: 'missing-field', reason: 'asset or approved-download manifest is missing' } };
+  try {
+    if (realpathSync(file) !== join(realpathSync(assetsDir), inside)) return { error: { status: 'refused', reason: 'asset must not be a symlink' } };
+  } catch { return { error: { status: 'refused', reason: 'asset path cannot be resolved safely' } }; }
+  return { file, inside, assetsDir };
+}
+
+function assetProvenance(row, { file, inside, assetsDir }) {
+  let entries;
+  try { entries = readFileSync(join(assetsDir, 'manifest.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line)); }
+  catch { return { status: 'missing-field', reason: 'approved-download manifest is invalid' }; }
+  const entry = entries.find((item) => item?.file === join('assets', inside) && (item.url === row.url || item.finalUrl === row.url));
+  if (!entry || !/^[a-f0-9]{64}$/.test(entry.sha256 || '')) return { status: 'refused', reason: 'asset and URL are not recorded in the approved-download manifest' };
+  let digest;
+  try { digest = createHash('sha256').update(readFileSync(file)).digest('hex'); }
+  catch { return { status: 'refused', reason: 'asset could not be read for integrity check' }; }
+  if (digest !== entry.sha256) return { status: 'refused', reason: 'asset differs from the approved download' };
+  return null;
+}
+
+function checkAsset(row, baseDir) {
+  const source = assetPath(row, baseDir);
+  if (source.error) return source.error;
+  const mismatch = assetProvenance(row, source);
+  if (mismatch) return mismatch;
+  const { file } = source;
+  let local;
+  try { local = loadAsset(file); }
+  catch { return { status: 'refused', reason: 'asset could not be read safely' }; }
   if (local.status) return { status: local.status, reason: local.error, asset: file };
   if (!quoteInText(row.quote, local.text)) return { status: 'quote-not-found', reason: 'the quote is not in the downloaded asset; recopy it exactly', asset: file };
   return { status: 'verified', asset: file, finalUrl: row.url, title: null, published: null, modified: null };
@@ -215,7 +249,7 @@ if (isMainModule(import.meta.url)) {
     verifiedRatio: rows.length ? Number((verified / rows.length).toFixed(3)) : 0,
     byStatus,
     ...(opts.out ? { out: resolve(opts.out) } : {}),
-    claims: rows.map((row, i) => ({ id: row.id ?? i + 1, status: results[i].status, url: row.url, ...(results[i].reason ? { reason: results[i].reason } : {}), title: results[i].title ?? null, published: results[i].published ?? null })),
+    claims: rows.map((row, i) => ({ id: row?.id ?? i + 1, status: results[i].status, url: row?.url, ...(results[i].reason ? { reason: results[i].reason } : {}), title: results[i].title ?? null, published: results[i].published ?? null })),
     ...(allVerified ? {} : { error: { code: verified ? 'someUnverified' : 'noneVerified', message: `${rows.length - verified} of ${rows.length} claims are not verified; recopy quotes, fix URLs, or drop those claims from the evidence` } }),
   }, null, 2));
   process.exit(allVerified ? 0 : 1);

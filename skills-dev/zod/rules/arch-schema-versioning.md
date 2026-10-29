@@ -1,7 +1,7 @@
 ---
 title: Evolve Schemas Without Breaking Consumers
 impact: MEDIUM
-description: Use additive changes for non-breaking evolution. New fields use .optional(). Never remove required fields without a major version bump.
+description: Check input and output compatibility separately; additive fields or union members can still break strict or exhaustive consumers.
 tags: architecture, versioning, backward-compatibility, api-evolution
 ---
 
@@ -34,7 +34,7 @@ const UserV2 = z.object({
 ## Correct
 
 ```typescript
-// v2 — non-breaking: keep role, add displayName as optional, deprecate nickname
+// Accepts old payloads: keep role, add displayName as optional, deprecate nickname
 const UserV2 = z.object({
   name: z.string(),
   email: z.email(),
@@ -48,18 +48,17 @@ type UserV2 = z.infer<typeof UserV2>
 
 ## Decision Table: Schema Changes
 
-| Change | Breaking? | Safe Approach |
+| Change | Input acceptance | Consumer check |
 |--------|-----------|---------------|
-| Add optional field | No | `.optional()` — old data still parses |
-| Add required field | **Yes** | Make optional first, require in next major |
-| Remove field | **Yes** | Deprecate first, remove in next major |
-| Tighten constraint (e.g., min 1 → min 5) | **Yes** | Previously valid data now fails |
-| Loosen constraint (e.g., min 5 → min 1) | No | All existing data still valid |
-| Rename field | **Yes** | Add new name as optional, keep old, migrate |
-| Change type (e.g., string → number) | **Yes** | New field with new name, deprecate old |
-| Add union member | No | Existing data still matches |
-| Remove union member | **Yes** | Existing data with that value fails |
+| Add optional field | Old payloads still pass | Old strict response parsers may reject the new field |
+| Add required field | Old payloads may fail | Coordinate producers and consumers |
+| Remove field | Parser may strip it or reject it | Output consumers may still require it |
+| Tighten constraint | Previously valid data may fail | Check actual producer values |
+| Loosen constraint | Existing input still passes | Downstream code may assume the old guarantee |
+| Rename or change type | Existing payloads may fail | Use the project's migration/versioning policy |
+| Add union member | Existing input still passes | Exhaustive consumers may not handle the new variant |
+| Remove union member | Old variant fails | Migrate existing data and producers |
 
 ## Why
 
-Zod schemas are runtime contracts. Changing them has the same impact as changing an API — consumers that depend on the shape will break. Additive changes (new optional fields, loosened constraints, new union members) are always safe. Subtractive changes (removing fields, tightening constraints) require coordinated migration across all consumers.
+Compatibility has a direction: accepting old input does not prove the new output is safe for old consumers. Check both sides, including transforms, unknown-key policy and exhaustive handlers. Apply the project's release policy and migration contract; a major version number alone does not migrate consumers.

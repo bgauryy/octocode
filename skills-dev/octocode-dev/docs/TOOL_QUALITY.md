@@ -31,8 +31,8 @@ node packages/octocode/out/octocode.js schema
 node packages/octocode/out/octocode.js schema localFetch --view query
 ```
 
-- The catalog has 16 tools, with 12 enabled by default in MCP. `ghCloneRepo`, `graphBuild` and `graphQuery` are CLI-only; a classification key and successful provider ping add `clasify`. Graph tools use the same Rust store as `octocode graph ingest|query`.
-- `clasify` is omitted when no key resolves (`OCTOCODE_CLASSIFICATION_API` or `.octocoderc` `classification.api`), when `OCTOCODE_CLASSIFICATION_API` is blank, or when its provider ping fails. Local-tool, clone, storage, and allowlist settings also gate tools.
+- The catalog has 16 tools, with 12 enabled by default in MCP. `OCTOCODE_BETA=true` adds `graphBuild` and `graphQuery`; `ghCloneRepo` is CLI-only. A classification key and successful provider ping add `clasify`. Graph tools use the same Rust store as `octocode graph ingest|query`.
+- `clasify` is omitted when no key resolves (`OCTOCODE_CLASSIFICATION_API` or `.octocoderc` `classification.api`), when `OCTOCODE_CLASSIFICATION_API` is blank, or when its provider ping fails. Local-tool, clone, storage, beta, and allowlist settings also gate tools.
 - Record effective configuration and unavailable capabilities per run; enabling a tool installs no language server and grants no provider access. Test CLI and MCP when registration, schema projection, formatting, or continuation rendering changes.
 
 ## Shared acceptance requirements
@@ -82,6 +82,8 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 | `structureSearch` | `tree` and `files` with name and metadata filters. | Pagination, snapshots, depth bounds, exclusions. |
 | `astSearch` | `match`, `syntaxTree`, `symbols`. | Pattern/rule exclusivity, language selection; captures, nodes, results; parser and scan limits. |
 | `lspSearch` | Document, workspace, anchored, hierarchy operations. | Distinguish no server, unsupported capability, failed anchor, valid empty; provenance; snapshots. |
+| `graphBuild` | Scope, force, storage, and CLI/MCP beta availability; one query per batch. | Freshness, durable extraction resume, source invalidation, bounded spill, failed-build preservation, corrupt checkpoint rejection. |
+| `graphQuery` | Every operation, selector, witness/resolution option, and availability gate. | Pinned continuation union for every collection; integrity errors, stale snapshots, grammar coverage, evidence and unresolved sites. |
 | `ghSearchRepo`, `ghSearchCode`, `ghStructure` | Exercise code, repository, and tree variants (one tool each); reject branch selection for indexed code search. | Candidate matches, immutable tree identity, metadata pages, indexing uncertainty, provider-limit diagnostics. |
 | `ghGetFileContent` | Exact, compact, full, paginated views. | Local/remote parity; pinned refs, repeated-outline prevention, redaction, directory-input rejection. |
 | `ghSearchHistory` | PR, issue, commit discovery with operation scope. | Discovery pages; filters and exact-detail hints; minification modes; provider-incomplete results. |

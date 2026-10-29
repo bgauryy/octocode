@@ -57,6 +57,10 @@ pub(super) async fn scope_responses(
         blocking_cancellable(cancel, move |stopped| walked.fingerprint(stopped))
             .await?
             .flatten()
+            .map(|(digest, entries)| {
+                scope.set_walk_entries(entries);
+                digest
+            })
     } else {
         None
     };
@@ -80,7 +84,7 @@ pub(super) fn quarantine_responses() {
 }
 
 /// Disclose an unfinished project load, the inferred-project and compile
-/// database context, and the provider receipt.
+/// database context, and the answering provider.
 pub(super) fn annotate(
     result: &mut Value,
     query: &LspSearchQuery,
@@ -126,12 +130,55 @@ pub(super) fn annotate(
         scope,
         rust,
     );
-    receipt::attach_provider_context(
-        result,
-        query,
-        &target.uri,
-        resolved_symbol,
-        &session.config,
-        &session.client,
-    );
+    receipt::attach_provider_context(result, query, &target.uri, resolved_symbol, &session.config);
+}
+
+/// Tell a server that registered for `workspace/didChangeWatchedFiles`
+/// which scope files changed since this process's last request to it:
+/// without a watcher of its own, a file no request opened (a new
+/// importer, a deleted module, regenerated output) would never reach its
+/// index. The first request of a server process records the snapshot
+/// only (the process indexed the disk itself). The walk is the scope
+/// fingerprint's, reused when the request already made it.
+pub(super) async fn sync_watched_files(
+    scope: &scope::Scope,
+    client: &octocode_engine::lsp::client::NativeLspClient,
+    cancel: &dyn CancellationCheck,
+) -> Result<(), LspFailure> {
+    if !client.watches_files().await {
+        return Ok(());
+    }
+    let entries = match scope.walk_entries() {
+        Some(entries) => entries,
+        None => {
+            let walked = scope.walk_inputs();
+            let Some((digest, entries)) =
+                blocking_cancellable(cancel, move |stopped| walked.fingerprint(stopped))
+                    .await?
+                    .flatten()
+            else {
+                // Past the walk's bounds: no snapshot, no events.
+                return Ok(());
+            };
+            scope.set_fingerprint(digest);
+            scope.set_walk_entries(entries.clone());
+            entries
+        }
+    };
+    let Some(changes) = client.watched_files_diff(&entries) else {
+        return Ok(());
+    };
+    let root = std::path::Path::new(&scope.root);
+    let changes = changes
+        .into_iter()
+        .filter_map(|(relative, kind)| {
+            octocode_engine::lsp::uri::path_to_uri(&root.join(relative).to_string_lossy())
+                .ok()
+                .map(|uri| (uri, kind))
+        })
+        .collect::<Vec<_>>();
+    // A failed notification is the connection's to report on the next
+    // request; this answer is unaffected.
+    let _ = client.notify_watched_files(changes).await;
+    Ok(())
 }

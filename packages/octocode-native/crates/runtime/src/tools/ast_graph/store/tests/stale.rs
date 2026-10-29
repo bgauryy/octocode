@@ -114,36 +114,33 @@ fn a_truncated_snapshot_is_never_fresh() {
     );
 }
 
-/// The edge cap does not cut the file scan: a capped snapshot whose files
-/// were all scanned still reports files added since ingest, names no
-/// maxFiles cut, and is fresh once nothing changed.
+/// A snapshot published before snapshot bounds became build refusals may
+/// carry `scan.edgesCapped`; it still parses and answers, and names no cut
+/// the scan did not make.
 #[test]
-fn an_edge_capped_snapshot_still_checks_added_files() {
-    struct EdgeCap;
-    impl Drop for EdgeCap {
-        fn drop(&mut self) {
-            crate::tools::ast_graph::graph::EDGE_CAP
-                .with(|edges| edges.set(crate::tools::ast_graph::graph::MAX_GRAPH_EDGES));
-        }
-    }
-    crate::tools::ast_graph::graph::EDGE_CAP.with(|edges| edges.set(1));
-    let _restore = EdgeCap;
+fn a_manifest_from_before_the_edge_bound_still_answers() {
     let dir = fixture();
     let out = ingest_fixture(dir.0.as_path(), None);
-    assert_eq!(out.value["scan"]["edgesCapped"], true, "{}", out.value);
-    assert_eq!(out.value["scan"]["truncated"], false, "{}", out.value);
+    assert!(
+        out.value["scan"].get("edgesCapped").is_none(),
+        "{}",
+        out.value
+    );
+    let graph_dir = PathBuf::from(out.value["dir"].as_str().expect("dir"));
+    let mut manifest = read_manifest(&graph_dir).expect("manifest");
+    manifest["scan"]["edgesCapped"] = json!(true);
+    std::fs::write(
+        graph_dir.join(MANIFEST_FILE),
+        serde_json::to_vec(&manifest).expect("manifest json"),
+    )
+    .expect("write manifest");
     let fresh = ask(dir.0.as_path(), "stale", None, |_| {});
     assert_eq!(fresh.value["fresh"], true, "{}", fresh.value);
-    assert!(fresh.value.get("reingest").is_none(), "{}", fresh.value);
-    dir.write("app/src/z.ts", "export const z = 1;\n");
-    let stale = ask(dir.0.as_path(), "stale", None, |_| {});
-    assert_eq!(
-        stale.value["results"],
-        json!([{"file": "src/z.ts", "status": "added"}]),
+    assert!(
+        fresh.value["graph"].get("partialReasons").is_none(),
         "{}",
-        stale.value
+        fresh.value
     );
-    assert!(stale.value.get("unchecked").is_none(), "{}", stale.value);
-    let reingest = stale.value["reingest"].as_str().expect("reingest");
-    assert!(!reingest.contains("--max-files"), "{reingest}");
+    let stats = ask(dir.0.as_path(), "stats", None, |_| {});
+    assert_eq!(stats.class, ExitClass::Success, "{}", stats.value);
 }

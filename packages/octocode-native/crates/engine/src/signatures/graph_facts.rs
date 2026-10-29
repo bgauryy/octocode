@@ -12,15 +12,20 @@ use crate::graph::{
 
 use super::languages;
 
+mod c_family;
+mod go;
 mod heritage;
 mod python;
 mod receiver;
 mod rust;
 mod rust_cfg;
+mod rust_macro_args;
+mod scala;
 
 mod arguments;
 mod collect;
 mod imports;
+mod macro_bodies;
 mod positions;
 mod references;
 mod test_adapter;
@@ -30,9 +35,10 @@ mod walk;
 use rust::rust_inner_unsupported;
 
 use imports::push_language_import;
+use macro_bodies::{MacroBody, visit_macro_bodies};
 use positions::{NodePositions, syntax_error_lines};
 use references::count_name_references;
-use walk::{visit_macro_bodies, visit_node};
+use walk::visit_node;
 
 /// The diagnostic of `code`, with the message this module states for it.
 fn note(code: GraphFactCode) -> GraphFactDiagnostic {
@@ -58,6 +64,10 @@ fn note(code: GraphFactCode) -> GraphFactDiagnostic {
         }
         GraphFactCode::UnsupportedExportForwarding => {
             "export-forwarding clause observed; its member binding is not assessed"
+        }
+        // `js_oxc` states which CommonJS export write it could not order.
+        GraphFactCode::UnsupportedCommonJsExports => {
+            "CommonJS export shape is not provable; no CommonJS names are exported"
         }
         // `js_oxc` states its parser's own errors.
         GraphFactCode::ParseError => "the parser reported a syntax error",
@@ -96,10 +106,17 @@ struct GraphAccumulator {
     non_reference_tokens: std::collections::HashSet<usize>,
     /// Named namespace occurrences whose public scope is transparent to children.
     public_namespace_scopes: std::collections::HashSet<String>,
-    /// Bodies of Rust item-level macro calls (`cfg_rt! { mod x; }`) with
-    /// their enclosing module scope and declaration (an `impl` holding
-    /// `cfg_io_util! { pub fn … }`), re-read as items after the main walk.
+    /// Bodies of Rust item-level macro calls (`cfg_rt! { mod x; }`) and of
+    /// admitted expression macros (`ready!(f(cx))`) with their enclosing
+    /// module scope and declaration (an `impl` holding `cfg_io_util! { pub
+    /// fn … }`), re-read after the main walk.
     macro_bodies: Vec<MacroBody>,
+    /// While an expression macro body is read: the macros that hold it,
+    /// outermost first; stamped on its calls.
+    macro_chain: Option<Vec<String>>,
+    /// While such a body of a recovered declaration is read: that
+    /// assessment, stamped on its calls and argument sites.
+    macro_recovered: Option<crate::graph::GraphParseAssessment>,
     /// Byte span of each entry of `declarations`, in the same order.
     declaration_spans: Vec<(usize, usize)>,
     /// Name tokens the main walk passed, for `count_name_references`;
@@ -144,6 +161,8 @@ impl GraphAccumulator {
             non_reference_tokens: std::collections::HashSet::new(),
             public_namespace_scopes: std::collections::HashSet::new(),
             macro_bodies: Vec::new(),
+            macro_chain: None,
+            macro_recovered: None,
             declaration_spans: Vec::new(),
             name_tokens: None,
             declarations_only: false,
@@ -358,11 +377,6 @@ pub fn graph_fact_extensions() -> Vec<String> {
     exts.dedup();
     exts
 }
-
-/// A Rust item-level macro body to re-read as items: its inner range, the
-/// enclosing `mod` names (outermost first), and the enclosing declaration's
-/// `(id, name)`, so the items it holds nest where the macro call sits.
-type MacroBody = (tree_sitter::Range, Vec<String>, Option<(String, String)>);
 
 fn language_label(ext: &str, language_id: Option<&str>) -> String {
     language_id

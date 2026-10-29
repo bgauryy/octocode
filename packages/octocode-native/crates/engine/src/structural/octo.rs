@@ -35,7 +35,7 @@ use matching::{CandidateVisitor, CaptureEnv, collect_kind_matches, visit_named_e
 pub(super) use matching::{Found, MatchWithKind};
 pub use matching::{MATCH_DEADLINE, PARSE_INTERRUPTED};
 use pattern::CompiledPattern;
-pub use pattern::PatternDeclaration;
+pub use pattern::{PatternDeclaration, QualifiedPattern};
 use recovery::Recovery;
 pub use rule::RULE_INVALID;
 use rule::{CompiledRule, Document};
@@ -77,6 +77,11 @@ pub(super) fn matches_with_recovery(
 /// The declaration `pattern` spells in `lang` ([`CompiledPattern::declaration`]).
 pub(super) fn pattern_declaration(lang: &AgLanguage, pattern: &str) -> Option<PatternDeclaration> {
     CompiledPattern::new(lang, pattern).ok()?.declaration()
+}
+
+/// The longer spelling of `pattern` in `lang` ([`CompiledPattern::qualifier`]).
+pub(super) fn pattern_qualifier(lang: &AgLanguage, pattern: &str) -> Option<QualifiedPattern> {
+    CompiledPattern::new(lang, pattern).ok()?.qualifier(pattern)
 }
 
 pub(super) fn compile_matcher(

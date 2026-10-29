@@ -28,23 +28,14 @@ Answer → scope → claim-linked evidence → gaps → checks. Separate observe
 | `timeline` / `gitGraph` | Explain relevant chronology / branch history supported by repository evidence. |
 | Evidence table / `graph` | Compare conflicting sources / inspect a larger relationship network; label unconfirmed edges. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
-Save and render when the result has a table, a diagram, over ~40 lines or five findings, or the user asks; else answer in chat. Save every result when the user or project instructions say so.
+Save when the result benefits from navigation or later retrieval, such as a diagram, evidence comparison, or several findings. Save every result when the user or project instructions say so; otherwise a concise answer can stay in chat.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Confirmed | Likely | Refuted | Open
-confidence: high | medium | low
-question: <the question or decision>
-next: <the one next action for whoever continues, in the imperative>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Confirmed`, `Likely`, `Refuted`, `Open`.
 
 Follow the header with the `#` title and a lead paragraph that states the answer. Always include, in this order, `## Answer` (the direct answer and its confidence), `## Scope` (repositories, refs, and paths covered), `## Evidence` (Claim–evidence: each claim beside its exact source anchor; only what the sources show), `## Gaps` (Facts–assumptions–unknowns: unread or unproven parts, and any assumption marked as one), and `## Checks` (what ran and its result). Add `## Next` only when something is pending.
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

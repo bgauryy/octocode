@@ -7,7 +7,11 @@ fn front_coded_strings_cannot_expand_past_decode_budget() {
     let bytes = [2, 0, 3, b'a', b'b', b'c', 3, 0];
     let mut tables = GraphTables::default();
     let mut reader = Reader::new(&bytes, "STRS");
-    assert!(read_strings_with_budget(&mut reader, &mut tables, 5).is_err());
+    let limits = Limits {
+        string_bytes: 5,
+        ..LIMITS
+    };
+    assert!(read_strings(&mut reader, &mut tables, &limits).is_err());
 }
 
 #[test]
@@ -15,7 +19,12 @@ fn empty_front_coded_strings_cannot_bypass_item_budget() {
     let bytes = [3, 0, 0, 0, 0, 0, 0];
     let mut tables = GraphTables::default();
     let mut reader = Reader::new(&bytes, "STRS");
-    assert!(read_strings_with_limits(&mut reader, &mut tables, 100, 2).is_err());
+    let limits = Limits {
+        string_bytes: 100,
+        table_items: 2,
+        ..LIMITS
+    };
+    assert!(read_strings(&mut reader, &mut tables, &limits).is_err());
 }
 
 #[test]

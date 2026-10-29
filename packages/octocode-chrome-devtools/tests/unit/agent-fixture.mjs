@@ -5,14 +5,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { connectStdio } from '../../dist/runtime.js';
+import { copyPackage } from '../copy-package.mjs';
 
 export async function fixture(fn) {
   const work = mkdtempSync(join(tmpdir(), 'octo-agent-'));
   const skill = join(work, 'skill');
-  cpSync(resolve(import.meta.dirname, '../..'), skill, {
-    recursive: true,
-    filter: source => !source.split(/[\\/]/).includes('node_modules'),
-  });
+  copyPackage(resolve(import.meta.dirname, '../..'), skill);
   const cwd = join(work, 'workspace');
   cpSync(join(skill, 'package.json'), join(work, 'package.json'));
   mkdirSync(cwd);

@@ -103,6 +103,7 @@ impl JsonRpcConnection {
             unparseable_frames: AtomicU64::new(0),
             consecutive_timeouts: AtomicU32::new(0),
             activity: ServerActivity::new(cpu_clock, Arc::clone(&progress)),
+            watches_files: AtomicBool::new(false),
         });
         // The guards are created before spawning so they run even if a task is
         // aborted before its first poll.
@@ -142,6 +143,17 @@ impl JsonRpcConnection {
 
     pub(crate) fn clear_push_diagnostics(&self, uri: &str) {
         self.shared.push_diagnostics.clear(uri);
+    }
+
+    /// See [`super::push_diagnostics::PushDiagnosticsStore::supersede`].
+    pub(crate) fn supersede_push_diagnostics(&self, uri: &str) {
+        self.shared.push_diagnostics.supersede(uri);
+    }
+
+    /// Whether the server registered for `workspace/didChangeWatchedFiles`
+    /// (a `client/registerCapability` it sent after `initialize`).
+    pub(crate) fn watches_files(&self) -> bool {
+        self.shared.watches_files.load(Ordering::Acquire)
     }
 
     pub(crate) async fn wait_for_push_diagnostics(

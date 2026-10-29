@@ -85,7 +85,13 @@ pub(super) fn discover_server(
                     .join(", ")
             )
         } else {
-            "No language server is configured for this file.".to_owned()
+            let extension = std::path::Path::new(&path)
+                .extension()
+                .map(|extension| format!(".{}", extension.to_string_lossy()))
+                .unwrap_or_else(|| "this".to_owned());
+            format!(
+                "No built-in language server or grammar for {extension} files; add an lsp-servers.json entry (lsp.configPath or ~/.octocode/lsp-servers.json) such as {{\"languageServers\":{{\"{extension}\":{{\"command\":\"<server>\",\"args\":[],\"languageId\":\"<id>\"}}}}}}; until then use localSearch or astSearch + localFetch."
+            )
         };
         return Err(fail(ErrorCode::ServerUnavailable, &message));
     };
@@ -167,9 +173,21 @@ pub(super) async fn open_session(
         config,
         fell_back_from,
     } = acquire_leased_client(query, target, pool, cancel).await?;
+    let advertises = |capability: &str| client.has_capability(capability.to_owned());
+    let note = |readiness| {
+        octocode_engine::lsp::diagnostics::Trace::note_server(|| {
+            octocode_engine::lsp::diagnostics::ServerNote {
+                source: config.source.as_str(),
+                readiness,
+                operations: receipt::advertised_operations(&advertises),
+            }
+        });
+    };
+    note(client.readiness());
     // A readiness timeout means the live server announced progress and is
     // still indexing. Do not sync or query it yet: return the established
-    // incomplete row with an optional same-query reattempt instead.
+    // incomplete row, naming the server, with an optional same-query
+    // reattempt instead.
     if client.readiness().as_deref() == Some("timeout") {
         let mut row = empty(
             query,
@@ -178,21 +196,32 @@ pub(super) async fn open_session(
             true,
         );
         partial_with_related_rerun(&mut row, query, "languageServerIndexing", &[]);
-        return Err(Exit::Row(row));
+        return Err(receipt::naming(
+            Exit::Row(row),
+            receipt::server_receipt(&config, false),
+        ));
     }
-    if let Some(capability) = receipt::required_capability(lsp_search_query::operation(query))
-        && !client.has_capability(capability.to_owned())
-        && !heritage::fallback_provider(lsp_search_query::operation(query))
-            .is_some_and(|provider| client.has_capability(provider.to_owned()))
+    let operation = lsp_search_query::operation(query);
+    if let Some(capability) = receipt::required_capability(operation)
+        && !receipt::admits(operation, &advertises)
     {
-        return Err(target.fail(
-            query,
-            ErrorCode::CapabilityUnavailable,
-            &format!("The language server does not advertise {capability}."),
-            true,
+        // The row lists what the server can run instead.
+        let mut named = receipt::server_receipt(&config, false);
+        named["operations"] = json!(receipt::advertised_operations(&advertises));
+        return Err(receipt::naming(
+            target.fail(
+                query,
+                ErrorCode::CapabilityUnavailable,
+                &format!("The language server does not advertise {capability}."),
+                true,
+            ),
+            named,
         ));
     }
     let open_readiness = sync_document(query, target, document, sources, &client, cancel).await?;
+    if open_readiness.is_some() {
+        note(open_readiness.clone());
+    }
     Ok(Session {
         client,
         _lease: lease,
@@ -235,8 +264,15 @@ pub(super) async fn acquire_leased_client(
             }
             Err(failure) => failure,
         };
+    // The row names the server that did not start: what the user configures.
+    let failed = || {
+        receipt::naming(
+            target.fail(query, code, &message, false),
+            receipt::server_receipt(&target.config, true),
+        )
+    };
     let Some(fallback) = target.fallback.clone() else {
-        return Err(target.fail(query, code, &message, false));
+        return Err(failed());
     };
     match start_failure(cancellable(cancel, pool.acquire_leased(fallback.clone())).await?) {
         Ok((client, lease)) => Ok(Leased {
@@ -245,7 +281,7 @@ pub(super) async fn acquire_leased_client(
             config: fallback,
             fell_back_from: Some(message),
         }),
-        Err(_) => Err(target.fail(query, code, &message, false)),
+        Err(_) => Err(failed()),
     }
 }
 

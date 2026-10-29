@@ -2,6 +2,56 @@ use super::super::memo::{FACTS_MEMO, ParsedFacts, facts_heap_bytes};
 use super::*;
 
 impl<T> EntryEvaluator<'_, T> {
+    pub(super) fn provider_facts(
+        &self,
+        provider: &crate::signatures::languages::FactProvider,
+        content: &str,
+        relative_path: &str,
+        parser: Option<&str>,
+        content_digest: &str,
+        operation: AnalysisOperation,
+    ) -> Result<Option<(crate::graph::GraphFactsTypedEntry, bool)>, GraphScanError> {
+        if let Some(entry) = self.reused_facts(content, relative_path, parser, content_digest) {
+            return Ok(Some((entry, true)));
+        }
+        Ok((provider.extract)(content, relative_path, operation)
+            .map_err(GraphScanError::Source)?
+            .map(|facts| {
+                (
+                    crate::graph::GraphFactsTypedEntry {
+                        relative_path: relative_path.into(),
+                        content_digest: content_digest.into(),
+                        source_stamp: None,
+                        facts,
+                        reference_counts: Vec::new(),
+                    },
+                    false,
+                )
+            }))
+    }
+
+    pub(super) fn reused_facts(
+        &self,
+        content: &str,
+        relative_path: &str,
+        parser: Option<&str>,
+        content_digest: &str,
+    ) -> Option<crate::graph::GraphFactsTypedEntry> {
+        match self.source {
+            FactsSource::CachedGraph(reuse) => {
+                let source_digest = crate::digest::sha256(content.as_bytes());
+                let context = super::super::GraphFactsReuseContext {
+                    relative_path,
+                    content_digest,
+                    source_digest: &source_digest,
+                    parser,
+                };
+                reuse(&context).filter(|entry| context.accepts(entry))
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn cached_facts(
         &self,
         content: &str,
@@ -15,24 +65,16 @@ impl<T> EntryEvaluator<'_, T> {
             parser.unwrap_or(""),
             selected_entry.cache_identity()
         );
-        let (parsed, reused) = if let Some(hit) = FACTS_MEMO.get(&memo_key) {
+        // The caller may own durable progress, so its validated checkpoint is
+        // consulted even when a process-local memo also has these facts.
+        let checkpoint = self.reused_facts(content, relative_path, parser, content_digest);
+        let (parsed, reused) = if checkpoint.is_none()
+            && let Some(hit) = FACTS_MEMO.get(&memo_key)
+        {
             (hit, true)
         } else {
-            let reused = match self.source {
-                FactsSource::CachedGraph(reuse) => reuse(relative_path, content_digest, parser)
-                    .filter(|entry| {
-                        entry.relative_path == *relative_path
-                            && entry.content_digest == *content_digest
-                            && entry.facts.file == *relative_path
-                            && entry.facts.source_digest
-                                == crate::digest::sha256(content.as_bytes())
-                            && entry.facts.schema_version
-                                == crate::signatures::GRAPH_FACTS_SCHEMA_VERSION
-                    }),
-                _ => None,
-            };
-            let reused_hit = reused.is_some();
-            let extraction = if let Some(reused) = reused {
+            let reused_hit = checkpoint.is_some();
+            let extraction = if let Some(reused) = checkpoint {
                 Some(crate::signatures::GraphFactsExtraction {
                     facts: reused.facts,
                     reference_counts: reused.reference_counts,

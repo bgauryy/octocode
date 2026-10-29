@@ -174,7 +174,15 @@ pub enum SourceError {
 }
 impl std::fmt::Display for SourceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "source correspondence: {self:?}")
+        match self {
+            Self::Refused(refusal) => {
+                write!(f, "source correspondence: source refused ({refusal:?})")
+            }
+            Self::InvalidMap(what) => write!(f, "source correspondence: invalid map: {what}"),
+            Self::Cancelled => f.write_str("source correspondence: cancelled"),
+            Self::Deadline => f.write_str("source correspondence: deadline passed"),
+            Self::LimitExceeded(what) => write!(f, "source correspondence: {what} exceeded"),
+        }
     }
 }
 impl std::error::Error for SourceError {}

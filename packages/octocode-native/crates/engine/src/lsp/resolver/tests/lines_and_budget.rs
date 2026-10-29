@@ -110,7 +110,7 @@ fn grammar_resolution_reports_utf16_columns_after_non_ascii_and_emoji() {
     assert_eq!((lexical.position.line, lexical.position.character), (1, 4));
 }
 
-/// An orderHint past the line's occurrences is an error naming the
+/// An `occurrence` past the line's occurrences is an error naming the
 /// count, in the grammar walk and the lexical scan alike; it never
 /// answers for another occurrence.
 #[test]

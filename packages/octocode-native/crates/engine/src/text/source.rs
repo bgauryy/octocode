@@ -184,7 +184,7 @@ impl<'a> Decoded<'a> {
                 warning: None,
             };
         }
-        if bytes.utf8_chunks().any(|chunk| !chunk.valid().is_ascii()) {
+        if !latin1_text(bytes) {
             return Self {
                 text: String::from_utf8_lossy(bytes),
                 warning: Some("Not valid UTF-8: invalid bytes were replaced with U+FFFD."),
@@ -196,6 +196,28 @@ impl<'a> Decoded<'a> {
                 "Not valid UTF-8: decoded as Latin-1 (ISO-8859-1); characters from other 8-bit encodings may be approximate, and byte offsets count the decoded UTF-8 text.",
             ),
         }
+    }
+}
+
+/// Whether bytes that are not UTF-8 decode as Latin-1 in
+/// [`Decoded::interior`]: they hold no valid non-ASCII UTF-8 sequence, so
+/// they are 8-bit text, not UTF-8 with stray bytes.
+fn latin1_text(bytes: &[u8]) -> bool {
+    !bytes.utf8_chunks().any(|chunk| !chunk.valid().is_ascii())
+}
+
+/// The offset in [`Decoded::interior`]`(bytes).text` of byte `raw` of
+/// `bytes`: unchanged for UTF-8, one more per non-ASCII byte before it for
+/// Latin-1 (each is a two-byte char), else the length of the lossy decode
+/// of the bytes before it.
+pub fn interior_offset(bytes: &[u8], raw: usize) -> usize {
+    let raw = raw.min(bytes.len());
+    if std::str::from_utf8(bytes).is_ok() {
+        raw
+    } else if latin1_text(bytes) {
+        raw + bytes[..raw].iter().filter(|byte| !byte.is_ascii()).count()
+    } else {
+        String::from_utf8_lossy(&bytes[..raw]).len()
     }
 }
 

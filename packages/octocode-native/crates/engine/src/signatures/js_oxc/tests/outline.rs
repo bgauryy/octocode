@@ -337,3 +337,22 @@ fn a_class_range_starts_at_decorators_before_export() {
         .collect();
     assert_eq!(spans, vec![("C", 0, 1), ("D", 3, 4)], "{facts:?}");
 }
+
+/// An object literal bound to a name declares its function-valued members,
+/// as tsserver's navigation tree does: `api.fetch()` has a target.
+#[test]
+fn object_literal_methods_are_members_of_their_binding() {
+    let src = "export const api = {\n  fetch() { return load(); },\n  post: () => 1,\n  put: function () {},\n  value: 1,\n  get size() { return 1; },\n  [key]: () => 1,\n  ...rest,\n} as const;\n";
+    let v = symbols(src, "api.ts");
+    let api = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "api")
+        .unwrap();
+    assert_eq!(api["kind"], 14, "the binding stays a constant: {v}");
+    assert_eq!(names(&api["children"]), ["fetch", "post", "put"]);
+    for member in api["children"].as_array().unwrap() {
+        assert_eq!(member["kind"], 6, "{member}");
+    }
+}

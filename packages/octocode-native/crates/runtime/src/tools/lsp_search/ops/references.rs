@@ -11,7 +11,7 @@ impl Operation<'_, '_> {
     pub(super) async fn references(mut self) -> Result<Value, LspFailure> {
         let query = self.query;
         let include_declaration = lsp_search_query::include_declaration(query).unwrap_or(true);
-        let (mut found, respelled) = get_spelled_locations(
+        let (mut found, respelled, withheld) = get_spelled_locations(
             self.client,
             self.snippet_policy,
             self.cancel,
@@ -139,6 +139,9 @@ impl Operation<'_, '_> {
             self.response_window,
         )
         .await;
+        if !later_window {
+            disclose_withheld(&mut row, withheld);
+        }
         if let Some(importers) = &importers {
             importers.annotate(&mut row, query, self.scope);
         }
@@ -266,4 +269,20 @@ impl Operation<'_, '_> {
         .await
         .map(Some)
     }
+}
+
+/// Flag an answer whose read policy withheld `withheld` of the server's
+/// locations: the count is coverage, and the row is partial, not smaller.
+fn disclose_withheld(row: &mut Value, withheld: usize) {
+    if withheld == 0 {
+        return;
+    }
+    row["coverage"]["withheldLocations"] = json!(withheld);
+    crate::response::paging::mark_partial(
+        row,
+        "locationsWithheld",
+        &[format!(
+            "{withheld} reference(s) outside the allowed read roots were omitted; add the path to ALLOWED_PATHS to read them."
+        )],
+    );
 }

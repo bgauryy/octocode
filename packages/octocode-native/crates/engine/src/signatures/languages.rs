@@ -180,6 +180,11 @@ impl LanguageEntry {
                 version: "1".into(),
                 operations: vec![Op::Declarations, Op::GraphFacts, Op::SignatureOutline],
             });
+            adapters.push(crate::types::RegionAdapterCapability {
+                id: "rust-expression-macro-body".into(),
+                version: "1".into(),
+                operations: vec![Op::GraphFacts],
+            });
         }
         adapters
     }

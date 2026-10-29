@@ -20,22 +20,13 @@ Removed or consolidated items → proof → preserved behavior → deferred cand
 | `flowchart` | Explain ownership or dependency changes when the refactor is hard to follow. |
 | `chart` bar | Compare measured size or runtime before/after; fewer lines alone do not prove better quality. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
-Save and render on a table, diagram, over ~40 lines or five findings, or user request; else answer briefly in chat. Save every result when user or project instructions say so.
+Save on a table, diagram, over ~40 lines or five findings, or user request; else answer briefly in chat. Save every result when user or project instructions say so.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Done | Partial
-confidence: high | medium | low
-question: <the question or decision>
-next: <the one next action for whoever continues, in the imperative>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Done`, `Partial`.
 
 Then the `#` title and a lead paragraph stating the answer. Always include `## Removed`, `## Deferred`, and `## Checks` (write `None.` under an empty one), with these tables under the first two (Removed rows are claim–evidence; Deferred rows are unresolved hypothesis tests, each with the check that would settle it):
 
@@ -47,4 +38,4 @@ Then the `#` title and a lead paragraph stating the answer. Always include `## R
 
 End `## Checks` with the change command, such as `git diff -- <paths>`.
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

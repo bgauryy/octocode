@@ -59,7 +59,7 @@ Environment values take precedence over `.octocoderc`. Each setting has at most 
 | `github.apiUrl` | `GITHUB_API_URL` | `"https://api.github.com"` | url | GitHub REST API root. GitHub Enterprise commonly uses /api/v3. GITHUB_API_URL: shell or trusted home .env |
 | `github.graphqlEnabled` | `OCTOCODE_GITHUB_GRAPHQL` | `true` | boolean | Use GitHub GraphQL where supported; false forces REST-only access. |
 | `local.enabled` | `OCTOCODE_ENABLE_LOCAL` | `true` | boolean | Enable local filesystem tools on every runtime surface. OCTOCODE_ENABLE_LOCAL: shell or trusted home .env |
-| `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Enable beta features and tools; off by default on every surface. `octocode schema` reports which tools the gate withholds. OCTOCODE_BETA: shell or trusted home .env |
+| `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Expose beta tools through MCP; off by default. CLI tools remain available without this opt-in. Restart MCP after changing this setting. OCTOCODE_BETA: shell or trusted home .env |
 | `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). The environment value is a comma-separated list. ALLOWED_PATHS: shell or trusted home .env |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. WORKSPACE_ROOT: shell or trusted home .env |
 | `tools.enabled` | `TOOLS_TO_RUN` | unset | string array | Strict tool allowlist replacing the default tool set. |
@@ -69,8 +69,8 @@ Environment values take precedence over `.octocoderc`. Each setting has at most 
 | `lsp.autoInstall` | `OCTOCODE_LSP_AUTO_INSTALL` | `"prompt"` | `prompt` or `off` or `auto` | Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto. OCTOCODE_LSP_AUTO_INSTALL: shell or trusted home .env |
 | `lsp.cacheDir` | `OCTOCODE_LSP_CACHE_DIR` | unset | path | Directory for managed language-server installs; default <octocode home>/lsp. OCTOCODE_LSP_CACHE_DIR: shell or trusted home .env |
 | `lsp.trustProjectConfig` | `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` | `false` | boolean | Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries. OCTOCODE_TRUST_PROJECT_LSP_CONFIG: shell or trusted home .env |
-| `lsp.trace` | `OCTOCODE_LSP_TRACE` | `false` | boolean | Emit per-call LSP phase timings and completion counts on stderr, outside tool results. Includes no source text, paths, or credentials. |
-| `lsp.prewarm` | `OCTOCODE_LSP_PREWARM` | `"targeted"` | `targeted` or `all` or `off` | Language-server prewarm: targeted starts the server an offered lspSearch call names; all also warms the file a read or search names; off disables it. |
+| `lsp.trace` | `OCTOCODE_LSP_TRACE` | `false` | boolean | Emit per-call LSP phase timings, completion counts, and the answering server's source, readiness, and advertised operations on stderr, outside tool results. Includes no source text, paths, or credentials. |
+| `lsp.prewarm` | `OCTOCODE_LSP_PREWARM` | `"targeted"` | `targeted` or `all` or `off` | Language-server prewarm: targeted starts the server an offered lspSearch call names, and the MCP server warms the workspace's main language at initialize; all also warms the file a read or search names and the workspace's top three languages at initialize; off disables it. |
 | `output.redactEmails` | `OCTOCODE_REDACT_EMAILS` | `false` | boolean | Mask email addresses such as GitHub commit authors. OCTOCODE_REDACT_EMAILS: shell or trusted home .env |
 | `storage.mode` | `OCTOCODE_STORAGE_MODE` | `"persistent"` | `persistent` or `memory` | Whether caches and runtime state may persist on disk. OCTOCODE_STORAGE_MODE: shell or trusted home .env |
 | `storage.stats` | `OCTOCODE_ENABLE_STATS` | `false` | boolean | Write stats.json on flush; stats remain in memory either way. |

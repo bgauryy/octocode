@@ -1,9 +1,7 @@
-// Where a competitor task runs: its corpus workspace, the normalization mode,
+// Where a competitor task runs: its corpus workspace,
 // corpus-path rewriting, and the provider rate-limit text both sides skip on.
 import { REPOS_REL } from '../paths.mjs';
 
-/** Normalized (default): corpus-root workspaces and short briefs; OCTOCODE_COMPETITOR_NORMALIZE=0 is the legacy run. */
-export const NORMALIZED = process.env.OCTOCODE_COMPETITOR_NORMALIZE !== '0';
 export const RATE_LIMIT = /rate.?limit|secondary rate|abuse detection|API rate limit exceeded|HTTP 429/i;
 
 /**
@@ -11,7 +9,6 @@ export const RATE_LIMIT = /rate.?limit|secondary rate|abuse detection|API rate l
  * an explicit `workspace`, else the single `{{T}}/<corpus>` its recipe names.
  */
 export function taskWorkspace(task) {
-  if (!NORMALIZED) return '';
   if (task.workspace != null) return task.workspace;
   const corpora = new Set([...JSON.stringify(task.octocode).matchAll(/\{\{T\}\}\/([\w.-]+)/g)].map(m => m[1]));
   return corpora.size === 1 ? `${REPOS_REL}/${[...corpora][0]}` : '';

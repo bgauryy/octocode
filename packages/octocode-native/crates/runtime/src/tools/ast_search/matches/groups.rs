@@ -2,11 +2,11 @@
 //! and rebuilt when shown, or listed), cut into its match pages.
 use super::super::RowPaths;
 use super::query::MatchQuery;
-use super::rows::{MatchRow, diag, match_value};
+use super::rows::{MatchRow, diag};
 use super::scan::parser_extension;
 use super::scope::Inapplicable;
 use super::types::{Group, Grouped, SKIP_CODES, ScannedFile, Scope};
-use super::{content_length, file_list, row_chars};
+use super::{file_list, row_chars};
 use crate::execution::cancel::CancellationCheck;
 use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
@@ -25,7 +25,6 @@ pub(super) fn group_files(
 ) -> Result<Grouped, ToolError> {
     let mut grouped = Grouped::default();
     let file_list = file_list(q);
-    let content_length = content_length(q);
     for (index, file) in files.iter().enumerate() {
         let ScannedFile {
             path,
@@ -78,14 +77,7 @@ pub(super) fn group_files(
                 FileMatches::Held(held) if !file_list => {
                     let rows = held
                         .iter()
-                        .map(|value| {
-                            match_value(
-                                value,
-                                q.capture_text().unwrap_or(false),
-                                content_length,
-                                cancel,
-                            )
-                        })
+                        .map(|value| super::match_row(q, value, cancel))
                         .collect::<Result<Vec<_>, _>>()?;
                     match_group(q, path.clone(), rows, budget, row_paths)
                 }
@@ -292,10 +284,9 @@ fn rebuild_file(
             return Err(RebuildError::SourceChanged);
         }
     };
-    let content_length = content_length(q);
     let rows = matches
         .iter()
-        .map(|m| match_value(m, q.capture_text().unwrap_or(false), content_length, cancel))
+        .map(|m| super::match_row(q, m, cancel))
         .collect::<Result<Vec<_>, _>>()
         .map_err(RebuildError::Evidence)?;
     let repriced = rows.iter().map(|row| u32_of_usize(row_chars(row)));

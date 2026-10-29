@@ -1,3 +1,5 @@
+Load when reviewing a suspected Zod API or schema-design mistake.
+
 # Zod Anti-Patterns
 
 ## Table of Contents
@@ -90,7 +92,7 @@ z.uuid()
 ```typescript
 enum Status { Active = "active", Inactive = "inactive" }
 
-// BAD: removed in v4
+// Deprecated in v4; still exported
 z.nativeEnum(Status)
 
 // GOOD: unified z.enum()
@@ -102,6 +104,7 @@ z.enum(Status)
 ```typescript
 // BAD: removed in v4
 z.string({ required_error: "Required", invalid_type_error: "Not a string" })
+// Still supported but deprecated:
 z.number().min(5, { message: "Too small" })
 
 // GOOD: unified error parameter
@@ -140,10 +143,10 @@ z.string().transform((val) => {
 // GOOD: return boolean from refine
 z.number().refine((n) => n > 0, { error: "Must be positive" })
 
-// GOOD: validate then transform
-z.string()
-  .refine((val) => !isNaN(parseInt(val)), { error: "Not numeric" })
-  .transform((val) => parseInt(val))
+// GOOD: validate the whole decimal integer, not a parseInt prefix
+z.string().regex(/^[+-]?\d+$/)
+  .transform(Number)
+  .pipe(z.int())
 
 // BEST: pipe for staged parsing
 z.string().pipe(z.coerce.number()).pipe(z.number().positive())
@@ -201,16 +204,14 @@ app.post("/login", (req, res) => {
   }
 })
 
-// GOOD: development only
-schema.safeParse(req.body, {
-  reportInput: process.env.NODE_ENV === "development",
-})
+// GOOD: omit raw input in every environment handling real data
+schema.safeParse(req.body)
 ```
 
 ## z.lazy() for recursive schemas (v4)
 
 ```typescript
-// BAD: z.lazy() removed in v4
+// Supported: lazy recursion may need an explicit TypeScript annotation
 const Tree = z.object({
   value: z.string(),
   children: z.lazy(() => z.array(Tree)),
@@ -240,9 +241,7 @@ const UpdateUser = User.partial()
 
 ## Hand-rolling what Zod 4.1–4.4 now does natively
 
-Not deprecations — working code that a newer API does better. An anti-pattern
-is not only a thing that breaks; it is also a thing you are maintaining that
-the library will now maintain for you.
+These are optional replacements when the installed version supports them and the consumer needs the behavior. Working code does not require migration merely because a newer API exists.
 
 ### One-way transforms where the value has to make a round trip
 
@@ -261,9 +260,7 @@ z.encode(DateField, value)    // string
 z.invertCodec(DateField)      // when the boundary runs the other way
 ```
 
-The transform pair is where serialisation bugs live: someone changes the parse
-side and the write side keeps the old shape. A codec makes that impossible to
-express.
+Co-locating encode and decode makes drift easier to review. It does not prove they are inverses: test round trips and any intended normalization.
 
 ### Optional keys that must not be present-and-undefined
 
@@ -281,11 +278,11 @@ TypeScript's `exactOptionalPropertyTypes`.
 ### Mutually exclusive unions checked by hand
 
 ```ts
-// WORKS, but accepts an object satisfying both arms
-z.union([EmailLogin, PhoneLogin]).refine(onlyOneOf)
+// Accepts an object satisfying either or both arms
+z.union([EmailLogin, PhoneLogin])
 
 // BETTER
-z.xor(EmailLogin, PhoneLogin)
+z.xor([EmailLogin, PhoneLogin])
 ```
 
 ### JSON Schema written or parsed by hand

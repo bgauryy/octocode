@@ -171,12 +171,16 @@ impl ToolRuntime {
     /// Start the language servers of the runtime's workspace in the
     /// background, for a host that serves calls from now on (`octocode mcp`
     /// after `initialize`): none when `lsp.prewarm` is `off` or `lspSearch`
-    /// is unavailable. See
+    /// is unavailable; the workspace's main language under `targeted`, its
+    /// top languages under `all` (each start is a whole-project index). See
     /// [`crate::tools::lsp_search::prewarm::workspace::schedule_workspace`].
     pub fn prewarm_lsp_workspace(&self, handle: &tokio::runtime::Handle) {
-        if self.config.resolved.lsp.prewarm == crate::config::LspPrewarm::Off
-            || !self.is_available(ToolId::LspSearch.as_str())
-        {
+        let starts = match self.config.resolved.lsp.prewarm {
+            crate::config::LspPrewarm::Off => return,
+            crate::config::LspPrewarm::Targeted => 1,
+            crate::config::LspPrewarm::All => crate::tools::lsp_search::prewarm::MAX_PREWARM_KEYS,
+        };
+        if !self.is_available(ToolId::LspSearch.as_str()) {
             return;
         }
         crate::tools::lsp_search::prewarm::workspace::schedule_workspace(
@@ -185,6 +189,7 @@ impl ToolRuntime {
             &self.paths,
             &self.lsp_execution_config,
             &self.workspace_root,
+            starts,
         );
     }
 

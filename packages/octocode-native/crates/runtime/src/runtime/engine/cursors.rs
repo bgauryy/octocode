@@ -3,7 +3,7 @@
 use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::id::ToolId;
-use crate::response::cursor::Cursor;
+use crate::response::cursor::{Cursor, issued};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -11,8 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const PREFIX: &str = "cursor1.";
-const TTL: Duration = Duration::from_secs(120);
+const TTL: Duration = Duration::from_secs(600);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) enum SavedWork {
@@ -181,11 +180,7 @@ impl Registry {
     }
 
     pub fn open(&self, tool: ToolId, token: &str, access: [u8; 32]) -> Option<Opened> {
-        let encoded = token.strip_prefix(PREFIX)?;
-        if encoded.len() != 64 || !encoded.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return None;
-        }
-        let (id, member) = encoded.split_at(32);
+        let (id, member) = issued::parts(token)?;
         let set = self.store.get_current(&self.key(id))?.value;
         if set.access != access || set.members.get(member)?.tool != tool.as_str() {
             return None;
@@ -220,7 +215,7 @@ impl Pending {
 
     pub fn insert(&mut self, tool: ToolId, input: Value, work: SavedWork) -> Option<String> {
         let id = random_id()?;
-        let token = format!("{PREFIX}{}{id}", self.id);
+        let token = issued::format(&self.id, &id);
         self.set.members.insert(
             id,
             Member {
@@ -234,9 +229,9 @@ impl Pending {
 }
 
 fn random_id() -> Option<String> {
-    let mut bytes = [0u8; 16];
+    let mut bytes = [0u8; issued::ID_BYTES];
     getrandom::fill(&mut bytes).ok()?;
-    Some(hex::encode(bytes))
+    Some(issued::encode(&bytes))
 }
 
 #[cfg(test)]

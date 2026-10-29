@@ -1,11 +1,11 @@
-# Testing and tooling
-
 Load when you add tests, choose a test kind, organize test files, make a suite faster or more trustworthy, set up a dev loop, CI, or a new contributor, or ask "is there a tool for X?". Why: test layout and tooling set both suite speed and how much a green run proves. Install prebuilt binaries with `cargo binstall <tool>`. A from-source `cargo install` uses `--locked` when the crate requires it (nextest does). Check a tool is maintained before adopting it.
+
+# Testing and tooling
 
 ## Test layout
 - **Unit tests** beside the code: `#[cfg(test)] mod tests { use super::*; … }` — reach private items. When they outgrow the file, `#[cfg(test)] mod tests;` → `foo/tests.rs`.
-- **Integration tests** in `tests/` see only the public API. Every `tests/*.rs` is a separate crate that links the whole library — prefer **one binary**: `tests/it/main.rs` + `mod`s (matklad, "Delete Cargo Integration Tests"), or keep files in place with `tests/main.rs`, `autotests = false`, `[[test]] path = "tests/main.rs"`, plus a test asserting every `tests/*.rs` is declared. Measured: 31 → 6 executables, −80% bytes per build. Shared helpers: one `support/mod.rs` module, not `tests/common.rs`.
-- **Doc tests** on every public item's example; they are the docs' guarantee. Use `no_run`/`ignore` sparingly and never to hide rot.
+- **Integration tests** in `tests/` see only the public API. Cargo normally builds each `tests/*.rs` as a separate target. When target startup or link cost matters, group related cases under `tests/it/main.rs` with modules, or keep files in place with `tests/main.rs`, `autotests = false`, and `[[test]] path = "tests/main.rs"`. If using manual registration, check that every intended test module is included. Shared helpers belong in `support/mod.rs`, not a top-level `tests/common.rs` target.
+- **Doc tests** for public examples that readers should be able to run; they are the examples' guarantee. Use `no_run`/`ignore` only when execution genuinely needs an unavailable environment.
 - `examples/` compile under `cargo test` — keep them building. Benches in `benches/` with `harness = false` (criterion/divan).
 - Test data: `concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/…")` or `include_str!`; scratch files in `tempfile::TempDir`, never the repo or `/tmp` by name.
 - Fakes other crates need: expose behind `#[cfg(any(test, feature = "test-util"))]` (tokio's pattern) or a `publish = false` `*-test-support` dev-dependency.
@@ -77,9 +77,9 @@ Format the files you touched with `cargo fmt`. When you want lints before handof
 cargo clippy -p <crate> --all-targets --features <dev-unify> -- -D warnings
 ```
 
-In Octocode, match `test:rust`: `octocode-runtime-napi/napi-test,octocode-native/dev-unify` for the runtime crates, and `--all-features` only for `octocode-engine`.
+In Octocode, match the selections in `packages/octocode-native/scripts/rust-tests.cjs`: the runtime, GitHub, I/O, and CLI packages with `octocode-native/dev-unify`, then `octocode-engine --all-features`.
 
-Gate, once at handoff:
+For a workspace that uses this gate, run it once at handoff; otherwise follow its own CI commands and feature selection:
 
 ```bash
 cargo fmt --all -- --check
@@ -100,11 +100,11 @@ Anything beyond one command goes in an `xtask` crate, not bash.
 
 ## Octocode verification
 - Use `octocode-dev` tasks and existing workspace scripts; do not introduce a second task runner.
-- Run `yarn workspace @octocodeai/octocode-native test:rust` for the repo's package/feature selections. Test-only N-API stubs stay out of production builds.
+- Run `yarn workspace @octocodeai/octocode-native test:rust` for the repo's package/feature selections; inspect `scripts/rust-tests.cjs` before copying them into another command.
 - After native changes: rebuild native and affected interfaces, run CLI `config --json` and `schema`, then call the changed tool. Restart MCP before checking it.
 - For pagination changes, walk every executable `next.*` page. Assert complete coverage exactly once, stable query identity, and rejection or safe replay after source edits.
 - Cover errors, warnings, and partial rows through CLI/MCP as well as Rust. A green exit or Rust-only test does not prove every tool row succeeded.
-- GitHub CI sets `OCTOCODE_NO_NATIVE=1`. `lint:ci` and `test:ci` exclude `@octocodeai/octocode-native`, so a green CI run does not prove the native gate. Run that gate locally.
+- `lint:ci` and `test:ci` exclude `@octocodeai/octocode-native`, so a green run of those tasks does not prove the native gate. Run the native package gate locally.
 
 ## CI order (fail fast, cheap first)
 `fmt --check` → `clippy --all-targets -D warnings` → `nextest` + `test --doc` → `audit` (RUSTSEC) + `deny check` (licenses, bans, advisories, duplicates) → `hack --each-feature check` → `semver-checks` (libs) → MSRV build → Miri on unsafe-bearing crates, `cargo fuzz` on parsers/decoders of untrusted bytes. Block merge on fmt through deny, plus Miri and fuzz where those crates exist. Miri, `cargo careful`, and Kani stay off the edit loop. Cache with `Swatinem/rust-cache` (+ `sccache` per `references/build-profiles.md`).

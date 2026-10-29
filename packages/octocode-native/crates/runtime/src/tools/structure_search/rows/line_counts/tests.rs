@@ -89,5 +89,8 @@ fn a_fifo_line_count_is_unreadable_without_blocking() {
     let counted = received
         .recv_timeout(std::time::Duration::from_secs(10))
         .expect("the line count returned instead of blocking on the FIFO");
-    assert!(matches!(counted, Ok(Lines::Unreadable)), "{counted:?}");
+    assert!(
+        matches!(counted, Ok(Some(Lines::Unreadable))),
+        "{counted:?}"
+    );
 }

@@ -25,12 +25,10 @@ const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
   return !isCliOnlyTool(name);
 });
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;
-// CLI listing: every tool except beta tools while the beta gate is off, and
-// clasify, which the CLI lists only with a classification key.
+// Beta gates MCP exposure; CLI tools remain available. Clasify additionally
+// needs its provider credential and readiness check.
 const CLI_DEFAULT_TOOL_COUNT = PUBLIC_TOOL_NAMES.filter(
-  name =>
-    name !== TOOL_NAMES.CLASIFY &&
-    (!isBetaTool(name) || DEFAULT_CONFIG.local.beta)
+  name => name !== TOOL_NAMES.CLASIFY
 ).length;
 const DOC_ROOTS = [
   path.join(ROOT, 'docs'),

@@ -4,7 +4,7 @@ Load when assigning workflow roles or Octocode tools, sequencing work, merging e
 
 ## Orchestrator and actor contract
 
-RACI for every workflow execution, which has one orchestrator and at least one actor:
+RACI for every workflow execution, which has one orchestrator and at least one actor. Honor user-directed actor assignments and sequence before considering optional splits. The workflow assigns the required actor; an optional actor still needs a distinct check or required capability and must stay within the user's authority.
 
 | RACI slot | Who | Duties |
 |---|---|---|
@@ -46,18 +46,19 @@ Apply the [shared evidence rules](evidence.md). Return capability gaps to the or
 
 ```mermaid
 flowchart TD
-  S[Select one primary workflow from the catalog; load its owner skill when that phase begins] --> P{Second role has a distinct observation or independently derived check?}
-  P -- no --> O[Reject the split; the orchestrator records the limitation]
-  P -- yes --> L[Create or reuse the single ledger; send row-keyed Task contracts]
-  O --> L
-  L --> M[Merge observations; run the applicable acceptance check; invalidate dependent rows after a relevant change]
+  S[Select one primary workflow from the catalog; load its owner skill when that phase begins] --> L[Create or reuse the single ledger; assign the required actor]
+  L --> P{Optional actor authorized and useful?}
+  P -- no --> E[Assigned actors execute and return raw evidence]
+  P -- yes --> H[Send a row-keyed Task contract to the helper]
+  H --> E
+  E --> M[Merge observations; run the applicable acceptance check; invalidate dependent rows after a relevant change]
   M --> Q{Observations disagree?}
   Q -- yes --> X[Distinguishing observation or explicit unresolved tradeoff, never a vote or eloquence contest] --> M
   Q -- no --> D[Report through the orchestrator]
   I[Interruption] --> R[Resume from the existing ledger; assign the next outstanding row] --> L
 ```
 
-- Add a helper only for a stated condition.
+- Add a helper only for a stated condition and within the user's authorized sequence. A user's request to work sequentially excludes optional concurrent lanes.
 - Reject a split when the second role only paraphrases, lacks decisive access, cannot check independently, or costs more coordination than the bounded work. Actors request additional roles from the orchestrator; they do not create nested teams.
 - Resume is Checkpoint–resume with the ledger as the checkpoint: done is the `verified` rows, next the next outstanding row, open questions the gaps. Reread the existing ledger, reconcile it with current source/artifact/state identity, retain only evidence with a dependency basis, and assign the next outstanding row. Do not create a replacement ledger.
 

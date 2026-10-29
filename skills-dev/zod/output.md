@@ -1,6 +1,6 @@
 # Output
 
-Follow the [shared visual-first, content-only rules](references/presentation.md) when presenting results; retain this skill’s artifact format.
+Follow the [shared presentation and HTML delivery rules](references/presentation.md); retain this skill’s artifact format.
 
 BLUF: state the schema decision or changed behavior first, then explain the relevant validation boundary and test results (claim–evidence). Include concrete TypeScript examples when they resolve the question. Name checks that were not run.
 

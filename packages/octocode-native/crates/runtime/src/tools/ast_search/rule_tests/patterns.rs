@@ -89,12 +89,9 @@ fn patterns_without_metavariables_offer_no_capture_expansion() {
         json!({"operation":"match","path":source,"rule":{"pattern":"oldCall(one)"}}),
     )
     .expect("match");
-    super::super::test_rows::assert_copied_row(
-        &out,
-        &out["files"][0]["matches"][0],
-        json!({"line":1,"column":1,"value":"oldCall(one)"}),
-        0..12,
-        None,
+    assert_eq!(
+        out["files"][0]["matches"][0],
+        json!({"line":1,"column":1,"value":"oldCall(one)"})
     );
     assert!(
         out.get("next")

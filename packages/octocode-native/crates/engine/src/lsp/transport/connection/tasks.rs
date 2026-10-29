@@ -95,6 +95,7 @@ async fn dispatch(
         let params = message.remove("params");
         match (message.remove("id"), method.as_str()) {
             (Some(id), _) => {
+                note_watch_registration(&method, params.as_ref(), shared);
                 let reply = client_response_for(&method, params.as_ref(), context).into_message(id);
                 let frame = encode_frame(&reply).map_err(|error| error.reason)?;
                 let deadline = Instant::now() + Duration::from_millis(REPLY_ENQUEUE_DEADLINE_MS);
@@ -185,5 +186,29 @@ async fn handle_progress(mut params: Value, shared: &Shared, progress: &Progress
         Some("begin") => progress.on_begin(token).await,
         Some("end") => progress.on_end(&token).await,
         _ => {}
+    }
+}
+
+/// Record whether the server (un)registered for
+/// `workspace/didChangeWatchedFiles`: the client then sends file events
+/// for files the server has not opened (see
+/// `NativeLspClient::watched_files_diff`).
+fn note_watch_registration(method: &str, params: Option<&Value>, shared: &Shared) {
+    const WATCHED_FILES: &str = "workspace/didChangeWatchedFiles";
+    let (key, registers) = match method {
+        "client/registerCapability" => ("registrations", true),
+        "client/unregisterCapability" => ("unregisterations", false),
+        _ => return,
+    };
+    let named = params
+        .and_then(|params| params.get(key))
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item.get("method").and_then(Value::as_str) == Some(WATCHED_FILES))
+        });
+    if named {
+        shared.watches_files.store(registers, Ordering::Release);
     }
 }

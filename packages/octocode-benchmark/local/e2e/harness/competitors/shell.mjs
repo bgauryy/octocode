@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { REPOS, REPOS_REL, ROOT } from '../paths.mjs';
 import { emptyEvidence, evaluate } from './truth.mjs';
-import { RATE_LIMIT, relativize } from './workspace.mjs';
+import { relativize } from './workspace.mjs';
 
 /** `rg` for the recipes: RG_BIN, else rg on PATH, else Claude Code's embedded rg. */
 function rgPreamble() {
@@ -32,14 +32,14 @@ export const removeShellScratch = () => fs.rmSync(scratch, { recursive: true, fo
 function sh(step, ws = '') {
   const started = performance.now();
   const cmd = relativize(step.sh, ws, ['$ROOT/$T', '$T']);
-  const run = spawnSync('bash', ['-c', `${preamble}\n${cmd}`], {
+  const run = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', `${preamble}\n${cmd}`], {
     cwd: path.join(ROOT, ws), encoding: 'utf8', maxBuffer: 256 << 20, timeout: 120_000,
     env: { ...process.env, T: ws ? REPOS : REPOS_REL, CT: scratch, ROOT, GH_PAGER: '', NO_COLOR: '1' },
   });
   const ms = Math.round(performance.now() - started);
   const stdout = run.stdout ?? '';
   const stderr = run.stderr ?? '';
-  return { cmd, ms, bytes: stdout.length + stderr.length, exit: run.status, stdout, stderr };
+  return { cmd, ms, bytes: Buffer.byteLength(stdout + stderr, 'utf8'), exit: run.status, expectedExitCodes: step.expectedExitCodes ?? [0], stdout, stderr, error: run.error?.message };
 }
 
 /** One stdout line into evidence, per parse mode. */
@@ -63,15 +63,17 @@ function shellEvidence(step, out, ev) {
   ev.text += `${out.stdout}\n${out.stderr}\n`;
 }
 
-/** Run a shell recipe and judge it: {ok, fails, calls, bytes, ms, steps}, or {skipped} when rate limited. */
+/** Nonzero result statuses (such as rg no-match) require an explicit recipe policy. */
 export function shellSide(recipe, truth, ws) {
   const ev = emptyEvidence();
   const steps = [];
   for (const step of recipe) {
     const out = sh(step, ws);
-    steps.push({ cmd: out.cmd, ms: out.ms, bytes: out.bytes, exit: out.exit });
-    if (RATE_LIMIT.test(out.stderr)) return { skipped: 'rate limited' };
+    steps.push(out);
     shellEvidence(step, out, ev);
   }
-  return { ...evaluate(truth, ev), calls: steps.length, bytes: steps.reduce((a, s) => a + s.bytes, 0), ms: steps.reduce((a, s) => a + s.ms, 0), steps };
+  const verdict = evaluate(truth, ev);
+  const errors = steps.filter(step => step.error || !step.expectedExitCodes.includes(step.exit));
+  const fails = [...verdict.fails, ...errors.map(step => step.error ?? `shell exit ${step.exit}: ${step.cmd}`)];
+  return { ok: fails.length === 0, fails, calls: steps.length, bytes: steps.reduce((a, s) => a + s.bytes, 0), ms: steps.reduce((a, s) => a + s.ms, 0), steps };
 }

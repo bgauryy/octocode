@@ -307,7 +307,7 @@ const INSTALL_HINTS: &[(&str, &str)] = &[
 /// How to install a built-in server that was not found: a managed server
 /// (clangd, rust-analyzer) installs through octocode, any other built-in
 /// through [`INSTALL_HINTS`]. `None` for a command with no built-in route.
-pub(crate) fn install_hint(command: &str) -> Option<String> {
+pub fn install_hint(command: &str) -> Option<String> {
     if crate::lsp::managed::manifest().contains_key(command) {
         return Some(format!(
             "install it with `octocode lsp-server install {command}` or put it on PATH"

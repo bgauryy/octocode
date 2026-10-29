@@ -42,7 +42,81 @@ pub fn resolve_workspace_root_for_file(file_path: String) -> Result<String> {
         .or_else(|| project_root_of_dir(&directory))
         .unwrap_or_else(|| directory.clone());
     let root = typescript_config_above(&file_path, &directory, &root).unwrap_or(root);
+    let root = multi_module_root_above(&file_path, &root).unwrap_or(root);
     Ok(root.to_string_lossy().into_owned())
+}
+
+/// The top of a multi-module project above `root`, for a server that
+/// answers cross-module questions only from there: the `go.work` directory
+/// above a Go module; the `pyrightconfig.json`, or `pyproject.toml` with a
+/// `[tool.pyright]` or `[tool.uv.workspace]` table, above a Python package;
+/// the Maven `pom.xml` whose `<modules>` list the module, or the Gradle
+/// `settings.gradle(.kts)` that includes it, above a Java module (walked
+/// up while each parent lists the one below). `None` keeps the nearest
+/// root.
+fn multi_module_root_above(file_path: &str, root: &Path) -> Option<PathBuf> {
+    let extension = Path::new(file_path).extension()?.to_str()?;
+    let parents = root.parent().into_iter().flat_map(Path::ancestors);
+    match extension {
+        "go" => parents
+            .find(|dir| dir.join("go.work").is_file())
+            .map(Path::to_path_buf),
+        "py" | "pyi" => parents
+            .find(|dir| dir.join("pyrightconfig.json").is_file() || pyproject_declares_root(dir))
+            .map(Path::to_path_buf),
+        "java" => {
+            let mut module = root.to_path_buf();
+            while let Some(parent) = module.parent()
+                && let Some(name) = module.file_name().and_then(|name| name.to_str())
+                && (maven_lists_module(parent, name) || gradle_includes_module(parent, name))
+            {
+                module = parent.to_path_buf();
+            }
+            (module != root).then_some(module)
+        }
+        _ => None,
+    }
+}
+
+/// Whether `dir/pyproject.toml` configures a whole project for pyright or a
+/// uv workspace, which its packages below share.
+fn pyproject_declares_root(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join("pyproject.toml")).is_ok_and(|text| {
+        text.lines().map(str::trim).any(|line| {
+            matches!(line, "[tool.pyright]" | "[tool.uv.workspace]" | "[tool.basedpyright]")
+        })
+    })
+}
+
+/// Whether `parent/pom.xml` lists `name` in its `<modules>`.
+fn maven_lists_module(parent: &Path, name: &str) -> bool {
+    std::fs::read_to_string(parent.join("pom.xml")).is_ok_and(|text| {
+        text.split("<module>")
+            .skip(1)
+            .filter_map(|rest| rest.split("</module>").next())
+            .any(|listed| {
+                let listed = listed.trim().trim_end_matches('/');
+                listed == name || listed.rsplit('/').next() == Some(name)
+            })
+    })
+}
+
+/// Whether `parent/settings.gradle` or `settings.gradle.kts` includes the
+/// project `name` (`include 'name'`, `include(":name")`, `include("a:name")`).
+fn gradle_includes_module(parent: &Path, name: &str) -> bool {
+    ["settings.gradle", "settings.gradle.kts"]
+        .iter()
+        .filter_map(|settings| std::fs::read_to_string(parent.join(settings)).ok())
+        .any(|text| {
+            text.lines()
+                .filter(|line| line.trim_start().starts_with("include"))
+                .any(|line| {
+                    line.split(['\'', '"'])
+                        .skip(1)
+                        .step_by(2)
+                        .any(|quoted| quoted.rsplit(':').next() == Some(name))
+                })
+        })
 }
 
 /// Project configs tsserver looks for, nearest first, from a file's
@@ -237,6 +311,27 @@ fn cargo_package_build_script(package: &Path) -> Option<PathBuf> {
 }
 
 const CARGO_MANIFEST: &str = "Cargo.toml";
+
+/// Project files rust-analyzer loads a Rust file from: it analyzes no file
+/// outside a Cargo package or a `rust-project.json`, whatever other marker
+/// (`.git`, `package.json`) sits above it.
+const RUST_PROJECT_FILES: [&str; 2] = [CARGO_MANIFEST, "rust-project.json"];
+
+/// Whether `file` lies outside every project its language server needs to
+/// analyze it, so the server's empty answer about it is no absence. Only
+/// rust-analyzer needs one ([`RUST_PROJECT_FILES`]); the other servers
+/// analyze a file without a project file in an inferred or single-file
+/// project.
+pub fn outside_required_project(file: &Path) -> bool {
+    file.extension() == Some("rs".as_ref())
+        && file.parent().is_none_or(|directory| {
+            !directory.ancestors().any(|dir| {
+                RUST_PROJECT_FILES
+                    .iter()
+                    .any(|name| dir.join(name).is_file())
+            })
+        })
+}
 
 /// The nearest ancestor of `directory` (itself included) holding a project
 /// marker, or `None` when no ancestor has one.

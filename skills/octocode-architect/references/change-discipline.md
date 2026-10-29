@@ -1,6 +1,6 @@
-# Change discipline
-
 Load when about to edit source: a proven fix, a requested design improvement, or an agent's slice. A slice is done only when behavior and repository state agree.
+
+# Change discipline
 
 ## Refactor
 

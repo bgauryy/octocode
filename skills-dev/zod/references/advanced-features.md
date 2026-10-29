@@ -1,4 +1,8 @@
+Load when using codecs, brands, JSON Schema or registries.
+
 # Advanced Features Reference
+
+Some APIs below were added after 4.3. Check the installed exports and types before using a later 4.x feature; the skill's version range does not make every example available in every supported version.
 
 ## Codecs
 

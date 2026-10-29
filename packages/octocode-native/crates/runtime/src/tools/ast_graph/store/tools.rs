@@ -97,6 +97,7 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
         .transpose()?;
     Ok(QueryOptions {
         op: text(row, "operation").unwrap_or_default(),
+        include_provenance: row["includeProvenance"].as_bool(),
         workspace: Some(workspace),
         graph: Some(graph),
         baseline,

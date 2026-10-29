@@ -7,10 +7,24 @@ const response = (cursor, line) => ({ results: [{ index: 0, data: {
   path: 'src/a.ts', content: `${line}\tconst answer = 42;`,
   next: { more: { kind: 'continue', tool: 'localFetch', input: { cursor } } },
 } }] });
+const graphBuildReceipt = (totalMs, extra = {}) => ({ results: [{ index: 0, data: {
+  id: 'snapshot', sha256: 'digest', reused: true, counts: { nodes: 8, edges: 7 },
+  buildMs: 11, totalMs, ...extra,
+} }] });
+const timingEvidence = totalMs => ({ results: [{ index: 0, data: { content: JSON.stringify({ totalMs }) } }] });
 
 test('surface comparison preserves source evidence while accepting independent issued handles', () => {
   assert.equal(firstDiff(parityView(response('cli', 4), 'localFetch'), parityView(response('mcp', 4), 'localFetch')), null);
   assert.match(firstDiff(parityView(response('cli', 4), 'localFetch'), parityView(response('mcp', 5), 'localFetch')), /content/);
+});
+
+test('graph build parity tolerates per-call duration but still compares snapshot evidence and reuse', () => {
+  const reference = parityView(graphBuildReceipt(9), 'graphBuild');
+  assert.equal(firstDiff(reference, parityView(graphBuildReceipt(5), 'graphBuild')), null);
+  for (const changed of [{ id: 'other' }, { sha256: 'other' }, { reused: false }, { counts: { nodes: 9, edges: 7 } }]) {
+    assert.ok(firstDiff(reference, parityView(graphBuildReceipt(5, changed), 'graphBuild')));
+  }
+  assert.ok(firstDiff(parityView(timingEvidence(9), 'localFetch'), parityView(timingEvidence(5), 'localFetch')));
 });
 
 test('metadata normalization never rewrites arbitrary literal evidence', () => {

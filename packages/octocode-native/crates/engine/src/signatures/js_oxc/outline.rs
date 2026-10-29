@@ -13,12 +13,14 @@ use super::{DocumentSymbol, LocalExports, TYPE_ALIAS_KIND};
 
 /// Declarations (with export names, doc lines, and containment edges) plus
 /// the import and export facts of a parsed module, from its `symbols`.
+/// `common_js_exports` are proven `(local, public)` CommonJS export names.
 pub(super) fn module_outline(
     program: &Program,
     line_index: &SpanPositions,
     file_path: &str,
     content: &str,
     symbols: &[DocumentSymbol],
+    common_js_exports: Vec<(String, String)>,
 ) -> (
     Vec<GraphFactDeclaration>,
     Vec<GraphFactEdge>,
@@ -35,6 +37,9 @@ pub(super) fn module_outline(
         &mut exports,
         &mut local_exports,
     );
+    for (local, public) in common_js_exports {
+        local_exports.push(local, public);
+    }
     let mut declarations = Vec::new();
     let mut edges = Vec::new();
     flatten_symbols(
@@ -160,7 +165,9 @@ fn flatten_symbols(
             exported: public_names.is_some(),
             exported_as,
             parent: parent.map(str::to_string),
+            owner: None,
             doc_line: None,
+            prototype: false,
         });
         if let Some(parent_id) = parent {
             edges.push(GraphFactEdge {

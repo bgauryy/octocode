@@ -1,14 +1,6 @@
 ---
 name: zod
-description: >
-  Zod v4 best practices, patterns, and API guidance for schema validation,
-  parsing, error handling, and type inference in TypeScript applications.
-  Covers safeParse, object composition, refinements, transforms, codecs,
-  branded types, v3→v4 migration, and testing schemas with Jest or Vitest.
-  Baseline: zod ^4.3.0.
-  Triggers on: zod imports, z.object, z.string, z.infer, safeParse,
-  mentions of "zod", "schema validation", "zod v4", "z.enum", or testing a
-  schema — "schema test", "zod mock", zod-schema-faker.
+description: "Load this skill first when creating, changing, reviewing or testing Zod schemas, or migrating Zod v3 to v4; covers parsing, inferred types, composition, errors, transforms and boundary tests."
 license: MIT
 user-invocable: false
 agentic: false
@@ -22,99 +14,50 @@ metadata:
 
 # Zod
 
-Zod v4 changes string formats, enums, errors, and recursive types. Use this skill's rules and the project's source as truth; never substitute conflicting memorized v3 patterns.
+Design and test Zod v4 schemas against the installed version and consumer contract. Use the project's source and current upstream documentation to resolve disagreements with this guidance.
 
-## When to Use Zod
+```mermaid
+flowchart LR
+  C[Read schema, version and consumer] --> Q{What changes?}
+  Q -- boundary or parsing --> B[Choose input, output and failure contract]
+  Q -- migration or API --> R[Read the relevant reference and rule]
+  B --> E[Edit the owning schema]
+  R --> E
+  E --> V[Test valid, invalid and boundary cases]
+  V -- failure --> E
+  V -- passes --> O[Deliver changes and verification]
+```
 
-Use Zod to validate untrusted data at runtime boundaries, including external services:
+## Working rules
 
-| Need | Recommended Tool |
-|------|-----------------|
-| API input/output validation | **Zod** |
-| Form validation (React, Vue) | **Zod** (with react-hook-form, formik, etc.) |
-| Env var parsing | **Zod** (with t3-env or manual) |
-| Compile-time types only | Plain TypeScript |
-| Smaller bundle (~1kb) | Valibot |
-| Maximum type inference | ArkType |
+- Parse untrusted input at the owning boundary; pass validated values inward. Preserve the repository's schema generator and avoid duplicate wire types.
+- Choose `safeParse` for expected validation failures, `parse` when throwing is the intended contract; async refinements require the async parser. User callbacks can still throw.
+- Choose unknown-key handling deliberately: `object` strips, `strictObject` rejects, `looseObject` preserves. Use `z.infer`, `z.input` and `z.output` for their respective sides of a transform.
+- Load the relevant resource below before using a specialized API. Preserve the installed version, runtime behavior and TypeScript contract; do not migrate merely to match an example.
+- Verify acceptance and rejection through the consumer, including transformed output and error paths. Keep sensitive raw input out of reported errors.
 
-## Quick Reference
+## Resources
 
-Categories below are in priority order. Each identifier names `rules/<identifier>.md`; read the relevant rule for rationale, incorrect/correct examples, and decision tables.
+Choose by the missing decision, not a fixed priority. References explain a topic; rules isolate a failure case. Read only the relevant entries.
 
-### 1. Parsing & Type Safety (CRITICAL)
+| When | Read | Why |
+|---|---|---|
+| Pick primitive or format syntax | [Schema types](references/schema-types.md) | Types, strings, numbers, enums and dates |
+| Choose parser, coercion or inferred type | [Parsing](references/parsing-and-inference.md); [safeParse](rules/parse-use-safeParse.md), [async](rules/parse-async-required.md), [inference](rules/parse-infer-types.md) | Match success and failure to the consumer |
+| Compose objects or unions | [Composition](references/objects-and-composition.md); [unknown keys](rules/schema-object-unknowns.md), [tagged unions](rules/schema-union-discriminated.md), [coercion](rules/schema-coercion-pitfalls.md), [recursion](rules/schema-recursive-types.md) | Preserve structure and unknown-key behavior |
+| Validate or transform values | [Refinements](references/refinements-and-transforms.md); [callback errors](rules/refine-never-throw.md), [validation vs conversion](rules/refine-vs-transform.md), [cross-field](rules/refine-cross-field.md), [pipes](rules/pattern-pipe.md) | Separate validation, conversion and staging |
+| Format or customize errors | [Errors](references/error-handling.md); [messages](rules/error-custom-messages.md), [formatting](rules/error-formatting.md), [input privacy](rules/error-input-security.md) | Consumer shape and safe diagnostics |
+| Compose large schemas or reduce bundle cost | [Shape spread](rules/perf-extend-spread.md), [reuse](rules/perf-reuse-schemas.md), [Mini](rules/perf-zod-mini.md) | Measure the relevant cost before changing APIs |
+| Migrate existing v3 code | [String formats](rules/migrate-string-formats.md), [enums](rules/migrate-native-enum.md), [errors](rules/migrate-error-api.md) | Version-specific replacements |
+| Add bidirectional or nominal types | [Advanced APIs](references/advanced-features.md); [brands](rules/pattern-branded-types.md), [codecs](rules/pattern-codecs.md) | Encode/decode and identity contracts |
+| Place or evolve a schema | [Boundary architecture](references/boundary-architecture.md); [parsing boundary](rules/arch-boundary-parsing.md), [organization](rules/arch-schema-organization.md), [versioning](rules/arch-schema-versioning.md) | Ownership and compatibility |
+| Add observability | [Structured errors](rules/observe-structured-errors.md), [metrics](rules/observe-error-metrics.md) | Useful diagnostics without raw input |
+| Review a mistake or automate checks | [Anti-patterns](references/anti-patterns.md), [lint and CI](references/linter-and-ci.md) | Verify applicability before enforcing a rule |
+| Test schemas | [Testing guide](references/testing.md), [test APIs](references/testing-api.md), [test anti-patterns](references/testing-anti-patterns.md) | Valid, invalid, boundary and integration cases |
 
-- `parse-use-safeParse` — Use `safeParse()` for user input instead of `parse()` which throws
-- `parse-async-required` — Must use `parseAsync()`/`safeParseAsync()` when schema has async refinements
-- `parse-infer-types` — Use `z.infer<typeof Schema>` for output types; never manually duplicate types
+## Related skills
 
-### 2. Schema Design (CRITICAL)
-
-- `schema-object-unknowns` — `z.object()` strips unknown keys; use `strictObject` or `looseObject`
-- `schema-union-discriminated` — Use `z.discriminatedUnion()` for tagged unions, not `z.union()`
-- `schema-coercion-pitfalls` — `z.coerce.boolean()` makes `"false"` → `true`; use `z.stringbool()`
-- `schema-recursive-types` — Use the getter pattern for recursive schemas; `z.lazy()` still works but loses type inference
-
-### 3. Refinements & Transforms (HIGH)
-
-- `refine-never-throw` — Never throw inside `.refine()` or `.transform()`; use `ctx.addIssue()`
-- `refine-vs-transform` — `.refine()` for validation, `.transform()` for conversion, `.pipe()` for staging
-- `refine-cross-field` — `.superRefine()` on parent object for cross-field validation with `path`
-
-### 4. Error Handling (HIGH)
-
-- `error-custom-messages` — Use v4 `error` parameter; `required_error`/`invalid_type_error` are removed
-- `error-formatting` — `z.flattenError()` for forms, `z.treeifyError()` for nested; choose the matching output shape
-- `error-input-security` — Never use `reportInput: true` in production; leaks sensitive data
-
-### 5. Performance & Composition (MEDIUM)
-
-- `perf-extend-spread` — Use `{ ...Schema.shape }` spread over chained `.extend()` for large schemas
-- `perf-reuse-schemas` — Define once, derive with `.pick()`, `.omit()`, `.partial()`
-- `perf-zod-mini` — Use `zod/v4/mini` (1.88kb) for bundle-critical client apps
-
-### 6. v4 Migration (MEDIUM)
-
-- `migrate-string-formats` — Use `z.email()`, `z.uuid()`, `z.url()` not `z.string().email()`
-- `migrate-native-enum` — Use unified `z.enum()` for TS enums; `z.nativeEnum()` is deprecated
-- `migrate-error-api` — Use `error` parameter everywhere; `message` is deprecated; `errorMap` is renamed
-
-### 7. Advanced Patterns (MEDIUM)
-
-- `pattern-branded-types` — `.brand<"Name">()` for nominal typing (USD vs EUR)
-- `pattern-codecs` — `z.codec()` for bidirectional transforms (parse + serialize)
-- `pattern-pipe` — `.pipe()` for staged parsing (string → number → validate range)
-
-### 8. Architecture & Boundaries (CRITICAL/HIGH)
-
-- `arch-boundary-parsing` — Parse at system boundaries (API handler, env, form, fetch); pass typed data to domain logic
-- `arch-schema-organization` — Co-locate schemas with their boundary layer; domain types use `z.infer`
-- `arch-schema-versioning` — Additive changes only for non-breaking evolution; new fields use `.optional()`
-
-### 9. Observability (HIGH/MEDIUM)
-
-- `observe-structured-errors` — Use `z.flattenError()` for compact structured logs with request correlation IDs
-- `observe-error-metrics` — `trackedSafeParse()` wrapper to increment counters per schema and field on failure
-
-## Schema Types Quick Reference
-
-Read [schema types](references/schema-types.md) for primitive/format syntax and [objects and composition](references/objects-and-composition.md) for containers, unions, and intersections.
-
-## References
-
-| Priority | Reference | When to read |
-|----------|-----------|-------------|
-| 1 | `references/schema-types.md` | All primitives, string formats, numbers, enums, dates |
-| 2 | `references/parsing-and-inference.md` | parse, safeParse, z.infer, coercion |
-| 3 | `references/objects-and-composition.md` | Objects, arrays, unions, pick/omit/partial, recursive |
-| 4 | `references/refinements-and-transforms.md` | refine, superRefine, transform, pipe, defaults |
-| 5 | `references/error-handling.md` | ZodError, flattenError, treeifyError, error customization |
-| 6 | `references/advanced-features.md` | Codecs, branded types, JSON Schema, registries |
-| 7 | `references/anti-patterns.md` | Common mistakes with BAD/GOOD examples |
-| 8 | `references/boundary-architecture.md` | Where Zod fits: Express, tRPC, Next.js, React Hook Form, env, external APIs |
-| 9 | `references/linter-and-ci.md` | ESLint rules, CI schema snapshots, unused schema detection, circular deps |
-| 10 | `references/testing.md` | Testing schemas: safeParse in tests, boundary values, error assertions, mock data, property-based testing |
-| 11 | `references/testing-api.md` | Jest and Vitest API reference for schema tests |
-| 12 | `references/testing-anti-patterns.md` | Testing mistakes with BAD/GOOD examples |
+Use `octocode-research` for unresolved source behavior, `octocode-architect` for boundary design, and `octocode-dev` for Octocode's generated contracts and checks.
 
 ## Output
 

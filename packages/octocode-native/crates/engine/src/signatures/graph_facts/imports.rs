@@ -76,6 +76,7 @@ pub(super) fn collect_rust_module(
                 local_range: None,
                 resolution_hint: unsupported.then(|| "unsupported".to_owned()),
                 module_scope: Some(scope),
+                scope_id: None,
             });
         }
     }
@@ -153,6 +154,7 @@ pub(super) fn collect_csharp_using(
         local_range: alias.map(|alias| line_index.range(alias)),
         resolution_hint: None,
         module_scope: None,
+        scope_id: None,
     });
 }
 
@@ -177,6 +179,7 @@ pub(super) fn push_language_import<'a>(
         local_range: None,
         resolution_hint: Some(hint.to_owned()),
         module_scope: None,
+        scope_id: None,
     });
     &mut acc.imports[index]
 }
@@ -234,5 +237,6 @@ pub(super) fn collect_rust_include(
         local_range: None,
         resolution_hint: None,
         module_scope: None,
+        scope_id: None,
     });
 }

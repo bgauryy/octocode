@@ -8,7 +8,7 @@ use super::stderr::spawn_stderr_reader;
 use super::{NativeLspClient, REQUEST_TIMEOUT_MS};
 use crate::error::{Error, Result};
 use crate::lsp::spawn_limits;
-use crate::lsp::transport::{ClientRequestContext, JsonRpcConnection};
+use crate::lsp::transport::{ClientRequestContext, JsonRpcConnection, WaitBudget};
 use crate::lsp::types::LspLanguageServerConfig;
 use crate::lsp::uri::path_to_uri;
 use serde_json::{Value, json};
@@ -197,7 +197,11 @@ impl NativeLspClient {
         let mut child_guard = self.inner.child.lock().await;
         let connection = self.inner.connection.lock().await.take();
         if let Some(connection) = connection {
-            let _ = connection.request("shutdown", Value::Null, 1_000).await;
+            // A fixed second: an evicted server mid-index shows progress for
+            // minutes, and a caller's deadline must not extend its exit.
+            let _ = connection
+                .request("shutdown", Value::Null, WaitBudget::fixed(1_000))
+                .await;
             // A slow `shutdown` retires the connection; `exit` must still go out.
             let _ = connection.notify_best_effort("exit", Value::Null).await;
         }

@@ -190,6 +190,12 @@ pub(super) fn build_result(
         _ => None,
     };
     let bytes_searched = Some(bytes_as_i64(bytes_searched));
+    // The returned files whose values are decoded text, in result order.
+    let not_utf8_files = recs
+        .iter()
+        .filter(|rec| rec.not_utf8)
+        .map(|rec| rec.path.clone())
+        .collect::<Vec<_>>();
     let files: Vec<TextSearchFile> = recs
         .into_iter()
         .map(|r| {
@@ -252,6 +258,7 @@ pub(super) fn build_result(
         pattern_error_count: (pattern_error_count > 0).then_some(pattern_error_count),
         binary_files: (!binary_files.is_empty()).then_some(binary_files),
         binary_file_count: binary_quit.then_some(binary_file_count),
+        not_utf8_files: (!not_utf8_files.is_empty()).then_some(not_utf8_files),
         skipped_binary_count: (skipped_binary_count > 0).then_some(skipped_binary_count),
         skipped_binary_extensions: (!skipped_binary_extensions.is_empty())
             .then_some(skipped_binary_extensions),

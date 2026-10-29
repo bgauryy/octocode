@@ -2,7 +2,7 @@
 
 30 research questions against the pinned clones in
 [`packages/octocode-benchmark/local/repos/`](../../../../../packages/octocode-benchmark/local/repos/README.md)
-(absolute paths under `/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos`). Arms whose
+(absolute paths under `packages/octocode-benchmark/local/repos`). Arms whose
 name starts with `local-` (`local-shell`, `local-mcp`, `local-mcp-*`) run this set; every other
 arm runs [`../github-questions/`](../../../external/questions/README.md).
 

@@ -49,7 +49,7 @@ yarn workspace @octocodeai/octocode-native verify
 npm pack --dry-run --workspace @octocodeai/octocode-native-<platform>
 ```
 
-Before publishing, confirm that one binary per `PLATFORMS` entry exists, each staged binary prints the package version on its own platform, and the dry-run tarballs hold only release files. Platform packages have no `prepublishOnly` hook. The generated-contract provenance test needs a clean, current Core source receipt; never regenerate it to hide a dirty source tree.
+Before publishing, confirm that one binary per `PLATFORMS` entry exists, each staged binary prints the package version on its own platform, and the dry-run tarballs hold only release files. Platform packages have no `prepublishOnly` hook. Generated-contract provenance records the source package/version, format version, contract fingerprint, and contract hash; it does not attest to a clean Git tree. Run the published-core sync gate and follow the owner commit requirements in the release guide.
 
 ## Canary and promotion
 

@@ -227,3 +227,30 @@ fn class_and_interface_heritage_are_edges() {
         vec![(s("extends"), s("A"), s("React.Component"), 1)]
     );
 }
+
+/// A member call keeps its receiver as written: a chained or computed
+/// receiver is never dropped, so `this.app.scene.mutate()` cannot read as a
+/// bare `mutate()` that the caller's own scope would bind.
+#[test]
+fn chained_receivers_stay_in_the_callee() {
+    let src = "function f() {\n  this.app.scene.mutate();\n  a.b.c();\n  get().run();\n  list[0].pick();\n  new Store().save();\n  (x || y).merge();\n  a?.b.c?.();\n  [1].map(g);\n}\n";
+    let facts = graph(src, "chain.ts");
+    let callees: Vec<String> = calls_of_kind(&facts, "calls")
+        .into_iter()
+        .map(|(_, callee, _)| callee)
+        .collect();
+    assert_eq!(
+        callees,
+        vec![
+            "this.app.scene.mutate",
+            "a.b.c",
+            "get().run",
+            "get",
+            "list[].pick",
+            "new Store().save",
+            "().merge",
+            "a.b.c",
+            "[].map",
+        ]
+    );
+}

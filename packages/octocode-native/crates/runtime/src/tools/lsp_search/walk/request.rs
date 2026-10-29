@@ -209,7 +209,13 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
     // Built-in callees are the answer: a walk that listed only those
     // resolved, it is not empty.
     let mut row = if items.is_empty() && !builtin_lib_names(&walks).is_empty() {
-        json!({"path": lsp_search_query::path(query), "lsp": {"serverAvailable": true}})
+        json!({
+            "path": lsp_search_query::path(query),
+            "lsp": {"serverAvailable": true},
+            "kind": lsp_search_query::operation(query),
+            "files": [],
+            "pagination": {"page": 1, "totalPages": 1, "totalItems": 0, "hasMore": false}
+        })
     } else {
         call_items_payload(
             query,

@@ -222,3 +222,48 @@ fn lead_discovery_drops_an_unauthorized_server_file() {
         Some("x")
     );
 }
+
+/// rust-analyzer indexes no Rust file outside a Cargo package (or
+/// `rust-project.json`), whatever other marker (`.git`) sits above it: an
+/// empty answer there is `noProject`, partial, not an absence. Every empty
+/// server answer about the file says so: locations, hierarchy items, hover.
+#[test]
+fn a_rust_file_outside_a_cargo_package_answers_no_project_not_absence() {
+    let repo = tempfile::tempdir().expect("repo");
+    std::fs::create_dir_all(repo.path().join(".git")).expect("git dir");
+    std::fs::create_dir_all(repo.path().join("src")).expect("src");
+    let file = repo.path().join("src/lib.rs");
+    std::fs::write(&file, "pub fn add() {}\npub fn caller() { add() }\n").expect("lib.rs");
+    let at = |operation: &str| {
+        query(json!({
+            "operation": operation, "path": file.to_string_lossy(),
+            "symbolName": "add", "line": 1
+        }))
+    };
+    let rows = [
+        items_payload(&at("callers"), "callers", json!([]), TEST_BUDGET),
+        no_answer(
+            &at("references"),
+            "noLocations",
+            "referencesProvider returned no locations",
+        ),
+        no_answer(
+            &at("hover"),
+            "noHover",
+            "hoverProvider returned no hover at this position",
+        ),
+    ];
+    for row in &rows {
+        assert_eq!(row["status"], "empty", "{row}");
+        assert_eq!(row["category"], "noProject", "{row}");
+        assert_eq!(row["isPartial"], true, "{row}");
+        assert_eq!(row["partialReasons"], json!(["noProject"]), "{row}");
+        crate::contracts::validate_output("lspSearch", &public_row(row))
+            .expect("the noProject row satisfies the output contract");
+    }
+    // Inside a Cargo package the same empty answer is the server's absence.
+    std::fs::write(repo.path().join("Cargo.toml"), "[package]\nname = \"p\"\n").expect("manifest");
+    let row = items_payload(&at("callers"), "callers", json!([]), TEST_BUDGET);
+    assert_eq!(row["category"], "noLocations", "{row}");
+    assert!(row.get("isPartial").is_none(), "{row}");
+}

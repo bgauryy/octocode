@@ -68,7 +68,7 @@ pub(super) struct ToolCommand {
 }
 
 /// `(name, about)` for every tool in the embedded contract: its
-/// `title`, led by the beta gate for a beta tool. Both come from
+/// `title`, with the MCP opt-in setting for a beta tool. Both come from
 /// generated constants, so building the argument parser never parses the
 /// multi-megabyte contract.
 fn contract_tools() -> impl Iterator<Item = (&'static str, String)> {
@@ -77,7 +77,7 @@ fn contract_tools() -> impl Iterator<Item = (&'static str, String)> {
         let about = if tool.is_beta() {
             let beta = octocode_native::config::field::LOCAL_BETA;
             format!(
-                "Beta, disabled by default (set {}=true or {}:true). {about}",
+                "MCP beta (set {}=true or {}:true); available in CLI. {about}",
                 beta.env_name().unwrap_or(beta.path),
                 beta.path
             )

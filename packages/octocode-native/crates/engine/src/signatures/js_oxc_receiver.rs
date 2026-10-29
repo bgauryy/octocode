@@ -2,9 +2,10 @@
 //!
 //! [`ReceiverScopes`] rides along the call walk in `js_oxc_calls` and gives a
 //! member call `x.m()` / `this.f.m()` the type its receiver is written with:
-//! a TS annotation on the binding or parameter, a `new T(..)` initializer, or
-//! the class field `f` (annotated property, `constructor(private f: T)`, or
-//! `this.f = new T(..)` / a typed constructor parameter). Bindings are
+//! a TS annotation on the binding or parameter, a `new T(..)` initializer or
+//! receiver (`new T().m()`), or the class field `f` (annotated property,
+//! `constructor(private f: T)`, or `this.f = new T(..)` / a typed
+//! constructor parameter). Bindings are
 //! lexically scoped (functions, arrows, blocks, loops, catch clauses); an
 //! unannotated binding reassigned to anything else, a destructured name, or a
 //! field assigned two different ways is unknown and emits nothing.
@@ -14,11 +15,14 @@ use std::collections::HashMap;
 use oxc_ast::ast::*;
 
 use super::js_oxc_calls::{dotted_expression_name, ts_type_name, unwrap_expr};
+use super::js_oxc_shared::property_key_name;
 
 mod class_fields;
+mod object_types;
 
 use crate::signatures::receiver_fields::Fields;
 use class_fields::class_fields;
+use object_types::ObjectTypes;
 
 struct Binding {
     ty: Option<String>,
@@ -33,6 +37,8 @@ pub(super) struct ReceiverScopes {
     this_fields: Vec<Option<Fields>>,
     /// Set by a class instance method for its own function.
     method_pending: bool,
+    /// The file's object types, for destructured parameters.
+    object_types: ObjectTypes,
 }
 
 impl Default for ReceiverScopes {
@@ -41,11 +47,19 @@ impl Default for ReceiverScopes {
             scopes: vec![HashMap::new()],
             this_fields: vec![None],
             method_pending: false,
+            object_types: ObjectTypes::default(),
         }
     }
 }
 
 impl ReceiverScopes {
+    pub(super) fn for_program(program: &Program) -> Self {
+        Self {
+            object_types: ObjectTypes::of_program(program),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
     }
@@ -100,6 +114,13 @@ impl ReceiverScopes {
     }
 
     pub(super) fn bind_parameter(&mut self, it: &FormalParameter) {
+        if let (BindingPattern::ObjectPattern(object), Some(annotation)) =
+            (&it.pattern, &it.type_annotation)
+            && let Some(fields) = self.object_types.fields_of(&annotation.type_annotation)
+        {
+            self.bind_object_pattern(object, &fields);
+            return;
+        }
         let ty = it
             .type_annotation
             .as_ref()
@@ -140,11 +161,19 @@ impl ReceiverScopes {
         };
         match unwrap_expr(object) {
             Expression::Identifier(identifier) => self.lookup(identifier.name.as_str()),
+            Expression::NewExpression(construct) => dotted_expression_name(&construct.callee),
             Expression::StaticMemberExpression(member)
                 if matches!(member.object, Expression::ThisExpression(_)) =>
             {
                 self.this_field(member.property.name.as_str())
             }
+            Expression::StaticMemberExpression(member) => match unwrap_expr(&member.object) {
+                Expression::Identifier(identifier) => self.object_types.property(
+                    &self.lookup(identifier.name.as_str())?,
+                    member.property.name.as_str(),
+                ),
+                _ => None,
+            },
             Expression::PrivateFieldExpression(member)
                 if matches!(member.object, Expression::ThisExpression(_)) =>
             {
@@ -164,6 +193,28 @@ impl ReceiverScopes {
 
     fn this_field(&self, name: &str) -> Option<String> {
         self.this_fields.last()?.as_ref()?.get(name)?.clone()
+    }
+
+    /// `{ a, b: c = d, ...rest }` under an object type: each name a property
+    /// binds takes that property's type; anything nested is unknown.
+    fn bind_object_pattern(&mut self, object: &ObjectPattern, fields: &Fields) {
+        for property in &object.properties {
+            let ty = (!property.computed)
+                .then(|| property_key_name(&property.key))
+                .flatten()
+                .and_then(|(key, _)| fields.get(&key).cloned().flatten());
+            let value = match &property.value {
+                BindingPattern::AssignmentPattern(assignment) => &assignment.left,
+                other => other,
+            };
+            match value {
+                BindingPattern::BindingIdentifier(_) => self.bind_pattern(value, ty, true),
+                nested => self.bind_pattern(nested, None, true),
+            }
+        }
+        if let Some(rest) = &object.rest {
+            self.bind_pattern(&rest.argument, None, true);
+        }
     }
 
     fn bind_pattern(&mut self, pattern: &BindingPattern, ty: Option<String>, declared: bool) {

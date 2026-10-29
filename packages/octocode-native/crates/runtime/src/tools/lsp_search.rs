@@ -12,7 +12,7 @@
 //! - [`walk`]: breadth-first call/type-hierarchy walks
 //! - [`locations`]: public coordinates, pagination, snapshots
 //! - [`failure`]: typed failures, empty/partial rows, `next.*`
-//! - [`receipt`]: provider capabilities, Rust context, server receipt
+//! - [`receipt`]: provider capabilities, Rust context, failure receipts
 //!
 //! Public coordinates, input and output, are one-based lines and one-based
 //! UTF-16 columns (see [`locations`]); requests anchor by `symbolName` and
@@ -166,6 +166,22 @@ pub(crate) enum Op {
 }
 
 impl Op {
+    /// Every operation, in declaration order.
+    pub(crate) const ALL: [Self; 12] = [
+        Self::Definition,
+        Self::References,
+        Self::Callers,
+        Self::Callees,
+        Self::Hover,
+        Self::TypeDefinition,
+        Self::Implementation,
+        Self::Supertypes,
+        Self::Subtypes,
+        Self::DocumentSymbols,
+        Self::Diagnostic,
+        Self::WorkspaceSymbol,
+    ];
+
     /// The wire spelling.
     pub(crate) fn name(self) -> &'static str {
         match self {

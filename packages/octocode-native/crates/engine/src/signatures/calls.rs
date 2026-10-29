@@ -6,14 +6,21 @@ use crate::graph::{GraphCallBinding, GraphCallBoundary};
 
 use super::nodes::{call_callee, is_call_node, node_text};
 
+#[cfg(any(feature = "tree-sitter-cpp", feature = "tree-sitter-cuda"))]
+pub(super) mod cfamily;
+
 #[derive(Clone, Copy)]
 pub(crate) enum CallAdapter {
     Ordinary,
+    /// Ordinary calls plus a bare `@decorator`, applied to its definition.
+    Python,
     Java,
     #[cfg(any(feature = "tree-sitter-cpp", feature = "tree-sitter-cuda"))]
     CFamily,
     #[cfg(feature = "tree-sitter-c-sharp")]
     CSharp,
+    #[cfg(feature = "tree-sitter-scala")]
+    Scala,
 }
 
 pub(super) struct SyntaxCall<'tree> {
@@ -80,6 +87,43 @@ impl CallAdapter {
                 }
                 Some(call)
             }
+            #[cfg(any(feature = "tree-sitter-cpp", feature = "tree-sitter-cuda"))]
+            (Self::CFamily, "call_expression") => {
+                let (callee, name_token) = node
+                    .child_by_field_name("function")
+                    .and_then(|function| cfamily::callee(function, content))
+                    .or_else(|| {
+                        call_callee(node, content)
+                            .map(|(label, token)| (label.replace("->", "."), token))
+                    })?;
+                Some(SyntaxCall {
+                    callee,
+                    name_token: Some(name_token),
+                    kind: "calls",
+                    binding: GraphCallBinding::SyntaxLookup,
+                })
+            }
+            // `new K(a)(b)` is one construction, at its outermost application.
+            #[cfg(feature = "tree-sitter-scala")]
+            (Self::Scala, "instance_expression") => {
+                (!scala_applied(node)).then(|| scala_construction(node, content))
+            }
+            #[cfg(feature = "tree-sitter-scala")]
+            (Self::Scala, "call_expression") => {
+                if let Some(instance) = super::nodes::scala_applied_function(node)
+                    .filter(|function| function.kind() == "instance_expression")
+                {
+                    return (!scala_applied(node)).then(|| scala_construction(instance, content));
+                }
+                let (callee, name_token) = super::nodes::scala_call_callee(node, content)?;
+                Some(SyntaxCall {
+                    callee,
+                    name_token: Some(name_token),
+                    kind: "calls",
+                    binding: GraphCallBinding::SyntaxLookup,
+                })
+            }
+            (Self::Python, "decorator") => python_decorator(node, content),
             _ if is_call_node(node.kind()) => {
                 let (callee, name_token) = call_callee(node, content)?;
                 Some(SyntaxCall {
@@ -91,6 +135,58 @@ impl CallAdapter {
             }
             _ => None,
         }
+    }
+}
+
+/// `@name` / `@pkg.name` calls that name with the definition below it when
+/// the enclosing scope runs; `@name(..)` is an ordinary call already.
+fn python_decorator<'tree>(node: Node<'tree>, content: &str) -> Option<SyntaxCall<'tree>> {
+    let expression = node.named_child(0)?;
+    let name_token = match expression.kind() {
+        "identifier" => expression,
+        "attribute" => expression.child_by_field_name("attribute")?,
+        _ => return None,
+    };
+    let callee: String = node_text(expression, content)?.split_whitespace().collect();
+    Some(SyntaxCall {
+        callee,
+        name_token: Some(name_token),
+        kind: "decorates",
+        binding: GraphCallBinding::SyntaxLookup,
+    })
+}
+
+/// Whether `node` is the function of an enclosing application.
+#[cfg(feature = "tree-sitter-scala")]
+fn scala_applied(node: Node<'_>) -> bool {
+    node.parent().is_some_and(|parent| {
+        parent.kind() == "call_expression" && parent.child_by_field_name("function") == Some(node)
+    })
+}
+
+/// `new T(..)`, `new T[A](..)`, `new a.T { .. }`: constructs `T`.
+#[cfg(feature = "tree-sitter-scala")]
+fn scala_construction<'tree>(instance: Node<'tree>, content: &str) -> SyntaxCall<'tree> {
+    let mut cursor = instance.walk();
+    let ty = instance.named_children(&mut cursor).find(|child| {
+        matches!(
+            child.kind(),
+            "type_identifier" | "generic_type" | "stable_type_identifier"
+        )
+    });
+    match ty.and_then(|ty| type_name(ty, content, 0)) {
+        Some((callee, token)) => SyntaxCall {
+            callee,
+            name_token: Some(token),
+            kind: "constructs",
+            binding: GraphCallBinding::ConstructedType,
+        },
+        None => boundary(
+            instance,
+            content,
+            &["new"],
+            GraphCallBoundary::UnsupportedConstructorForm,
+        ),
     }
 }
 
@@ -162,7 +258,11 @@ fn type_name<'tree>(node: Node<'tree>, content: &str, depth: u8) -> Option<(Stri
             })?;
             type_name(name, content, depth + 1)
         }
-        "qualified_identifier" | "qualified_name" | "scoped_type_identifier" => {
+        "qualified_identifier"
+        | "qualified_name"
+        | "scoped_type_identifier"
+        | "stable_type_identifier"
+        | "stable_identifier" => {
             let separator = if node.kind() == "qualified_identifier" {
                 "::"
             } else {

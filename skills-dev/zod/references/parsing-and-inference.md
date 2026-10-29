@@ -1,3 +1,5 @@
+Load when choosing a parser, coercion or input/output type.
+
 # Parsing and Type Inference Reference
 
 ## Parsing Methods
@@ -14,7 +16,7 @@ Use when invalid data is truly exceptional (internal config, constants).
 
 ### safeParse(data)
 
-Returns a discriminated union — never throws.
+Returns a discriminated success/error result for validation failures. Exceptions thrown by user refinements or transforms still propagate.
 
 ```typescript
 const result = UserSchema.safeParse(data)
@@ -50,7 +52,7 @@ if (result.success) {
 
 ### When to Use Which
 
-| Method | Throws | Async | Use When |
+| Method | Throws on validation failure | Async | Use When |
 |--------|--------|-------|----------|
 | `parse()` | Yes | No | Internal data, config — invalid = bug |
 | `safeParse()` | No | No | User input, API — invalid = expected |
@@ -136,12 +138,10 @@ z.stringbool().parse("0")     // false
 ## Parse Options
 
 ```typescript
-// reportInput — includes raw input in error issues
-schema.safeParse(data, { reportInput: true })
+// Only use fabricated, non-sensitive fixtures when inspecting raw input
+schema.safeParse(fixture, { reportInput: true })
 // error.issues[0].input will contain the raw value
 
-// Only use in development — leaks sensitive data in production
-schema.safeParse(data, {
-  reportInput: process.env.NODE_ENV === "development",
-})
+// Real data: omit reportInput, including in development
+schema.safeParse(data)
 ```

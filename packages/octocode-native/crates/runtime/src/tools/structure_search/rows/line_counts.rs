@@ -111,7 +111,7 @@ pub(crate) fn count_lines(
     let mut cut = None::<usize>;
     for (index, count) in counted.into_iter().flatten() {
         match count {
-            Some(count) => lines[index] = Some(count),
+            Some(count) => lines[index] = count,
             None => cut = Some(cut.map_or(index, |at| at.min(index))),
         }
     }
@@ -122,23 +122,29 @@ pub(crate) fn count_lines(
 }
 
 /// The lines of the file at `path`, revalidated against the path policy
-/// right before it is read.
+/// right before it is read. `None` for a listed link to a directory: like a
+/// directory it has no lines, and is no failed read.
 pub(super) fn line_count(
     path: &std::path::Path,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> Result<Lines, ToolError> {
+) -> Result<Option<Lines>, ToolError> {
     use std::io::Read;
     #[cfg(test)]
     LINE_COUNT_READS.with(|reads| reads.set(reads.get() + 1));
     cancel.check().map_err(ToolError::cancelled)?;
     // Revalidate immediately before reading: discovery authorization is not
-    // permission to follow a changed link or open a special file (a FIFO).
-    let Ok(validated) = paths.validate_read(path) else {
-        return Ok(Lines::Unreadable);
+    // permission to follow a changed link or open a special file: a link to
+    // a directory has no lines, and `open_regular` refuses any other
+    // non-regular target (a FIFO).
+    let Ok(validated) = paths.validate(path) else {
+        return Ok(Some(Lines::Unreadable));
     };
+    if validated.canonical.is_dir() {
+        return Ok(None);
+    }
     let Ok((mut file, _)) = octocode_engine::text::open_regular(&validated.canonical) else {
-        return Ok(Lines::Unreadable);
+        return Ok(Some(Lines::Unreadable));
     };
     let mut buffer = [0_u8; 16 * 1024];
     // Newlines terminate lines; a non-empty final line without one still counts.
@@ -148,9 +154,9 @@ pub(super) fn line_count(
         cancel.check().map_err(ToolError::cancelled)?;
         match file.read(&mut buffer) {
             Ok(0) => {
-                return Ok(Lines::Counted(
+                return Ok(Some(Lines::Counted(
                     lines + usize::from(last_byte.is_some_and(|b| b != b'\n')),
-                ));
+                )));
             }
             Ok(bytes) => {
                 let read = &buffer[..bytes];
@@ -159,13 +165,13 @@ pub(super) fn line_count(
                         == octocode_engine::text::BinaryVerdict::Binary)
                     || read.contains(&0)
                 {
-                    return Ok(Lines::Binary);
+                    return Ok(Some(Lines::Binary));
                 }
                 lines += read.iter().filter(|byte| **byte == b'\n').count();
                 last_byte = read.last().copied();
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => return Ok(Lines::Unreadable),
+            Err(_) => return Ok(Some(Lines::Unreadable)),
         }
     }
 }

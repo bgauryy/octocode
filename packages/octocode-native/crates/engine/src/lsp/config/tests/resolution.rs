@@ -21,6 +21,7 @@ fn python_route_prefers_basedpyright_then_pyright_then_pylsp() {
         crate::lsp::config::invocation::resolve_pyright_family(
             &workspace_str,
             Some(path_dir.as_os_str()),
+            None,
         )
     };
 

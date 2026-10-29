@@ -60,6 +60,10 @@ pub(crate) struct PageContextFields {
     pub(crate) required: BTreeSet<String>,
     pub(crate) optional: BTreeSet<String>,
     pub(crate) collection_routes: CollectionRoutes,
+    /// Declared collections at a fixed place in a row (no `*` on the way).
+    pub(crate) fixed_paths: Vec<String>,
+    /// Fixed collections and holders the schema lets a part omit.
+    pub(crate) optional_paths: BTreeSet<String>,
 }
 
 #[expect(
@@ -80,11 +84,10 @@ pub(crate) fn page_context_fields(tool: ToolId) -> &'static PageContextFields {
                 .map(|field| field.as_str().expect("page context field name").to_owned())
                 .collect()
         };
-        let collection_routes = {
-            let value = contract
-                .get("collectionPaths")
-                .expect("core declares collection routes for every tool");
-            let paths = value
+        let pointers = |field: &str| {
+            contract
+                .get(field)
+                .expect("core declares collection routes for every tool")
                 .as_array()
                 .expect("core collection paths are an array")
                 .iter()
@@ -93,7 +96,10 @@ pub(crate) fn page_context_fields(tool: ToolId) -> &'static PageContextFields {
                         .expect("core collection path is a string")
                         .to_owned()
                 })
-                .collect::<Vec<_>>();
+                .collect::<Vec<_>>()
+        };
+        let paths = pointers("collectionPaths");
+        let collection_routes = {
             let references = contract
                 .get("collectionRefs")
                 .map(|value| {
@@ -119,6 +125,12 @@ pub(crate) fn page_context_fields(tool: ToolId) -> &'static PageContextFields {
             required: names("required"),
             optional: names("optional"),
             collection_routes,
+            fixed_paths: paths
+                .iter()
+                .filter(|path| !path.split('/').any(|segment| segment == "*"))
+                .cloned()
+                .collect(),
+            optional_paths: pointers("optionalCollectionPaths").into_iter().collect(),
         }
     })
 }
@@ -132,6 +144,34 @@ mod tests {
         for tool in ToolId::ALL {
             let context = page_context_fields(tool);
             assert!(context.required.is_disjoint(&context.optional), "{tool:?}");
+        }
+    }
+
+    #[test]
+    fn optional_collection_slots_sit_at_fixed_places() {
+        for tool in ToolId::ALL {
+            let context = page_context_fields(tool);
+            assert!(
+                context
+                    .optional_paths
+                    .iter()
+                    .all(|path| !path.contains("/*")),
+                "{tool:?}"
+            );
+        }
+        for tool in [
+            ToolId::LocalSearch,
+            ToolId::StructureSearch,
+            ToolId::AstSearch,
+        ] {
+            let context = page_context_fields(tool);
+            assert!(context.optional_paths.contains("/data/skippedPaths"));
+            assert!(
+                !context
+                    .optional_paths
+                    .contains("/data/skippedPaths/entries")
+            );
+            assert!(!context.optional_paths.contains("/data/files"));
         }
     }
 }

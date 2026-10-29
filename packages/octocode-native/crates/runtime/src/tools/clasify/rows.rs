@@ -29,7 +29,7 @@ fn parse(row: &Value) -> Row {
             .collect(),
         input,
         assets: row.get("assets").cloned(),
-        long_context: row["longContext"].as_bool() == Some(true),
+        long_context: row["longContext"].as_bool(),
     }
 }
 
@@ -37,30 +37,19 @@ pub(super) fn parse_rows<R: std::borrow::Borrow<Value>>(rows: &[R]) -> Vec<Row> 
     rows.iter().map(|row| parse(row.borrow())).collect()
 }
 
-pub(super) fn contextual_questions<'a>(
-    questions: &'a [Value],
+/// The provider state with the row's task context: sent once beside the
+/// judged state, never copied into each question (measured 2026-10-29: per
+/// question it cost more image tokens and lowered true-fact confidence).
+pub(super) fn contextual_state<'a>(
+    state: &'a Value,
     context: Option<&str>,
-) -> std::borrow::Cow<'a, [Value]> {
-    let Some(context) = context else {
-        return std::borrow::Cow::Borrowed(questions);
-    };
-    std::borrow::Cow::Owned(
-        questions
-            .iter()
-            .cloned()
-            .map(|mut question| {
-                let instructions = question
-                    .as_object_mut()
-                    .and_then(|fields| fields.remove("instructions"));
-                let mut contextual = serde_json::json!({"context":context});
-                if let Some(instructions) = instructions {
-                    contextual["instructions"] = instructions;
-                }
-                question["instructions"] = contextual;
-                question
-            })
-            .collect(),
-    )
+) -> std::borrow::Cow<'a, Value> {
+    match context {
+        None => std::borrow::Cow::Borrowed(state),
+        Some(context) => {
+            std::borrow::Cow::Owned(serde_json::json!({"context":context,"content":state}))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -69,21 +58,12 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn optional_context_preserves_each_question_and_enters_provider_input() {
-        let questions = vec![
-            json!({"type":"choice","instructions":["literal", {"x":2}],"criteria":{"a":"A","b":"B"}}),
-            json!({"type":"noul","criteria":{"true":"yes"}}),
-        ];
-        assert_eq!(&*contextual_questions(&questions, None), &questions);
-        let contextual = contextual_questions(&questions, Some("  Research context\n"));
-        for (before, after) in questions.iter().zip(contextual.iter()) {
-            assert_eq!(after["instructions"]["context"], "  Research context\n");
-            assert_eq!(
-                after["instructions"]["instructions"],
-                before["instructions"]
-            );
-            assert_eq!(after["criteria"], before["criteria"]);
-            assert_eq!(after["type"], before["type"]);
-        }
+    fn optional_context_wraps_the_state_once_and_keeps_it_literal() {
+        let state = json!({"target":{"text":"fn a() {}"},"context":[]});
+        assert_eq!(&*contextual_state(&state, None), &state);
+        assert_eq!(
+            &*contextual_state(&state, Some("  Research context\n")),
+            &json!({"context":"  Research context\n","content":state})
+        );
     }
 }

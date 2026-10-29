@@ -109,6 +109,7 @@ fn heritage_edges(facts: &Value) -> Vec<(String, String, String, u64)> {
 
 mod call_walk;
 mod calls;
+mod commonjs;
 mod graph_occurrences;
 mod module_facts;
 mod outline;

@@ -39,7 +39,8 @@ pub(super) fn scan_key(q: MatchQuery<'_>, paths: &PathPolicy) -> String {
         q.default_excludes(),
         super::super::source::MAX_PARSE_SOURCE_BYTES,
         q.capture_text().unwrap_or(false),
-        content_length(q)
+        content_length(q),
+        q.provenance()
     ]))
 }
 

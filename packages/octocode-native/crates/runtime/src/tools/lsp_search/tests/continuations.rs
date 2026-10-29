@@ -34,12 +34,23 @@ fn every_operation_retains_its_canonical_controls_and_saved_progress() {
             Some("/canonical")
         );
         let mut saved = lsp_search_query::to_row(&parsed);
+        // A saved row names only what the agent set: the defaults re-apply
+        // on parse, so a continuation is the same request without the noise.
+        for defaulted in ["view", "contextLines"] {
+            assert!(saved.get(defaulted).is_none(), "{operation}: {defaulted}");
+        }
+        assert_eq!(saved["occurrence"], 2);
         saved["page"] = json!(3);
         saved["snapshot"] = json!("lsp-v3:saved");
         assert!(crate::contracts::validate_query("lspSearch", saved.clone()).is_err());
         let built = crate::contracts::validate_built_query("lspSearch", saved.clone())
             .expect("trusted saved progress");
-        assert_eq!(query(built), query(saved));
+        let built = query(built);
+        assert_eq!(lsp_search_query::operation(&built), operation);
+        assert_eq!(lsp_search_query::path(&built), Some("/canonical/a.ts"));
+        assert_eq!(lsp_search_query::occurrence(&built), Some(2));
+        assert_eq!(lsp_search_query::page(&built), Some(3));
+        assert_eq!(lsp_search_query::snapshot(&built), Some("lsp-v3:saved"));
         for alias in [
             "orderHint",
             "pageSize",
@@ -133,8 +144,9 @@ async fn reference_pages_reach_every_location_once_and_preserve_the_saved_reques
             };
             assert_eq!(call["kind"], "continue");
             let saved = &call["input"]["queries"][0];
+            // Non-default controls ride along; defaulted ones are left out.
             assert_eq!(saved["includeDeclaration"], false);
-            assert_eq!(saved["contextLines"], json!({"before":0,"after":0}));
+            assert!(saved.get("contextLines").is_none(), "{saved}");
             current = query(
                 crate::contracts::validate_built_query("lspSearch", saved.clone())
                     .expect("saved row"),

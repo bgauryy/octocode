@@ -1,39 +1,21 @@
 //! Budgeted readers for the string, node, edge and file-table sections.
 use super::*;
 
-pub(super) const MAX_DECODED_STRING_BYTES: usize = 512 * 1024 * 1024;
-
-pub(super) const MAX_DECODED_ITEMS: usize = 5_000_000;
-
-pub(super) const MAX_DECODED_EDGES: usize = 2_000_000;
-
-pub(super) const MAX_SECTIONS: usize = 64;
-
-pub(super) fn read_strings(strs: &mut Reader, tables: &mut GraphTables) -> Result<(), String> {
-    read_strings_with_budget(strs, tables, MAX_DECODED_STRING_BYTES)
-}
-
-pub(super) fn read_strings_with_budget(
+/// Appends one front-coded dictionary section; `limits` bound the whole
+/// dictionary, including strings earlier sections decoded.
+pub(super) fn read_strings(
     strs: &mut Reader,
     tables: &mut GraphTables,
-    max_decoded_bytes: usize,
+    limits: &Limits,
 ) -> Result<(), String> {
-    read_strings_with_limits(strs, tables, max_decoded_bytes, MAX_DECODED_ITEMS)
-}
-
-pub(super) fn read_strings_with_limits(
-    strs: &mut Reader,
-    tables: &mut GraphTables,
-    max_decoded_bytes: usize,
-    max_items: usize,
-) -> Result<(), String> {
+    let (max_decoded_bytes, max_items) = (limits.string_bytes, limits.table_items);
     let count = strs.count()?;
-    if count > max_items {
+    if count > max_items.saturating_sub(tables.strings.len()) {
         return Err("graph string table exceeds item limit; re-ingest a narrower scope".into());
     }
     tables.strings.reserve(count);
     let mut previous = Vec::<u8>::new();
-    let mut decoded_bytes = 0usize;
+    let mut decoded_bytes = tables.strings.iter().map(String::len).sum::<usize>();
     for _ in 0..count {
         let shared = strs.var()? as usize;
         let suffix = strs.var()? as usize;
@@ -55,79 +37,73 @@ pub(super) fn read_strings_with_limits(
     Ok(())
 }
 
+pub(super) fn read_node(nodes: &mut Reader) -> Result<NodeRec, String> {
+    let kind = NodeKind::from_u8(nodes.u8()?).ok_or("graph node kind is unknown")?;
+    let flags = nodes.u8()?;
+    let key = nodes.var_u32()?;
+    let name = nodes.var_u32()?;
+    let detail = nodes.var_u32()?;
+    let file = nodes.var_opt()?;
+    let parent = nodes.var_opt()?;
+    let line = nodes.var_opt()?;
+    let end_line = if line == NONE {
+        nodes.var_opt()?
+    } else {
+        match nodes.var()? {
+            0 => NONE,
+            delta => u32::try_from(i64::from(line) + unzigzag(delta - 1))
+                .map_err(|_| "graph node range is invalid")?,
+        }
+    };
+    Ok(NodeRec {
+        kind,
+        flags,
+        key,
+        name,
+        detail,
+        file,
+        parent,
+        line,
+        end_line,
+    })
+}
+
+pub(super) fn validate_node(node: &NodeRec, tables: &GraphTables) -> Result<(), String> {
+    let string_ok = |id: u32| (id as usize) < tables.strings.len();
+    if !string_ok(node.key)
+        || !string_ok(node.name)
+        || !string_ok(node.detail)
+        || (node.file != NONE
+            && tables
+                .nodes
+                .get(node.file as usize)
+                .is_none_or(|file| file.kind != NodeKind::File))
+        || (node.parent != NONE
+            && tables
+                .nodes
+                .get(node.parent as usize)
+                .is_none_or(|parent| parent.kind != NodeKind::Symbol))
+        || (node.kind == NodeKind::Symbol && node.file == NONE)
+    {
+        return Err("graph node references are out of range or have an invalid kind".into());
+    }
+    if node.kind == NodeKind::File && !is_relative_key(tables.str(node.key)) {
+        return Err("graph file key is not a root-relative path".into());
+    }
+    Ok(())
+}
+
 pub(super) fn read_nodes(nodes: &mut Reader, tables: &mut GraphTables) -> Result<(), String> {
     let count = nodes.count()?;
     tables.nodes.reserve(count);
-    let mut suffixed = Vec::new();
-    for index in 0..count {
-        let kind_byte = nodes.u8()?;
-        let kind =
-            NodeKind::from_u8(kind_byte & !KEY_SUFFIX).ok_or("graph node kind is unknown")?;
-        let flags = nodes.u8()?;
-        let key = nodes.var_u32()?;
-        let name = nodes.var_u32()?;
-        let detail = nodes.var_u32()?;
-        let file = nodes.var_opt()?;
-        let parent = nodes.var_opt()?;
-        let line = nodes.var_opt()?;
-        let end_line = if line == NONE {
-            nodes.var_opt()?
-        } else {
-            match nodes.var()? {
-                0 => NONE,
-                delta => u32::try_from(i64::from(line) + unzigzag(delta - 1))
-                    .map_err(|_| "graph node range is invalid")?,
-            }
-        };
-        if kind_byte & KEY_SUFFIX != 0 {
-            suffixed.push(index);
-        }
-        tables.nodes.push(NodeRec {
-            kind,
-            flags,
-            key,
-            name,
-            detail,
-            file,
-            parent,
-            line,
-            end_line,
-        });
+    for _ in 0..count {
+        tables.nodes.push(read_node(nodes)?);
     }
-    let strings = tables.strings.len() as u32;
-    let node_count = tables.nodes.len() as u32;
-    let optional_node_ok = |id: u32| id == NONE || id < node_count;
-    if !tables.nodes.iter().all(|node| {
-        node.key < strings
-            && node.name < strings
-            && node.detail < strings
-            && optional_node_ok(node.file)
-            && optional_node_ok(node.parent)
-    }) {
-        return Err("graph node references are out of range".into());
+    for node in &tables.nodes {
+        validate_node(node, tables)?;
     }
-    // A file key is joined onto the snapshot root to read the file, so it
-    // must name a path below it.
-    if tables
-        .nodes
-        .iter()
-        .any(|node| node.kind == NodeKind::File && !is_relative_key(tables.str(node.key)))
-    {
-        return Err("graph file key is not a root-relative path".into());
-    }
-    // Rebuild `path#suffix` keys for symbols stored as suffixes.
-    for index in suffixed {
-        let node = tables.nodes[index];
-        if node.file == NONE {
-            return Err("graph symbol key has no file".into());
-        }
-        let full = format!(
-            "{}#{}",
-            tables.str(tables.nodes[node.file as usize].key),
-            tables.str(node.key)
-        );
-        tables.nodes[index].key = tables.strings.len() as u32;
-        tables.strings.push(full);
+    if nodes.at != nodes.bytes.len() {
+        return Err("graph node section has trailing records".into());
     }
     Ok(())
 }
@@ -148,7 +124,7 @@ pub(super) fn read_edges(
 ) -> Result<(), String> {
     let node_count = tables.nodes.len() as u32;
     let count = edges.count()?;
-    if count > MAX_DECODED_EDGES {
+    if count > LIMITS.edges {
         return Err("graph edge table exceeds item limit; re-ingest a narrower scope".into());
     }
     tables.edges.reserve(count);
@@ -191,6 +167,12 @@ pub(super) fn read_file_tables(
     let node_count = tables.nodes.len() as u32;
     let string_ok = |id: u32| id < strings;
     let node_ok = |id: u32| id < node_count;
+    let file_ok = |id: u32| {
+        tables
+            .nodes
+            .get(id as usize)
+            .is_some_and(|node| node.kind == NodeKind::File)
+    };
     let mut diags = sections.get(b"DIAG", "DIAG")?;
     let count = diags.count()?;
     for _ in 0..count {
@@ -211,7 +193,7 @@ pub(super) fn read_file_tables(
         tables.diagnostics.push(diag);
     }
     for pair in records::<2>(&sections.get(b"FDIG", "FDIG")?.var_vec()?, "FDIG")? {
-        if !node_ok(pair[0]) || !string_ok(pair[1]) {
+        if !file_ok(pair[0]) || !string_ok(pair[1]) {
             return Err("graph digest references are out of range".into());
         }
         tables.digests.push((pair[0], pair[1]));
@@ -219,7 +201,7 @@ pub(super) fn read_file_tables(
     // Optional sections: absent in a snapshot means empty.
     if sections.0.contains_key(b"FCMP") {
         for quad in records::<4>(&sections.get(b"FCMP", "FCMP")?.var_vec()?, "FCMP")? {
-            if !node_ok(quad[0]) || !quad[1..].iter().all(|id| string_ok(*id)) {
+            if !file_ok(quad[0]) || !quad[1..].iter().all(|id| string_ok(*id)) {
                 return Err("graph component references are out of range".into());
             }
             tables.components.push((quad[0], quad[1], quad[2], quad[3]));
@@ -231,7 +213,7 @@ pub(super) fn read_file_tables(
         tables.stamps.reserve(count);
         for _ in 0..count {
             let node = stamps.var_u32()?;
-            if !node_ok(node) {
+            if !file_ok(node) {
                 return Err("graph stamp references are out of range".into());
             }
             let stamp = octocode_engine::stamp::SourceStamp {
@@ -245,7 +227,7 @@ pub(super) fn read_file_tables(
     }
     if sections.0.contains_key(b"ENTR") {
         for pair in records::<2>(&sections.get(b"ENTR", "ENTR")?.var_vec()?, "ENTR")? {
-            if !node_ok(pair[0]) || !string_ok(pair[1]) {
+            if !file_ok(pair[0]) || !string_ok(pair[1]) {
                 return Err("graph entry references are out of range".into());
             }
             tables.entries.push((pair[0], pair[1]));

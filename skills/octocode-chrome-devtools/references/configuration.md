@@ -2,7 +2,7 @@ Load when a skill needs an Octocode setting or provider credential. Source: `ski
 
 ## Inspect without exposing secrets
 
-Use the selected Octocode CLI (examples use `npx -y octocode`):
+Use the task’s selected CLI: prefer the built local Octocode CLI when available, otherwise an installed `octocode` or `npx -y octocode`. Examples use the portable `npx` prefix; substitute the selected CLI. From another workspace, invoke the local CLI by its absolute path so relative inputs keep their meaning:
 
 ```bash
 npx -y octocode config home

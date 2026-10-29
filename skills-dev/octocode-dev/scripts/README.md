@@ -2,6 +2,8 @@
 
 Root automation for the Octocode monorepo. Call a script directly only for a flag that `dev.mjs` does not expose.
 
+`skills:check` and `test:ci` discover `*.test.mjs` files recursively under `skills/`, `skills-beta/`, and `skills-dev/`. An empty suite fails these tasks before Node can auto-discover other repository tests. The `skills/common` workspace and this dev skill run their own tests through their workspace gates. The ignored local `octocode-orchestrator-local-worker` skill is not part of these shipped roots; its model-backed eval is opt-in and does not run in CI.
+
 | Script | Does | Run via |
 |---|---|---|
 | [dev.mjs](dev.mjs) | Task runner: every repo-wide build/test/lint/verify/docs/deps/setup/publish task by name. | `node skills-dev/octocode-dev/scripts/dev.mjs <task>` |
@@ -24,6 +26,8 @@ Root automation for the Octocode monorepo. Call a script directly only for a fla
 | [rust-quality.mjs](rust-quality.mjs) | Opt-in Rust quality tools from `packages/octocode-native/dev-tools.json`: pinned-version inventory, `pins <tool...>` (the `name@version` list every CI install reads), libFuzzer campaigns, the selected Miri tests, cargo-llvm-lines. Never installs anything. | `dev.mjs rust:tools`, `fuzz:smoke`, `fuzz`, `miri`, `llvm-lines`; tests: [rust-quality.test.mjs](rust-quality.test.mjs) |
 
 Shared script support: [entry-point detection](lib/entrypoint.mjs) preserves invocation through installed skill symlinks.
+
+[Standalone skill test discovery](lib/skill-tests.mjs) supplies exact test paths to `dev.mjs`; [its regression test](skill-tests.test.mjs) covers nested, beta, dev, hidden, and workspace-owned paths.
 
 `workspace-health.mjs` parses its mode and delegates to [workspace discovery and build order](lib/workspaces.mjs), [contract checks](lib/workspace-checks.mjs) and [script runs](lib/workspace-run.mjs).
 

@@ -8,5 +8,6 @@ use serde_json::json;
 use std::path::PathBuf;
 
 mod patterns;
+mod qualified;
 mod rules;
 mod syntax_tree;

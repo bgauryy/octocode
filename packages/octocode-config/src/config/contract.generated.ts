@@ -137,7 +137,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Enable beta features and tools; off by default on every surface. `octocode schema` reports which tools the gate withholds.",
+    "description": "Expose beta tools through MCP; off by default. CLI tools remain available without this opt-in. Restart MCP after changing this setting.",
     "env": {
       "name": "OCTOCODE_BETA",
       "dotenv": "home"
@@ -297,7 +297,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Emit per-call LSP phase timings and completion counts on stderr, outside tool results. Includes no source text, paths, or credentials.",
+    "description": "Emit per-call LSP phase timings, completion counts, and the answering server's source, readiness, and advertised operations on stderr, outside tool results. Includes no source text, paths, or credentials.",
     "env": {
       "name": "OCTOCODE_LSP_TRACE"
     },
@@ -311,7 +311,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Language-server prewarm: targeted starts the server an offered lspSearch call names; all also warms the file a read or search names; off disables it.",
+    "description": "Language-server prewarm: targeted starts the server an offered lspSearch call names, and the MCP server warms the workspace's main language at initialize; all also warms the file a read or search names and the workspace's top three languages at initialize; off disables it.",
     "env": {
       "name": "OCTOCODE_LSP_PREWARM",
       "normalize": "lower"

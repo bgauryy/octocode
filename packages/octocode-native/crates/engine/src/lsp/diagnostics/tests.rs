@@ -85,3 +85,32 @@ async fn concurrent_scopes_and_untraced_work_do_not_leak() {
     assert!(!a.summary().contains("spawn:"));
     assert!(!b.summary().contains("spawn:"));
 }
+
+#[tokio::test]
+async fn the_server_line_names_its_state_and_only_the_last_server_noted() {
+    let trace = Trace::default();
+    assert!(!trace.summary().contains("server:"));
+    trace
+        .run(async {
+            Trace::note_server(|| ServerNote {
+                source: "bundled",
+                readiness: None,
+                operations: vec!["definition"],
+            });
+            Trace::note_server(|| ServerNote {
+                source: "user",
+                readiness: Some("progressIdle".into()),
+                operations: vec!["hover", "diagnostic"],
+            });
+        })
+        .await;
+    let summary = trace.summary();
+    assert!(
+        summary.ends_with(
+            "; server: source=user, readiness=progressIdle, operations=[hover,diagnostic]"
+        ),
+        "{summary}"
+    );
+    // Outside a traced call a note is never built.
+    Trace::note_server(|| unreachable!("no traced call"));
+}

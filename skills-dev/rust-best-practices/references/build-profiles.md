@@ -1,12 +1,12 @@
-# Build profiles, compile time, and target/
+Load when tuning `[profile.*]`, cutting dev/CI compile time, or when `target/` balloons or a step rebuilds what another step just built. Why: profile, feature and package choices affect compiled copies retained until cleanup. Profiles take effect **only in the workspace-root** `Cargo.toml`.
 
-Load when tuning `[profile.*]`, cutting dev/CI compile time, or when `target/` balloons or a step rebuilds what another step just built. Why: every profile, feature, and package choice decides how many copies of each crate Cargo compiles and keeps forever. Profiles take effect **only in the workspace-root** `Cargo.toml`.
+# Build profiles, compile time, and target/
 
 ## Release
 ```toml
 [profile.release]
 lto = "thin"          # cross-crate optimization with lower link cost; benchmark fat as an alternative
-codegen-units = 1     # max optimization on hot crates (see per-package override)
+codegen-units = 1     # candidate for hot crates; benchmark against more units
 opt-level = 3         # "s"/"z" when size dominates (CLI, wasm, addons) — benchmark both
 strip = "symbols"
 # Keep the existing panic strategy; an addon abort terminates its Node host.
@@ -31,6 +31,9 @@ opt-level = 3                # a dep that dominates runtime; own crates stay opt
 - The profile *name* is not in the unit hash: dev and test units are shared when their settings match.
 
 ## Dev-loop compile time
+
+Numbers below are historical observations, not expected gains on a new machine or workload. Reproduce the baseline before using them to justify a change.
+
 - Diagnose with `cargo build --timings`; read the **critical path**, not the slowest crate. A heavy dep off the serial tail saves ~0 (`aws-lc-sys` → `ring` saves nothing). Attack your own members on the tail.
 - Linker: lld is the Linux default since 1.90, and mold or wild is optional there. On macOS keep Apple ld: measured relink 1.2–1.6 s Apple vs 1.4–1.8 s lld, no win.
 - `sccache` skips incremental (own-crate) compiles: "Non-cacheable: incremental". Its value is deps and C/C++ (tree-sitter, aws-lc) across clean builds, new `CARGO_TARGET_DIR`s, and CI. Check `sccache --show-stats` before you claim a win.
@@ -38,9 +41,9 @@ opt-level = 3                # a dep that dominates runtime; own crates stay opt
 
 ## One build, no copies: share units across steps
 A unit's hash covers package, target, profile settings, features, and its deps' hashes. Every distinct combination is a separate compile and a separate copy on disk. Copies come from:
-- **Different `-p` selections or `--all-features`.** Feature unification is per command (resolver 2).
-- **Dev-dependency features.** These leak only into test builds. Example: `wiremock` turns on hyper `server`/`http2`, which rehashes hyper → reqwest → your crates → the bin, so `cargo test` recompiled everything `build:dev` had just built.
-- **Test-only features** (napi `noop`) and `RUSTFLAGS`/env differences.
+- **Different `-p` selections or `--all-features`.** Feature selection and unification depend on each Cargo command and the workspace resolver.
+- **Dev-dependency features.** These can be active for targets that include dev dependencies. For example, an HTTP test dependency can enable additional hyper features, changing the compiled units shared with a dev build.
+- **Test-only features** and `RUSTFLAGS`/env differences.
 
 Measure; don't guess:
 - `cargo +nightly build --unit-graph -Z unstable-options`, the same for `test --no-run`, then diff unit keys with the profile name excluded. This is deterministic and needs no compile.
@@ -56,16 +59,12 @@ Fix, in order:
    [dependencies]
    hyper = { version = "1", features = ["full"], optional = true }
    ```
-   Measured: test-only units 47 → 15 (only real test deps remain). The test build after `build:dev` went from 66 s to 19 s. Release binaries stay byte-identical; the always-on version cost +1.2% binary size.
-- Rejected after prototypes:
-  - `cargo-hakari`: it unified napi `noop` (a test stub) into the shipped addon and left hyper split (47 → 39).
-  - `-Zfeature-unification` / `resolver.feature-unification = "workspace"`: nightly-only and ignores dev-deps (52).
+   This approach is useful only if the unit-graph comparison shows a meaningful rebuild. Verify release features and binary size before adopting it; never enable a test stub in a shipped artifact.
 
 ## target/ hygiene
-- Stable Cargo has no `target/` GC. `cargo clean gc` is nightly, Cargo 1.88+ auto-cleans only `~/.cargo` caches, and `cargo-sweep` is unmaintained. Unpruned copies plus `unpacked` `.o` files reached 303 GB and 1M files in one `deps/` here, slowing every crate lookup.
+- Stable Cargo has no `target/` GC. `cargo clean gc` is nightly, and Cargo's automatic global-cache cleanup does not clean workspace `target/`. Unused compiled units and split-debuginfo objects can accumulate there; measure disk and inode use before cleanup.
 - Reset with `cargo clean --workspace --profile dev` (1.93+). It drops workspace-crate copies while keeping dependencies compiled. In Octocode use `node skills-dev/octocode-dev/scripts/dev.mjs clean:cache`; full reset uses its `clean` task. Run cleanup only when requested or needed for a diagnosed build problem.
 - `build.build-dir` (stable 1.91) moves intermediates out of `target/` but does not shrink them.
-- Parallel agents or worktrees: share at most 3 `CARGO_TARGET_DIR`s in total, under a scratchpad, outside repo `target/` (Cargo's lock serializes builds in one dir; the same `--features` keeps units shared), and delete them when done. A solo build uses the warm workspace `target/`. In Octocode, do not commit local linker/sccache configuration.
-- One integration-test binary per crate: `tests/main.rs` declares each `tests/*.rs` as a `mod`, with `autotests = false` and `[[test]] path = "tests/main.rs"`. Add a test asserting every file is declared. Measured: 31 → 6 executables and −80% bytes per build.
+- Concurrent worktrees can use separate `CARGO_TARGET_DIR`s when Cargo's directory lock blocks progress. Bound their total disk and memory use, and clean scratch targets when done. A solo build can use the warm workspace `target/`. In Octocode, do not commit local linker/sccache configuration.
 
 Next: workspace deps/lints/metadata → `references/workspace.md`; test tooling → `references/testing-and-tooling.md`.

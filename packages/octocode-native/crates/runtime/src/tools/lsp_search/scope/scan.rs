@@ -92,12 +92,15 @@ pub(super) async fn scan_text(
     Ok(scanned)
 }
 
+/// The digest of every family and project file under `root`, with the
+/// entries it covers (relative path → stamp). Ignored files are walked too:
+/// a generated source a `.gitignore` hides is still one the server compiles.
 pub(super) fn fingerprint(
     root: &Path,
     include: &[String],
     stopped: &(dyn Fn() -> bool + Sync),
     budget: Duration,
-) -> Option<String> {
+) -> Option<(String, Arc<BTreeMap<String, String>>)> {
     use std::sync::atomic::{AtomicBool, Ordering};
     let extensions = include
         .iter()
@@ -151,8 +154,15 @@ pub(super) fn fingerprint(
         ))
     };
     // A parallel walk: the digest is order-free (lines are sorted).
-    crate::tools::pruned_walk(root, [])
-        .build_parallel()
+    crate::tools::pruned_walk_with(
+        root,
+        [],
+        octocode_engine::search::walk::IgnorePolicy {
+            include_ignored: true,
+            ..Default::default()
+        },
+    )
+    .build_parallel()
         .run(|| {
             Box::new(|entry| {
                 if abandoned.load(Ordering::Relaxed) {
@@ -182,7 +192,13 @@ pub(super) fn fingerprint(
     }
     let mut entries = entries.into_inner().ok()?;
     entries.sort_unstable();
-    Some(octocode_engine::digest::sha256(
-        entries.join("\n").as_bytes(),
-    ))
+    let digest = octocode_engine::digest::sha256(entries.join("\n").as_bytes());
+    let stamps = entries
+        .into_iter()
+        .filter_map(|line| {
+            let (path, stamp) = line.split_once('\u{0}')?;
+            Some((path.to_owned(), stamp.to_owned()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    Some((digest, Arc::new(stamps)))
 }

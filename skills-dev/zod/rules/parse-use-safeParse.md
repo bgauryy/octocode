@@ -42,4 +42,4 @@ function validateInput(data: unknown) {
 
 ## Why
 
-`safeParse()` returns a discriminated union `{ success: true, data } | { success: false, error }`. No exceptions, no try/catch, no risk of catching unrelated errors. Use `parse()` only when invalid data is truly exceptional (e.g., internal config that should never be wrong).
+`safeParse()` returns `{ success: true, data } | { success: false, error }` for validation failures, avoiding a catch around expected invalid input. Exceptions thrown by callbacks still propagate. Use `parse()` when throwing is the intended consumer contract, such as invalid startup configuration.

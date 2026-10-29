@@ -21,54 +21,98 @@ function shellKind(command) {
   return word ? `other (${word})` : "other";
 }
 
+const bump = (map, key) => map.set(key, (map.get(key) ?? 0) + 1);
+const sorted = (map) => Object.fromEntries([...map].toSorted((a, b) => b[1] - a[1]));
+
+function countToolUse(part, state) {
+  if (typeof part.name !== "string" || !part.name || typeof part.id !== "string" || !part.id) return 1;
+  state.calls += 1;
+  bump(state.tools, part.name);
+  state.names.set(part.id, part.name);
+  if (part.name === "Skill" && part.input?.skill) bump(state.skills, String(part.input.skill).replace(/^.*:/, ""));
+  if (part.name === "Bash" && typeof part.input?.command === "string") bump(state.shell, shellKind(part.input.command));
+  return 0;
+}
+
+function countToolResult(part, state) {
+  if (typeof part.tool_use_id !== "string" || !part.tool_use_id || (part.is_error != null && typeof part.is_error !== "boolean")) return 1;
+  if (part.is_error) bump(state.errors, state.names.get(part.tool_use_id) ?? "unknown");
+  return 0;
+}
+
+function countPart(part, state) {
+  if (!part || typeof part !== "object" || Array.isArray(part)) return 1;
+  if (part.type === "tool_use") return countToolUse(part, state);
+  if (part.type === "tool_result") return countToolResult(part, state);
+  return 0;
+}
+
+function countLine(line, state) {
+  let entry;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return 1;
+  }
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return 1;
+  if (entry.message == null) return entry.type === "assistant" || entry.type === "user" ? 1 : 0;
+  if (typeof entry.message === "string") return 0;
+  if (typeof entry.message !== "object" || Array.isArray(entry.message)) return 1;
+  const content = entry?.message?.content;
+  // Claude progress and metadata records may omit content; text messages use a string.
+  if (typeof content === "string") return 0;
+  if (!Array.isArray(content)) return 1;
+  return Number(content.reduce((invalid, part) => invalid + countPart(part, state), 0) > 0);
+}
+
 export async function collectUsage(workspace, days, allProjects) {
   const projectsDir = path.join(HOME, ".claude", "projects");
-  const dirs = allProjects
-    ? fs.readdirSync(projectsDir).map((dir) => path.join(projectsDir, dir))
-    : [path.join(projectsDir, projectSlug(workspace))];
+  let readFailures = 0;
+  let dirs = [path.join(projectsDir, projectSlug(workspace))];
+  if (allProjects) {
+    try {
+      dirs = fs.readdirSync(projectsDir, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => path.join(projectsDir, entry.name));
+    } catch (error) {
+      if (error.code !== "ENOENT") readFailures += 1;
+      dirs = [];
+    }
+  }
   const since = Date.now() - days * 86_400_000;
   const tools = new Map();
   const skills = new Map();
   const errors = new Map();
   const shell = new Map();
   let sessions = 0;
-  let calls = 0;
-  const bump = (map, key, by = 1) => map.set(key, (map.get(key) ?? 0) + by);
+  const state = { calls: 0, tools, skills, errors, shell, names: new Map() };
+  let malformedLines = 0;
   for (const dir of dirs) {
     let files = [];
     try {
       files = fs.readdirSync(dir).filter((file) => file.endsWith(".jsonl")).map((file) => path.join(dir, file));
-    } catch {
+    } catch (error) {
+      if (error.code !== "ENOENT") readFailures += 1;
       continue;
     }
     for (const file of files) {
-      if (fs.statSync(file).mtimeMs < since) continue;
+      let modified;
+      try {
+        modified = fs.statSync(file).mtimeMs;
+      } catch {
+        readFailures += 1;
+        continue;
+      }
+      if (modified < since) continue;
       sessions += 1;
-      const names = new Map();
-      const lines = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
-      for await (const line of lines) {
-        if (!line.includes('"tool_use"') && !line.includes('"tool_result"')) continue;
-        let entry;
-        try {
-          entry = JSON.parse(line);
-        } catch {
-          continue;
-        }
-        for (const part of entry.message?.content ?? []) {
-          if (part?.type === "tool_use") {
-            calls += 1;
-            bump(tools, part.name);
-            names.set(part.id, part.name);
-            if (part.name === "Skill" && part.input?.skill) bump(skills, String(part.input.skill).replace(/^.*:/, ""));
-            if (part.name === "Bash" && typeof part.input?.command === "string") bump(shell, shellKind(part.input.command));
-          } else if (part?.type === "tool_result" && part.is_error) {
-            bump(errors, names.get(part.tool_use_id) ?? "unknown");
-          }
-        }
+      state.names = new Map();
+      try {
+        const lines = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+        for await (const line of lines) malformedLines += countLine(line, state);
+      } catch {
+        readFailures += 1;
       }
     }
   }
-  const sorted = (map) => Object.fromEntries([...map].sort((a, b) => b[1] - a[1]));
+  if (malformedLines || readFailures) finding("medium", "usage", "transcript coverage", `${malformedLines} malformed lines and ${readFailures} read failures may hide calls; unused-tool and error-rate judgments are suppressed.`);
   const servers = {};
   for (const [name, count] of tools) {
     const match = /^mcp__(.+?)__(.+)$/.exec(name);
@@ -78,26 +122,29 @@ export async function collectUsage(workspace, days, allProjects) {
     server.errors += errors.get(name) ?? 0;
     server.tools[match[2]] = count;
   }
-  return { days, sessions, calls, tools: sorted(tools), skills: sorted(skills), errors: sorted(errors), servers, shell: sorted(shell) };
+  return { days, sessions, calls: state.calls, malformedLines, readFailures, incomplete: Boolean(malformedLines || readFailures), tools: sorted(tools), skills: sorted(skills), errors: sorted(errors), servers, shell: sorted(shell) };
+}
+
+function assessServer(server, usage, trusted, unusedTools) {
+  const prefix = `mcp__${server.name}__`;
+  for (const tool of server.tools) {
+    const count = usage.tools[`${prefix}${tool.name}`] ?? 0;
+    tool.calls = count;
+    tool.errors = usage.errors[`${prefix}${tool.name}`] ?? 0;
+    if (count === 0 && trusted) unusedTools.push({ server: server.name, tool: tool.name, chars: tool.totalChars });
+  }
+  const used = server.tools.filter((tool) => tool.calls > 0).length;
+  if (server.tools.length && trusted && used === 0) {
+    finding("high", "usage", server.name, `No tool of this server was called in ${usage.sessions} sessions over ${usage.days} days; it still costs ~${server.totalTokens} tokens when loaded. Disable it or scope it to the projects that need it.`, { chars: server.totalChars });
+  }
 }
 
 export function crossCheck(mcp, skills, usage) {
   const unusedTools = [];
+  const trusted = usage.sessions > 0 && !usage.incomplete;
   // Transcripts are Claude Code's; other clients' servers cannot be judged by them.
-  for (const server of mcp.filter((entry) => !entry.source.includes(".cursor"))) {
-    const prefix = `mcp__${server.name}__`;
-    for (const tool of server.tools) {
-      const count = usage.tools[`${prefix}${tool.name}`] ?? 0;
-      tool.calls = count;
-      tool.errors = usage.errors[`${prefix}${tool.name}`] ?? 0;
-      if (count === 0) unusedTools.push({ server: server.name, tool: tool.name, chars: tool.totalChars });
-    }
-    const used = server.tools.filter((tool) => tool.calls > 0).length;
-    if (server.tools.length && usage.sessions && used === 0) {
-      finding("high", "usage", server.name, `No tool of this server was called in ${usage.sessions} sessions over ${usage.days} days; it still costs ~${server.totalTokens} tokens when loaded. Disable it or scope it to the projects that need it.`, { chars: server.totalChars });
-    }
-  }
-  if (usage.sessions) {
+  for (const server of mcp.filter((entry) => !entry.source.includes(".cursor"))) assessServer(server, usage, trusted, unusedTools);
+  if (trusted) {
     for (const tool of unusedTools) {
       finding("low", "usage", `${tool.server}/${tool.tool}`, `Never called in ${usage.sessions} sessions (${tool.chars} chars of schema). Candidate to merge, gate, or drop.`, { chars: tool.chars });
     }

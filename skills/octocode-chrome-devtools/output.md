@@ -20,22 +20,13 @@ Finding → reproducible steps → observed result → gaps. Keep each screensho
 | `sequenceDiagram` / `stateDiagram-v2` | Explain browser/network ordering / visible state changes. |
 | `chart` line or bar / linked HAR or JSON | Compare measured timings / retain machine-readable evidence without pasting large traces. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
-Save and render a result with a table, diagram, 40+ lines, or five findings, or when the user or project instructions ask; short answers stay in chat.
+Save a result with a table, diagram, 40+ lines, or five findings, or when the user or project instructions ask; short answers stay in chat.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Pass | Fail | Partial
-confidence: high | medium | low
-question: <the question or decision>
-next: <the one next action for whoever continues, in the imperative>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Pass`, `Fail`, `Partial`.
 
 Then a `#` title and a BLUF lead paragraph. Always include `## Finding`, `## Steps`, and `## Gaps` (write `None.` when nothing is missing). Steps is one table:
 
@@ -46,4 +37,4 @@ Result: `Pass`, `Fail`, or `Partial`. Capture files (screenshots, HAR, traces): 
 
 Unfinished work (`next` set) is a Handoff packet: current state and evidence in `## Finding`, attempts in Steps, blockers in `## Gaps`, next action in `next`, plus constraints and the target, frame, or session ids the next call needs. A blocker that needs someone else's action leads the BLUF as an SBAR: situation, background, assessment, recommendation.
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

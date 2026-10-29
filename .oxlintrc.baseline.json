@@ -87,7 +87,7 @@
     {"files":["packages/octocode-agents-communication/tests/store-support.ts"],"rules":{"no-underscore-dangle":"off","typescript/restrict-template-expressions":"off"}},
     {"files":["packages/octocode-agents-communication/tests/view.test.ts"],"rules":{"prefer-const":"off","unicorn/no-array-sort":"off"}},
     {"files":["packages/octocode-agents-communication/tests/worktrees.test.ts"],"rules":{"max-params":["error",{"max":5}],"typescript/require-array-sort-compare":"off","unicorn/consistent-function-scoping":"off","unicorn/no-array-sort":"off"}},
-    {"files":["packages/octocode-benchmark/local/e2e/harness/competitors.mjs"],"rules":{"complexity":["error",{"max":24}],"no-console":"off","unicorn/consistent-function-scoping":"off","unicorn/no-useless-fallback-in-spread":"off"}},
+    {"files":["packages/octocode-benchmark/local/e2e/harness/competitors.mjs"],"rules":{"complexity":["error",{"max":18}],"no-console":"off","unicorn/consistent-function-scoping":"off","unicorn/no-useless-fallback-in-spread":"off"}},
     {"files":["packages/octocode-benchmark/local/e2e/harness/debug-call.mjs"],"rules":{"no-console":"off"}},
     {"files":["packages/octocode-benchmark/local/e2e/harness/github-materialize.mjs"],"rules":{"complexity":["error",{"max":24}]}},
     {"files":["packages/octocode-benchmark/local/e2e/harness/grammar.mjs"],"rules":{"no-console":"off","no-shadow":"off","typescript/restrict-template-expressions":"off"}},

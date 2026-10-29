@@ -5,15 +5,7 @@
 // anchor plus rolling baseline). Pure functions only; `--self-test` runs them
 // on synthetic responses.
 //
-// Two continuation containers (core `CONTINUATION_CHANNELS`):
-//   next   pages: continuations that reach unshown data of the same result,
-//          plus the envelope responsePagination.next.
-//   hints  string[]: prose tips and `action: tool JSON` optional calls.
-// A lead is any `hints` entry, or (in legacy streams, where `next` also held
-// leads and `hints` was a prose string[]) a `next` entry that core classifies
-// as a lead. Briefs (mainGoal / reasoning) may be absent from any query.
-import { continuationChannel } from '@octocodeai/config/schema';
-import { canon, suggestedCall } from './lead-predicates.mjs';
+import { nextHints } from './responses.mjs';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,85 +13,41 @@ import { fileURLToPath } from 'node:url';
 import { isMainModule } from '../../../../../skills/common/scripts/lib/entrypoint.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const size = value => value === undefined ? 0 : Buffer.byteLength(JSON.stringify(value), 'utf8');
+const fieldSize = (key, value) => size(value) + Buffer.byteLength(JSON.stringify(key), 'utf8') + 1;
 
-// ---------- continuations ----------
-const HINT_KEYS = ['hints', 'next'];
-export const isHintKey = key => HINT_KEYS.includes(key);
-const isHint = v => !!v && typeof v === 'object' && !Array.isArray(v) && typeof v.tool === 'string' && v.query && typeof v.query === 'object';
-/** Executable calls from public string hints or structured continuation containers. */
-export function hintEntries(container, name = 'hints') {
-  if (!container || typeof container !== 'object') return [];
-  if (isHint(container)) return [{ name, hint: container }];
-  if (Array.isArray(container)) return container.flatMap(value => {
-    if (isHint(value)) return [{ name, hint: value }];
-    const call = suggestedCall(value);
-    if (!call) return [];
-    const { key, ...hint } = call;
-    return [{ name: key, hint, wireLength: JSON.stringify(value).length }];
-  });
-  return Object.entries(container).filter(([, v]) => isHint(v)).map(([k, hint]) => ({ name: k, hint }));
-}
-/** The envelope continuation container of a response (`responsePagination.next`; `.hints` tolerated). */
-export const envelopeContainer = sc => sc?.responsePagination?.next ?? sc?.responsePagination?.hints;
-/** True when a `hints`/`next` value holds executable continuations (error rows carry `hints` as prose strings). */
+export const isHintKey = key => ['next', 'related', 'hints', 'responsePagination'].includes(key);
+/** Only authored typed calls are executable; prose hints are never parsed. */
+export const hintEntries = (container, name = 'next') => nextHints(container).map(call => ({ name: call.path.split('.').at(-1) || name, hint: call }));
+export const envelopeContainer = sc => sc?.responsePagination?.next;
 export const isHintContainer = (key, value) => isHintKey(key) && hintEntries(value).length > 0;
-/** The emitting tool of a structured response when the caller does not know it: clasify answers carry `queries`. */
-const responseTool = sc => (Array.isArray(sc?.queries) ? 'clasify' : '');
-/** True when core classifies continuation `name` of `tool` as a page. */
-export const isPageName = (name, tool = '') => continuationChannel(tool, name) === 'page';
-/** Lead entries offered by one object: all of its `hints` entries plus lead-named `next` entries (legacy shape). */
-function leadEntries(holder, tool = '') {
-  if (!holder || typeof holder !== 'object' || Array.isArray(holder)) return [];
-  return [...hintEntries(holder.hints), ...hintEntries(holder.next).filter(e => !isPageName(e.name, tool))];
-}
-/** Largest optional-call menu under a node, reported without a fixed cap. */
-export function maxLeadEntries(node, tool = responseTool(node)) {
+
+/** Largest related-call menu in one response. */
+export function maxLeadEntries(node) {
   let max = 0;
-  const walk = n => {
-    if (!n || typeof n !== 'object') return;
-    if (!Array.isArray(n)) max = Math.max(max, leadEntries(n, tool).length);
-    for (const child of Object.values(n)) walk(child);
+  const walk = value => {
+    if (!value || typeof value !== 'object') return;
+    max = Math.max(max, hintEntries(value.related).filter(entry => entry.hint.kind === 'related').length);
+    for (const child of Object.values(value)) walk(child);
   };
   walk(node);
   return max;
 }
-/** Page continuations of a response: page-named `next` entries, plus the envelope `responsePagination.next`. */
-function pageEntries(sc, tool = responseTool(sc)) {
-  const out = [];
-  const walk = n => {
-    if (!n || typeof n !== 'object') return;
-    for (const [key, child] of Object.entries(n)) {
-      if (key === 'next') out.push(...hintEntries(child, 'next').filter(e => isPageName(e.name, tool)));
-      else walk(child);
-    }
-  };
-  walk(sc);
-  return out;
-}
-/** JSON bytes under every occurrence of one key (key included). */
+
+/** UTF-8 JSON bytes under each occurrence of a key, including that key. */
 export function bytesUnderKey(value, keyName) {
   let total = 0;
   const walk = node => {
     if (!node || typeof node !== 'object') return;
     for (const [key, child] of Object.entries(node)) {
-      if (key === keyName && child && typeof child === 'object') { total += JSON.stringify(child).length + key.length + 3; continue; }
+      if (key === keyName) { total += fieldSize(key, child); continue; }
       walk(child);
     }
   };
   walk(value);
   return total;
 }
-/** JSON bytes of lead entries wherever they live (comparable across the next → hints move). */
-export function leadBytes(value, tool = responseTool(value)) {
-  let total = 0;
-  const walk = n => {
-    if (!n || typeof n !== 'object') return;
-    if (!Array.isArray(n)) for (const e of leadEntries(n, tool)) total += e.wireLength ?? JSON.stringify(e.hint).length + e.name.length + 3;
-    for (const child of Object.values(n)) walk(child);
-  };
-  walk(value);
-  return total;
-}
+export const leadBytes = value => bytesUnderKey(value, 'related');
 
 // ---------- schema errors ----------
 /** Row error codes that mean the input did not validate (as opposed to a runtime miss). */
@@ -124,7 +72,6 @@ export function schemaErrors(entry) {
 }
 
 // ---------- body hash + key byte shares ----------
-const size = v => (v === undefined ? 0 : JSON.stringify(v).length);
 /** sha256 (16 hex) over every response body of a task, in call order. */
 export function bodyHash(entries) {
   const h = createHash('sha256');
@@ -138,17 +85,17 @@ export function bodyHash(entries) {
  */
 export function keyBytes(entries) {
   const out = {};
-  const add = (key, value) => { out[key] = (out[key] ?? 0) + size(value) + key.length + 3; };
+  const add = (key, value, wireKey = key) => { out[key] = (out[key] ?? 0) + fieldSize(wireKey, value); };
   for (const e of entries) {
     const sc = e.raw;
-    if (!sc || typeof sc !== 'object') { out['(text)'] = (out['(text)'] ?? 0) + String(e.text ?? '').length; continue; }
+    if (!sc || typeof sc !== 'object') { out['(text)'] = (out['(text)'] ?? 0) + Buffer.byteLength(String(e.text ?? ''), 'utf8'); continue; }
     for (const [key, value] of Object.entries(sc)) {
       if (key !== 'results' || !Array.isArray(value)) { add(key, value); continue; }
       for (const row of value) {
         if (!row || typeof row !== 'object') continue;
         for (const [rk, rv] of Object.entries(row)) {
-          if (rk === 'data' && rv && typeof rv === 'object' && !Array.isArray(rv)) for (const [dk, dv] of Object.entries(rv)) add(`data.${dk}`, dv);
-          else add(`results[].${rk}`, rv);
+          if (rk === 'data' && rv && typeof rv === 'object' && !Array.isArray(rv)) for (const [dk, dv] of Object.entries(rv)) add(`data.${dk}`, dv, dk);
+          else add(`results[].${rk}`, rv, rk);
         }
       }
     }
@@ -192,13 +139,13 @@ const VERBOSE_CHECKS = {
     for (const f of fields) {
       if (value[f] == null) continue;
       const qk = queryKeys[f] ?? f;
-      if (ctx.hints.some(q => q?.[qk] === value[f])) bytes += size(value[f]) + f.length + 3;
+      if (ctx.hints.some(q => q?.[qk] === value[f])) bytes += fieldSize(f, value[f]);
     }
     return bytes;
   },
   // A list entry that inlines a long non-evidence list (skipped-file names).
   longListEntry: (value, holder, ctx, { maxBytes = 300, maxNames = 5 } = {}) => (Array.isArray(value)
-    ? value.filter(s => typeof s === 'string' && (s.length > maxBytes || s.split(/,\s*/).length > maxNames)).reduce((a, s) => a + s.length + 2, 0)
+    ? value.filter(s => typeof s === 'string' && (Buffer.byteLength(s, 'utf8') > maxBytes || s.split(/,\s*/).length > maxNames)).reduce((a, s) => a + size(s), 0)
     : 0),
   // Present inside a continuation (duplicates data the row already shows).
   inHint: (value, holder, ctx) => (ctx.inHint ? size(value) : 0),
@@ -206,7 +153,7 @@ const VERBOSE_CHECKS = {
   repeatsSibling: (value, holder, ctx, { field, sibling } = {}) => {
     const repeated = value?.[field];
     const list = holder?.[sibling];
-    return repeated != null && (Array.isArray(list) ? list : [list]).some(item => item === repeated) ? size(repeated) + field.length + 3 : 0;
+    return repeated != null && (Array.isArray(list) ? list : [list]).some(item => item === repeated) ? fieldSize(field, repeated) : 0;
   },
   // A continuation field with a fixed value.
   equalsInHint: (value, holder, ctx, { equals } = {}) => (ctx.inHint && value === equals ? size(value) + 3 : 0),
@@ -222,7 +169,7 @@ export function verboseFields(entry, rules) {
   const out = {};
   const sc = entry?.raw;
   if (!sc || typeof sc !== 'object') return out;
-  const queries = Array.isArray(entry.args?.queries) ? entry.args.queries : [entry.args ?? {}];
+  const queries = callRows(entry.args);
   const hit = (rule, bytes) => { if (bytes > 0) { const r = (out[rule.id] ??= { count: 0, bytes: 0 }); r.count += 1; r.bytes += bytes; } };
   const visit = (node, ctx) => {
     if (!node || typeof node !== 'object') return;
@@ -236,13 +183,12 @@ export function verboseFields(entry, rules) {
   if (rows) {
     rows.forEach((row, i) => {
       const query = queries[row?.index ?? i] ?? queries[0] ?? {};
-      if (query?.extras?.length) { out.debugRows = (out.debugRows ?? 0) + 1; return; }
-      const hints = allHintEntries(row).flatMap(e => e.hint.query.queries ?? []);
+      const hints = allHintEntries(row).flatMap(e => e.hint.input.queries ?? []);
       visit(row, { inHint: false, hints, query });
     });
     const { results, ...envelope } = sc;
-    visit(envelope, { inHint: false, hints: hintEntries(envelopeContainer(sc)).flatMap(e => e.hint.query.queries ?? []), query: queries[0] ?? {} });
-  } else visit(sc, { inHint: false, hints: allHintEntries(sc).flatMap(e => e.hint.query.queries ?? []), query: queries[0] ?? {} });
+    visit(envelope, { inHint: false, hints: hintEntries(envelopeContainer(sc)).flatMap(e => e.hint.input.queries ?? []), query: queries[0] ?? {} });
+  } else visit(sc, { inHint: false, hints: allHintEntries(sc).flatMap(e => e.hint.input.queries ?? []), query: queries[0] ?? {} });
   return out;
 }
 /** Every executable continuation anywhere under a node (row- or item-level containers). */
@@ -263,8 +209,8 @@ export function mergeCounts(into, from) {
 }
 
 // ---------- verbatim replay ----------
-/** Call rows of an argument object: `queries[]`, or the arguments themselves (flat or raw calls). */
-export const callRows = args => (Array.isArray(args?.queries) ? args.queries : [args ?? {}]);
+/** Fresh query rows; cursor continuations intentionally have no reconstructed query. */
+export const callRows = args => args?.queries ?? [];
 
 // ---------- byte-regression gate ----------
 export const GATE_FACTOR = 1.5;
@@ -274,7 +220,7 @@ export const ROLLING_FILE = 'competitors-rolling.json';
 export function baselineRecord(task) {
   const o = task.octocode;
   return {
-    kind: task.kind, tool: task.tool,
+    kind: task.kind, tool: task.tool, measurement: 'utf8-v1',
     bytes: o.bytes, calls: o.calls, cBytes: task.competitor.bytes, cCalls: task.competitor.calls,
     octoRecipe: task.recipeHash?.octocode, shellRecipe: task.recipeHash?.shell,
     bodyHash: o.sensors?.bodyHash, keyBytes: o.sensors?.keyBytes, keyShares: o.sensors?.keyShares,
@@ -292,13 +238,22 @@ const ratioOf = (a, b) => (b > 0 ? a / b : Infinity);
  * drops evidence never passes. A changed octocode recipe is not comparable
  * and is reported, not gated (re-anchor explicitly).
  */
+function incomparableBaseline(current, baseline) {
+  if (!baseline) return 'no baseline';
+  if (current.measurement !== baseline.measurement) return 'measurement changed; not comparable';
+  if (baseline.octoRecipe && current.octoRecipe && baseline.octoRecipe !== current.octoRecipe) return 'octocode recipe changed; not gated';
+  return null;
+}
+
 export function gateTask(cur, baselines, factor = GATE_FACTOR) {
   const flags = [];
   const notes = [];
+  const compared = [];
   for (const [label, base] of Object.entries(baselines)) {
     const was = base?.tasks?.[cur.id];
-    if (!was) { notes.push(`${label}: no baseline`); continue; }
-    if (was.octoRecipe && cur.octoRecipe && was.octoRecipe !== cur.octoRecipe) { notes.push(`${label}: octocode recipe changed; not gated`); continue; }
+    const incompatibility = incomparableBaseline(cur, was);
+    if (incompatibility) { notes.push(`${label}: ${incompatibility}`); continue; }
+    compared.push(label);
     const shellChanged = !!(was.shellRecipe && cur.shellRecipe && was.shellRecipe !== cur.shellRecipe);
     for (const [metric, shell] of [['bytes', 'cBytes'], ['calls', 'cCalls']]) {
       const grew = cur[metric] > factor * was[metric];
@@ -313,7 +268,7 @@ export function gateTask(cur, baselines, factor = GATE_FACTOR) {
     }
     if (cur.violations > (was.violations ?? 0)) flags.push({ baseline: label, metric: 'neverTrimViolations', was: was.violations ?? 0, now: cur.violations });
   }
-  return { flags, notes };
+  return { flags, notes, compared };
 }
 export const describeFlag = f => `${f.metric} ${f.was}→${f.now}${f.growth ? ` (${f.growth}×, shell ratio ${f.ratioWas}→${f.ratioNow}${f.shellChanged ? ', shell recipe changed' : ''})` : ''} vs ${f.baseline}${f.cause?.length ? `: ${f.cause.join(', ')}` : ''}`;
 
@@ -321,55 +276,18 @@ export const describeFlag = f => `${f.metric} ${f.was}→${f.now}${f.growth ? ` 
 export function selfTest() {
   let failed = 0;
   const assert = (ok, name) => { console.log(`${ok ? 'PASS' : 'FAIL'} [sensors self-test] ${name}`); if (!ok) failed += 1; };
-  const hint = (tool, row) => ({ tool, query: row.responseOffset === undefined ? { queries: [row] } : row });
-
-  // Hints: `next` and `hints` read the same; envelope too; prose `hints` are not hints.
-  const withNext = { results: [{ data: { next: { nextPage: hint('localSearch', { path: 'a', page: 2 }) } } }], responsePagination: { hasMore: true, next: hint('localSearch', { responseOffset: 10 }) } };
-  const withHints = { results: [{ data: { hints: { nextPage: hint('localSearch', { path: 'a', page: 2 }) } } }], responsePagination: { hasMore: true, hints: hint('localSearch', { responseOffset: 10 }) } };
-  assert(canon(allHintEntries(withNext)) === canon(allHintEntries(withHints)) && allHintEntries(withHints).length === 2, 'hints and next walk to the same continuations (row + envelope)');
-  assert(hintEntries(envelopeContainer(withHints)).length === 1 && hintEntries(envelopeContainer(withNext)).length === 1, 'envelope continuation read from responsePagination.next (or .hints)');
-  assert(allHintEntries({ results: [{ status: 'error', data: { hints: ['Verify the path exists'] } }] }).length === 0, 'error-row prose hints are not continuations');
-  // Legacy streams: leads inside `next`, prose `hints`. Current contract: pages in `next`, leads + text in `hints`.
-  const today = { next: { nextPage: hint('localSearch', { page: 2 }), readPullRequest: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) }, hints: ['prose'] };
-  const after = { next: { nextPage: hint('localSearch', { page: 2 }) }, hints: { text: ['prose'], readPullRequest: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) } };
-  assert(leadEntries(today).length === 2 && leadEntries(after).length === 2 && maxLeadEntries({ results: [{ data: after }] }) === 2, 'leads counted the same in both shapes (pages uncapped)');
-  assert(pageEntries({ results: [{ data: today }] }).length === 1 && pageEntries({ results: [{ data: after }], responsePagination: { next: hint('x', { responseOffset: 9 }) } }).length === 2, 'page continuations read from next only (+ envelope)');
-  assert(leadBytes(today) === leadBytes(after) && leadBytes(today) > 0, 'lead bytes comparable across the move');
-  assert(allHintEntries(after).length === 3, 'replay set: every next entry and every non-text hints entry');
-  const stringHints = [
-    `readPullRequest: ghGetHistoryItem ${JSON.stringify({ queries: [{ number: 1 }] })}`,
-    `viewRepo: ghStructure ${JSON.stringify({ queries: [{ repo: 'r' }] })}`,
-    `read: Approximate: localFetch ${JSON.stringify({ queries: [{ path: 'a' }] })}`,
-  ];
-  const published = { next: after.next, hints: [...stringHints, 'Ordinary guidance.', 'read: localFetch {broken}'] };
-  assert(maxLeadEntries(published) === 3 && allHintEntries(published).length === 4, 'public string calls are counted and replayed beyond the old two-lead cap');
-  assert(pageEntries(published).length === 1 && leadEntries(published)[2].hint.confidence === 'low', 'string suggestions stay optional and preserve approximate qualification');
-  assert(leadBytes(published) === stringHints.reduce((sum, text) => sum + JSON.stringify(text).length, 0), 'string lead cost measures the escaped wire text');
-  // The page/lead rule is core's: clasify's own walk is a page, a clasify handoff elsewhere is a lead.
-  const clasifyWalk = { queries: [{ next: { clasify: hint('clasify', { resources: [] }), read: hint('localFetch', { path: 'a' }) } }] };
-  assert(pageEntries(clasifyWalk).length === 1 && maxLeadEntries(clasifyWalk) === 1, 'legacy clasify: next.clasify is a page, next.read a lead');
-  assert(leadEntries({ next: { clasify: hint('clasify', {}), expandCaptures: hint('astSearch', {}) } }, 'localSearch').length === 1, 'legacy handoff: clasify on another tool is a lead, expand* a page');
-
-  // Schema errors.
-  assert(schemaErrors({ isError: true, raw: undefined, text: 'Input validation error: Invalid arguments for tool localFetch: queries.0.ranges.0: Use "start-end"' }).count === 1, 'call-level input validation error counted');
-  assert(schemaErrors({ isError: true, raw: { results: [{ status: 'error', data: { errorCode: 'invalidPagination' } }, { status: 'error', data: { errorCode: 'pathNotFound' } }] } }).count === 1, 'row schema errorCode counted, runtime miss not');
-  assert(schemaErrors({ isError: false, raw: { results: [{ data: {} }] }, text: '' }).count === 0, 'clean response has no schema error');
-
-  // Verbose fields.
+  const continuation = cursor => ({ kind: 'continue', tool: 'localFetch', input: { cursor } });
+  const related = { kind: 'related', tool: 'localFetch', input: { queries: [{ path: '日本.ts' }] } };
+  const response = { results: [{ data: { next: { source: continuation('source') }, related: [related], hints: ['read: localFetch {"queries":[]}'] } }], responsePagination: { hasMore: true, next: continuation('response') } };
+  assert(allHintEntries(response).length === 3, 'typed row, related and response calls discovered');
+  assert(hintEntries(envelopeContainer(response))[0].hint.input.cursor === 'response', 'response cursor preserved');
+  assert(allHintEntries({ hints: ['read: localFetch {"queries":[]}'], next: { old: { tool: 'localFetch', query: {} } } }).length === 0, 'prose and obsolete call shapes are not executable');
+  assert(maxLeadEntries(response) === 1, 'related calls counted independently of continuation pages');
+  assert(leadBytes(response) === Buffer.byteLength(JSON.stringify({ related: [related] }), 'utf8') - 2, 'related bytes are UTF-8');
+  assert(schemaErrors({ isError: true, text: 'Input validation error: bad input' }).count === 1, 'call input failure counted');
+  assert(schemaErrors({ raw: { results: [{ status: 'error', data: { errorCode: 'invalidInput' } }, { status: 'error', data: { errorCode: 'pathNotFound' } }] } }).count === 1, 'schema and runtime errors remain distinct');
   const rules = loadVerboseRules();
-  const v = verboseFields({ args: { queries: [{ path: 'a', matchString: 'x' }] }, raw: {
-    results: [{ data: { warnings: [`binaryFileSkipped: ${Array.from({ length: 40 }, (_, i) => `f${i}.woff2`).join(', ')}`], pagination: { hasMore: true, nextPage: 2, snapshot: 'abc' }, next: { nextPage: hint('localSearch', { path: 'a', page: 2, snapshot: 'abc', confidence: 'x' }) } } }],
-    responsePagination: { hasMore: false, offset: 0 },
-  } }, rules);
-  assert(v['responsePagination-finished']?.count === 1, 'verbose: responsePagination with hasMore:false reported');
-  assert(v['pagination-duplicates-hint']?.count === 1 && v['pagination-duplicates-hint'].bytes > 0, 'verbose: pagination nextPage/snapshot duplicating the continuation reported');
-  assert(v['warnings-name-list']?.count === 1, 'verbose: inlined skipped-file name list reported');
-  const quiet = verboseFields({ args: { queries: [{}] }, raw: { results: [{ data: { pagination: { hasMore: true, nextPage: 2 } } }], responsePagination: { hasMore: true } } }, rules);
-  assert(Object.keys(quiet).length === 0, 'verbose: needed pagination (hasMore:true, no duplicate) not reported');
-  assert(verboseFields({ args: { queries: [{ extras: ['echo'] }] }, raw: { results: [{ data: { responsePagination: { hasMore: false } } }] } }, rules).debugRows === 1, 'verbose: extras rows skipped');
-  const partial = (providerLimit) => verboseFields({ args: { queries: [{}] }, raw: { results: [{ data: { isPartial: true, partialReasons: ['GitHub code search caps results at 1000'], providerLimit } }] } }, rules);
-  assert(Object.keys(partial({ maxResults: 1000 })).length === 0, 'verbose: isPartial + partialReasons + providerLimit{maxResults} carry different facts (not reported)');
-  assert(partial({ maxResults: 1000, reason: 'GitHub code search caps results at 1000' })['partial-reason-repeated']?.count === 1, 'verbose: providerLimit.reason repeating a partialReasons entry reported');
+  assert(verboseFields({ args: { queries: [{}] }, raw: { responsePagination: { hasMore: false } } }, rules)['responsePagination-finished']?.count === 1, 'verbose completed response marker reported');
 
   // Byte gate.
   const base = (bytes, calls, cBytes = 1000, extra = {}) => ({ tasks: { T1: { kind: 'local', bytes, calls, cBytes, cCalls: 1, octoRecipe: 'r', shellRecipe: 's', evidence: { pairs: 10, files: 2 }, violations: 0, keyBytes: { 'data.files': bytes }, ...extra } } });

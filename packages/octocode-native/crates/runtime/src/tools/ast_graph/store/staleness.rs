@@ -79,7 +79,7 @@ pub(super) fn reuse_current(
         "counts": manifest["counts"],
         "calls": manifest["calls"],
         "argumentCoverage": manifest["argumentCoverage"],
-        "extraction": {"parsedFiles":0,"reusedFiles":manifest["scan"]["filesScanned"]},
+        "extraction": {"parsedFiles":0,"reusedFiles":manifest["scan"]["filesScanned"],"resumedFiles":0},
         "linkage": manifest["linkage"],
         "scan": manifest["scan"],
         "next": format!("octocode graph query stats --graph {id} --workspace {}", octocode_io::shell::quote(&home.parent()?.parent()?.to_string_lossy())),

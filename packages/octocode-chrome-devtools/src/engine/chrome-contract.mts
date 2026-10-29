@@ -6,4 +6,5 @@ export {
   chromeExtractionFields,
   chromePlanExamples,
   chromeInputExamples,
+  chromeSessionStore,
 } from '@octocodeai/config/schema';

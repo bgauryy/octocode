@@ -11,7 +11,7 @@
 //! Each affected file carries its distance, the edge that reached it, and the
 //! weakest edge confidence along that path. Manifest, lockfile, and compiler
 //! config changes affect every file below their directory.
-use super::classify::{ROLE_ENTRY, ROLE_TEST, role_names};
+use super::super::classify::{ROLE_ENTRY, ROLE_TEST, role_names};
 use super::format::{Confidence, EdgeKind, FLAG_TEST, GraphTables, NONE, NodeKind};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};

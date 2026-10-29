@@ -121,7 +121,8 @@ impl<'a> Projector<'a> {
             let Some(&src) = self.file_nodes.get(file.as_str()) else {
                 continue;
             };
-            for import in &facts.imports {
+            let commonjs = facts.commonjs.iter().map(|binding| &binding.import);
+            for import in facts.imports.iter().chain(commonjs) {
                 let Some(target) = &import.target else {
                     continue;
                 };
@@ -142,7 +143,13 @@ impl<'a> Projector<'a> {
                     }
                     continue;
                 }
-                let (found, hopped) = resolver.exported(target, name);
+                let (mut found, mut hopped) = resolver.exported(target, name);
+                // Node interop, as calls resolve it: an ESM default import of
+                // a CommonJS module uses its `module.exports` value.
+                if name == "default" && found.is_empty() {
+                    (found, hopped) =
+                        resolver.exported(target, octocode_engine::graph::COMMONJS_WHOLE_EXPORT);
+                }
                 let confidence = confidence_for(&found, Confidence::High);
                 for dst in found {
                     self.push(
@@ -158,14 +165,48 @@ impl<'a> Projector<'a> {
         }
     }
 
+    /// The names Rust files bind repo macros to: each `macro_rules!` name,
+    /// and the local name of a `use` or `pub use` of one (`use my_ready as
+    /// ready`), which a glob import carries to other files.
+    fn rust_macro_names(&self) -> HashSet<&str> {
+        let rust = || {
+            self.built
+                .facts
+                .iter()
+                .filter(|(file, _)| self.lang(file) == "rust")
+                .map(|(_, facts)| facts)
+        };
+        let declared = rust()
+            .flat_map(|facts| &facts.declarations)
+            .filter(|declaration| declaration.kind == "macro")
+            .map(|declaration| declaration.name.as_str())
+            .collect::<HashSet<_>>();
+        let aliases = rust().flat_map(|facts| {
+            let imports = facts
+                .imports
+                .iter()
+                .filter(|import| declared.contains(import.imported_name.as_str()))
+                .filter_map(|import| import.local_name.as_deref());
+            let reexports = facts
+                .reexports
+                .iter()
+                .filter(|reexport| declared.contains(reexport.imported_name.as_str()))
+                .map(|reexport| reexport.local_name.as_str());
+            imports.chain(reexports)
+        });
+        aliases.chain(declared.iter().copied()).collect()
+    }
+
     /// calls and inherits: syntax call sites and base-type clauses linked to
     /// declarations.
     pub(super) fn call_edges(&mut self, resolver: &ExportResolver, symbols: &Symbols) -> CallStats {
         let mut file_paths = vec![""; self.nodes.len()];
+        let mut families = vec![""; self.nodes.len()];
         for (path, id) in &self.file_nodes {
             file_paths[*id as usize] = path;
+            families[*id as usize] = link_family(self.lang(path));
         }
-        let scope = link_scope(&file_paths, self.workspace);
+        let scope = link_scope(&file_paths, families, self.workspace);
         let members = member_index(&symbols.global_names, &symbols.container_names);
         let accepts = |bit: u8| {
             move |id: u32| {
@@ -178,7 +219,9 @@ impl<'a> Projector<'a> {
         let callable = accepts(CALL_TARGET);
         let method = accepts(METHOD_TARGET);
         let is_type = accepts(TYPE_TARGET);
+        let recovered = accepts(RECOVERED_TARGET);
         let empty_bases = BaseIndex::default();
+        let rust_macros = self.rust_macro_names();
         let linker = Linker {
             resolver,
             nodes: &self.nodes,
@@ -188,6 +231,8 @@ impl<'a> Projector<'a> {
             scope: &scope,
             bases: &empty_bases,
             is_type: &is_type,
+            recovered: &recovered,
+            rust_macros: &rust_macros,
         };
         let mut calls = CallStats::default();
         for file in self.built.facts.keys() {
@@ -198,6 +243,7 @@ impl<'a> Projector<'a> {
         }
         let mut linked = Vec::<PendingEdge>::new();
         let mut unresolved_bases = HashSet::new();
+        let mut scala_bases = HashMap::new();
         let mut units = Vec::new();
         for (file, facts) in &self.built.facts {
             let (Some(index), Some(&file_id)) = (
@@ -213,10 +259,17 @@ impl<'a> Projector<'a> {
                 file_id,
                 language,
             };
-            unresolved_bases.extend(link_heritage(&linker, &unit, facts, &is_type, &mut linked));
+            unresolved_bases.extend(link_heritage(
+                &linker,
+                &unit,
+                facts,
+                &is_type,
+                &mut linked,
+                &mut scala_bases,
+            ));
             units.push((unit, facts));
         }
-        let bases = base_index(&linked, unresolved_bases);
+        let bases = base_index(&linked, unresolved_bases, scala_bases);
         let linker = Linker {
             bases: &bases,
             ..linker
@@ -264,8 +317,17 @@ impl<'a> Projector<'a> {
         for (src, dst, kind, confidence, detail, line) in linked {
             self.push(src, dst, kind, confidence, &detail, line);
         }
+        let mut redirected = HashSet::new();
         for call in call_output.edges {
             let (src, dst, kind, confidence, detail, line) = call.edge;
+            // A C-family prototype stands for its one definition; a site
+            // (occurrence ids repeat across files) links it once.
+            let dst = symbols.definitions.get(&dst).copied().unwrap_or(dst);
+            if !symbols.definitions.is_empty()
+                && !redirected.insert((src, call.occurrence.clone(), dst))
+            {
+                continue;
+            }
             self.push(src, dst, kind, confidence, &detail, line);
             let occurrence = self.strings.id(&call.occurrence);
             let provenance = self.provenance(src, call.source_range.as_ref());

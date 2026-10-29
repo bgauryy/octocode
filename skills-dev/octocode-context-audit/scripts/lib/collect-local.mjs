@@ -8,12 +8,11 @@ const SKIP_DIRS = new Set([
   "node_modules", ".git", "target", "dist", "out", "build", ".next", "vendor", "tmp", ".cache",
 ]);
 
-const foreignRepos = [];
 const INSTRUCTION_NAMES = new Set([
   "AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", "GEMINI.md", ".cursorrules", "copilot-instructions.md",
 ]);
 
-function walkInstructions(root, depth = 0, found = []) {
+function walkInstructions(root, foreignRepos, depth = 0, found = []) {
   if (depth > 8) return found;
   let entries = [];
   try {
@@ -32,7 +31,7 @@ function walkInstructions(root, depth = 0, found = []) {
         foreignRepos.push(full);
         continue;
       }
-      walkInstructions(full, depth + 1, found);
+      walkInstructions(full, foreignRepos, depth + 1, found);
     } else if (INSTRUCTION_NAMES.has(entry.name) || (full.includes(`${path.sep}.cursor${path.sep}rules${path.sep}`) && entry.name.endsWith(".mdc"))) {
       found.push(full);
     }
@@ -42,12 +41,13 @@ function walkInstructions(root, depth = 0, found = []) {
 
 export function collectInstructions(workspace) {
   const files = [];
+  const foreignRepos = [];
   const add = (file, scope, loaded) => {
     const text = readText(file);
     if (text == null) return;
     files.push({ path: file, scope, loaded, chars: text.length, tokens: tokens(text.length), lines: text.split("\n").length });
   };
-  for (const file of walkInstructions(workspace)) {
+  for (const file of walkInstructions(workspace, foreignRepos)) {
     const relative = path.relative(workspace, file);
     const nested = relative.includes(path.sep) && !relative.startsWith(".github") && !relative.startsWith(".claude");
     add(file, nested ? "nested" : "workspace", nested ? "when working in that directory" : "every session");

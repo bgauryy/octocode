@@ -16,8 +16,14 @@ mod records;
 pub(super) struct Window<'a> {
     pub(super) head: usize,
     pub(super) budget: usize,
+    /// Actual finished-page allowance; never enlarged for oversized context.
+    pub(super) terminal_budget: Option<usize>,
     pub(super) cancelled: &'a CancellationToken,
     pub(super) continuation_chars: usize,
+    /// Room the fragment that ends the row keeps for the continuations
+    /// only the row's last part carries ([`super::PartShare`]); zero
+    /// inside an item that does not end its split.
+    pub(super) tail: usize,
 }
 
 impl Window<'_> {
@@ -30,6 +36,21 @@ impl Window<'_> {
     }
     pub(super) fn with_head(self, head: usize) -> Self {
         Self { head, ..self }
+    }
+
+    /// This window for item `index` of `len`: only the item that ends the
+    /// split keeps the row's tail room.
+    pub(super) fn for_item(self, index: usize, len: usize) -> Self {
+        Self {
+            tail: if index + 1 == len { self.tail } else { 0 },
+            terminal_budget: self.terminal_budget.filter(|_| index + 1 == len),
+            ..self
+        }
+    }
+
+    /// The tail room item `index` of `len` keeps.
+    pub(super) fn tail_of(self, index: usize, len: usize) -> usize {
+        self.for_item(index, len).tail
     }
 
     /// An indivisible context already exceeds the bound. Avoid multiplying
@@ -166,8 +187,10 @@ impl FragmentArena {
             Window {
                 head,
                 budget,
+                terminal_budget: None,
                 cancelled: &cancelled,
                 continuation_chars: 0,
+                tail: 0,
             },
             out,
         )
@@ -186,7 +209,8 @@ impl FragmentArena {
         } = window;
         let evidence = self.dependencies(catalog, &row, cancelled)?;
         let row_chars = size(&row)? + self.evidence_chars(&evidence)?;
-        let declared = (row_chars > head)
+        // A row left whole is also its last part: it keeps the tail room.
+        let declared = (row_chars + window.tail > head)
             .then(|| {
                 self.collection_routes
                     .and_then(|routes| collection_pointer(&row, routes))
@@ -230,7 +254,15 @@ impl FragmentArena {
         };
         let first = out.len();
         if let Some(rest) = self.lean_skeleton(&mut row, window, &pointer, catalog)? {
-            self.plan_in(rest, catalog, window, out)?;
+            self.plan_in(
+                rest,
+                catalog,
+                Window {
+                    terminal_budget: None,
+                    ..window
+                },
+                out,
+            )?;
         }
         let contexts = self.contexts(row, &pointer, catalog, cancelled)?;
         let enclosing = enclosing_element(&contexts[0].value, &pointer);
@@ -270,6 +302,9 @@ impl FragmentArena {
             catalog,
             open,
             open_evidence,
+            remaining_chars: item_chars.iter().sum::<usize>() + items.len(),
+            terminal_limit: None,
+            terminal_checked: false,
         };
         self.splits.push(RowSplit {
             contexts,

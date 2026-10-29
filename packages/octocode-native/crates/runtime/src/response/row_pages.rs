@@ -11,8 +11,8 @@ mod skeleton;
 mod slicer;
 use arena::{Fragment, FragmentArena, Planned, mark_continuations};
 use collections::{
-    collection_pointer, drop_empty_declared_siblings, empty_declared_siblings,
-    lean_declared_skeleton,
+    collection_pointer, delivered_collections, drop_delivered_elsewhere,
+    drop_empty_declared_siblings, empty_declared_siblings, lean_declared_skeleton,
 };
 use octocode_engine::digest::JsonFingerprint;
 use plan::{PreparedRows, RowPlan};
@@ -51,11 +51,11 @@ struct Placed {
     page: usize,
 }
 
-/// The `incomplete — …` envelope warning a page with `later` of `rows`
+/// The incomplete envelope warning a page with `later` of `rows`
 /// rows left over leads with.
 fn incomplete_banner(later: usize, rows: usize) -> Value {
     Value::String(format!(
-        "incomplete — {later} of {rows} rows continue on later response pages"
+        "incomplete: {later}/{rows} rows; more response pages"
     ))
 }
 
@@ -114,8 +114,8 @@ pub(super) fn paginate_rows(
 /// `responsePagination` block the caller attaches afterwards: `block` is that
 /// block's size in chars for a given pagination (0 when none is attached).
 /// The room is the block of a page with more behind it, at the widest page
-/// numbers, so every page of one plan has the same row budget; a response
-/// that fits one page keeps only the block a finished page carries.
+/// numbers. The final query row may finish its remaining array tail in the
+/// smaller finished envelope; earlier rows retain the ordinary allowance.
 pub(super) struct RowSource {
     /// The envelope without its rows.
     skeleton: Map<String, Value>,
@@ -170,11 +170,12 @@ impl RowSource {
         let prepared = PreparedRows::new(rows, &volatile, tool);
         // A response whose rows, added up, fit one page beside the block a
         // finished page carries is one page of that block. Past it some row
-        // splits, so every page of the plan carries the block of a page
-        // with more behind it.
+        // splits, so ordinary fragments reserve the continued-page block.
+        // Only the final query row can spend the finished envelope allowance.
         let one_page = total + finished <= budget && prepared.size() <= row_budget(finished);
-        let plan = prepared.plan(
+        let plan = prepared.plan_with_terminal(
             row_budget(if one_page { finished } else { widest }),
+            Some(budget.saturating_sub(overhead + finished).max(1)),
             cancelled,
         )?;
         Ok(Self {

@@ -75,7 +75,7 @@ fn lsp_search_names_the_resolved_language_servers() {
     let listing = build(presentation(), &catalog).expect("listing");
     let description = listing.tools[0]["description"].as_str().expect("text");
     assert!(
-        description.contains(" Servers: rust, ts/js.</when><workflow>"),
+        description.contains(" Servers found here: rust, ts/js.</when><workflow>"),
         "{description}"
     );
 }

@@ -1,12 +1,14 @@
+Load when reviewing schema tests for weak assertions or missing cases.
+
 # Zod Testing Anti-Patterns
 
 ## Table of Contents
 
 - Testing schema internals instead of behavior
 - Not testing error paths
-- Using parse() instead of safeParse() in tests
+- Not asserting the chosen parsing contract
 - Not testing boundary values
-- Hardcoding mock data instead of generating
+- Relying only on generated fixtures
 - Duplicating schema logic in assertions
 - Testing transform output without testing input validation
 - Not testing optional/nullable combinations
@@ -79,14 +81,13 @@ describe("UserSchema", () => {
 })
 ```
 
-## Using parse() instead of safeParse() in tests
+## Not asserting the chosen parsing contract
 
 ```typescript
-// BAD: test crashes with ZodError stack trace instead of clean failure
+// Valid when the throwing API is the contract under test
 it("rejects invalid data", () => {
-  expect(() => UserSchema.parse(invalidData)).toThrow()
-  // If schema changes to accept this data, test still "passes"
-  // because no throw means no assertion runs
+  expect(() => UserSchema.parse(invalidData)).toThrow(z.ZodError)
+  // The assertion fails if parsing stops throwing.
 })
 
 // BAD: try/catch obscures the test intent
@@ -132,30 +133,20 @@ it.each([
 })
 ```
 
-## Hardcoding mock data instead of generating
+## Relying only on generated fixtures
+
+A hand-authored fixture failing after a required field is added is a visible regression signal, not a silent failure. Keep examples derived from the consumer contract. Generated fixtures supplement them but cannot prove a schema correct when the same schema determines both generator and validator.
 
 ```typescript
-// BAD: manual mock data drifts from schema
-const mockUser = {
-  name: "Test User",
-  email: "test@test.com",
-  age: 25,
-  // forgot to add 'role' when schema was updated
-}
-
-it("accepts mock user", () => {
-  expect(UserSchema.safeParse(mockUser).success).toBe(true) // fails silently
+// Useful independent contract case
+it("rejects a missing required role", () => {
+  expect(UserSchema.safeParse({ name: "Alice", email: "alice@example.com", age: 25 }).success).toBe(false)
 })
 
-// GOOD: generate from schema — always in sync
-import { fake, seed, install } from "zod-schema-faker"
-
-beforeAll(() => install(z))
+// Supplemental volume: verify generator/version support and seed it
 beforeEach(() => seed(42))
-
 it("accepts generated user", () => {
-  const user = fake(UserSchema)
-  expect(UserSchema.safeParse(user).success).toBe(true)
+  expect(UserSchema.safeParse(fake(UserSchema)).success).toBe(true)
 })
 ```
 
@@ -197,7 +188,7 @@ it("transforms valid date string", () => {
   expect(result.success).toBe(true)
   if (result.success) {
     expect(result.data).toBeInstanceOf(Date)
-    expect(result.data.getFullYear()).toBe(2024)
+    expect(result.data.getUTCFullYear()).toBe(2024)
   }
 })
 
@@ -231,7 +222,7 @@ it("accepts without optional field", () => {
 })
 
 it("accepts with null nullable", () => {
-  expect(Schema.safeParse({ name: "Alice", avatar: null }).success).toBe(true)
+  expect(Schema.safeParse({ name: "Alice", bio: "Hello", avatar: null }).success).toBe(true)
 })
 
 it("rejects null for non-nullable optional", () => {
@@ -255,9 +246,10 @@ it("error matches snapshot", () => {
   }
 })
 
-// GOOD: snapshot formatted output
+// GOOD: assert rejection before snapshotting formatted output
 it("error matches snapshot", () => {
   const result = schema.safeParse(invalid)
+  expect(result.success).toBe(false)
   if (!result.success) {
     expect(z.flattenError(result.error)).toMatchSnapshot()
     // Clean: { formErrors: [], fieldErrors: { email: ["Invalid email"] } }
@@ -323,6 +315,8 @@ it("API accepts valid input", async () => {
 
 ## No snapshot regression testing
 
+Use shape snapshots when consumers rely on an exported contract. Custom refinements and transforms still need behavior tests; JSON Schema does not represent every Zod behavior.
+
 ```typescript
 // BAD: field removal goes unnoticed
 // Someone removes `role` from UserSchema — no test catches it
@@ -358,32 +352,11 @@ it("produces structured errors for logging", () => {
     const flat = z.flattenError(result.error)
     expect(flat.fieldErrors).toHaveProperty("email")
     expect(flat.fieldErrors.email![0]).toBeTruthy()
-    // Verifies that your logging pipeline will receive useful data
+    // Verifies the formatter output; test the logging call separately
   }
 })
 ```
 
 ## No drift detection workflow
 
-```typescript
-// BAD: schema changes land without mechanical review
-// Developer changes OrderSchema, no CI check, no snapshot diff
-// Consumers break silently because the field they depend on is gone
-
-// GOOD: export and diff JSON Schema snapshots in CI
-// scripts/export-schemas.ts
-import { z } from "zod"
-import { writeFileSync } from "fs"
-
-const jsonSchema = z.toJSONSchema(OrderSchema)
-writeFileSync(
-  "snapshots/Order.json",
-  JSON.stringify(jsonSchema, null, 2) + "\n"
-)
-
-// CI workflow:
-// 1. Run export-schemas.ts
-// 2. git diff snapshots/ — if changed, CI fails
-// 3. Developer reviews diff, updates snapshots intentionally
-// 4. Schema changes are always visible in code review
-```
+When schema snapshots are part of the consumer contract, CI must notice changed, added and removed snapshots. `git diff` alone misses untracked files; also check the expected filename set so a removed schema cannot leave an obsolete snapshot. Use the maintained [lint and CI workflow](linter-and-ci.md#ci-schema-snapshot-regression), then review intentional changes before updating snapshots.

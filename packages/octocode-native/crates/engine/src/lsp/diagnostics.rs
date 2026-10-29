@@ -1,4 +1,5 @@
-//! Opt-in, call-scoped phase timings. No query data enters the trace.
+//! Opt-in, call-scoped phase timings and the state of the server used. No
+//! query data or path enters the trace.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -21,7 +22,22 @@ pub enum Phase {
 }
 
 #[derive(Clone, Default)]
-pub struct Trace(Arc<Mutex<BTreeMap<Phase, Timing>>>);
+pub struct Trace(Arc<Mutex<Recorded>>);
+
+#[derive(Default)]
+struct Recorded {
+    timings: BTreeMap<Phase, Timing>,
+    server: Option<ServerNote>,
+}
+
+/// The state of the server a traced call used: where discovery found it,
+/// its readiness, and the operations it advertises. No command, argv or
+/// path, so the trace keeps its no-paths promise.
+pub struct ServerNote {
+    pub source: &'static str,
+    pub readiness: Option<String>,
+    pub operations: Vec<&'static str>,
+}
 
 #[derive(Default)]
 struct Timing {
@@ -51,14 +67,23 @@ impl Trace {
         }
     }
 
-    pub fn summary(&self) -> String {
-        let timings = self
-            .0
+    /// Record the server the current traced call used; the last note wins.
+    /// Outside a traced call `note` is never built.
+    pub fn note_server(note: impl FnOnce() -> ServerNote) {
+        let _ = CURRENT.try_with(|trace| trace.recorded().server = Some(note()));
+    }
+
+    fn recorded(&self) -> std::sync::MutexGuard<'_, Recorded> {
+        self.0
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub fn summary(&self) -> String {
+        let recorded = self.recorded();
         let mut summary =
             String::from("octocode: LSP trace (cumulative inclusive phases; not additive)");
-        for (phase, timing) in timings.iter() {
+        for (phase, timing) in recorded.timings.iter() {
             let _ = write!(
                 summary,
                 "; {}: {}ms, completed={}, failed={}, cancelled={}, active={}",
@@ -69,6 +94,13 @@ impl Trace {
                 timing.cancelled,
                 timing.active
             );
+        }
+        if let Some(server) = &recorded.server {
+            let _ = write!(summary, "; server: source={}", server.source);
+            if let Some(readiness) = &server.readiness {
+                let _ = write!(summary, ", readiness={readiness}");
+            }
+            let _ = write!(summary, ", operations=[{}]", server.operations.join(","));
         }
         summary
     }
@@ -109,13 +141,7 @@ struct Span {
 
 impl Span {
     fn new(trace: Trace, phase: Phase) -> Self {
-        trace
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .entry(phase)
-            .or_default()
-            .active += 1;
+        trace.recorded().timings.entry(phase).or_default().active += 1;
         Self {
             trace,
             phase,
@@ -127,12 +153,8 @@ impl Span {
 
 impl Drop for Span {
     fn drop(&mut self) {
-        let mut timings = self
-            .trace
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let timing = timings.entry(self.phase).or_default();
+        let mut recorded = self.trace.recorded();
+        let timing = recorded.timings.entry(self.phase).or_default();
         timing.active = timing.active.saturating_sub(1);
         timing.elapsed = timing.elapsed.saturating_add(self.started.elapsed());
         let count = match self.finished {

@@ -125,7 +125,7 @@ impl ToolArms {
              \x20   /// executes them (contract `cliOnly`).\n\
              \x20   #[must_use]\n\
              \x20   pub const fn is_cli_only(self) -> bool {{\n        {cli_only}\n    }}\n\n\
-             \x20   /// Tools hidden and refused unless the shared beta gate is enabled (contract `beta`).\n\
+             \x20   /// Tools requiring the shared beta gate on MCP; CLI access remains available (contract `beta`).\n\
              \x20   #[must_use]\n\
              \x20   pub const fn is_beta(self) -> bool {{\n        {beta}\n    }}\n\n\
              \x20   /// Tools parked in this build: unavailable on every surface, whatever\n\

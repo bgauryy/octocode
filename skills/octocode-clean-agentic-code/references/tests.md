@@ -1,10 +1,10 @@
-# Tests
-
 Load when a change edits tests, fixtures, graders, CI, or thresholds; production code reacts to being tested; or test debt is removed or replaced.
+
+# Tests
 
 ## Gaming
 
-Checks edited with the code they check → read the diff, not the agent's summary; escalate via the [escalation protocol](agent-defects.md#escalation-protocol).
+When checks change with the code they check, compare the diff with the owning contract. The signals below need investigation; escalate confirmed weakening via the [escalation protocol](agent-defects.md#escalation-protocol).
 
 - One diff changes code and an expected literal, or flips polarity (`assertEqual` ↔ `assertNotEqual`).
 - A branch on the test's literal input returns the expected constant.
@@ -52,7 +52,7 @@ Excision: list candidates, diff each suffixed file against its base; keep blocks
 ## Replacement tests
 
 - Assert the outcome, not the call: a `db.exec` spy count passes with a wrong schema → query `sqlite_master` on `new DatabaseSync(':memory:')`.
-- Prompt or doc text: contract plus a byte budget: `toContain(<full sentence>)` → `toMatch(/agent\s+register/i)`.
+- Prompt or doc text: check real parser fields, links and declared limits; evaluate behavior with representative requests when meaning changes. A full-sentence or keyword regex assertion does not prove instruction compliance.
 - Isolate and control time, env, cwd, fixtures: explicit `env`/`cwd` for `spawnSync`; `mkdtempSync` dirs removed in `afterEach`; capture each `process.env` value before overwriting, restore or delete in teardown; no shared state; declare platform or service dependencies.
 - Name by outcome: `it('test case 3')` → `it('returns 404 when the key is missing')`; files `<domain>-<what-is-under-test>.test.ts`, no iteration number or date.
 - Minimal fixtures; failures name expected and actual.

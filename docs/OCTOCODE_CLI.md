@@ -15,7 +15,7 @@ npx -y octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"start
 
 ### Tool commands
 
-Use `octocode <tool> '<JSON envelope>'`. All 16 tool names are listed in the [tools reference](OCTOCODE_TOOLS.md). `ghCloneRepo`, `graphBuild` and `graphQuery` are CLI-only; public clasify requires a classification credential and a successful provider ping. Authenticated GitHub endpoints require a token; inspect `octocode auth status`.
+Use `octocode <tool> '<JSON envelope>'`. All 16 tool names are listed in the [tools reference](OCTOCODE_TOOLS.md). `ghCloneRepo` is CLI-only; `graphBuild` and `graphQuery` are also available in MCP with `OCTOCODE_BETA=true`; public clasify requires a classification credential and a successful provider ping. Authenticated GitHub endpoints require a token; inspect `octocode auth status`.
 
 ### System commands
 
@@ -30,7 +30,7 @@ Research inputs are JSON envelopes. Use `--input <file>` for saved requests and 
 ```bash
 octocode schema
 octocode schema localFetch --view query
-octocode schema localFetch --view full
+octocode schema localFetch --view variants
 ```
 
 The catalog describes availability; the query view describes authored input; the full view includes variants and rules. Defaults are owned by the contract. Discovery never requires copying private progress state.
@@ -87,8 +87,8 @@ Use the returned path with local tools. Clone storage requires persistent mode; 
 ## `graph` — persisted code graph
 
 Machine callers can use `graphBuild` and `graphQuery` with the standard JSON
-envelope and generated schemas. These are CLI-only tools, also used by Octocode
-Code. See [agent graph tools](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli)
+envelope and generated schemas. They also run through MCP when beta is enabled,
+and are used by Octocode Code. CLI graph commands do not require beta. See [agent graph tools](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli-and-beta-mcp)
 for operation requirements and workspace snapshot storage. The positional
 commands below use the same Rust graph store.
 
@@ -100,7 +100,7 @@ without re-reading source. Local tools must be enabled. Unlike tool commands,
 ```bash
 octocode graph ingest .                         # build a snapshot (an unchanged tree is reused)
 octocode graph query stats                      # size, languages, hubs, gaps
-octocode graph query find createServer          # locate a node id
+octocode graph query find 'create server'        # locate a node id by name, path or words
 octocode graph query callers 'src/server.ts#createServer'
 octocode graph query impact --since origin/main # blast radius and tests to run
 octocode graph query issues                     # ranked possible problems
@@ -337,4 +337,4 @@ Node, npm, network access, or another `octocode` on `PATH`.
 
 ## How the CLI aligns with MCP
 
-Core owns one schema and vocabulary; config generates it; native validates and executes it. Both transports accept the same JSON envelopes and return the same evidence for shared tools. MCP lists only available tools and excludes CLI-only `ghCloneRepo`, `graphBuild` and `graphQuery`. The launchers contain no tool logic.
+Core owns one schema and vocabulary; config generates it; native validates and executes it. Both transports accept the same JSON envelopes and return the same evidence for shared tools. MCP lists only available tools, excludes CLI-only `ghCloneRepo`, and exposes `graphBuild` and `graphQuery` when beta is enabled. The launchers contain no tool logic.

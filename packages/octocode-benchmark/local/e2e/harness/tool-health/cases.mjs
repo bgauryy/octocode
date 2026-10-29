@@ -48,21 +48,25 @@ function readerWorkspace(ctx) {
   return dir;
 }
 
+async function prepareGraph({ call }) {
+  const built = await call('graphBuild', { queries: [{ path: '.' }] });
+  if (built.isError) throw new Error(`graph fixture build failed: ${built.text}`);
+}
+
 export const CASES = {
   graphBuild: {
-    cliOnly: true, budgetMs: LOCAL,
-    happy: { query: { path: '.' }, fields: ['id', 'dir', 'counts', 'scan'], rows: data => [data.id].filter(Boolean), min: 1 },
+    budgetMs: LOCAL,
+    // Parallel surfaces share a snapshot; isolated advanced cases cover fresh builds.
+    prepare: prepareGraph,
+    happy: { query: { path: '.' }, fields: ['id', 'dir', 'counts', 'scan'], rows: data => [data.id].filter(Boolean), min: 1, check: data => data.reused === true ? null : 'prepared snapshot must be reused on both surfaces' },
     page: { na: 'a build receipt has no result collection' },
     empty: { na: 'a snapshot is built, reused or fails' },
     invalid: { query: { maxFiles: 50001 } },
     explore: [{ label: 'reuse', query: { path: '.' } }],
   },
   graphQuery: {
-    cliOnly: true, budgetMs: LOCAL,
-    prepare: async ({ call }) => {
-      const built = await call('graphBuild', { queries: [{ path: '.' }] });
-      if (built.isError) throw new Error(`graph fixture build failed: ${built.text}`);
-    },
+    budgetMs: LOCAL,
+    prepare: prepareGraph,
     happy: { query: { operation: 'find', target: 'greet' }, fields: ['graph', 'results', 'freshness'], rows: data => (data.results ?? []).map(row => row.id), min: 1 },
     page: { query: { operation: 'find', target: 'greet', limit: 1 }, lead: 'page', unpaged: { query: { operation: 'find', target: 'greet', limit: 1000 } } },
     empty: { query: { operation: 'find', target: 'zzzNoSuchSymbol' } },

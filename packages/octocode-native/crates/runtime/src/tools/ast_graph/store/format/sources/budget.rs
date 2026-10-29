@@ -1,6 +1,6 @@
 use super::*;
 use crate::execution::cancel::CancellationCheck;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub(super) fn invalid(message: &'static str) -> SourceError {
     SourceError::InvalidMap(message)
@@ -16,21 +16,16 @@ pub(super) struct Budget<'a> {
     deadline: Instant,
 }
 impl<'a> Budget<'a> {
-    pub fn new(cancel: &'a dyn CancellationCheck) -> Self {
-        Self::with_limits(
-            cancel,
-            super::super::super::MAX_GRAPH_BYTES,
-            MAX_DECODED_ITEMS,
-        )
-    }
-    pub fn with_limits(cancel: &'a dyn CancellationCheck, bytes: usize, items: usize) -> Self {
+    /// The source table's charge within `limits` (its bytes and items),
+    /// for one pass of at most their source deadline.
+    pub fn new(cancel: &'a dyn CancellationCheck, limits: &Limits) -> Self {
         Self {
             cancel,
             bytes: 0,
             items: 0,
-            max_bytes: bytes,
-            max_items: items,
-            deadline: Instant::now() + Duration::from_secs(30),
+            max_bytes: limits.source_bytes,
+            max_items: limits.table_items,
+            deadline: Instant::now() + limits.source_deadline,
         }
     }
     pub fn check(&self) -> Result<(), SourceError> {

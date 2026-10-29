@@ -80,6 +80,11 @@ flate2 = { workspace = true }
 # clasify URL sources: the browser-grade HTML parser (MIT OR Apache-2.0) behind section-addressable text.
 html5ever = "0.40"
 imagesize = { version = "0.15", default-features = false, features = ["png", "jpeg"] }
+# clasify pads images below the provider minimum onto a transparent PNG canvas
+# (crc32fast is already in the lockfile via flate2).
+crc32fast = "1"
+zune-jpeg = "0.5"
+zune-png = "0.5"
 octocode-engine = { path = "../engine" }
 octocode-github = { path = "../github" }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }

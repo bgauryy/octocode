@@ -17,6 +17,8 @@ pub(super) struct Coverage {
     /// A file was searched only up to its first NUL (`binaryQuit`).
     pub(super) binary_cut: bool,
     pub(super) binary_files: String,
+    /// The returned files whose values are decoded text, not UTF-8 bytes.
+    pub(super) not_utf8_files: Option<String>,
     pub(super) pcre2_deadline: bool,
     pub(super) skip_hint: Option<String>,
     /// include/exclude filtered out every file: nothing was searched.
@@ -87,6 +89,11 @@ impl Coverage {
                 scanned.binary_file_count.unwrap_or(0),
                 output_root,
             ),
+            not_utf8_files: scanned
+                .not_utf8_files
+                .as_deref()
+                .filter(|files| !files.is_empty())
+                .map(|files| binary_file_list(files, files.len() as u32, output_root)),
             pcre2_deadline: cap_has(CapReason::Pcre2Deadline),
             scope_miss: !root.is_file()
                 && stats.files_searched == 0
@@ -137,6 +144,14 @@ impl Coverage {
             warnings.push(
                 "Some match values were redacted because their source file could not be re-read to check clipped text for secrets. Use localFetch at the returned anchors.".into(),
             );
+        }
+        // Values are decoded as localFetch decodes the file; say so once.
+        if let Some(files) = &self.not_utf8_files
+            && !layout.list
+        {
+            warnings.push(format!(
+                "notUtf8: {files} not valid UTF-8: match values are decoded text (Latin-1, or U+FFFD for invalid bytes), as localFetch reads the file, not verbatim bytes."
+            ));
         }
         if self.pcre2_deadline {
             warnings.push(

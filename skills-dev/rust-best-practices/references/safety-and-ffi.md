@@ -1,9 +1,9 @@
-# Safety, security, and FFI
-
 Load when you review `unsafe`, validate untrusted input, build a Node addon (napi-rs), a C-ABI library (`cdylib`), a language binding, or wrap a C library (tree-sitter grammars, `cc`-built deps). Why: UB or a panic across a boundary crashes the host process, not just your crate. UB and aliasing authority: **The Rustonomicon** (`references/sources-and-crates.md`); cite it, do not reason about UB from memory. Allocation-level `unsafe` and memory across FFI: `references/performance-and-memory.md`. napi TS types and npm packaging: `references/napi.md`.
 
+# Safety, security, and FFI
+
 ## unsafe
-- Default to `#![forbid(unsafe_code)]` at the crate root. Otherwise `#![deny(unsafe_code)]` with `#[allow]` on the few audited modules.
+- For a crate with no intended unsafe code, use `#![forbid(unsafe_code)]` when its dependency and generated-code boundaries permit it. For audited unsafe modules, use `#![deny(unsafe_code)]` with narrow `#[allow]`s.
 - A crate whose job is FFI (`libc`, `windows-sys`, process and job control) keeps `unsafe`. Deny `undocumented_unsafe_blocks` there. Do not `forbid(unsafe_code)` on that whole crate. A search that counts the token `unsafe` in string literals, keyword lists, and tests is not a missing `SAFETY` comment.
 - The `// SAFETY:` comment says why the invariant holds here; for FFI it states null-ness, lifetime, alignment, and thread-affinity. No invariant → not ready to ship.
 - Keep `unsafe` minimal, wrapped in a safe API that upholds the invariant; do not leak raw pointers/lifetimes across the boundary.
@@ -13,8 +13,8 @@ Load when you review `unsafe`, validate untrusted input, build a Node addon (nap
 ## Untrusted input
 - Validate and bound everything crossing a trust boundary (sizes, lengths, ranges, encodings); reject early with a typed error. Values from the other side of an FFI boundary (sizes, indices, UTF-8) are untrusted input.
 - **DoS via unbounded resources** is the common real-world Rust vuln: cap request/body/file sizes, time out fetches and parses, bound in-flight work. An OOM from an attacker-sized input is a security bug.
-- **Regex ReDoS:** use `regex` (linear-time). A PCRE-style engine (`pcre2`, `fancy-regex`) on untrusted patterns/inputs needs a backtracking bound.
-- **SSRF / path traversal:** canonicalize URLs/paths for anything that fetches or reads for a caller; allowlist hosts/roots, do not blocklist. Filesystem: `cap-std` (capability dirs) or canonicalize-then-`starts_with(root)`; reject symlink escapes.
+- **Regex ReDoS:** prefer `regex` for untrusted patterns; bound pattern and input sizes and the number of matches. Its search bound depends on both pattern and input length, and repeated searches can cost more. A backtracking engine (`pcre2`, `fancy-regex`) also needs an engine-specific work or time bound. [regex's untrusted-input guidance](https://docs.rs/regex/latest/regex/#untrusted-inputs).
+- **SSRF / path traversal:** enforce allowed schemes and destinations on the resolved connection, including redirects and DNS changes; parsing or normalizing a URL alone does not make a fetch safe. For filesystem access, prefer a capability directory such as `cap-std`. A `canonicalize` then `starts_with(root)` check can race a later open if a symlink changes; use handle-relative operations for an adversarial tree.
 - Secrets: never log them; scrub tokens/keys from error chains and debug output. Wrap in `secrecy::SecretString` (redacted `Debug`, zeroized on drop); compare tokens/MACs with `subtle` (constant-time), never `==`.
 - Deserialization: reject unknown fields only where the input contract is closed; preserve documented extension fields. Size-cap bytes *before* parsing; keep `serde_json`'s default recursion limit. Octocode wire types follow `references/parsing-and-codegen.md`.
 - Crypto: never hand-roll. `rustls`, `ring`/`aws-lc-rs`, RustCrypto crates; randomness from `getrandom`/`rand::rngs::OsRng`.
@@ -33,13 +33,13 @@ Load when you review `unsafe`, validate untrusted input, build a Node addon (nap
 - Return `napi::Result` (`references/napi.md`); map core errors with `napi::Error::new(Status::InvalidArg, msg)`. Never `panic!`/`unwrap()` in exports; enforce with `unwrap_used = "deny"` (this repo does).
 
 ## FFI: napi-rs threads
-- **Async rule:** any call > ~1ms is `#[napi]` on an `async fn` (napi's tokio runtime, for I/O), an `AsyncTask` (`Task` trait, libuv's pool, supports `AbortSignal`) for short jobs, or CPU work on `spawn_blocking` / a dedicated pool. Never block Node's event loop.
+- **Async rule:** move work that can block the Node event loop to the appropriate executor: `#[napi] async fn` for asynchronous I/O, `AsyncTask` for bounded blocking jobs, or a dedicated bounded pool for CPU-heavy work. Verify cancellation and lifetime behavior for the chosen API; latency depends on the caller's budget, not a universal millisecond cutoff.
 - **Don't flood libuv's shared pool.** libuv threads also serve Node's fs/DNS/crypto. Route CPU-heavy parse/search work to your own `rayon`/Tokio pool; keep libuv for the thin async boundary. Bound concurrency at the JS API.
 - **`ThreadsafeFunction` payloads must be `'static` owned data.** Convert to `String`/`Buffer`/owned structs before crossing the thread boundary; never store borrowed `Object<'env>`/`Function<'env>`.
 - Isolate Node dependencies in a binding crate so runtime libraries build without Node. For an existing single-crate addon, a feature gate is an alternative.
 
 ## FFI: crate types, linking, data
-- `crate-type = ["cdylib", "rlib"]`: `cdylib` for the loadable `.node`/`.so`, `rlib` so Rust consumers and integration tests link the same code (this repo uses exactly this); drop `rlib` without a Rust consumer.
+- `crate-type = ["cdylib", "rlib"]` when the same binding crate needs a loadable `.node`/`.so` and Rust consumers or integration tests. Keep only the crate types the package actually uses; Octocode's current native runtime is an `rlib`, with a separate binary host.
 - Wrapping C (tree-sitter grammars, compression, crypto): isolate the `-sys` / `cc`-built crate so a Rust edit doesn't retrigger the C compile; feature-gate optional grammars/backends.
 - Generate C headers with `cbindgen` when exposing a C ABI.
 - Prefer copying owned data (`String`, `Vec<u8>`, `Buffer`) over lending pointers. A borrowed slice that outlives the Rust call is a use-after-free.

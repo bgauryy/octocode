@@ -185,3 +185,65 @@ async fn runtime_catalog_lists_available_tools() {
     );
     runtime.close().await;
 }
+
+#[tokio::test]
+async fn graph_mcp_gate_covers_discovery_calls_and_cli_host_embedding() {
+    for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
+        for beta in ["false", "true"] {
+            let workspace = Workspace::new();
+            workspace.write("entry.ts", "export function entry() { return 1; }\n");
+            let runtime = ToolRuntime::from_host(HostOptions {
+                cwd: Some(workspace.workspace.clone()),
+                env: Some(BTreeMap::from([
+                    ("OCTOCODE_ENABLE_LOCAL".into(), "true".into()),
+                    ("OCTOCODE_BETA".into(), beta.into()),
+                    (
+                        "OCTOCODE_HOME".into(),
+                        workspace.home.to_string_lossy().into_owned(),
+                    ),
+                ])),
+                surface,
+                ..HostOptions::default()
+            })
+            .expect("runtime");
+            for name in ["graphBuild", "graphQuery"] {
+                assert_eq!(
+                    runtime.is_available(name),
+                    surface == RuntimeSurface::Cli || beta == "true"
+                );
+                let query = if name == "graphBuild" {
+                    json!({"path": workspace.workspace})
+                } else {
+                    json!({"operation": "stats", "path": workspace.workspace})
+                };
+                let result = runtime
+                    .run_mcp(
+                        format!("{name}-{beta}"),
+                        name.into(),
+                        json!({"queries": [query]}),
+                    )
+                    .await
+                    .expect("MCP response");
+                if beta == "false" {
+                    assert_eq!(
+                        result["structuredContent"]["errorCode"], "toolUnavailable",
+                        "{result}"
+                    );
+                    assert!(
+                        result["structuredContent"]
+                            .to_string()
+                            .contains("OCTOCODE_BETA"),
+                        "{result}"
+                    );
+                    assert!(!workspace.workspace.join(".octocode/graph").exists());
+                } else {
+                    assert_ne!(result["isError"], true, "{result}");
+                    let data = &result["structuredContent"]["results"][0]["data"];
+                    assert!(data.get("errorCode").is_none(), "{result}");
+                    assert_eq!(data["counts"]["nodesByKind"]["symbol"], 1, "{result}");
+                }
+            }
+            runtime.close().await;
+        }
+    }
+}

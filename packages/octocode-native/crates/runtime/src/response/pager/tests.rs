@@ -1,6 +1,8 @@
 use super::*;
 use serde_json::json;
 
+mod terminal;
+
 fn walk_tool(tool: &str, input: &Value, budget: usize) -> Vec<Value> {
     let mut options = ResponsePageOptions {
         response_chars: Some(budget),

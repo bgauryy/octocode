@@ -1,6 +1,6 @@
 ---
 name: octocode-architect
-description: "Load this skill first whenever the question is module dependencies, cycles, layering, boundaries, coupling, a split or refactor, or an architecture review; good for proving consequences."
+description: "Load this skill first whenever the question is module dependencies, cycles, layering, boundaries, coupling, a split or refactor, an architecture review, or which style, pattern, or role a piece of code really is; good for proving consequences."
 ---
 
 # Octocode Architect
@@ -34,16 +34,16 @@ flowchart LR
 
 ## Workflow boundary
 
-For an explicit workflow, coordinated work, whole-system audit, runtime surgery, handoff, or choice of method, load `octocode-workflows`. Its [composition contract](../octocode-workflows/references/composition.md#orchestrator-and-actor-contract) owns role selection, actor handoffs, one ledger, recovery, and user-facing orchestration.
+When choosing or coordinating a workflow, load `octocode-workflows`: its [composition contract](../octocode-workflows/references/composition.md#orchestrator-and-actor-contract) owns roles, handoffs, the ledger and recovery. Load its [whole-system traversal](../octocode-workflows/references/single-actor-traversal.md) or [runtime surgery](../octocode-workflows/references/runtime-surgery.md) only for that procedure.
 
-Within a workflow, Architect owns Frame → Model → Prove → Change → Verify for code-boundary work, [gates](#gates), and [change discipline](references/change-discipline.md). Research owns Octocode tool semantics and live schemas. Apply this skill's [critical-path procedure](references/analysis.md#explore-the-graph-and-find-critical-paths) and [review angles](references/checks.md#review-angles) to affected code; record healthy invariants alongside proven defects and candidates.
-
-Use Workflow's [AST/LSP techniques](../octocode-workflows/references/ast-lsp-workflows.md), [single-actor traversal](../octocode-workflows/references/single-actor-traversal.md), [runtime surgery](../octocode-workflows/references/runtime-surgery.md), and [verification](../octocode-workflows/references/verification.md) when the selected workflow calls for them. They do not replace this skill's architecture proof or authorization gates.
+Architect keeps the proof steps, [gates](#gates) and [change discipline](references/change-discipline.md). Apply the [critical-path procedure](references/analysis.md#explore-the-graph-and-find-critical-paths) and [review angles](references/checks.md#review-angles) to affected code, preserving healthy invariants and disproof. Research owns tool semantics and live schemas.
 
 ## When making a claim
 
 - Label rules declared, observed, or inferred; each [view](references/analysis.md#model-the-wiring) answers a different question.
+- Name styles, patterns, roles, and transports with [concepts](references/concepts.md): a name is declared intent, the mechanism is observed; rule out the look-alike before the finding, and report a pattern only with its consequence.
 - Apply the [shared evidence rules](references/evidence.md) for static, runtime, and measured claims.
+- Caller counts and absence claims come from the union of the graph and `lspSearch callers`: each misses callers the other finds (one trait method: graph 50, LSP 37, union 70; LSP call hierarchy skips calls inside closures, the graph misses types brought in by `use super::*`).
 - Distinguishing checks use distinct IDs, paths, versions, roots and assert the specific failure; when a sharper fixture rejects a finding, keep the disproof.
 - Topology edges are syntactic candidates; an edge or style preference is no defect, a type-only cycle no runtime proof. Run the [coverage checks](references/analysis.md#choose-the-narrowest-evidence-lane) before a completeness or absence claim.
 
@@ -65,6 +65,7 @@ Use Workflow's [AST/LSP techniques](../octocode-workflows/references/ast-lsp-wor
 | Layers, flows, blast radius, task decomposition; topology, cycles, dead code, duplication, hot paths | [analysis](references/analysis.md) | Evidence lanes, coverage, proof |
 | Protocol, architecture, bugs, algorithms, efficiency, memory, modularity, or cleanup review | [checks](references/checks.md) | Healthy patterns, failure hypotheses, and distinguishing evidence |
 | Before any source edit | [change-discipline](references/change-discipline.md) | Safe moves, slice verification |
+| Naming a style, pattern, role, or transport; an ambiguous or look-alike term; mapping a smell to a graph detector or a layout to a layering claim | [concepts](references/concepts.md) | Vocabulary with distinguishing evidence, look-alikes, decision guide |
 | Workflow roles, runtime acceptance, shared coverage, interruption, or failed check | [workflow composition and verification](../octocode-workflows/references/composition.md) | Workflow-owned roles, ledger, identity, and recovery |
 | Structural discovery or semantic impact tracing in a workflow | [AST and LSP workflows](../octocode-workflows/references/ast-lsp-workflows.md) | Workflow technique; Research owns tool semantics |
 | Consequential result | [output.md](output.md#decision-record) | Decision record fields |

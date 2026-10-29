@@ -1,6 +1,6 @@
 ---
 name: octocode-dev
-description: "Use when doing any development work inside the octocode monorepo: build, test, lint, typecheck, verify, docs checks, dependency dedupe, local dev setup, or publish (root package.json has no wrapper scripts; tasks run through this skill's dev.mjs); changing a tool contract, native runtime, CLI/MCP surface, or config setting through the one generation pipeline; and auditing a tool end to end (schema, descriptions, Rust implementation, output, pagination, next.* and hints routing, config, docs drift). Triggers: yarn build, build:dev, run tests, verify, docs:verify, prepublish, release, contracts:regen, add a config key, add a tool field, contract drift, fingerprint mismatch, stale MCP, tool audit, octocode dev. Not for researching other code → octocode-research; not for open Rust design choices → rust-best-practices."
+description: "Load this skill first for development in the Octocode monorepo: builds, tests, lint, verification, setup, dependencies and release preparation; also tool or config contract changes and end-to-end tool audits. Owns the task runner and generation pipeline."
 ---
 
 # Octocode Dev
@@ -35,9 +35,9 @@ Paths: `<repo>` is the monorepo root. `CORE` is `../octocode-mcp-host/packages/o
 
 ## Hard rules
 
-The working, contract and change rules live in `<repo>/AGENTS.md`; its two flows draw the contract pipeline and the native-change steps ([contract pipeline](docs/DEVELOPMENT.md#contract-pipeline)). Commands for the native-change flow (native, engine, or CLI change): `yarn workspace @octocodeai/octocode-native build:dev` → `yarn workspace octocode build:dev` (or `octocode-mcp`) → `$OCTO config --json && $OCTO schema` → call the changed tool.
+Working and change rules live in `<repo>/AGENTS.md`; follow its core/native flows and the [contract pipeline](docs/DEVELOPMENT.md#contract-pipeline). Native changes rebuild the host binary and affected launcher, then exercise `$OCTO config --json`, `schema` and the changed tool.
 
-For local checks and tests, follow the [host-only build rule](../../AGENTS.md#setup-run-develop): on macOS, build only the current Mac architecture. Use native `build:dev`, or native `build` when testing release-mode behavior, then rebuild affected launchers. Run `--all`, `build:all` or `build:publish` only for explicitly requested release or cross-platform work.
+Local checks use the [host-only build rule](../../AGENTS.md#setup-run-develop): `build:dev`, or native `build` for release-mode behavior, plus affected launchers. `--all`, `build:all` and `build:publish` require requested release or cross-platform scope.
 
 `verify` and `check-outputs` check the host binary. Use `check-outputs --all` to check every staged platform before a release.
 
@@ -68,6 +68,7 @@ When a script flag or path rule is unclear, read [the script guide](scripts/READ
 |---|---|
 | `run <script>`, `verify`, `check`, `report`, `check-outputs`; after editing it run `node --test skills-dev/octocode-dev/scripts/workspace-health.test.mjs` | `scripts/workspace-health.mjs` |
 | Debugging the `docs:verify` gate | `scripts/docs-verify.mjs` |
+| Changing standalone skill test discovery (`skills:check`, `test:ci`); verify with `node --test skills-dev/octocode-dev/scripts/skill-tests.test.mjs` | `scripts/skill-tests.test.mjs` |
 | A tool contract changed; check `octocode-research` examples against live schemas | `scripts/check-research-guidance.mjs [--json] [--self-test]` |
 | Dedupe flags beyond `deps:dedupe` | `scripts/dedupe-deps.mjs` |
 | Local resolutions on (`setup`) / off before publish | `scripts/dev-setup.mjs` / `scripts/prepublish.mjs` |
@@ -89,10 +90,14 @@ A multi-tool audit may run one subagent per tool, each with a Task contract: obj
 Every check holds:
 
 - The owning layer changed. Generated outputs were regenerated, not edited. New fields are covered.
-- `$DEV build:dev` (or the package build) exited 0. The changed path ran through `$OCTO` or MCP.
+- Runtime or contract changes: affected builds exit 0 and the changed path runs through `$OCTO` or MCP. Documentation-only changes: `$DEV docs:verify`; skill changes: `$DEV skills:check`.
 - Focused tests pass. Before a handoff that spans packages, `$DEV verify` and `$DEV docs:verify` pass.
 - Reply BLUF with claim–evidence: the exact commands and results. Name anything not verified.
 
 ## Output
 
 Follow [the output format](output.md).
+
+## Related skills
+
+Use `octocode-research` for code evidence, `rust-best-practices` for open Rust design choices, and `octocode-documentation` for prose beyond a factual correction.

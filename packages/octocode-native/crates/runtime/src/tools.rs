@@ -69,12 +69,23 @@ pub(crate) fn pruned_walk(
     root: &std::path::Path,
     extra: impl IntoIterator<Item = String>,
 ) -> ignore::WalkBuilder {
-    let prune = crate::policy::prune::OwnWalk::new(root, extra);
-    let mut walk = octocode_engine::search::walk::walk_builder(
+    pruned_walk_with(
         root,
+        extra,
         octocode_engine::search::walk::IgnorePolicy::default(),
-        None,
-    );
+    )
+}
+
+/// [`pruned_walk`] under an explicit ignore `policy`; the default prunes
+/// still apply, so `node_modules`, build output and credential stores stay
+/// out whatever the policy admits.
+pub(crate) fn pruned_walk_with(
+    root: &std::path::Path,
+    extra: impl IntoIterator<Item = String>,
+    policy: octocode_engine::search::walk::IgnorePolicy,
+) -> ignore::WalkBuilder {
+    let prune = crate::policy::prune::OwnWalk::new(root, extra);
+    let mut walk = octocode_engine::search::walk::walk_builder(root, policy, None);
     walk.filter_entry(move |entry| {
         !prune.prunes(
             entry.path(),

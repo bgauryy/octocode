@@ -55,6 +55,9 @@ pub(super) fn convert(data: &mut Value, row: &Value, intent: Option<&QueryOption
         if let Some(limit) = intent.limit {
             request["limit"] = json!(limit);
         }
+        if let Some(provenance) = row.get("includeProvenance") {
+            request["includeProvenance"] = provenance.clone();
+        }
         calls.insert(
             "page".into(),
             Continuation::continued(ToolId::GraphQuery, request).build(),

@@ -65,6 +65,7 @@ mod detailed;
 mod file_reads;
 mod limits;
 mod patterns;
+mod qualified;
 mod queries;
 mod search_files;
 mod walker;

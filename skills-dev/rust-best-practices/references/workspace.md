@@ -1,6 +1,6 @@
-# Workspace: crates and root manifest
-
 Load when you add a crate to a workspace, map a Node monorepo habit to Cargo, write or review a workspace root `Cargo.toml`, centralize versions/lints, or audit feature and version hygiene. Why: the root manifest centralizes versions, lints, and features that otherwise drift per crate. Whether and where to split: `references/crate-structure.md`. Profiles: `references/build-profiles.md`.
+
+# Workspace: crates and root manifest
 
 ## npm → Cargo map
 | Node / npm | Cargo |
@@ -26,15 +26,15 @@ crates/
   app-fs/  app-http/  # adapters, one I/O concern each
 xtask/                # dev automation in Rust (codegen, release checks), publish = false
 ```
-- Flat `crates/*`; folder name == crate name (kebab in Cargo, snake in `use`). Do not nest crates.
-- A virtual root sets its resolver explicitly; it has no package edition to infer from. Edition 2024 implies resolver `"3"` only on a package root. A new virtual workspace can set `"3"`. Preserve an existing choice unless dependency resolution is the task: Octocode, Tokio, and Wasmtime keep `"2"`. Changing it changes which features unify. [Cargo resolver versions](https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions).
+- A flat `crates/*` layout makes members easy to find. Keep a nested layout when existing tooling or domain grouping benefits from it; Cargo member paths are explicit.
+- A virtual root sets its resolver explicitly; it has no package edition to infer from. Edition 2024 implies resolver `"3"` only on a package root. A new virtual workspace can set `"3"`. Preserve an existing choice unless dependency resolution is the task; Octocode currently uses `"3"`. Changing it affects dependency resolution. [Cargo resolver versions](https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions).
 - One `Cargo.lock`, one `target/`.
 - Add one: `cargo new --lib crates/app-fs` (auto-joins `members`), `cargo add -p app-cli --path crates/app-fs`, then move the dep into `[workspace.dependencies]`.
 
 ## Root manifest
 ```toml
 [workspace.package]                 # shared metadata
-edition = "2024"                    # ONE edition for the whole workspace
+edition = "2024"                    # members may inherit this during a staged migration
 rust-version = "1.89"               # single MSRV floor
 license = "MIT"
 repository = "https://github.com/org/repo"
@@ -59,20 +59,20 @@ dbg_macro = "deny"
 ```
 Members: `edition.workspace = true`, `serde = { workspace = true }`, `tokio = { workspace = true, features = ["fs"] }`, `napi = { workspace = true, optional = true }` (`optional` is per member), `[lints] workspace = true`.
 
-- **`[workspace.dependencies]`** prevents version skew on shared ABIs: two crates linking one N-API addon must compile the same `napi`/`napi-derive`. Centralize deps used by ≥2 crates or ABI/security-critical; single-use deps can stay local.
+- **`[workspace.dependencies]`** centralizes a shared version and baseline features; this matters when crates must agree on a dependency's types or ABI. Centralize dependencies used by multiple crates or across an ABI boundary; single-use dependencies can stay local.
 - **`[workspace.lints]`**: duplicated lint blocks drift. `[lints] workspace = true` cannot add extras in the manifest; a stricter crate keeps its own `[lints]` block. A single `#![deny(some_lint)]` belongs on one module. Do not put `#![deny(warnings)]` at a crate root: the next rustc warning fails that build, including for a published crate's own CI. Cargo caps lints from dependencies, so the attribute does not police downstream. The manifest floor is the replacement ([deny warnings](https://rust-unofficial.github.io/patterns/anti_patterns/deny-warnings.html)).
 - **The floor lives in the manifest.** `warnings = { level = "deny", priority = -1 }` makes `cargo check` and rust-analyzer fail on rustc warnings. A `-D warnings` that exists only on a yarn or CI script does not. Clippy lints still run only under `cargo clippy`. The editor stays on `cargo check` (`references/testing-and-tooling.md`).
 - **Group priority.** A group at `priority = -1` lets one lint at the default priority override it. Put `clippy::all` and `warnings` at `-1`. An intentional allow such as `let_underscore_drop` stays at the default priority. [Cargo lints](https://doc.rust-lang.org/cargo/reference/manifest.html#the-lints-section).
 - **Groups to leave off.** Do not enable `clippy::restriction` as a group: the lints contradict each other, and Clippy ships `blanket_clippy_restriction_lints` against that. Do not deny `clippy::pedantic` or `clippy::nursery` for the whole workspace; pedantic has known false positives ([Clippy](https://doc.rust-lang.org/clippy/)). Deny one lint from those groups on the crate that needs it (`references/safety-and-ffi.md`). `clippy::cargo` asks internal `publish = false` crates for registry metadata; enable one cargo lint, not the group.
 - A library that prints is a bug. Deny `clippy::print_stdout` and `clippy::print_stderr` on the library crate. Leave them off the CLI binary.
-- **One edition.** Mixed 2021/2024 means different macro hygiene, lifetime capture, and temporary scopes between crates that call each other. Migrate with `cargo fix --edition` + verify; do not just flip the string.
+- **Edition migration.** A shared edition simplifies workspace conventions, but members may use different editions during a staged migration. Edition-specific rules apply within each crate; check cross-crate macro and API behavior, run `cargo fix --edition`, and verify before changing a member's edition.
 - `version` may live in `[workspace.package]` only if release tooling reads it there; regex scripts that rewrite per-crate `version = "…"` break on `version.workspace = true`.
 - A `rust-toolchain.toml` channel above the `rust-version` floor is normal: toolchain = what CI builds with; MSRV = the compatibility promise (enforce with `clippy::incompatible_msrv` or `cargo msrv verify`).
 - In Octocode, inherit version and metadata from `[workspace.package]`; internal Cargo crates stay `publish = false`. Extracting a Rust crate does not create an npm package.
 
 ## Split mechanics and hygiene
 - **Crates are not free**: each adds a link/metadata step and blocks cross-crate inlining without `#[inline]`/LTO. Tens of meaningful crates beat hundreds of 50-line ones; a file-sized concern stays a module.
-- **Features unify per command, not per workspace**: one member enabling `tokio/full` turns it on for that build only. A different `-p` selection, `--all-features`, or dev-dependency features (test builds) produce separate compiled copies. Align selections, and mirror dev-dep features in an opt-in `dev-unify` feature (`references/build-profiles.md`). `cargo-hakari` exists, but vet what it unifies into shipped builds (it pulled a napi test stub into an addon here).
+- **Features unify per command, not per workspace**: one member enabling `tokio/full` turns it on for that build only. A different `-p` selection, `--all-features`, or dev-dependency features (test builds) can produce separate compiled copies. Align selections when compile cost matters; an opt-in `dev-unify` feature is one measured approach (`references/build-profiles.md`). Vet generated feature unification against shipped builds.
 - Heavy deps: `default-features = false` + only what you use (smaller graph, faster builds, less attack surface).
 - Publishing: internal path deps also need `version = "x.y"`; publish leaves first (release-plz orders it).
 - Commit `Cargo.lock` for apps and libraries (current Cargo guidance); CI builds with `--locked`; never hand-edit it.

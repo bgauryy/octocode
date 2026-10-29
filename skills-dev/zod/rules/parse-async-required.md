@@ -9,7 +9,7 @@ tags: parsing, async, refinement, transform
 
 ## Problem
 
-When a schema contains async refinements (`.refine(async ...)`) or async transforms (`.transform(async ...)`), calling synchronous `.parse()` or `.safeParse()` will throw an error. The async refinement will not execute.
+When synchronous `.parse()` or `.safeParse()` encounters an async refinement or transform, it throws. The callback may already have started before its Promise is detected; do not assume the failed sync parse prevented side effects.
 
 ## Incorrect
 

@@ -75,7 +75,8 @@ impl ToolError {
     pub(crate) fn source(error: octocode_engine::text::analysis::SourceError) -> Self {
         use octocode_engine::text::{Refusal, analysis::SourceError};
         let code = match &error {
-            SourceError::Cancelled | SourceError::Deadline => ErrorCode::Cancelled,
+            SourceError::Cancelled => ErrorCode::Cancelled,
+            SourceError::Deadline => ErrorCode::Timeout,
             SourceError::LimitExceeded(_) => ErrorCode::ScopeTooBroad,
             SourceError::Refused(Refusal::Binary) => ErrorCode::BinaryFileUnsupported,
             SourceError::Refused(Refusal::NotUnicode) => ErrorCode::FileReadFailed,
@@ -146,3 +147,23 @@ impl std::fmt::Display for ToolError {
 }
 
 impl std::error::Error for ToolError {}
+
+#[cfg(test)]
+mod source_error_tests {
+    use super::*;
+    use octocode_engine::text::analysis::SourceError;
+
+    /// A source-correspondence deadline is a timeout the caller can widen
+    /// or narrow around; only a cancellation is `cancelled`.
+    #[test]
+    fn a_source_deadline_is_a_timeout_not_a_cancellation() {
+        assert_eq!(
+            ToolError::source(SourceError::Deadline).code,
+            ErrorCode::Timeout
+        );
+        assert_eq!(
+            ToolError::source(SourceError::Cancelled).code,
+            ErrorCode::Cancelled
+        );
+    }
+}

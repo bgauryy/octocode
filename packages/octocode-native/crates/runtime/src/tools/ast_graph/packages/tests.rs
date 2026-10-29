@@ -170,6 +170,14 @@ fn java_imports_link_classes_nested_static_and_wildcards() {
     assert_eq!(
         files(index.resolve(
             super::super::linking::Linker::Java,
+            "static com.g.base.Preconditions.*",
+            importer
+        )),
+        vec!["guava/src/com/g/base/Preconditions.java"]
+    );
+    assert_eq!(
+        files(index.resolve(
+            super::super::linking::Linker::Java,
             "com.g.collect.*",
             importer
         ))

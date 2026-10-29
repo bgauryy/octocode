@@ -33,7 +33,7 @@ fn oversized_snapshot_is_rejected_before_allocation() {
     let file = dir.0.as_path().join(GRAPH_FILE);
     std::fs::File::create(&file)
         .expect("file")
-        .set_len(MAX_GRAPH_BYTES as u64 + 1)
+        .set_len(crate::tools::ast_graph::limits::LIMITS.snapshot_bytes as u64 + 1)
         .expect("sparse fixture");
     assert!(read_graph_file(&file).is_err());
 }
@@ -210,7 +210,10 @@ fn settled_sources_reuse_by_stamp_and_a_same_size_edit_still_rebuilds() {
     // The unchanged-tree check decodes only the file index, the same one.
     let (files, files_digest) = format::decode_files(&bytes).expect("decode files");
     assert_eq!(files_digest, first.value["sha256"].as_str().expect("sha"));
-    assert_eq!(files.strings, tables.strings);
+    // Record strings only: their ids prefix the full dictionary, which adds
+    // the strings only occurrence evidence references.
+    assert!(files.strings.len() < tables.strings.len());
+    assert_eq!(files.strings[..], tables.strings[..files.strings.len()]);
     assert_eq!(files.digests, tables.digests);
     assert_eq!(files.stamps, tables.stamps);
     assert_eq!(files.nodes.len(), tables.nodes.len());
@@ -254,8 +257,8 @@ fn settled_sources_reuse_by_stamp_and_a_same_size_edit_still_rebuilds() {
 }
 
 /// `--graph` takes an exact id, else the one root whose scope it names,
-/// else the one id containing it; anything that names several snapshots
-/// is ambiguous (exit 2, candidates listed), never a silent pick.
+/// else the one root whose ids contain it; anything that names several
+/// roots is ambiguous (exit 2, candidates listed), never a silent pick.
 #[test]
 fn graph_selection_is_exact_or_ambiguous() {
     let dir = fixture();
@@ -326,4 +329,69 @@ fn prune_groups_snapshots_by_root_not_by_slug() {
     let left = list_snapshots(&home);
     assert!(left.contains(&dash_id.to_owned()), "{left:?}");
     assert_eq!(left.len(), 2, "one per root: {left:?}");
+}
+
+/// Rewrites `snapshot` as one an older build wrote: its manifest and its
+/// graph header name the previous format version.
+fn age_snapshot(snapshot: &Path) {
+    let older = format::FORMAT_VERSION - 1;
+    let manifest_path = snapshot.join(MANIFEST_FILE);
+    let mut manifest: Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).expect("manifest")).expect("json");
+    manifest["formatVersion"] = json!(older);
+    std::fs::write(&manifest_path, manifest.to_string()).expect("older manifest");
+    let mut bytes = std::fs::read(snapshot.join(GRAPH_FILE)).expect("graph.bin");
+    bytes[8..12].copy_from_slice(&older.to_le_bytes());
+    std::fs::write(snapshot.join(GRAPH_FILE), bytes).expect("older graph");
+}
+
+/// An ingest prunes snapshots of an older format, whatever root they
+/// scanned (this build cannot read them), and keeps readable snapshots of
+/// other roots.
+#[test]
+fn ingest_prunes_older_format_snapshots_of_every_root() {
+    let dir = fixture();
+    dir.write("other/x.ts", "export const x = 1;\n");
+    let home = dir.0.as_path().join(".octocode").join("graph");
+    let old = ingest_root(dir.0.as_path(), &dir.0.as_path().join("other"), None, false);
+    let old_id = old.value["id"].as_str().expect("id").to_owned();
+    let src = ingest_root(
+        dir.0.as_path(),
+        &dir.0.as_path().join("app/src"),
+        None,
+        false,
+    );
+    let src_id = src.value["id"].as_str().expect("id").to_owned();
+    age_snapshot(&home.join(&old_id));
+    let app = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(app.class, ExitClass::Success, "{}", app.value);
+    assert_eq!(
+        app.value["pruned"],
+        json!([old_id.clone()]),
+        "{}",
+        app.value
+    );
+    let left = list_snapshots(&home);
+    assert!(!left.contains(&old_id), "{left:?}");
+    assert!(left.contains(&src_id), "{left:?}");
+}
+
+/// A substring that names only snapshots of one root is no ambiguity: it
+/// picks that root's newest snapshot, as a scope does.
+#[test]
+fn a_substring_naming_one_roots_snapshots_picks_its_newest() {
+    let dir = fixture();
+    let src = dir.0.as_path().join("app/src");
+    let first = ingest_root(dir.0.as_path(), &src, None, true);
+    let second = ingest_root(dir.0.as_path(), &src, None, true);
+    assert_eq!(second.class, ExitClass::Success, "{}", second.value);
+    assert_ne!(first.value["id"], second.value["id"]);
+    let stats = ask(dir.0.as_path(), "stats", None, |o| {
+        o.graph = Some("pp-src".into());
+    });
+    assert_eq!(
+        stats.value["graph"]["id"], second.value["id"],
+        "{}",
+        stats.value
+    );
 }

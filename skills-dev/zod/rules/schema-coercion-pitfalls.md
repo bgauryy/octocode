@@ -36,8 +36,8 @@ const Settings = z.object({
 Settings.parse({ debug: "false", verbose: "0" })
 // { debug: false, verbose: false }
 
-// z.stringbool() accepts: "true"/"false", "1"/"0", "yes"/"no", "on"/"off"
-// Rejects anything else with a validation error
+// Defaults also accept "y"/"n" and "enabled"/"disabled" (case-insensitive).
+// Set truthy/falsy lists when the consumer accepts a narrower vocabulary.
 ```
 
 ## Why

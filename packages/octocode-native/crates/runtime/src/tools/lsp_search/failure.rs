@@ -24,7 +24,7 @@ pub(super) use paging::{
 use rows::attach_text_search;
 pub(super) use rows::{
     BUILD_SCRIPTS_COST, annotate_empty_includes, build_scripts_rerun, continuation, empty,
-    mark_anchor_line_errors, mark_diagnostics_unpublished, partial_with_related_rerun,
+    mark_anchor_line_errors, mark_diagnostics_unpublished, no_answer, partial_with_related_rerun,
     same_query_rerun, stamp_coverage,
 };
 

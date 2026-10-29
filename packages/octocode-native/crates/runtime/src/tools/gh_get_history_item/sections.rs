@@ -113,5 +113,26 @@ impl Sections {
                 None => fields.remove("sections"),
             };
         }
+        drop_idle_file_filters(query);
+    }
+}
+
+/// The file filters (`include`, `fileStatus`, `minChanges`) narrow changed
+/// files only: a continuation whose named sections hold none (comments,
+/// reviews, a commit list) drops them, as the contract rejects them there.
+pub(crate) fn drop_idle_file_filters(query: &mut Value) {
+    let Some(fields) = query.as_object_mut() else {
+        return;
+    };
+    let lists_files = match fields.get("sections").and_then(Value::as_array) {
+        Some(sections) => sections
+            .iter()
+            .any(|section| matches!(section.as_str(), Some("files" | "patches" | "commitFiles"))),
+        None => true,
+    };
+    if !lists_files {
+        for key in ["include", "fileStatus", "minChanges"] {
+            fields.remove(key);
+        }
     }
 }

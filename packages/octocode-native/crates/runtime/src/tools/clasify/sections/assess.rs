@@ -67,8 +67,6 @@ pub(super) fn assess_and_save(
         .iter()
         .map(|key| session.questions[key].clone())
         .collect();
-    let questions =
-        super::super::rows::contextual_questions(&questions, session.context.as_deref());
     let mut usage = ClassificationUsage::default();
     let mut settled = settle_unsupported(session, shared.limits);
     let (admitted, deferred_by_sibling) = admit_units(session, shared);
@@ -113,10 +111,14 @@ pub(super) fn assess_and_save(
                         .iter()
                         .map(|&index| questions[index].clone())
                         .collect();
+                    let state = super::super::rows::contextual_state(
+                        &session.resources[resource].units[unit].state,
+                        session.context.as_deref(),
+                    );
                     let result = evaluator
                         .evaluate_questions(
                             EvaluationInput {
-                                state: &session.resources[resource].units[unit].state,
+                                state: &state,
                                 questions: &remaining,
                                 assets: None,
                                 long_context: session.long_context,

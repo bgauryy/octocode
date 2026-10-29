@@ -99,7 +99,7 @@ pub(super) fn pattern_declaration(
 
 /// `q` as a fresh `rule` query over the same scope (a directory scan pins
 /// the grammar it inferred).
-fn with_rule(q: MatchQuery<'_>, scope: &Scope, rule: Value) -> Option<Value> {
+pub(super) fn with_rule(q: MatchQuery<'_>, scope: &Scope, rule: Value) -> Option<Value> {
     let mut query = crate::response::result::fresh_query_row(ToolId::AstSearch, &q.to_value());
     let fields = query.as_object_mut()?;
     fields.insert("rule".into(), rule);
@@ -113,7 +113,11 @@ fn with_rule(q: MatchQuery<'_>, scope: &Scope, rule: Value) -> Option<Value> {
 }
 
 /// One scan of a rule `query` over its scope.
-fn rule_scan(query: &Value, paths: &PathPolicy, cancel: &dyn CancellationCheck) -> Option<Scan> {
+pub(super) fn rule_scan(
+    query: &Value,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Option<Scan> {
     let rule_query: AstSearchQueryMatch0 = serde_json::from_value(query.clone()).ok()?;
     let rule_query = MatchQuery::Content(&rule_query);
     let rule_scope = resolve_scope(rule_query, paths, cancel).ok()?;

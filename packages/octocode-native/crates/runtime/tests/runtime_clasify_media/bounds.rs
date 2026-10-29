@@ -209,7 +209,7 @@ async fn captured_state_includes_json_escaping_and_identity_in_its_bound() {
     // Source text alone fits 32k, but its JSON representation does not.
     std::fs::write(workspace.workspace.join("quoted.txt"), "\"".repeat(20_000)).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
-    let out = clasify(&runtime, vec![json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"quoted.txt"}},
+    let out = clasify(&runtime, vec![json!({"operation":"evaluate","longContext":false,"source":{"tool":"localFetch","query":{"path":"quoted.txt"}},
         "questions":{"q":{"type":"noul","instructions":"Does the source contain quotation marks?"}}})]).await;
     assert_eq!(
         out["results"][0]["data"]["errorCode"], "classificationContextTooLarge",

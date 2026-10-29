@@ -112,6 +112,12 @@ pub(super) fn run_status(
                 "  No language server is available for this file (language: {lang_id}). \
                  Install a matching language server or add an lsp-servers.json entry."
             );
+            if let Some(hint) = server_command
+                .as_deref()
+                .and_then(octocode_engine::lsp::config::install_hint)
+            {
+                println!("  {hint}");
+            }
         } else {
             println!("  Could not determine language for this file.");
         }

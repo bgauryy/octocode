@@ -80,11 +80,12 @@ pub(super) fn scope_unassessed(linker: &Linker, site: &Site) -> bool {
         .get(site.name)
         .into_iter()
         .flatten()
-        .chain(linker.global_names.get(site.name).into_iter().flatten())
+        .copied()
+        .chain(linker.named(site.caller, site.name))
     {
-        if (linker.is_type)(*id) {
+        if (linker.is_type)(id) {
             observed_type = true;
-            if (site.accept)(*id) {
+            if (site.accept)(id) {
                 return false;
             }
         }

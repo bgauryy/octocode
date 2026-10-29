@@ -1,3 +1,5 @@
+Load when customizing or formatting validation failures for a consumer.
+
 # Error Handling Reference
 
 ## ZodError
@@ -143,11 +145,11 @@ A schema-level callback can return `undefined` to defer to lower-priority custom
 
 ## reportInput Option
 
-Includes raw input values in error issues. **Never use in production.**
+Includes raw input values in error issues. Keep it off for real user or secret data in every environment. An environment name is not a privacy boundary.
 
 ```typescript
-// Development only
-const result = schema.safeParse(data, { reportInput: true })
+// Explicit inspection of a fabricated, non-sensitive fixture only
+const result = schema.safeParse(fixture, { reportInput: true })
 if (!result.success) {
   result.error.issues[0].input // contains the raw value
 }

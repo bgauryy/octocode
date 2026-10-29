@@ -17,8 +17,8 @@ fn result_rows_require_stable_indices_and_preserve_optional_diagnostics() {
 #[test]
 fn equal_evidence_stays_on_its_rows_instead_of_moving_to_a_shared_alias() {
     let data = json!({"commits":[
-        {"commitSha":"abc123","date":"2026-01-01T00:00:00Z","message":"first"},
-        {"commitSha":"def456","date":"2026-01-01T00:00:00Z","message":"second"}
+        {"commitSha":"abc123","date":"2026-01-01T00:00:00Z","messageHeadline":"first"},
+        {"commitSha":"def456","date":"2026-01-01T00:00:00Z","messageHeadline":"second"}
     ]});
     let rows = vec![json!({"index":0,"data":data})];
     let output = crate::response::rows::envelope(crate::id::ToolId::GhSearchHistory, rows.clone());
@@ -30,8 +30,8 @@ fn equal_evidence_stays_on_its_rows_instead_of_moving_to_a_shared_alias() {
 #[test]
 fn malformed_evidence_is_isolated_without_changing_successful_siblings() {
     let output = json!({"results":[
-        {"index":0,"data":{"commits":[{"commitSha":"abc123","message":"first"}]}},
-        {"index":1,"data":{"commits":[{"message":"second","commitSha":42}]}}
+        {"index":0,"data":{"commits":[{"commitSha":"abc123","messageHeadline":"first"}]}},
+        {"index":1,"data":{"commits":[{"messageHeadline":"second","commitSha":42}]}}
     ]});
     let error = validate_output("ghSearchHistory", &output).expect_err("second row is invalid");
     let isolated =
@@ -62,4 +62,25 @@ fn executable_calls_require_explicit_kind_and_the_correct_request_form() {
         validate_output("localFetch", &output(malformed))
             .expect_err("never infer or repair executable calls");
     }
+}
+
+#[test]
+fn heritage_scan_rows_keep_their_label_under_the_lsp_contract() {
+    // `implementation` lists the declarations a syntax scan found beside
+    // the server's rows, each labelled `source: "native-graph-facts"`; the
+    // label is contract vocabulary, so the whole answer is never withheld
+    // as a violation because of it.
+    let data = json!({
+        "kind": "implementation",
+        "lsp": {"serverAvailable": true, "provider": "implementationProvider"},
+        "matches": [
+            {"path": "src/calls.ts", "displayRange": {"startLine": 3, "startCharacter": 14, "endLine": 3},
+             "content": "3\texport class SlowRunner implements Runner {\n"},
+            {"path": "src/other.ts", "displayRange": {"startLine": 5, "startCharacter": 14, "endLine": 5},
+             "content": "5\texport class Other implements Runner {\n", "source": "native-graph-facts"}
+        ],
+        "pagination": {"page": 1, "totalPages": 1, "totalItems": 2, "hasMore": false}
+    });
+    validate_output("lspSearch", &json!({"results":[{"index":0,"data":data}]}))
+        .expect("a scan-labelled implementation row is valid output");
 }

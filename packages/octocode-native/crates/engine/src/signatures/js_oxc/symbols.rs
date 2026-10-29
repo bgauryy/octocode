@@ -2,10 +2,11 @@
 //! namespaces, modules, type aliases and variables.
 
 use oxc_ast::ast::{
-    BindingPattern, Class, ClassElement, Expression, MethodDefinitionKind, TSEnumDeclaration,
-    TSEnumMemberName, TSExternalModuleDeclaration, TSGlobalDeclaration, TSInterfaceDeclaration,
-    TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSSignature, TSTypeAliasDeclaration,
-    VariableDeclaration, VariableDeclarationKind,
+    BindingPattern, Class, ClassElement, Expression, MethodDefinitionKind, ObjectPropertyKind,
+    PropertyKind, TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration,
+    TSGlobalDeclaration, TSInterfaceDeclaration, TSNamespaceDeclaration,
+    TSNamespaceDeclarationBody, TSSignature, TSTypeAliasDeclaration, VariableDeclaration,
+    VariableDeclarationKind,
 };
 use oxc_span::Span;
 
@@ -17,6 +18,26 @@ use crate::lsp::symbol_kind;
 
 pub(super) fn class_symbol(class: &Class, li: &SpanPositions) -> Option<DocumentSymbol> {
     let id = class.id.as_ref()?;
+    let children = class_members(class, li);
+    // The decorator list is part of the class even when it is written before
+    // `export`, outside the class node's own span.
+    let start = class
+        .decorators
+        .iter()
+        .map(|decorator| decorator.span.start)
+        .fold(class.span.start, u32::min);
+    Some(container(
+        id.name.as_str(),
+        symbol_kind::CLASS,
+        Span::new(start, class.span.end),
+        id.span,
+        children,
+        li,
+    ))
+}
+
+/// The methods, fields and accessors a class body declares.
+pub(super) fn class_members(class: &Class, li: &SpanPositions) -> Vec<DocumentSymbol> {
     let mut children = Vec::new();
     for element in &class.body.body {
         match element {
@@ -62,21 +83,7 @@ pub(super) fn class_symbol(class: &Class, li: &SpanPositions) -> Option<Document
             _ => {}
         }
     }
-    // The decorator list is part of the class even when it is written before
-    // `export`, outside the class node's own span.
-    let start = class
-        .decorators
-        .iter()
-        .map(|decorator| decorator.span.start)
-        .fold(class.span.start, u32::min);
-    Some(container(
-        id.name.as_str(),
-        symbol_kind::CLASS,
-        Span::new(start, class.span.end),
-        id.span,
-        children,
-        li,
-    ))
+    children
 }
 
 pub(super) fn interface_symbol(
@@ -278,7 +285,9 @@ pub(super) fn collect_variable(
                 let nested = declarator
                     .init
                     .as_ref()
-                    .and_then(|init| function_value_children(init, li))
+                    .and_then(|init| {
+                        function_value_children(init, li).or_else(|| object_methods(init, li))
+                    })
                     .unwrap_or_default();
                 out.push(container(
                     id.name.as_str(),
@@ -301,6 +310,38 @@ pub(super) fn collect_variable(
             }
         }
     }
+}
+
+/// The function-valued members of an object literal (`{ f() {}, g: () => 1
+/// }`), as tsserver's navigation tree lists them; accessors, computed keys
+/// and plain values declare no callable.
+fn object_methods(init: &Expression, li: &SpanPositions) -> Option<Vec<DocumentSymbol>> {
+    let Expression::ObjectExpression(object) = bound_value(init) else {
+        return None;
+    };
+    let mut members = Vec::new();
+    for property in &object.properties {
+        let ObjectPropertyKind::ObjectProperty(property) = property else {
+            continue;
+        };
+        if property.kind != PropertyKind::Init || property.computed {
+            continue;
+        }
+        let Some(nested) = function_value_children(&property.value, li) else {
+            continue;
+        };
+        if let Some((name, name_span)) = property_key_name(&property.key) {
+            members.push(container(
+                &name,
+                symbol_kind::METHOD,
+                property.span,
+                name_span,
+                nested,
+                li,
+            ));
+        }
+    }
+    Some(members)
 }
 
 fn enum_member_name(name: &TSEnumMemberName) -> Option<(String, Span)> {

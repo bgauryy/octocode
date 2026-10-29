@@ -53,12 +53,12 @@ Report per [output](../output.md#response).
 
 `localFetch` and `ghGetFileContent` share selectors and pagination (GitHub adds `owner`, `repo`, `ref`). Output is `<line>\t<text>`; non-adjacent windows are separated by one unnumbered `--` line; cite by line number.
 
-- Quote or edit only verbatim text: reads without `minify` (raw, the default) or `matchString` reads; `minify:"standard"` drops comments and indentation. History text and patches are always exact.
-- Known literal: `matchString` (a list is a grep map); `contextLines` default 3 (max 100); wider: `ranges`.
-- Several regions, one call: `"ranges":["95-105","255-265"]`.
+- Quote or edit only verbatim `view:"content"` evidence (the default); `view:"compact"` is for orientation. History text and patches are exact.
+- Known literal: `matchString` arrays with explicit `contextLines:{before,after}` when needed; wider: `ranges`.
+- Several regions, one call: `"ranges":[{"startLine":95,"endLine":105},{"startLine":255,"endLine":265}]`.
 - Whole declaration: `block:true` on a match or range; check the span closes it, else use `astSearch symbols` `line`/`endLine`. Never guess an end.
-- `minify:"symbols"`: doc headings with lines (read a heading to the next equal-or-higher one) or code signatures (read exact source before explaining behavior). Underlined headings or `minifyFallback`: exact search; a missing entry is not absence.
-- Broad unread source where only some passages matter: [context selection](clasify.md#select-inside-search-and-fetch) returns selected raw windows; omit minify. A known deciding span is usually an ordinary exact read.
+- `view:"symbols"`: doc headings or code signatures with lines; read exact source before explaining behavior. A missing outline entry is not absence; recover with exact search.
+- Broad unread source where only some passages matter: [context selection](clasify.md#select-inside-search-and-fetch) returns selected raw windows. A known deciding span is usually an ordinary exact read.
 - Path-only reads return content and page when necessary. Copy emitted continue inputs unchanged; never author private offsets.
 
 ## Campaigns

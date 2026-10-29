@@ -115,7 +115,7 @@ pub(super) fn pick_candidate(
 ) -> Result<Option<LspResolvedSymbol>> {
     // Nested nodes (e.g. `string` and its `string_fragment` child) can report
     // the same position; keep one candidate per position, preferring the most
-    // symbol-like reading so an orderHint counts each occurrence once.
+    // symbol-like reading so an `occurrence` counts each occurrence once.
     candidates.sort_by_key(|candidate| {
         (
             candidate.line_index,
@@ -127,7 +127,7 @@ pub(super) fn pick_candidate(
     });
     candidates.dedup_by_key(|candidate| (candidate.line_index, candidate.character));
     let order_hint = fuzzy.order_hint.unwrap_or(0) as usize;
-    // Identifier positions (sorted by line, then column: `orderHint` order),
+    // Identifier positions (sorted by line, then column: `occurrence` order),
     // so the hit can say when its line spells the name more than once.
     let identifiers = candidates
         .iter()
@@ -143,19 +143,25 @@ pub(super) fn pick_candidate(
                 .filter(|candidate| candidate.line_index as i32 == target)
                 .collect();
             // Identifier occurrences come first (in column order), then
-            // mentions inside string literals, so orderHint indexes real
-            // symbol uses before incidental text matches.
+            // mentions inside string literals: `occurrence` indexes the
+            // identifiers, and a literal mention counts only on a line that
+            // has no identifier.
             same_line.sort_by_key(|candidate| (candidate.is_literal, candidate.character));
-            // An explicit orderHint past this line's occurrences names none
-            // of them: say so, never answer for another occurrence.
-            if order_hint > 0 && !same_line.is_empty() && order_hint >= same_line.len() {
-                return Err(order_hint_error(
-                    &fuzzy.symbol_name,
-                    line_hint,
-                    same_line.len(),
-                ));
+            let identifiers_on_line = same_line
+                .iter()
+                .filter(|candidate| !candidate.is_literal)
+                .count();
+            let indexable = if identifiers_on_line > 0 {
+                identifiers_on_line
+            } else {
+                same_line.len()
+            };
+            // An explicit `occurrence` past them names none: say so, never
+            // answer for another occurrence.
+            if order_hint > 0 && !same_line.is_empty() && order_hint >= indexable {
+                return Err(order_hint_error(&fuzzy.symbol_name, line_hint, indexable));
             }
-            if let Some(candidate) = same_line.get(order_hint) {
+            if let Some(candidate) = same_line.get(order_hint).filter(|_| order_hint < indexable) {
                 Some((*candidate).clone())
             } else {
                 candidates

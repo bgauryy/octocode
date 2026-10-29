@@ -22,7 +22,7 @@ const MAX_CURSORS: usize = 16;
 /// Entries all kept cursors hold to inspect together, the oldest dropped
 /// first.
 const MAX_WEIGHT: usize = 200_000;
-const TTL: Duration = Duration::from_secs(120);
+const TTL: Duration = Duration::from_secs(600);
 
 struct Kept {
     proof: Proof,

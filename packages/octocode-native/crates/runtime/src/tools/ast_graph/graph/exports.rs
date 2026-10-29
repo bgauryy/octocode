@@ -1,9 +1,11 @@
 //! `FileLink`: exports, calls, path specifiers and CommonJS requires.
 use super::*;
+use octocode_engine::graph::COMMONJS_WHOLE_EXPORT;
 
 impl FileLink<'_, '_> {
     pub(super) fn export(&mut self, x: octocode_engine::graph::GraphFactExport) {
         let Some(spec) = x.source else {
+            self.export_import_binding(&x);
             return;
         };
         let target = self.resolve(&spec, None, x.local_name.as_deref().unwrap_or(&x.name));
@@ -44,6 +46,30 @@ impl FileLink<'_, '_> {
         });
     }
 
+    /// `import { a } from './x'; export { a as b }`: an ES module binding is
+    /// immutable, so exporting it re-exports `a` of `./x` under `b`.
+    fn export_import_binding(&mut self, x: &octocode_engine::graph::GraphFactExport) {
+        if self.lang != Linker::JsTs {
+            return;
+        }
+        let local = x.local_name.as_deref().unwrap_or(&x.name);
+        let forwarded = self
+            .facts
+            .imports
+            .iter()
+            .filter(|import| {
+                import.local_name.as_deref() == Some(local)
+                    && !matches!(import.imported_name.as_str(), "" | "*")
+            })
+            .map(|import| Reexport {
+                local_name: x.name.clone(),
+                imported_name: import.imported_name.clone(),
+                target: import.target.clone(),
+            })
+            .collect::<Vec<_>>();
+        self.facts.reexports.extend(forwarded);
+    }
+
     pub(super) fn call(&mut self, c: octocode_engine::graph::GraphFactCall) {
         if c.kind == "dynamic-import" {
             let target = self.resolve(&c.callee, None, "*");
@@ -82,6 +108,9 @@ impl FileLink<'_, '_> {
             line: c.line,
             kind: c.kind,
             receiver_type: c.receiver_type,
+            term_binding: c.term_binding,
+            self_template: c.self_template,
+            macros: c.macros,
         });
     }
 
@@ -142,15 +171,32 @@ impl FileLink<'_, '_> {
             return;
         };
         let target = self.resolve(&spec, None, "*");
-        self.record(c.line, &spec, &target, false);
-        if let Some(t) = target {
+        let external = self.record(c.line, &spec, &target, false);
+        if let Some(t) = &target {
             let kind = if c.binding == "create-require" {
                 "create-require"
             } else {
                 "commonjs-require"
             };
-            self.edge(&t, kind, c.line);
-            self.b.namespace_targets.insert(t);
+            self.edge(t, kind, c.line);
+            self.b.namespace_targets.insert(t.clone());
+        }
+        for binding in c.bindings {
+            self.facts.commonjs.push(CommonJsBinding {
+                import: Import {
+                    id: format!("commonjs:{}:{}:{}", spec, c.line, binding.local),
+                    imported_name: binding
+                        .imported
+                        .unwrap_or_else(|| COMMONJS_WHOLE_EXPORT.to_owned()),
+                    local_name: Some(binding.local),
+                    specifier: spec.clone(),
+                    line: c.line,
+                    target: target.clone(),
+                    external,
+                    scope_id: None,
+                },
+                declaration_id: binding.declaration_id,
+            });
         }
     }
 }

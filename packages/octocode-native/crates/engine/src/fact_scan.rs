@@ -13,6 +13,7 @@ use crate::stamp::SourceStamp;
 use crate::types::{FileSystemQueryOptions, GraphFactsScanDiagnostic, GraphFactsScanOptions};
 
 mod evaluate;
+pub use evaluate::SOURCE_BUDGET_EXCEEDED;
 mod memo;
 
 use crate::signatures::languages::RegistryView;
@@ -176,11 +177,30 @@ pub enum FactsSource<'a> {
 pub type DeclarationsExtraction =
     dyn Fn(&str, &Path, Option<&str>) -> Option<Arc<GraphFactsDocument>> + Sync;
 
-/// `(relative path, raw source digest, parser override)` to previous facts.
+/// The source identity a caller's persisted facts must satisfy.
+pub struct GraphFactsReuseContext<'a> {
+    pub relative_path: &'a str,
+    pub content_digest: &'a str,
+    pub source_digest: &'a str,
+    pub parser: Option<&'a str>,
+}
+
+impl GraphFactsReuseContext<'_> {
+    /// The scan and persistent-store accounting share this acceptance check.
+    pub fn accepts(&self, entry: &GraphFactsTypedEntry) -> bool {
+        entry.relative_path == self.relative_path
+            && entry.content_digest == self.content_digest
+            && entry.facts.file == self.relative_path
+            && entry.facts.source_digest == self.source_digest
+            && entry.facts.schema_version == crate::signatures::GRAPH_FACTS_SCHEMA_VERSION
+    }
+}
+
+/// The current source's identity and parser override to previous facts.
 /// The caller namespaces its store by extractor version and parser policy.
 /// The scan rejects mismatched path/digest records and supplies current stamps.
 pub type GraphFactsReuse<'a> =
-    dyn Fn(&str, &str, Option<&str>) -> Option<GraphFactsTypedEntry> + Sync + 'a;
+    dyn Fn(&GraphFactsReuseContext<'_>) -> Option<GraphFactsTypedEntry> + Sync + 'a;
 
 /// The candidate files a graph-facts scan of `options` reads, in walk order:
 /// files of an outlined grammar (or mapped by `languageGlobs`) that `admit`

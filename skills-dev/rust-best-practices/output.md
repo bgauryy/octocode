@@ -1,6 +1,6 @@
 # Output
 
-Follow the [shared visual-first, content-only rules](references/presentation.md) when presenting results; retain this skill’s artifact format.
+Follow the [shared presentation and HTML delivery rules](references/presentation.md); retain this skill’s artifact format.
 
 One answer in chat, BLUF: the choice first, then Claim–evidence: why, and the check that proves it, each beside its source or command result. Name the page that owns the rule. Mark an unmeasured performance claim as unmeasured (Facts, assumptions, unknowns).
 

@@ -1,7 +1,7 @@
+Load when saving or rendering. The owning skill's `output.md` and `report-contract` own destination, accepted statuses, required sections and when to save.
+
 <!-- Generated copies: edit skills/common/references/report-output.md, then run skills/common/build.mjs. -->
 # Report output
-
-Load when saving or rendering. The owning skill's `output.md` and `report-contract` own destination, accepted statuses, required sections and when to save.
 
 ## Report header
 
@@ -35,10 +35,12 @@ Author Markdown; the template supplies presentation. Follow the [shared visual-f
 ## Visual and data contracts
 - Special fences: `mermaid`, `graph`, `chart`. Before graph/chart JSON, read [widget schemas and examples](report-widgets.md), which own fields, allowed types and data constraints; no library options, executable code, or duplicate authored data tables.
 - Use measured data with sources and units; label estimates and unknowns. Explain each visual's takeaway nearby; use labels beyond color and Mermaid `accTitle`/`accDescr` where supported. No invented metrics or decorative graphs.
-- The template owns fonts, layout, themes, search, zoom, export and fallbacks. Do not generate CSS, JavaScript, SVG, Mermaid initialization directives or a custom viewer. For exploration of architecture scan/model JSON, use the architect skill's specialized graph template.
+- The template owns fonts, layout, themes, search, zoom, export and fallbacks. Do not generate CSS, JavaScript, SVG, Mermaid initialization directives or a custom viewer. For an interactive graph of files, functions, layers and flows, use `octocode-graph-view` when installed.
 - Keep Markdown as editable source and HTML as the viewing artifact; provide JSON/CSV separately when machine reuse matters. Apply [evidence rules](evidence.md) and [communication protocols](protocol-catalog.md#catalog).
 
 ## Render and retrieve
+
+Apply [HTML delivery](presentation.md#html-delivery) after completing the task. Saving Markdown does not request HTML. The commands below apply when HTML was requested or the user accepted the offer.
 
 1. Run `node <skill-folder>/scripts/render-report.mjs report.md --out report.html --json --strict`. Exit 2 means fix reported validation issues and rerun; no new HTML was written, so do not deliver an older file as the result.
 2. Success reports `render: unverified`. Open the page and run **Render check** until Ready; it checks diagrams, widgets and image loading. Inspect alt text, readable sizing and nearby source links; check other relevant links too. Correct failures or disclose unverified delivery. Browser unavailable: say rendering was not verified; generation alone is not visual verification.

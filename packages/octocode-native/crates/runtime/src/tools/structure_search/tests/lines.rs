@@ -252,3 +252,35 @@ fn file_rows_omit_the_default_file_type() {
         assert_eq!(dir["type"], "directory", "{dir}");
     }
 }
+
+/// A listed link to a directory has no lines: it shows no line count, in
+/// details or under a line sort, never `unreadable` (a failed read of a
+/// file). A link to a file still counts its target's lines.
+#[cfg(unix)]
+#[test]
+fn a_link_to_a_directory_has_no_line_count_not_unreadable() {
+    let root = Fixture::new();
+    root.write("src/a.rs", "a\nb\n");
+    std::os::unix::fs::symlink("src", root.0.join("to_dir")).expect("dir link");
+    std::os::unix::fs::symlink("src/a.rs", root.0.join("to_file")).expect("file link");
+    for query in [
+        json!({"operation":"tree","path":root.0}),
+        json!({"operation":"files","path":root.0,"maxDepth":1,"sort":{"by":"lineCount","order":"desc"}}),
+    ] {
+        let out = run(&root.0, query).expect("listing");
+        let rows = listed(&out);
+        let row = |name: &str| {
+            rows.iter()
+                .find(|row| {
+                    row["path"]
+                        .as_str()
+                        .is_some_and(|path| path.ends_with(name))
+                })
+                .cloned()
+                .unwrap_or_else(|| panic!("{name} listed: {out}"))
+        };
+        assert_eq!(row("to_dir")["type"], "symlink", "{out}");
+        assert!(row("to_dir").get("totalLines").is_none(), "{out}");
+        assert_eq!(row("to_file")["totalLines"], 2, "{out}");
+    }
+}

@@ -14,7 +14,6 @@
 //! and renamed into place, so a reader never observes a partial snapshot.
 mod argument_coverage;
 mod build_lock;
-pub(super) mod classify;
 mod detect;
 mod drift;
 mod format;
@@ -51,23 +50,22 @@ use snapshots::*;
 use staleness::*;
 
 pub(crate) const GRAPH_FILE: &str = "graph.bin";
-/// Published snapshots beyond this size require a narrower ingest scope.
-/// Refuse them before decode can multiply allocations from untrusted lengths.
-const MAX_GRAPH_BYTES: usize = 512 * 1024 * 1024;
 
+/// A published snapshot past the byte bound needs a narrower ingest scope;
+/// it is refused before decode can multiply allocations from untrusted
+/// lengths.
 fn read_graph_file(path: &Path) -> Result<Vec<u8>, String> {
-    crate::tools::source::read_bounded(path, MAX_GRAPH_BYTES).map_err(|error| {
+    let limit = super::limits::LIMITS.snapshot_bytes;
+    crate::tools::source::read_bounded(path, limit).map_err(|error| {
         format!(
-            "cannot read {} within the {}-byte snapshot limit: {error:?}; narrow the graph ingest scope",
+            "cannot read {} within the {limit}-byte snapshot limit: {error:?}; narrow the graph ingest scope",
             path.display(),
-            MAX_GRAPH_BYTES
         )
     })
 }
 pub(crate) const MANIFEST_FILE: &str = "manifest.json";
 const LATEST_FILE: &str = "latest";
 const MANIFEST_KIND: &str = "octocode.graph";
-const DEFAULT_MAX_FILES: u32 = 50_000;
 const DEFAULT_KEEP: usize = 3;
 /// Environment and tool-output directories the ingest prunes on top of the
 /// shared syntax-visible policy and `.gitignore` (hidden directories are never

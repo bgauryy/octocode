@@ -62,7 +62,7 @@ TypeScript and JavaScript routing is documented once, in [TypeScript backends](.
 
 Octocode bundles no other language server. A known route does not mean the server is installed: install it in the workspace or toolchain, put it on `PATH`, add an `lsp-servers.json` entry, or use managed provisioning where supported.
 
-`subtypes` and `implementation` on a type race the server against a syntax scan of the files that name it, with a 5 s grace for the server after the scan ends; behavior and labels are in [the tools reference](../../../../docs/OCTOCODE_TOOLS.md#subtypes-and-implementations-without-an-answer-in-time).
+`subtypes` and `implementation` on a type race the server against a syntax scan of the files that name it, with a 20 s grace for the server after the scan ends; behavior and labels are in [the tools reference](../../../../docs/OCTOCODE_TOOLS.md#subtypes-and-implementations-without-an-answer-in-time).
 
 ## Managed provisioning
 
@@ -106,10 +106,11 @@ A configuration maps file extensions to launch specs:
 - Active requests prevent idle shutdown.
 - Successful use renews idle expiry and drives least-recently-used eviction.
 - Clearing a key invalidates pending starts and waiters; late completions cannot publish stale clients.
-- The sampled resident memory of all pooled servers together has a budget (`LspPoolOptions::max_resident_bytes`, the default per-server cap). While the total is over it, the pool stops idle least-recently-used servers; it never stops the server being acquired or a busy one, and overflows instead.
+- The sampled resident memory of all pooled servers together has a budget (`LspPoolOptions::max_resident_bytes`: half the host's memory, never under one server's default cap and never over `max_entries` such caps). While the total is over it, the pool stops idle least-recently-used servers; it never stops the server being acquired or a busy one, and overflows instead.
 - Failed health checks evict the client so the next acquisition starts a replacement.
 - clangd reads a file's compile command (`compile_commands.json`, `build/compile_commands.json`, `compile_flags.txt`, `.clangd`) once, when the document is opened, ignores `workspace/didChangeWatchedFiles` for them, and registers no watchers. The client therefore records those files in the directory of every document it syncs and in each ancestor; when one is created, changed, or deleted, the pool stops that server on the next acquisition **if it is idle** (a busy one keeps serving and is replaced on a later idle acquisition) and starts a fresh one. Other servers declare no such files and are never replaced this way.
 - A live client whose readiness wait ended in `timeout` stays pooled (it keeps indexing); the next acquisition waits for readiness again, so the stored `timeout` never fails every later call.
+- The client answers `client/registerCapability` but sends no `workspace/didChangeWatchedFiles`: a server learns about a file it has not opened only through its own watcher (rust-analyzer runs with `files.watcher: "server"`) or by restart; open documents are re-synced from disk before every request.
 - Runtime shutdown stops every client and joins owned work.
 
 Long-lived MCP sessions reuse warm servers. The CLI shares them through the [warm tool server](../../README.md#warm-tool-server) (`octocode serve`): one server per workspace and configuration, whose runtimes (one per working directory and environment) share one pool, so later calls reach servers already loaded.

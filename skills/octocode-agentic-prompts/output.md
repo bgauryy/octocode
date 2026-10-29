@@ -20,22 +20,13 @@ Instruction source → behavioral effect → replacement → verification. Keep 
 | Short comparison table / `diff` fence | Compare old and new rules; put long findings in linked subsections. |
 | `chart` bar | Compare measured baseline/candidate outcomes with the same evaluation conditions; omit invented severity scores. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
-Save and render when the result has a table, a diagram, over ~40 lines or five findings, or the user asks. Keep every result when user or project instructions say so.
+Save when the result has a table, a diagram, over ~40 lines or five findings, or the user asks. Keep every result when user or project instructions say so.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Ready | Needs work
-confidence: high | medium | low
-question: <the question or decision>
-next: <the one next action for whoever continues, in the imperative>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Ready`, `Needs work`.
 
 Open the `#` title with a lead paragraph that states the answer.
 
@@ -46,4 +37,4 @@ Put findings under `## Findings` as one table, most severe first, with `Critical
 
 A change report has `## Changes`, one row per edit; every saved report has either `## Findings` or `## Changes`.
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

@@ -143,12 +143,12 @@ pub(super) fn select(
         truncated,
         scan_resume,
         recovered,
-        // Every path its own entry: pages show it with or without details.
+        // One counted entry per cause and rule, as every local walk states it.
         skipped_paths: skipped::skipped_paths(
             skipped::under(canonical, SkippedPathCause::DefaultExcluded, &pruned).chain(
                 skipped::unlifted(&canonical.to_string_lossy(), &withheld, walk_errors.into()),
             ),
-            true,
+            false,
             truncated,
         )?,
         suppressed,

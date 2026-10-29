@@ -48,6 +48,7 @@ pub(super) fn directory_memo_key(
         q.default_excludes.defaults(),
         q.include_ignored.unwrap_or(false),
         q.include_hidden.unwrap_or(false),
+        q.include_provenance.unwrap_or(false),
         ast_search_query_symbols::max_files(q),
         ast_search_query_symbols::scan_offset(q)
     ]);

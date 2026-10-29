@@ -78,6 +78,16 @@ pub(super) fn resolve_paths(
                 .to_string_lossy()
                 .into_owned();
             set_path(query, path.clone());
+            // A root that does not hold the file roots the server in another
+            // project: its answer would silently miss this one's importers.
+            if let Some(root) = lsp_search_query::workspace_root(query)
+                && Path::new(root).is_absolute()
+                && !Path::new(&path).starts_with(root)
+            {
+                return Err(LspFailure::invalid_query(format!(
+                    "workspaceRoot {root} does not contain path {path}; pass the project root above the file, or omit workspaceRoot to infer it."
+                )));
+            }
             path
         }
         None => paths

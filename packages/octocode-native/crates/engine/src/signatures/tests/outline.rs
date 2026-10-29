@@ -17,7 +17,7 @@ fn long_declaration_lines_keep_the_outline_unless_they_dominate_it() {
         .collect::<Vec<_>>()
         .join(", ");
     let long = format!("pub struct Generated {{ {fields} }}");
-    assert!(long.len() > OUTLINE_MAX_LINE_CHARS);
+    assert!(long.len() > super::super::outline::OUTLINE_MAX_LINE_CHARS);
     source.push_str(&long);
     source.push('\n');
     let outline = extract_signatures_inner(&source, "lib.rs").expect("outline");

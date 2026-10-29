@@ -159,3 +159,38 @@ fn a_blank_classification_key_opts_out() {
     );
     assert!(set.is_available("clasify"));
 }
+
+#[test]
+fn beta_graph_tools_preserve_cli_access_and_require_opt_in_on_mcp() {
+    for beta in ["false", "true"] {
+        for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
+            let tools = availability(&[("OCTOCODE_BETA", beta)], surface);
+            for name in ["graphBuild", "graphQuery"] {
+                let expected = surface == RuntimeSurface::Cli || beta == "true";
+                assert_eq!(
+                    tools.is_available(name),
+                    expected,
+                    "{name} {surface:?} {beta}"
+                );
+                if !expected {
+                    let reason = tools.get(name).expect("known graph tool");
+                    assert_eq!(reason.env_vars(), vec!["OCTOCODE_BETA"]);
+                    assert_eq!(reason.reason_code(), Some("missingConfiguration"));
+                }
+            }
+        }
+    }
+    for env in [
+        vec![
+            ("OCTOCODE_BETA", "true"),
+            ("OCTOCODE_ENABLE_LOCAL", "false"),
+        ],
+        vec![("OCTOCODE_BETA", "true"), ("TOOLS_TO_RUN", "localFetch")],
+    ] {
+        for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
+            let tools = availability(&env, surface);
+            assert!(!tools.is_available("graphBuild"));
+            assert!(!tools.is_available("graphQuery"));
+        }
+    }
+}

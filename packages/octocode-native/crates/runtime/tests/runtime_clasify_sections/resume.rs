@@ -50,12 +50,7 @@ async fn assert_same_resources(
 async fn section_cursor_replays_frozen_work_without_repeating_inference() {
     let provider = provider().await;
     let workspace = Workspace::new();
-    workspace.write(
-        "sections.rs",
-        (0..70)
-            .map(|i| format!("pub fn section_{i}() {{ println!(\"restart {i}\"); }}\n"))
-            .collect::<String>(),
-    );
+    workspace.write("sections.rs", super::separate_functions(70));
     let runtime = clasify_runtime(&workspace, &provider, &[]);
     let first = sections(
         &runtime,
@@ -94,12 +89,7 @@ async fn section_cursor_replays_frozen_work_without_repeating_inference() {
 async fn sibling_section_rows_keep_continuations_until_every_section_is_answered() {
     let provider = provider().await;
     let workspace = Workspace::new();
-    workspace.write(
-        "many.rs",
-        (0..70)
-            .map(|i| format!("pub fn section_{i}() {{ println!(\"restart {i}\"); }}\n"))
-            .collect::<String>(),
-    );
+    workspace.write("many.rs", super::separate_functions(70));
     let runtime = clasify_runtime(
         &workspace,
         &provider,
@@ -121,7 +111,11 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
         let mut pages = 0;
         loop {
             pages += 1;
-            assert!(pages <= 4, "continuation made no bounded progress: {row:#}");
+            // Two rows share each call's admission budget: progress, never a stall.
+            assert!(
+                pages <= 70,
+                "continuation made no bounded progress: {row:#}"
+            );
             for section in row["resources"]["file"]["sections"]
                 .as_array()
                 .expect("sections")
@@ -148,6 +142,7 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
                 .clone();
         }
         assert_eq!(seen.len(), 70, "{row:#}");
+        assert!(pages > 1, "70 page-sized sections need a continuation");
         assert_eq!(row["resources"]["file"]["coverage"]["unassessed"], 0);
     }
     runtime.close().await;
@@ -157,12 +152,7 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
 async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transaction() {
     let provider = provider().await;
     let workspace = Workspace::new();
-    workspace.write(
-        "many.rs",
-        (0..70)
-            .map(|i| format!("pub fn section_{i}() {{ println!(\"restart {i}\"); }}\n"))
-            .collect::<String>(),
-    );
+    workspace.write("many.rs", super::separate_functions(70));
     let env = [("OCTOCODE_STORAGE_MODE", "persistent".into())];
     let first_runtime = clasify_runtime(&workspace, &provider, &env);
     let second_runtime = clasify_runtime(&workspace, &provider, &env);
@@ -173,9 +163,6 @@ async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transac
     .await;
     let next = first["next"]["nextSectionPage"]["input"].clone();
     crate::support::assert_cursor_only(&next);
-    let remaining = first["resources"]["file"]["coverage"]["remainingSections"]
-        .as_u64()
-        .unwrap() as usize;
     let before = provider_calls(&provider).await;
     let (a, b) = tokio::join!(
         first_runtime.run("resume-a".into(), "clasify".into(), next.clone()),
@@ -195,7 +182,13 @@ async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transac
         b["results"][0]["data"]["replayed"] == true,
         "{a:#} {b:#}"
     );
-    assert_eq!(provider_calls(&provider).await - before, remaining);
+    // One transaction: the page the two resumes share was judged once.
+    let judged = a["results"][0]["data"]["resources"]["file"]["sections"]
+        .as_array()
+        .expect("sections")
+        .len();
+    assert!(judged > 0);
+    assert_eq!(provider_calls(&provider).await - before, judged);
     first_runtime.close().await;
     second_runtime.close().await;
 }

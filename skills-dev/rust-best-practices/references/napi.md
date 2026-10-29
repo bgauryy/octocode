@@ -1,6 +1,6 @@
-# napi-rs: types, binding crate, per-platform packages
-
 Load when you type `#[napi]` signatures, read a generated `.d.ts`, debug a JS↔Rust value mismatch, lay out a binding crate, or ship a `.node` via per-platform npm packages. Why: the generated types are the contract JS sees, and a wrong mapping fails at runtime, not compile time. Sources: napi-rs `PRIMITIVE_TYPES`/`KNOWN_TYPES`, `@napi-rs/cli`, `napi-rs/package-template`, `oxc/napi/parser`. Panics, threads, and boundary errors: `references/safety-and-ffi.md`.
+
+# napi-rs: types, binding crate, per-platform packages
 
 ## Types: scalars
 | Rust | TS | Watch |
@@ -33,10 +33,10 @@ Load when you type `#[napi]` signatures, read a generated `.d.ts`, debug a JS↔
 - `#[napi(transparent)] struct Id(u32)` exposes the inner type. Rename with `js_name`; fields become camelCase.
 
 ## Own the `.d.ts` (generated, never mirrored)
-- The generated `.d.ts` is the ABI truth. Add helper types via `napi.dtsHeaderFile` (oxc: `src-js/header.d.ts`) or `ts_args_type` / `ts_return_type` / `ts_type`, never a hand mirror.
+- The generated `.d.ts` is the TypeScript surface derived from binding declarations; runtime validation still decides accepted JS values. Add helper types via `napi.dtsHeaderFile` (oxc: `src-js/header.d.ts`) or `ts_args_type` / `ts_return_type` / `ts_type`, never a hand mirror.
 - Type the error channel, not `Promise<unknown>` (rolldown `BindingResult<T>`). An idiomatic `src/index.ts` imports types *from* the binding.
 - Drift guard: commit the generated `.d.ts`/loader, regenerate in CI, `git diff --exit-code`.
-- Distinguish the binding ABI from a tool's authored contract. In Octocode, tool types come from config generation; keep the N-API adapter over that runtime. See `references/parsing-and-codegen.md`.
+- Distinguish a binding's TypeScript surface from a tool's authored contract. If a project uses generated tool types, keep binding declarations aligned with that owner. Octocode currently uses a native CLI/MCP binary rather than a N-API adapter; its contract flow is in `references/parsing-and-codegen.md`.
 - `#[napi(strict)]` throws on wrong argument types; still validate NaN, negatives, and > u32 for sizes or indices.
 - Dual-package hazard: oxc/rolldown ship ESM-only; a kept `require` path re-exports ESM state so the `.node` loads once.
 
@@ -44,9 +44,8 @@ Load when you type `#[napi]` signatures, read a generated `.d.ts`, debug a JS↔
 - `Cargo.toml` (crate type: `references/safety-and-ffi.md`): `[lib] test = false, doctest = false` (oxc `napi/parser`), `napi`/`napi-derive`, `[build-dependencies] napi-build`, `build.rs` → `napi_build::setup()`.
 - Allocator: gate `mimalloc-safe` behind a feature with `local_dynamic_tls` on Linux; a `dlopen`ed `.node` can't use initial-exec TLS.
 - **Batch across the boundary**: one result per job; for big trees return a JSON string or a `Buffer` and decode in JS.
-- Octocode uses a separate `runtime-napi` crate over the runtime `rlib`. Its `napi-test` feature enables `napi/noop` only for Rust tests; never ship that stub in an addon.
-- Stage changed binaries/addons through a temporary file and atomic rename. In-place overwrite can crash a process with the old inode mapped. Keep an unchanged verified inode.
-- On Darwin, sign the staged addon before rename. Smoke-load the final addon in a subprocess with a deadline; a successful compile does not prove Node can load it.
+- Keep test stubs such as `napi/noop` out of shipped addons. Verify release feature selection against the built artifact.
+- Stage a changed addon beside its destination and replace it atomically. In-place overwrite can break a process with the old inode mapped. Smoke-load the final addon in a subprocess with a deadline; a successful compile does not prove Node can load it. Sign the staged artifact before replacement where the target platform requires signing.
 
 ## Per-platform package pattern (`@napi-rs/cli` v3)
 Root `package.json`:

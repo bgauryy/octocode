@@ -150,6 +150,7 @@ fn use_heavy_rust_file_keeps_its_imports_inside_the_deadline() {
     }
     let (value, elapsed) =
         crate::test_cpu::cpu_time_of(|| facts_with_load_proof_deadline(&source, "src/lib.rs"));
+    let value = serde_json::to_value(value).expect("graph facts value");
     let diagnostics = value["diagnostics"].as_array().unwrap();
     assert!(
         !codes(&value).iter().any(|code| code.ends_with("Deadline")),

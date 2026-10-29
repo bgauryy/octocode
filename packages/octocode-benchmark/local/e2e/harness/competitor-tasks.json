@@ -1,14 +1,14 @@
 {
-  "version": 1,
+  "version": 2,
   "frozen": "2026-10-02",
   "notes": [
     "Frozen competitor tasks for harness/competitors.mjs (beat-rg-gh PLAN S5).",
-    "{{T}} = packages/octocode-benchmark/local/repos, {{ROOT}} = repo root; shell commands get $T, $ROOT and $CT (scratch dir). Normalized runs (default) root a local task at its corpus repo (`workspace`, else the one {{T}}/<corpus> its recipe names): the MCP server gets WORKSPACE_ROOT there, the shell runs there, and both sides' corpus-prefixed paths become repo-relative. OCTOCODE_COMPETITOR_NORMALIZE=0 keeps the octocode root for both.",
+    "{{T}} = packages/octocode-benchmark/local/repos, {{ROOT}} = repo root; shell commands get $T, $ROOT and $CT (scratch dir). Both arms run at a local task’s corpus root (`workspace`, else the one {{T}}/<corpus> named by its recipe); corpus-prefixed paths become repo-relative.",
     "Local truth was read from the pinned corpora (see repos/README.md); GitHub truth from gh api / npm / registry JSON at pinned SHAs, numbers and versions on 2026-10-02.",
     "Truth checks (same for both sides): hits = (file suffix, line) pairs that must appear; range = every line start..end present; ranges = list of range; exactHits / exactFiles = set equality; count = distinct (file, line) pairs; files = file suffixes that must appear; fileCount = distinct files; exactOnce (pairs|files) = no (file, line) pair or file row arrives twice across pages; text = regexes over model-visible text.",
-    "Octocode steps: tool+args (one MCP query), tool+queries (batched rows in one call), cli (CLI-only tools), follow (copy the named next.* page or decoded hints suggestion verbatim), walk (follow every listed next.* page verbatim until exhausted); a step's envelope adds call-level options (e.g. responseLength) to its calls. {{prev:a.b}} reads the previous response; {{hint:name.query.queries.0.x}} reads a continuation row field. A whole placeholder preserves its JSON type; interpolation inside a longer string produces text.",
-    "Shell parse modes: rg (path:line:text or bare paths), numbered (line[:\\t- ]text, with file), sed (unnumbered from start, with file), files (one path per line), filecolon (path: text), diff (diff --git headers), ghsearch (owner/repo:path: text), text (no line evidence).",
-    "Briefs are optional: research tasks (several dependent calls on an unknown) carry `mainGoal` (about 25 chars, like real agent briefs) plus a short shared reasoning; single-call lookups and page walks send none. Legacy runs brief every call with the question.",
+    "Octocode steps use tool+input or cli+input with the canonical {queries:[…],responseChars?} envelope. walk:true drains all kind:continue calls unchanged, responsePagination first. {{prev:a.b}} reads the previous response; {{related:tool.operation.input.queries.0.x}} selects a unique typed related call by tool and operation, rejecting ambiguity. A whole placeholder preserves its JSON type; interpolation produces text.",
+    "Shell parse modes: rg (path:line:text or bare paths), numbered (line[:\\t- ]text, with file), sed (unnumbered from start, with file), files (one path per line), filecolon (path: text), diff (diff --git headers), ghsearch (owner/repo:path: text), text (no line evidence). Shell commands default to expectedExitCodes:[0]; documented nonzero result statuses such as rg no-match require an explicit expectedExitCodes policy. Bash errexit and pipefail prevent upstream failures being hidden.",
+    "Canonical schema migration 2026-10-29: requests use explicit operations, array matchString, object contextLines, ranges, classification.predicates and responseChars. Old pageSize limits have no current query equivalent; source filtering and task oracles remain unchanged. Remote requests are schema-validated but were not executed during the local-tools audit.",
     "Shell arms: `competitor` is the expert recipe (may use field picks and known ranges); `unfiltered` is the first try without answer knowledge (no jq/--json field picks, no pre-known line ranges; whole-file reads for described targets). Tasks without `unfiltered` report the expert recipe in both columns."
   ],
   "tasks": [
@@ -30,10 +30,19 @@
       "octocode": [
         {
           "tool": "localSearch",
-          "args": {
-            "matchString": "toValidURL",
-            "path": "{{T}}/tsx/packages"
+          "input": {
+            "queries": [
+              {
+                "matchString": [
+                  "toValidURL"
+                ],
+                "path": "{{T}}/tsx/packages"
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -63,11 +72,20 @@
       "octocode": [
         {
           "tool": "localFetch",
-          "args": {
-            "path": "{{T}}/tsx/packages/common/src/url.ts",
-            "matchString": "export const toValidURL",
-            "block": true
+          "input": {
+            "queries": [
+              {
+                "path": "{{T}}/tsx/packages/common/src/url.ts",
+                "matchString": [
+                  "export const toValidURL"
+                ],
+                "block": true
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "unfiltered": [
@@ -112,12 +130,19 @@
       "octocode": [
         {
           "tool": "lspSearch",
-          "args": {
-            "path": "{{T}}/tsx/packages/common/src/url.ts",
-            "symbolName": "toValidURL",
-            "line": 21,
-            "operation": "callers"
+          "input": {
+            "queries": [
+              {
+                "path": "{{T}}/tsx/packages/common/src/url.ts",
+                "symbolName": "toValidURL",
+                "line": 21,
+                "operation": "callers"
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -133,7 +158,6 @@
       "kind": "local",
       "source": "W3 (literal-known path)",
       "question": "Where does tokio force Poll::Pending once the coop budget is exhausted?",
-      "mainGoal": "Where coop forces Pending",
       "truth": {
         "range": {
           "file": "tokio/src/task/coop/mod.rs",
@@ -148,18 +172,36 @@
       "octocode": [
         {
           "tool": "localSearch",
-          "args": {
-            "matchString": "register_waker",
-            "path": "{{T}}/rust/tokio/src/task/coop"
+          "input": {
+            "queries": [
+              {
+                "matchString": [
+                  "register_waker"
+                ],
+                "path": "{{T}}/rust/tokio/src/task/coop"
+              }
+            ]
           }
         },
         {
+          "walk": true
+        },
+        {
           "tool": "localFetch",
-          "args": {
-            "path": "{{T}}/rust/tokio/src/task/coop/mod.rs",
-            "matchString": "register_waker(cx);",
-            "block": true
+          "input": {
+            "queries": [
+              {
+                "path": "{{T}}/rust/tokio/src/task/coop/mod.rs",
+                "matchString": [
+                  "register_waker(cx);"
+                ],
+                "block": true
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "unfiltered": [
@@ -207,11 +249,23 @@
       "octocode": [
         {
           "tool": "localFetch",
-          "args": {
-            "path": "{{T}}/rust/tokio/src/runtime/builder.rs",
-            "matchString": "cannot be set to 0",
-            "contextLines": 3
+          "input": {
+            "queries": [
+              {
+                "path": "{{T}}/rust/tokio/src/runtime/builder.rs",
+                "matchString": [
+                  "cannot be set to 0"
+                ],
+                "contextLines": {
+                  "before": 3,
+                  "after": 3
+                }
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -235,17 +289,20 @@
       "octocode": [
         {
           "tool": "localSearch",
-          "args": {
-            "matchString": "budget",
-            "path": "{{T}}/rust/tokio/src",
-            "caseMode": "insensitive"
+          "input": {
+            "queries": [
+              {
+                "matchString": [
+                  "budget"
+                ],
+                "path": "{{T}}/rust/tokio/src",
+                "caseMode": "insensitive"
+              }
+            ]
           }
         },
         {
-          "walk": [
-            "nextPage",
-            "nextMatchPage"
-          ],
+          "walk": true,
           "max": 60
         }
       ],
@@ -314,16 +371,19 @@
       "octocode": [
         {
           "tool": "localSearch",
-          "args": {
-            "matchString": "run_on_commit",
-            "path": "{{T}}/python/django/db"
+          "input": {
+            "queries": [
+              {
+                "matchString": [
+                  "run_on_commit"
+                ],
+                "path": "{{T}}/python/django/db"
+              }
+            ]
           }
         },
         {
-          "walk": [
-            "nextPage",
-            "nextMatchPage"
-          ],
+          "walk": true,
           "max": 10
         }
       ],
@@ -347,17 +407,20 @@
       "octocode": [
         {
           "tool": "localSearch",
-          "args": {
-            "matchString": "ctx.Done()",
-            "path": "{{T}}/go",
-            "regex": "literal"
+          "input": {
+            "queries": [
+              {
+                "matchString": [
+                  "ctx.Done()"
+                ],
+                "path": "{{T}}/go",
+                "regexEngine": "literal"
+              }
+            ]
           }
         },
         {
-          "walk": [
-            "nextPage",
-            "nextMatchPage"
-          ],
+          "walk": true,
           "max": 60
         }
       ],
@@ -414,17 +477,20 @@
       "octocode": [
         {
           "tool": "localSearch",
-          "args": {
-            "matchString": "try_read_output",
-            "path": "{{T}}/rust/tokio",
-            "wholeWord": true
+          "input": {
+            "queries": [
+              {
+                "matchString": [
+                  "try_read_output"
+                ],
+                "path": "{{T}}/rust/tokio",
+                "wholeWord": true
+              }
+            ]
           }
         },
         {
-          "walk": [
-            "nextPage",
-            "nextMatchPage"
-          ],
+          "walk": true,
           "max": 10
         }
       ],
@@ -469,15 +535,34 @@
       "octocode": [
         {
           "tool": "localFetch",
-          "args": {
-            "path": "{{T}}/python/django/db/backends/base/base.py",
-            "ranges": [
-              "95-105",
-              "255-265",
-              "340-350",
-              "410-420"
+          "input": {
+            "queries": [
+              {
+                "path": "{{T}}/python/django/db/backends/base/base.py",
+                "ranges": [
+                  {
+                    "startLine": 95,
+                    "endLine": 105
+                  },
+                  {
+                    "startLine": 255,
+                    "endLine": 265
+                  },
+                  {
+                    "startLine": 340,
+                    "endLine": 350
+                  },
+                  {
+                    "startLine": 410,
+                    "endLine": 420
+                  }
+                ]
+              }
             ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -507,13 +592,21 @@
       "octocode": [
         {
           "tool": "structureSearch",
-          "args": {
-            "operation": "files",
-            "path": "{{T}}/go/scrape",
-            "include": [
-              "*_test.go"
+          "input": {
+            "queries": [
+              {
+                "operation": "files",
+                "path": "{{T}}/go/scrape",
+                "include": [
+                  "*_test.go"
+                ],
+                "view": "paths"
+              }
             ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -521,7 +614,9 @@
           "sh": "git -C $T/go ls-files 'scrape/*_test.go'",
           "parse": "files"
         }
-      ]
+      ],
+      "revision": 2,
+      "recipeRevision": "2026-10-29: filename-only listing requests view:paths; identical path oracle and shell comparator."
     },
     {
       "id": "L13",
@@ -660,18 +755,21 @@
       "octocode": [
         {
           "tool": "structureSearch",
-          "args": {
-            "operation": "files",
-            "path": "{{T}}/python/django/db",
-            "extensions": [
-              "py"
+          "input": {
+            "queries": [
+              {
+                "operation": "files",
+                "path": "{{T}}/python/django/db",
+                "extensions": [
+                  "py"
+                ],
+                "view": "paths"
+              }
             ]
           }
         },
         {
-          "walk": [
-            "nextPage"
-          ],
+          "walk": true,
           "max": 10
         }
       ],
@@ -680,36 +778,48 @@
           "sh": "git -C $T/python ls-files 'django/db/*.py'",
           "parse": "files"
         }
-      ]
+      ],
+      "revision": 2,
+      "recipeRevision": "2026-10-29: filename-only listing requests view:paths; identical path oracle and shell comparator."
     },
     {
       "id": "L14",
       "tool": "localSearch",
       "kind": "local",
-      "source": "this repo (live truth)",
-      "question": "Where is merge_near_windows defined in octocode-native?",
+      "source": "this repo (live truth; current shared source-span merge owner)",
+      "question": "Where is merge_spans, the shared helper that merges overlapping or adjacent source spans, defined in octocode-native?",
       "truth": {
         "live": {
-          "file": "packages/octocode-native/crates/runtime/src/tools/clasify/run/hydrate.rs",
-          "regex": "fn merge_near_windows\\("
+          "file": "packages/octocode-native/crates/runtime/src/tools/line_spans.rs",
+          "regex": "fn merge_spans<"
         }
       },
-      "truthSource": "computed at run time from the file bytes (this repo moves); 2026-10-02: clasify_batch.rs:554; 2026-10-09: tools/clasify/run/hydrate.rs",
+      "truthSource": "Revision 2, 2026-10-29: obsolete merge_near_windows fixture replaced by current shared source-span implementation; line_spans.rs merge_spans is called by source_view/extraction.rs merge_ranges. Exact declaration line is computed from source bytes; both arms rerun.",
       "octocode": [
         {
           "tool": "localSearch",
-          "args": {
-            "matchString": "fn merge_near_windows",
-            "path": "packages/octocode-native/crates"
+          "input": {
+            "queries": [
+              {
+                "matchString": [
+                  "fn merge_spans"
+                ],
+                "path": "packages/octocode-native/crates"
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
         {
-          "sh": "rg -n 'fn merge_near_windows' packages/octocode-native/crates",
+          "sh": "rg -n 'fn merge_spans' packages/octocode-native/crates",
           "parse": "rg"
         }
-      ]
+      ],
+      "revision": 2
     },
     {
       "id": "L15",
@@ -753,12 +863,21 @@
       "octocode": [
         {
           "tool": "astSearch",
-          "args": {
-            "operation": "match",
-            "path": "{{T}}/rust/tokio/src/fs",
-            "pattern": "$X.unwrap()",
-            "language": "rust"
+          "input": {
+            "queries": [
+              {
+                "operation": "match",
+                "path": "{{T}}/rust/tokio/src/fs",
+                "rule": {
+                  "pattern": "$X.unwrap()"
+                },
+                "parser": "rust"
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -846,20 +965,37 @@
       "octocode": [
         {
           "tool": "astSearch",
-          "args": {
-            "operation": "match",
-            "path": "{{T}}/rust/tokio/src",
-            "pattern": "Pin::new_unchecked($A)",
-            "language": "rust"
+          "input": {
+            "queries": [
+              {
+                "operation": "match",
+                "path": "{{T}}/rust/tokio/src",
+                "rule": {
+                  "pattern": "Pin::new_unchecked($A)"
+                },
+                "parser": "rust"
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
         {
+          "sh": "rg -n -P '(?<![\\w:])Pin::new_unchecked\\s*\\(' $T/rust/tokio/src",
+          "parse": "rg"
+        }
+      ],
+      "revision": 2,
+      "unfiltered": [
+        {
           "sh": "ast-grep run -p 'Pin::new_unchecked($A)' -l rust $T/rust/tokio/src",
           "parse": "rg"
         }
-      ]
+      ],
+      "comparatorNotes": "Revision 2: expert rg matches the requested unqualified call spelling, including macro bodies, without oracle paths or line numbers. The original ast-grep command remains the unfiltered arm; ast-grep omits Rust macro bodies on this corpus. The rg recipe is lexical and does not establish general AST-equivalent precision."
     },
     {
       "id": "L17",
@@ -908,10 +1044,17 @@
       "octocode": [
         {
           "tool": "astSearch",
-          "args": {
-            "operation": "symbols",
-            "path": "{{T}}/rust/tokio/src/net/windows/named_pipe.rs"
+          "input": {
+            "queries": [
+              {
+                "operation": "symbols",
+                "path": "{{T}}/rust/tokio/src/net/windows/named_pipe.rs"
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -944,12 +1087,19 @@
       "octocode": [
         {
           "tool": "lspSearch",
-          "args": {
-            "path": "{{T}}/rust/tokio/src/runtime/task/harness.rs",
-            "symbolName": "try_read_output",
-            "line": 281,
-            "operation": "references"
+          "input": {
+            "queries": [
+              {
+                "path": "{{T}}/rust/tokio/src/runtime/task/harness.rs",
+                "symbolName": "try_read_output",
+                "line": 281,
+                "operation": "references"
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -957,7 +1107,8 @@
           "sh": "rg -n -w try_read_output $T/rust/tokio/src",
           "parse": "rg"
         }
-      ]
+      ],
+      "comparatorNotes": "rg returns lexical candidates for all identically spelled symbols; it cannot establish receiver type or symbol identity. The six extra candidates are retained as a measured semantic limitation, not removed using the oracle. An agent could inspect context and resolve them, but that follow-up workflow is not measured by this deterministic recipe."
     },
     {
       "id": "L20",
@@ -966,7 +1117,6 @@
       "surface": "cli",
       "source": "W9 / ghCloneRepo PLAN T2 (fresh sparse clone)",
       "question": "Clone express v5.1.0 (lib/ only) and find where createApplication is defined.",
-      "mainGoal": "Find createApplication",
       "truth": {
         "hits": [
           {
@@ -979,19 +1129,31 @@
       "octocode": [
         {
           "cli": "ghCloneRepo",
-          "args": {
-            "owner": "expressjs",
-            "repo": "express",
-            "ref": "v5.1.0",
-            "path": "lib",
-            "forceRefresh": true
+          "input": {
+            "queries": [
+              {
+                "owner": "expressjs",
+                "repo": "express",
+                "ref": "v5.1.0",
+                "forceRefresh": true,
+                "paths": [
+                  "lib"
+                ]
+              }
+            ]
           }
         },
         {
           "tool": "localSearch",
-          "args": {
-            "matchString": "function createApplication",
-            "path": "{{prev:results.0.data.location.localPath}}/lib"
+          "input": {
+            "queries": [
+              {
+                "matchString": [
+                  "function createApplication"
+                ],
+                "path": "{{prev:results.0.data.location.localPath}}/lib"
+              }
+            ]
           }
         }
       ],
@@ -1020,17 +1182,20 @@
       "octocode": [
         {
           "tool": "localSearch",
-          "args": {
-            "matchString": ".unwrap()",
-            "path": "{{T}}/rust/tokio/src",
-            "regex": "literal"
+          "input": {
+            "queries": [
+              {
+                "matchString": [
+                  ".unwrap()"
+                ],
+                "path": "{{T}}/rust/tokio/src",
+                "regexEngine": "literal"
+              }
+            ]
           }
         },
         {
-          "walk": [
-            "nextPage",
-            "nextMatchPage"
-          ],
+          "walk": true,
           "max": 30
         }
       ],
@@ -1060,18 +1225,21 @@
       "octocode": [
         {
           "tool": "structureSearch",
-          "args": {
-            "operation": "files",
-            "path": "{{T}}/rust/tokio",
-            "include": [
-              "*.rs"
+          "input": {
+            "queries": [
+              {
+                "operation": "files",
+                "path": "{{T}}/rust/tokio",
+                "include": [
+                  "*.rs"
+                ],
+                "view": "paths"
+              }
             ]
           }
         },
         {
-          "walk": [
-            "nextPage"
-          ],
+          "walk": true,
           "max": 10
         }
       ],
@@ -1080,7 +1248,9 @@
           "sh": "git -C $T/rust ls-files 'tokio/*.rs'",
           "parse": "files"
         }
-      ]
+      ],
+      "revision": 2,
+      "recipeRevision": "2026-10-29: filename-only listing requests view:paths; identical path oracle and shell comparator."
     },
     {
       "id": "G01",
@@ -1101,13 +1271,16 @@
       "octocode": [
         {
           "tool": "ghSearchCode",
-          "args": {
-            "owner": "tokio-rs",
-            "repo": "tokio",
-            "keywords": [
-              "max_blocking_threads"
-            ],
-            "pageSize": 5
+          "input": {
+            "queries": [
+              {
+                "owner": "tokio-rs",
+                "repo": "tokio",
+                "keywords": [
+                  "max_blocking_threads"
+                ]
+              }
+            ]
           }
         }
       ],
@@ -1141,14 +1314,26 @@
       "octocode": [
         {
           "tool": "ghGetFileContent",
-          "args": {
-            "owner": "tokio-rs",
-            "repo": "tokio",
-            "ref": "facc6fc47eb2ba13a465a3179f8e34db620561ec",
-            "path": "tokio/src/runtime/builder.rs",
-            "matchString": "max_blocking_threads: 512",
-            "contextLines": 0
+          "input": {
+            "queries": [
+              {
+                "owner": "tokio-rs",
+                "repo": "tokio",
+                "ref": "facc6fc47eb2ba13a465a3179f8e34db620561ec",
+                "path": "tokio/src/runtime/builder.rs",
+                "matchString": [
+                  "max_blocking_threads: 512"
+                ],
+                "contextLines": {
+                  "before": 0,
+                  "after": 0
+                }
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -1345,15 +1530,27 @@
       "octocode": [
         {
           "tool": "ghGetFileContent",
-          "args": {
-            "owner": "tokio-rs",
-            "repo": "tokio",
-            "ref": "facc6fc47eb2ba13a465a3179f8e34db620561ec",
-            "path": "tokio/src/runtime/builder.rs",
-            "matchString": "^\\s*pub fn \\w+",
-            "regex": "rust",
-            "contextLines": 0
+          "input": {
+            "queries": [
+              {
+                "owner": "tokio-rs",
+                "repo": "tokio",
+                "ref": "facc6fc47eb2ba13a465a3179f8e34db620561ec",
+                "path": "tokio/src/runtime/builder.rs",
+                "matchString": [
+                  "^\\s*pub fn \\w+"
+                ],
+                "contextLines": {
+                  "before": 0,
+                  "after": 0
+                },
+                "regexEngine": "rust"
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -1370,7 +1567,6 @@
       "kind": "github",
       "source": "W8",
       "question": "In express@4.21.2, what status does res.redirect default to (release-pinned source)?",
-      "mainGoal": "redirect default status",
       "truth": {
         "hits": [
           {
@@ -1387,24 +1583,35 @@
       "octocode": [
         {
           "tool": "artifactSearch",
-          "args": {
-            "ecosystem": "npm",
-            "packageName": "express",
-            "version": "4.21.2",
-            "extras": [
-              "hints"
+          "input": {
+            "queries": [
+              {
+                "ecosystem": "npm",
+                "packageName": "express",
+                "version": "4.21.2",
+                "operation": "resolve"
+              }
             ]
           }
         },
         {
           "tool": "ghGetFileContent",
-          "args": {
-            "owner": "expressjs",
-            "repo": "express",
-            "ref": "{{hint:viewReleaseSource.query.queries.0.ref}}",
-            "path": "lib/response.js",
-            "matchString": "res.redirect = function",
-            "contextLines": 5
+          "input": {
+            "queries": [
+              {
+                "owner": "expressjs",
+                "repo": "express",
+                "ref": "{{related:ghStructure.tree.input.queries.0.ref}}",
+                "path": "lib/response.js",
+                "matchString": [
+                  "res.redirect = function"
+                ],
+                "contextLines": {
+                  "before": 5,
+                  "after": 5
+                }
+              }
+            ]
           }
         }
       ],
@@ -1451,10 +1658,15 @@
       "octocode": [
         {
           "tool": "artifactSearch",
-          "args": {
-            "ecosystem": "pypi",
-            "packageName": "requests",
-            "version": "2.31.0"
+          "input": {
+            "queries": [
+              {
+                "ecosystem": "pypi",
+                "packageName": "requests",
+                "version": "2.31.0",
+                "operation": "resolve"
+              }
+            ]
           }
         }
       ],
@@ -1488,10 +1700,15 @@
       "octocode": [
         {
           "tool": "artifactSearch",
-          "args": {
-            "ecosystem": "crates",
-            "packageName": "serde",
-            "version": "1.0.100"
+          "input": {
+            "queries": [
+              {
+                "ecosystem": "crates",
+                "packageName": "serde",
+                "version": "1.0.100",
+                "operation": "resolve"
+              }
+            ]
           }
         }
       ],
@@ -1523,14 +1740,22 @@
       "octocode": [
         {
           "tool": "ghStructure",
-          "args": {
-            "owner": "Kludex",
-            "repo": "starlette",
-            "ref": "63c5760d8a672cee96e1e523d84bfa1c77d9ee4c",
-            "include": [
-              "**/_exception_handler.py"
+          "input": {
+            "queries": [
+              {
+                "owner": "Kludex",
+                "repo": "starlette",
+                "ref": "63c5760d8a672cee96e1e523d84bfa1c77d9ee4c",
+                "include": [
+                  "**/_exception_handler.py"
+                ],
+                "operation": "tree"
+              }
             ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -1578,17 +1803,20 @@
       "octocode": [
         {
           "tool": "ghStructure",
-          "args": {
-            "owner": "Kludex",
-            "repo": "starlette",
-            "ref": "63c5760d8a672cee96e1e523d84bfa1c77d9ee4c",
-            "path": "starlette"
+          "input": {
+            "queries": [
+              {
+                "owner": "Kludex",
+                "repo": "starlette",
+                "ref": "63c5760d8a672cee96e1e523d84bfa1c77d9ee4c",
+                "path": "starlette",
+                "operation": "tree"
+              }
+            ]
           }
         },
         {
-          "walk": [
-            "nextPage"
-          ],
+          "walk": true,
           "max": 5
         }
       ],
@@ -1614,13 +1842,22 @@
       "octocode": [
         {
           "tool": "ghSearchRepo",
-          "args": {
-            "keywords": [
-              "tokio"
-            ],
-            "language": "rust",
-            "sort": "stars:desc",
-            "pageSize": 5
+          "input": {
+            "queries": [
+              {
+                "keywords": [
+                  "tokio"
+                ],
+                "sort": {
+                  "by": "stars",
+                  "order": "desc"
+                },
+                "operation": "search",
+                "filters": {
+                  "language": "rust"
+                }
+              }
+            ]
           }
         }
       ],
@@ -1647,12 +1884,16 @@
       "octocode": [
         {
           "tool": "ghSearchHistory",
-          "args": {
-            "operation": "pullRequest",
-            "owner": "pydantic",
-            "repo": "pydantic",
-            "keywords": [
-              "13786"
+          "input": {
+            "queries": [
+              {
+                "operation": "pullRequest",
+                "owner": "pydantic",
+                "repo": "pydantic",
+                "keywords": [
+                  "13786"
+                ]
+              }
             ]
           }
         }
@@ -1689,13 +1930,20 @@
       "octocode": [
         {
           "tool": "ghSearchHistory",
-          "args": {
-            "operation": "commit",
-            "owner": "fastapi",
-            "repo": "fastapi",
-            "path": "fastapi/routing.py",
-            "until": "2026-09-01",
-            "pageSize": 5
+          "input": {
+            "queries": [
+              {
+                "operation": "commit",
+                "owner": "fastapi",
+                "repo": "fastapi",
+                "pathPrefix": "fastapi/routing.py",
+                "filters": {
+                  "committedAt": {
+                    "to": "2026-09-01T00:00:00Z"
+                  }
+                }
+              }
+            ]
           }
         }
       ],
@@ -1734,22 +1982,32 @@
       "octocode": [
         {
           "tool": "ghGetHistoryItem",
-          "queries": [
-            {
-              "operation": "pullRequest",
-              "owner": "cli",
-              "repo": "cli",
-              "number": 13541,
-              "matchString": "MatchCategory",
-              "contextLines": 0
-            },
-            {
-              "operation": "pullRequest",
-              "owner": "cli",
-              "repo": "cli",
-              "number": 13541
-            }
-          ]
+          "input": {
+            "queries": [
+              {
+                "operation": "pullRequest",
+                "owner": "cli",
+                "repo": "cli",
+                "number": 13541,
+                "matchString": [
+                  "MatchCategory"
+                ],
+                "contextLines": {
+                  "before": 0,
+                  "after": 0
+                }
+              },
+              {
+                "operation": "pullRequest",
+                "owner": "cli",
+                "repo": "cli",
+                "number": 13541
+              }
+            ]
+          }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -1780,12 +2038,19 @@
       "octocode": [
         {
           "tool": "ghGetHistoryItem",
-          "args": {
-            "operation": "pullRequest",
-            "owner": "fastapi",
-            "repo": "fastapi",
-            "number": 16403
+          "input": {
+            "queries": [
+              {
+                "operation": "pullRequest",
+                "owner": "fastapi",
+                "repo": "fastapi",
+                "number": 16403
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "unfiltered": [
@@ -1807,7 +2072,6 @@
       "kind": "github",
       "source": "W7 (bug RCA)",
       "question": "Which PR fixed cli/cli#14404 and what did it change in merge.go?",
-      "mainGoal": "Fix PR for #14404",
       "truth": {
         "text": [
           "14429",
@@ -1819,30 +2083,38 @@
       "octocode": [
         {
           "tool": "ghGetHistoryItem",
-          "args": {
-            "operation": "issue",
-            "owner": "cli",
-            "repo": "cli",
-            "number": 14404,
-            "extras": [
-              "hints"
+          "input": {
+            "queries": [
+              {
+                "operation": "issue",
+                "owner": "cli",
+                "repo": "cli",
+                "number": 14404
+              }
             ]
           }
         },
         {
           "tool": "ghGetHistoryItem",
-          "args": {
-            "operation": "pullRequest",
-            "owner": "cli",
-            "repo": "cli",
-            "number": "{{hint:readPullRequest.query.queries.0.number}}",
-            "sections": [
-              "patches"
-            ],
-            "include": [
-              "**/merge.go"
+          "input": {
+            "queries": [
+              {
+                "operation": "pullRequest",
+                "owner": "cli",
+                "repo": "cli",
+                "number": "{{related:ghGetHistoryItem.pullRequest.input.queries.0.number}}",
+                "sections": [
+                  "patches"
+                ],
+                "include": [
+                  "**/merge.go"
+                ]
+              }
             ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "unfiltered": [
@@ -1913,24 +2185,23 @@
       "octocode": [
         {
           "tool": "ghGetHistoryItem",
-          "args": {
-            "operation": "pullRequest",
-            "owner": "cli",
-            "repo": "cli",
-            "number": 13541,
-            "sections": [
-              "patches"
+          "unsearched": true,
+          "input": {
+            "queries": [
+              {
+                "operation": "pullRequest",
+                "owner": "cli",
+                "repo": "cli",
+                "number": 13541,
+                "sections": [
+                  "patches"
+                ]
+              }
             ]
-          },
-          "unsearched": true
+          }
         },
         {
-          "walk": [
-            "nextFilePage",
-            "continuePatch",
-            "responsePagination",
-            "nextPage"
-          ],
+          "walk": true,
           "max": 40,
           "unsearched": true
         }
@@ -1960,13 +2231,20 @@
       "octocode": [
         {
           "tool": "ghSearchCode",
-          "args": {
-            "owner": "Kludex",
-            "repo": "starlette",
-            "keywords": [
-              "wrap_app_handling_exceptions"
+          "input": {
+            "queries": [
+              {
+                "owner": "Kludex",
+                "repo": "starlette",
+                "keywords": [
+                  "wrap_app_handling_exceptions"
+                ]
+              }
             ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -1980,7 +2258,7 @@
       "id": "G17",
       "tool": "ghGetHistoryItem",
       "kind": "github",
-      "source": "W11a explicit walk (all patches of a 29-file PR, responseLength 50000 on every call)",
+      "source": "W11a explicit cursor walk (all patches of a 29-file PR, initial responseChars 50000; continuation inputs replayed unchanged)",
       "question": "Read every patch of cli/cli PR #13541, asking for the largest response page.",
       "truth": {
         "exactFiles": [
@@ -2019,32 +2297,26 @@
       "octocode": [
         {
           "tool": "ghGetHistoryItem",
-          "args": {
-            "operation": "pullRequest",
-            "owner": "cli",
-            "repo": "cli",
-            "number": 13541,
-            "sections": [
-              "patches"
-            ]
-          },
           "unsearched": true,
-          "envelope": {
-            "responseLength": 50000
+          "input": {
+            "queries": [
+              {
+                "operation": "pullRequest",
+                "owner": "cli",
+                "repo": "cli",
+                "number": 13541,
+                "sections": [
+                  "patches"
+                ]
+              }
+            ],
+            "responseChars": 50000
           }
         },
         {
-          "walk": [
-            "nextFilePage",
-            "continuePatch",
-            "responsePagination",
-            "nextPage"
-          ],
+          "walk": true,
           "max": 40,
-          "unsearched": true,
-          "envelope": {
-            "responseLength": 50000
-          }
+          "unsearched": true
         }
       ],
       "competitor": [
@@ -2058,9 +2330,8 @@
       "id": "C01",
       "tool": "localFetch",
       "kind": "clasify",
-      "source": "W10 (prefilter locate) / clasify PLAN C1 shape; 2026-10-14 RFC jev-goals-and-evidence: Locate removed, re-aimed at localFetch clasifyContext",
+      "source": "W10 (prefilter locate) / clasify PLAN C1 shape; 2026-10-14 RFC jev-goals-and-evidence: Locate removed, re-aimed at localFetch classification.predicates",
       "question": "Where does the runtime Builder reject a worker thread count of zero? (builder.rs, 2,270 lines)",
-      "mainGoal": "Zero worker threads check",
       "truth": {
         "hits": [
           {
@@ -2073,16 +2344,21 @@
       "octocode": [
         {
           "tool": "localFetch",
-          "args": {
-            "path": "{{T}}/rust/tokio/src/runtime/builder.rs",
-            "unit": "lines",
-            "length": 120,
-            "clasifyContext": {
-              "classifiers": [
-                "Where the runtime Builder rejects a worker thread count of zero"
-              ]
-            }
+          "input": {
+            "queries": [
+              {
+                "path": "{{T}}/rust/tokio/src/runtime/builder.rs",
+                "classification": {
+                  "predicates": [
+                    "Where the runtime Builder rejects a worker thread count of zero"
+                  ]
+                }
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -2103,9 +2379,8 @@
       "id": "C02",
       "tool": "localFetch",
       "kind": "clasify",
-      "source": "W3 (semantic locate); 2026-10-14 RFC jev-goals-and-evidence: Locate removed, re-aimed at localFetch clasifyContext",
+      "source": "W3 (semantic locate); 2026-10-14 RFC jev-goals-and-evidence: Locate removed, re-aimed at localFetch classification.predicates",
       "question": "Where is a task forced to return Pending because its coop budget is exhausted? (coop/mod.rs)",
-      "mainGoal": "Where coop forces Pending",
       "truth": {
         "range": {
           "file": "tokio/src/task/coop/mod.rs",
@@ -2117,16 +2392,21 @@
       "octocode": [
         {
           "tool": "localFetch",
-          "args": {
-            "path": "{{T}}/rust/tokio/src/task/coop/mod.rs",
-            "unit": "lines",
-            "length": 120,
-            "clasifyContext": {
-              "classifiers": [
-                "Where a task is forced to return Pending because its cooperative budget is exhausted"
-              ]
-            }
+          "input": {
+            "queries": [
+              {
+                "path": "{{T}}/rust/tokio/src/task/coop/mod.rs",
+                "classification": {
+                  "predicates": [
+                    "Where a task is forced to return Pending because its cooperative budget is exhausted"
+                  ]
+                }
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "competitor": [
@@ -2147,9 +2427,8 @@
       "id": "C03",
       "tool": "localFetch",
       "kind": "clasify",
-      "source": "DECISION F5 (described target, no literal; S9 A/B); 2026-10-14 RFC jev-goals-and-evidence: Locate removed, re-aimed at localFetch clasifyContext",
+      "source": "DECISION F5 (described target, no literal; S9 A/B); 2026-10-14 RFC jev-goals-and-evidence: Locate removed, re-aimed at localFetch classification.predicates",
       "question": "In tokio's current-thread scheduler (current_thread/mod.rs, 925 lines), where does it periodically take tasks woken from other threads ahead of its own local queue so they are not starved?",
-      "mainGoal": "Cross-thread task fairness",
       "truth": {
         "range": {
           "file": "tokio/src/runtime/scheduler/current_thread/mod.rs",
@@ -2161,16 +2440,21 @@
       "octocode": [
         {
           "tool": "localFetch",
-          "args": {
-            "path": "{{T}}/rust/tokio/src/runtime/scheduler/current_thread/mod.rs",
-            "unit": "lines",
-            "length": 120,
-            "clasifyContext": {
-              "classifiers": [
-                "Where the scheduler periodically takes tasks woken from other threads ahead of its local queue so they are not starved"
-              ]
-            }
+          "input": {
+            "queries": [
+              {
+                "path": "{{T}}/rust/tokio/src/runtime/scheduler/current_thread/mod.rs",
+                "classification": {
+                  "predicates": [
+                    "Where the scheduler periodically takes tasks woken from other threads ahead of its local queue so they are not starved"
+                  ]
+                }
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "unfiltered": [
@@ -2198,9 +2482,8 @@
       "id": "C04",
       "tool": "localFetch",
       "kind": "clasify",
-      "source": "DECISION F5 (described target, no literal; S9 A/B); 2026-10-14 RFC jev-goals-and-evidence: Locate removed, re-aimed at localFetch clasifyContext",
+      "source": "DECISION F5 (described target, no literal; S9 A/B); 2026-10-14 RFC jev-goals-and-evidence: Locate removed, re-aimed at localFetch classification.predicates",
       "question": "In Django's multipart parser (multipartparser.py, 759 lines), where does it reject a request carrying more ordinary (non-file) form fields than the configured maximum?",
-      "mainGoal": "Too many form fields check",
       "truth": {
         "range": {
           "file": "django/http/multipartparser.py",
@@ -2212,16 +2495,21 @@
       "octocode": [
         {
           "tool": "localFetch",
-          "args": {
-            "path": "{{T}}/python/django/http/multipartparser.py",
-            "unit": "lines",
-            "length": 120,
-            "clasifyContext": {
-              "classifiers": [
-                "Where a request is rejected for carrying more ordinary non-file form fields than the configured maximum"
-              ]
-            }
+          "input": {
+            "queries": [
+              {
+                "path": "{{T}}/python/django/http/multipartparser.py",
+                "classification": {
+                  "predicates": [
+                    "Where a request is rejected for carrying more ordinary non-file form fields than the configured maximum"
+                  ]
+                }
+              }
+            ]
           }
+        },
+        {
+          "walk": true
         }
       ],
       "unfiltered": [
@@ -2245,5 +2533,6 @@
         }
       ]
     }
-  ]
+  ],
+  "revised": "2026-10-29"
 }

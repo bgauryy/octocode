@@ -63,7 +63,7 @@ async function invokeEngine(
     args = [input.command, input.recipe ?? input.operation].filter(
       value => value !== undefined
     );
-  if (['artifact', 'query', 'open', 'cleanup'].includes(command)) {
+  if (['artifact', 'query', 'open', 'cleanup', 'session'].includes(command)) {
     const { args: _args, ...typed } = input;
     const entries = Object.entries(typed).filter(
       ([, value]) => value !== undefined && value !== false

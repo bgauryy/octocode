@@ -224,3 +224,48 @@ fn rust_include_links_the_included_file() {
         deps.value
     );
 }
+
+/// A Rust value is never a module: `driver.events.probe()` reads a local
+/// named like the imported module `driver`, so the module is no namespace
+/// for it, in plain code or a macro argument; `driver::f()` still is.
+#[test]
+fn rust_member_calls_on_a_local_named_like_a_module_do_not_link_by_namespace() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/lib.rs", "pub mod driver;\npub mod io;\n"),
+        (
+            "src/driver.rs",
+            "pub struct Handle;\nimpl Handle {\n    pub fn probe_one(&self) -> u8 { 1 }\n    pub fn probe_two(&self) -> u8 { 2 }\n}\npub fn start() -> u8 { 0 }\n",
+        ),
+        (
+            "src/io.rs",
+            "use crate::driver;\npub struct Io { pub events: u8 }\npub fn plain(driver: Io) { let _ = driver.events.probe_one(); }\npub fn asserted() { let driver = Io { events: 0 }; assert_eq!(driver.events.probe_two(), 1); }\npub fn moduled() -> u8 { driver::start() }\n",
+        ),
+    ]);
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let root = dir.0.as_path();
+    for target in [
+        "src/driver.rs#Handle.probe_one",
+        "src/driver.rs#Handle.probe_two",
+    ] {
+        let callers = ask(root, "callers", Some(target), |o| {
+            o.confidence = Some("low".into());
+        });
+        assert_eq!(ids(&callers), Vec::<String>::new(), "{}", callers.value);
+    }
+    let start = ask(root, "callers", Some("src/driver.rs#start"), |o| {
+        o.confidence = Some("low".into());
+    });
+    assert_eq!(ids(&start), vec!["src/io.rs#moduled"], "{}", start.value);
+    assert_eq!(
+        start.value["results"][0]["via"], "namespace",
+        "{}",
+        start.value
+    );
+}

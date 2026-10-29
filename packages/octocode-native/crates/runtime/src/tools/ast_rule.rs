@@ -82,7 +82,7 @@ pub(crate) const INVALID_PATTERN_HINT: &str = "Make each pattern one parseable n
 pub(crate) fn diagnostic_recovery(code: &str, engine: Option<&str>) -> Option<String> {
     let text = match code {
         "structural.language.unsupported" => {
-            "Set language to the grammar the file is written in, or search its text with localSearch."
+            "Set parser to the grammar the file is written in, or search its text with localSearch."
         }
         "structural.file.tooLarge" => {
             "Search its text with localSearch, or read line ranges with localFetch."

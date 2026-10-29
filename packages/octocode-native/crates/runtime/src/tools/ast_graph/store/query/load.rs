@@ -50,9 +50,10 @@ pub(super) fn locate(options: &QueryOptions) -> Result<(PathBuf, bool), Failure>
 }
 
 /// The snapshot `spec` names among `ids` (oldest first): the id itself, else
-/// the newest snapshot of the one root whose scope is `spec`, else the one
-/// id containing `spec`. A scope or substring that names several roots or
-/// ids is ambiguous and lists them; it never picks one silently.
+/// the newest snapshot of the one root whose scope is `spec`, else the
+/// newest snapshot of the one root whose ids contain `spec`. A scope or
+/// substring that names several roots is ambiguous and lists them; it never
+/// picks one silently.
 pub(super) fn choose_snapshot(
     home: &Path,
     ids: &[String],
@@ -82,15 +83,25 @@ pub(super) fn choose_snapshot(
             _ => Err(ambiguous_graph(spec, &candidates)),
         };
     }
-    let matching = ids
+    let matching = manifests
         .iter()
-        .filter(|id| id.contains(spec))
-        .cloned()
+        .filter(|(id, _)| id.contains(spec))
         .collect::<Vec<_>>();
+    let roots = matching
+        .iter()
+        .map(|(_, manifest)| manifest["root"].as_str().unwrap_or_default())
+        .collect::<std::collections::BTreeSet<_>>();
     match matching.as_slice() {
         [] => Ok(None),
-        [only] => Ok(Some(only.clone())),
-        _ => Err(ambiguous_graph(spec, &matching)),
+        // Oldest first: the last match is that root's newest snapshot.
+        [.., (newest, _)] if roots.len() == 1 => Ok(Some((*newest).clone())),
+        _ => Err(ambiguous_graph(
+            spec,
+            &matching
+                .iter()
+                .map(|(id, _)| (*id).clone())
+                .collect::<Vec<_>>(),
+        )),
     }
 }
 
@@ -110,6 +121,15 @@ pub(super) fn load(
     options: &QueryOptions,
     paths: &PathPolicy,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Graph, Failure> {
+    load_with(options, paths, cancel, true)
+}
+
+pub(super) fn load_with(
+    options: &QueryOptions,
+    paths: &PathPolicy,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+    selective: bool,
 ) -> Result<Graph, Failure> {
     let (dir, explicit_path) = locate(options)?;
     let dir = paths
@@ -148,25 +168,6 @@ pub(super) fn load(
             "graph manifest has no valid captured registry inventory; re-run `octocode graph ingest`",
         ));
     }
-    let bytes = read_graph_file(&dir.join(GRAPH_FILE)).map_err(|error| {
-        fail(
-            ErrorCode::Decode,
-            format!("cannot read {GRAPH_FILE}: {error}"),
-        )
-    })?;
-    let (t, digest) = decode_with_cancel(&bytes, cancel).map_err(|message| {
-        if let Err(cancelled) = cancel.check() {
-            fail(ErrorCode::Cancelled, cancelled)
-        } else {
-            fail(ErrorCode::Decode, message)
-        }
-    })?;
-    if manifest["graph"]["sha256"].as_str() != Some(digest.as_str()) {
-        return Err(fail(
-            ErrorCode::Decode,
-            "graph.bin does not match its manifest digest; re-run `octocode graph ingest`",
-        ));
-    }
     // Every later read, hash, mention scan and `git -C` runs under the
     // manifest's root, which its digest does not cover: it must be the
     // canonical spelling of a directory inside the allowed roots.
@@ -182,12 +183,58 @@ pub(super) fn load(
             ),
         ));
     }
+    let expected = manifest["graph"]["sha256"]
+        .as_str()
+        .ok_or_else(|| fail(ErrorCode::Decode, "graph manifest digest is missing"))?;
+    let point = selective && matches!(options.op.as_str(), "node" | "find" | "candidates");
+    let evidence = matches!(options.op.as_str(), "witnesses" | "unresolved");
+    let (t, selective, validation) = if selective {
+        let mut reader =
+            super::super::format::SnapshotReader::open(&dir.join(GRAPH_FILE), expected, cancel)
+                .map_err(|message| decode_failure(message, cancel))?;
+        let tables = if evidence {
+            reader.evidence_tables(options.op == "witnesses", cancel)
+        } else if point {
+            reader.point_tables(matches!(options.op.as_str(), "node" | "find"), cancel)
+        } else {
+            reader.topology_tables(cancel)
+        }
+        .map_err(|message| decode_failure(message, cancel))?;
+        (tables, Some(std::cell::RefCell::new(reader)), None)
+    } else {
+        let bytes = read_graph_file(&dir.join(GRAPH_FILE))
+            .map_err(|message| fail(ErrorCode::Decode, message))?;
+        let (tables, digest) = decode_with_cancel(&bytes, cancel)
+            .map_err(|message| decode_failure(message, cancel))?;
+        if digest != expected {
+            return Err(fail(
+                ErrorCode::Decode,
+                "graph.bin does not match its manifest digest; rebuild graph",
+            ));
+        }
+        let validation = super::super::format::full_validation(&bytes, &tables)
+            .map_err(|message| fail(ErrorCode::Decode, message))?;
+        (tables, None, Some(validation))
+    };
     let id = manifest["id"].as_str().unwrap_or_default().to_owned();
     Ok(Graph {
         explicit_path: explicit_path.then_some(dir),
         id,
         manifest,
         t,
+        selective,
+        validation,
         ..Default::default()
     })
+}
+
+pub(super) fn decode_failure(
+    message: String,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Failure {
+    if let Err(cancelled) = cancel.check() {
+        fail(ErrorCode::Cancelled, cancelled)
+    } else {
+        fail(ErrorCode::Decode, message)
+    }
 }

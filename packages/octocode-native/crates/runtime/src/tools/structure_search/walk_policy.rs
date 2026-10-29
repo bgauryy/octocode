@@ -249,14 +249,13 @@ impl WalkMeta {
     /// out of `root`, the ignored, hidden and default-pruned entries (their
     /// names stay out of the listing, but their absence is not silent), what
     /// the path policy withheld and the entries it could not read. One
-    /// entry per cause, or every path with `details`; `sampled` too when the
+    /// counted entry per cause and rule, its first path named; `sampled` too when the
     /// walk stopped before its end. A resumed walk (`walkOffset`) states the
     /// entries it read.
     pub(super) fn disclose(
         &self,
         out: &mut Value,
         root: &std::path::Path,
-        details: bool,
     ) -> Result<(), ToolError> {
         use crate::tools::leads::skipped::{self, under};
         use octocode_contract_types::SkippedPathCause::{DefaultExcluded, Hidden, Ignored};
@@ -271,7 +270,7 @@ impl WalkMeta {
                 left.unreadable.into(),
             ));
         let incomplete = self.was_capped || self.time_cut.is_some();
-        if let Some(paths) = skipped::skipped_paths(walked, details, incomplete)? {
+        if let Some(paths) = skipped::skipped_paths(walked, false, incomplete)? {
             out["skippedPaths"] = serde_json::to_value(paths).unwrap_or_default();
         }
         Ok(())

@@ -362,5 +362,8 @@ fn context_ranges(
     merged
 }
 
+mod grouped;
+pub(crate) use grouped::visit_grouped;
+
 #[cfg(test)]
 mod tests;

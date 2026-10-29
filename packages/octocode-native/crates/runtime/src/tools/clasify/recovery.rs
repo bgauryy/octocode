@@ -83,7 +83,7 @@ mod tests {
                 json!({"tool":"localFetch","query":{"path":"source.rs","ranges":[{"startLine":8,"endLine":12}]}}),
             )),
             assets: None,
-            long_context: false,
+            long_context: None,
         }
     }
 

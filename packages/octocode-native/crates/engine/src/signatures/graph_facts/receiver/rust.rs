@@ -75,8 +75,8 @@ impl<'t> ReceiverTypes<'t> {
         )
     }
 
-    /// `T::new(..)`, `T::from_*(..)`, `T::default()`, `T::with_*(..)` and
-    /// `T { .. }`, through `?`, `.await` and `&`.
+    /// `T::new(..)`, `T::from_*(..)`, `T::default()`, `T::with_*(..)`,
+    /// `T { .. }` and a unit struct `T`, through `?`, `.await` and `&`.
     pub(super) fn rust_constructor(&self, value: Node<'t>, content: &str) -> Option<String> {
         let mut value = value;
         loop {
@@ -112,6 +112,10 @@ impl<'t> ReceiverTypes<'t> {
                 node_text(value.child_by_field_name("name")?, content)?,
                 Lang::Rust,
             )?,
+            // A unit struct value (`Square`): CamelCase, unlike a constant.
+            "identifier" => node_text(value, content)
+                .filter(|name| name.chars().any(char::is_lowercase))?
+                .to_owned(),
             _ => return None,
         };
         starts_uppercase(last_segment(&ty)).then_some(())?;

@@ -224,8 +224,10 @@ fn stop_overlapping_a_slow_start_waits_then_tears_it_down() {
 async fn hard_kill_reaps_a_setsid_grandchild() {
     let dir = tempfile::tempdir().expect("dir");
     let pidfile = dir.path().join("escaped.pid");
+    // Publish only after the complete pid is written and closed, so existence
+    // cannot expose a created-but-empty file to the waiter.
     let mut child = tokio::process::Command::new("python3")
-        .args(["-c", "import os,sys,time\nif os.fork()==0:\n os.setsid()\n open(sys.argv[1],'w').write(str(os.getpid()))\n time.sleep(60)\nelse:\n time.sleep(60)\n"])
+        .args(["-c", "import os,sys,time\nif os.fork()==0:\n os.setsid()\n p=sys.argv[1]\n with open(p+'.tmp','w') as f:\n  f.write(str(os.getpid()))\n os.rename(p+'.tmp',p)\n time.sleep(60)\nelse:\n time.sleep(60)\n"])
         .arg(&pidfile).process_group(0).kill_on_drop(true).spawn().expect("python3");
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
     while !pidfile.exists() && std::time::Instant::now() < deadline {

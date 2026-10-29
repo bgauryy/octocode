@@ -52,32 +52,46 @@ pub(crate) fn pick_rows(value: &mut Value, rows: &str, id: &[&str], fields: &[St
     if fields.is_empty() {
         return;
     }
-    if let Some(listed) = value.get_mut(rows).and_then(Value::as_array_mut) {
-        for row in listed.iter_mut() {
-            *row = pick_fields(std::mem::take(row), id, fields);
-        }
-    }
-    warn_absent_fields(value, rows, fields);
-}
-
-/// Names the picked `fields` no row of `value[rows]` carries: a typo, or a
-/// value these rows lack. The call still answers; the caller is told
-/// instead of reading the missing key as an empty value.
-fn warn_absent_fields(value: &mut Value, rows: &str, fields: &[String]) {
-    let Some(listed) = value.get(rows).and_then(Value::as_array) else {
+    let Some(listed) = value.get_mut(rows).and_then(Value::as_array_mut) else {
         return;
     };
-    if listed.is_empty() {
-        return;
-    }
+    let carried = carried_keys(listed, id);
     let absent = fields
         .iter()
-        .map(String::as_str)
-        .filter(|key| !listed.iter().any(|row| row.get(*key).is_some()))
+        .filter(|key| !listed.iter().any(|row| row.get(key.as_str()).is_some()))
+        .cloned()
         .collect::<Vec<_>>();
-    if !absent.is_empty() {
-        push_warnings(value, [format!("No row has {}.", absent.join(", "))]);
+    for row in listed.iter_mut() {
+        *row = pick_fields(std::mem::take(row), id, fields);
     }
+    // Picked `fields` no row carries (a value these rows lack): the call
+    // still answers, and the warning names the keys the rows do carry
+    // instead of leaving the missing key to read as an empty value.
+    if !listed.is_empty() && !absent.is_empty() {
+        push_warnings(
+            value,
+            [format!(
+                "No row has {}; these rows have: {}.",
+                absent.join(", "),
+                carried.join(", ")
+            )],
+        );
+    }
+}
+
+/// The keys beside `id` that some row carries, in first-seen order.
+fn carried_keys(rows: &[Value], id: &[&str]) -> Vec<String> {
+    let mut keys: Vec<String> = Vec::new();
+    for key in rows
+        .iter()
+        .filter_map(Value::as_object)
+        .flat_map(|row| row.keys())
+    {
+        if !id.contains(&key.as_str()) && !keys.contains(key) {
+            keys.push(key.clone());
+        }
+    }
+    keys
 }
 
 /// Assemble the producer's explicitly typed private calls into public channels.

@@ -69,6 +69,7 @@ fn deeply_nested_receiver_lookups_stay_inside_the_deadline() {
     let (graph, elapsed) = crate::test_cpu::cpu_time_of(|| {
         facts_with_load_proof_deadline(&source, "deep_receivers.rs")
     });
+    let graph = serde_json::to_value(graph).expect("graph facts value");
     let diagnostics = graph["diagnostics"].as_array().unwrap();
     assert!(
         !codes(&graph).iter().any(|code| code.ends_with("Deadline")),

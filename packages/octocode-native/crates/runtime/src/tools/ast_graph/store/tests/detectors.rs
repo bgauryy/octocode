@@ -2,6 +2,7 @@
 use super::*;
 
 mod health;
+mod scope_notes;
 
 /// One fixture per edge class a cycle can run through: a runtime import
 /// loop, a type-only one, one closed by a dynamic `import()`, one closed by

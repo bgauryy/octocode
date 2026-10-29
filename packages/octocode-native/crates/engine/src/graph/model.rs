@@ -36,9 +36,19 @@ pub struct GraphFactDeclaration {
     pub exported_as: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// The type a method is declared on outside that type's body: a Go
+    /// method's receiver base type (`T` for `func (r *T[U]) M()`), the
+    /// written scope of a C++ out-of-line definition (`A::B` for
+    /// `void A::B::m() {}`; a class or a namespace).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
     /// 0-based first line of the comment block directly above.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc_line: Option<u32>,
+    /// A C/C++ function declared without its body (a prototype, an in-class
+    /// member declaration): the function's definition is another declaration.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub prototype: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -60,6 +70,11 @@ pub struct GraphFactImport {
     pub resolution_hint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub module_scope: Option<Vec<String>>,
+    /// Declaration id of the innermost declaration whose body holds the
+    /// import: a Scala import is visible only in its enclosing block. Absent
+    /// at file level and for other languages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -139,6 +154,23 @@ pub struct GraphFactCall {
     /// parser cannot read it from a declaration, constructor or field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receiver_type: Option<String>,
+    /// The callee's head (`f` in `f(x)`, `x` in `x.m()`) names a term the
+    /// parser saw bound in scope (a parameter, a lambda or pattern variable,
+    /// an untyped or abstract `val`) that is not a graph declaration and has
+    /// no usable type: it never names a type, an object or a declaration
+    /// elsewhere. Scala only.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub term_binding: bool,
+    /// The receiver is a self alias (`self =>`): the name of the enclosing
+    /// template that declares it (for an anonymous class, the declaration
+    /// it is the value of). Scala only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub self_template: Option<String>,
+    /// The Rust expression macros whose arguments hold this call, outermost
+    /// first, as written (`ready`, `std::task::ready`); empty for a call in
+    /// plain code.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub macros: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -175,6 +207,29 @@ pub struct GraphFactCommonJs {
     pub binding: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Names this load binds at module scope, only where oxc semantics prove
+    /// the name holds the loaded module (or one property of it) for the whole
+    /// file. Every other load keeps its file edge and binds nothing.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub bindings: Vec<GraphFactCommonJsBinding>,
+}
+
+/// The public name of a CommonJS module's whole `module.exports` value:
+/// distinct from the ESM `default`, so the two module shapes never conflate.
+pub const COMMONJS_WHOLE_EXPORT: &str = "module.exports";
+
+/// One proven `require` binding: `const local = require(x)` (`imported` is
+/// `None`: the whole `module.exports`), `const local = require(x).imported`
+/// or `const { imported: local } = require(x)`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct GraphFactCommonJsBinding {
+    pub local: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imported: Option<String>,
+    /// The declaration the outline emits for `local`: a variable that holds
+    /// the module, never a call target of its own.
+    pub declaration_id: String,
 }
 
 /// What a graph-facts diagnostic says about its file's facts: consumers
@@ -200,6 +255,10 @@ pub enum GraphFactCode {
     RustCrateAttributes,
     /// An observed export-forwarding clause has no admitted member binding.
     UnsupportedExportForwarding,
+    /// CommonJS export writes whose final shape is not provable (repeated,
+    /// conditional or deferred `module.exports =`, or a rebound `module` or
+    /// `exports`): the file exports no CommonJS names.
+    UnsupportedCommonJsExports,
 }
 
 impl GraphFactCode {
@@ -212,6 +271,7 @@ impl GraphFactCode {
                 | Self::RustModuleAttributes
                 | Self::RustCrateAttributes
                 | Self::UnsupportedExportForwarding
+                | Self::UnsupportedCommonJsExports
         )
     }
 }

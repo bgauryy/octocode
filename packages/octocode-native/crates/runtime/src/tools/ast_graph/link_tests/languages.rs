@@ -28,6 +28,34 @@ fn go_package_imports_link_every_package_file_with_its_import_line() {
     assert_eq!(files(&dependents), ["main.go"], "{dependents}");
 }
 
+/// A Go package spans its directory's files, so a bare call to a sibling
+/// file's declaration links whatever the name's length; only the
+/// graph-wide unique-name fallback needs a distinctive name.
+#[test]
+fn go_same_package_calls_link_short_names() {
+    let temp = fixture(&[
+        ("go.mod", "module example.com/app\n"),
+        ("a.go", "package app\n\nfunc A() { B(); Bee(); X() }\n"),
+        (
+            "b.go",
+            "package app\n\nfunc B() {}\n\nfunc Bee() {}\n\nfunc X() {}\n",
+        ),
+        ("far/c.go", "package far\n\nfunc C() { Y() }\n"),
+        ("other/y.go", "package other\n\nfunc Y() {}\n"),
+    ]);
+    let root = ingested(&temp);
+    let callees = ask_with(root, "callees", Some("a.go#A"), |o| {
+        o.confidence = Some("low".into());
+    });
+    let mut ids = result_ids(&callees);
+    ids.sort_unstable();
+    assert_eq!(ids, ["b.go#B", "b.go#Bee", "b.go#X"], "{callees}");
+    let far = ask_with(root, "callees", Some("far/c.go#C"), |o| {
+        o.confidence = Some("low".into());
+    });
+    assert_eq!(result_ids(&far), Vec::<&str>::new(), "{far}");
+}
+
 /// A scan rooted below the module root still reads the enclosing `go.mod`.
 #[test]
 fn go_subdirectory_roots_resolve_through_the_enclosing_go_mod() {

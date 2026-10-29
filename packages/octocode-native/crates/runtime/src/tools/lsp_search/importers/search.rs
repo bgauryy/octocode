@@ -49,7 +49,12 @@ pub(in super::super) async fn verified_anchors(
     }
     let mut skip = known_files.clone();
     skip.insert(canonical(anchor_path));
-    let Some(candidates) = candidate_files(scope, symbol, &skip, sources.policy(), cancel).await?
+    // The whole text-scan list is cut into windows and digested: the
+    // server's answer (which varies with what it has loaded) and the reach
+    // check only exclude files from verification, so a later window names
+    // the same files from any process.
+    let Some(candidates) =
+        candidate_files(scope, symbol, &HashSet::new(), sources.policy(), cancel).await?
     else {
         return Ok(Importers {
             failed: true,
@@ -58,9 +63,18 @@ pub(in super::super) async fn verified_anchors(
         });
     };
     let module = anchor_module(sources, anchor_path, symbol).await;
-    let (candidates, unreached) =
-        split_reachable(candidates, module.clone(), sources.policy(), cancel).await?;
-    let window = match Window::cut(candidates, request) {
+    let (_, unreached) = split_reachable(
+        candidates
+            .iter()
+            .filter(|file| !skip.contains(*file))
+            .cloned()
+            .collect(),
+        module.clone(),
+        sources.policy(),
+        cancel,
+    )
+    .await?;
+    let mut window = match Window::cut(candidates, request) {
         Cut::Window(window) => window,
         Cut::Stale => {
             return Ok(Importers {
@@ -69,6 +83,7 @@ pub(in super::super) async fn verified_anchors(
             });
         }
     };
+    window.exclude(skip.iter().chain(&unreached).cloned().collect());
     let mut ignored = scope
         .ignored_text_files(symbol, &skip, sources.policy(), cancel)
         .await?;
@@ -106,7 +121,7 @@ pub(in super::super) async fn verified_anchors(
     let mut elsewhere = HashSet::new();
     loop {
         let (opened, open_failed) =
-            open_candidates(client, sources, cancel, anchor_path, window.files(), symbol).await?;
+            open_candidates(client, sources, cancel, anchor_path, &window.files(), symbol).await?;
         let verified = verify_occurrences(
             client,
             sources,

@@ -22,7 +22,9 @@ pub(super) fn evaluate_row(
     budget: &octocode_io::budget::RequestBudget,
     gate: &crate::providers::classification::gate::GateLease,
 ) -> RowOutcome {
-    let max_chars = max_state_chars(row.long_context);
+    // Omitted longContext admits up to the long window; the small window is
+    // used whenever the state fits it.
+    let max_chars = max_state_chars(row.long_context != Some(false));
     let (state, captured) = match target {
         // Admission measured a literal state against the same budget.
         Target::Content(state) => (state.clone(), None),
@@ -64,13 +66,16 @@ pub(super) fn evaluate_row(
         Ok(assets) => assets,
         Err(error) => return rejected(error, captured),
     };
-    let questions = super::rows::contextual_questions(&row.questions, row.context.as_deref());
+    let long_context = row.long_context.unwrap_or_else(|| {
+        crate::tools::selection::serialized_chars(&state) > max_state_chars(false)
+    });
+    let state = super::rows::contextual_state(&state, row.context.as_deref());
     let judged = dispatcher.handle().block_on(evaluator.evaluate_prepared(
         EvaluationInput {
             state: &state,
-            questions: &questions,
+            questions: &row.questions,
             assets: assets.as_ref().map(|assets| &assets.provider),
-            long_context: row.long_context,
+            long_context,
         },
         row.model.as_deref(),
         budget,

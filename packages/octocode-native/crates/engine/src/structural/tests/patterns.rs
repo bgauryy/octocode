@@ -251,5 +251,11 @@ fn a_named_root_pattern_is_a_declaration() {
     assert_eq!(class.kind, "class_declaration");
     assert_eq!(pattern_declaration("$X.unwrap()", "rs"), None);
     assert_eq!(pattern_declaration("foo($A)", "ts"), None);
+    // A call whose grammar names its method by a `name` field is a call.
+    assert_eq!(pattern_declaration("Collections.sort($X)", "java"), None);
+    assert_eq!(pattern_declaration("$O.sort($X)", "java"), None);
+    // So is a path, though its grammar names its last segment `name`.
+    assert_eq!(pattern_declaration("Ordering::SeqCst", "rs"), None);
+    assert_eq!(pattern_declaration("std::chrono::seconds", "cpp"), None);
     assert_eq!(pattern_declaration("fn ???", "rs"), None);
 }

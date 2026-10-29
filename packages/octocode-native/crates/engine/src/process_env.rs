@@ -27,6 +27,24 @@ pub const PROCESS_ENV: &[&str] = &[
     "HOMEPATH",
     "SYSTEMROOT",
     "SystemRoot",
+    // Toolchain and scratch variables forwarded to Python, Go and JVM
+    // language servers (`lsp::client`).
+    "VIRTUAL_ENV",
+    "CONDA_PREFIX",
+    "PYTHONPATH",
+    "GOPATH",
+    "GOMODCACHE",
+    "GOFLAGS",
+    "GOWORK",
+    "GOPROXY",
+    "GOPRIVATE",
+    "GONOSUMDB",
+    "JAVA_HOME",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
 ];
 
 /// Whether `name` is in [`PROCESS_ENV`].

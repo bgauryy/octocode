@@ -72,7 +72,7 @@ fn default_pruned_directories_are_named_and_an_empty_listing_walks_them() {
     let tree = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
     // One entry for the cause, its first directory, counting both.
     let names = skipped_names(&tree, "default-excluded");
-    assert_eq!(names, ["build", "node_modules"], "{tree}");
+    assert_eq!(names, ["build"], "{tree}");
     assert_eq!(skipped_count(&tree, "default-excluded"), 2, "{tree}");
     assert!(related(&tree, "structureSearch").is_null(), "{tree}");
 

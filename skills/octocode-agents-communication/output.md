@@ -22,22 +22,13 @@ Outcome → unresolved conflict → responsible actor and next action. Keep prot
 | `swimlane-beta` | Clarify responsibility and handoffs across agents. |
 | Pending-item table | Make blockers and ownership actionable; link detailed records instead of pasting logs. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
-The caller-selected database, not the report, holds messages and evidence; a chat summary naming `activity`, `locks`, or `view` usually suffices. Save and render a report when the outcome spans several agents or open conflicts, the user asks for multi-agent status, or instructions (e.g. `AGENTS.md`) say to keep every result.
+The caller-selected database, not the report, holds messages and evidence; a chat summary naming `activity`, `locks`, or `view` usually suffices. Save a report when the outcome spans several agents or open conflicts, the user asks for multi-agent status, or instructions (e.g. `AGENTS.md`) say to keep every result.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Resolved | Waiting | Blocked
-confidence: high | medium | low
-question: <the question or decision>
-next: <the one next action for whoever continues, in the imperative>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Resolved`, `Waiting`, `Blocked`.
 
 Then a `#` title and a lead paragraph stating the answer. Always include `## Outcome` and `## Pending` (write `None.` when nothing is open), with one row per open item:
 
@@ -46,4 +37,4 @@ Then a `#` title and a lead paragraph stating the answer. Always include `## Out
 
 Plain-word item names; a message or lease identifier only when another agent must act on it.
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

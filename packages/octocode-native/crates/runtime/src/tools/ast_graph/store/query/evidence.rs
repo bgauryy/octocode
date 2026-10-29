@@ -37,32 +37,38 @@ impl Query<'_> {
                     continue;
                 }
                 keep(&|| {
-                    let source_digest = self.g.t.str(witness.provenance.source_digest);
-                    let version = self.g.t.str(witness.provenance.derivation_version);
+                    let text = |id| self.g.text(id, self.cancel);
+                    let source_digest = text(witness.provenance.source_digest)?;
+                    let file = self.g.key(self.g.t.nodes[edge.src as usize].file);
+                    let version = text(witness.provenance.derivation_version)?;
+                    let detail = text(edge.detail)?;
                     let range = source_range(witness.provenance)?;
-                    let origin = self
-                        .g
-                        .origin(witness.provenance.source_origin, self.cancel)?;
-                    let rule = derivation_rule(edge.kind, self.g.t.str(edge.detail));
+                    let origin = self.g.project_origin(
+                        witness.provenance.source_origin,
+                        file,
+                        &source_digest,
+                        self.cancel,
+                    )?;
+                    let rule = derivation_rule(edge.kind, &detail);
                     let identity = json!([
                         source_digest,
-                        self.g.t.str(witness.occurrence),
+                        text(witness.occurrence)?,
                         self.g.key(edge.src),
                         self.g.key(edge.dst),
                         &rule,
                         version,
                         &range,
-                        origin.get("analysisUnitId"),
+                        origin.analysis_unit_id,
                     ])
                     .to_string();
                     let mut row = json!({
                         "id": octocode_engine::digest::sha256(identity.as_bytes()),
                         "from": self.g.key(edge.src), "to": self.g.key(edge.dst),
-                        "edge": edge.kind.as_str(), "detail": self.g.t.str(edge.detail),
-                        "file": self.g.key(self.g.t.nodes[edge.src as usize].file),
+                        "edge": edge.kind.as_str(), "detail": detail,
+                        "file": file,
                         "line": (edge.line != NONE).then_some(edge.line), "confidence": edge.confidence.as_str(), "test": edge.test,
                         "sourceDigest": source_digest, "evidence": "syntax",
-                        "sourceRange": range, "sourceOrigin": origin, "derivation": {"rule":rule,"version":version},
+                        "sourceRange": range, "sourceOrigin": origin.value, "derivation": {"rule":rule,"version":version},
                     });
                     argument_fields(self.g, witness.argument, &mut row, self.cancel)?;
                     Ok(row)
@@ -80,33 +86,39 @@ impl Query<'_> {
                     continue;
                 }
                 keep(&|| {
-                    let source_digest = self.g.t.str(site.provenance.source_digest);
-                    let version = self.g.t.str(site.provenance.derivation_version);
+                    let text = |id| self.g.text(id, self.cancel);
+                    let source_digest = text(site.provenance.source_digest)?;
+                    let file = self.g.key(self.g.t.nodes[site.src as usize].file);
+                    let version = text(site.provenance.derivation_version)?;
+                    let reason = text(site.reason)?;
+                    let callee = text(site.callee)?;
                     let range = source_range(site.provenance)?;
-                    let origin = self.g.origin(site.provenance.source_origin, self.cancel)?;
-                    let rule = derivation_rule(
-                        site.relation,
-                        &format!("unresolved:{}", self.g.t.str(site.reason)),
-                    );
+                    let origin = self.g.project_origin(
+                        site.provenance.source_origin,
+                        file,
+                        &source_digest,
+                        self.cancel,
+                    )?;
+                    let rule = derivation_rule(site.relation, &format!("unresolved:{reason}"));
                     let identity = json!([
                         source_digest,
                         self.g.key(site.src),
-                        self.g.t.str(site.occurrence),
-                        self.g.t.str(site.callee),
+                        text(site.occurrence)?,
+                        callee,
                         &rule,
                         version,
                         &range,
-                        origin.get("analysisUnitId"),
+                        origin.analysis_unit_id,
                     ])
                     .to_string();
                     let mut row = json!({
                         "id": octocode_engine::digest::sha256(identity.as_bytes()),
-                        "from": self.g.key(site.src), "targetName": self.g.t.str(site.callee),
+                        "from": self.g.key(site.src), "targetName": callee,
                         "edge": site.relation.as_str(),
-                        "file": self.g.key(self.g.t.nodes[site.src as usize].file),
-                        "line": site.line, "reason": self.g.t.str(site.reason),
+                        "file": file,
+                        "line": site.line, "reason": reason,
                         "sourceDigest": source_digest, "evidence": "syntax",
-                        "sourceRange": range, "sourceOrigin": origin, "derivation": {"rule":rule,"version":version},
+                        "sourceRange": range, "sourceOrigin": origin.value, "derivation": {"rule":rule,"version":version},
                     });
                     argument_fields(self.g, site.argument, &mut row, self.cancel)?;
                     Ok(row)
@@ -153,18 +165,25 @@ fn argument_fields(
     if reference == NONE {
         return Ok(());
     }
-    let evidence: ArgumentEvidence =
-        serde_json::from_str(graph.t.str(reference)).map_err(|error| {
+    let evidence: ArgumentEvidence = serde_json::from_str(&graph.text(reference, cancel)?)
+        .map_err(|error| {
             GraphOutput::error(
                 ErrorCode::InvalidInput,
                 format!("invalid stored argument evidence: {error}"),
             )
         })?;
     let range = sources::range;
+    let file = row["file"].as_str().unwrap_or_default().to_owned();
+    let digest = row["sourceDigest"].as_str().unwrap_or_default().to_owned();
+    let origin = |reference| {
+        graph
+            .project_origin(reference, &file, &digest, cancel)
+            .map(|origin| origin.value)
+    };
     row["recipient"] = json!({
         "occurrenceId":evidence.recipient,
         "sourceRange":range(evidence.recipient_range.range)?,
-        "sourceOrigin":graph.origin(evidence.recipient_range.origin, cancel)?,
+        "sourceOrigin":origin(evidence.recipient_range.origin)?,
     });
     row["parseAssessment"] = json!(evidence.assessment);
     let mut argument = json!({"groupIndex":evidence.group});
@@ -184,10 +203,10 @@ fn argument_fields(
             }
             row["targetName"] = json!(target);
             row["selectionByteRange"] = json!(range(selection.range)?);
-            row["selectionOrigin"] = graph.origin(selection.origin, cancel)?;
+            row["selectionOrigin"] = origin(selection.origin)?;
             if let Some(blocker) = blocker {
                 row["bindingSourceRange"] = json!(range(blocker.range)?);
-                row["bindingOrigin"] = graph.origin(blocker.origin, cancel)?;
+                row["bindingOrigin"] = origin(blocker.origin)?;
             }
         }
         Observation::UnsupportedSlot {

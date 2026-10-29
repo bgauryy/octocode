@@ -1,6 +1,6 @@
 // Line/file evidence from octocode structured results (continuations excluded),
-// shape-agnostic across the local and GitHub tools, for the shared truth check.
-import { inventoryRows, outlineRows, structureFiles } from '../responses.mjs';
+// from canonical local collections and remote result trees, for the shared truth check.
+import { declarations, inventoryRows, outlineRows, sourceLines, structureFiles } from '../responses.mjs';
 import { isHintKey } from '../sensors.mjs';
 
 const pair = (ev, file, line) => { if (file && Number.isInteger(line)) ev.pairs.push({ file, line }); };
@@ -57,13 +57,14 @@ function listedFiles(ev, tool, node) {
 }
 
 /** A child the walk handles itself (true) or skips; false = walk into it. */
+const inventoryFiles = (tool, key, child) => tool === 'ghGetHistoryItem' && key === 'files' && Array.isArray(child) && child.some(f => typeof f === 'string' || (f && !('path' in f)));
 function specialChild(c, key, child) {
-  if (isHintKey(key)) return true;
+  if (isHintKey(key) || key === 'diagnostics') return true;
   if (key === 'unsearchedFiles' && Array.isArray(child)) {
     if (c.unsearched) for (const s of child) { const m = /^!\w+ (.+)$/.exec(s); if (m) c.ev.files.add(m[1]); }
     return true;
   }
-  if (key === 'files' && c.tool === 'ghGetHistoryItem' && Array.isArray(child) && child.some(f => typeof f === 'string' || (f && !('path' in f)))) {
+  if (inventoryFiles(c.tool, key, child)) {
     for (const f of inventoryRows(child)) if (f.path) c.ev.files.add(f.path);
     return true;
   }
@@ -88,12 +89,68 @@ function walk(c, node, parentPath, inArray) {
 function leaves(value, out = []) {
   if (value == null) return out;
   if (typeof value !== 'object') { out.push(String(value)); return out; }
-  for (const child of Object.values(value)) leaves(child, out);
+  for (const [key, child] of Object.entries(value)) if (!isHintKey(key)) leaves(child, out);
   return out;
 }
 
-/** Add one octocode response's evidence to `ev`; `unsearched` counts `unsearchedFiles` as listed files. */
+function matchEvidence(ev, file, match) {
+  if (Array.isArray(match.sites)) for (const site of match.sites) pair(ev, file, site.line);
+  else pair(ev, file, match.line);
+  ev.text += `${match.value ?? match.content ?? match.symbolName ?? ''}\n`;
+}
+
+function lspEvidence(ev, data) {
+  for (const match of data.matches ?? []) {
+    const file = match.path ?? match.from?.path;
+    if (file) listFile(ev, file);
+    if (match.fromRanges) for (const range of match.fromRanges) pair(ev, file, range.startLine);
+    else pair(ev, file, match.displayRange?.startLine);
+    ev.text += `${match.content ?? ''}\n`;
+  }
+}
+
+/** Local graders consume result collections, never diagnostic or recovery paths. */
+function declarationEvidence(entry, ev, index, data) {
+  ev.outlineContext ??= new Map();
+  for (const decl of declarations(entry, index, ev.outlineContext)) {
+    pair(ev, decl.path ?? data.path, decl.line);
+    ev.text += `${decl.name} ${decl.kind}\n`;
+  }
+}
+
+function fileEvidence(ev, files = []) {
+  for (const file of files) {
+    listFile(ev, file.path);
+    for (const match of file.matches ?? []) matchEvidence(ev, file.path, match);
+  }
+}
+
+function localEvidence(entry, ev) {
+  for (const [index, row] of (entry.sc?.results ?? []).entries()) {
+    const data = row.data ?? {};
+    if (entry.tool === 'structureSearch') {
+      for (const file of structureFiles(data.files)) listFile(ev, file.path);
+      continue;
+    }
+    if (entry.tool === 'localFetch') {
+      for (const [line] of sourceLines(data)) pair(ev, data.path, line);
+      ev.text += `${data.content ?? ''}\n`;
+      continue;
+    }
+    fileEvidence(ev, data.files);
+    if (entry.tool === 'lspSearch') lspEvidence(ev, data);
+    if (entry.tool === 'astSearch' || entry.tool === 'lspSearch') {
+      declarationEvidence(entry, ev, index, data);
+    }
+  }
+}
+
+/** Add one response's requested evidence; navigation and scan diagnostics stay in raw receipts. */
 export function octocodeEvidence(entry, ev, { unsearched = false } = {}) {
+  if (['localSearch', 'localFetch', 'structureSearch', 'astSearch', 'lspSearch'].includes(entry.tool)) {
+    localEvidence(entry, ev);
+    return;
+  }
   walk({ ev, tool: entry.tool, unsearched }, entry.sc, undefined, false);
   ev.text += `${leaves(entry.sc ?? entry.text).join('\n')}\n`;
 }

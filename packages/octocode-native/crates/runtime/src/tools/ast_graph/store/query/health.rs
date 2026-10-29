@@ -60,7 +60,9 @@ pub(super) fn reingest_command(manifest: &Value) -> String {
         Some(max) if scan["truncated"] == true => {
             Some(max.saturating_mul(2).min(u64::from(u32::MAX)))
         }
-        max => max.filter(|max| *max != u64::from(super::super::DEFAULT_MAX_FILES)),
+        max => {
+            max.filter(|max| *max != u64::from(crate::tools::ast_graph::limits::LIMITS.max_files))
+        }
     };
     if let Some(max) = max_files {
         command.push_str(&format!(" --max-files {max}"));

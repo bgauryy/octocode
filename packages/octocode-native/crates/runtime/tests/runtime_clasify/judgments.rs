@@ -98,7 +98,7 @@ async fn a_row_model_and_the_configured_model_reach_the_provider() {
 }
 
 #[tokio::test]
-async fn research_context_reaches_each_question_and_changes_the_cache_identity() {
+async fn research_context_wraps_the_state_once_and_changes_the_cache_identity() {
     let server = provider(2).await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
@@ -108,13 +108,12 @@ async fn research_context_reaches_each_question_and_changes_the_cache_identity()
         clasify(&runtime, vec![row.clone()]).await;
         let requests = sent(&server).await;
         let request = requests.last().unwrap();
-        assert_eq!(request["state"], row["content"]);
+        assert_eq!(
+            request["state"],
+            json!({"context":context,"content":row["content"]})
+        );
         for question in request["questions"].as_object().unwrap().values() {
-            assert_eq!(question["instructions"]["context"], context);
-            assert_eq!(
-                question["instructions"]["instructions"],
-                row["questions"]["restart"]["instructions"]
-            );
+            assert_eq!(question, &row["questions"]["restart"]);
         }
     }
     assert_eq!(sent(&server).await.len(), 2);

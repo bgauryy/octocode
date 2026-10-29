@@ -147,7 +147,7 @@ impl<'a> Projector<'a> {
             source_origin,
             derivation_version: self.strings.id(&format!(
                 "graph-analysis:{}/facts:{}",
-                super::super::manifest::ANALYSIS_VERSION,
+                super::super::super::ANALYSIS_VERSION,
                 octocode_engine::signatures::GRAPH_FACTS_SCHEMA_VERSION,
             )),
         }
@@ -165,6 +165,7 @@ impl<'a> Projector<'a> {
             let index = self.file_symbols(file, facts, file_id, &mut symbols);
             symbols.indexes.insert(file.as_str(), index);
         }
+        self.c_definitions(&mut symbols);
         symbols
     }
 
@@ -193,6 +194,14 @@ impl<'a> Projector<'a> {
                         && decl.name.starts_with("test_"))
                         || (decl.kind == "class" && decl.name.starts_with("Test"))))
         };
+        // A variable holding a `require`d module links through its binding;
+        // it is never a call or type target of its own, yet it keeps its
+        // name occupied as it did when it was one.
+        let module_holders = facts
+            .commonjs
+            .iter()
+            .map(|binding| binding.declaration_id.as_str())
+            .collect::<HashSet<_>>();
         // Generated, bundled, vendored and declaration-only code never
         // serves as a unique-name call target.
         let unique_target = !self.has_role(file, ROLE_NOT_AUTHORED | ROLE_DECLARATION);
@@ -223,11 +232,22 @@ impl<'a> Projector<'a> {
             });
             index.decl_nodes.insert(decl.id.as_str(), id);
             symbols.targets.resize(id as usize + 1, 0);
+            // Only a declaration whose own extent was recovered may carry a
+            // repaired identity; one recovered through an enclosing
+            // declaration (a malformed sibling in the same body) parsed
+            // cleanly and stays a target.
             symbols.targets[id as usize] = if matches!(
                 decl.parse_assessment,
-                octocode_engine::graph::GraphParseAssessment::Recovered { .. }
+                octocode_engine::graph::GraphParseAssessment::Recovered {
+                    scope: octocode_engine::graph::GraphParseScope::Declaration
+                        | octocode_engine::graph::GraphParseScope::Occurrence
+                        | octocode_engine::graph::GraphParseScope::Document,
+                    ..
+                }
             ) {
-                0
+                RECOVERED_TARGET
+            } else if module_holders.contains(decl.id.as_str()) {
+                REFERENCE_TARGET | RECOVERED_TARGET
             } else {
                 target_bits(&decl.kind)
             };
@@ -253,12 +273,19 @@ impl<'a> Projector<'a> {
                     .strings
                     .id(&serde_json::json!(decl.parse_assessment).to_string()),
             });
-            index
-                .by_name
-                .entry(decl.name.as_str())
-                .or_default()
-                .push(id);
-            if decl.exported {
+            // A method declared outside its type's body (a Go receiver) is
+            // no name of its module: only its type's method set reaches it.
+            let owner = decl.owner.as_deref().filter(|_| decl.parent.is_none());
+            if let Some(owner) = owner {
+                symbols.container_names.insert(id, owner);
+            } else {
+                index
+                    .by_name
+                    .entry(decl.name.as_str())
+                    .or_default()
+                    .push(id);
+            }
+            if decl.exported && owner.is_none() {
                 for public in decl.public_names() {
                     index.exports.entry(public.as_str()).or_default().push(id);
                 }

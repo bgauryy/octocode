@@ -34,6 +34,14 @@
   },
   "tools": [
     {
+      "name": "graphBuild",
+      "description": "Build Code Graph (beta: requires OCTOCODE_BETA)"
+    },
+    {
+      "name": "graphQuery",
+      "description": "Query Code Graph (beta: requires OCTOCODE_BETA)"
+    },
+    {
       "name": "clasify",
       "description": "Clasify (conditional: requires OCTOCODE_CLASSIFICATION_API)"
     },

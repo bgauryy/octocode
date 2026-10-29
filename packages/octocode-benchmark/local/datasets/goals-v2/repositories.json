@@ -4,7 +4,7 @@
   "repositories": [
     {
       "id": "lodash",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/javascript",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/javascript",
       "remote": "https://github.com/lodash/lodash.git",
       "commit": "2b5e6f7399a7b48005140b5d5c6bc6c0e62919a8",
       "gitTree": "215d21d02c0efc191a499a03ffa07859d269544a",
@@ -17,7 +17,7 @@
     },
     {
       "id": "tokio",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/rust",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/rust",
       "remote": "https://github.com/tokio-rs/tokio.git",
       "commit": "facc6fc47eb2ba13a465a3179f8e34db620561ec",
       "gitTree": "3a29e3232b3c4aab590ee3811e29bb764fb08823",
@@ -30,7 +30,7 @@
     },
     {
       "id": "django",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/python",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/python",
       "remote": "https://github.com/django/django.git",
       "commit": "4fab678a0739d54401ccee7eb587553657c9f76e",
       "gitTree": "9d574ca9ea4c607cd959d6e3a6eda39660487996",
@@ -43,7 +43,7 @@
     },
     {
       "id": "prometheus",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/go",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/go",
       "remote": "https://github.com/prometheus/prometheus.git",
       "commit": "ea954809ceafceb53ecfa295ab0947753929de9e",
       "gitTree": "5ba6148199da3f004bdaba103e0690977e1b93f3",
@@ -56,7 +56,7 @@
     },
     {
       "id": "guava",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/java",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/java",
       "remote": "https://github.com/google/guava.git",
       "commit": "4d41665af1b05bad09039b82cb2a1a474a7bceaf",
       "gitTree": "23d222e9a236851c74a06c13022fe01b74deef2e",
@@ -69,7 +69,7 @@
     },
     {
       "id": "excalidraw",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/tsx",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/tsx",
       "remote": "https://github.com/excalidraw/excalidraw.git",
       "commit": "f3d99c42e905706c1899bd887cfec59f2e92f425",
       "gitTree": "58be3cf23763b8fa6f19d4b033bbf9483fbd5b02",
@@ -82,7 +82,7 @@
     },
     {
       "id": "redis",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/c",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/c",
       "remote": "https://github.com/redis/redis.git",
       "commit": "20bb2cfc54aa08c8fdfb8c4c0a8b8258e811711e",
       "gitTree": "0dd8bbb93c9c764a5e806e0a827924ff2b7cb8a4",
@@ -95,7 +95,7 @@
     },
     {
       "id": "newtonsoft",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/csharp",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/csharp",
       "remote": "https://github.com/JamesNK/Newtonsoft.Json.git",
       "commit": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
       "gitTree": "33fef56663dfebfe823f2bc407fd14a989428192",
@@ -108,7 +108,7 @@
     },
     {
       "id": "terraform",
-      "sourceRoot": "/Users/bgaryy/code/octocode/packages/octocode-benchmark/local/repos/terraform",
+      "sourceRoot": "packages/octocode-benchmark/local/repos/terraform",
       "remote": "https://github.com/hashicorp/terraform.git",
       "commit": "c0fcd5b52b08f607fbd1e2f164b323f7523146c9",
       "gitTree": "476fbb40dd73cf77454f1804061cfe168341f8c5",

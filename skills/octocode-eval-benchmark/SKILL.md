@@ -5,6 +5,17 @@ description: "Load this skill first whenever the user asks whether a change, pro
 
 # Octocode eval benchmark
 
+Match the evidence to the claim; reserve sealed comparisons for behavioral gains.
+
+```mermaid
+flowchart LR
+  C{Claim} -- editorial --> R[Review structure and intent]
+  C -- regression --> T[Reproduce failure and verify fix]
+  C -- comparison --> F[Freeze metric, cases and access]
+  F --> D[Develop and select] --> S[Run sealed comparison once]
+  S --> V[Apply verdict and report limits]
+```
+
 ## Pick the depth
 
 | Claim | Evidence |

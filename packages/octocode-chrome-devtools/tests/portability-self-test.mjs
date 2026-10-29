@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import {
-  cpSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -10,6 +9,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { copyPackage } from './copy-package.mjs';
 
 const skill = join(import.meta.dirname, '..');
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
@@ -21,10 +21,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 const root = mkdtempSync(join(tmpdir(), 'octocode-chrome-portability-'));
 try {
   const copy = join(root, 'octocode-chrome-devtools');
-  cpSync(skill, copy, {
-    recursive: true,
-    filter: source => !source.split(/[\\/]/).includes('node_modules'),
-  });
+  copyPackage(skill, copy);
 
   function run(script, args) {
     return spawnSync(

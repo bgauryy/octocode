@@ -167,11 +167,12 @@ fn subtypes_are_the_declarations_whose_heritage_names_the_base() {
     let source = "interface Base {}\nclass A extends Base {}\nclass B implements Other, Base {}\ninterface C extends ns.Base {}\nclass D extends Other {}\nclass Base2 extends Base {}\n";
     assert_eq!(
         subtypes(source, "/work/a.ts", "Base"),
+        // Each row carries its declaration line, as a server location does.
         vec![
-            (1, 6, 7, "A".into()),
-            (2, 6, 7, "B".into()),
-            (3, 10, 11, "C".into()),
-            (5, 6, 11, "Base2".into()),
+            (1, 6, 7, "class A extends Base {}".into()),
+            (2, 6, 7, "class B implements Other, Base {}".into()),
+            (3, 10, 11, "interface C extends ns.Base {}".into()),
+            (5, 6, 11, "class Base2 extends Base {}".into()),
         ]
     );
     assert!(subtypes(source, "/work/a.ts", "Missing").is_empty());

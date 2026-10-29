@@ -120,3 +120,78 @@ fn only_optional_declared_empty_siblings_are_omitted() {
         "known empty stays distinct from absent"
     );
 }
+
+fn delivered_part(part: Value, delivered: &[&str], optional: &[&str]) -> Value {
+    let mut part = part;
+    let delivered = delivered
+        .iter()
+        .map(|path| (*path).to_owned())
+        .collect::<Vec<_>>();
+    let optional = optional.iter().map(|path| (*path).to_owned()).collect();
+    drop_delivered_elsewhere(&mut part, &delivered, &optional);
+    part
+}
+
+#[test]
+fn an_optional_holder_of_a_collection_delivered_elsewhere_is_omitted() {
+    let part = json!({"data":{"files":[{"path":"a"}],"nested":{"entries":[],"sampled":true}}});
+    let row = delivered_part(part.clone(), &["/data/nested/entries"], &["/data/nested"]);
+    assert_eq!(row, json!({"data":{"files":[{"path":"a"}]}}));
+    let required = delivered_part(part.clone(), &["/data/nested/entries"], &[]);
+    assert_eq!(required, part, "a required holder keeps its slot");
+    let known_empty = delivered_part(part.clone(), &[], &["/data/nested"]);
+    assert_eq!(known_empty, part, "known empty stays distinct from absent");
+}
+
+#[test]
+fn a_holder_with_other_evidence_keeps_its_shape() {
+    for extra in [json!({"kind":"detail"}), json!([])] {
+        let part = json!({"data":{"nested":{"entries":[],"sampled":true,"extra":extra}}});
+        let row = delivered_part(part.clone(), &["/data/nested/entries"], &["/data/nested"]);
+        assert_eq!(row, part);
+    }
+    let part = json!({"data":{"nested":{"entries":[],"more":{},"sampled":true}}});
+    let row = delivered_part(
+        part,
+        &["/data/nested/entries", "/data/nested/more"],
+        &["/data/nested"],
+    );
+    assert_eq!(row, json!({"data":{}}));
+}
+
+#[test]
+fn an_optional_collection_delivered_elsewhere_is_omitted_but_its_holder_kept() {
+    let part = json!({"data":{"summary":{"count":2,"notes":[],"changed":["x"]},"results":[]}});
+    let row = delivered_part(
+        part,
+        &["/data/results", "/data/summary/notes"],
+        &["/data/results", "/data/summary", "/data/summary/notes"],
+    );
+    assert_eq!(row, json!({"data":{"summary":{"count":2,"changed":["x"]}}}));
+    let kept = json!({"data":{"results":[1]}});
+    assert_eq!(
+        delivered_part(kept.clone(), &["/data/results"], &["/data/results"]),
+        kept
+    );
+}
+
+#[test]
+fn delivered_collections_name_only_fixed_non_empty_slots() {
+    let row = json!({"data":{"files":[],"skippedPaths":{"entries":[{"path":"a"}]},"records":{"k":1},
+        "location":{"symlinks":{}}}});
+    let fixed = [
+        "/data/files",
+        "/data/skippedPaths/entries",
+        "/data/records",
+        "/data/location/symlinks",
+        "/data/missing",
+    ]
+    .map(str::to_owned);
+    assert_eq!(
+        delivered_collections(&row, &fixed),
+        vec![
+            "/data/skippedPaths/entries".to_owned(),
+            "/data/records".to_owned()
+        ]
+    );
+}

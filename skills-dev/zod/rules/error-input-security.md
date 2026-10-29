@@ -1,7 +1,7 @@
 ---
 title: reportInput Leaks Sensitive Data
 impact: HIGH
-description: Never enable reportInput in production. It embeds raw input values in error messages.
+description: Keep reportInput disabled for real user or secret data in every environment; inspect only fabricated non-sensitive fixtures.
 tags: security, reportInput, logging, production
 ---
 
@@ -28,15 +28,11 @@ app.post("/register", (req, res) => {
 ## Correct
 
 ```typescript
-// GOOD: only use reportInput in development/debugging
-const parseOptions = {
-  reportInput: process.env.NODE_ENV === "development",
-}
-
+// GOOD: omit reportInput for real data, including development
 app.post("/register", (req, res) => {
-  const result = UserSchema.safeParse(req.body, parseOptions)
+  const result = UserSchema.safeParse(req.body)
   if (!result.success) {
-    // In production, issues won't contain raw input values
+    // No raw input field; custom messages still need review for secrets
     const flat = z.flattenError(result.error)
     res.status(400).json({ errors: flat.fieldErrors })
   }
@@ -45,4 +41,4 @@ app.post("/register", (req, res) => {
 
 ## Why
 
-Error issues are routinely logged, sent to error monitoring (Sentry, Datadog), and sometimes returned in API responses. Including raw input values in these flows violates data privacy principles and can expose sensitive user data.
+Error issues are logged, sent to monitoring and returned in API responses. Development can handle sensitive data too. Enable input reporting only for explicit inspection of fabricated, non-sensitive fixtures; review custom error messages because disabling reportInput does not sanitize text a callback constructs.

@@ -38,6 +38,27 @@ fn hits_name_their_innermost_declaration_and_definitions_the_one_around() {
     assert!(!outline.declares("try_read_output", 10));
 }
 
+#[test]
+fn rust_macro_arm_hits_belong_to_the_named_macro() {
+    for attribute in ["macro_export", "allow(dead_code)"] {
+        let source = format!(
+            "macro_rules! wrapper {{\n\
+             ($item:item) => {{\n\
+             /// Example: option.unwrap()\n\
+             #[{attribute}]\n\
+             $item\n\
+             }};\n\
+             }}\n"
+        );
+        let outline = Outline::of(&source, "enclosing-test/macro-arm.rs").expect("outline");
+        for line in 2..=6 {
+            let owner = outline.enclosing(line).expect("containing macro");
+            assert_eq!(owner.symbol_name, "wrapper", "{attribute}, line {line}");
+            assert_eq!((owner.line, owner.end_line), (1, 7));
+        }
+    }
+}
+
 /// A `#define` owns its line terminator; its range still ends on its
 /// own line, so a hit on the next macro is not attributed to it.
 #[test]

@@ -1,6 +1,6 @@
-//! The call linker: how one call site resolves to target symbols, and the
-//! directory scope that bounds unique-name links.
+//! The call linker: how one call site resolves to target symbols.
 use super::*;
+use octocode_engine::graph::COMMONJS_WHOLE_EXPORT;
 
 /// A linked call: target symbols, how they were found, and the confidence.
 pub(super) type Linked = (Vec<u32>, &'static str, Confidence);
@@ -15,6 +15,21 @@ pub(crate) struct Linker<'r> {
     pub(crate) scope: &'r LinkScope<'r>,
     pub(crate) bases: &'r BaseIndex,
     pub(crate) is_type: &'r dyn Fn(u32) -> bool,
+    /// Declarations whose own extent was recovered (never targets).
+    pub(crate) recovered: &'r dyn Fn(u32) -> bool,
+    /// Names of the `macro_rules!` the repo's Rust files declare.
+    pub(crate) rust_macros: &'r HashSet<&'r str>,
+}
+
+/// Where a bare name may bind once its file and imports did not
+/// ([`Linker::bare_scope`]).
+pub(super) enum BareScope {
+    /// Any declaration in the language family, scoped by preference.
+    Graph,
+    /// The caller's Go package.
+    Package,
+    /// The caller's module, which `local` and `imported` already searched.
+    Module,
 }
 
 /// One call site (or base-type clause) to link.
@@ -26,19 +41,31 @@ pub(crate) struct Site<'s> {
     pub(crate) name: &'s str,
     pub(crate) accept: &'s dyn Fn(u32) -> bool,
     pub(crate) receiver_type: Option<&'s str>,
+    /// The callee's head is a term bound in scope (see `Call::term_binding`).
+    pub(crate) term_binding: bool,
+    /// The receiver is a Scala self alias of this enclosing template.
+    pub(crate) self_template: Option<&'s str>,
+    /// A Rust or C-family `value.name()` call: its qualifier is a value (a
+    /// local, a field, a call result), which never names a module or a C++
+    /// namespace, even when an imported module shares its name
+    /// (`driver.events.f()` beside `use crate::driver`).
+    pub(crate) value_qualifier: bool,
 }
 
 impl Site<'_> {
     /// `this`/`self`/`super` style receiver.
-    fn receiver(&self) -> bool {
-        matches!(self.qualifier, "this" | "self" | "Self" | "cls" | "super")
+    pub(super) fn receiver(&self) -> bool {
+        matches!(
+            self.qualifier,
+            "this" | "self" | "Self" | "cls" | "super" | "super()"
+        )
     }
     /// The parser saw the receiver's type (`this.a.m()` may be recorded as a
     /// bare `m`): such a call is a member call, never a local/import match.
-    fn typed(&self) -> bool {
+    pub(super) fn typed(&self) -> bool {
         self.receiver_type.is_some() && !self.receiver()
     }
-    fn accepted(&self, ids: impl IntoIterator<Item = u32>) -> Vec<u32> {
+    pub(super) fn accepted(&self, ids: impl IntoIterator<Item = u32>) -> Vec<u32> {
         ids.into_iter().filter(|id| (self.accept)(*id)).collect()
     }
 }
@@ -48,13 +75,18 @@ impl Linker<'_> {
         if site.name.is_empty() {
             return None;
         }
+        if self.is_rust(site.caller)
+            && let Some(linked) = self.rust_inline_path(site)
+        {
+            return Some(linked);
+        }
         if site.receiver()
             && let Some(owner) = self.receiver_owner(site)
         {
             return self.bound_member(
                 site,
                 owner,
-                site.qualifier == "super",
+                matches!(site.qualifier, "super" | "super()"),
                 Confidence::High,
                 "local",
             );
@@ -63,6 +95,39 @@ impl Linker<'_> {
             return Some(linked);
         }
         let head = first_segment(site.qualifier);
+        // An import-bound name resolves through its binding or not at all:
+        // a same-named declaration elsewhere is a different identity.
+        if site.qualifier.is_empty()
+            && !site.typed()
+            && site.bindings.strict_names.contains(site.name)
+        {
+            return self.imported(site);
+        }
+        if !site.qualifier.is_empty()
+            && !site.receiver()
+            && site.bindings.commonjs_locals.contains(head)
+        {
+            let files = site.bindings.commonjs_modules.get(head);
+            return files
+                .filter(|_| site.qualifier == head)
+                .and_then(|files| self.strict_namespace(site, files));
+        }
+        if !site.qualifier.is_empty()
+            && !site.receiver()
+            && !site.typed()
+            && site.bindings.strict_names.contains(head)
+            && let Some(sources) = site.bindings.named.get(head)
+        {
+            return self.import_member(site, sources);
+        }
+        // JS/TS: a receiver path the syntax gives no type (`this.a.m()`,
+        // `Foo.cache.get()`, `make().run()`) names no declaration.
+        if !site.typed()
+            && site.qualifier.contains(['.', '(', '['])
+            && self.scope.families.get(self.file_of(site.caller) as usize) == Some(&"npm")
+        {
+            return None;
+        }
         if let Some(linked) = self.scoped(site, head) {
             return Some(linked);
         }
@@ -73,6 +138,12 @@ impl Linker<'_> {
             || (!site.qualifier.is_empty() && !site.receiver() && external.contains(head))
         {
             return None;
+        }
+        // Unmatched, `Type::f()` still searches the type's bases below.
+        if self.c_family_path(site)
+            && let Some(linked) = self.c_family_qualified(site)
+        {
+            return Some(linked);
         }
         self.global(site, head)
     }
@@ -124,7 +195,10 @@ impl Linker<'_> {
             let confidence = confidence_for(&targets, Confidence::High);
             return (!targets.is_empty()).then_some((targets, "module-path", confidence));
         }
-        if !receiver && let Some(files) = site.bindings.modules.get(head) {
+        if !receiver
+            && !site.value_qualifier
+            && let Some(files) = site.bindings.modules.get(head)
+        {
             return self.namespace(site, files);
         }
         None
@@ -135,7 +209,12 @@ impl Linker<'_> {
         let mut uncertain = false;
         let via = if let Some(sources) = site.bindings.named.get(site.name) {
             for (target, exported) in sources {
-                let resolved = self.resolver.resolved(target, exported);
+                let mut resolved = self.resolver.resolved(target, exported);
+                // Node interop: an ESM default import of a CommonJS module
+                // is its `module.exports` value.
+                if *exported == "default" && resolved.targets.is_empty() {
+                    resolved = self.resolver.resolved(target, COMMONJS_WHOLE_EXPORT);
+                }
                 uncertain |= resolved.uncertain;
                 targets.extend(site.accepted(resolved.targets));
             }
@@ -145,7 +224,8 @@ impl Linker<'_> {
                 return None;
             }
             uncertain |= site.bindings.unknown_wildcard;
-            for target in &site.bindings.wildcards {
+            let private = site.bindings.star_public_only && site.name.starts_with('_');
+            for target in site.bindings.wildcards.iter().filter(|_| !private) {
                 let resolved = self.resolver.resolved(target, site.name);
                 uncertain |= resolved.uncertain;
                 targets.extend(site.accepted(resolved.targets));
@@ -174,7 +254,28 @@ impl Linker<'_> {
         }
         targets.sort_unstable();
         targets.dedup();
-        let confidence = confidence_for(&targets, Confidence::Medium);
+        let confidence = confidence_for(&targets, Confidence::High);
+        (!targets.is_empty()).then_some((targets, "namespace", confidence))
+    }
+
+    /// `m.fn()` through a whole-module `require` binding: only what the
+    /// module exports, never another declaration of the name in it.
+    fn strict_namespace(&self, site: &Site, files: &[&str]) -> Option<Linked> {
+        let mut targets = Vec::new();
+        let mut uncertain = false;
+        for target in files {
+            let resolved = self.resolver.resolved(target, site.name);
+            uncertain |= resolved.uncertain;
+            targets.extend(site.accepted(resolved.targets));
+        }
+        targets.sort_unstable();
+        targets.dedup();
+        let strong = if uncertain {
+            Confidence::Medium
+        } else {
+            Confidence::High
+        };
+        let confidence = confidence_for(&targets, strong);
         (!targets.is_empty()).then_some((targets, "namespace", confidence))
     }
 
@@ -182,7 +283,7 @@ impl Linker<'_> {
     /// A type-qualified call (`Type::new`, `Type.of`, including the last
     /// segment of a Rust path such as `crate::store::Store::new`) must land
     /// in that type.
-    fn global(&self, site: &Site, head: &str) -> Option<Linked> {
+    pub(super) fn global(&self, site: &Site, head: &str) -> Option<Linked> {
         let (qualifier, name) = (site.qualifier, site.name);
         let receiver = site.receiver();
         let typed = site.typed();
@@ -208,47 +309,45 @@ impl Linker<'_> {
         } else {
             head
         };
-        // A bare call that only matches a method elsewhere is a method call
-        // whose receiver the extractor dropped; skip names every type
-        // implements.
-        if name.len() < MIN_UNIQUE_NAME_LEN {
-            return None;
-        }
-        let common_method = !member_call && COMMON_METHODS.contains(&name);
+        // The written or inferred type scopes a member call, so only a bare
+        // call skips names every type implements.
         if type_qualified || member_call {
             let via = if member_call {
                 "receiver-type"
             } else {
                 "type-qualified"
             };
-            // Every member has a parent, so a common method name in a bare
-            // call matches none.
-            return (!common_method)
-                .then(|| self.member(site, type_head, via))
-                .flatten();
+            return self.member(site, type_head, via);
         }
+        // A bare call that only matches a method elsewhere is a method call
+        // whose receiver the extractor dropped; skip names every type
+        // implements.
+        let common_method = COMMON_METHODS.contains(&name);
         let bare_method_call = |id: u32| common_method && self.nodes[id as usize].parent != NONE;
+        // A recovered declaration of the name stays in the pool: when scope
+        // would choose it, or it makes the name non-unique, nothing links.
         let candidates = self
-            .global_names
-            .get(name)
-            .map(|ids| {
-                ids.iter()
-                    .copied()
-                    .filter(|id| (site.accept)(*id) && !bare_method_call(*id))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if candidates.is_empty() {
+            .named(site.caller, name)
+            .filter(|id| ((site.accept)(*id) || (self.recovered)(*id)) && !bare_method_call(*id))
+            .collect::<Vec<_>>();
+        if !candidates.iter().any(|id| (site.accept)(*id)) {
             return None;
         }
-        let caller_file = self.file_of(site.caller);
-        if let Some((id, via)) = self.pick(site, &candidates)
-            && self.file_of(id) != caller_file
-        {
-            return Some((vec![id], via, Confidence::Medium));
+        match self.bare_scope(site.caller) {
+            BareScope::Module => return None,
+            BareScope::Package => return self.same_go_package(site, &candidates),
+            BareScope::Graph => {}
         }
-        // Exactly one declaration graph-wide carries this name.
+        let caller_file = self.file_of(site.caller);
+        if let Some((id, via)) = self.pick(site, &candidates) {
+            return ((site.accept)(id) && self.file_of(id) != caller_file)
+                .then(|| (vec![id], via, Confidence::Medium));
+        }
+        // Exactly one declaration graph-wide carries this name, and the name
+        // is distinctive enough for that to mean something.
         if let [only] = candidates.as_slice()
+            && name.len() >= MIN_UNIQUE_NAME_LEN
+            && (site.accept)(*only)
             && self.file_of(*only) != caller_file
         {
             return Some((vec![*only], "unique-name", Confidence::Low));
@@ -256,128 +355,22 @@ impl Linker<'_> {
         None
     }
 
-    /// `Type::method` / `Type.method`, or `x.method()` with `x: Type`: a
-    /// member of a container named `Type`.
-    fn member(&self, site: &Site, type_head: &str, via: &'static str) -> Option<Linked> {
-        match self.typed_member(site, type_head, via) {
-            super::inherited::TypedMember::Linked(resolved) => return Some(resolved),
-            super::inherited::TypedMember::Missing => return None,
-            super::inherited::TypedMember::Unbound => {}
-        }
-        let members = site.accepted(self.members.get(&(type_head, site.name))?.iter().copied());
-        let id = match members.as_slice() {
-            [] => return None,
-            [only] => *only,
-            many => self.pick(site, many)?.0,
-        };
-        let confidence = if self.near(site, id) {
-            Confidence::High
-        } else {
-            Confidence::Medium
-        };
-        Some((vec![id], via, confidence))
-    }
-
-    /// Scope preference: the caller's package (directory), then files the
-    /// caller imports; a choice is made only when it is unique.
-    fn pick(&self, site: &Site, pool: &[u32]) -> Option<(u32, &'static str)> {
-        let caller_dir = self.dir(self.file_of(site.caller));
-        let same_package = pool
-            .iter()
+    /// The graph-wide declarations named `name` in `caller`'s language
+    /// family: without an import, a name never binds across languages.
+    /// Every graph-wide pool reads [`Linker::global_names`] through this.
+    pub(crate) fn named<'a>(&'a self, caller: u32, name: &str) -> impl Iterator<Item = u32> + 'a {
+        let caller_file = self.file_of(caller);
+        self.global_names
+            .get(name)
+            .into_iter()
+            .flatten()
             .copied()
-            .filter(|id| self.dir(self.file_of(*id)) == caller_dir)
-            .collect::<Vec<_>>();
-        if let [only] = same_package.as_slice() {
-            return Some((*only, "same-package"));
-        }
-        let imported = pool
-            .iter()
-            .copied()
-            .filter(|id| self.imported_by(site, *id))
-            .collect::<Vec<_>>();
-        if let [only] = imported.as_slice() {
-            return Some((*only, "import-scope"));
-        }
-        None
+            .filter(move |id| self.scope.same_family(caller_file, self.file_of(*id)))
     }
 
-    /// The target sits in the caller's package or in a file it imports.
-    fn near(&self, site: &Site, id: u32) -> bool {
-        self.dir(self.file_of(id)) == self.dir(self.file_of(site.caller))
-            || self.imported_by(site, id)
-    }
-
-    fn imported_by(&self, site: &Site, id: u32) -> bool {
+    /// Whether `id` belongs to `caller`'s language family.
+    pub(super) fn same_family(&self, caller: u32, id: u32) -> bool {
         self.scope
-            .path(self.file_of(id))
-            .is_some_and(|path| site.bindings.imported_files.contains(path))
-    }
-
-    fn file_of(&self, id: u32) -> u32 {
-        self.nodes.get(id as usize).map_or(NONE, |n| n.file)
-    }
-
-    fn dir(&self, file: u32) -> &str {
-        self.scope
-            .path(file)
-            .map_or("", crate::tools::ast_graph::graph::parent)
-    }
-}
-
-/// Per-graph lookups [`Linker`] needs for scope-aware choices.
-pub(crate) struct LinkScope<'a> {
-    /// Root-relative path by file node id (`""` for other nodes).
-    pub(super) file_paths: &'a [&'a str],
-    /// Rust module name → files defining it (`m.rs`, `m/mod.rs`).
-    pub(super) modules: HashMap<&'a str, Vec<&'a str>>,
-    /// Workspace crate import name (`octocode_engine`) → crate directory.
-    pub(super) crate_dirs: HashMap<String, String>,
-}
-
-impl LinkScope<'_> {
-    /// The root-relative path of file node `id`.
-    pub(super) fn path(&self, id: u32) -> Option<&str> {
-        self.file_paths
-            .get(id as usize)
-            .copied()
-            .filter(|path| !path.is_empty())
-    }
-
-    /// The file a Rust module path (`crate::a::b`, `super::b`,
-    /// `other_crate::b`) names, by its last segment, scoped to the caller's
-    /// crate (or the named workspace crate) and settled by the longest shared
-    /// directory prefix when several files share the module name.
-    fn rust_module_file(&self, qualifier: &str, caller_file: &str) -> Option<&str> {
-        let segments = qualifier
-            .split("::")
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>();
-        let (first, module) = (*segments.first()?, *segments.last()?);
-        if segments.len() < 2 || module.starts_with(|c: char| c.is_ascii_uppercase()) {
-            return None;
-        }
-        let scope_dir = match first {
-            "crate" | "self" | "super" => None,
-            name => Some(self.crate_dirs.get(name)?.as_str()),
-        };
-        let shared = |path: &str| {
-            path.split('/')
-                .zip(caller_file.split('/'))
-                .take_while(|(a, b)| a == b)
-                .count()
-        };
-        let candidates = self
-            .modules
-            .get(module)?
-            .iter()
-            .copied()
-            .filter(|path| {
-                scope_dir.is_none_or(|dir| dir.is_empty() || path.starts_with(&format!("{dir}/")))
-            })
-            .collect::<Vec<_>>();
-        let best = candidates.iter().map(|p| shared(p)).max()?;
-        let mut top = candidates.iter().filter(|p| shared(p) == best);
-        let first_match = *top.next()?;
-        top.next().is_none().then_some(first_match)
+            .same_family(self.file_of(caller), self.file_of(id))
     }
 }

@@ -20,22 +20,13 @@ Readiness verdict → findings or changes → checks and unchecked areas. Separa
 | `flowchart` / `agentflow-beta` | Explain skill activation, resource routes or agent task flow. |
 | `chart` bar / linked JSON | Compare measured activation outcomes / preserve checker results; do not turn editorial impressions into measured scores. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
-Authored skills stay in their canonical folders; a separate review goes to `<workspace>/.octocode/octocode-skills/<YYYY-MM-DD>-<slug>.md` unless the user names a path. Save and render a review, or a multi-file change report, when it has a table, a diagram, over ~40 lines or five findings, or the user asks; keep every result when the user or project instructions say so.
+Authored skills stay in their canonical folders; a separate review goes to `<workspace>/.octocode/octocode-skills/<YYYY-MM-DD>-<slug>.md` unless the user names a path. Save a review, or a multi-file change report, when it has a table, a diagram, over ~40 lines or five findings, or the user asks; keep every result when the user or project instructions say so.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Ready | Needs work
-confidence: high | medium | low
-question: <the question or decision>
-next: <the one next action for whoever continues, in the imperative>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Ready`, `Needs work`.
 
 A lead paragraph under the `#` title states the answer.
 
@@ -46,4 +37,4 @@ Put findings under `## Findings` as one table, most severe first, then add `## U
 
 `Kind`: `lint`, `editorial`, or `activation`; severity: `Critical`, `High`, `Medium`, or `Low`. A change report has `## Changes`, one row per edited file, ending with the `skill-review.mjs` result. Always include `## Unchecked` for remaining verification gaps. Every saved report has either `## Findings` (a review) or `## Changes` (a change report).
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

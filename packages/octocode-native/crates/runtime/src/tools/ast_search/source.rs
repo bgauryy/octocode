@@ -34,22 +34,29 @@ pub(super) fn parse_text<'b>(
     path: &std::path::Path,
     bytes: &'b [u8],
 ) -> Result<std::borrow::Cow<'b, str>, ToolError> {
-    use octocode_engine::text::{Decoding, Refusal, admit};
+    use octocode_engine::text::{Decoding, admit};
     admit(bytes, Decoding::Unicode)
         .map(|decoded| decoded.text)
-        .map_err(|refusal| match refusal {
-            Refusal::Binary => policy_error(PolicyError::new(
-                crate::policy::PolicyErrorCode::BinaryContent,
-                format!("{} is binary content, not source text.", display_name(path)),
-            )),
-            Refusal::NotUnicode => ToolError::new(
-                ErrorCode::FileReadFailed,
-                format!(
-                    "Could not read {} as source text: {refusal}.",
-                    display_name(path)
-                ),
+        .map_err(|refusal| refusal_error(path, refusal))
+}
+
+/// The one error of a source refused as text, whichever reader refused it:
+/// binary content, or text that is not Unicode.
+fn refusal_error(path: &std::path::Path, refusal: octocode_engine::text::Refusal) -> ToolError {
+    use octocode_engine::text::Refusal;
+    match refusal {
+        Refusal::Binary => policy_error(PolicyError::new(
+            crate::policy::PolicyErrorCode::BinaryContent,
+            format!("{} is binary content, not source text.", display_name(path)),
+        )),
+        Refusal::NotUnicode => ToolError::new(
+            ErrorCode::FileReadFailed,
+            format!(
+                "Could not read {} as source text: {refusal}.",
+                display_name(path)
             ),
-        })
+        ),
+    }
 }
 
 pub(super) fn mapping_budget<'a>(
@@ -68,19 +75,12 @@ pub(super) fn admitted<'a>(
     budget: &mut octocode_engine::text::analysis::MapBudget<'_>,
 ) -> Result<octocode_engine::text::analysis::AdmittedSource<'a>, ToolError> {
     use octocode_engine::text::analysis::{AdmittedSource, SourceError};
-    AdmittedSource::from_bytes(bytes, &path.to_string_lossy(), budget).map_err(|error| {
-        if matches!(
-            error,
-            SourceError::Refused(octocode_engine::text::Refusal::Binary)
-        ) {
-            policy_error(PolicyError::new(
-                crate::policy::PolicyErrorCode::BinaryContent,
-                format!("{} is binary content, not source text.", display_name(path)),
-            ))
-        } else {
-            ToolError::source(error)
-        }
-    })
+    AdmittedSource::from_bytes(bytes, &path.to_string_lossy(), budget).map_err(
+        |error| match error {
+            SourceError::Refused(refusal) => refusal_error(path, refusal),
+            error => ToolError::source(error),
+        },
+    )
 }
 
 /// The terminal row of a source larger than [`MAX_PARSE_SOURCE_BYTES`]; a

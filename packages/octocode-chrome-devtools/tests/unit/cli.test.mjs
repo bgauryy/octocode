@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
-  cpSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -13,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromeCommands } from '../../dist/engine/chrome-contract.mjs';
+import { copyPackage } from '../copy-package.mjs';
 const skill = join(dirname(fileURLToPath(import.meta.url)), '../..');
 function fixture(fn) {
   const cwd = mkdtempSync(join(tmpdir(), 'octo-cdp-cli-'));
@@ -160,10 +160,7 @@ test('single operation, raw CDP and recipe options use the same engines', () =>
 test('standalone copied package works from another cwd; evidence continuations reconstruct all rows', () =>
   fixture((call, cwd) => {
     const copy = join(cwd, 'skill');
-    cpSync(skill, copy, {
-      recursive: true,
-      filter: source => !source.split(/[\\/]/).includes('node_modules'),
-    });
+    copyPackage(skill, copy);
     const cli = args =>
       spawnSync(
         process.execPath,

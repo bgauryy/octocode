@@ -2,6 +2,8 @@
 //! keeps a runtime per directory and environment, and answers each call.
 
 use super::identity::{call_identity, env_digest};
+pub(super) use super::served::Served;
+use super::served::recheck_provider;
 use super::sockets::{prune_siblings, touch};
 use super::{read_line_bounded, same_dir_form};
 use crate::cli::Printed;
@@ -32,13 +34,6 @@ pub(in crate::cli) async fn run(socket: &Path) -> u8 {
     tokio::task::LocalSet::new()
         .run_until(serve(socket.to_owned()))
         .await
-}
-
-/// A runtime a server keeps for one working directory and environment,
-/// with the identity it was built under.
-pub(super) struct Served {
-    pub(super) runtime: octocode_native::runtime::ToolRuntime,
-    pub(super) identity: String,
 }
 
 /// Values by key, at most `cap` of them; the least recently used leaves
@@ -134,12 +129,14 @@ impl Daemon {
         cwd: &Path,
         env: BTreeMap<String, String>,
         identity: &str,
+        tool: &str,
     ) -> Result<std::rc::Rc<Served>, String> {
         let key = (same_dir_form(cwd), env_digest(&env));
         let ticket = self.building.join(key.clone());
         let _turn = ticket.turn().await;
         if let Some(served) = self.runtimes.borrow_mut().get(&key)
             && served.identity == identity
+            && !recheck_provider(tool, served.provider_failed(), served.built.elapsed())
         {
             return Ok(std::rc::Rc::clone(served));
         }
@@ -164,6 +161,7 @@ impl Daemon {
         let served = std::rc::Rc::new(Served {
             runtime,
             identity: built,
+            built: std::time::Instant::now(),
         });
         // An evicted runtime ends when its last call returns; the servers
         // it used stay in the shared pool.
@@ -387,6 +385,6 @@ pub(super) async fn served(
     if !ToolId::from_name(&tool).is_some_and(runs_on_server) {
         return Err(format!("it does not run {tool}"));
     }
-    let served = daemon.runtime_for(&cwd, env, &identity).await?;
+    let served = daemon.runtime_for(&cwd, env, &identity, &tool).await?;
     Ok((served, tool, json_out, request["input"].take()))
 }

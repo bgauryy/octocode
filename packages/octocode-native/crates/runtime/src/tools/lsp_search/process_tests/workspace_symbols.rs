@@ -103,10 +103,7 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
                 .map(|value| (value["path"].clone(), value["displayRange"].clone()))
                 .collect::<std::collections::HashSet<_>>();
             assert_eq!(identities.len(), 4);
-            assert_eq!(
-                found[2]["displayRange"],
-                json!({"startLine":1,"startCharacter":4,"endLine":1})
-            );
+            assert_eq!(found[2]["displayRange"], json!({"startLine":1,"endLine":1}));
             assert_row_contract(ToolId::LspSearch, &row);
         }
         // An empty workspace-symbol answer is an empty row with its notice

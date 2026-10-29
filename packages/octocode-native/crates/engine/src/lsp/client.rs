@@ -22,6 +22,7 @@ mod snippets;
 mod status;
 mod stderr;
 mod sync;
+mod watched;
 #[cfg(test)]
 mod tests;
 
@@ -118,6 +119,10 @@ struct NativeLspClientInner {
     /// Query responses (generation + `method` + params) from this server,
     /// reused only inside a [`RESPONSE_SCOPE`] that allows it.
     responses: moka::sync::Cache<String, CachedResponse>,
+    /// The scope's files (relative path → stamp) as of the last request,
+    /// for a server that registered for `workspace/didChangeWatchedFiles`:
+    /// the next request sends it the difference (see `watched.rs`).
+    watched_files: StdMutex<Option<std::collections::BTreeMap<String, String>>>,
     options: LspClientOptions,
 }
 
@@ -200,6 +205,7 @@ impl NativeLspClient {
                 memory_watchdog: StdMutex::new(None),
                 resident_bytes: Arc::new(AtomicU64::new(0)),
                 responses: response_cache(),
+                watched_files: StdMutex::new(None),
                 options,
             }),
         }
@@ -214,6 +220,15 @@ impl NativeLspClient {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *capabilities = None;
+        }
+        {
+            // A new process indexes the disk afresh: no file events are owed.
+            let mut watched = self
+                .inner
+                .watched_files
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *watched = None;
         }
         {
             let mut server_info = self

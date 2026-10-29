@@ -1,4 +1,5 @@
 use super::{Candidate, SelectionUnit};
+use octocode_engine::text::identifier_words;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -14,7 +15,7 @@ pub(super) fn order(candidates: &[Candidate], query: &Value, unit: SelectionUnit
     let queries = predicates
         .iter()
         .filter_map(Value::as_str)
-        .map(tokens)
+        .map(identifier_words)
         .collect::<Vec<_>>();
     let vocabulary = queries.iter().flatten().cloned().collect::<BTreeSet<_>>();
     if vocabulary.is_empty() {
@@ -34,7 +35,7 @@ pub(super) fn order(candidates: &[Candidate], query: &Value, unit: SelectionUnit
                 .as_ref()
                 .and_then(|state| state["content"].as_str())
                 .unwrap_or_default();
-            let words = tokens(content);
+            let words = identifier_words(content);
             let mut counts = vec![0usize; terms.len()];
             for word in &words {
                 if let Some(&index) = terms.get(word) {
@@ -99,52 +100,10 @@ pub(super) fn order(candidates: &[Candidate], query: &Value, unit: SelectionUnit
     order
 }
 
-fn tokens(text: &str) -> Vec<String> {
-    let mut words = Vec::new();
-    let mut word = String::new();
-    let mut previous = None::<char>;
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        let boundary = ch.is_uppercase()
-            && previous.is_some_and(|last| {
-                last.is_lowercase()
-                    || last.is_numeric()
-                    || (last.is_uppercase() && chars.peek().is_some_and(|next| next.is_lowercase()))
-            });
-        if (!ch.is_alphanumeric() || boundary) && !word.is_empty() {
-            words.push(std::mem::take(&mut word));
-        }
-        if ch.is_alphanumeric() {
-            word.extend(ch.to_lowercase());
-        }
-        previous = Some(ch);
-    }
-    if !word.is_empty() {
-        words.push(word);
-    }
-    words
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn identifier_words_and_unicode_are_searchable() {
-        assert_eq!(
-            tokens("HTTPServer retryConnection snake_case café"),
-            [
-                "http",
-                "server",
-                "retry",
-                "connection",
-                "snake",
-                "case",
-                "café"
-            ]
-        );
-    }
 
     #[test]
     fn every_classifier_gets_an_admission_turn_and_ties_keep_source_order() {

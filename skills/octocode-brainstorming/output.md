@@ -58,28 +58,19 @@ Recommendation → compared directions → strongest dissent → limits and sour
 | `quadrantChart` / `radar-beta` | Show two-axis tradeoffs / comparable profiles only when placements, scales and estimates are explained. |
 | `mindmap` / `flowchart` | Explore concepts / explain the decision path; these do not prove the recommendation. |
 
-Follow the [shared visual-first, content-only rules](references/report-output.md#choose-the-format), including image embedding and iframe alternatives; load the [Mermaid chooser](references/report-mermaid.md) for specialized syntax or [widget schemas](references/report-widgets.md) before authoring graph/chart JSON.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
 
 ## Saved report
 
 | Result | Where it goes |
 |---|---|
-| Comparison of two or more directions, or any result the user or project instructions (such as `AGENTS.md`) ask to save | Save and render at the user-named path if given, else the default path below |
+| Comparison of two or more directions, or any result the user or project instructions (such as `AGENTS.md`) ask to save | Save at the user-named path if given, else the default path below |
 | Short single-direction answer | Chat |
 | A harness or subagent scratch folder (`.octocode/tmp/`) | Never the destination: save at the default path and link from scratch notes |
 
 Default path: `<workspace>/.octocode/octocode-brainstorming/<YYYY-MM-DD>-<slug>.md`, where `<workspace>` is the repository root, else the current directory, never inside an existing `.octocode/`.
 
-Use the [shared header rules](references/report-output.md#report-header) with these skill-specific status values:
-
-```yaml
----
-status: Recommended | Open | Rejected
-confidence: high | medium | low
-question: <the question or decision>
-next: <the one next action for whoever continues, in the imperative>
----
-```
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Recommended`, `Open`, `Rejected`.
 
 Follow the header with the `#` title and a lead paragraph that states the answer and why. Always include `## Directions` (the comparison table under Response, with incomplete or blocked directions), `## Recommendation` (the best-supported choice and why it beat the others), `## Dissent` (the strongest objection and what would make it win), `## Limits` (evidence limits and as-of dates), and `## Sources` (the list under Response, then a link to the run's ledgers).
 
@@ -90,4 +81,4 @@ Add these sections only when they have content, in this order around the require
 - `## Comparison`, after Directions: which directions survived, changed, or were rejected, and why; evidence vs inference; reconciled contradictions; material dissent.
 - `## Next action`, after Limits: the smallest useful test, step, narrower question, or reopening signal. For an RFC handoff, list the decision, constraints, alternatives, evidence, acceptance criteria, and open questions.
 
-Follow [shared report guidance](references/report-output.md) for rendering, `--manifest`, evidence, diagrams, and presentation.
+After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

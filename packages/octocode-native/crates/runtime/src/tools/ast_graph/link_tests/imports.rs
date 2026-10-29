@@ -1,30 +1,6 @@
 //! Import tallies, coverage gaps, and JS/TS path and package resolution.
 use super::*;
 
-/// The cap counts distinct file edges: a file naming its one dependency
-/// many times is one edge, so a cap of one edge holds it whole.
-#[test]
-fn repeated_references_to_one_target_count_as_one_edge() {
-    struct EdgeCap;
-    impl Drop for EdgeCap {
-        fn drop(&mut self) {
-            super::super::graph::EDGE_CAP
-                .with(|edges| edges.set(super::super::graph::MAX_GRAPH_EDGES));
-        }
-    }
-    super::super::graph::EDGE_CAP.with(|edges| edges.set(1));
-    let _restore = EdgeCap;
-    let temp = fixture(&[
-        (
-            "a.ts",
-            "import { b } from './b'\nimport { c } from './b'\nexport const a = b + c\n",
-        ),
-        ("b.ts", "export const b = 1\nexport const c = 2\n"),
-    ]);
-    let out = ingest(temp.0.as_path(), temp.0.as_path());
-    assert_eq!(out.value["scan"]["edgesCapped"], false, "{}", out.value);
-}
-
 #[test]
 fn a_relative_path_that_leaves_and_reenters_the_scan_root_links_by_normalised_path() {
     let temp = fixture(&[

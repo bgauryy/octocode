@@ -3,7 +3,7 @@
 // signal with no paging continuation and no terminal-limit disclosure), plus
 // the S1 sensors from harness/sensors.mjs.
 import {
-  allHintEntries, bodyHash, bytesUnderKey, callRows, envelopeContainer, hintEntries, isHintContainer, isHintKey, isPageName,
+  allHintEntries, bodyHash, bytesUnderKey, callRows, envelopeContainer, hintEntries, isHintContainer, isHintKey,
   keyBytes, keyShares, leadBytes, loadVerboseRules, maxLeadEntries, mergeCounts, schemaErrors, verboseFields,
 } from '../sensors.mjs';
 
@@ -12,18 +12,11 @@ function maxNextEntries(node) {
   if (!node || typeof node !== 'object') return 0;
   let max = 0;
   for (const [key, child] of Object.entries(node)) {
-    max = Math.max(max, isHintContainer(key, child) ? hintEntries(child).length : maxNextEntries(child));
+    max = Math.max(max, key === 'next' && isHintContainer(key, child) ? hintEntries(child).filter(entry => entry.hint.kind === 'continue').length : maxNextEntries(child));
   }
   return max;
 }
 
-// A paging continuation (it reaches the rest of the same evidence), as
-// opposed to a lead to a different read (read, readPullRequest, viewRepo, …).
-const PAGING_NAME = /page|continue|more|expand|resume|pagination|^next$/i;
-const PAGING_KEYS = ['page', 'offset', 'matchPage', 'patchPage', 'responseOffset', 'after', 'resume'];
-const hasPagingKey = query => PAGING_KEYS.some(k => k in query);
-// A core `pages` name (e.g. nextDiagnosticPage) pages its row whatever its spelling.
-const isPaging = ({ name, hint }, tool = '') => isPageName(name, tool) || PAGING_NAME.test(name) || hasPagingKey(hint.query) || (hint.query.queries ?? []).some(hasPagingKey);
 // A query that asked for a window (range, match, block, view) is partial by
 // request: its omission markers and isPartial flag are not truncation.
 const WINDOW_KEYS = ['matchString', 'ranges', 'block', 'symbol', 'view', 'length', 'offset', 'unit', 'include', 'contextLines'];
@@ -55,6 +48,7 @@ function trimSignals(node, at, windowed, out = []) {
   return out;
 }
 const hasTerminalLimit = node => JSON.stringify(node ?? null).includes('"terminalLimit":');
+const hasAnalysisGap = (tool, data) => tool === 'lspSearch' && data.partialReasons?.includes('documentAnalysisErrors') && data.lsp?.analysisContext?.diagnostics === 'errors';
 
 /** Menu sizes, continuation names and never-trim violations of one row. */
 function rowSensors(out, entry, row, i) {
@@ -65,8 +59,14 @@ function rowSensors(out, entry, row, i) {
   out.nextNames.push(...inRow.map(e => e.name));
   const query = queries[row?.index ?? i] ?? queries[0] ?? {};
   const windowed = WINDOW_KEYS.some(k => k in query);
-  if (inRow.some(e => isPaging(e, entry.tool)) || hasTerminalLimit(row)) return;
-  for (const s of trimSignals(row, `results[${i}]`, windowed)) out.violations.push({ tool: entry.tool, ...s, query: JSON.stringify(query).slice(0, 160) });
+  const data = row.data ?? row;
+  const semanticGap = hasAnalysisGap(entry.tool, data);
+  if (semanticGap) out.coverageGaps.push({ tool: entry.tool, partialReasons: data.partialReasons, analysisContext: data.lsp.analysisContext });
+  if (inRow.some(e => e.hint.kind === 'continue') || hasTerminalLimit(row)) return;
+  for (const signal of trimSignals(row, `results[${i}]`, windowed)) {
+    if (semanticGap && PARTIAL_FLAGS.has(signal.signal)) continue;
+    out.violations.push({ tool: entry.tool, ...signal, query: JSON.stringify(query).slice(0, 160) });
+  }
 }
 
 /**
@@ -78,14 +78,14 @@ function rowSensors(out, entry, row, i) {
 function responseSensors(entry) {
   // nextEntriesMax counts the largest single `next` menu (row- or item-level).
   const sc = entry.raw;
-  const out = { bytes: entry.bytes, nextBytes: 0, hintsBytes: 0, leadBytes: 0, nextEntriesMax: 0, leadEntriesMax: 0, nextNames: [], violations: [] };
+  const out = { bytes: entry.bytes, nextBytes: 0, hintsBytes: 0, leadBytes: 0, nextEntriesMax: 0, leadEntriesMax: 0, nextNames: [], violations: [], coverageGaps: [] };
   if (!sc || typeof sc !== 'object') return out;
   out.nextBytes = bytesUnderKey(sc, 'next');
   out.hintsBytes = bytesUnderKey(sc, 'hints');
   out.leadBytes = leadBytes(sc, entry.tool);
   const envelopeNext = hintEntries(envelopeContainer(sc));
   // Tool rows; clasify reports per-query rows, else the whole response is one row.
-  const rows = Array.isArray(sc.results) ? sc.results : Array.isArray(sc.queries) ? sc.queries : [sc];
+  const rows = sc.results ?? [];
   rows.forEach((row, i) => {
     rowSensors(out, entry, row, i);
     if (row?.rowPart && row.rowPart.part < row.rowPart.of && !envelopeNext.length) out.violations.push({ tool: entry.tool, at: `results[${i}].rowPart`, signal: 'rowPart' });
@@ -124,7 +124,7 @@ export function taskSensors(entries, evidenceSteps) {
     nextEntriesMax: Math.max(0, ...per.map(s => s.nextEntriesMax)),
     leadEntriesMax: Math.max(0, ...per.map(s => s.leadEntriesMax)),
     nextNames: [...new Set(per.flatMap(s => s.nextNames))],
-    violations: per.flatMap(s => s.violations),
+    violations: per.flatMap(s => s.violations), coverageGaps: per.flatMap(s => s.coverageGaps),
     // The recipe followed every continuation it walks to the end.
     followedAll: walks.length > 0 && walks.every(s => s.exhausted),
     ...s1Sensors(entries),
@@ -132,4 +132,4 @@ export function taskSensors(entries, evidenceSteps) {
 }
 
 /** One recipe step's byte report. */
-export const stepBytes = e => ({ tool: e.tool, surface: e.surface, ms: e.ms, bytes: e.bytes, nextBytes: bytesUnderKey(e.raw, 'next'), hintsBytes: bytesUnderKey(e.raw, 'hints'), isError: e.isError });
+export const stepBytes = e => ({ tool: e.tool, surface: e.surface, input: e.args, output: e.output, ms: e.ms, bytes: e.bytes, nextBytes: bytesUnderKey(e.raw, 'next'), hintsBytes: bytesUnderKey(e.raw, 'hints'), isError: e.isError, rowErrors: e.rowErrors, transport: e.transport });

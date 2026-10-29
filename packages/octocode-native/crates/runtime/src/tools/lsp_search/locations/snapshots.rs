@@ -93,12 +93,7 @@ pub(in super::super) fn salted_items_payload(
                 true,
             );
         }
-        return empty(
-            query,
-            "noLocations",
-            &format!("{kind} returned no results"),
-            true,
-        );
+        return no_answer(query, "noLocations", &format!("{kind} returned no results"));
     }
     let sizes = sizes(&raw_items);
     let (page, pagination, next_page) = paginate(

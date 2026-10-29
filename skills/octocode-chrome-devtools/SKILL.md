@@ -24,7 +24,15 @@ flowchart TD
 
 ## Discover inputs
 
-CLI: `/cli --help`, `/cli skill --json`, `/cli cdp --help --json`. MCP: read tool schemas; `skill` takes the same `topic`. Load `operating` first, then as needed: `web-research` (citing); `browser-execution` (plans, events, sessions, paging); `recovery`; `cdp-protocol`, `cdp-checks` (raw CDP); `intents` (goal to command); `launch-stealth` (opt-in); `script-patterns`; `clasify-screen` (DOM, accessibility, HAR, text and image scouting); `mcp-cli`. Plan fields: `/cli schema --command run` (`--operation goto` for one).
+CLI discovery: `/cli --help`, `/cli skill --json`; MCP: live tool schemas and `skill` with the same `topic`. Load `operating` first, then select:
+
+| When | Topic or command |
+|---|---|
+| Map a goal to commands or construct a plan | `intents`, `browser-execution`; `/cli schema --command run` (`--operation goto` for one operation) |
+| Cite a capture or scout ambiguous evidence | `web-research`, `clasify-screen` |
+| Recover a failed or uncertain action | `recovery` |
+| Use raw CDP or scripts | `cdp-protocol`, `cdp-checks`, `script-patterns`; `/cli cdp --help --json` |
+| Configure the transport or requested stealth launch | `mcp-cli`, `launch-stealth` (opt-in) |
 
 ## Act on a page
 

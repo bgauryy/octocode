@@ -75,8 +75,13 @@ pub(super) fn joined_path(
     if root.is_file() {
         local_search_query::path(query).to_string()
     } else {
+        // A leading `.` (a search of `.`) is no part of the path: the read
+        // names the file as its row does, not `./src/a.rs`.
         std::path::Path::new(local_search_query::path(query))
             .join(&file.path)
+            .components()
+            .filter(|part| *part != std::path::Component::CurDir)
+            .collect::<std::path::PathBuf>()
             .to_string_lossy()
             .into_owned()
     }

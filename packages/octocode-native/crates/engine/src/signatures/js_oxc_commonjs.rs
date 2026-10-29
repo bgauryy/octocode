@@ -1,14 +1,20 @@
 //! CommonJS module-load candidates with native in-file binding provenance.
-//! This establishes literal module paths and lexical scope, not runtime identity.
+//! This establishes literal module paths and lexical scope; [`bindings`]
+//! and [`exports`] admit runtime identity only where oxc semantics prove it.
 
 use std::collections::{HashMap, HashSet};
 
 use oxc_ast::{AstKind, ast::*};
-use oxc_semantic::{Scoping, Semantic, SemanticBuilder, SymbolId};
+use oxc_semantic::{Scoping, Semantic, SymbolId};
 use oxc_span::Span;
 
 use super::js_oxc_shared::{SpanPositions, module_export_name};
-use crate::graph::GraphFactCommonJs;
+use crate::graph::{GraphFactCommonJs, GraphFactDeclaration};
+
+mod bindings;
+mod exports;
+
+pub(super) use exports::{DefinedExport, collect_common_js_exports, may_contain_exports};
 
 /// Skip scope construction only when OXC's tokens rule out every supported
 /// loader spelling. Comments, regexes, and ordinary prose strings cannot create
@@ -38,18 +44,20 @@ pub(super) fn may_contain_loader(tokens: &[oxc_parser::Token], source: &str) -> 
     })
 }
 
+/// Every load site of `program`, with the module-scope names each one binds.
+/// `declarations` is the file's outline, which names each binding's variable.
 pub(super) fn collect_common_js_loads(
+    semantic: &Semantic<'_>,
     program: &Program,
     li: &SpanPositions,
+    declarations: &[GraphFactDeclaration],
 ) -> Vec<GraphFactCommonJs> {
-    let semantic = SemanticBuilder::new()
-        .with_build_nodes(true)
-        .build(program)
-        .semantic;
     let factories = create_require_factories(program);
-    let writes = collect_writes(&semantic);
-    let loaders = collect_loader_constants(&semantic, &factories, &writes);
-    collect_load_sites(&semantic, li, &writes, &loaders)
+    let writes = collect_writes(semantic);
+    let loaders = collect_loader_constants(semantic, &factories, &writes);
+    let (mut loads, admitted) = collect_load_sites(semantic, li, &writes, &loaders);
+    bindings::attach(semantic, program, li, declarations, &admitted, &mut loads);
+    loads
 }
 
 /// What the module writes: unbound global names, bound symbols, and
@@ -68,7 +76,10 @@ struct LoaderConstants {
     loaders: HashMap<SymbolId, Option<&'static str>>,
 }
 
-fn reference_symbol(scoping: &Scoping, identifier: &IdentifierReference) -> Option<SymbolId> {
+pub(super) fn reference_symbol(
+    scoping: &Scoping,
+    identifier: &IdentifierReference,
+) -> Option<SymbolId> {
     identifier
         .reference_id
         .get()
@@ -218,13 +229,14 @@ fn collect_loader_constants(
 }
 
 /// Pass 4: one fact per call through an unshadowed `require`,
-/// `module.require`, or a `createRequire` loader.
+/// `module.require`, or a `createRequire` loader, and the index of each
+/// admitted load (a trusted loader and a literal specifier) by call span.
 fn collect_load_sites(
     semantic: &Semantic<'_>,
     li: &SpanPositions,
     writes: &Writes<'_>,
     LoaderConstants { constants, loaders }: &LoaderConstants,
-) -> Vec<GraphFactCommonJs> {
+) -> (Vec<GraphFactCommonJs>, HashMap<Span, usize>) {
     let scoping = semantic.scoping();
     let is_deferred = |offset| {
         writes
@@ -246,6 +258,7 @@ fn collect_load_sites(
             })
     };
     let mut loads = Vec::new();
+    let mut admitted = HashMap::new();
     for node in semantic.nodes().iter() {
         let AstKind::CallExpression(call) = node.kind() else {
             continue;
@@ -291,15 +304,19 @@ fn collect_load_sites(
         };
         let reason =
             loader_reason.or_else(|| specifier.is_none().then_some("non-literal-specifier"));
+        if reason.is_none() {
+            admitted.insert(call.span, loads.len());
+        }
         loads.push(GraphFactCommonJs {
             specifier,
             line: li.range(call.span).start.line + 1,
             kind: "commonjs-require".to_owned(),
             binding: binding.to_owned(),
             reason: reason.map(str::to_owned),
+            bindings: Vec::new(),
         });
     }
-    loads
+    (loads, admitted)
 }
 
 fn is_import_meta_url(expression: &Expression) -> bool {
@@ -307,7 +324,7 @@ fn is_import_meta_url(expression: &Expression) -> bool {
         if member.property.name == "url" && matches!(inner(&member.object), Expression::ImportMeta(_)))
 }
 
-fn inner<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
+pub(super) fn inner<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
     expression.get_inner_expression()
 }
 

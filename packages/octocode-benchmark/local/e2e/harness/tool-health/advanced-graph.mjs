@@ -137,20 +137,26 @@ async function checkWhitespaceEvidence(ctx, graph, checks) {
 
 export const ADVANCED_GRAPH = {
   graphBuild: async ctx => {
-    const initial = data(await ctx.cliCall('graphBuild', input({ keep: 10 })));
-    const reused = data(await ctx.cliCall('graphBuild', input({ keep: 10 })));
-    const checks = [
-      ['graph.reuse.identity', initial.id === reused.id && reused.reused === true, JSON.stringify(reused)],
-      ['graph.storage.workspace', fs.realpathSync(path.resolve(ctx.cwd, initial.dir)).startsWith(path.join(fs.realpathSync(ctx.cwd), '.octocode/graph') + path.sep), initial.dir],
-    ];
-    fs.writeFileSync(path.join(ctx.cwd, 'graph-health.ts'), 'export const graphHealthAdded = 1;\n');
-    const stale = data(await ctx.cliCall('graphQuery', input({ operation: 'stats', graph: initial.id })));
-    checks.push(['graph.stale.after-add', stale.freshness?.fresh === false, JSON.stringify(stale.freshness)]);
-    const rebuilt = data(await ctx.cliCall('graphBuild', input({ keep: 10 })));
-    checks.push(['graph.rebuild.changed', rebuilt.id !== initial.id && !rebuilt.reused, rebuilt.id]);
-    checks.push(['graph.rebuild.reuses-unchanged-extraction', rebuilt.extraction?.parsedFiles >= 1 && rebuilt.extraction?.reusedFiles > 0, JSON.stringify(rebuilt.extraction)]);
-    const drift = data(await ctx.cliCall('graphQuery', input({ operation: 'drift', graph: rebuilt.id, baseline: initial.id })));
-    checks.push(['graph.drift.added', JSON.stringify(drift).includes('graph-health.ts'), JSON.stringify(drift)]);
+    const checks = [];
+    for (const surface of ctx.surfaces) {
+      const scope = `build-${surface}`;
+      const cwd = path.join(ctx.cwd, scope);
+      fs.cpSync(ctx.fixture, cwd, { recursive: true });
+      const call = ctx.callOn(surface);
+      const initial = data(await call('graphBuild', input({ path: scope, keep: 10 })));
+      const reused = data(await call('graphBuild', input({ path: scope, keep: 10 })));
+      checks.push([`graph.fresh.${surface}`, !initial.reused && initial.extraction?.parsedFiles > 0, JSON.stringify(initial)]);
+      checks.push([`graph.reuse.identity.${surface}`, initial.id === reused.id && reused.reused === true, JSON.stringify(reused)]);
+      checks.push([`graph.storage.workspace.${surface}`, fs.realpathSync(path.resolve(ctx.cwd, initial.dir)).startsWith(path.join(fs.realpathSync(ctx.cwd), '.octocode/graph') + path.sep), initial.dir]);
+      fs.writeFileSync(path.join(cwd, 'graph-health.ts'), 'export const graphHealthAdded = 1;\n');
+      const stale = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: initial.id })));
+      checks.push([`graph.stale.after-add.${surface}`, stale.freshness?.fresh === false, JSON.stringify(stale.freshness)]);
+      const rebuilt = data(await call('graphBuild', input({ path: scope, keep: 10 })));
+      checks.push([`graph.rebuild.changed.${surface}`, rebuilt.id !== initial.id && !rebuilt.reused, rebuilt.id]);
+      checks.push([`graph.rebuild.reuses-unchanged-extraction.${surface}`, rebuilt.extraction?.parsedFiles >= 1 && rebuilt.extraction?.reusedFiles > 0, JSON.stringify(rebuilt.extraction)]);
+      const drift = data(await call('graphQuery', input({ path: scope, operation: 'drift', graph: rebuilt.id, baseline: initial.id })));
+      checks.push([`graph.drift.added.${surface}`, JSON.stringify(drift).includes('graph-health.ts'), JSON.stringify(drift)]);
+    }
     return checks;
   },
   graphQuery: async ctx => {

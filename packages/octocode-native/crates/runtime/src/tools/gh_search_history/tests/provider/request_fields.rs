@@ -36,8 +36,10 @@ async fn fields_project_listed_commits_end_to_end() {
     );
 }
 
-/// A picked key no row carries (here a typo) still answers, with one
-/// per-call warning instead of rows that silently lack the key.
+/// A picked key no row carries (here `committer`, omitted when it repeats
+/// the author) still answers, with one
+/// per-call warning instead of rows that silently lack the key; the
+/// warning names the keys the rows do carry.
 #[tokio::test]
 async fn an_absent_picked_key_is_named_once() {
     use wiremock::MockServer;
@@ -54,7 +56,7 @@ async fn an_absent_picked_key_is_named_once() {
     )
     .await;
     let query = serde_json::from_value(
-        json!({"operation":"commit","owner":"o","repo":"r","fields":["messageHedline"]}),
+        json!({"operation":"commit","owner":"o","repo":"r","fields":["committer"]}),
     )
     .expect("query");
     let data = execute(
@@ -72,7 +74,7 @@ async fn an_absent_picked_key_is_named_once() {
     );
     assert_eq!(
         data["warnings"],
-        json!(["No row has messageHedline."]),
+        json!(["No row has committer; these rows have: date, messageHeadline, author."]),
         "{data}"
     );
 }

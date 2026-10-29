@@ -247,11 +247,14 @@ async fn snippet_from_location_like(
         symbol_kind: None,
         display_range: value.get("targetSelectionRange").map(|_| {
             json!({
-                "startLine": context_range.start.line + 1,
+                "startLine": context_range.start.line.saturating_add(1),
                 "endLine": if context_range.end.character == 0 {
-                    context_range.end.line.max(context_range.start.line + 1)
+                    context_range
+                        .end
+                        .line
+                        .max(context_range.start.line.saturating_add(1))
                 } else {
-                    context_range.end.line + 1
+                    context_range.end.line.saturating_add(1)
                 }
             })
         }),

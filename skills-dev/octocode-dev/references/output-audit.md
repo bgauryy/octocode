@@ -1,6 +1,6 @@
-# Output and workflow audit
-
 Load when evaluating what a tool returns through CLI and MCP, or whether an agent will chain it into the next call. The normative rules are in `docs/TOOL_QUALITY.md` (Lossless reachable pagination, Evidence and output integrity) and `<repo>/docs/TOOL_DATA_CONTRACT.md`. This lane executes them.
+
+# Output and workflow audit
 
 ## Completeness — nothing silently lost
 - A follow-up the requested result is complete without belongs in typed `related[]`, never in `next`. Required continuation chains must terminate without cycling through optional section or source reads.

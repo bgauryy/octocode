@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ROOT } from './lib/workspaces.mjs';
+import { skillTestCommand } from './lib/skill-tests.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // CI never builds native: native artifacts are built locally (`build:all` / `build:publish`).
@@ -15,11 +16,11 @@ const health = (...args) => script('workspace-health.mjs', ...args);
 const yarn = (...args) => ['yarn', args];
 // Shared assets have a private workspace; skill folders remain independently installable.
 const skill = (rel, ...args) => ['node', [path.join(ROOT, 'skills', rel), ...args]];
-const SKILL_CHECKS = [
+const skillChecks = () => [
   skill('octocode-skills/scripts/skill-review.mjs', ...['skills', 'skills-beta', 'skills-dev'].map(dir => path.join(ROOT, dir))),
   skill('octocode-skills/scripts/skill-review.mjs', '--self-test'),
   skill('octocode-skills/scripts/skill-sync.mjs', '--self-test'),
-  ['node', ['--test', 'skills/octocode-brainstorming/scripts/tests/*.test.mjs', 'skills/octocode-scraping/scripts/tests/*.test.mjs']],
+  skillTestCommand(ROOT),
 ];
 // Shrink-only ratchets: 400-line files (.ts/.js/.rs) and the oxlint violations that predate a rule.
 const BASELINES = [script('check-file-length.mjs'), script('oxlint-baseline.mjs')];
@@ -33,8 +34,8 @@ const TASKS = {
   'build:ci': ['Resolution check, then release build without benchmark or native', [script('prepublish.mjs'), health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
   'build:publish': ['Resolution check, all-platform native build, MCP publish build', [script('prepublish.mjs'), yarn('workspace', '@octocodeai/octocode-native', 'build:all'), yarn('workspace', 'octocode-mcp', 'build')]],
   test: ['Run every workspace test script', [health('run', 'test')]],
-  'test:ci': ['Skill checks, then tests without benchmark or native', [...SKILL_CHECKS, health('run', 'test', ...CI_EXCLUDE)]],
-  'skills:check': ['Skill lint, shared report viewer, and skill script tests', [...SKILL_CHECKS, ...SKILLS_COMMON]],
+  'test:ci': ['Skill checks, then tests without benchmark or native', () => [...skillChecks(), health('run', 'test', ...CI_EXCLUDE)]],
+  'skills:check': ['Skill lint, shared report viewer, and skill script tests', () => [...skillChecks(), ...SKILLS_COMMON]],
   // Not in test:ci: it drives the built native binary, so CI runs it in its own `e2e` job after build:dev.
   'test:tools': ['End-to-end health of every tool via CLI and MCP, hermetic: driver self-test, then every lead explored (needs build:dev; [tool,...] [--deep])', [
     ['node', ['--test', path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/tool-health/*.test.mjs')]],
@@ -68,7 +69,7 @@ function help() {
   const width = Math.max(...Object.keys(TASKS).map(name => name.length));
   console.log('Usage: node skills-dev/octocode-dev/scripts/dev.mjs <task> [args...]\n\nTasks:');
   for (const [name, [description]] of Object.entries(TASKS)) {
-    console.log(`  ${name.padEnd(width)}  ${description}`);
+    console.log(`  ${name.padEnd(width)}  ${String(description)}`);
   }
 }
 
@@ -83,7 +84,14 @@ if (!TASKS[task]) {
   process.exit(1);
 }
 
-const steps = TASKS[task][1];
+let steps;
+try {
+  const selected = TASKS[task][1];
+  steps = typeof selected === 'function' ? selected() : selected;
+} catch (error) {
+  console.error(`dev ${task}: ${error.message}`);
+  process.exit(1);
+}
 steps.forEach(([command, args], index) => {
   const finalArgs = index === steps.length - 1 ? [...args, ...extra] : args;
   const { status, error } = spawnSync(command, finalArgs, { cwd: ROOT, stdio: 'inherit' });

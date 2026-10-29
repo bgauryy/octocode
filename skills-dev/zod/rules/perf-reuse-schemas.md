@@ -24,7 +24,7 @@ const UserCreate = z.object({
 const UserUpdate = z.object({
   name: z.string().optional(),
   email: z.email().optional(),
-  // forgot password field — drift
+  // Shared name/email constraints must be kept in sync manually
 })
 
 const UserResponse = z.object({
@@ -49,9 +49,9 @@ const User = z.object({
 
 const UserCreate = User.omit({ id: true, createdAt: true })
 const UserUpdate = User.pick({ name: true, email: true }).partial()
-const UserResponse = User.omit({ password: true })
+const UserResponse = User.pick({ id: true, name: true, email: true, createdAt: true })
 ```
 
 ## Why
 
-`pick()`, `omit()`, `partial()`, and `required()` derive new schemas from a base. Changes to the base propagate automatically to all derived schemas. The inferred types also stay in sync.
+`pick()`, `omit()`, `partial()`, and `required()` derive variants when field semantics are shared. Keep update permissions explicit; excluding password may be intentional. Allowlist response fields with `pick()` so adding another secret to the base does not expose it through an omission-based response.

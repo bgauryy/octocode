@@ -6,6 +6,7 @@ import {
   chromeExtractionFields,
   chromePlanExamples,
   chromeInputExamples,
+  chromeSessionStore,
 } from '@octocodeai/config/schema';
 import { build } from 'esbuild';
 import {
@@ -74,6 +75,7 @@ files.set(
       chromeExtractionFields,
       chromePlanExamples,
       chromeInputExamples,
+      chromeSessionStore,
     })
       .map(
         ([name, value]) => `export const ${name} = ${JSON.stringify(value)};`

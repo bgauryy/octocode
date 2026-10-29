@@ -47,19 +47,17 @@ fn linkage(linked: u64, missed: u64, excluded: u64) -> serde_json::Value {
         "ratio":ratio, "population":"syntax-call-sites"})
 }
 
-/// Classifies an unlinked call site for `CallStats::unresolved_by_reason`.
+/// Classifies an unlinked call site for `CallStats::unresolved_by_reason`;
+/// `in_repo` counts the site's acceptable declarations of `name` in the
+/// caller's language family ([`Linker::named`]).
 pub(super) fn unlinked_reason(
     bindings: &FileBindings,
     qualifier: &str,
     name: &str,
-    global_names: &HashMap<&str, Vec<u32>>,
-    callable: &dyn Fn(u32) -> bool,
+    in_repo: usize,
 ) -> &'static str {
     let receiver = matches!(qualifier, "this" | "self" | "Self" | "cls" | "super");
     let head = first_segment(qualifier);
-    let in_repo = global_names
-        .get(name)
-        .map_or(0, |ids| ids.iter().filter(|id| callable(**id)).count());
     if (qualifier.is_empty() && bindings.external.contains(name))
         || (!qualifier.is_empty() && !receiver && bindings.external.contains(head))
     {

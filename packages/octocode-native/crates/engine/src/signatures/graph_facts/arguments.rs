@@ -181,7 +181,7 @@ fn groups(node: Node<'_>, adapter: ArgumentAdapter) -> (Vec<Node<'_>>, Node<'_>)
         }
         if adapter == ArgumentAdapter::Scala
             && let Some(inner) = recipient.child_by_field_name("function")
-            && inner.kind() == "call_expression"
+            && matches!(inner.kind(), "call_expression" | "instance_expression")
         {
             recipient = inner;
         } else {

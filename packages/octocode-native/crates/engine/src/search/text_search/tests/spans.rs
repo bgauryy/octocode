@@ -157,3 +157,44 @@ fn only_matching_long_line_columns_are_linear_and_exact() {
         "only-matching span columns took {elapsed:?}"
     );
 }
+
+/// A line that is not UTF-8 decodes as every reader decodes it
+/// (`text::Decoded::interior`): 8-bit text without a valid non-ASCII UTF-8
+/// sequence reads as Latin-1, in matched values, spans and context lines,
+/// with columns unchanged. The file is named in `not_utf8_files`, so the
+/// caller can say its values are decoded, not verbatim bytes.
+#[test]
+fn non_utf8_lines_decode_like_every_reader_and_name_their_file() {
+    let t = TmpDir::new();
+    fs::write(t.0.join("latin.txt"), b"na\xefve\ncaf\xe9 foo bar\n").expect("write");
+    t.write("plain.txt", "foo\n");
+    let mut o = opts(t.path(), "foo");
+    o.context = crate::types::SearchContext {
+        before: 1,
+        after: 0,
+    };
+    let r = search(o).expect("ok");
+    let latin = r
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("latin.txt"))
+        .expect("latin file");
+    assert!(latin.matches[0].value.contains("café foo bar"), "{latin:?}");
+    assert!(latin.matches[0].value.contains("naïve"), "{latin:?}");
+    assert!(!latin.matches[0].value.contains('\u{fffd}'), "{latin:?}");
+    let mut o = opts(t.path(), "foo");
+    o.output = SearchOutput::Spans(SpanValues::Every);
+    let r = search(o).expect("ok");
+    let latin = r
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("latin.txt"))
+        .expect("latin");
+    assert_eq!(
+        (latin.matches[0].value.as_str(), latin.matches[0].column),
+        ("foo", 5)
+    );
+    let named = r.stats.not_utf8_files.clone().unwrap_or_default();
+    assert_eq!(named.len(), 1, "{named:?}");
+    assert!(named[0].ends_with("latin.txt"), "{named:?}");
+}

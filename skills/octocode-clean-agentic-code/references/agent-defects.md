@@ -1,6 +1,6 @@
-# Agent defects
-
 Load when cleaning or auditing code an agent wrote or edited.
+
+# Agent defects
 
 ## Audit order
 
@@ -30,6 +30,7 @@ Before deleting either copy, verify the availability check that caused it.
 - Change narration (`// changed from X to Y`, `// this should work`), agent-directed instructions in shipped code → always (instructions move to the agent guide).
 - Summary, plan, handoff markdown in a source directory → real docs supersede or duplicate it.
 - Siblings `*-v2`, `*-final`, `*-new`, `*-fixed`, dated → base canonical; sibling adds no unique path.
+- Debug prints (`console.log`, `print`, `dbg!`, `println!`) in non-CLI code → no diagnostic or observable-output contract needs them.
 
 ## Regex where structure exists
 
@@ -48,8 +49,7 @@ Removal would reveal a wrong result → [escalation protocol](#escalation-protoc
 - Success returned without checking the effect landed (unchanged bytes, rows, requests): highest severity.
 - Default on a non-null type (`?.`, `?? <literal>`, `|| {}`, `.get(k, default)` on a required key).
 - Stub (`pass`, `return None`, `return {}`, `throw new Error("not implemented")`) on a reachable path.
-- New `console.log`, `print(`, `dbg!`, `println!` in non-CLI code.
-- `sleep(` or retry loop around a failing call.
+- Retry or sleep loop that swallows a failed call or has no bounded termination and failure signal.
 
 Supply chain and credentials (verify):
 

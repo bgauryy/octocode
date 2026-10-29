@@ -2,6 +2,69 @@
 
 use super::*;
 
+#[test]
+fn rust_macro_arms_do_not_declare_attribute_or_body_identifiers() {
+    for body in [
+        "#[macro_export]\n$item",
+        "#[allow(dead_code)]\n$item",
+        "body_identifier()",
+    ] {
+        let source = format!(
+            "macro_rules! wrapper {{ ($item:item) => {{ {body} }}; }}\n\
+             macro_rules! value {{ () => {{ 1 }}; }}\n\
+             fn use_macro() {{ value!(); }}\n"
+        );
+        let graph = extract_graph_facts_with_metadata(&source, "macros.rs")
+            .expect("graph facts")
+            .facts;
+        let outline = crate::signatures::extract_declarations_document(&source, "macros.rs")
+            .expect("declarations");
+        for document in [&graph, &outline] {
+            let names: Vec<_> = document
+                .declarations
+                .iter()
+                .map(|declaration| declaration.name.as_str())
+                .collect();
+            assert_eq!(names, ["wrapper", "value", "use_macro"], "{body}");
+        }
+        assert!(
+            graph
+                .calls
+                .iter()
+                .any(|call| call.caller == "use_macro" && call.callee == "value"),
+            "macro invocation: {:?}",
+            graph.calls
+        );
+    }
+}
+
+#[test]
+fn rust_nested_macro_definitions_and_invocations_keep_their_owner() {
+    let source = "fn use_macro() {\n\
+                  macro_rules! local_value { () => { 1 }; }\n\
+                  local_value!();\n\
+                  }\n";
+    let graph = extract_graph_facts_with_metadata(source, "nested-macro.rs")
+        .expect("graph facts")
+        .facts;
+    let caller = graph
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "use_macro")
+        .expect("function");
+    let nested = graph
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "local_value")
+        .expect("nested macro");
+    assert_eq!(nested.kind, "macro");
+    assert_eq!(nested.parent.as_deref(), Some(caller.id.as_str()));
+    assert_eq!(graph.declarations.len(), 2);
+    assert!(graph.calls.iter().any(|call| {
+        call.callee == "local_value" && call.caller_id.as_deref() == Some(caller.id.as_str())
+    }));
+}
+
 #[cfg(feature = "tree-sitter-cpp")]
 #[test]
 fn cpp_class_owns_its_method_declarations() {

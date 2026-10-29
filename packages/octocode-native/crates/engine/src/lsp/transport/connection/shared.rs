@@ -43,6 +43,10 @@ pub(super) struct Shared {
     pub(super) consecutive_timeouts: AtomicU32,
     /// The server's progress signals, which extend a request's wait.
     pub(super) activity: ServerActivity,
+    /// The server registered for `workspace/didChangeWatchedFiles`
+    /// (`client/registerCapability`), so it expects file events for files
+    /// it has not opened.
+    pub(super) watches_files: AtomicBool,
 }
 
 impl Shared {

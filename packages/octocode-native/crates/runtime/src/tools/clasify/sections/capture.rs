@@ -130,7 +130,7 @@ pub(super) fn create(
                 .unwrap_or_else(|| dispatcher.evaluator().model.clone()),
         ),
         resolved_model: None,
-        long_context: row.long_context,
+        long_context: row.long_context == Some(true),
         resources,
         github_identity: None,
         batches: Vec::new(),
@@ -150,7 +150,7 @@ fn prepare(
     let mut metadata = resource::selection_metadata(captured, source);
     // Leave room for escaped target text, supporting context and coordinates.
     // Every original byte remains in a target even when it needs a fragment.
-    let target_chars = super::super::max_state_chars(row.long_context) / 4;
+    let target_chars = super::super::max_state_chars(row.long_context == Some(true)) / 4;
     let safe = SafeSource::new(
         &captured.text,
         &captured.path,
@@ -164,7 +164,7 @@ fn prepare(
         let line = |byte| octocode_engine::text::line_at(&line_starts, byte);
         json!({"bytes":[range.start,range.end],"lines":{"startLine":line(range.start),"endLine":line(range.end.saturating_sub(1).max(range.start))}})
     };
-    let complete = source_sections::visit(
+    let complete = source_sections::visit_grouped(
         &captured.text,
         &captured.path,
         &selected,

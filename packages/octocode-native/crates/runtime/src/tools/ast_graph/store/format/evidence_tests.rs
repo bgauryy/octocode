@@ -44,7 +44,7 @@ pub(crate) fn source_fixture() -> sources::SourceTable {
         .unwrap()
 }
 
-fn evidence_fixture() -> GraphTables {
+pub(super) fn evidence_fixture() -> GraphTables {
     let mut t = GraphTables {
         sources: source_fixture(),
         strings: vec![
@@ -347,4 +347,30 @@ fn source_correspondence_section_is_mandatory() {
         .collect();
     let (missing, _) = writer::assemble(sections);
     assert!(decode(&missing).unwrap_err().contains("SRCE"));
+}
+
+#[test]
+fn file_metadata_cannot_redirect_freshness_reads_through_symbol_keys() {
+    for table in ["digest", "stamp", "component", "entry"] {
+        let mut t = evidence_fixture();
+        match table {
+            "digest" => t.digests = vec![(1, 0)],
+            "stamp" => {
+                t.stamps = vec![(
+                    1,
+                    octocode_engine::stamp::SourceStamp {
+                        size: 0,
+                        modified_ns: 0,
+                        changed_ns: 0,
+                        inode: 0,
+                    },
+                )];
+            }
+            "component" => t.components = vec![(1, 0, 0, 0)],
+            _ => t.entries = vec![(1, 0)],
+        }
+        let (bytes, _) = encode(&t);
+        assert!(decode(&bytes).is_err(), "{table}");
+        assert!(decode_files(&bytes).is_err(), "{table}");
+    }
 }

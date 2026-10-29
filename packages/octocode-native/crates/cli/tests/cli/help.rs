@@ -159,7 +159,9 @@ fn tool_help_uses_canonical_core_titles() {
                 .join(" ");
             assert!(text.contains(title), "{name} {flag}: {text}");
             assert_eq!(
-                text.contains("Beta, disabled by default (set OCTOCODE_BETA=true"),
+                text.contains(
+                    "MCP beta (set OCTOCODE_BETA=true or local.beta:true); available in CLI."
+                ),
                 tool["beta"] == true,
                 "{name} {flag} names the beta gate exactly when the tool is beta: {text}"
             );

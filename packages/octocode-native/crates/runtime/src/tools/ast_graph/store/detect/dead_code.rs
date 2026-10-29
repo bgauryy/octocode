@@ -33,7 +33,8 @@ pub(super) struct MentionHits {
 }
 
 /// One pass over the repository's text: which candidate file stems appear as
-/// path-like tokens (`'./worker.ts'`, `"src/tool.ts"`) and which export names
+/// path-like tokens (`'./worker.ts'`, `"src/tool.ts"`) or whole string
+/// literals (`'worker'`, a name a loader builds a path from) and which export names
 /// appear as identifiers, and where: every file, with its first line. This is
 /// the SCARF/vulture "is it mentioned anywhere" safety check. A name in a
 /// source file (any grammar the engine parses, or [`SCRIPT_BEARING_MARKUP`])
@@ -126,16 +127,19 @@ pub(super) fn scan_mentions(
             let text = decoded.text;
             let mut local: [BTreeMap<&str, usize>; 3] = Default::default();
             for (index, line) in text.lines().enumerate() {
-                for token in line.split(|c: char| !(c.is_alphanumeric() || "_$./@-".contains(c))) {
-                    if token.is_empty() {
-                        continue;
-                    }
+                for (offset, token) in tokens(line) {
                     if token.contains(['/', '.']) {
                         let last = token.rsplit('/').next().unwrap_or(token);
                         let stem = last.split('.').next().unwrap_or(last);
                         if let Some(&stem) = stem_set.get(stem) {
                             local[0].entry(stem).or_insert(index + 1);
                         }
+                    } else if let Some(&stem) = stem_set.get(token)
+                        && quoted(line, offset, token)
+                    {
+                        // A bare name as a whole string literal (`'worker'`)
+                        // is a file a loader may build a path from.
+                        local[0].entry(stem).or_insert(index + 1);
                     }
                     let mut at = 0;
                     for part in token.split(['.', '/', '-', '@']) {
@@ -187,6 +191,29 @@ pub(super) fn scan_mentions(
         },
         truncated.load(Ordering::Relaxed),
     )
+}
+
+/// `line`'s runs of name and path characters, with their byte offsets.
+fn tokens(line: &str) -> impl Iterator<Item = (usize, &str)> {
+    let mut start = None;
+    line.char_indices()
+        .chain(std::iter::once((line.len(), ' ')))
+        .filter_map(move |(at, c)| {
+            if c.is_alphanumeric() || "_$./@-".contains(c) {
+                start.get_or_insert(at);
+                None
+            } else {
+                start.take().map(|from| (from, &line[from..at]))
+            }
+        })
+}
+
+/// Whether `token` at `offset` is a whole string literal: the same quote
+/// right before and right after it.
+fn quoted(line: &str, offset: usize, token: &str) -> bool {
+    let before = line[..offset].chars().next_back();
+    let after = line[offset + token.len()..].chars().next();
+    matches!(before, Some('\'' | '"' | '`')) && before == after
 }
 
 /// The `file:line` mentions of `key` in files other than `subject`.

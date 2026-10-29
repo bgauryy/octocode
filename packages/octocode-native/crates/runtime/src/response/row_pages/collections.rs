@@ -135,7 +135,7 @@ pub(super) fn drop_empty_declared_siblings(
             continue;
         };
         // Page-context requiredness describes direct array-element fields.
-        // Nested records need their own shape, so retain their empty slots.
+        // Slots at a fixed place are [`drop_delivered_elsewhere`]'s.
         let Some((container, _)) = parent.rsplit_once('/') else {
             continue;
         };
@@ -148,6 +148,75 @@ pub(super) fn drop_empty_declared_siblings(
         {
             object.remove(&key);
         }
+    }
+}
+
+fn emptied(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::Array(items)) => items.is_empty(),
+        Some(Value::Object(items)) => items.is_empty(),
+        _ => false,
+    }
+}
+
+/// The fixed collections `row` holds with at least one item: a part that
+/// carries one of them empty had it delivered on another part.
+pub(super) fn delivered_collections(row: &Value, fixed: &[String]) -> Vec<String> {
+    fixed
+        .iter()
+        .filter(|path| match row.pointer(path) {
+            Some(Value::Array(items)) => !items.is_empty(),
+            Some(Value::Object(items)) => !items.is_empty(),
+            _ => false,
+        })
+        .cloned()
+        .collect()
+}
+
+/// Omit from `part` each collection its row delivered on another part, or
+/// the whole holder when only context and such emptied collections remain
+/// in it, wherever core declares that slot optional. Required slots and
+/// collections the row held empty are kept.
+pub(super) fn drop_delivered_elsewhere(
+    part: &mut Value,
+    delivered: &[String],
+    optional: &BTreeSet<String>,
+) {
+    let here = delivered
+        .iter()
+        .filter(|path| emptied(part.pointer(path)))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    for path in &here {
+        let Some((holder, _)) = path.rsplit_once('/') else {
+            continue;
+        };
+        let context_only = |fields: &serde_json::Map<String, Value>| {
+            fields.iter().all(|(key, value)| {
+                !(value.is_array() || value.is_object())
+                    || here.contains(&format!("{holder}/{}", escape_pointer(key)))
+            })
+        };
+        let whole = optional.contains(holder)
+            && part
+                .pointer(holder)
+                .and_then(Value::as_object)
+                .is_some_and(context_only);
+        if whole {
+            remove_slot(part, holder);
+        } else if optional.contains(path) {
+            remove_slot(part, path);
+        }
+    }
+}
+
+fn remove_slot(part: &mut Value, pointer: &str) {
+    let Some((parent, key)) = pointer.rsplit_once('/') else {
+        return;
+    };
+    let key = key.replace("~1", "/").replace("~0", "~");
+    if let Some(object) = part.pointer_mut(parent).and_then(Value::as_object_mut) {
+        object.shift_remove(&key);
     }
 }
 

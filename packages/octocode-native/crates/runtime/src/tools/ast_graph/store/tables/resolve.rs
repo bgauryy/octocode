@@ -3,13 +3,24 @@
 use super::*;
 use octocode_engine::graph::{GraphCallBinding, GraphCallBoundary};
 
+mod c_family;
+mod choice;
+mod classes;
 mod constructors;
+mod es_members;
 mod exports;
+mod go;
 mod inherited;
+mod lexical;
 mod linker;
+mod rust;
+mod scala;
+mod scope;
 pub(super) use exports::{ExportResolver, FileBindings, confidence_for};
 pub(super) use inherited::{BaseIndex, base_index};
-pub(super) use linker::{LinkScope, Linker, Site};
+pub(super) use linker::{Linker, Site};
+pub(super) use scala::ScalaBase;
+pub(super) use scope::LinkScope;
 
 /// Files each file star-re-exports.
 pub(super) fn star_targets(built: &BuiltGraph) -> HashMap<&str, Vec<&str>> {
@@ -49,13 +60,20 @@ pub(super) fn member_index<'a>(
 /// See [`member_index`].
 pub(super) type MemberIndex<'a> = HashMap<(&'a str, &'a str), Vec<u32>>;
 
-/// Rust module and workspace-crate lookups for qualified call paths.
-pub(super) fn link_scope<'a>(file_paths: &'a [&'a str], workspace: &Workspace) -> LinkScope<'a> {
+/// Language-family, Rust module and workspace-crate lookups for graph-wide
+/// and qualified call paths; `families` is [`link_family`] by file node id.
+pub(super) fn link_scope<'a>(
+    file_paths: &'a [&'a str],
+    families: Vec<&'a str>,
+    workspace: &Workspace,
+) -> LinkScope<'a> {
     let mut modules = HashMap::<&str, Vec<&str>>::new();
+    let mut rust_files = HashSet::new();
     for path in file_paths.iter().filter(|path| !path.is_empty()) {
         let Some(stem) = path.strip_suffix(".rs") else {
             continue;
         };
+        rust_files.insert(*path);
         let module = match stem.rsplit_once('/') {
             Some((dir, "mod")) => dir.rsplit('/').next().unwrap_or(dir),
             Some((_, name)) => name,
@@ -72,7 +90,9 @@ pub(super) fn link_scope<'a>(file_paths: &'a [&'a str], workspace: &Workspace) -
         .collect::<HashMap<_, _>>();
     LinkScope {
         file_paths,
+        families,
         modules,
+        rust_files,
         crate_dirs,
     }
 }
@@ -127,16 +147,19 @@ pub(super) fn link_calls(
             .and_then(|id| unit.index.decl_nodes.get(id).copied())
             .unwrap_or(unit.file_id);
         let (qualifier, name) = split_callee(&call.callee);
-        // Rust needs a receiver or type path for an associated function.
-        // A bare name can still name a nested free function; Java/C++ may
-        // also call methods through an implicit receiver.
-        let bare_rust =
-            unit.language == "rust" && qualifier.is_empty() && call.receiver_type.is_none();
+        // Rust needs a receiver or type path for an associated function, and
+        // a JS/TS class or object member is never in lexical scope. A bare
+        // name can still name a nested free function; Java/C++ may also call
+        // methods through an implicit receiver; a Go method never is a bare name.
+        let bare_lexical = (matches!(unit.language, "rust" | "go")
+            || ecosystem(unit.language) == "npm")
+            && qualifier.is_empty()
+            && call.receiver_type.is_none();
         let accept = |id| match call.binding {
             GraphCallBinding::ConstructedType => {
                 constructors::admits(linker, caller, id, &call.callee)
             }
-            GraphCallBinding::SyntaxLookup => callable(id) && (!bare_rust || !method(id)),
+            GraphCallBinding::SyntaxLookup => callable(id) && (!bare_lexical || !method(id)),
             GraphCallBinding::Unassessed { .. } => false,
         };
         let site = Site {
@@ -147,6 +170,10 @@ pub(super) fn link_calls(
             name,
             accept: &accept,
             receiver_type: call.receiver_type.as_deref(),
+            term_binding: call.term_binding,
+            self_template: call.self_template.as_deref(),
+            value_qualifier: matches!(unit.language, "rust" | "c" | "cpp" | "cuda")
+                && call.callee.as_bytes().get(qualifier.len()) == Some(&b'.'),
         };
         let recovered = matches!(
             call.parse_assessment,
@@ -160,9 +187,20 @@ pub(super) fn link_calls(
             }),
             _ => None,
         };
-        let resolved = (!recovered && boundary.is_none())
+        // A bare std macro name the repo also declares as a `macro_rules!`
+        // may expand that macro instead: its arguments are no proven calls.
+        let shadowed = call
+            .macros
+            .iter()
+            .any(|path| !path.contains("::") && linker.rust_macros.contains(path.as_str()));
+        let resolved = (!recovered && !shadowed && boundary.is_none())
             .then(|| {
-                if call.binding == GraphCallBinding::ConstructedType {
+                if unit.language == "scala" {
+                    linker.scala_call(&site)
+                } else if let Some(lang) = classes::ClassLang::of(unit.language) {
+                    let constructed = call.binding == GraphCallBinding::ConstructedType;
+                    linker.class_call(&site, lang, constructed)
+                } else if call.binding == GraphCallBinding::ConstructedType {
                     constructors::local(&site).or_else(|| linker.link(&site))
                 } else {
                     linker.link(&site)
@@ -175,6 +213,8 @@ pub(super) fn link_calls(
                 "recovered-declaration"
             } else if let Some(reason) = boundary {
                 reason
+            } else if shadowed {
+                "ambiguous"
             } else if call.binding == GraphCallBinding::ConstructedType
                 && constructors::scope_unassessed(linker, &site)
             {
@@ -184,8 +224,7 @@ pub(super) fn link_calls(
                     &unit.bindings,
                     qualifier,
                     name,
-                    linker.global_names,
-                    &accept,
+                    linker.named(caller, name).filter(|id| accept(*id)).count(),
                 )
             };
             *calls.unresolved_by_reason.entry(reason).or_default() += 1;
@@ -240,13 +279,16 @@ pub(super) fn link_calls(
     }
 }
 
-/// inherits: `extends` / `implements` base types, linked like calls.
+/// inherits: `extends` / `implements` base types, linked like calls. A
+/// Scala declaration also records its bases in written order in `scala`,
+/// each either the one type it resolved to or opaque.
 pub(super) fn link_heritage(
     linker: &Linker,
     unit: &FileLinks,
     facts: &FileFacts,
     is_type: &dyn Fn(u32) -> bool,
     out: &mut Vec<PendingEdge>,
+    scala: &mut HashMap<u32, Vec<ScalaBase>>,
 ) -> HashSet<u32> {
     let mut unresolved = HashSet::new();
     for heritage in &facts.heritage {
@@ -262,9 +304,28 @@ pub(super) fn link_heritage(
             name,
             accept: is_type,
             receiver_type: None,
+            term_binding: false,
+            self_template: None,
+            value_qualifier: false,
         };
-        let Some((targets, resolution, confidence)) = linker.link(&site) else {
-            if heritage.relation == "extends" {
+        let linked = if unit.language == "scala" {
+            let linked = linker.scala_base(&site, &heritage.target);
+            let base = match linked
+                .as_ref()
+                .map(|(targets, _, c)| (targets.as_slice(), c))
+            {
+                Some(([only], confidence)) if *only != src => ScalaBase::Type(*only, *confidence),
+                _ => ScalaBase::Opaque(heritage.target.clone()),
+            };
+            scala.entry(src).or_default().push(base);
+            linked
+        } else if let Some(lang) = classes::ClassLang::of(unit.language) {
+            linker.class_base(&site, lang, &heritage.target)
+        } else {
+            linker.link(&site)
+        };
+        let Some((targets, resolution, confidence)) = linked else {
+            if matches!(heritage.relation.as_str(), "extends" | "embeds") {
                 unresolved.insert(src);
             }
             continue;

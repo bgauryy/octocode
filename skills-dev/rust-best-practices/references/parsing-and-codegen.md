@@ -1,6 +1,6 @@
-# Parsing & code transformation — tree-sitter, offsets, safe rewrites
-
 Load when generating tool contracts, parsing source (tree-sitter, oxc, syn), running structural queries, or rewriting code by byte range. Why: duplicated schemas and incorrect byte offsets break consumers silently.
+
+# Parsing & code transformation — tree-sitter, offsets, safe rewrites
 
 ## Tool contract generation: Octocode
 - Author schemas, descriptions, instructions, and limits in `@octocodeai/octocode-core`; `@octocodeai/config` owns generation.
@@ -12,20 +12,20 @@ Load when generating tool contracts, parsing source (tree-sitter, oxc, syn), run
 - Verify parity, field effects, and the actual CLI/fresh-MCP path. Generated files are outputs, not manual edit targets.
 
 ## Parser lifecycle
-- **Reuse the parser** per worker (`thread_local! { RefCell<Parser> }`), `reset()` + `set_language()` per file — never `Parser::new()` in a hot loop (see `references/performance-and-memory.md`).
+- **Consider parser reuse** per worker on a measured hot path. Reset state and change language when the next file requires it; compare against constructing a parser per file before adding thread-local state (see `references/performance-and-memory.md`).
 - **Compile queries once** and share (`OnceLock`/`LazyLock` → `Arc<Query>`); allocate the `QueryCursor` per call (cheap) or thread-local it.
 - **Full re-parse is fine for file-at-a-time / batch** analysis; incremental (`Tree::edit`) only pays off for interactive editing of the same buffer. Don't add incremental complexity for batch tools.
 - Run third-party parsers (oxc, C grammars) on a deep-stack runner for deeply-nested input.
 
 ## Query & predicate safety
-- Validate query shape up front; reject unknown fields (`#[serde(deny_unknown_fields)]`) and unknown node kinds against the grammar's symbol table.
+- Validate query shape up front. Reject unknown fields only in a closed query contract (`#[serde(deny_unknown_fields)]`); validate node kinds against the grammar's symbol table.
 - **Reject predicates you don't evaluate.** If a query carries a custom/general predicate your engine can't run, fail the query — never silently ignore it, or you'll drop/keep the wrong nodes.
 - Bound the work: recursion depth cap, match-count limit, backtracking budget, and a wall-clock deadline (tree-sitter progress callback) so a pathological pattern/file can't hang a worker.
 
 ## Offset handling (the silent corrupter)
 - Centralize byte↔line/column conversion in one `LineIndex`; don't hand-roll per call site.
-- Decide the **column unit deliberately**: LSP and JS tooling use **UTF-16 code units**, not bytes or scalar values — mismatches misplace edits on any non-ASCII line.
-- **Snap to char boundaries**: an offset landing mid-multibyte-char must floor to the boundary, not collapse to 0. Use `.get(range)` (returns `Option`) over raw slice indexing (`&bytes[a..b]` panics on a bad/misaligned range). Test with emoji / surrogate pairs / CRLF / trailing newline.
+- Decide the **column unit deliberately**: JavaScript string offsets use UTF-16 code units. LSP 3.17+ can negotiate another encoding through `general.positionEncodings` / `capabilities.positionEncoding`; UTF-16 is the default. Convert using the connection's selected encoding, not an assumed byte or character unit. [LSP Position definition](https://github.com/microsoft/vscode-languageserver-node/blob/main/types/src/main.ts#L88).
+- **Validate edit boundaries**: reject out-of-range or mid-character edit offsets; silently rounding changes the requested edit. Display-only position conversion may floor to a character boundary if that contract is explicit. Use `str::get(range)` over `&source[a..b]` to check UTF-8 boundaries; byte slices check bounds but do not validate character boundaries. Test emoji, surrogate pairs, CRLF and trailing newline.
 
 ## Rewriting code safely
 - **Apply non-overlapping edits back-to-front** (descending start byte) so earlier offsets stay valid as you splice; **reject overlapping edits** outright.

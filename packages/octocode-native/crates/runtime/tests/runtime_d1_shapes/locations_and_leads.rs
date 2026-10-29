@@ -73,11 +73,31 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
         hits.structured_content
     );
     assert!(first.get("in").is_none(), "{first}");
-    // A declaration without members is an object too.
-    let outline = support::run(
+    // A declaration without members is an object too; per-symbol
+    // provenance only on request.
+    let compact = support::run(
         &runtime,
         "astSearch",
         json!({"operation":"symbols","path":"pkg"}),
+    )
+    .await;
+    assert_eq!(
+        compact.data()["files"][0]["symbols"][0],
+        json!({
+            "symbolName":"run","kind":"function","line":1,"endLine":4,"exported":true,
+            "parseAssessment":{
+                "status":"parsed","scope":"declaration",
+                "range":{"start":{"line":0,"character":0},"end":{"line":3,"character":1}}
+            }
+        }),
+        "{}",
+        compact.structured_content
+    );
+    assert!(compact.data().get("sourceEvidence").is_none());
+    let outline = support::run(
+        &runtime,
+        "astSearch",
+        json!({"operation":"symbols","path":"pkg","includeProvenance":true}),
     )
     .await;
     let occurrence_id = identity(&outline.data()["files"][0]["symbols"][0]["occurrenceId"]);
@@ -107,7 +127,7 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     let repeated = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"symbols","path":"pkg"}),
+        json!({"operation":"symbols","path":"pkg","includeProvenance":true}),
     )
     .await;
     assert_eq!(
@@ -119,11 +139,11 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
         outline.data()["sourceEvidence"]
     );
     // Match rows are objects with their 1-based column: two matches can
-    // start on one line.
+    // start on one line. Provenance is on request.
     let matched = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":"pkg","parser":"rust","rule":{"pattern":"let $A = $B;"}}),
+        json!({"operation":"match","path":"pkg","parser":"rust","rule":{"pattern":"let $A = $B;"},"includeProvenance":true}),
     )
     .await;
     let (match_unit, match_snapshot) = source_ids(
@@ -148,6 +168,25 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
         "{}",
         matched.structured_content
     );
+    // Without it, rows and captures keep only their display span and text,
+    // inside the output contract.
+    let lean = support::run(
+        &runtime,
+        "astSearch",
+        json!({"operation":"match","path":"pkg","parser":"rust","rule":{"pattern":"let $A = $B;"},"includeCaptures":true}),
+    )
+    .await;
+    let row = &lean.data()["files"][0]["matches"][0];
+    assert_eq!(
+        row["metavarRanges"]["A"][0],
+        json!({"text":"a","line":2,"column":9,"endColumn":10}),
+        "{}",
+        lean.structured_content
+    );
+    for key in ["sourceDigest", "sourceRange", "sourceOrigin"] {
+        assert!(row.get(key).is_none(), "{row}");
+    }
+    assert!(lean.data().get("sourceEvidence").is_none());
     runtime.close().await;
 }
 

@@ -70,6 +70,13 @@ impl<'a> MatchQuery<'a> {
             Self::Summary(_) => None,
         }
     }
+    /// Per-match byte ranges, origins and digests (`includeProvenance`).
+    pub fn provenance(self) -> bool {
+        match self {
+            Self::Content(query) => query.include_provenance.unwrap_or(false),
+            Self::Summary(_) => false,
+        }
+    }
     /// Levels below `path` (1 = its children), as the wire counts them.
     pub fn max_depth(self) -> Option<u32> {
         either_form!(self, max_depth => max_depth.map(|depth| u32_of(depth.get())))
