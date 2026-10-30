@@ -207,8 +207,26 @@ async fn ignored_evidence_must_reach_the_anchor() {
         "gen/d.ts",
         "import { errorMessage } from './util';\nawait import(process.env.HELPER);\n",
     );
+    // Recovered facts cannot prove that the visible import is the only binding.
+    let recovered_source = "import { errorMessage } from './util';\nreturn;\n";
+    let recovered = write(&root, "gen/recovered.ts", recovered_source);
+    let recovered_facts =
+        octocode_engine::signatures::extract_graph_facts(recovered_source, &recovered)
+            .expect("recovered facts");
+    assert!(!facts_are_clean(&recovered_facts));
+    assert!(super::super::imports_name(
+        &recovered_facts,
+        recovered_source,
+        "errorMessage"
+    ));
     let mut ignored = IgnoredMentions {
-        files: vec![hidden.clone(), other, loader, destructured.clone()],
+        files: vec![
+            hidden.clone(),
+            other,
+            loader,
+            destructured.clone(),
+            recovered.clone(),
+        ],
         ..IgnoredMentions::default()
     };
     let policy = crate::tools::test_support::workspace_policy(&root);
@@ -221,6 +239,6 @@ async fn ignored_evidence_must_reach_the_anchor() {
     )
     .await
     .expect("check");
-    assert_eq!(ignored.importing, [hidden, destructured]);
+    assert_eq!(ignored.importing, [hidden, destructured, recovered]);
     assert!(ignored.unchecked.is_empty(), "{ignored:?}");
 }

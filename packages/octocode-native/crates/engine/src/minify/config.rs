@@ -4,6 +4,8 @@ use std::sync::LazyLock;
 /// How the content view minifies a file type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Strategy {
+    /// Preserve source when generic whitespace/comment rules can change values.
+    Verbatim,
     /// Comments stripped, blank runs collapsed, indentation kept.
     Code,
     /// Comments stripped and indentation removed, as for JS/TS.
@@ -39,7 +41,7 @@ impl FileTypeConfig {
 }
 
 static MINIFY_CONFIG: LazyLock<HashMap<&'static str, FileTypeConfig>> = LazyLock::new(|| {
-    use Strategy::{Brace, Code, General, Json, Markdown};
+    use Strategy::{Brace, Code, General, Json, Markdown, Verbatim};
     let mut m: HashMap<&'static str, FileTypeConfig> = HashMap::new();
 
     // JS / TS
@@ -59,8 +61,8 @@ static MINIFY_CONFIG: LazyLock<HashMap<&'static str, FileTypeConfig>> = LazyLock
         // Python / scripting
         "py"    => FileTypeConfig::with(Code, &["hash","python-docstring"]),
         "pyi"   => FileTypeConfig::with(Code, &["hash","python-docstring"]),
-        "yaml"  => FileTypeConfig::with(Code, &["hash"]),
-        "yml"   => FileTypeConfig::with(Code, &["hash"]),
+        "yaml"  => FileTypeConfig::new(Verbatim),
+        "yml"   => FileTypeConfig::new(Verbatim),
         "coffee"=> FileTypeConfig::with(Code, &["hash"]),
         "nim"   => FileTypeConfig::with(Code, &["hash"]),
         "haml"  => FileTypeConfig::with(Code, &["hash","haml"]),

@@ -178,6 +178,42 @@ async fn a_server_that_fails_to_start_names_its_invocation() {
     );
 }
 
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn markdown_without_a_server_offers_supported_source_recovery() {
+    let (_dir, root, paths) = temp_workspace();
+    std::fs::write(root.join("guide.md"), "# Guide\n").expect("source");
+    let row = serde_json::json!({
+        "operation": "documentSymbols", "path": root.join("guide.md").to_string_lossy()
+    });
+    let result = run_row(row, &paths, &super::super::LspExecutionConfig::default()).await;
+    assert_eq!(result["errorCode"], "serverUnavailable", "{result}");
+    let message = result["error"].as_str().expect("error");
+    assert!(!message.contains("astSearch"), "{result}");
+    assert!(
+        message.contains("localSearch") && message.contains("localFetch"),
+        "{result}"
+    );
+    assert!(message.contains("lsp-servers.json"), "{result}");
+    assert_eq!(result["related"][0]["tool"], "localFetch", "{result}");
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn markdown_with_a_custom_server_keeps_the_configured_route() {
+    let (_dir, root, paths) = temp_workspace();
+    std::fs::write(root.join("guide.md"), "# Guide\n").expect("source");
+    let command = executable(&root.join("server"));
+    let execution = user_server(&root, ".md", &command);
+    let row = serde_json::json!({
+        "operation": "hover", "path": root.join("guide.md").to_string_lossy(),
+        "symbolName": "absent", "line": 1
+    });
+    let result = run_row(row, &paths, &execution).await;
+    assert_eq!(result["errorCode"], "anchorUnresolved", "{result}");
+    assert_eq!(result["lsp"]["serverAvailable"], true, "{result}");
+}
+
 #[test]
 fn workspace_symbols_are_flat_named_and_one_based() {
     let symbol = serde_json::json!({

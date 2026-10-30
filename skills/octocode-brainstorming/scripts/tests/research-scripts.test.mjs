@@ -49,8 +49,25 @@ test('search merges providers by URL, ranks agreement first, records per-provide
     assert.equal(r.json.results[0].url, 'https://www.a.test/x/');
     assert.deepEqual(r.json.results[0].seenBy.map((s) => s.provider).toSorted(), ['exa', 'tavily']);
     assert.equal(r.json.results.length, 2);
-    assert.equal(r.json.providers.serper.status, 'error');
+    assert.equal(r.json.providers.serper.status, 'keyRejected', 'a 403 on every query is a key problem');
+    assert.match(r.json.providers.serper.fix, /octocode config set SERPER_API_KEY --stdin/);
     assert.equal(r.json.providers.exa.costDollars, 0.005);
+  } finally { server.close(); }
+});
+
+test('search names a keysRejected setup error when every provider rejects its key', async () => {
+  const { server, base } = await serve(async (req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.statusCode = req.url.startsWith('/serper') ? 403 : 401;
+    return res.end(JSON.stringify({ error: 'Invalid API key' }));
+  });
+  try {
+    const env = { TAVILY_API_KEY: 'k1', EXA_API_KEY: 'k2', SERPER_API_KEY: 'k3', TAVILY_BASE_URL: `${base}/tavily`, EXA_BASE_URL: `${base}/exa`, SERPER_BASE_URL: `${base}/serper` };
+    const r = await run('search.mjs', ['--query', 'q'], env);
+    assert.equal(r.status, 1);
+    assert.equal(r.json.error.code, 'keysRejected');
+    assert.match(r.json.error.message, /tavily, exa, serper/);
+    for (const name of ['tavily', 'exa', 'serper']) assert.equal(r.json.providers[name].status, 'keyRejected');
   } finally { server.close(); }
 });
 

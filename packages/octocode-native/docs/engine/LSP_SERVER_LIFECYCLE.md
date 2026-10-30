@@ -8,7 +8,7 @@ Tree-sitter and Oxc answer syntactic questions from embedded parsers. LSP operat
 
 When an operation requires an unavailable server, `lspSearch` returns an error row with `errorCode:"serverUnavailable"` and valid recovery calls. It never labels same-file or syntactic guesses as semantic results. A running server that lacks the requested capability returns `capabilityUnavailable`. A supported server returning no rows establishes only an empty result within that server's indexed scope and configuration.
 
-`documentSymbols` may use native Oxc or Markdown outline support without a server. Other semantic operations require their corresponding negotiated LSP capability.
+`documentSymbols` also requires a server with the corresponding negotiated LSP capability. Use `localFetch view:"symbols"` for native syntax outlines and Markdown headings without a server. Markdown has no built-in LSP route; add a custom server entry to use it through `lspSearch`.
 
 Public positions, input and output, are one-based, and servers communicate in UTF-16. A server selecting an unsupported encoding fails startup.
 

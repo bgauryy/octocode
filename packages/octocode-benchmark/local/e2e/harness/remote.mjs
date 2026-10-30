@@ -123,6 +123,9 @@ try {
   await exercise('localFetch', { path: localPath }, d => sourceLines(d).map(([, text]) => text).join('\n') === localLines.join('\n'));
   await exercise('astSearch', { path: localPath, operation: 'symbols' }, (d, r) => declarations({ sc: r.json }).some(declaration => declaration.name === symbol && declaration.line === line));
   await exercise('lspSearch', { path: localPath, operation: 'hover', symbolName: symbol, line }, d => JSON.stringify(d).includes(symbol));
+  const built = await exercise('graphBuild', { path: 'packages/octocode-config/src' }, d => typeof d?.id === 'string' && d?.scan?.filesScanned > 0);
+  const graph = data(built.cli)?.id;
+  if (graph) await exercise('graphQuery', { operation: 'find', path: data(built.cli).root, graph, target: symbol }, d => d?.results?.some(row => row.name === symbol));
   await exercise('clasify', { operation: 'models' }, d => d?.models?.length > 0 && d.models.some(model => model.default), { label: 'clasify.models' });
   await exercise('clasify', { operation: 'evaluate', content: 'The color is blue.', questions: { blue: { type: 'noul', instructions: 'Does the text explicitly say the color is blue?' } } }, d => typeof d?.answers?.blue?.noul === 'number' && !!d?.usage, { label: 'clasify.evaluate' });
   if (publicSource) await publicSourceChecks(publicSource);

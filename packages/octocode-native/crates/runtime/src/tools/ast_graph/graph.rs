@@ -82,6 +82,7 @@ pub(crate) fn build_graph_with_registry(
     let cancelled = ToolError::cancelled;
     let scan::Extracted {
         facts,
+        withheld,
         job,
         reused_files,
         tally,
@@ -118,6 +119,14 @@ pub(crate) fn build_graph_with_registry(
         tally,
         ..Default::default()
     };
+    if let Some(notice) = withheld.notice() {
+        built.diagnostics.push(Diagnostic::new(
+            ".",
+            None,
+            DiagnosticCode::PathPolicyWithheld,
+            format!("{notice} Contents were not scanned; absence and unused-code conclusions are unproven for this scan."),
+        ));
+    }
     built.resolution_inputs = super::freshness::config_inputs(
         paths,
         &built.root,

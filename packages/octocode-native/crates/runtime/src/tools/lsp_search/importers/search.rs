@@ -193,11 +193,12 @@ pub(super) async fn check_imports(
                 let imports = (index < CODE_CHECK_MAX_FILES && !stopped())
                     .then(|| {
                         let content = read_checked(&policy, &file)?;
-                        let imports = imports_name(&content, &file, &symbol)?;
+                        let facts =
+                            octocode_engine::signatures::extract_graph_facts(&content, &file)?;
                         Some(
-                            imports
+                            imports_name(&facts, &content, &symbol)
                                 && module.as_deref().is_none_or(|module| {
-                                    module.bound_by(&file, &content, &mut relays)
+                                    module.bound_by(&file, &content, &facts, &mut relays)
                                 }),
                         )
                     })
@@ -233,11 +234,12 @@ async fn anchor_module(
     AnchorModule::of(anchor_path, &source.content, symbol).map(Arc::new)
 }
 
-/// Whether `content` imports `symbol` (see [`check_imports`]); `None` when
-/// the file cannot be parsed.
-pub(in super::super) fn imports_name(content: &str, file: &str, symbol: &str) -> Option<bool> {
-    let parsed = octocode_engine::signatures::extract_graph_facts(content, file)
-        .and_then(|facts| serde_json::from_str::<Value>(&facts).ok())?;
+/// Whether the parsed `content` imports `symbol` (see [`check_imports`]).
+pub(in super::super) fn imports_name(
+    facts: &octocode_engine::graph::GraphFactsDocument,
+    content: &str,
+    symbol: &str,
+) -> bool {
     let member = format!(".{symbol}");
     let spells_member = || {
         content.match_indices(&member).any(|(at, _)| {
@@ -247,18 +249,12 @@ pub(in super::super) fn imports_name(content: &str, file: &str, symbol: &str) ->
                 .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$')
         })
     };
-    Some(
-        parsed
-            .get("imports")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .any(
-                |import| match import.get("importedName").and_then(Value::as_str) {
-                    Some(name) if name == symbol => true,
-                    Some("*" | "default") => spells_member(),
-                    _ => false,
-                },
-            ),
-    )
+    facts
+        .imports
+        .iter()
+        .any(|import| match import.imported_name.as_deref() {
+            Some(name) if name == symbol => true,
+            Some("*" | "default") => spells_member(),
+            _ => false,
+        })
 }

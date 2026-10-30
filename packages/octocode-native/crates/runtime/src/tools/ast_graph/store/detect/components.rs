@@ -154,10 +154,10 @@ pub(super) fn detect_misplaced(c: &mut Ctx) {
         let home = dirname(key);
         let package = v.component.get(file).map(|(dir, _, _)| *dir);
         let mut by_dir = BTreeMap::<&str, usize>::new();
+        // What the file depends on decides where it belongs. Its importers do not: a shared
+        // utility imported by sixty locale files belongs with the code it serves, not in
+        // `locales/` (measured on zod: `v4/core/util.ts`).
         let mut neighbors = v.out[*file as usize].clone();
-        neighbors.extend(&v.inc[*file as usize]);
-        neighbors.sort_unstable();
-        neighbors.dedup();
         // A file moves within its package: neighbours in another package
         // are a layering question, not a placement one.
         neighbors.retain(|other| v.component.get(other).map(|(dir, _, _)| *dir) == package);
@@ -194,6 +194,7 @@ pub(super) fn detect_misplaced(c: &mut Ctx) {
                 evidence: json!({"suggestedDir": dir, "edgesToSuggested": count, "edgesToOwnDir": same, "edges": total}),
                 controls: vec![
                     "index/mod/__init__, entries and barrels excluded",
+                    "only the file's own imports count; importers do not pull it",
                     "neighbours in other packages ignored",
                     "rust modules are not moved up their own module tree",
                 ],

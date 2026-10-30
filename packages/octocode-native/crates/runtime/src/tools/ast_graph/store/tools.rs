@@ -49,7 +49,17 @@ fn scope(row: &Value, paths: &PathPolicy) -> Result<(PathBuf, PathBuf), GraphOut
     Ok((workspace, root))
 }
 
-fn exact_snapshot(home: &Path, id: &str) -> Result<String, GraphOutput> {
+fn missing_snapshot(message: &str, root: &Path) -> GraphOutput {
+    let mut out = GraphOutput::error(ErrorCode::NotFound, message);
+    out.value["hints"] = json!([
+        "Use an existing snapshot ID, or run graphBuild for this path and use its returned ID."
+    ]);
+    out.value["related"] =
+        json!([Continuation::related(ToolId::GraphBuild, json!({"path": root})).build()]);
+    out
+}
+
+fn exact_snapshot(home: &Path, id: &str, root: &Path) -> Result<String, GraphOutput> {
     if id.is_empty()
         || !id
             .bytes()
@@ -57,9 +67,9 @@ fn exact_snapshot(home: &Path, id: &str) -> Result<String, GraphOutput> {
         || id.starts_with('.')
         || !is_snapshot(&home.join(id))
     {
-        return Err(GraphOutput::error(
-            ErrorCode::NotFound,
-            "snapshot ID does not exist in this workspace; run graphBuild",
+        return Err(missing_snapshot(
+            "snapshot ID does not exist in this workspace",
+            root,
         ));
     }
     Ok(home.join(id).to_string_lossy().into_owned())
@@ -77,14 +87,9 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
                 read_manifest(&home.join(id))
                     .is_some_and(|m| m["root"] == root.to_string_lossy().as_ref())
             })
-            .ok_or_else(|| {
-                GraphOutput::error(
-                    ErrorCode::NotFound,
-                    "no snapshot for this exact path; run graphBuild",
-                )
-            })?,
+            .ok_or_else(|| missing_snapshot("no snapshot for this exact path", &root))?,
     };
-    let graph = exact_snapshot(&home, &id)?;
+    let graph = exact_snapshot(&home, &id, &root)?;
     if read_manifest(Path::new(&graph)).is_none_or(|m| m["root"] != root.to_string_lossy().as_ref())
     {
         return Err(failure(
@@ -93,7 +98,7 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
     }
     let baseline = row["baseline"]
         .as_str()
-        .map(|id| exact_snapshot(&home, id))
+        .map(|id| exact_snapshot(&home, id, &root))
         .transpose()?;
     Ok(QueryOptions {
         op: text(row, "operation").unwrap_or_default(),

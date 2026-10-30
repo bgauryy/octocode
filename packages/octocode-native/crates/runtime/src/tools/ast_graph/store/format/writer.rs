@@ -327,7 +327,7 @@ pub(super) fn checked_encoder<'a>(
         .validate_records(tables, cancel)
         .map_err(|error| {
             cancel.check().map_or_else(ToolError::cancelled, |()| {
-                ToolError::new(octocode_contract_types::ErrorCode::ScopeTooBroad, error)
+                ToolError::new(octocode_contract_types::ErrorCode::ExecutionFailed, error)
             })
         })?;
     limits::validate(&encoder, limits).map_err(|error| {

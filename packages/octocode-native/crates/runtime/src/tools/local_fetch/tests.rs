@@ -132,6 +132,7 @@ fn hit_lines(t: &Fixture, lines: usize, hits: &[usize]) -> (Paths, LocalFetchQue
 const PY_TWO: &str = "import os\n\ndef first(a):\n    x = 1\n    return a\n\n\ndef second(b):\n    if b:\n        return first(1)\n    return 2\n";
 
 mod classified;
+mod compact_literals;
 mod declarations;
 mod line_walks;
 mod long_lines;

@@ -244,7 +244,7 @@ fn argument_metadata_round_trips_and_rejects_mismatched_premises() {
             blocker: None,
         },
     };
-    for corruption in 0..9 {
+    for corruption in 0..11 {
         let mut t = evidence_fixture();
         let mut metadata = serde_json::json!(evidence);
         t.witnesses[0].edge.kind = EdgeKind::Passes;
@@ -261,11 +261,27 @@ fn argument_metadata_round_trips_and_rejects_mismatched_premises() {
             5 => t.witnesses[0].edge.kind = EdgeKind::Calls,
             6 => t.witnesses[0].argument = NONE,
             7 => metadata["recipient"] = serde_json::json!(""),
-            _ => t.witnesses[0].edge.line = NONE,
+            8 => t.witnesses[0].edge.line = NONE,
+            _ => {
+                metadata["observation"]["target"] = serde_json::json!("");
+                if corruption == 10 {
+                    t.unresolved[0].relation = EdgeKind::Passes;
+                    t.unresolved[0].argument = t.witnesses[0].argument;
+                    t.witnesses[0].edge.kind = EdgeKind::Calls;
+                    t.witnesses[0].argument = NONE;
+                }
+            }
         }
         t.strings.push(metadata.to_string());
+        let published = encode_for_publish(&t, &crate::execution::cancel::NeverCancel);
+        if corruption >= 8 {
+            assert_eq!(
+                published.as_ref().unwrap_err().code,
+                octocode_contract_types::ErrorCode::ExecutionFailed
+            );
+        }
         assert_eq!(
-            encode_for_publish(&t, &crate::execution::cancel::NeverCancel).is_ok(),
+            published.is_ok(),
             corruption == 0,
             "publication admitted corruption {corruption}"
         );

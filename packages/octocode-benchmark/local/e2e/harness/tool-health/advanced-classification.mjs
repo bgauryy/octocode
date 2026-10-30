@@ -23,7 +23,7 @@ async function literalChecks(ctx, surface, provider) {
   const contextual = { operation: 'evaluate', content: { contextEvidence: true }, context, questions: { fact: noul('Is contextEvidence present?') } };
   await call(contextual);
   const contextPacket = provider.sent.at(-1)?.request;
-  checks.push(['literal.context', same(contextPacket.state, contextual.content) && JSON.stringify(contextPacket.questions).includes(context) && JSON.stringify(contextPacket.questions).includes('Is contextEvidence present?'), contextPacket]);
+  checks.push(['literal.context', same(contextPacket.state, { context, content: contextual.content }) && same(Object.values(contextPacket.questions), Object.values(contextual.questions)), contextPacket]);
   const invalidBefore = provider.sent.length;
   for (const query of [
     { operation: 'evaluate', content: {}, questions: { bounds: { type: 'box' } } },
@@ -146,7 +146,9 @@ const batchQuery = batch => ({ operation: 'evaluate', content: { batch }, questi
 
 async function batchChecks(ctx, surface, provider) {
   const file = path.join(ctx.cwd, `batch-sections-${surface}.rs`);
-  fs.writeFileSync(file, Array.from({ length: 8 }, (_, i) => `pub fn batch_${i}() { println!("batch ${i}"); }\n`).join(''));
+  const source = Array.from({ length: 8 }, (_, i) => `pub fn batch_${i}() { println!("batch ${i}"); }\n`).join('');
+  const starts = [0, ...Array.from(source.matchAll(/\n/g), match => Buffer.byteLength(source.slice(0, match.index + 1)))];
+  fs.writeFileSync(file, source);
   const queries = [
     { ...batchQuery('invalid'), questions: {} }, batchQuery('left'),
     { operation: 'sections', resources: { picked: { tool: 'localFetch', query: { path: file, ranges: [{ startLine: 2, endLine: 3 }, { startLine: 7, endLine: 8 }] } } }, questions: { evidence: noul('Does the section print its batch number?') } },
@@ -164,8 +166,8 @@ async function batchChecks(ctx, surface, provider) {
     const checks = [['batch.isolation', report.failures.length === 0 && same(judged, ['left', 'right'])
       && batchEvidence(at), { failures: report.failures, judged, rows }]];
     const sections = at(2).flatMap(row => row.data.resources?.picked?.sections ?? []);
-    const lines = sections.filter(section => section.answers.evidence?.status === 'answered').map(section => section.target.lines.startLine).toSorted((a, b) => a - b);
-    checks.push(['batch.sectionsCoordinates', same(lines, [2, 3, 7, 8]) && sections.every(section => section.target.lines.startLine === section.target.lines.endLine), sections]);
+    const lines = sections.filter(section => section.answers.evidence?.status === 'answered').flatMap(section => Array.from({ length: section.target.lines.endLine - section.target.lines.startLine + 1 }, (_, index) => section.target.lines.startLine + index)).toSorted((a, b) => a - b);
+    checks.push(['batch.sectionsCoordinates', same(lines, [2, 3, 7, 8]) && sections.every(section => same(section.target.bytes, [starts[section.target.lines.startLine - 1], starts[section.target.lines.endLine]])), sections]);
     return checks;
   } finally {
     provider.set(request => ({ body: classificationAnswer(request) }));

@@ -27,7 +27,7 @@ Use the editing branch only when you change files.
 
 ## Execution and coordination
 
-This package coordinates durable requests, outcomes, evidence and leases through one local database. Pi owns its external execution adapters in `@octocodeai/pi-extension`: `externalAgent`, `/octocode external`, API `external.call` and `octocode-pi-api external` share the same contract. Connect to an exact discovered Pi instance or an explicitly configured ACP executable with its real host vendor. The connection does not join this database or provide remote cloud coordination. Retain returned partial evidence and inspect uncertain execution before new work; never replay a prompt automatically. With Pi hooks enabled, `PreMessageSend` checks team/API/external sends and `PostMessageReceive` observes actual deliveries and replies without answering. Each host retains its own permissions.
+This package coordinates durable requests, outcomes, evidence and leases through one local database. Retain returned partial evidence and inspect uncertain execution before new work; never replay a prompt automatically. Each host retains its own permissions.
 
 ## Discover and choose work
 

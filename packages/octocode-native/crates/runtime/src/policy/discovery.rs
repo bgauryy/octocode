@@ -156,7 +156,9 @@ const SENSITIVE_FRAGMENTS: &[(&str, &str)] = &[
 
 pub(crate) fn is_sensitive_path(path: &Path) -> bool {
     let aliases = octocode_engine::text::slash_path(path);
-    sensitive_directory(&aliases).is_some() || is_sensitive_file(&aliases)
+    // Only a confirmed directory bypasses filename rules. Unknown paths and
+    // prospective output files remain withheld; sensitive ancestors always win.
+    sensitive_directory(&aliases).is_some() || (is_sensitive_file(&aliases) && !path.is_dir())
 }
 
 /// The policy directory a path lies in or is (`.ssh`, `.aws`,

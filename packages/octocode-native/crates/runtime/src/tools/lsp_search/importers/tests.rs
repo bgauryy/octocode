@@ -27,7 +27,10 @@ fn occurrences_include_late_call_sites() {
 
 #[test]
 fn importing_is_by_name_or_namespace_member() {
-    let imports = |content: &str, file: &str| imports_name(content, file, "x");
+    let imports = |content: &str, file: &str| {
+        octocode_engine::signatures::extract_graph_facts(content, file)
+            .map(|facts| imports_name(&facts, content, "x"))
+    };
     assert_eq!(
         imports("import { x } from './a';\nx();\n", "a.ts"),
         Some(true)

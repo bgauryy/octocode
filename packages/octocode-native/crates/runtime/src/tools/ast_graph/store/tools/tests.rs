@@ -155,6 +155,43 @@ fn build_reuse_pages_and_freshness_are_workspace_scoped() {
 }
 
 #[test]
+fn missing_snapshots_offer_build_recovery_for_the_requested_scope() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;\n");
+    dir.write("other/a.ts", "export const other = 2;\n");
+    let built = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    for row in [
+        json!({"operation":"stats", "path":"other"}),
+        json!({"operation":"stats", "path":"app", "graph":"missing-snapshot"}),
+        json!({"operation":"drift", "path":"app", "graph":built["id"], "baseline":"missing-baseline"}),
+    ] {
+        let mut output = call(&dir.0, ToolId::GraphQuery, row.clone());
+        crate::response::rows::attach_error_hint(ToolId::GraphQuery, &mut output, &row);
+        assert_eq!(output["errorCode"], "notFound", "{output}");
+        let hints = output["hints"].as_array().expect("hints");
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.as_str().is_some_and(|s| s.contains("graphBuild"))),
+            "{output}"
+        );
+        assert!(
+            !hints
+                .iter()
+                .any(|hint| hint.as_str().is_some_and(|s| s.contains("access rights"))),
+            "{output}"
+        );
+        let related = &output["related"][0];
+        assert_eq!(related["tool"], "graphBuild", "{output}");
+        let input = related["input"]["queries"][0].clone();
+        let recovered = call(&dir.0, ToolId::GraphBuild, input);
+        let expected =
+            std::fs::canonicalize(dir.0.join(row["path"].as_str().expect("path"))).expect("scope");
+        assert_eq!(recovered["root"], expected.to_string_lossy().as_ref());
+    }
+}
+
+#[test]
 fn related_queries_preserve_scope_without_carrying_node_kind_filters() {
     let dir = Fixture::new();
     dir.write("app/a.ts", "import {b} from './b'; export const a = b;");

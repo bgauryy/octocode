@@ -10,7 +10,6 @@
 use crate::policy::PolicyErrorCode;
 use crate::policy::path::PathPolicy;
 use octocode_engine::text::lexical;
-use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -86,21 +85,13 @@ pub(super) fn stays_on_import(
 /// module specifier; `None` when the file's imports cannot be read.
 fn import_bindings(content: &str, file: &str) -> Option<HashMap<Spot, String>> {
     let facts = octocode_engine::signatures::extract_graph_facts(content, file)?;
-    let parsed = serde_json::from_str::<Value>(&facts).ok()?;
     Some(
-        parsed
-            .get("imports")?
-            .as_array()?
-            .iter()
+        facts
+            .imports
+            .into_iter()
             .filter_map(|import| {
-                let start = import.get("localRange")?.get("start")?;
-                Some((
-                    (
-                        u32::try_from(start.get("line")?.as_u64()?).ok()?,
-                        u32::try_from(start.get("character")?.as_u64()?).ok()?,
-                    ),
-                    import.get("specifier")?.as_str()?.to_owned(),
-                ))
+                let start = import.local_range?.start;
+                Some(((start.line, start.character), import.specifier))
             })
             .collect(),
     )

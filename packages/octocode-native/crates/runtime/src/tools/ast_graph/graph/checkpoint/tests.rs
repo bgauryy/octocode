@@ -91,6 +91,7 @@ fn changed_deleted_and_corrupt_artifacts_cannot_supply_stale_facts() {
     let (dir, mut scan) = fixture();
     build(&scan, &NeverCancel).unwrap();
     let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
+    complete(&job_dir).unwrap();
     let target = job_dir.join(format!(
         "{}.fact",
         octocode_engine::digest::sha256(b"f03.ts")
@@ -121,10 +122,21 @@ fn completed_job_and_configuration_changes_are_reuse_not_resume() {
     let (dir, scan) = fixture();
     build(&scan, &NeverCancel).unwrap();
     let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
-    retire(&job_dir).unwrap();
-    assert!(!job_dir.exists(), "a retired job holds no disk");
+    complete(&job_dir).unwrap();
+    assert!(Manifest::read(&job_dir).is_some_and(|manifest| manifest.stage == Stage::Complete));
+    let artifact = job_dir.join(format!(
+        "{}.fact",
+        octocode_engine::digest::sha256(b"f01.ts")
+    ));
+    let written = std::fs::metadata(&artifact).unwrap().modified().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
     let reused = build(&scan, &NeverCancel).unwrap();
     assert_eq!(reused.construction.resumed_files, 0);
+    assert_eq!((reused.parsed_files, reused.reused_files), (0, 12));
+    assert_eq!(
+        std::fs::metadata(&artifact).unwrap().modified().unwrap(),
+        written
+    );
     dir.write("tsconfig.json", r#"{"compilerOptions":{"baseUrl":"."}}"#);
     let changed = build(&scan, &NeverCancel).unwrap();
     assert_eq!(changed.construction.resumed_files, 0);
@@ -177,6 +189,7 @@ fn checkpoint_open_refuses_corruption_that_would_exceed_disk_quota() {
     let (_dir, scan) = fixture();
     build(&scan, &NeverCancel).unwrap();
     let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
+    complete(&job_dir).unwrap();
     let target = job_dir.join(format!(
         "{}.fact",
         octocode_engine::digest::sha256(b"f00.ts")
@@ -210,6 +223,10 @@ fn checkpoint_write_errors_are_terminal_and_keep_prior_commits() {
         .count();
     std::fs::remove_file(job_dir.join("job.json")).unwrap();
     std::fs::create_dir(job_dir.join("job.json")).unwrap();
+    assert_eq!(
+        complete(&job_dir).unwrap_err().code,
+        ErrorCode::FileAccessFailed
+    );
     assert_eq!(
         build(&scan, &NeverCancel).unwrap_err().code,
         ErrorCode::FileAccessFailed
@@ -304,10 +321,7 @@ fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
     .unwrap();
     let token = format!("ghp_{}", &"a1B2c3D4e5F6g7H8i9J0".repeat(2)[..36]);
     let text = format!("import value from '{token}'; export const main = value;\n");
-    let facts: octocode_engine::graph::GraphFactsDocument = serde_json::from_str(
-        &octocode_engine::signatures::extract_graph_facts(&text, "secret.ts").unwrap(),
-    )
-    .unwrap();
+    let facts = octocode_engine::signatures::extract_graph_facts(&text, "secret.ts").unwrap();
     let digest = octocode_engine::digest::sha256(text.as_bytes());
     let stop = || false;
     let mut budget = octocode_engine::text::analysis::MapBudget::new(
@@ -354,21 +368,27 @@ fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
 }
 
 #[test]
-fn opening_a_job_removes_completed_jobs_and_keeps_unfinished_ones() {
+fn opening_a_job_preserves_other_completed_and_unfinished_jobs() {
     let (_dir, scan) = fixture();
     build(&scan, &NeverCancel).unwrap();
     let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
     let jobs = job_dir.parent().unwrap().to_path_buf();
-    // Two jobs of other roots, copied from this one: one an earlier build
-    // marked complete, one still unfinished.
+    // Other roots retain their completed artifacts and interrupted progress.
     let (completed, unfinished) = (jobs.join("a".repeat(64)), jobs.join("b".repeat(64)));
     for target in [&completed, &unfinished] {
         std::fs::create_dir_all(target).unwrap();
         std::fs::copy(job_dir.join("job.json"), target.join("job.json")).unwrap();
+        std::fs::write(target.join("retained.fact"), b"other root's artifact").unwrap();
     }
     let manifest = state::Manifest::read(&completed).unwrap();
     manifest.write(&completed, state::Stage::Complete).unwrap();
     build(&scan, &NeverCancel).unwrap();
-    assert!(!completed.exists(), "a completed job is removed");
-    assert!(unfinished.exists(), "an unfinished job stays resumable");
+    assert!(Manifest::read(&completed).is_some_and(|manifest| manifest.stage == Stage::Complete));
+    assert!(Manifest::read(&unfinished).is_some_and(|manifest| manifest.stage == Stage::Linking));
+    for target in [&completed, &unfinished] {
+        assert_eq!(
+            std::fs::read(target.join("retained.fact")).unwrap(),
+            b"other root's artifact"
+        );
+    }
 }

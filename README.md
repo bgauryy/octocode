@@ -82,7 +82,7 @@ No MCP client? Run `npx octocode`. Your agent reads the tool list it prints and 
 ### Other hosts
 
 - **VS Code:** the [Octocode MCP](https://marketplace.visualstudio.com/items?itemName=bgauryy.octocode-mcp-vscode) extension signs in to GitHub and sets up MCP.
-- **Pi:** `pi install npm:@octocodeai/pi-extension`, or just the skill: `npx octocode skill install octocode-research --platform pi --global`.
+- **Pi skills:** `npx octocode skill install octocode-research --platform pi --global`.
 - **Claude Code and Codex plugins:** coming soon ([Claude Code](https://github.com/bgauryy/octocode/blob/main/packages/octocode-claude-plugin/README.md), [Codex](https://github.com/bgauryy/octocode/blob/main/packages/octocode-codex-plugin/README.md)).
 
 ---
@@ -215,7 +215,6 @@ Unpublished: [octocode-graph-view](https://github.com/bgauryy/octocode/tree/main
 | [`octocode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode) | the CLI |
 | [`octocode-mcp`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-mcp) | the MCP server |
 | [`octocode-mcp-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) | VS Code extension |
-| [`@octocodeai/pi-extension`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-pi-extension) | Pi extension |
 | [`@octocodeai/claude-plugin`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-claude-plugin), [`@octocodeai/codex-plugin`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-codex-plugin) | Claude Code and Codex plugins (coming soon) |
 | [`@octocodeai/octocode-native`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-native) | the Rust engine behind both interfaces |
 | [`@octocodeai/config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) | configuration and tool contracts |

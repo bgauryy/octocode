@@ -229,6 +229,14 @@ test('edge verdicts follow the agreement of usage and clasify', async () => {
   assert.equal(edgeVerdict(src({ usageLines: 0, callLike: 0 }), type).verdict, 'unused');
   assert.equal(edgeVerdict(src({ reexport: true }), runtime).verdict, 'reexport');
   assert.equal(edgeVerdict(src({ ast: 'absent' }), runtime).verdict, 'unconfirmed');
+  const halfSure = { typeOnly: 0.84, runtimeCall: 0.6 };
+  assert.equal(edgeVerdict(src({ callLike: 0, typePosition: true }), halfSure).verdict, 'dismissed', 'AST type position plus usage settle an edge clasify is unsure about');
+  assert.equal(edgeVerdict(src({ callLike: 0 }), halfSure).verdict, 'unresolved', 'without the AST type position it stays unresolved');
+  const { cohesionVerdict } = await import('./verdict.mjs');
+  assert.equal(cohesionVerdict(0.82, 'hub').verdict, 'not-supported');
+  assert.equal(cohesionVerdict(0.2, 'hub').verdict, 'corroborated');
+  assert.equal(cohesionVerdict(0.5, 'hub'), null);
+  assert.equal(cohesionVerdict(undefined, 'hub'), null);
   assert.equal(edgeVerdict(src({ ast: 'n/a', textOk: false }), runtime).verdict, 'unconfirmed');
   assert.equal(edgeVerdict(src({ callLike: 2 }), type).verdict, 'conflict');
   assert.equal(edgeVerdict(src({ callLike: 2 }), runtime).verdict, 'corroborated');
@@ -312,4 +320,32 @@ test('source size skips build output and excluded directories', async () => {
   writeFileSync(join(dir, 'src', 'staged.bin'), Buffer.alloc((1 << 20) + 1));
   assert.deepEqual(sourceSize(dir), { bytes: 10 + 700, files: 2 });
   assert.deepEqual(sourceSize(dir, ['fuzz']), { bytes: 10, files: 1 });
+});
+
+test('freellama vision requests and receipts keep the Ollama decoding shape', async () => {
+  const { visionRequest, textOf, evalCount, errorOf, modelNames, installedTag } = await import('./freellama.mjs');
+  assert.equal(installedTag(['gpt-oss:20b', 'glm-ocr:latest'], 'glm-ocr'), 'glm-ocr:latest');
+  assert.equal(installedTag(['glm-ocr:q8_0', 'glm-ocr:latest'], 'glm-ocr:q8_0'), 'glm-ocr:q8_0');
+  assert.equal(installedTag(['gpt-oss:20b'], 'glm-ocr'), null);
+  const req = visionRequest({ model: 'glm-ocr', prompt: 'Text Recognition:', image: 'AAAA', maxTokens: 600, sessionId: 's1', options: { repeat_penalty: 1.15 } });
+  assert.equal(req.task, 'vision');
+  assert.deepEqual(req.required_capabilities, ['vision']);
+  assert.deepEqual(req.images, ['AAAA']);
+  assert.equal(req.session_id, 's1');
+  assert.deepEqual(req.request_options.options, { temperature: 0, num_predict: 600, repeat_penalty: 1.15 });
+  assert.equal('session_id' in visionRequest({ model: 'm', prompt: 'p', image: 'i', maxTokens: 1 }), false);
+  assert.equal(req.context_tokens, 4096, 'OCR runs in a 4K context unless the caller asks otherwise');
+  assert.equal('context_tokens' in visionRequest({ model: 'm', prompt: 'p', image: 'i', maxTokens: 1, contextTokens: 0 }), false);
+  const { labelTokens, STRIP_TOKENS } = await import('./freellama.mjs');
+  assert.equal(labelTokens(31), 198, 'measured: 31 labels read inside 200 tokens');
+  assert.equal(labelTokens(1), 48);
+  assert.equal(labelTokens(500), 600);
+  assert.equal(STRIP_TOKENS, 400);
+  assert.equal(textOf({ message: { content: 'raw' } }), 'raw');
+  assert.equal(textOf({ response: { message: { content: 'managed' }, eval_count: 7 } }), 'managed');
+  assert.equal(evalCount({ response: { eval_count: 7 } }), 7);
+  assert.equal(errorOf({ error: 'repeat limit' }), 'repeat limit');
+  assert.equal(errorOf({ error: { code: 'admission_timeout' } }), 'admission_timeout');
+  assert.deepEqual(modelNames({ models: [{ name: 'glm-ocr:latest' }, { model: 'x' }] }), ['glm-ocr:latest', 'x']);
+  assert.deepEqual(modelNames(['a']), ['a']);
 });

@@ -62,7 +62,9 @@ pub(crate) trait ToolOutput: Sync {
 
 /// Roots are widened only from a trusted source, so the hint names where the
 /// setting is read: a workspace `.env` or `.octocoderc` is ignored for it.
-pub(crate) const SANDBOX_HINT: &str = "Outside allowed roots: add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.";
+/// The workspace itself is the process cwd unless `WORKSPACE_ROOT` is set, so
+/// the quickest fix for another project is to start from that directory.
+pub(crate) const SANDBOX_HINT: &str = "Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.";
 
 /// Recovery for a path that does not resolve: check it from its parent.
 pub(crate) const VERIFY_PATH_HINT: &str =

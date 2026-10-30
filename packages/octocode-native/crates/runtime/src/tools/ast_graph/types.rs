@@ -153,6 +153,7 @@ impl FileFacts {
 pub(crate) enum DiagnosticCode {
     FactsSchemaUnsupported,
     ParseRecovery,
+    PathPolicyWithheld,
     ScanSkip,
     /// A bare import names a scanned file by path, but nothing links it.
     UnlinkedPathImport,
@@ -166,6 +167,7 @@ impl DiagnosticCode {
         match self {
             Self::FactsSchemaUnsupported => "facts-schema-unsupported",
             Self::ParseRecovery => "parse-recovery",
+            Self::PathPolicyWithheld => "path-policy-withheld",
             Self::ScanSkip => "scan-skip",
             Self::UnlinkedPathImport => "unlinked-path-import",
             Self::UnresolvedInternal => "unresolved-internal",

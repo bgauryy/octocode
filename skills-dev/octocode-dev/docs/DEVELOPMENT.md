@@ -96,7 +96,7 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 | native | `test` (`test:scripts` + `test:node` + `test:rust`), `test:rust` alone (nextest), `coverage:rust`, `check:features` | `lint` (oxlint, then clippy `-D warnings`), `fmt:rust`, `fmt:rust:check`, `deny`, `shear` |
 | config | `test`, `check:tool-contract`, `check:config-contract` | `lint` (oxlint + config contract check; `build` checks the tool contract) |
 | mcp, octocode, vscode, chrome-devtools, claude-plugin, codex-plugin | `test` | `lint` (prettier `--check` + oxlint), `format` (prettier `--write`) |
-| agents-communication, benchmark, mcp-cli, pi-extension | `test` | `lint` (oxlint) |
+| agents-communication, benchmark, mcp-cli | `test` | `lint` (oxlint) |
 
 `$DEV format` runs every workspace `format` script. Every workspace `typecheck` is `tsgo --noEmit` (`@typescript/native-preview`, pinned at the root); native's Rust types are checked by its clippy `lint`.
 

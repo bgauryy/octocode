@@ -31,7 +31,9 @@ pub(crate) mod receiver_fields;
 /// v12: Go method owners, embedded types and import aliases; Python
 /// decorator calls and `TYPE_CHECKING` imports; JS chained receivers and
 /// object-literal members; C# local functions; Scala `new` constructions.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 12;
+/// v13: missing argument names remain unsupported observations, without
+/// manufacturing references to an empty target.
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 13;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking
@@ -247,9 +249,11 @@ fn tree_sitter_declarations(
 }
 
 #[must_use]
-pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
-    extract_graph_facts_with_metadata_inner(content, file_path)
-        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
+pub fn extract_graph_facts(
+    content: &str,
+    file_path: &str,
+) -> Option<crate::graph::GraphFactsDocument> {
+    extract_graph_facts_with_metadata_inner(content, file_path).map(|extraction| extraction.facts)
 }
 
 pub mod languages;

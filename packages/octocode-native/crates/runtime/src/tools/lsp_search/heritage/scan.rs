@@ -86,10 +86,7 @@ pub(in super::super) fn subtype_snippets(
     file: &str,
     base: &str,
 ) -> Vec<LspCodeSnippet> {
-    let Some(facts) = octocode_engine::signatures::extract_graph_facts(content, file) else {
-        return Vec::new();
-    };
-    let Ok(document) = serde_json::from_str::<GraphFactsDocument>(&facts) else {
+    let Some(document) = octocode_engine::signatures::extract_graph_facts(content, file) else {
         return Vec::new();
     };
     let Ok(uri) = octocode_engine::lsp::uri::path_to_uri(file) else {

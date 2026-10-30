@@ -4,8 +4,8 @@
 fn grouped_go_imports_emit_each_spec_once() {
     let source =
         "package main\nimport (\n  \"fmt\"\n  lbl \"example.com/app/labels\"\n)\nimport \"os\"\n";
-    let facts: serde_json::Value = serde_json::from_str(
-        &crate::signatures::extract_graph_facts(source, "main.go").expect("facts"),
+    let facts = serde_json::to_value(
+        crate::signatures::extract_graph_facts(source, "main.go").expect("facts"),
     )
     .expect("json");
     let imports = facts["imports"]
@@ -84,8 +84,8 @@ fn deeply_nested_iife_outline_stays_inside_the_deadline() {
 #[test]
 fn c_family_function_names_come_from_the_declarator_not_the_return_type() {
     let names = |source: &str, path: &str| -> Vec<String> {
-        let facts: serde_json::Value = serde_json::from_str(
-            &crate::signatures::extract_graph_facts(source, path).expect("facts"),
+        let facts = serde_json::to_value(
+            crate::signatures::extract_graph_facts(source, path).expect("facts"),
         )
         .expect("json");
         facts["declarations"]
@@ -234,8 +234,8 @@ fn csharp_outlines_namespaces_records_properties_and_delegates() {
 #[test]
 fn go_type_declarations_emit_each_spec_once_without_self_parents() {
     let source = "package main\ntype engineMetrics struct {\n  n int\n}\ntype (\n  ErrA string\n  ErrB string\n)\n";
-    let facts: serde_json::Value = serde_json::from_str(
-        &crate::signatures::extract_graph_facts(source, "main.go").expect("facts"),
+    let facts = serde_json::to_value(
+        crate::signatures::extract_graph_facts(source, "main.go").expect("facts"),
     )
     .expect("json");
     let rows: Vec<(String, Option<String>)> = facts["declarations"]

@@ -1,14 +1,17 @@
 #!/usr/bin/env node
-// Image -> text through a local Ollama OCR model; with --expect, diff the text against known labels.
+// Image -> text through a local OCR model, run as a FreeLlama-managed vision task (raw Ollama only without the sidecar);
+// with --expect, diff the text against known labels.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
 import { cropScale } from './png.mjs';
+import { createSession, deleteSession, ocr, ocrRoute } from './freellama.mjs';
 
-const USAGE = `usage: ocr.mjs <image> [--expect expected.json] [--model glm-ocr] [--prompt "Text Recognition:"] [--max-tokens 1000]
-  Prints JSON: {text, ms, tokens} plus {found, missing} when --expect lists labels.
-  Exit: 0 ok, 1 expected labels missing, 2 bad input, 3 Ollama or model unavailable.`;
+const USAGE = `usage: ocr.mjs <image> [--expect expected.json] [--model glm-ocr] [--prompt "Text Recognition:"] [--max-tokens 1000] [--via freellama|ollama --endpoint <url> --tag <installed tag>] [--session <id>] [--priority interactive|normal|background]
+  Prints JSON: {text, ms, tokens, via} plus {found, missing} when --expect lists labels.
+  --via/--endpoint/--tag skip the route probe (callers pass what ocrRoute() found); --session reuses a FreeLlama affinity session.
+  Exit: 0 ok, 1 expected labels missing, 2 bad input, 3 OCR unavailable (no sidecar or Ollama, or model missing).`;
 
 const argv = process.argv.slice(2);
 const flag = (name, dflt) => {
@@ -19,6 +22,11 @@ const model = flag('model', 'glm-ocr');
 const prompt = flag('prompt', 'Text Recognition:');
 const maxTokens = Number(flag('max-tokens', 1000));
 const expectPath = flag('expect');
+const via = flag('via');
+const endpoint = flag('endpoint');
+const tag = flag('tag');
+const priority = flag('priority', 'background');
+let session = flag('session');
 const image = argv[0];
 if (!image || image.startsWith('-')) {
   console.error(USAGE);
@@ -51,45 +59,44 @@ function asJpeg(path) {
   process.exit(2);
 }
 
-const host = process.env.OLLAMA_HOST?.replace(/^(?!http)/, 'http://') ?? 'http://localhost:11434';
 let b64;
 try { b64 = readFileSync(asJpeg(resolve(image))).toString('base64'); } catch (e) { console.error(`cannot read ${image}: ${e.code ?? e.message}`); process.exit(2); }
 const t0 = Date.now();
-// Ollama aborts a looping prediction with an error; one retry with a repeat penalty recovers most pages.
+const route = via && endpoint && tag ? { via, endpoint, model: tag } : await ocrRoute(model);
+if (route.via === 'none') {
+  console.error(`OCR unavailable: ${route.reason}`);
+  process.exit(3);
+}
+// A standalone call gets its own affinity session; callers running many images pass one with --session.
+const ownSession = route.via === 'freellama' && !session;
+if (ownSession) session = await createSession(route.endpoint);
+// Ollama aborts a looping prediction ("token repeat limit reached"); the text before the loop is what we want, so retry
+// with half, then a quarter of the budget (a repeat penalty was measured to loop more, not less).
 async function ask(extra) {
-  let res;
   try {
-    res = await fetch(`${host}/api/chat`, {
-      method: 'POST',
-      body: JSON.stringify({
-        model,
-        stream: false,
-        messages: [{ role: 'user', content: prompt, images: [b64] }],
-        options: { temperature: 0, num_predict: maxTokens, ...extra },
-      }),
-    });
+    return await ocr(route, { model: route.model, prompt, image: b64, maxTokens, sessionId: session, options: extra, priority });
   } catch (e) {
-    console.error(`Ollama unreachable at ${host}: ${e.message}`);
+    if (ownSession) await deleteSession(route.endpoint, session);
+    console.error(`${route.via} unreachable at ${route.endpoint}: ${e.message}`);
     process.exit(3);
   }
-  return { ok: res.ok, status: res.status, body: await res.json() };
 }
 let r = await ask({});
-for (const extra of [{ repeat_penalty: 1.15 }, { repeat_penalty: 1.3, temperature: 0.2, num_predict: Math.min(maxTokens, 500) }]) {
-  if (!r.ok && /repeat limit/.test(r.body.error ?? '')) r = await ask(extra);
+for (const extra of [{ num_predict: Math.max(32, Math.floor(maxTokens / 2)) }, { num_predict: Math.max(24, Math.floor(maxTokens / 4)) }]) {
+  if (!r.ok && /repeat limit/.test(r.error ?? '')) r = await ask(extra);
 }
-const body = r.body;
-if (!r.ok) {
-  console.error(body.error ?? `HTTP ${r.status}`);
+if (ownSession) await deleteSession(route.endpoint, session);
+if (!r.ok || typeof r.text !== 'string') {
+  console.error(r.error ?? `HTTP ${r.status}: no text in the ${route.via} answer (${JSON.stringify(r.body).slice(0, 200)})`);
   process.exit(3);
 }
 
 // The model often repeats its answer inside code fences and loops on them until the token cap.
-const lines = body.message.content.split('\n').filter((l) => !/^\s*```/.test(l));
+const lines = r.text.split('\n').filter((l) => !/^\s*```/.test(l));
 const seen = new Set();
 const text = lines.filter((l) => !l.trim() || !seen.has(l.trim()) && seen.add(l.trim())).join('\n').trim();
 
-const result = { text, ms: Date.now() - t0, tokens: body.eval_count };
+const result = { text, ms: Date.now() - t0, tokens: r.tokens, via: route.via, session: session ? 'affinity' : 'none' };
 let code = 0;
 if (expectPath) {
   const norm = (s) => s.toLowerCase().replace(/\s+/g, '');

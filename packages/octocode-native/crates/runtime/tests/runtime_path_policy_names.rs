@@ -21,6 +21,46 @@ enum Expect {
 /// `(relative path, content, expectation)`.
 const TABLE: &[(&str, &str, Expect)] = &[
     (
+        "src/credentials/hasher.ts",
+        "export function needle() {}\n",
+        Expect::Visible,
+    ),
+    (
+        "src/source.pem/module.ts",
+        "export function needle() {}\n",
+        Expect::Visible,
+    ),
+    (
+        "src/source.key/module.ts",
+        "export function needle() {}\n",
+        Expect::Visible,
+    ),
+    (
+        "src/.env.production/module.ts",
+        "export function needle() {}\n",
+        Expect::Visible,
+    ),
+    (
+        "src/id_rsa.old/module.ts",
+        "export function needle() {}\n",
+        Expect::Visible,
+    ),
+    (
+        "src/credentials/.secrets/module.ts",
+        "export function needle() {}\n",
+        Expect::Visible,
+    ),
+    (
+        "src/credentials/credentials",
+        "needle\n",
+        Expect::WithheldByFilename,
+    ),
+    (
+        "src/credentials/deploy.pem",
+        "needle\n",
+        Expect::WithheldByFilename,
+    ),
+    (
         "src/private/util.ts",
         "export function needle() {}\n",
         Expect::Visible,
@@ -207,9 +247,24 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
     .expect("structureSearch");
     let text = listed.structured_content.to_string();
     for (relative, _, expect) in TABLE {
-        let name = relative.rsplit('/').next().unwrap_or(relative);
+        let (dir, name) = relative.rsplit_once('/').expect("fixture parent");
+        let seen = row_data(&listed)["files"]
+            .as_array()
+            .expect("file groups")
+            .iter()
+            .any(|group| {
+                group["dir"] == dir
+                    && group["files"]
+                        .as_array()
+                        .expect("group files")
+                        .iter()
+                        .any(|file| {
+                            file.as_str()
+                                .is_some_and(|file| file.starts_with(&format!("{name} (")))
+                        })
+            });
         assert_eq!(
-            text.contains(name),
+            seen,
             matches!(expect, Expect::Visible),
             "{relative}: {text}"
         );
@@ -219,14 +274,46 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
     let matched = call(
         &runtime,
         "astSearch",
-        json!({"operation": "match", "path": root, "parser": "typescript", "rule": {"pattern": "function needle() {}"}}),
+        json!({"operation": "match", "path": root, "includeHidden": true, "parser": "typescript", "rule": {"pattern": "function needle() {}"}}),
     )
     .await
     .expect("astSearch");
     let text = matched.structured_content.to_string();
-    assert!(text.contains("src/private/util.ts"), "{text}");
-    assert!(text.contains("src/secrets/store.ts"), "{text}");
+    for (relative, _, expect) in TABLE {
+        if matches!(expect, Expect::Visible) && relative.ends_with(".ts") {
+            assert!(text.contains(relative), "{relative}: {text}");
+        }
+    }
     assert!(!text.contains("security-policy dir"), "{text}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn credential_directories_are_valid_walk_roots_for_every_discovery_tool() {
+    let workspace = fixture();
+    let runtime = runtime(&workspace);
+    for name in ["credentials", "source.pem", ".env.production", "id_rsa.old"] {
+        let path = workspace.workspace.join("src").join(name);
+        for (tool, query) in [
+            (
+                "localSearch",
+                json!({"path": path, "matchString": ["needle"], "includeHidden": true}),
+            ),
+            (
+                "structureSearch",
+                json!({"path": path, "operation": "files", "includeHidden": true}),
+            ),
+            (
+                "astSearch",
+                json!({"path": path, "operation": "symbols", "includeHidden": true}),
+            ),
+        ] {
+            let outcome = call(&runtime, tool, query).await.expect(tool);
+            let data = row_data(&outcome);
+            assert!(data.get("error").is_none(), "{tool} {name}: {data}");
+            assert!(data.to_string().contains(".ts"), "{tool} {name}: {data}");
+        }
+    }
     runtime.close().await;
 }
 
@@ -238,8 +325,9 @@ async fn secret_content_is_redacted_in_any_directory() {
     let body = format!("export const awsAccessKeyId = \"{AWS_KEY}\";\nexport const marker = 1;\n");
     let secret = workspace.write("src/secrets/aws.ts", &body);
     let plain = workspace.write("src/private/aws.ts", &body);
+    let credentials = workspace.write("src/credentials/aws.ts", &body);
     let runtime = runtime(&workspace);
-    for path in [&secret, &plain] {
+    for path in [&secret, &plain, &credentials] {
         let fetched = call(&runtime, "localFetch", json!({"path": path}))
             .await
             .expect("localFetch");
@@ -257,5 +345,6 @@ async fn secret_content_is_redacted_in_any_directory() {
     let text = searched.structured_content.to_string();
     assert!(!text.contains(AWS_KEY), "{text}");
     assert!(text.contains("src/secrets/aws.ts"), "{text}");
+    assert!(text.contains("src/credentials/aws.ts"), "{text}");
     runtime.close().await;
 }

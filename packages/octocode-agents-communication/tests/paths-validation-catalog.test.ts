@@ -2,13 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { contract, expand, golden, runtime } from './golden-support.ts';
 import { tempWorkspace } from './helpers.ts';
 import type { JsonRecord } from './json-record.ts';
 
 const { catalog, paths, timing, unicode16, validation, workspace, VERSION, ValidationError } = runtime;
-const repository = fileURLToPath(new URL('../../../', import.meta.url));
 
 test('version is the package version', () => {
   assert.equal(VERSION, JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
@@ -47,30 +45,6 @@ test('lease keys, ancestors and overlap equal the recorded reference output', ()
   const pairs: [string, string, string, string][] = [];
   for (const a of inputs) for (const b of inputs) for (const ak of ['file', 'tree']) for (const bk of ['file', 'tree']) pairs.push([a, ak, b, bk]);
   assert.equal(pairs.map(pair => (paths.overlap(pair[0], pair[1], pair[2], pair[3]) ? '1' : '0')).join(''), overlap);
-});
-
-test("the Pi extension's generated fold table is the same data and folds the same keys", () => {
-  const source = readFileSync(join(repository, 'packages/octocode-pi-extension/src/team/casefold-table.generated.ts'), 'utf8');
-  const table = source.match(/CASE_FOLDING = `([^`]*)`/);
-  assert.ok(table, 'the Pi fold table declares CASE_FOLDING');
-  const piTable = new Map(table[1].trim().split('\n').map(line => {
-    const [from, to] = line.split(':');
-    return [parseInt(from, 16), to.split(' ').map(point => parseInt(point, 16))];
-  }));
-  const frozen = JSON.parse(readFileSync(new URL('../assets/unicode16.json', import.meta.url), 'utf8')).casefold;
-  assert.equal(piTable.size, Object.keys(frozen).length);
-  for (const [point, folded] of piTable) assert.deepEqual(frozen[point], folded, point.toString(16));
-  // Pi folds with the runtime's NFD; for assigned characters that equals the frozen decomposition tables.
-  const piFold = (component: string) => {
-    let folded = '';
-    for (const point of component.normalize('NFD')) {
-      const code = point.codePointAt(0);
-      assert.ok(code !== undefined);
-      folded += String.fromCodePoint(...(piTable.get(code) ?? [code]));
-    }
-    return folded.normalize('NFD');
-  };
-  for (const sample of SAMPLES.filter(sample => !/^[\u0000-\u007f]*$/.test(sample))) assert.equal(unicode16.normalizePathComponent(sample), piFold(sample), sample);
 });
 
 test('folding never uses the runtime case or normalization tables', () => {

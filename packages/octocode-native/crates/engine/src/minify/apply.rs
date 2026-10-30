@@ -47,6 +47,10 @@ pub(crate) fn apply_content_view_minification_inner(content: &str, file_path: &s
         let cfg = get_file_config(file_path);
         let strategy = cfg.map(|c| c.strategy);
 
+        if strategy == Some(Strategy::Verbatim) {
+            return content.to_owned();
+        }
+
         if strategy == Some(Strategy::Json) {
             let (out, _) = minify_json_readable_inner(content);
             return out;

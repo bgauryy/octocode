@@ -22,7 +22,7 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 
 Philosophy: [MANIFEST.md](../MANIFEST.md) (Research Driven Development). Legal: [PRIVACY.md](../PRIVACY.md) · [TERMS.md](../TERMS.md).
 
-Hosts and packages: [VS Code](../packages/octocode-vscode/README.md) · [Pi](../packages/octocode-pi-extension/README.md) · [Claude Code](../packages/octocode-claude-plugin/README.md) · [Codex](../packages/octocode-codex-plugin/README.md) · [Agents communication](../packages/octocode-agents-communication/README.md) · [Chrome DevTools](../packages/octocode-chrome-devtools/README.md) · [Benchmark](../packages/octocode-benchmark/README.md).
+Hosts and packages: [VS Code](../packages/octocode-vscode/README.md) · [Claude Code](../packages/octocode-claude-plugin/README.md) · [Codex](../packages/octocode-codex-plugin/README.md) · [Agents communication](../packages/octocode-agents-communication/README.md) · [Chrome DevTools](../packages/octocode-chrome-devtools/README.md) · [Benchmark](../packages/octocode-benchmark/README.md).
 
 Skills: [skills/](../skills/README.md) (published, including [workflow orchestration](../skills/octocode-workflows/README.md)), [skills-beta/](../skills-beta/README.md) (tested, unpublished), [skills-dev/](../skills-dev/README.md) (repository-only helpers). [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md) routes research tools; the public `octocode-workflows` skill selects and executes agent workflows. Install public skills with [`npx octocode skill`](OCTOCODE_CLI.md#skill--agent-skills).
 

@@ -18,8 +18,6 @@ function nativePlatformPackages() {
 export function workspaceResolutionPackages() {
   return [
     '@octocodeai/config',
-    // The Pi extension depends on `octocode-mcp@latest`; development runs the workspace server instead.
-    'octocode-mcp',
     ...nativePlatformPackages(),
   ];
 }

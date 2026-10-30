@@ -1,6 +1,6 @@
 {
  "version": 1,
- "description": "Vectors both agent-coordination implementations must satisfy: the lease key of a path (octocode-agents-communication src/runtime/paths.ts leaseKey, Pi's src/team/lease-key.ts), when two reservations overlap, and when one call's requests refuse each other. See README.md.",
+ "description": "Vectors octocode-agents-communication must satisfy: the lease key of a path (src/runtime/paths.ts leaseKey), when two reservations overlap, and when one call's requests refuse each other. See README.md.",
  "fold": [
   {
    "name": "ascii upper",

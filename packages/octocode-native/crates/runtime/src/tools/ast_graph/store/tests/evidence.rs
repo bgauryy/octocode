@@ -29,7 +29,7 @@ fn repeated_call_sites_survive_topology_and_paging() {
             octocode_engine::digest::sha256(source.as_bytes())
         );
         assert_eq!(row["derivation"]["rule"], "calls:local");
-        assert_eq!(row["derivation"]["version"], "graph-analysis:15/facts:12");
+        assert_eq!(row["derivation"]["version"], "graph-analysis:16/facts:13");
         let start = row["sourceRange"]["startByte"].as_u64().unwrap() as usize;
         let end = row["sourceRange"]["endByte"].as_u64().unwrap() as usize;
         assert_eq!(&source[start..end], "target()");

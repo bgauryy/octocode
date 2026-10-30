@@ -7,8 +7,8 @@ import type { JsonRecord } from './json-record.ts';
 import { execFileSync, binary, tempWorkspace, withReasoning } from './helpers.ts';
 
 /**
- * The reservation rules this package shares with Pi's team (packages/octocode-pi-extension/src/team/lease-key.ts).
- * The vectors are test-utils/agent-coordination/contract.json; Pi's suite runs the same file against its TypeScript.
+ * The reservation rules recorded in test-utils/agent-coordination/contract.json.
+ * The vectors cover both the runtime functions and the public lock commands.
  */
 const contract = JSON.parse(readFileSync(new URL('../../../test-utils/agent-coordination/contract.json', import.meta.url), 'utf8'));
 const { paths, unicode16 } = await import('../dist/runtime.js');

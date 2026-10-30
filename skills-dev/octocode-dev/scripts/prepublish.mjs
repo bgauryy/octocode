@@ -12,8 +12,7 @@
  *
  *   PUBLISHED DEPENDENCIES CHECK (--package <name>) — every public workspace
  *   package that <name> depends on must already be on npm at its workspace
- *   version (`npm view <dep>@<version> version`). A range floor such as the
- *   Pi extension's `octocode-mcp@^20.2.0` cannot resolve until then, so
+ *   version (`npm view <dep>@<version> version`). A range floor cannot resolve until then, so
  *   publishing <name> first would ship a package whose dependency fails.
  *
  * This script does NOT enforce version alignment between packages — each
@@ -23,7 +22,7 @@
  *   node ./skills-dev/octocode-dev/scripts/prepublish.mjs            # check only (exit 1 on issues)
  *   node ./skills-dev/octocode-dev/scripts/prepublish.mjs --fix      # remove offending resolutions and write
  *   node ./skills-dev/octocode-dev/scripts/prepublish.mjs --dry-run  # preview fixes without writing
- *   node ./skills-dev/octocode-dev/scripts/prepublish.mjs --package @octocodeai/pi-extension
+ *   node ./skills-dev/octocode-dev/scripts/prepublish.mjs --package @octocodeai/octocode-chrome-devtools
  */
 
 import { isMainModule } from './lib/entrypoint.mjs';

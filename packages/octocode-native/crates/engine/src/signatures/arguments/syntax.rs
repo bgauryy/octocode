@@ -86,7 +86,7 @@ fn reference<'a>(
     content: &str,
     depth: usize,
 ) -> Option<Reference<'a>> {
-    if depth > 64 || crate::deep_stack::job_cancelled() {
+    if node.is_missing() || depth > 64 || crate::deep_stack::job_cancelled() {
         return None;
     }
     if matches!(

@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn recovered_missing_argument_names_remain_explicit_unsupported_slots() {
+    let source = "#define M(a, b) struct T {};\nM(, noexcept);\n";
+    for extension in ["cpp", "cu"] {
+        if languages::find_entry(extension).is_none() {
+            continue;
+        }
+        let result = facts(source, extension);
+        let observed = slots(&result);
+        assert_eq!(observed.len(), 2, "{extension}: {observed:?}");
+        assert!(matches!(
+            &observed[0].observation,
+            GraphArgumentObservation::Unsupported { construct } if construct == "identifier"
+        ));
+        assert_eq!(
+            observed[0].source_range.start_byte,
+            observed[0].source_range.end_byte
+        );
+        assert!(matches!(
+            &observed[1].observation,
+            GraphArgumentObservation::Reference { target_name, .. } if target_name == "noexcept"
+        ));
+        assert!(result.argument_sites.iter().all(|site| matches!(
+            site.parse_assessment,
+            GraphParseAssessment::Recovered { .. }
+        )));
+    }
+}
+
+#[test]
 fn computed_recipients_and_repeated_arguments_have_independent_occurrences() {
     let source = "function handler(){} registry[key](handler, handler); factory()(handler);";
     let result = facts(source, "ts");

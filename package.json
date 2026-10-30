@@ -37,7 +37,6 @@
     "@octocodeai/octocode-native-linux-x64-gnu": "workspace:*",
     "@octocodeai/octocode-native-linux-x64-musl": "workspace:*",
     "@octocodeai/octocode-native-win32-arm64-msvc": "workspace:*",
-    "@octocodeai/octocode-native-win32-x64-msvc": "workspace:*",
-    "octocode-mcp": "workspace:*"
+    "@octocodeai/octocode-native-win32-x64-msvc": "workspace:*"
   }
 }

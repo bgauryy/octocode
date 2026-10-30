@@ -285,7 +285,7 @@ fn a_macro_argument_call_is_neither_a_path_nor_a_reference() {
 
 #[test]
 fn macro_chains_round_trip_and_bump_the_schema() {
-    assert_eq!(crate::signatures::GRAPH_FACTS_SCHEMA_VERSION, 12);
+    assert_eq!(crate::signatures::GRAPH_FACTS_SCHEMA_VERSION, 13);
     let facts = rust_facts("fn f(cx: u8) { ready!(poll(cx)); poll(cx); }");
     let json = serde_json::to_value(&facts).expect("json");
     let calls = json["calls"].as_array().expect("calls");

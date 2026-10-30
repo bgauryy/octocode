@@ -58,17 +58,19 @@ pub(super) struct AnchorModule {
 /// Graph facts of a parsed file; `None` when the file cannot be parsed or
 /// its parse recovered from errors (facts may miss an import).
 fn clean_facts(content: &str, file: &str) -> Option<GraphFactsDocument> {
-    let facts = octocode_engine::signatures::extract_graph_facts(content, file)
-        .and_then(|facts| serde_json::from_str::<GraphFactsDocument>(&facts).ok())?;
-    let broken = facts.diagnostics.iter().any(|diagnostic| {
+    let facts = octocode_engine::signatures::extract_graph_facts(content, file)?;
+    facts_are_clean(&facts).then_some(facts)
+}
+
+fn facts_are_clean(facts: &GraphFactsDocument) -> bool {
+    !facts.diagnostics.iter().any(|diagnostic| {
         matches!(
             diagnostic.code,
             GraphFactCode::ParseError
                 | GraphFactCode::RecoveredParse
                 | GraphFactCode::ParseDeadline
         )
-    });
-    (!broken).then_some(facts)
+    })
 }
 
 /// Whether `content` spells `word` as a whole identifier after `prefix`
@@ -131,9 +133,11 @@ impl AnchorModule {
         &self,
         file: &str,
         content: &str,
+        facts: &GraphFactsDocument,
         relays: &mut HashMap<PathBuf, bool>,
     ) -> bool {
-        self.reaches(file, content, relays, Reading::Binding)
+        !facts_are_clean(facts)
+            || self.reaches_facts(file, content, facts, relays, Reading::Binding)
     }
 
     /// The module references of `file` that may reach the anchor, read as
@@ -148,6 +152,17 @@ impl AnchorModule {
         let Some(facts) = clean_facts(content, file) else {
             return true;
         };
+        self.reaches_facts(file, content, &facts, relays, reading)
+    }
+
+    fn reaches_facts(
+        &self,
+        file: &str,
+        content: &str,
+        facts: &GraphFactsDocument,
+        relays: &mut HashMap<PathBuf, bool>,
+        reading: Reading,
+    ) -> bool {
         let member = spells(content, ".", &self.symbol);
         // A dynamic `import()` (or an `import('…')` type) is not in the
         // facts: a literal one binds what the file reads off it, a computed

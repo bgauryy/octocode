@@ -289,13 +289,12 @@ pruned on retry; `force` or a changed extraction policy resets the job. This is
 not a global disk budget across scopes and does not bound linking or projection
 memory. A failed build leaves previously published snapshots available.
 
-The disposable `.facts` cache used outside durable graph jobs namespaces artifacts by canonical root, parser
-overrides, installed provider/capability identity, fact schema, runtime version and extraction version, and checks each
-source path and digest before reuse. It has 128 replacement slots of at most
-1 MiB each. Collisions, oversized facts, secret detection, invalid artifacts and
-cache write failures produce cache misses; they do not discard graph evidence.
-`force` bypasses stored extraction checkpoints and the disposable cache, while the engine may still reuse matching
-facts in memory. Tests compare reused snapshots with a full binding and projection
+Artifact namespaces bind the canonical root, parser overrides, installed
+provider/capability identity, fact schema, runtime version and extraction version.
+Within an admitted job, artifacts that fail content validation are extracted again.
+A retained job over its disk quota fails explicitly. `force` resets the stored
+extraction job, while the engine may still reuse matching facts in memory.
+Tests compare reused snapshots with a full binding and projection
 rebuild after source, file-inventory and resolution-configuration changes.
 
 ## Persisted graphs (CLI)

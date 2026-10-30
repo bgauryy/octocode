@@ -223,10 +223,8 @@ pub(super) fn direct_bases(
 }
 
 pub(super) fn type_document(content: &str, path: &str) -> Result<GraphFactsDocument, String> {
-    let facts = octocode_engine::signatures::extract_graph_facts(content, path)
+    let document = octocode_engine::signatures::extract_graph_facts(content, path)
         .ok_or_else(|| format!("Type heritage parsing unavailable for {path}"))?;
-    let document: GraphFactsDocument = serde_json::from_str(&facts)
-        .map_err(|error| format!("Type heritage parsing failed for {path}: {error}"))?;
     // Every tree-sitter document carries the static syntax-only caveat; it
     // marks no gap. Any other diagnostic (recovered parse, deadline, Rust
     // attributes) means declarations or heritage clauses may be missing.
@@ -253,10 +251,7 @@ pub(super) fn type_document(content: &str, path: &str) -> Result<GraphFactsDocum
 /// function or a variable has no extends/implements clause naming it, so a
 /// scan for it would report "no implementations" instead of "unanswered".
 pub(super) fn anchors_type_declaration(content: &str, file: &str, line: u32, name: &str) -> bool {
-    let Some(facts) = octocode_engine::signatures::extract_graph_facts(content, file) else {
-        return false;
-    };
-    let Ok(document) = serde_json::from_str::<GraphFactsDocument>(&facts) else {
+    let Some(document) = octocode_engine::signatures::extract_graph_facts(content, file) else {
         return false;
     };
     document.declarations.iter().any(|declaration| {

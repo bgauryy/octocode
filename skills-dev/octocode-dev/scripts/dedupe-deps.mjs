@@ -11,7 +11,7 @@
  *   node skills-dev/octocode-dev/scripts/dedupe-deps.mjs --fix    # rewrite all to the highest version
  *
  * Local protocols (workspace:/file:/link:/portal:/npm: alias) and `*` peer
- * ranges (host-provided "any version", e.g. Pi extension peers) are left as-is,
+ * ranges (host-provided "any version") are left as-is,
  * and only the top-level packages/<pkg>/package.json + root are scanned (the
  * exact-pinned native platform sub-packages under the per-package npm folders
  * are intentionally excluded).

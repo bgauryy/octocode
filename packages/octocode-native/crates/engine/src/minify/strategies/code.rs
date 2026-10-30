@@ -17,12 +17,7 @@ pub fn minify_javascript_core(content: &str) -> String {
     let rules = crate::minify::comment_remover::rules_for("c-style");
     let s = super::collapse_whitespace(&s, rules);
     let s = re_tighten_punct_js(&s, rules);
-    // Split back to lines, drop empty
-    s.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
+    super::core::compact_brace_lines(&s, &["c-style"])
 }
 
 fn re_tighten_punct_js(

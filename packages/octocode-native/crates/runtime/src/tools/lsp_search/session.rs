@@ -90,7 +90,7 @@ pub(super) fn discover_server(
                 .map(|extension| format!(".{}", extension.to_string_lossy()))
                 .unwrap_or_else(|| "this".to_owned());
             format!(
-                "No built-in language server or grammar for {extension} files; add an lsp-servers.json entry (lsp.configPath or ~/.octocode/lsp-servers.json) such as {{\"languageServers\":{{\"{extension}\":{{\"command\":\"<server>\",\"args\":[],\"languageId\":\"<id>\"}}}}}}; until then use localSearch or astSearch + localFetch."
+                "No language server configured for {extension} files. Add a server in lsp.configPath or ~/.octocode/lsp-servers.json; use localSearch or localFetch meanwhile."
             )
         };
         return Err(fail(ErrorCode::ServerUnavailable, &message));

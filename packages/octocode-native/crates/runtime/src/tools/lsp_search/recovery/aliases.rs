@@ -224,24 +224,17 @@ pub(super) fn aliasing_imports(source: &str, file: &str, symbol: &str) -> Vec<(u
     let Some(facts) = octocode_engine::signatures::extract_graph_facts(source, file) else {
         return Vec::new();
     };
-    let Ok(parsed) = serde_json::from_str::<Value>(&facts) else {
-        return Vec::new();
-    };
-    parsed
-        .get("imports")
-        .and_then(Value::as_array)
+    facts
+        .imports
         .into_iter()
-        .flatten()
         .filter_map(|import| {
-            let imported = import.get("importedName").and_then(Value::as_str)?;
-            let local = import.get("localName").and_then(Value::as_str)?;
+            let imported = import.imported_name?;
+            let local = import.local_name?;
             if imported != symbol || local == imported {
                 return None;
             }
-            let start = import.get("localRange")?.get("start")?;
-            let line = u32::try_from(start.get("line")?.as_u64()?).ok()?;
-            let character = u32::try_from(start.get("character")?.as_u64()?).ok()?;
-            Some((line, character))
+            let start = import.local_range?.start;
+            Some((start.line, start.character))
         })
         .collect()
 }

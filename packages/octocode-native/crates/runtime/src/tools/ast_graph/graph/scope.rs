@@ -172,12 +172,12 @@ pub(crate) fn narrower_scope_hints<'a>(
     let scopes = narrower_scopes(files);
     if scopes.is_empty() {
         return vec![
-            "Ingest a narrower directory, or pass --exclude-dir for generated or vendored trees."
+            "Ingest a narrower directory, or pass --exclude for generated or vendored trees."
                 .into(),
         ];
     }
     let mut hints = vec![
-        "Ingest a narrower directory (files per directory, largest first), or pass --exclude-dir for generated or vendored trees:".to_owned(),
+        "Ingest a narrower directory (files per directory, largest first), or pass --exclude for generated or vendored trees:".to_owned(),
     ];
     hints.extend(scopes.into_iter().map(|(dir, count)| {
         format!(
@@ -244,5 +244,6 @@ mod tests {
         assert!(narrower_scopes(["a.ts", "b.ts"]).is_empty());
         let hints = narrower_scope_hints(Path::new("/w"), ["a.ts"]);
         assert_eq!(hints.len(), 1, "{hints:?}");
+        assert!(hints[0].contains("--exclude "), "{hints:?}");
     }
 }

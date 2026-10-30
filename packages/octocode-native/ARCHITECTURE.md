@@ -199,6 +199,12 @@ Config remains the shared home/dotenv policy owner; core contracts are unchanged
 
 `RegistryView` separates structural search, syntax inspection, rendered outlines and fact capabilities. It can admit a versioned facts provider without requiring a Tree-sitter grammar; operation admission and the capability catalog use the same immutable view. Core's fingerprinted `AnalysisCapabilities` schema owns the served shape, including grammar-independent source decoding. Graph caches and manifests include registry identity.
 
+`signatures::extract_graph_facts` returns a typed `GraphFactsDocument` directly to
+LSP fallbacks. Importer checks share that document between name matching and
+module reachability; each consumer keeps its own parse-quality policy. AST symbol
+requests retain declaration-only extraction, while graph scans retain reference
+counts and their existing fact cache.
+
 `engine::text::analysis` binds immutable parser templates to each admitted raw source and composes observed spans through representation maps. Runtime `tools::source_evidence` projects complete origins and descriptor closures through generated wire types; graph storage persists captured correspondence instead of reconstructing it from current files. [Source correspondence](docs/engine/SOURCE_CORRESPONDENCE.md) owns public coordinate meanings, paging and resource limits.
 
 `engine::lsp::managed` owns the pinned server manifest and the verified install layout `<home>/lsp/<server>/<tag>/<bin>` with a `.ok` marker; the CLI only downloads and installs. Route resolution order is in [LSP_SERVER_LIFECYCLE.md](docs/engine/LSP_SERVER_LIFECYCLE.md#resolution). Engine LSP discovery reads no `OCTOCODE_*` process environment; the runtime passes resolved options.

@@ -342,3 +342,46 @@ fn prose_mentions_never_hide_an_unused_export() {
     );
     assert_eq!(tool["evidence"]["textMentions"]["go"], prose, "{tool}");
 }
+
+/// A file's own imports decide where it belongs, not its importers: a
+/// shared utility imported by many files of another directory stays put,
+/// while a file whose imports all live elsewhere is still flagged.
+#[test]
+fn misplaced_file_follows_imports_not_importers() {
+    let mut files = vec![
+        ("core/base.ts", "export const base = 1;\n".to_owned()),
+        ("core/util.ts", "import { base } from './base';\nexport const util = () => base;\n".to_owned()),
+        (
+            "core/stray.ts",
+            "import { l1 } from '../locales/l1';\nimport { l2 } from '../locales/l2';\nimport { l3 } from '../locales/l3';\nexport const stray = () => l1 + l2 + l3;\n".to_owned(),
+        ),
+    ];
+    for n in 1..=5 {
+        files.push((
+            Box::leak(format!("locales/l{n}.ts").into_boxed_str()),
+            format!("import {{ util }} from '../core/util';\nexport const l{n} = util();\n"),
+        ));
+    }
+    let borrowed = files
+        .iter()
+        .map(|(a, b)| (*a, b.as_str()))
+        .collect::<Vec<_>>();
+    let dir = git_app(&borrowed);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let issues = ask(root, "issues", None, |o| {
+        o.detectors = vec!["misplaced-file".into()];
+        o.min_tier = Some(0);
+    });
+    let flagged = findings(&issues, "misplaced-file");
+    assert!(
+        !flagged.iter().any(|s| s.ends_with("core/util.ts")),
+        "importers must not pull a shared utility: {}",
+        issues.value
+    );
+    assert!(
+        flagged.iter().any(|s| s.ends_with("core/stray.ts")),
+        "a file whose imports all live elsewhere is still flagged: {}",
+        issues.value
+    );
+}

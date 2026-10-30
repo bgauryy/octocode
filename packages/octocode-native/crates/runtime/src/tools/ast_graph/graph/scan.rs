@@ -106,6 +106,7 @@ pub(super) fn scan(
 
 pub(super) struct Extracted<'a> {
     pub(super) facts: GraphFactsMappedScan<Kept>,
+    pub(super) withheld: crate::policy::discovery::Withheld,
     pub(super) job: Option<checkpoint::Job<'a>>,
     pub(super) reused_files: usize,
     /// What the kept files certainly project.
@@ -134,8 +135,17 @@ pub(super) fn extract<'a>(
             .then(|| crate::tools::ast_rule::language_globs(&scan.language_globs)),
         ignore: octocode_engine::search::walk::IgnorePolicy::default(),
     };
-    let discovery = paths.discovery_walk();
-    let admit = |path: &Path, file_type| discovery.permits_entry(path, file_type);
+    let discovery = crate::policy::discovery::WalkAdmission::new(
+        paths.discovery_walk(),
+        root,
+        crate::policy::discovery::WalkRules {
+            defaults: true,
+            include: &[],
+            generated: false,
+            engine_prunes: true,
+        },
+    );
+    let admit = |path: &Path, file_type| discovery.admit(path, file_type, |_| true);
     let capture_error = std::sync::Mutex::new(None);
     let stop = || {
         cancel.check().is_err()
@@ -240,6 +250,7 @@ pub(super) fn extract<'a>(
     let reused_files = reused_files.load(std::sync::atomic::Ordering::Relaxed);
     Ok(Extracted {
         facts,
+        withheld: discovery.skipped().withheld,
         job,
         reused_files,
         tally: admission.tally(),

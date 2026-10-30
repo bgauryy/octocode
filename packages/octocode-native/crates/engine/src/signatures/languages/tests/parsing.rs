@@ -135,10 +135,10 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
             assert_eq!(matches.len(), 1, ".{ext}: exact root match");
             assert_eq!(matches[0].text.trim_end(), source.trim_end(), ".{ext}");
 
-            let graph_json =
+            let graph_facts =
                 crate::signatures::extract_graph_facts(source, &format!("fixture.{ext}"))
                     .unwrap_or_else(|| panic!(".{ext}: advertised graph extraction unavailable"));
-            let graph: serde_json::Value = serde_json::from_str(&graph_json)
+            let graph = serde_json::to_value(graph_facts)
                 .unwrap_or_else(|error| panic!(".{ext}: invalid graph JSON: {error}"));
             assert_eq!(
                 graph["sourceDigest"],
@@ -163,14 +163,14 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
                     .is_some_and(|declarations| declarations
                         .iter()
                         .any(|declaration| declaration["name"] == "target")),
-                ".{ext}: target declaration missing from graph facts: {graph_json}"
+                ".{ext}: target declaration missing from graph facts: {graph}"
             );
             if entry.fact_capabilities.calls {
                 assert!(
                     graph["calls"]
                         .as_array()
                         .is_some_and(|calls| !calls.is_empty()),
-                    ".{ext}: helper call missing from graph facts: {graph_json}"
+                    ".{ext}: helper call missing from graph facts: {graph}"
                 );
             }
 

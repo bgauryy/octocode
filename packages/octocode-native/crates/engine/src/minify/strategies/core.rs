@@ -7,12 +7,11 @@ use crate::minify::comment_remover::remove_comments;
 /// keeping one statement line per source line. Literal-spanning lines stay
 /// byte-exact.
 pub fn minify_brace_code(content: &str, comments: &[&str]) -> String {
-    compact_lines(
-        &remove_comments(content, comments),
-        Some(comments),
-        0,
-        Indent::Strip,
-    )
+    compact_brace_lines(&remove_comments(content, comments), comments)
+}
+
+pub(super) fn compact_brace_lines(content: &str, comments: &[&str]) -> String {
+    compact_lines(content, Some(comments), 0, Indent::Strip)
 }
 
 #[derive(Clone, Copy, PartialEq)]

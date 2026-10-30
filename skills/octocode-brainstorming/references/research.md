@@ -7,7 +7,7 @@ Load when a gatherer or the parent starts searching or picks surfaces for trends
 - Combine `scripts/search.mjs` (configured providers, merged by canonical URL, multi-provider hits first) with host search and fetch. `--kind papers` for studies, `--kind news` for recent events, `--since` for a window.
 - Results are leads: read the page before taking a claim. A page or syndicated story from several providers is one source.
 - Vet sources like a [fact-checker](critical-thinking.md#search-like-a-fact-checker), including its stop rule.
-- Keys: `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`; load them using [shared configuration handling](configuration.md). A missing key skips that provider.
+- Keys: `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`; load them using [shared configuration handling](configuration.md). A missing key skips that provider. A key that answers 401 or 403 on every query reports `status: "keyRejected"` with the exact `config set` fix; when every configured provider rejects its key the run fails with `keysRejected`: tell the user which keys to renew, and gather with the host's web search and fetch tools meanwhile.
 
 ## Surfaces
 

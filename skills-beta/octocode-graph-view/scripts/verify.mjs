@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Graph leads judged by independent layers (AST, usage, clasify, optional LSP) plus image read-back.
 import { execFile, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,8 +11,9 @@ import { selectLeads } from './leads.mjs';
 import { HINTS } from './hints.mjs';
 import { childUsage, countUsage } from './usage.mjs';
 import { stemsOf, usedName } from './names.mjs';
-import { edgeVerdict, fileVerdict } from './verdict.mjs';
+import { cohesionVerdict, edgeVerdict, fileVerdict } from './verdict.mjs';
 import { resolveModel } from './model.mjs';
+import { createSession, deleteSession, labelTokens, ocrRoute, warm } from './freellama.mjs';
 
 const USAGE = `usage: verify.mjs --data <data.json> [--model <model.json>] [--layers ast,clasify,ocr,history[,lsp]] [--leads 8] [--lsp-timeout 150] [--history-limit 0] [--questions <file>]
   Needs shot-files.png and measure-files.json beside data.json (render.mjs --shot files,functions).
@@ -30,7 +31,7 @@ const dataPath = resolve(f.data);
 const out = dirname(dataPath);
 const D = JSON.parse(readFileSync(dataPath, 'utf8'));
 const want = new Set(f.layers.split(','));
-const host = process.env.OLLAMA_HOST?.replace(/^(?!http)/, 'http://') ?? 'http://localhost:11434';
+let ocrVia = null; // where OCR runs (freellama session, raw Ollama) once probed
 const here = dirname(fileURLToPath(import.meta.url));
 const modelPath = f.model ? resolve(f.model) : join(out, 'model.json');
 const model = existsSync(modelPath) ? resolveModel(D, JSON.parse(readFileSync(modelPath, 'utf8'))) : null;
@@ -51,12 +52,8 @@ async function probe() {
     }
   }
   if (want.has('ocr')) {
-    try {
-      const tags = await (await fetch(`${host}/api/tags`)).json();
-      layers.ocr = tags.models.some((m) => m.name.startsWith('glm-ocr')) ? 'ok' : 'skipped: glm-ocr not installed';
-    } catch {
-      layers.ocr = `skipped: Ollama unreachable at ${host}`;
-    }
+    ocrVia = await ocrRoute();
+    layers.ocr = ocrVia.via === 'none' ? `skipped: ${ocrVia.reason}` : 'ok';
   }
   if (want.has('clasify')) {
     try {
@@ -87,10 +84,15 @@ const targetNames = (id) => stemsOf(id, abs(id));
 const mentions = (text, id) => targetNames(id).some((stem) => new RegExp(`\\b${re(stem)}\\b`).test(text));
 const statements = new Map();
 // Rust qualified paths: `a::b::f(...)` in expressions, `a::b::T` in types.
+// Node kinds that put a qualified path in a type position: a parsed type-only use, not a call.
+const TYPE_KINDS = { '.rs': ['scoped_type_identifier'] };
 const INLINE_KINDS = { '.rs': ['scoped_identifier', 'scoped_type_identifier'], '.py': ['attribute'], '.ts': ['call_expression'], '.tsx': ['call_expression'], '.js': ['call_expression'], '.jsx': ['call_expression'], '.mjs': ['call_expression'], '.cjs': ['call_expression'], '.go': ['selector_expression'] };
 const forms = new Map();
 const RELATIVE = /(^|[^\w])(super|self)\b|^\s*(import|from)\s+\.|from\s+['"]\.{1,2}\//;
-const connections = { checked: 0, confirmed: 0, viaImport: 0, viaPath: 0, na: 0, unconfirmed: [], mutual: [] };
+const connections = { checked: 0, confirmed: 0, viaImport: 0, viaPath: 0, na: 0, unconfirmed: [], stale: [], mutual: [] };
+// A file edited after the graph was built has moved lines: its edges are stale, not unconfirmed. Rebuild to retest them.
+const builtAt = statSync(dataPath).mtimeMs;
+const changedSinceBuild = (id) => { try { return statSync(abs(id)).mtimeMs > builtAt; } catch { return false; } };
 async function astLayer() {
   const bySource = Map.groupBy(D.imports, (e) => e.source);
   const jobs = [...bySource.keys()].filter((id) => IMPORT_KINDS[extname(id)]);
@@ -112,14 +114,24 @@ async function astLayer() {
   // No import statement: the dependency may be an inline qualified path (crate::mod::item(...), pkg.item(...)).
   const inline = Map.groupBy(pending.filter((e) => INLINE_KINDS[extname(e.source)]), (e) => e.source);
   const found = new Map();
+  const typed = new Map();
+  const pathRule = (id, kinds) => ({ all: [{ any: kinds.map((kind) => ({ kind })) }, { regex: `\\b(${[...new Set(inline.get(id).flatMap((e) => targetNames(e.target).map(re))), 'super', 'self'].join('|')})\\b` }] });
   await Promise.all(chunk([...inline.keys()], 5).map(async (b) => {
-    const r = await octocode(['astSearch', '--json', JSON.stringify({ queries: b.map((id) => ({ operation: 'match', path: abs(id), rule: { all: [{ any: INLINE_KINDS[extname(id)].map((kind) => ({ kind })) }, { regex: `\\b(${[...new Set(inline.get(id).flatMap((e) => targetNames(e.target).map(re))), 'super', 'self'].join('|')})\\b` }] } })) })]);
+    const r = await octocode(['astSearch', '--json', JSON.stringify({ queries: b.map((id) => ({ operation: 'match', path: abs(id), rule: pathRule(id, INLINE_KINDS[extname(id)]) })) })]);
     r.results.forEach((x, i) => found.set(b[i], x.data?.files?.[0]?.matches ?? []));
+    const typedIds = b.filter((id) => TYPE_KINDS[extname(id)]);
+    if (!typedIds.length) return;
+    const t = await octocode(['astSearch', '--json', JSON.stringify({ queries: typedIds.map((id) => ({ operation: 'match', path: abs(id), rule: pathRule(id, TYPE_KINDS[extname(id)]) })) })]);
+    t.results.forEach((x, i) => typed.set(typedIds[i], x.data?.files?.[0]?.matches ?? []));
   }));
   for (const e of pending) {
     const at = found.get(e.source)?.filter((m) => m.line === e.line) ?? [];
-    const hit = at.some((m) => mentions(m.value, e.target)) ? 'path' : at.some((m) => RELATIVE.test(m.value)) ? 'relative-path' : null;
+    const named = at.filter((m) => mentions(m.value, e.target));
+    // Every match naming the target sits in a type position: the AST itself says type-only.
+    const asType = named.length > 0 && named.every((m) => typed.get(e.source)?.some((t) => t.line === m.line && t.column === m.column));
+    const hit = asType ? 'type-path' : named.length ? 'path' : at.some((m) => RELATIVE.test(m.value)) ? 'relative-path' : null;
     if (hit) { connections.viaPath++; forms.set(`${e.source}>${e.target}`, hit); }
+    else if (changedSinceBuild(e.source)) connections.stale.push({ source: e.source, target: e.target, line: e.line });
     else connections.unconfirmed.push({ source: e.source, target: e.target, line: e.line });
   }
   connections.confirmed = connections.viaImport + connections.viaPath;
@@ -155,10 +167,10 @@ function sourceSignals(l) {
   const stem = usedName(targetNames(l.target), window);
   const form = forms.get(`${l.file}>${l.target}`);
   const ast = form ? 'confirmed' : statements.has(l.file) ? 'absent' : 'n/a';
-  if (form === 'path' || form === 'relative-path') {
+  if (form === 'path' || form === 'type-path' || form === 'relative-path') {
     const text = lines[l.line - 1] ?? '';
-    const base = form === 'path' ? re(stem) : '(?:super|self)';
-    return { ast, form, textOk, snippet, statement: text.trim().slice(0, 200), names: [(text.match(new RegExp(`\\b${base}(?:::|\\.)(\\w+)`)) ?? [])[1] ?? stem], usageLines: 1, callLike: new RegExp(`\\b${base}[\\w:.<>]*\\s*[(!]`).test(text) ? 1 : 0, reexport: false };
+    const base = form === 'relative-path' ? '(?:super|self)' : re(stem);
+    return { ast, form, typePosition: form === 'type-path', textOk, snippet, statement: text.trim().slice(0, 200), names: [(text.match(new RegExp(`\\b${base}(?:::|\\.)(\\w+)`)) ?? [])[1] ?? stem], usageLines: 1, callLike: form === 'type-path' ? 0 : new RegExp(`\\b${base}[\\w:.<>]*\\s*[(!]`).test(text) ? 1 : 0, reexport: false };
   }
   const stmt = match?.value ?? lines.slice(l.line - 1, l.line + 3).join('\n');
   const names = namesOf(stmt, stem);
@@ -302,13 +314,34 @@ for (const l of leads) {
   }
 }
 
+// A file lead the first question left unsure gets one sharper, named question instead of "read the file".
+const unsettled = leads.filter((l) => l.kind === 'file' && l.verdict === 'unresolved' && l.signals.clasify);
+if (on('clasify') && unsettled.length) try {
+  const cohesiveQ = (l) => {
+    const items = owners(l.file).slice(0, 4).map(([k]) => k).join(', ') || 'its functions';
+    return { operation: 'evaluate', source: { tool: 'localFetch', query: { path: abs(l.file) } }, questions: { cohesive: { type: 'noul', instructions: `Do all of this file's top-level items (${items}) serve the single purpose its name "${basename(l.file, extname(l.file))}" suggests?` } } };
+  };
+  const rows = (await Promise.all(chunk(unsettled, 5).map((b) => octocode(['clasify', '--json', JSON.stringify({ queries: b.map(cohesiveQ) })])))).flatMap((r) => r.results).map((r) => r.data ?? { error: r.error });
+  unsettled.forEach((l, i) => {
+    if (rows[i]?.error) return;
+    l.signals.followUp = noul(rows[i]);
+    usage.input_tokens += rows[i].usage.input_tokens;
+    usage.output_tokens += rows[i].usage.output_tokens;
+    Object.assign(l, cohesionVerdict(l.signals.followUp.cohesive, l.detector) ?? {});
+  });
+} catch (e) { layers.clasify = `follow-up error: ${e.message.slice(0, 100)}`; }
+
 // ---- render read-back: DOM layout facts, OCR with crop retry -------------------------------------------------------
 const layoutOf = (m) => ({ labels: m.labels.length, overlaps: m.labelOverlaps.length, labelOnNode: m.labelOnNode.length, clipped: m.clipped.length, hidden: m.hidden ?? 0, worst: [...m.labelOverlaps].sort((a, b) => b.area - a.area).slice(0, 5) });
 if (files) render.layout = { files: layoutOf(files), ...(fns ? { functions: layoutOf(fns) } : {}) };
-const runOcr = (image, labels) => new Promise((res) => {
+// One FreeLlama affinity session covers every OCR call of this run; raw Ollama has none.
+const ocrSession = ocrVia?.via === 'freellama' ? await createSession(ocrVia.endpoint) : null;
+if (ocrSession) await warm(ocrVia); // the whole-shot read must not pay the runner load
+// The whole shot is what the brief reports, so it goes first; crop retries are background work.
+const runOcr = (image, labels, priority = 'background') => new Promise((res) => {
   const exp = join(mkdtempSync(join(tmpdir(), 'gv-')), 'expected.json');
   writeFileSync(exp, JSON.stringify({ labels }));
-  execFile(process.execPath, [join(here, 'ocr.mjs'), image, '--expect', exp, '--max-tokens', '600'], { maxBuffer: 64 << 20 }, (err, stdout, stderr) => {
+  execFile(process.execPath, [join(here, 'ocr.mjs'), image, '--expect', exp, '--max-tokens', String(labelTokens(labels.length)), '--via', ocrVia.via, '--endpoint', ocrVia.endpoint, '--tag', ocrVia.model, '--priority', priority, ...(ocrSession ? ['--session', ocrSession] : [])], { maxBuffer: 64 << 20 }, (err, stdout, stderr) => {
     if (err && err.code !== 1) return res({ error: (stderr || err.message).trim().slice(0, 200) });
     try { res(JSON.parse(stdout)); } catch (e) { res({ error: `ocr output: ${e.message.slice(0, 160)}` }); }
   });
@@ -316,7 +349,7 @@ const runOcr = (image, labels) => new Promise((res) => {
 if (on('ocr') && !files) layers.ocr = 'skipped: no measure-files.json or shot-files.png (run render.mjs --shot files,functions)';
 if (on('ocr')) try {
   const expected = [...D.files.map((n) => n.label), ...D.legends.files];
-  const whole = await runOcr(join(out, 'shot-files.png'), expected);
+  const whole = await runOcr(join(out, 'shot-files.png'), expected, 'interactive');
   if (whole.error) {
     layers.ocr = `error: ${whole.error}`;
   } else {
@@ -329,9 +362,10 @@ if (on('ocr')) try {
       const r = await runOcr(dst, [label]);
       (r.found?.length ? recovered : stillMissing).push(label);
     }
-    render.ocr = { model: 'glm-ocr', ms: whole.ms, expected: expected.length, readWhole: whole.found.length, recovered, stillMissing };
+    render.ocr = { model: ocrVia.model, via: ocrVia.via, session: ocrSession ? 'affinity' : 'none', ms: whole.ms, expected: expected.length, readWhole: whole.found.length, recovered, stillMissing };
   }
 } catch (e) { layers.ocr = `error: ${e.message.slice(0, 100)}`; }
+if (ocrSession) await deleteSession(ocrVia.endpoint, ocrSession);
 
 const conn = layers.ast === 'ok' ? connections : null;
 const hints = Object.entries(layers).filter(([k, v]) => /^(skipped|error)/.test(v) && HINTS[k]).map(([k]) => ({ layer: k, enable: HINTS[k] }));
@@ -342,7 +376,7 @@ console.log(JSON.stringify({
   ms,
   layers,
   hints: hints.length ? hints : undefined,
-  connections: conn && { checked: conn.checked, confirmed: conn.confirmed, viaImport: conn.viaImport, viaPath: conn.viaPath, unconfirmed: conn.unconfirmed.length, na: conn.na, mutual: conn.mutual.length },
+  connections: conn && { checked: conn.checked, confirmed: conn.confirmed, viaImport: conn.viaImport, viaPath: conn.viaPath, unconfirmed: conn.unconfirmed.length, stale: conn.stale.length, na: conn.na, mutual: conn.mutual.length },
   history: history && { ...history.quality, remote: history.remote, hotspots: history.hotspots.map((h) => `${h.id.split('/').pop()} ${h.commits}c x ${h.fanIn}in`), coChange: history.coChange.length },
   leads: leads.length,
   verdicts: tally,

@@ -204,6 +204,9 @@ pub(in super::super) fn imports_in_code(symbol: &str, file: &str) -> bool {
     crate::tools::source::read_bounded(Path::new(file), CODE_CHECK_MAX_BYTES)
         .ok()
         .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
-        .and_then(|text| super::super::importers::imports_name(&text, file, symbol))
+        .and_then(|text| {
+            octocode_engine::signatures::extract_graph_facts(&text, file)
+                .map(|facts| super::super::importers::imports_name(&facts, &text, symbol))
+        })
         .unwrap_or(false)
 }

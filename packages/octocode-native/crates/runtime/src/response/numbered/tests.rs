@@ -64,7 +64,7 @@ fn transformed_views_cite_the_source_line_of_every_kept_line() {
     );
     assert_eq!(
         line_faithful_view("f(a,\n  b);  \n\nc;\n", None),
-        "1\tf(a,\n2\t  b);\n4\tc;\n"
+        "1\tf(a,\n2\t  b);  \n3\t\n4\tc;\n"
     );
     assert_eq!(
         line_faithful_view(
@@ -72,6 +72,42 @@ fn transformed_views_cite_the_source_line_of_every_kept_line() {
             Some(&[2, 0, 9])
         ),
         "2\ta();\n--\n9\tb();\n"
+    );
+}
+
+#[test]
+fn transformed_blank_lines_require_an_actual_source_line() {
+    assert_eq!(
+        number_view("key: |\n  # payload\n  text\n", None, "key: |\n\n  text\n"),
+        None
+    );
+    assert_eq!(number_view("", None, "invented\n"), None);
+}
+
+#[test]
+fn line_fallback_preserves_every_byte_including_literal_whitespace() {
+    for source in [
+        "a  \r\n\r\n  b\t\r\n",
+        "\n\n",
+        "no final newline  ",
+        "  # payload\n\n  end\n",
+    ] {
+        let output = line_faithful_view(source, None);
+        let restored: String = output
+            .split_inclusive('\n')
+            .map(|line| line.split_once('\t').expect("gutter").1)
+            .collect();
+        assert_eq!(restored, source);
+    }
+}
+
+#[test]
+fn omission_like_source_text_is_not_a_projection_marker() {
+    let source = "// remove\nconst text = `first\n... [line 8 not requested] ...\nlast`;\n";
+    let view = "const text = `first\n... [line 8 not requested] ...\nlast`;\n";
+    assert_eq!(
+        number_view(source, None, view).as_deref(),
+        Some("2\tconst text = `first\n3\t... [line 8 not requested] ...\n4\tlast`;\n")
     );
 }
 

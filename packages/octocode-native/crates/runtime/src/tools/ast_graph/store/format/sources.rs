@@ -253,6 +253,9 @@ impl SourceTable {
                 provenance,
                 None,
             )?;
+            if witness.edge.kind == EdgeKind::Passes && matches!(witness.edge.line, 0 | NONE) {
+                return Err("passes witness has no source line".into());
+            }
         }
         for site in &tables.unresolved {
             cancel.check()?;

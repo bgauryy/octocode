@@ -158,11 +158,11 @@ pub(super) fn ingest_with_registry(
         }
     };
     let checkpoint = super::super::graph::checkpoint::job_path(&home.join(".facts"), &built.root);
-    if let Err(error) = super::super::graph::checkpoint::retire(&checkpoint) {
+    if let Err(error) = super::super::graph::checkpoint::complete(&checkpoint) {
         return GraphOutput::error(
             error.code,
             format!(
-                "graph {id} was published at {}, but its extraction checkpoint could not be removed: {}",
+                "graph {id} was published at {}, but its extraction checkpoint could not be marked complete: {}",
                 dir.display(),
                 error.message
             ),

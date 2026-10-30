@@ -147,6 +147,8 @@ Use `operation:"tree"` to inspect a directory scope or `"files"` to discover pat
 
 Read a known local file. Path-only reads exact content; `ranges` uses inclusive startLine/endLine objects, and `matchString` selects matched regions. `contextLines` sets before/after context. `view:"compact"` transforms content; `view:"symbols"` outlines it. A binary source produces a typed error. Secret scanning happens before projection, including range reads.
 
+Compact reads preserve literal content and source-line citations. YAML compact reads retain the selected text, including comments and blank lines, because those bytes can belong to scalar values; `view:"symbols"` still outlines YAML keys. If a transformed view cannot be mapped to source lines, the reader keeps the original selected text. Local and GitHub file reads share this behavior.
+
 ```json
 {"queries":[{"path":"src/index.ts"}]}
 ```
@@ -199,7 +201,7 @@ Without `workspaceRoot`, the root is the nearest ancestor of the file holding a 
 
 ### Server fidelity and the no-fallback contract
 
-`documentSymbols` falls back to a native outline (`lsp.source`: `native` via oxc for JS/TS, or `markdown` headings; syntax-only) only when no server is available; a server (`lsp`: type-aware, cross-file) always wins. Every other operation needs a real server. Without one, Octocode does not guess: `status:"error"`, `errorCode:"serverUnavailable"`, and a message that points to `localSearch` or `astSearch` + `localFetch`. There is no same-file-only `references` path. `diagnostic` on a server without pull diagnostics waits up to 1.5 s for a push after the document sync; a server that publishes only when its diagnostics change (typescript-language-server) keeps its last report, which is returned with a warning that it predates the last edit. See [LSP server lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md).
+Every `lspSearch` operation, including `documentSymbols`, needs a real server. Without one, Octocode returns `status:"error"`, `errorCode:"serverUnavailable"`, and recovery through `localSearch` or `localFetch`. Markdown has no built-in server route: configure a Markdown server for LSP, or use `localFetch view:"symbols"` for syntax-only heading outlines. There is no same-file-only `references` path. `diagnostic` on a server without pull diagnostics waits up to 1.5 s for a push after the document sync; a server that publishes only when its diagnostics change (typescript-language-server) keeps its last report, which is returned with a warning that it predates the last edit. See [LSP server lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md).
 
 ### Subtypes and implementations without an answer in time
 

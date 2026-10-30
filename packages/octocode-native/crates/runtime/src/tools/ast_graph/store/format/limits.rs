@@ -5,30 +5,7 @@ use super::*;
 
 pub(super) fn validate(encoder: &writer::Encoder<'_>, limits: &Limits) -> Result<(), String> {
     validate_counts(encoder.tables, limits)?;
-    validate_strings(encoder, limits)?;
-    let t = encoder.tables;
-    for witness in &t.witnesses {
-        arguments::validate(
-            t,
-            witness.argument,
-            witness.edge.kind,
-            witness.provenance,
-            None,
-        )?;
-        if witness.edge.kind == EdgeKind::Passes && matches!(witness.edge.line, 0 | NONE) {
-            return Err("passes witness has no source line".into());
-        }
-    }
-    for site in &t.unresolved {
-        arguments::validate(
-            t,
-            site.argument,
-            site.relation,
-            site.provenance,
-            Some(t.str(site.reason)),
-        )?;
-    }
-    Ok(())
+    validate_strings(encoder, limits)
 }
 
 /// The first table of `t` with more rows than a reader of `limits` admits.

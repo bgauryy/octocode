@@ -4,9 +4,11 @@ import path from 'node:path';
 import { sourceLines } from '../responses.mjs';
 import { data, noul, readCaptured, same } from './classification-checks.mjs';
 
+const sectionSource = () => Array.from({ length: 70 }, (_, i) => `pub fn section_${i}() { println!("évidence λ ${i} ${'evidence '.repeat(600)}"); }\n`).join('');
+
 export async function sectionChecks(ctx, surface, provider) {
   const file = path.join(ctx.cwd, `sections-${surface}.rs`);
-  const source = Array.from({ length: 70 }, (_, i) => `pub fn section_${i}() { println!("évidence λ ${i}"); }\n`).join('');
+  const source = sectionSource();
   fs.writeFileSync(file, source);
   const questions = { explicit: noul('Does the target print evidence?'), strength: { type: 'score', criteria: ['absent', 'direct'] } };
   const resources = {
@@ -95,7 +97,7 @@ export async function unreadSectionsChecks(ctx, surface, provider) {
 export async function memorySectionsChecks(ctx, surface, provider) {
   if (surface !== 'cli') return [];
   const file = path.join(ctx.cwd, 'memory-section-resource.rs');
-  fs.writeFileSync(file, Array.from({ length: 70 }, (_, i) => `pub fn section_${i}() {}\n`).join(''));
+  fs.writeFileSync(file, sectionSource());
   try {
     const before = provider.sent.length;
     const input = { ...ctx.q({ operation: 'sections', resources: { local: { tool: 'localFetch', query: { path: file } } }, questions: { evidence: noul('Is source evidence available?') } }), responseChars: 50_000 };

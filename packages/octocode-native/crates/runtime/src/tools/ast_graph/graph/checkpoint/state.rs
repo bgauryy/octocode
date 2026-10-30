@@ -78,7 +78,6 @@ impl<'a> Job<'a> {
             .validate_output(base)
             .map_err(ToolError::policy)?
             .canonical;
-        super::remove_completed(&base.join("jobs"));
         let dir = job_path(&base, root);
         checked_path(paths, &dir, true)?;
         let registry_identity = super::super::registry_identity(registry)?;

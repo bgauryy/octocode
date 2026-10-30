@@ -190,7 +190,8 @@ fn graph_fact_metadata_preserves_json_and_export_order_across_producers() {
         let facts_json = serde_json::to_string(&extraction.facts).expect("facts JSON");
         assert_eq!(
             facts_json,
-            extract_graph_facts(source, path).expect("legacy JSON facts")
+            serde_json::to_string(&extract_graph_facts(source, path).expect("typed facts"))
+                .expect("facts JSON")
         );
         let json: serde_json::Value = serde_json::from_str(&facts_json).expect("valid facts JSON");
         assert!(json.get(producer_field).is_some());

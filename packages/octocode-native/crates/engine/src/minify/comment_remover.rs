@@ -6,6 +6,7 @@ use super::strategies::utf8_seq_len;
 mod constructs;
 mod docstrings;
 mod rules;
+mod templates;
 
 use constructs::{
     find_block_comment, find_csharp_verbatim, find_line_comment, find_powershell_here_string,
@@ -158,6 +159,12 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
                 }
 
                 // 5. String-start delimiter (longest match first)
+                if rules.regex && bytes[pos] == b'`' {
+                    let end = templates::end(content, pos);
+                    result.push_str(&content[pos..end]);
+                    pos = end;
+                    continue;
+                }
                 if let Some(&delim) = sorted_delims
                     .iter()
                     .find(|&&d| content[pos..].starts_with(d))
@@ -290,6 +297,12 @@ pub fn literal_ranges(content: &str, rules: &CommentRules) -> Vec<(usize, usize)
                     pos = end_pos;
                     continue;
                 }
+                if rules.regex && bytes[pos] == b'`' {
+                    let end = templates::end(content, pos);
+                    ranges.push((pos, end));
+                    pos = end;
+                    continue;
+                }
                 if let Some(&delim) = sorted_delims
                     .iter()
                     .find(|&&d| content[pos..].starts_with(d))
@@ -309,6 +322,11 @@ pub fn literal_ranges(content: &str, rules: &CommentRules) -> Vec<(usize, usize)
                 pos += utf8_seq_len(bytes[pos]);
             }
         }
+    }
+    // A partial source read can end inside a literal. Its remaining bytes
+    // are still literal content, even without the closing delimiter.
+    if !matches!(qstate, QuoteState::Outside) {
+        ranges.push((cur_start, len));
     }
     ranges
 }

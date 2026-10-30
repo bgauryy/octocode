@@ -1,9 +1,9 @@
-use super::{GAP, SEPARATOR, omission_span, push_numbered};
+use super::{GAP, SEPARATOR, push_numbered};
 
 /// Source lines searched ahead of the last aligned one for a view line.
 const VIEW_ALIGN_WINDOW: usize = 1_000;
 
-/// Number a transformed view (`minify:"standard"`) with the source line each
+/// Number a transformed view (`view:"compact"`) with the source line each
 /// of its lines came from, so every kept line can be cited. `source` is the
 /// text the view was made from; `source_lines` gives each of its lines' 1-based
 /// source number (`0` marks a line-omission marker), or `None` when `source`
@@ -18,6 +18,9 @@ pub(crate) fn number_view(
     source_lines: Option<&[usize]>,
     view: &str,
 ) -> Option<String> {
+    if source == view {
+        return Some(line_faithful_view(source, source_lines));
+    }
     let squash = |text: &str| -> String { text.chars().filter(|c| !c.is_whitespace()).collect() };
     let lines: Vec<(u64, String)> = source
         .lines()
@@ -31,7 +34,7 @@ pub(crate) fn number_view(
         })
         .collect();
     if lines.is_empty() {
-        return Some(view.to_owned());
+        return view.is_empty().then(String::new);
     }
     let mut aligner = ViewAligner {
         lines: &lines,
@@ -41,10 +44,6 @@ pub(crate) fn number_view(
     };
     let mut output = String::with_capacity(view.len() + view.len() / 8);
     for record in view.split_inclusive('\n') {
-        if omission_span(record).is_some() {
-            output.push_str(GAP);
-            continue;
-        }
         let number = aligner.align(&squash(record));
         if !aligner.faithful {
             return None;
@@ -55,13 +54,12 @@ pub(crate) fn number_view(
 }
 
 /// The compact view when the transformed one is not line-faithful: every
-/// source line whole under its own number, trailing whitespace trimmed and
-/// blank lines left out (the gutter's jump shows them). Omission markers
-/// stay unnumbered.
+/// source line whole under its own number, including whitespace that may be
+/// literal content. Omission markers stay unnumbered.
 #[must_use]
 pub(crate) fn line_faithful_view(source: &str, source_lines: Option<&[usize]>) -> String {
     let mut output = String::with_capacity(source.len());
-    for (index, record) in source.lines().enumerate() {
+    for (index, record) in source.split_inclusive('\n').enumerate() {
         let line = match source_lines {
             Some(numbers) => numbers.get(index).copied().unwrap_or(0),
             None => index + 1,
@@ -70,12 +68,7 @@ pub(crate) fn line_faithful_view(source: &str, source_lines: Option<&[usize]>) -
             output.push_str(GAP);
             continue;
         }
-        let text = record.trim_end();
-        if text.trim().is_empty() {
-            continue;
-        }
-        push_numbered(&mut output, line, text);
-        output.push('\n');
+        push_numbered(&mut output, line, record);
     }
     output
 }
@@ -118,6 +111,7 @@ impl ViewAligner<'_> {
                 self.pos = 0;
                 return self.lines[index].0;
             }
+            self.faithful = false;
             return self.current();
         }
         for index in self.cur..end {

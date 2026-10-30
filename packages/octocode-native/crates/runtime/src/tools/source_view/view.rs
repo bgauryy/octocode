@@ -9,6 +9,7 @@ use crate::security::scan::ContentScan;
 use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadView};
 
 mod classified;
+mod compact;
 mod page;
 mod warnings;
 
@@ -93,6 +94,7 @@ pub(crate) fn process_fetched_content_selected(
         &mut source.redacted_lines,
         source_path,
         security,
+        &source.text,
     );
     let selection_outcome = match select_view_chunks(
         &selection_input,
@@ -176,6 +178,7 @@ fn select_view(
     source_redactions: &mut Vec<(usize, usize)>,
     source_path: &std::path::Path,
     security: &impl ContentScan,
+    full_source: &str,
 ) -> View {
     let requested = local_fetch_query::view(q);
     let selected = std::mem::take(&mut ext.text);
@@ -194,14 +197,12 @@ fn select_view(
     // view numbers each kept line with its source line, the outline uses the
     // same separator in every language.
     let standard_view = |selected: &str| {
-        let view = octocode_engine::minify::apply::apply_content_view_minification(
+        compact::render(
+            full_source,
             selected,
             local_fetch_query::path(q),
-        );
-        let lines = ext.source_lines.as_deref();
-        // A compaction that joins lines would cite them wrong: keep lines whole.
-        crate::response::numbered::number_view(selected, lines, &view)
-            .unwrap_or_else(|| crate::response::numbered::line_faithful_view(selected, lines))
+            ext.source_lines.as_deref(),
+        )
     };
     let view = |text, mode| View {
         text,

@@ -5,15 +5,6 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
-"@agentclientprotocol/sdk@npm:^1.8.0":
-  version: 1.8.0
-  resolution: "@agentclientprotocol/sdk@npm:1.8.0"
-  peerDependencies:
-    zod: ^3.25.0 || ^4.0.0
-  checksum: 10c0/7bef654b19a8c1b18c094341f5a3ee7a5268df9b2752dcc8a5b9ad73e3d3fb48bafc880c37aa45832903c462ca48eaa245626cd5e300835c38078c1cb04dc6bd
-  languageName: node
-  linkType: hard
-
 "@anthropic-ai/sdk@npm:0.129.0":
   version: 0.129.0
   resolution: "@anthropic-ai/sdk@npm:0.129.0"
@@ -800,6 +791,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-benchmark@workspace:packages/octocode-benchmark"
   dependencies:
+    "@earendil-works/pi-coding-agent": "npm:^1.2.0"
     "@octocodeai/config": "workspace:*"
     ajv: "npm:^8.20.0"
     ajv-formats: "npm:^3.0.1"
@@ -825,10 +817,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 21.0.1
-  resolution: "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core#../octocode-mcp-host/packages/octocode-core::hash=2a3d8d&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core#../octocode-mcp-host/packages/octocode-core::hash=3003f1&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/5dfcbc6bdf9e389434d5a90e3941d805f4f99f3c001887176186c4e704d83f306abb831da8900eca48115b9026e4f13245728e4b528fef749f2bc7da888897c4
+  checksum: 10c0/0266c11985217901221b81b3b6647572fc6055437ecc59806a0c2c8cbd970d3340fb974151e103e71ab48ce397377bc854daa927ce0f53d048a24d0eeb5b41af
   languageName: node
   linkType: hard
 
@@ -887,37 +879,6 @@ __metadata:
     "@types/node": "npm:^24.19.2"
     vite: "npm:^8.3.4"
     vitest: "npm:^5.0.4"
-  languageName: unknown
-  linkType: soft
-
-"@octocodeai/pi-extension@workspace:packages/octocode-pi-extension":
-  version: 0.0.0-use.local
-  resolution: "@octocodeai/pi-extension@workspace:packages/octocode-pi-extension"
-  dependencies:
-    "@agentclientprotocol/sdk": "npm:^1.8.0"
-    "@earendil-works/pi-ai": "npm:^1.2.0"
-    "@earendil-works/pi-coding-agent": "npm:^1.2.0"
-    "@earendil-works/pi-mcp": "npm:^1.2.0"
-    "@earendil-works/pi-tui": "npm:^1.2.0"
-    "@modelcontextprotocol/server": "npm:^2.3.1"
-    "@silvia-odwyer/photon-node": "npm:0.3.4"
-    "@types/node": "npm:^24.19.2"
-    "@vitest/coverage-v8": "npm:^5.0.4"
-    chrome-launcher: "npm:^1.2.2"
-    esbuild: "npm:^0.28.2"
-    octocode-mcp: "npm:^20.2.0"
-    typebox: "npm:^1.3.37"
-    typescript: "npm:^6.0.3"
-    vite: "npm:^8.3.4"
-    vitest: "npm:^5.0.4"
-    zod: "npm:^4.6.7"
-  peerDependencies:
-    "@earendil-works/pi-ai": ^1.2.0
-    "@earendil-works/pi-coding-agent": ^1.2.0
-    "@earendil-works/pi-tui": ^1.2.0
-    typebox: "*"
-  bin:
-    octocode-pi-api: ./dist/api/cli.js
   languageName: unknown
   linkType: soft
 
@@ -1401,7 +1362,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:*, @types/node@npm:>=13.7.0":
+"@types/node@npm:>=13.7.0":
   version: 26.6.4
   resolution: "@types/node@npm:26.6.4"
   dependencies:
@@ -1716,20 +1677,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"chrome-launcher@npm:^1.2.2":
-  version: 1.2.2
-  resolution: "chrome-launcher@npm:1.2.2"
-  dependencies:
-    "@types/node": "npm:*"
-    escape-string-regexp: "npm:^4.0.0"
-    is-wsl: "npm:^2.2.0"
-    lighthouse-logger: "npm:^2.0.1"
-  bin:
-    print-chrome-path: bin/print-chrome-path.cjs
-  checksum: 10c0/82a49db9223fa36826d408762b32174ac3b41fa3dc7cdde6b7526fe23ae7c86dd7a40e25cf124b65e513bb5f45fe3afb85a4c049219cb8d9e789dc2a54ef46e7
-  languageName: node
-  linkType: hard
-
 "cross-spawn@npm:7.0.6, cross-spawn@npm:^7.0.5":
   version: 7.0.6
   resolution: "cross-spawn@npm:7.0.6"
@@ -1748,7 +1695,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"debug@npm:4, debug@npm:^4.3.4, debug@npm:^4.4.1":
+"debug@npm:4, debug@npm:^4.3.4":
   version: 4.4.3
   resolution: "debug@npm:4.4.3"
   dependencies:
@@ -1883,13 +1830,6 @@ __metadata:
   bin:
     esbuild: bin/esbuild
   checksum: 10c0/9b19edb63bd7780fd2e8e65a1394a0e8a05a17d697f73f0647ffe3c134709d8dbe744ab3fd57b35c9470db268cae7678fafd3dcd3ce1f34fc590568c2433f5d2
-  languageName: node
-  linkType: hard
-
-"escape-string-regexp@npm:^4.0.0":
-  version: 4.0.0
-  resolution: "escape-string-regexp@npm:4.0.0"
-  checksum: 10c0/9497d4dd307d845bd7f75180d8188bb17ea8c151c1edbf6b6717c100e104d629dc2dfb687686181b0f4b7d732c7dfdc4d5e7a8ff72de1b0ca283a75bbb3a9cd9
   languageName: node
   linkType: hard
 
@@ -2136,24 +2076,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"is-docker@npm:^2.0.0":
-  version: 2.2.1
-  resolution: "is-docker@npm:2.2.1"
-  bin:
-    is-docker: cli.js
-  checksum: 10c0/e828365958d155f90c409cdbe958f64051d99e8aedc2c8c4cd7c89dcf35329daed42f7b99346f7828df013e27deb8f721cf9408ba878c76eb9e8290235fbcdcc
-  languageName: node
-  linkType: hard
-
-"is-wsl@npm:^2.2.0":
-  version: 2.2.0
-  resolution: "is-wsl@npm:2.2.0"
-  dependencies:
-    is-docker: "npm:^2.0.0"
-  checksum: 10c0/a6fa2d370d21be487c0165c7a440d567274fbba1a817f2f0bfa41cc5e3af25041d84267baa22df66696956038a43973e72fca117918c91431920bdef490fa25e
-  languageName: node
-  linkType: hard
-
 "isexe@npm:^2.0.0":
   version: 2.0.0
   resolution: "isexe@npm:2.0.0"
@@ -2275,16 +2197,6 @@ __metadata:
     jwa: "npm:^2.0.1"
     safe-buffer: "npm:^5.0.1"
   checksum: 10c0/6be1ed93023aef570ccc5ea8d162b065840f3ef12f0d1bb3114cade844de7a357d5dc558201d9a65101e70885a6fa56b17462f520e6b0d426195510618a154d0
-  languageName: node
-  linkType: hard
-
-"lighthouse-logger@npm:^2.0.1":
-  version: 2.0.2
-  resolution: "lighthouse-logger@npm:2.0.2"
-  dependencies:
-    debug: "npm:^4.4.1"
-    marky: "npm:^1.2.2"
-  checksum: 10c0/bbce3939a0359d5f1f84b7cc623f1ee3daf5a28e55b7b9bf7d461d906121e64fa6de290c53bd6bdd6068a67442fa39a7deb6f61da2e0e1721c39ec4cc80876b8
   languageName: node
   linkType: hard
 
@@ -2458,13 +2370,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"marky@npm:^1.2.2":
-  version: 1.3.0
-  resolution: "marky@npm:1.3.0"
-  checksum: 10c0/6619cdb132fdc4f7cd3e2bed6eebf81a38e50ff4b426bbfb354db68731e4adfebf35ebfd7c8e5a6e846cbf9b872588c4f76db25782caee8c1529ec9d483bf98b
-  languageName: node
-  linkType: hard
-
 "minimatch@npm:10.2.6":
   version: 10.2.6
   resolution: "minimatch@npm:10.2.6"
@@ -2601,7 +2506,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"octocode-mcp@workspace:*, octocode-mcp@workspace:packages/octocode-mcp":
+"octocode-mcp@workspace:packages/octocode-mcp":
   version: 0.0.0-use.local
   resolution: "octocode-mcp@workspace:packages/octocode-mcp"
   dependencies:
@@ -3157,13 +3062,6 @@ __metadata:
   version: 1.3.27
   resolution: "typebox@npm:1.3.27"
   checksum: 10c0/dc4d47e964ca87b243454156a48a7a12a89836c4ab93c8ae9f72220a0d9dd9634952a9f9c7f669d198e160760668c62bbcf6ef5d16a9ec4135daaee64e101cc1
-  languageName: node
-  linkType: hard
-
-"typebox@npm:^1.3.37":
-  version: 1.3.37
-  resolution: "typebox@npm:1.3.37"
-  checksum: 10c0/b688cbab438e28712e9f21991d47832361d9779137edea05422f608c0b5ea8f0956ad0343f1f08be566e6fa79148b7a70dd8842307d6233b8eb24e51d2240f50
   languageName: node
   linkType: hard
 

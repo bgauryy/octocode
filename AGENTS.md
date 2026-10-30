@@ -3,7 +3,7 @@
 Octocode gives AI agents and developers evidence-first code research: search, exact reads, AST
 and LSP navigation, GitHub history, and package lookup over local code, GitHub, and package
 registries. One Rust engine runs every tool; an MCP server and the `octocode` CLI expose it.
-Editor and agent integrations (VS Code, Claude Code, Codex, Pi) install and configure it.
+Editor and agent integrations (VS Code, Claude Code, Codex) install and configure it.
 
 Each package's `README.md`, `ARCHITECTURE.md` and `docs/` own its details;
 [docs/README.md](docs/README.md) indexes the user docs, one owner doc per topic. Load the
@@ -59,7 +59,6 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
 | `packages/octocode-vscode` | `octocode-mcp-vscode` | VS Code extension: GitHub sign-in, token sync, MCP install across editors. Runs no research tools |
 | `packages/octocode-claude-plugin` | `@octocodeai/claude-plugin` | Claude Code plugin: MCP launch config, public skills, onboarding |
 | `packages/octocode-codex-plugin` | `@octocodeai/codex-plugin` | Codex plugin: MCP launch config, public skills, onboarding |
-| `packages/octocode-pi-extension` | `@octocodeai/pi-extension` | Pi coding-agent extension: guarded file tools, Octocode MCP, skills, subagents, web and browser tools |
 | `packages/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` | MCP server and CLI for cross-agent coordination: session identity, path leases, messages |
 | `packages/octocode-chrome-devtools` | `@octocodeai/octocode-chrome-devtools` | Chrome DevTools MCP server and CLI for live-browser work |
 | `packages/octocode-mcp-cli` | `octocode-mcp-cli` (private) | Library that maps MCP tools and instructions to a Zod CLI and back |
@@ -146,7 +145,7 @@ slot you have not verified.
 
 Publishing is owner-triggered and never runs from CI or an agent session. One release line ships
 at one version: the native platform packages, `octocode-mcp` and `octocode`. Core publishes first at its own version; the Claude and Codex plugins, Homebrew
-formula and VS Code extension follow. The Pi extension, agents-communication and Chrome DevTools
+formula and VS Code extension follow. Agents-communication and Chrome DevTools
 packages have their own cadence. Details: [release guide](skills-dev/octocode-dev/docs/RELEASE.md).
 
 ## Environment

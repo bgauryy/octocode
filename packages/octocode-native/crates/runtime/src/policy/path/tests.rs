@@ -1,5 +1,6 @@
 use super::*;
 
+mod credential_directories;
 mod denials;
 
 /// Callers own cleanup.

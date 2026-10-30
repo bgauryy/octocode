@@ -24,7 +24,6 @@ flowchart LR
   r4 --> r6["6 Claude plugin"]
   r4 --> r7["7 Homebrew"]
   r4 --> r8["8 VS Code extension"]
-  r3 -.-> pi["Pi extension: after row 3"]
 ```
 
 Each row depends on the rows above it existing on npm.
@@ -35,7 +34,6 @@ Row 7 has not shipped yet: the tap still serves the old Node-based 2.0.0 formula
 
 | Package | Channel | Note |
 |---|---|---|
-| `@octocodeai/pi-extension` | npm | Own version; depends on `octocode-mcp` at a floor (`^<v>`, in `package.json` and `src/mcp/octocode.ts`), so it never runs an older server. Publish it after row 3: `node skills-dev/octocode-dev/scripts/prepublish.mjs --package @octocodeai/pi-extension` fails until `npm view octocode-mcp@<workspace version> version` succeeds. Raise the floor when the extension needs a newer server |
 | `@octocodeai/octocode-agents-communication` | npm | Own version |
 | `@octocodeai/octocode-chrome-devtools` | npm | Own version; bundles `@octocodeai/config` and `octocode-mcp-cli`. Check with `yarn workspace @octocodeai/octocode-chrome-devtools verify` |
 

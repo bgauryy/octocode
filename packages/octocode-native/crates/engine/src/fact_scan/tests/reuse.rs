@@ -74,7 +74,7 @@ fn prior_schema_facts_cannot_be_reused_for_unchanged_bytes() {
     let source = "class C { C(){ super(); } }";
     fs::write(fixture.path().join(path), source).unwrap();
     let expected = persisted(source, path);
-    assert_eq!(expected.facts.schema_version, 12);
+    assert_eq!(expected.facts.schema_version, 13);
     assert_eq!(expected.facts.calls.len(), 1);
     let mut old = expected.clone();
     old.facts.schema_version = 4;

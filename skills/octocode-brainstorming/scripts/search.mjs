@@ -173,9 +173,24 @@ export async function search(opts, env = process.env) {
     if (out.costDollars != null) p.costDollars = Number(((p.costDollars || 0) + out.costDollars).toFixed(4));
     mergeRows(merged, out);
   }
-  for (const p of Object.values(providers)) if (p.status === 'ok' && p.errors && !p.results) p.status = 'error';
+  for (const [name, p] of Object.entries(providers)) {
+    if (p.status !== 'ok' || !p.errors || p.results) continue;
+    // 401 and 403 on every query: the stored key is wrong or revoked, not the query. Name the fix.
+    const rejected = p.errors.every((e) => /^HTTP 40[13]\b/.test(e.message));
+    p.status = rejected ? 'keyRejected' : 'error';
+    if (rejected) p.fix = `renew ${PROVIDERS[name].env}: npx -y octocode config set ${PROVIDERS[name].env} --stdin (paste the new key), then rerun`;
+  }
   const results = [...merged.values()].toSorted((a, b) => score(b) - score(a));
   return { providers, results };
+}
+
+/** The error for a run with no result: all keys rejected is a setup problem, not a query problem. */
+export function noResultError(providers) {
+  const ran = Object.values(providers).filter((p) => p.status !== 'skipped');
+  if (ran.length && ran.every((p) => p.status === 'keyRejected')) {
+    return { code: 'keysRejected', message: `every configured provider rejected its key (${Object.entries(providers).filter(([, p]) => p.status === 'keyRejected').map(([n]) => n).join(', ')}); renew them with the per-provider fix, and meanwhile use the host's web search and fetch tools` };
+  }
+  return { code: 'noResults', message: 'no provider returned a result; reword the query, change --kind, or drop filters' };
 }
 
 if (isMainModule(import.meta.url)) {
@@ -192,7 +207,7 @@ if (isMainModule(import.meta.url)) {
     providers,
     totalResults: results.length,
     results,
-    ...(ok ? {} : { error: { code: 'noResults', message: 'no provider returned a result; reword the query, change --kind, or drop filters' } }),
+    ...(ok ? {} : { error: noResultError(providers) }),
   }, null, 2));
   process.exit(ok ? 0 : 1);
 }

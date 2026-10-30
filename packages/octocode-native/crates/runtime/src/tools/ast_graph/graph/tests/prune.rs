@@ -5,6 +5,56 @@
 use super::fixture_graph;
 use std::collections::BTreeSet;
 
+#[test]
+fn graph_discloses_withheld_subtrees_without_guessing_their_file_count() {
+    let root = crate::tools::test_support::Fixture::new();
+    root.write("src/main.ts", "export const visible = 1;\n");
+    root.write("src/.aws/not-disclosed.ts", "export const hidden = 1;\n");
+    let built = fixture_graph(&root.0, &[]);
+    assert_eq!(built.facts.len(), 1);
+    let diagnostic = built
+        .diagnostics
+        .iter()
+        .find(|diag| diag.code.as_str() == "path-policy-withheld")
+        .expect("the withheld subtree is a disclosed coverage gap");
+    assert_eq!(diagnostic.file, ".");
+    assert!(diagnostic.message.contains(".aws/"), "{diagnostic:?}");
+    assert!(diagnostic.message.contains("unproven"), "{diagnostic:?}");
+    assert!(!diagnostic.message.contains("not-disclosed.ts"));
+    assert_eq!(
+        built.files_skipped, 0,
+        "the withheld directory's file count is unknown"
+    );
+}
+
+#[test]
+fn credential_named_source_directories_are_scanned_and_linked() {
+    for name in ["credentials", "source.pem", "source.key", "id_rsa.old"] {
+        let root = crate::tools::test_support::Fixture::new();
+        let source = format!("src/{name}/hasher.ts");
+        root.write(&source, "export function hashPassword() { return 42; }\n");
+        root.write("src/main.ts", format!("import {{ hashPassword }} from './{name}/hasher';\nexport const hash = hashPassword();\n"));
+        let built = fixture_graph(&root.0, &[]);
+        assert!(
+            built.facts.contains_key(&source),
+            "{name}: {:?}",
+            built.facts.keys()
+        );
+        assert_eq!(built.facts.len(), 2, "{name}");
+        assert_eq!(
+            built.imports[super::super::super::types::ImportOutcome::Resolved as usize],
+            1,
+            "{name}: {:?}",
+            built.diagnostics
+        );
+        assert!(
+            built.diagnostics.is_empty(),
+            "{name}: {:?}",
+            built.diagnostics
+        );
+    }
+}
+
 /// A tree with source in `src/`, `build/` and `node_modules/`; with `git`, a
 /// work tree that ignores `node_modules/` only (so `build/` is git's own).
 fn tree(git: bool) -> crate::tools::test_support::Fixture {

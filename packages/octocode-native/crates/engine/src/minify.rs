@@ -6,3 +6,6 @@ pub(crate) mod strategies;
 
 #[cfg(test)]
 mod coverage_tests;
+
+#[cfg(test)]
+mod literal_tests;

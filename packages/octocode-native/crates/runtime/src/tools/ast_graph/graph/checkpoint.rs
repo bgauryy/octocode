@@ -242,32 +242,11 @@ impl Job<'_> {
     }
 }
 
-/// Removes a job once its graph is published: a completed job is never
-/// resumed, so its artifacts would only hold disk until the next build of
-/// the same root. Warm rebuilds reuse the disposable fact cache instead.
-pub(in crate::tools::ast_graph) fn retire(path: &Path) -> Result<(), ToolError> {
-    match std::fs::remove_dir_all(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(failure(format!("cannot remove graph checkpoint: {error}"))),
-    }
-}
-
-/// Removes jobs an earlier build marked complete (before jobs were retired
-/// on publication); unfinished jobs stay resumable.
-pub(in crate::tools::ast_graph) fn remove_completed(jobs: &Path) {
-    let Ok(entries) = std::fs::read_dir(jobs) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let dir = entry.path();
-        let real_dir = std::fs::symlink_metadata(&dir).is_ok_and(|metadata| metadata.is_dir());
-        if real_dir
-            && Manifest::read(&dir).is_some_and(|manifest| manifest.stage == Stage::Complete)
-        {
-            let _ = std::fs::remove_dir_all(&dir);
-        }
-    }
+/// Marks a published job complete, retaining its verified artifacts for reuse.
+pub(in crate::tools::ast_graph) fn complete(path: &Path) -> Result<(), ToolError> {
+    let manifest = Manifest::read(path)
+        .ok_or_else(|| failure("cannot read graph checkpoint manifest for completion"))?;
+    manifest.write(path, Stage::Complete)
 }
 
 fn failure(message: impl Into<String>) -> ToolError {
