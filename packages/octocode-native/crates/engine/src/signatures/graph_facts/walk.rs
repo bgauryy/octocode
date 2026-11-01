@@ -155,6 +155,10 @@ pub(super) fn visit_node(
             && let Some(call) = acc.calls.last_mut()
         {
             call.receiver_type = receivers.receiver_type(node, &path, content);
+            if rust {
+                let typed = call.receiver_type.is_some();
+                call.receiver_call = receivers.rust_receiver_call(node, &path, typed, content);
+            }
         }
         #[cfg(feature = "tree-sitter-scala")]
         if acc.calls.len() > calls_before

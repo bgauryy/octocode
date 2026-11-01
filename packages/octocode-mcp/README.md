@@ -9,13 +9,15 @@ Without Node, run `octocode mcp` directly.
 
 ## Requirements
 
-- Node.js `^24.15.0`
+- Node.js `>=22` for this npm launcher
 - An MCP client with stdio server support
+
+The standalone native `octocode mcp` command does not require Node.js.
 
 ## Run
 
 ```bash
-npx octocode-mcp
+npx -y octocode-mcp
 ```
 
 For guided installation into a supported client, use the CLI:
@@ -24,10 +26,12 @@ For guided installation into a supported client, use the CLI:
 npx octocode install
 ```
 
-The server registers the available GitHub, package, local, AST, and LSP tools;
-CLI-only and gated tools stay out of `tools/list`
-([tool catalog](../../docs/OCTOCODE_MCP.md#tool-catalog)). GitHub tools need a
-token ([authentication](../../docs/AUTHENTICATION.md)).
+The server registers the configured tool set in `tools/list`. Start with
+[Configuration](../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp)
+for the default catalog, graph/clone/classification opt-ins, and tool filters.
+The [MCP guide](../../docs/OCTOCODE_MCP.md) covers client setup and protocol
+behavior. Credentials and provider readiness are execution requirements;
+see [authentication](../../docs/AUTHENTICATION.md).
 
 ## Distribution
 

@@ -44,7 +44,7 @@ fn detail_adds(detail: &str, node: &Value) -> bool {
         .unwrap_or_default();
     let kind = node.get("kind").and_then(Value::as_str).unwrap_or_default();
     detail
-        .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+        .split(|c: char| !octocode_engine::text::is_ident_char(c))
         .filter(|token| !token.is_empty())
         .any(|token| token != name && token != kind && !DETAIL_KEYWORDS.contains(&token))
 }

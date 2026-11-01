@@ -1,9 +1,8 @@
-//! Tree materialization and the CLI-only clone tool through the runtime.
+//! Tree materialization and the opt-in MCP clone tool through the runtime.
 
 use crate::support::{self, Run as _};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use octocode_contract_types::ErrorCode;
 use serde_json::json;
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, path_regex, query_param};
@@ -187,34 +186,60 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
 }
 
 #[tokio::test]
-async fn github_clone_is_cli_only() {
-    let workspace = Workspace::new();
-    let cli = workspace.runtime(&[]);
-    assert!(cli.is_available("ghCloneRepo"));
-    let mcp_call = cli
-        .run_mcp(
-            "mcp-clone".into(),
-            "ghCloneRepo".into(),
-            json!({"queries":[{"owner":"a","repo":"b"}]}),
-        )
-        .await
-        .expect("MCP answers a refused call as a tool error");
-    assert_eq!(mcp_call["isError"], true, "{mcp_call}");
-    assert_eq!(
-        mcp_call["structuredContent"]["errorCode"], "toolUnavailable",
-        "MCP channel cannot clone through a CLI runtime: {mcp_call}"
+async fn clone_mcp_opt_in_is_independent_of_storage_and_cli_host() {
+    let server = MockServer::start().await;
+    for surface in [
+        octocode_native::config::RuntimeSurface::Cli,
+        octocode_native::config::RuntimeSurface::Mcp,
+    ] {
+        for enabled in ["false", "true"] {
+            let workspace = Workspace::new();
+            let mut input = workspace.config(&[
+                ("OCTOCODE_ENABLE_CLONE", enabled.into()),
+                ("OCTOCODE_STORAGE_MODE", "memory".into()),
+                ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+            ]);
+            input.runtime_surface = surface;
+            let runtime = octocode_native::runtime::ToolRuntime::with_limits(
+                input,
+                crate::support::FIXTURE_LIMITS,
+            )
+            .expect("runtime");
+            assert_eq!(
+                runtime.is_available("ghCloneRepo"),
+                surface == octocode_native::config::RuntimeSurface::Cli || enabled == "true"
+            );
+            let result = runtime
+                .run_mcp(
+                    "mcp-clone".into(),
+                    "ghCloneRepo".into(),
+                    json!({"queries":[{"owner":"a","repo":"b"}]}),
+                )
+                .await
+                .expect("MCP response");
+            if enabled == "false" {
+                assert_eq!(
+                    result["structuredContent"]["errorCode"], "toolUnavailable",
+                    "{result}"
+                );
+                assert!(
+                    result.to_string().contains("OCTOCODE_ENABLE_CLONE"),
+                    "{result}"
+                );
+            } else {
+                assert_eq!(result["isError"], true, "{result}");
+                assert_eq!(
+                    result["structuredContent"]["errorCode"], "persistentStorageDisabled",
+                    "{result}"
+                );
+                assert!(result.to_string().contains("persistent"), "{result}");
+                assert!(!result.to_string().contains("toolUnavailable"), "{result}");
+            }
+            runtime.close().await;
+        }
+    }
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "storage prerequisite precedes GitHub work"
     );
-    cli.close().await;
-
-    let mut input = workspace.config(&[]);
-    input.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;
-    let mcp =
-        octocode_native::runtime::ToolRuntime::with_limits(input, crate::support::FIXTURE_LIMITS)
-            .expect("MCP runtime");
-    assert!(!mcp.is_available("ghCloneRepo"));
-    let error = call(&mcp, "ghCloneRepo", json!({"owner":"a","repo":"b"}))
-        .await
-        .expect_err("clone disabled for MCP");
-    assert_eq!(error.code, ErrorCode::ToolUnavailable);
-    mcp.close().await;
 }

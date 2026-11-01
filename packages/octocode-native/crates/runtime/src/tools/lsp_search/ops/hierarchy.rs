@@ -61,7 +61,7 @@ impl Operation<'_, '_> {
             .run(
                 anchor,
                 expansion,
-                lsp_search_query::graph_depth(query).unwrap_or(1),
+                lsp_search_query::depth(query).unwrap_or(1),
                 candidates
                     .as_mut()
                     .map(|window| std::mem::take(&mut window.items)),
@@ -109,22 +109,6 @@ impl Operation<'_, '_> {
             && window.has_more
         {
             mark_more_candidates(&mut row, query, &window.digest);
-        }
-        if source.candidate_limited() {
-            crate::response::paging::terminal_limit(
-                &mut row,
-                "hierarchyCandidateLimit",
-                &[format!(
-                    "Only the first {} implementation candidates per type were checked for immediate heritage; narrow the scope or inspect the remaining candidates with implementation.",
-                    super::super::walk::MAX_HIERARCHY_NODES
-                )],
-            );
-            if let Some(name) = lsp_search_query::symbol_name(query) {
-                crate::response::result::attach_related(
-                    &mut row,
-                    text_search_lead(name, &self.scope.root, &self.scope.include, None).build(),
-                );
-            }
         }
         Ok(row)
     }
@@ -324,6 +308,7 @@ impl Operation<'_, '_> {
         let (mut row, importers) =
             hierarchy(self.client, self.sources, self.cancel, request).await?;
         if let Some(importers) = &importers {
+            self.check_code_uses().await?;
             importers.annotate(&mut row, query, self.scope);
             // A deeper walk follows the last importer window, not a page
             // that still has windows to verify.

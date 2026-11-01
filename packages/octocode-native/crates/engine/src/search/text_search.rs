@@ -55,8 +55,6 @@ pub trait TextSearchPathFilter: Send + Sync {
     fn skipped_symlink(&self, _path: &Path) {}
 }
 
-const DEFAULT_MAX_SNIPPET_CHARS: u32 = 500;
-
 /// Default per-file byte ceiling for the search path. A file larger than this is
 /// skipped before it is opened/searched, so a pathological multi-GB (often
 /// single-line, minified/generated) file cannot force a giant line buffer plus a
@@ -112,7 +110,8 @@ fn search_with_limits(
             .dotall(dotall)
             .crlf(true);
         let matcher = b.build(&opts.pattern).map_err(to_engine_err)?;
-        return search_pcre2(opts, mode, matcher, path_filter, cancelled, limits);
+        let terms = mode::term_matchers(&opts, mode, |term| b.build(term).map_err(to_engine_err))?;
+        return search_pcre2(opts, mode, (matcher, terms), path_filter, cancelled, limits);
     }
 
     // ── Default Rust-regex path ─────────────────────────────────────────────────
@@ -137,18 +136,23 @@ fn search_with_limits(
         b.crlf(true);
         b.line_terminator(Some(b'\n'));
     }
-    let pattern = if opts.syntax == PatternSyntax::Literal {
-        regex::escape(&opts.pattern)
-    } else {
-        opts.pattern.clone()
+    let spelled = |pattern: &str| {
+        if opts.syntax == PatternSyntax::Literal {
+            regex::escape(pattern)
+        } else {
+            pattern.to_owned()
+        }
     };
-    let matcher = b.build(&pattern).map_err(to_engine_err)?;
+    let matcher = b.build(&spelled(&opts.pattern)).map_err(to_engine_err)?;
+    let terms = mode::term_matchers(&opts, mode, |term| {
+        b.build(&spelled(term)).map_err(to_engine_err)
+    })?;
     // The Rust regex engine is linear-time and cannot catastrophically
     // backtrack, so it needs no wall-clock deadline.
     let state = CollectState::new();
     collect(
         &opts,
-        &matcher,
+        (&matcher, &terms),
         mode,
         path_filter,
         &state,

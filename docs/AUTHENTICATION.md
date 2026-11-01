@@ -114,15 +114,15 @@ npx octocode auth login --hostname github.mycompany.com
 
 ## Classification key (`clasify`)
 
-The classification key enables read-tool `classification`; the `clasify` tool also needs a successful provider ping ([availability](OCTOCODE_CLASIFY.md#availability)). Get a key from the [provider docs](https://docs.typesafe.ai/introduction); what is sent: [SECURITY.md](SECURITY.md#classification-egress).
+The classification key authorizes inline `classification` and `clasify` requests. [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) owns CLI/MCP exposure and setup; provider readiness is checked when a request runs. Get a key from the [provider docs](https://docs.typesafe.ai/introduction); what is sent: [SECURITY.md](SECURITY.md#classification-egress).
 
 | Variable | Purpose |
 |---|---|
 | `OCTOCODE_CLASSIFICATION_API` | Provider API key (bearer) |
 | `OCTOCODE_CLASSIFICATION_API_HOST` | Optional API root (default `https://api.typesafe.ai`). HTTPS except on loopback. Home-only |
 
-- Source order: process env → workspace `.env` → home `.env` → `.octocoderc` (`classification.api`). The key never appears in resolved configuration output.
-- **Kill switch:** a present-but-blank `OCTOCODE_CLASSIFICATION_API=` in the process environment disables both routes, even when a `.env` file has a key.
+- The key follows [configuration precedence](CONFIGURATION.md#how-settings-override-each-other), with `classification.api` as its settings-file fallback. It never appears in resolved configuration output.
+- A present-but-blank `OCTOCODE_CLASSIFICATION_API=` in the process environment disables classification requests, even when a file has a key. It hides `clasify` from MCP; the CLI command stays listed and reports the missing credential when invoked.
 
 ## npm registry credentials
 
@@ -143,5 +143,6 @@ The classification key enables read-tool `classification`; the `clasify` tool al
 | `login requires an interactive terminal` | Use a token variable in CI and scripts |
 | Enterprise login or refresh rejected | Set `OCTOCODE_GITHUB_CLIENT_ID` for that host and `GITHUB_API_URL` in the shell or home config |
 | Enterprise requests hit github.com | `GITHUB_API_URL` was set in a workspace file (ignored); set it in the shell or home config |
-| `clasify` missing | Set a nonblank `OCTOCODE_CLASSIFICATION_API` and verify the provider ping succeeds; see the [availability table](OCTOCODE_CLASIFY.md#availability) |
+| `clasify` missing from MCP | Set a nonblank `OCTOCODE_CLASSIFICATION_API`, check the [MCP availability controls](CONFIGURATION.md#tool-availability-cli-and-mcp), and restart the server. |
+| Classification call fails | Check the credential and returned provider error; CLI visibility and MCP key configuration do not prove provider readiness. |
 | Private npm package not found | Put a registry-scoped `_authToken` in your user npmrc and pass that `registryUrl` in the query |

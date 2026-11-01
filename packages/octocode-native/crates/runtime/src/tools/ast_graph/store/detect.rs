@@ -1,4 +1,4 @@
-//! `graph query issues`: graph-algorithm detectors that rank *possible*
+//! graphQuery `issues`: graph-algorithm detectors that rank *possible*
 //! problems. Every finding is a hypothesis carrying its evidence, the
 //! false-positive controls applied, and commands that verify it.
 //!
@@ -6,15 +6,15 @@
 //! - **Liveness is optimistic.** Any production edge (a low-confidence call, a
 //!   dynamic or type-only import) keeps a node alive for dead-code detectors.
 //! - **Violations are pessimistic.** Only runtime import edges between
-//!   authored files count as evidence for cycles, hubs, and layering.
+//!   authored files count as evidence for cycles, centrality, and layering.
 //!
 //! Test code (test files, Rust `#[cfg(test)]` items and the modules they
 //! mount) is never production evidence: its edges carry `test`.
 //!
 //! A Rust module tree is one unit: `use` edges between a module and the
 //! modules declared below it ([`rust_lineage`]) are left out of the file
-//! view and the cycle graph, so a parent with children is no hub, no cycle
-//! and no misplaced file by construction.
+//! view and the cycle graph, so a parent with children is no cycle and no
+//! single point of failure by construction.
 //!
 //! Generated, bundled, vendored, and declaration files are never subjects.
 use super::super::classify::{
@@ -26,9 +26,10 @@ use super::format::{
 use super::tables::MODULE_DETAIL;
 use crate::tools::ast_graph::algorithms::Cycles;
 use crate::tools::ast_graph::edges::{Load, RUST_MODULE, load};
-use crate::tools::ast_graph::graph::{OUTSIDE_ROOT, dirname, rust_module_child_dir};
+use crate::tools::ast_graph::graph::{OUTSIDE_ROOT, rust_module_child_dir};
+use crate::tools::ast_graph::paths::dirname;
+use crate::id::ToolId;
 use crate::tools::ast_graph::types::DiagnosticCode;
-use octocode_io::shell::quote;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -55,7 +56,7 @@ use reach::*;
 use view::*;
 
 /// Every detector, in run order: a timing label, the detector names it
-/// reports, and the step. The one list `--detectors` is checked against.
+/// reports, and the step. The one list `detectors` is checked against.
 const STEPS: &[DetectorStep] = &[
     ("cycle", &["cycle"], detect_cycles),
     ("dir-cycle", &["dir-cycle"], detect_dir_cycles),
@@ -71,7 +72,7 @@ const STEPS: &[DetectorStep] = &[
     ),
     (
         "dependencies",
-        &["undeclared-dependency", "dev-dependency-in-production"],
+        &["undeclared-dependency"],
         detect_dependencies,
     ),
     (
@@ -84,7 +85,6 @@ const STEPS: &[DetectorStep] = &[
         &["unresolved-import"],
         detect_unresolved,
     ),
-    ("god-file", &["god-file"], detect_hubs),
     ("critical-file", &["critical-file"], detect_critical),
     (
         "single-point-of-failure",
@@ -96,8 +96,12 @@ const STEPS: &[DetectorStep] = &[
         &["unstable-dependency", "main-sequence"],
         detect_components,
     ),
-    ("misplaced-file", &["misplaced-file"], detect_misplaced),
 ];
+
+/// Every detector name, in run order: the graphQuery `detectors` choices.
+pub(crate) fn detector_names() -> impl Iterator<Item = &'static str> {
+    STEPS.iter().flat_map(|(_, names, _)| names.iter().copied())
+}
 
 /// Languages whose named imports link to declarations, so an export no
 /// importer names can be judged unused. Rust, Go, Java and C items are
@@ -118,6 +122,13 @@ const PACKAGE_SCOPED: &[&str] = &["go", "java", "scala", "csharp"];
 /// that declare a contract, not an implementation.
 const ABSTRACT_KINDS: &[&str] = &["interface", "trait", "type"];
 
+/// A step that checks a finding: one call of `tool` with `row`.
+#[derive(Clone, Debug)]
+pub(crate) struct VerifyStep {
+    pub tool: ToolId,
+    pub row: Value,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Finding {
     pub detector: &'static str,
@@ -131,7 +142,7 @@ pub(crate) struct Finding {
     pub score: f64,
     pub evidence: Value,
     pub controls: Vec<&'static str>,
-    pub verify: Vec<String>,
+    pub verify: Vec<VerifyStep>,
     pub corroborated_by: Vec<&'static str>,
     /// vulture-style certainty: 100 nothing references it anywhere, 90 no
     /// graph or code reference (bare prose words go to
@@ -161,9 +172,6 @@ impl Finding {
         }
         if !self.corroborated_by.is_empty() {
             out["corroboratedBy"] = json!(self.corroborated_by);
-        }
-        if !self.verify.is_empty() {
-            out["verify"] = json!(self.verify);
         }
         out
     }
@@ -197,12 +205,11 @@ pub(crate) fn run(
     root: Option<&std::path::Path>,
     entries: Option<&[String]>,
 ) -> Result<Report, String> {
-    let names = || STEPS.iter().flat_map(|(_, names, _)| names.iter().copied());
     for name in only {
-        if !names().any(|known| known == name) {
+        if !detector_names().any(|known| known == name) {
             return Err(format!(
                 "unknown detector {name:?}; expected one of: {}",
-                names().collect::<Vec<_>>().join(", ")
+                detector_names().collect::<Vec<_>>().join(", ")
             ));
         }
     }
@@ -217,14 +224,20 @@ pub(crate) fn run(
         if detectors.iter().any(|d| wants(d)) {
             let started = std::time::Instant::now();
             step(&mut c);
-            timings.insert(label, started.elapsed().as_millis() as u64);
+            timings.insert(label, crate::num::millis_of(started.elapsed()));
         }
     }
-    c.findings.retain(|f| wants(f.detector));
+    // Liveness spreads from mentioned `unreachable-file` subjects, so
+    // `test-only` keeps those findings through the mention scan.
+    let spread = root.is_some() && wants("test-only");
+    c.findings
+        .retain(|f| wants(f.detector) || (spread && f.detector == "unreachable-file"));
     if let Some(root) = root {
         let started = std::time::Instant::now();
         tier_dead_code(&mut c.findings, root, &mut c.notes);
-        timings.insert("mention-scan", started.elapsed().as_millis() as u64);
+        spread_mentioned_liveness(&c.v, &mut c.findings);
+        c.findings.retain(|f| wants(f.detector));
+        timings.insert("mention-scan", crate::num::millis_of(started.elapsed()));
     } else if c
         .findings
         .iter()
@@ -263,9 +276,9 @@ pub(crate) fn run(
     }
     let health_started = std::time::Instant::now();
     let health = health(&c.v);
-    timings.insert("health", health_started.elapsed().as_millis() as u64);
+    timings.insert("health", crate::num::millis_of(health_started.elapsed()));
+    // The finding count is the page's totalItems plus summary.hiddenBelowTier.
     let summary = json!({
-        "findings": merged.len(),
         "byDetector": by_detector,
         "entrypoints": {"total": c.v.entries.len(), "byRule": entries},
         "fileRoles": roles,

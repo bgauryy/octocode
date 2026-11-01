@@ -61,7 +61,7 @@ fn run_syntax(
     // Node rows expose grammar labels and coordinates, never source text.
     // Redacting before parsing would move those coordinates and hide source edits.
     let cancelled = || cancel.check().is_err();
-    let mut maps = super::source::mapping_budget(&cancelled);
+    let mut maps = super::source::mapping_budget(cancel, &cancelled);
     let admitted = super::source::admitted(&p.canonical, &bytes, &mut maps)?;
     let content = admitted.text();
     let source_snapshot = crate::digest::json_sha256(&json!([
@@ -86,10 +86,7 @@ fn run_syntax(
             ast_search_query_syntax_tree::language(q).as_deref(),
         ),
     };
-    let budget = crate::response::page_windows::page_budget(
-        response_window,
-        &crate::response::result::query_value(q),
-    );
+    let budget = crate::response::page_windows::page_budget(response_window);
     let page = read_page(q, &source, budget, &source_snapshot, &mut maps, cancel)?;
     let snapshot = view_snapshot(&source_snapshot, &page.r);
     // A page without a snapshot pins nothing: it pages the current tree, as
@@ -328,11 +325,12 @@ fn append_observed_window(
     expected: u32,
 ) -> Result<(), ToolError> {
     if rest.nodes.len() != usize_of(expected)
-        || rest
-            .nodes
-            .iter()
-            .enumerate()
-            .any(|(index, node)| node.id != start + index as u32)
+        || rest.nodes.iter().enumerate().any(|(index, node)| {
+            u32::try_from(index)
+                .ok()
+                .and_then(|index| start.checked_add(index))
+                != Some(node.id)
+        })
     {
         return Err(ToolError::new(
             ErrorCode::ScopeTooBroad,

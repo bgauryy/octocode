@@ -6,13 +6,12 @@ use super::mode::{
     MatchWork, Mode, alternation_words, identifier_search, lists_match_density, match_work,
     only_matching, ranks_by_relevance,
 };
-use super::result::{compare_recs, preserves_traversal_order};
+use super::result::preserves_traversal_order;
 use super::state::{CollectState, FileRec};
 use super::visit::WalkScope;
 use super::walk_rule::build_walk_builder;
 use super::{
-    DEFAULT_MAX_LINE_SEARCH_FILE_BYTES, DEFAULT_MAX_SEARCH_FILE_BYTES, DEFAULT_MAX_SNIPPET_CHARS,
-    TextSearchPathFilter,
+    DEFAULT_MAX_LINE_SEARCH_FILE_BYTES, DEFAULT_MAX_SEARCH_FILE_BYTES, TextSearchPathFilter,
 };
 use crate::error::Result;
 use crate::search::relevance;
@@ -29,18 +28,9 @@ use std::time::Instant;
 /// into the shared state on drop, after `build_parallel().run()` finishes,
 /// instead of taking a global mutex per matched file. With `eager` set (the
 /// PCRE2 path) every file is merged at once so the driver's snapshot sees it.
-///
-/// Retention is bounded without depending on walk order: under a total
-/// [`compare_recs`] order, the global first `limit` records are the first
-/// `limit` of the union of each worker's first `limit`, so every buffer is
-/// pruned to `limit` whenever it reaches twice that. Traversal order keeps the
-/// first `limit` records pushed by its single worker.
 pub(super) struct WorkerRecs<'a> {
     pub(super) local: Vec<FileRec>,
     pub(super) state: &'a CollectState,
-    pub(super) opts: &'a TextSearchOptions,
-    mode: Mode,
-    limit: Option<usize>,
     eager: bool,
 }
 
@@ -54,10 +44,10 @@ impl WorkerRecs<'_> {
                     .recs
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                retain_into(self.opts, self.mode, self.limit, &mut shared, rec);
+                shared.push(rec);
             }
         } else {
-            retain_into(self.opts, self.mode, self.limit, &mut self.local, rec);
+            self.local.push(rec);
         }
     }
 }
@@ -73,43 +63,9 @@ impl Drop for WorkerRecs<'_> {
                 .recs
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            for rec in self.local.drain(..) {
-                retain_into(self.opts, self.mode, self.limit, &mut shared, rec);
-            }
+            shared.append(&mut self.local);
         }
     }
-}
-
-/// Push `rec` into `buf` while keeping at most `2 * limit` records, pruning to
-/// the first `limit` under the final result order.
-pub(super) fn retain_into(
-    opts: &TextSearchOptions,
-    mode: Mode,
-    limit: Option<usize>,
-    buf: &mut Vec<FileRec>,
-    rec: FileRec,
-) {
-    let Some(limit) = limit else {
-        buf.push(rec);
-        return;
-    };
-    if preserves_traversal_order(opts) {
-        if buf.len() < limit {
-            buf.push(rec);
-        }
-        return;
-    }
-    buf.push(rec);
-    if buf.len() >= limit.saturating_mul(2) {
-        buf.sort_by(|a, b| compare_recs(opts, mode, a, b));
-        buf.truncate(limit);
-    }
-}
-
-pub(super) fn collection_limit(opts: &TextSearchOptions) -> Option<usize> {
-    opts.max_collected_files
-        .map(|n| n as usize)
-        .filter(|n| *n > 0)
 }
 
 /// How a walk is bounded and where finished files go.
@@ -128,7 +84,7 @@ pub(super) struct WalkControl<'a> {
 /// returns true, `state.stop` is raised, or `deadline` passes.
 pub(super) fn collect<M: Matcher + Sync>(
     opts: &TextSearchOptions,
-    matcher: &M,
+    (matcher, terms): (&M, &[M]),
     mode: Mode,
     path_filter: Arc<dyn TextSearchPathFilter>,
     state: &CollectState,
@@ -144,7 +100,6 @@ pub(super) fn collect<M: Matcher + Sync>(
     } else {
         SearchContext::default()
     };
-    let limit = collection_limit(opts);
 
     let max_file_bytes =
         opts.max_file_bytes
@@ -158,10 +113,10 @@ pub(super) fn collect<M: Matcher + Sync>(
     // Traversal ordering is only stable if a single worker drains the walk in a
     // fixed order; the default parallel walk merges worker buffers arbitrarily.
     let (mut walk_builder, rule) = build_walk_builder(opts)?;
+    // Otherwise the walk takes this call's share of the process CPU budget
+    // (`walk_builder`, `search::cpu`).
     if preserves_traversal_order(opts) {
         walk_builder.threads(1);
-    } else if let Some(threads) = opts.walk_threads {
-        walk_builder.threads(threads as usize);
     }
 
     let scope = WalkScope {
@@ -187,9 +142,6 @@ pub(super) fn collect<M: Matcher + Sync>(
         let mut worker_recs = WorkerRecs {
             local: Vec::new(),
             state,
-            opts,
-            mode,
-            limit,
             eager,
         };
         let mut files = FileSearcher {
@@ -200,12 +152,11 @@ pub(super) fn collect<M: Matcher + Sync>(
             context,
             // `mode`/`only_matching` are invariant for the whole search.
             work: MatchWork {
-                deferred_snippet: (opts.values == SourceValues::Deferred
+                deferred_line: opts.values == SourceValues::Deferred
                     && opts.syntax != PatternSyntax::Pcre2
                     && context.is_empty()
                     && !only_matching
-                    && !opts.multiline.unwrap_or(false))
-                .then_some(opts.max_snippet_chars.unwrap_or(DEFAULT_MAX_SNIPPET_CHARS) as usize),
+                    && !opts.multiline.unwrap_or(false),
                 weigh_lines: ranks_by_relevance(opts)
                     && lists_match_density(mode)
                     && !opts.invert_match.unwrap_or(false),
@@ -216,6 +167,7 @@ pub(super) fn collect<M: Matcher + Sync>(
             keep_head: ranks_by_relevance(opts),
             copy: scope.file_terms.is_some(),
             words: scope.words.as_ref(),
+            terms,
         };
 
         move |dent| scope.visit(dent, &*path_filter, &mut files, &mut worker_recs)

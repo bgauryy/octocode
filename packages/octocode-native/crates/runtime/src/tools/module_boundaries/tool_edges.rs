@@ -23,6 +23,11 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
         ROOT,
         "tools.rs: walk, path and outline helpers every layer may use",
     )],
+    // Imports no `tools/` module, so every shared module may size its fan-out.
+    &[(
+        "workers",
+        "the one per-query fan-out width: the batch's core share, a cap, the items",
+    )],
     &[
         ("bounded_process", "bounded subprocess runner"),
         (
@@ -53,10 +58,6 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
             "variant_field",
             "shared-field accessors over generated query enums",
         ),
-        (
-            "workers",
-            "the one per-query fan-out width: the batch's core share, a cap, the items",
-        ),
     ],
     &[
         // Reads empty_walk's walk and globs.
@@ -75,6 +76,11 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
         (
             "source_sections",
             "source-coordinate section planning shared by localFetch and clasify",
+        ),
+        // Reads source's bounded reads and declarations_cache's parse.
+        (
+            "test_code",
+            "the one test-code rule (paths, Rust mounts, cfg(test) lines) every local search scopes by",
         ),
     ],
     &[(

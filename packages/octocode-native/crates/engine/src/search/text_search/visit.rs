@@ -50,6 +50,21 @@ impl WalkScope<'_> {
             Err(walk_state) => return walk_state,
         };
         let path: &Path = dent.path();
+        // A test-code scope leaves out, unread, every file whose location
+        // (path or mount) puts it on the other side; a file that may mix
+        // both is searched and its hits are kept by line.
+        if let Some(scope) = &opts.test_code {
+            let test = (scope.test_path)(path);
+            let searched = if scope.keep_test {
+                test || (scope.may_hold)(path)
+            } else {
+                !test
+            };
+            if !searched {
+                state.test_files_excluded.fetch_add(1, Ordering::Relaxed);
+                return WalkState::Continue;
+            }
+        }
         let Some((file, meta)) = self.open_within_ceiling(&dent) else {
             return WalkState::Continue;
         };
@@ -57,6 +72,13 @@ impl WalkScope<'_> {
         let Some(outcome) = self.search_file(files, &file, path) else {
             return WalkState::Continue;
         };
+        if self.left_out_whole(path, &outcome) {
+            state.test_files_excluded.fetch_add(1, Ordering::Relaxed);
+            return WalkState::Continue;
+        }
+        state
+            .test_lines_excluded
+            .fetch_add(u64::from(outcome.test_lines_excluded), Ordering::Relaxed);
         let relative = path
             .strip_prefix(&opts.path)
             .unwrap_or(path)
@@ -69,8 +91,11 @@ impl WalkScope<'_> {
                     .as_ref()
                     .is_some_and(|marks| marks.marks_generated(path))
                 || outcome.generated_header.unwrap_or_else(|| {
-                    read_prefix(&file, relevance::GENERATED_HEADER_BYTES)
-                        .is_ok_and(|prefix| relevance::has_generated_header(&prefix))
+                    read_prefix(
+                        &file,
+                        u64::try_from(relevance::GENERATED_HEADER_BYTES).unwrap_or(u64::MAX),
+                    )
+                    .is_ok_and(|prefix| relevance::has_generated_header(&prefix))
                 }));
         if outcome.span_cap_reached {
             state.span_capped.store(true, Ordering::Relaxed);
@@ -132,8 +157,33 @@ impl WalkScope<'_> {
             declares: outcome.declares && self.identifier,
             source,
             not_utf8: outcome.not_utf8,
+            term_counts: outcome.term_counts,
         });
         WalkState::Continue
+    }
+
+    /// Whether the test-code scope leaves out the searched file `path`
+    /// whole by its spans ([`crate::types::wholly_left_out`]): it is then
+    /// left out as a file, as one left unread by its location is, never
+    /// listed and never counted by its lines. The spans are those its hits
+    /// read; a file without hits has them read only when a files-without
+    /// view would list it.
+    fn left_out_whole(&self, path: &Path, outcome: &FileOutcome) -> bool {
+        let Some(scope) = &self.opts.test_code else {
+            return false;
+        };
+        let spans = match &outcome.test_spans {
+            Some(spans) => std::sync::Arc::clone(spans),
+            None if self.keep_unmatched
+                && outcome.matched_lines == 0
+                && !(scope.test_path)(path)
+                && (scope.may_hold)(path) =>
+            {
+                (scope.spans)(path)
+            }
+            None => return false,
+        };
+        crate::types::wholly_left_out(scope.keep_test, &spans)
     }
 
     /// The entry when it is a file to search, or the walk state to return
@@ -269,7 +319,7 @@ impl WalkScope<'_> {
         file: &std::fs::File,
         path: &Path,
     ) -> Option<FileOutcome> {
-        match files.search(file) {
+        match files.search(file, path) {
             Ok(outcome) => Some(outcome),
             Err(error) => {
                 // The file opened; std never reports a read failure as

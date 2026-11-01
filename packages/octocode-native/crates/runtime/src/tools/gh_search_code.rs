@@ -12,7 +12,7 @@ mod search_page;
 #[cfg(test)]
 mod selection_tests;
 
-use crate::id::{ToolId, gh_search_code_policy::PAGE_SIZE};
+use crate::id::ToolId;
 use crate::num::usize_of;
 use crate::response::paging::{mark_partial, push_warnings};
 use crate::response::result::{Continuation, ToolData, fresh_query_row, query_row};
@@ -54,8 +54,8 @@ pub async fn run(
         Some(context)
             if error.reason == Some(octocode_github::ProviderErrorReason::SearchWindowExceeded) =>
         {
-            let window_last = SearchWindow::PageEnd.last_page(per_search(query, PAGE_SIZE));
-            let first = search_page(provider, query, 1, PAGE_SIZE, context)
+            let window_last = SearchWindow::PageEnd.last_page(per_search(query, limit(query)));
+            let first = search_page(provider, query, 1, limit(query), context)
                 .await
                 .ok();
             let last = first
@@ -71,16 +71,17 @@ pub async fn run(
             search_failure(error),
             ToolId::GhSearchCode,
             query,
-            PAGE_SIZE,
+            limit(query),
+            Some(&query.owner),
             repo,
         );
         if let Some((last, reachable)) = window {
-            // Stated in the core policy's page size: each merged search's own
-            // page size is internal.
+            // Stated in the query's `limit`: each merged search's own page
+            // size is internal.
             failure.message = format!(
-                "Page {} is past GitHub's search window: at pageSize {}, page {last} is the last{}.",
+                "Page {} is past GitHub's search window: at limit {}, page {last} is the last{}.",
                 usize_of(query.page),
-                PAGE_SIZE,
+                limit(query),
                 reachable.map_or_else(String::new, |total| format!(
                     ", reaching the first {total} results"
                 )),
@@ -113,6 +114,12 @@ pub async fn run(
     })
 }
 
+/// Files per merged page: the query's `limit`, its contract default when
+/// omitted.
+fn limit(query: &GhSearchCodeQuery) -> usize {
+    usize_of(query.limit)
+}
+
 /// Files each merged search lists per page: GitHub ANDs repeated
 /// `extension:` qualifiers, so each of `k` extensions is its own search of
 /// `ceil(per / k)` files on the same page number.
@@ -127,7 +134,7 @@ pub(crate) async fn execute(
     security: &(impl ContentScan + Sync),
 ) -> Result<ToolData, ProviderError> {
     let current = usize_of(query.page);
-    let per = PAGE_SIZE;
+    let per = limit(query);
     SearchWindow::PageEnd.reject(current, per_search(query, per))?;
     // A ref search's lines are read at the ref's commit, which does not
     // depend on the hits: resolve it during the index search, not after.
@@ -208,10 +215,11 @@ pub(crate) async fn execute(
     disclose_completeness(&mut value, query, &data, current, hits_unlisted);
     let mut output = ToolData::from(value);
     if data.incomplete {
-        output.diagnostics.add(
-            "providerIncompleteResults",
+        output
+            .diagnostics
+            .partial(crate::response::paging::PartialReason::ProviderIncompleteResults);
+        output.diagnostics.hint(
             "GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.",
-            true,
         );
     }
     if data.fetched == 0 {
@@ -223,7 +231,7 @@ pub(crate) async fn execute(
     if data.fetched == 0 && !past_end {
         empty_page(provider, query, context, &mut output).await?;
     }
-    crate::tools::gh_shared::finish_calls(&mut output.data);
+    crate::response::result::finish_calls(&mut output.data);
     Ok(output)
 }
 
@@ -266,7 +274,11 @@ fn disclose_completeness(
         },
     );
     if hits_unlisted && !more {
-        mark_partial(value, "hitLinesNotListed", &[]);
+        mark_partial(
+            value,
+            crate::response::paging::PartialReason::HitLinesNotListed,
+            &[],
+        );
     }
     if data.pages > 1 {
         push_warnings(value, data.paging_warnings());
@@ -285,7 +297,7 @@ async fn empty_page(
 ) -> Result<(), ProviderError> {
     let broader = leads::broaden_search(query, provider.transport.code_search_room(context));
     let value = &mut output.data;
-    code_output::empty_scope(
+    let default_branch = code_output::empty_scope(
         value,
         &mut output.diagnostics,
         query,
@@ -294,16 +306,18 @@ async fn empty_page(
         context,
     )
     .await?;
+    let default_branch = default_branch.as_deref();
     if value.get("hints").is_none() && code_output::path_mode_given_code(query) {
         // Path matching never sees file contents: search them instead.
         let mut content = fresh_query_row(ToolId::GhSearchCode, &query_row(query, &[]));
         content["matchIn"] = json!(["content"]);
         value["calls"]["findCode"] = Continuation::related(ToolId::GhSearchCode, content).build();
     }
-    let hints = code_output::empty_hints(query);
+    let hints = code_output::empty_hints(query, default_branch);
     if value.get("hints").is_none() && !hints.is_empty() {
         value["hints"] = json!(hints);
         if value["calls"].get("read").is_none()
+            && code_output::unsearched_ref(query, default_branch).is_some()
             && let Some(read) = leads::unsearched_ref_read(query)
         {
             value["calls"]["read"] = read;
@@ -313,7 +327,10 @@ async fn empty_page(
         crate::tools::leads::broaden::set_broadened(value, &query_row(query, &[]), broader);
     }
     if let Some(split) = leads::or_split(query) {
-        crate::tools::leads::push_hint(value, "keywords take no OR; send one row per alternative.");
+        crate::tools::leads::push_hint(
+            value,
+            "keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.",
+        );
         value["calls"]["repair"] = split;
     }
     Ok(())
@@ -334,13 +351,9 @@ const CODE_ROW_ID: &[&str] = &[
     "commitSha",
 ];
 
-/// This tool's output facts for the shared response stages.
+/// This tool's selection finish for the shared response stages.
 pub(crate) struct Output;
 impl crate::response::output::ToolOutput for Output {
-    fn selects_provider_page(&self) -> bool {
-        true
-    }
-
     fn finish_selection(
         &self,
         data: &mut serde_json::Value,

@@ -1,12 +1,9 @@
 //! Page facts: partial pages, hit counts, estimates and the repeats a later page drops.
 use super::*;
 
-/// A single complete page whose file lists fewer hit lines than it has
-/// is partial because of those unlisted lines, and the row says so; its
-/// `next.readHits` reaches them. A page with another page behind it states
-/// its remainder through `pagination` instead.
+/// A resolved page retains every hit and needs no hit-recovery continuation.
 #[tokio::test]
-async fn a_complete_page_with_unlisted_hit_lines_names_why_it_is_partial() {
+async fn a_complete_page_keeps_every_hit_without_partial_disclosures() {
     let server = MockServer::builder().start().await;
     let item = |name: &str| {
         json!({"name":name,"path":format!("src/{name}"),"sha":"1","html_url":"https://x",
@@ -52,22 +49,22 @@ async fn a_complete_page_with_unlisted_hit_lines_names_why_it_is_partial() {
     )
     .await
     .expect("search");
-    assert_eq!(out.data["isPartial"], true, "{}", out.data);
+    assert!(out.data.get("isPartial").is_none());
+    assert!(out.data.get("partialReasons").is_none());
+    assert!(out.data["next"].get("readHits").is_none());
     assert_eq!(
-        out.data["partialReasons"],
-        json!(["hitLinesNotListed"]),
-        "{}",
-        out.data
+        out.data["files"][0]["lines"],
+        json!(
+            (1..=8)
+                .map(|n| format!("{n}\twrap_app();"))
+                .collect::<Vec<_>>()
+        )
     );
-    assert!(out.data["next"]["readHits"].is_object(), "{}", out.data);
 }
 
-/// `pageSize` counts files: a page of two files states the search's file
-/// total in its pagination, a file with more keyword lines than the five it
-/// lists states its `matchCount`, and `next.readHits` reads the rest of
-/// exactly that file; a file whose hits all show states no count.
+/// File pagination and full hit evidence remain independent.
 #[tokio::test]
-async fn a_page_counts_files_and_a_file_with_more_hits_says_how_many_and_leads_to_them() {
+async fn a_page_counts_files_and_retains_every_hit_of_each_file() {
     let server = MockServer::builder().start().await;
     let item = |name: &str| {
         json!({"name":name,"path":format!("src/{name}"),"sha":"1","html_url":"https://x",
@@ -108,29 +105,31 @@ async fn a_page_counts_files_and_a_file_with_more_hits_says_how_many_and_leads_t
     let (busy, calm) = (&out.data["files"][0], &out.data["files"][1]);
     assert_eq!(
         busy["lines"].as_array().map(Vec::len),
-        Some(5),
+        Some(8),
         "{}",
         out.data
     );
-    assert_eq!(busy["matchCount"], 8, "{}", out.data);
+    assert!(
+        busy.get("matchCount").is_none(),
+        "complete lines already carry the count"
+    );
     assert!(calm.get("matchCount").is_none(), "{}", out.data);
     // The page's total counts files (GitHub's `total_count`), not lines.
     assert_eq!(out.data["pagination"]["totalItems"], 140, "{}", out.data);
     assert_eq!(out.data["pagination"]["pageSize"], 50, "{}", out.data);
-    let reads = &out.data["next"]["readHits"]["input"]["queries"];
-    assert_eq!(reads.as_array().map(Vec::len), Some(1), "{}", out.data);
-    assert_eq!(reads[0]["path"], "src/busy.rs", "{}", out.data);
-    assert_eq!(reads[0]["ref"], SHA, "{}", out.data);
-    // `ranges` are 1-based line numbers, never byte offsets: from the line
-    // after the last shown hit (5) to the file's last line (8), so the read
-    // returns exactly the hits the listing did not (lines 6-8).
+    assert!(out.data["next"].get("readHits").is_none());
     assert_eq!(
-        reads[0]["ranges"],
-        json!([{"startLine":6,"endLine":8}]),
-        "{}",
-        out.data
+        out.data["next"]["nextPage"]["input"]["queries"][0]["page"],
+        2
     );
-    assert_eq!(reads[0]["matchString"], json!(["wrap_app"]), "{}", out.data);
+    assert_eq!(
+        busy["lines"],
+        json!(
+            (1..=8)
+                .map(|n| format!("{n}\twrap_app();"))
+                .collect::<Vec<_>>()
+        )
+    );
 }
 
 /// A search page of `names` (paths in `a/b`), GitHub reporting `total` matches.

@@ -142,7 +142,7 @@ pub struct ArtifactProviderState {
 /// `partialReasons` code and the warning stating this call's numbers.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TerminalLimit {
-    pub reason: &'static str,
+    pub reason: crate::response::paging::PartialReason,
     pub warning: String,
 }
 
@@ -150,7 +150,7 @@ impl TerminalLimit {
     /// The registry serves no result past a fixed depth.
     pub(crate) fn result_cap(warning: String) -> Self {
         Self {
-            reason: "providerResultCap",
+            reason: crate::response::paging::PartialReason::ProviderResultCap,
             warning,
         }
     }
@@ -158,7 +158,7 @@ impl TerminalLimit {
     /// The registry answered an empty page before its own reported total.
     pub(crate) fn short_page(registry: &str) -> Self {
         Self {
-            reason: "providerIncompleteResults",
+            reason: crate::response::paging::PartialReason::ProviderIncompleteResults,
             warning: format!("{registry} returned an empty page before its reported total."),
         }
     }

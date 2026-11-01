@@ -10,6 +10,7 @@ async fn symbols_in_generation(client: NativeLspClient, path: String) -> Arc<Val
             std::cell::RefCell::new(ResponseScope {
                 reuse: true,
                 generation: "same-project".into(),
+                call: None,
             }),
             client.get_document_symbols(path),
         )

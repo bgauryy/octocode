@@ -4,8 +4,8 @@
 use super::binaries::*;
 use super::layout::*;
 use super::local_search_query;
-use super::local_search_query::MAX_COLLECTED_FILES;
 use super::types::*;
+use crate::num::u32_of_usize;
 use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::types::CapReason;
 
@@ -23,6 +23,8 @@ pub(super) struct Coverage {
     pub(super) skip_hint: Option<String>,
     /// include/exclude filtered out every file: nothing was searched.
     pub(super) scope_miss: bool,
+    /// The walk found no file: no include/exclude, scope or skip explains it.
+    pub(super) nothing_walked: bool,
     /// Entries the security path policy withheld from the walk.
     pub(super) withheld: usize,
     /// The warning for an include/exclude glob with a `..` segment, which
@@ -74,12 +76,10 @@ impl Coverage {
         skipped: &crate::policy::discovery::WalkSkips,
     ) -> Self {
         let cap_has = |reason: CapReason| stats.cap_reasons.contains(&reason);
-        let skip_hint = skipped_target_hint(root.is_file(), stats.files_searched, &stats.cap_reasons)
-        .or_else(|| {
-            (root.is_file() && scanned.skipped_binary_count.unwrap_or(0) > 0).then(|| {
-                "The target file is binary from its leading bytes (a NUL in its header); it was not searched, and no text tool reads it.".into()
-            })
-        });
+        // A file named alone and binary from its leading bytes never gets
+        // here: [`super::executor`] refuses it as `binaryFileUnsupported`.
+        let skip_hint =
+            skipped_target_hint(root.is_file(), stats.files_searched, &stats.cap_reasons);
         Self {
             error_count: stats.error_count.unwrap_or(0),
             pattern_error_count: scanned.pattern_error_count.unwrap_or(0),
@@ -93,13 +93,21 @@ impl Coverage {
                 .not_utf8_files
                 .as_deref()
                 .filter(|files| !files.is_empty())
-                .map(|files| binary_file_list(files, files.len() as u32, output_root)),
+                .map(|files| binary_file_list(files, u32_of_usize(files.len()), output_root)),
             pcre2_deadline: cap_has(CapReason::Pcre2Deadline),
             scope_miss: !root.is_file()
                 && stats.files_searched == 0
                 && skip_hint.is_none()
                 && (!local_search_query::include(query).is_empty()
                     || !local_search_query::exclude(query).is_empty()),
+            nothing_walked: !root.is_file()
+                && stats.files_searched == 0
+                && skip_hint.is_none()
+                && local_search_query::include(query).is_empty()
+                && local_search_query::exclude(query).is_empty()
+                && scanned
+                    .test_code_excluded
+                    .is_none_or(|excluded| excluded.files == 0),
             skip_hint,
             withheld: skipped.withheld.total(),
             parent_glob: crate::policy::include::parent_glob_warning(
@@ -133,8 +141,6 @@ impl Coverage {
         let mut warnings = vec![];
         warnings.extend(self.parent_glob.clone());
         warnings.extend(self.inert.iter().cloned());
-        // A clipped value is flagged on its row (`originalChars`,
-        // `returnedChars`) and read whole by its `expandValues` lead.
         if shown_redacted > 0 && !layout.list {
             warnings.push(format!(
                 "redactedMatches: {shown_redacted} returned match value(s) had secret-shaped text replaced by [REDACTED…] placeholders; those values are not verbatim source."
@@ -142,7 +148,7 @@ impl Coverage {
         }
         if unverified {
             warnings.push(
-                "Some match values were redacted because their source file could not be re-read to check clipped text for secrets. Use localFetch at the returned anchors.".into(),
+                "Some match values were redacted because their source file could not be re-read to check selected text for secrets. Use localFetch at the returned anchors.".into(),
             );
         }
         // Values are decoded as localFetch decodes the file; say so once.
@@ -195,6 +201,8 @@ impl Coverage {
         }
         if self.scope_miss {
             vec![SCOPE_MISS_HINT.into()]
+        } else if self.nothing_walked && self.withheld == 0 && self.error_count == 0 {
+            vec![NOTHING_WALKED_HINT.into()]
         } else if self.error_count > 0 {
             vec![]
         } else if let Some(hint) = &self.skip_hint {
@@ -209,9 +217,12 @@ impl Coverage {
     }
 }
 
+/// The empty row's fact when the walk found no file at all, with no
+/// include/exclude, test-code scope or skip to blame.
+const NOTHING_WALKED_HINT: &str = "Nothing searched: no file under path; check the path, or set includeHidden/includeIgnored when the files are dot or ignored entries.";
+
 /// The empty row's fact when include/exclude left the walk no file.
-const SCOPE_MISS_HINT: &str =
-    "Nothing searched: include/exclude matched no file; viewTree lists the names to fix the globs.";
+const SCOPE_MISS_HINT: &str = "Nothing searched: include/exclude matched no file; the related[] structureSearch request lists the names to fix the globs.";
 
 /// A query that explicitly targets a single file which the engine then skips
 /// (e.g. over the per-file byte ceiling, surfaced as `capReason:"maxFileSize"`
@@ -239,20 +250,6 @@ pub(super) fn skipped_target_hint(
                 .map(|reason| reason.name())
                 .collect::<Vec<_>>()
                 .join(", ")
-        )
-    })
-}
-
-/// The engine collects at most [`MAX_COLLECTED_FILES`] files; the rest of
-/// the matched files are counted but on no page. Names how many, and how to
-/// reach them.
-pub(super) fn uncollected_warning(stats: &SearchStats, collected: u32) -> Option<String> {
-    let capped = stats.cap_reasons.contains(&CapReason::MaxCollectedFiles);
-    let beyond = stats.files_matched.saturating_sub(collected);
-    (capped && beyond > 0).then(|| {
-        format!(
-            "maxCollectedFiles: {beyond} of {} matched files are past the {MAX_COLLECTED_FILES}-file collection cap and no page reaches them; split the search by path or include.",
-            stats.files_matched
         )
     })
 }

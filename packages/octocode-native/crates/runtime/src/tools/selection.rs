@@ -189,14 +189,15 @@ impl Outcome {
 
     /// The `selection` token of `next.nextCandidatePage`: the same call
     /// judging the ordinals this page's budget left unjudged. `None` when
-    /// none were left, or when the token would exceed what `tool`'s
-    /// `selection` field accepts (the unjudged rest then stays unknown).
+    /// none were left, or when `tool`'s `selection` field declares a
+    /// `maxLength` the token exceeds (the unjudged rest then stays unknown).
+    /// A field without one bounds no chain.
     pub(crate) fn next_candidates(&self, tool: ToolId) -> Option<&str> {
         let max = crate::contracts::query_schema_number(tool, None, "selection", "maxLength")
-            .and_then(|n| usize::try_from(n).ok())?;
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
         self.next_candidates
             .as_deref()
-            .filter(|token| token.len() <= max)
+            .filter(|token| max.is_none_or(|max| token.len() <= max))
     }
 }
 

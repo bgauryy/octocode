@@ -35,9 +35,10 @@ async function treeAndOrder(ctx, surface, checks) {
   equal(checks, `structure.tree.${surface}`, project(ctx, tree.data).map(file => file.path), ['structure/a.txt', 'structure/empty.txt', 'structure/large.txt', 'structure/sub', 'structure/sub/deep.txt', 'structure/sub/deeper']);
   const sorted = await scenario(ctx, 'structureSearch', surface, { label: 'structure.sort', query: { path: scope, operation: 'files', entryType: 'file', include: ['*.txt'], maxDepth: 1, sort: { by: 'sizeBytes', order: 'desc' } }, checks });
   orderedEqual(checks, `structure.byte-order.${surface}`, project(ctx, sorted.data).map(file => [file.path, file.size]), [['structure/large.txt', 31], ['structure/a.txt', 4], ['structure/empty.txt', 0]]);
-  const capped = await scenario(ctx, 'structureSearch', surface, { label: 'structure.capped', query: { path: scope, operation: 'files', entryType: 'file', maxEntries: 2 }, checks });
+  const capped = await scenario(ctx, 'structureSearch', surface, { label: 'structure.capped', query: { path: scope, operation: 'files', entryType: 'file', limit: 2 }, checks });
   const first = capped.root.results[0].data;
-  checks.push([`structure.capped-disclosure.${surface}`, project(ctx, [first]).length <= 2 && first.isPartial === true && first.partialReasons.includes('maxEntries'), JSON.stringify(first)]);
+  // A page that ends at `limit` is paged, not partial: hasMore plus its next page.
+  checks.push([`structure.capped-disclosure.${surface}`, project(ctx, [first]).length <= 2 && first.pagination?.hasMore === true && Boolean(first.next?.nextPage) && first.isPartial !== true, JSON.stringify(first)]);
   equal(checks, `structure.resumed-cap.${surface}`, project(ctx, capped.data).map(file => file.path), allFiles);
 }
 

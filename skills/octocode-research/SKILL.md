@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Load this skill first whenever a question is about this codebase or a package: who calls what, where it is used, what a change breaks, when a bug started, PR safety, versions or CVEs, even when a quick search seems enough."
+description: "Investigate codebases, packages and changes: callers, usage, impact, history, PR safety, versions and CVEs. Use exact source, AST, LSP, graph and history evidence to settle the claim at the required depth."
 ---
 
 # Octocode Research
@@ -61,7 +61,7 @@ Use the [shared Octocode guide](references/octocode-usage.md) for discovery, MCP
 | When | Read | Why |
 |---|---|---|
 | Task class, mode, proof bar; callers, cycles, reachability, deletion, root cause | [method](references/method.md) | Definition of Done, modes, proof |
-| Outline, exact span, or full file | [method](references/method.md#read-the-smallest-span) | Selectors, minify |
+| Outline, exact span, or full file | [method](references/method.md#read-the-smallest-span) | Selectors, compact view, block spans |
 | Loops, budgets, workers, handoffs, repo landscapes | [method](references/method.md#campaigns) | Multi-pass control |
 | Checkout, artifact, or dependency | [workflows](references/workflows.md#local) | Local, AST, LSP, graph |
 | Analysis completeness, missing relationships, or source origins | [analysis evidence](references/workflows.md#analysis-evidence) | Capability, context, provenance and coverage checks |
@@ -74,11 +74,12 @@ Use the [shared Octocode guide](references/octocode-usage.md) for discovery, MCP
 
 ## Related skills
 
-- `octocode-architect`: evidence for an architecture decision.
-- `octocode-brainstorming`: an open idea, not a code claim.
-- `octocode-scraping`: public web pages.
-- [octocode-chrome-devtools](../octocode-chrome-devtools/SKILL.md): live browser capture, scouting and verified actions; its workflow owns DOM confirmation and postconditions.
-- For an orchestrated multi-actor investigation: [octocode-workflows composition](../octocode-workflows/references/composition.md).
+- Use `octocode-graph-view` when a saved graph brief or requested interactive view, with retained evidence, would help.
+- Use `octocode-architect` when the evidence feeds an architecture decision.
+- Use `octocode-brainstorming` when the question is an open idea, not a code claim.
+- Use `octocode-scraping` when the evidence is public web pages.
+- Use [octocode-chrome-devtools](../octocode-chrome-devtools/SKILL.md) for live browser capture, scouting and verified actions; its workflow owns DOM confirmation and postconditions.
+- Use [octocode-workflows composition](../octocode-workflows/references/composition.md) for an orchestrated multi-actor investigation.
 
 ## Output
 

@@ -97,7 +97,7 @@ impl Linker<'_> {
         let package = self
             .scope
             .path(node.file)
-            .map(crate::tools::ast_graph::graph::parent);
+            .map(crate::tools::ast_graph::paths::parent);
         self.members
             .get(&(type_name, site.name))
             .into_iter()
@@ -110,7 +110,7 @@ impl Linker<'_> {
                         && self
                             .scope
                             .path(method.file)
-                            .map(crate::tools::ast_graph::graph::parent)
+                            .map(crate::tools::ast_graph::paths::parent)
                             == package)
             })
             .filter(|id| (site.accept)(*id))

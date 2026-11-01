@@ -15,22 +15,13 @@ pub struct GraphFactsScanOptions {
     pub max_file_bytes: Option<u32>,
     pub language_globs: Option<Vec<GraphLanguageGlob>>,
     /// Which ignore rules and dot entries the walk leaves out.
-    pub ignore: crate::search::walk::IgnorePolicy,
+    pub ignore: crate::types::IgnorePolicy,
 }
 
 #[derive(Debug, Clone)]
 pub struct GraphLanguageGlob {
     pub language: String,
     pub glob: String,
-}
-
-#[derive(Debug, Clone)]
-/// Syntax-aware value references to one declaration, excluding its own name,
-/// export clauses and call-callee positions (those are call edges). Comments
-/// and string literals never count.
-pub struct GraphReferenceCount {
-    pub declaration_id: String,
-    pub count: u32,
 }
 
 #[derive(Debug, Clone)]

@@ -43,9 +43,9 @@ impl<'a> Store<'a> {
         }
         Self::at(
             capture_root(dispatcher.home()),
-            // The clone cache retention: each capture publishes it as
+            // Capture retention: each capture publishes it as
             // `expiresAt`; the daily cache sweep removes captures older.
-            dispatcher.limits().clone.ttl,
+            dispatcher.limits().capture_ttl,
             dispatcher.paths(),
         )
     }

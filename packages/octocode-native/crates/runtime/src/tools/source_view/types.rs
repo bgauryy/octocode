@@ -11,10 +11,6 @@ pub use next_calls::{FetchCall, NextCalls, ReadSource};
 pub use path_access::{NotAFile, PathAccess, PathFailure, ValidatedRead};
 pub use result::{LocalFetchResult, ReadStatus};
 
-/// Default line-page safety ceiling. The byte budget bounds ordinary pages;
-/// short-line files can fill it without an additional fixed row limit.
-pub const DEFAULT_LINE_CHUNK: usize = crate::id::local_fetch_policy::MAX_PAGE_LINES;
-
 /// Encodes an engine `usize` as a non-negative wire integer.
 pub(crate) fn wire_count(value: usize) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
@@ -113,7 +109,7 @@ pub struct ViewFallback {
     pub reason: String,
 }
 /// Why a row does not cover its requested scope beyond what pagination
-/// states (a share-cut page is `hasMore` with `next.continueWindow`, no reason).
+/// states (a share-cut page is `hasMore` with `next.nextPage`, no reason).
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PartialReason {
@@ -139,10 +135,12 @@ pub struct DeclaredBlock {
 /// What the caller knows about a read besides its bytes.
 #[derive(Clone, Debug, Default)]
 pub struct SourceFacts {
+    /// The caller's rendered-view cache and persistence policy.
+    pub views: std::sync::Arc<super::ViewCache>,
     /// The file's modification time (ISO 8601), when the caller has one.
     pub modified: Option<String>,
     /// Target content budget for this reader page. Remaining source is
-    /// reachable through `next.continueWindow`; the response pager handles
+    /// reachable through `next.nextPage`; the response pager handles
     /// envelope overhead and evidence that exceeds this target.
     pub window: Option<usize>,
     /// Estimated identity overhead beside the reader content, used when

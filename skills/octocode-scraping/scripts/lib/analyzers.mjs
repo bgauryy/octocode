@@ -1,4 +1,3 @@
-import { bytes } from './text.mjs';
 
 const EXTERNAL_BADGES = /github\.com|linkedin\.com|twitter\.com|x\.com|facebook\.com|instagram\.com|youtube\.com|discord\.|slack\.|medium\.com/i;
 const ASSET_EXT = /\.(png|jpe?g|gif|svg|webp|ico|css|js|pdf|zip|gz)(?:[?#]|$)/i;
@@ -290,9 +289,4 @@ export function pageSlices(args) {
   const totalPages = Math.max(1, Math.ceil(args.pageMaps.length / (args.pageSize || 20)));
   const grouped = { headingsByPage: byPage(args.headingsAll), linksByPage: byPage(args.linksAll) };
   return Array.from({ length: totalPages }, (_, i) => pageSlice({ ...args, ...grouped, page: i + 1 }));
-}
-
-export function compactStats(text) {
-  const lines = (text || '').split(/\r?\n/).length;
-  return { bytes: bytes(text), lines };
 }

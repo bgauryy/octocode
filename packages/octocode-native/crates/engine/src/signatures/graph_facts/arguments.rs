@@ -1,3 +1,4 @@
+use crate::num::saturating_u32;
 use tree_sitter::Node;
 
 use crate::graph::{
@@ -86,7 +87,7 @@ pub(super) fn collect(
                     },
                 };
                 let source_range = validity::byte_range(slot);
-                let index = slots.len() as u32;
+                let index = saturating_u32(slots.len());
                 slots.push(GraphArgumentSlot {
                     id: argument_occurrence_id(
                         &acc.file_path,
@@ -108,7 +109,7 @@ pub(super) fn collect(
             }
         };
         observations.push(GraphArgumentGroup {
-            index: group_index as u32,
+            index: saturating_u32(group_index),
             range: positions.range(group),
             source_range: validity::byte_range(group),
             observation,

@@ -16,8 +16,7 @@ pub(crate) const USER_QUALIFIER_HINT: &str = "A login in a user qualifier (autho
 /// A repository that did not resolve: GitHub answers a private repository
 /// the token cannot see exactly like a missing one (the error says so); the
 /// hint is the action.
-pub(crate) const REPOSITORY_ACCESS_HINT: &str =
-    "Check the owner/repo spelling and this token's access.";
+const REPOSITORY_ACCESS_HINT: &str = "Check the owner/repo spelling and this token's access.";
 
 /// A GitHub provider failure as the tool states it: its message, hints and
 /// recovery `next`; the runtime adds the provider's status and rate-limit
@@ -154,9 +153,9 @@ pub(crate) fn ref_recovery(owner: &str, repo: &str) -> Value {
     Continuation::related(ToolId::GhStructure, refs).build()
 }
 
-/// A repository that did not resolve: a search for its name names the
-/// owner that holds it.
-pub(crate) fn repository_search(repo: &str) -> Value {
+/// A repository that did not resolve: a search for its name across every
+/// owner, which names the owner that holds it.
+fn repository_search(repo: &str) -> Value {
     Continuation::related(
         ToolId::GhSearchRepo,
         json!({"operation":"search","keywords": [repo]}),
@@ -175,15 +174,37 @@ pub(crate) fn owner_listing(owner: &str) -> Value {
     .build()
 }
 
-/// `failure` with `findRepository2`, the [`owner_listing`], beside its
-/// `findRepository` name search; any other failure is returned unchanged.
-pub(crate) fn with_owner_listing(mut failure: GhFailure, owner: &str) -> GhFailure {
-    if let Some(next) = failure.calls.as_mut()
-        && next.get("findRepository").is_some()
-    {
-        next["findRepository2"] = owner_listing(owner);
+/// The message of a repository that did not resolve on a read: GitHub
+/// answers a private repository the token cannot see like a missing one.
+pub(crate) fn repository_not_found_message(owner: &str, repo: &str) -> String {
+    format!("Repository {owner}/{repo} not found, or private and not accessible to this token")
+}
+
+/// The leads of a repository that did not resolve, every GitHub tool's
+/// one recovery for it: `findRepository`, the [`repository_search`] for its
+/// name, and, when the `owner` is known, `findRepository2`, that
+/// [`owner_listing`] (a misspelled repository is found there, a misspelled
+/// owner by the name). [`repository_search_hint`] labels them.
+pub(crate) fn repository_recovery(owner: Option<&str>, repo: &str) -> Value {
+    let mut calls = json!({ "findRepository": repository_search(repo) });
+    if let Some(owner) = owner {
+        calls["findRepository2"] = owner_listing(owner);
     }
-    failure
+    calls
+}
+
+/// The hint beside [`repository_recovery`]: the name search lists
+/// repositories named like `repo` under any owner, not the one asked for,
+/// so its rows are candidates whose owner the caller confirms.
+pub(crate) fn repository_search_hint(owner: Option<&str>, repo: &str) -> String {
+    match owner {
+        Some(owner) => format!(
+            "The related[] ghSearchRepo calls list repositories named like `{repo}` under any owner (confirm the owner before using one) and the repositories `{owner}` holds."
+        ),
+        None => format!(
+            "The related[] ghSearchRepo call lists repositories named like `{repo}` under any owner: confirm the owner before using one."
+        ),
+    }
 }
 
 /// The error for an owner-wide search that found no such login. It names the

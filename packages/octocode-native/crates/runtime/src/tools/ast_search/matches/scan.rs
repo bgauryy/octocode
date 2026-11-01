@@ -22,6 +22,7 @@ use walk_log::WalkLog;
 pub(super) fn scan_file(
     q: MatchQuery<'_>,
     scope: &Scope,
+    paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Result<Scan, ToolError> {
     let canonical = &scope.canonical;
@@ -50,7 +51,7 @@ pub(super) fn scan_file(
     // Parse the file as the directory scan does: admitted by the one text
     // rule, raw. Output strings are redacted by the response stage.
     let stop = || cancel.check().is_err();
-    let mut maps = super::super::source::mapping_budget(&stop);
+    let mut maps = super::super::source::mapping_budget(cancel, &stop);
     let admitted = super::super::source::admitted(canonical, &bytes, &mut maps)?;
     let source = admitted.text();
     let source_path = canonical.to_string_lossy();
@@ -80,6 +81,13 @@ pub(super) fn scan_file(
     if let Some(region) = q.scope() {
         super::super::region::select(region, source, &mut r.matches)?;
     }
+    // A test-code scope keeps one side of a single file's matches too.
+    let mut test_code_excluded = crate::tools::test_code::Excluded::default();
+    if let Some(scoped) = crate::tools::test_code::Scoped::of(q.test_code(), paths) {
+        r.matches
+            .retain(|matched| scoped.keeps(canonical, matched.start_line));
+        test_code_excluded = scoped.excluded();
+    }
     if let Some(note) =
         super::super::language::cpp_header_note(canonical, q.language().as_deref(), source)
     {
@@ -104,6 +112,7 @@ pub(super) fn scan_file(
         }],
         sources: vec![canonical.clone()],
         source_digest: octocode_engine::digest::sha256(&bytes),
+        test_code_excluded,
         ..Scan::default()
     })
 }
@@ -149,6 +158,15 @@ pub(super) fn scan_directory(
             0
         }
     };
+    // A test-code scope leaves out, unparsed, every file whose path puts it
+    // on the other side, and every match on the other side of a file that
+    // may mix both (its spans read once, on its first match).
+    let scoped = crate::tools::test_code::Scoped::of(q.test_code(), paths);
+    let keep_line = |path: &std::path::Path, line: u32| {
+        scoped
+            .as_ref()
+            .is_none_or(|scoped| scoped.keeps(path, line))
+    };
     let r = octocode_engine::structural::search_files(
         StructuralSearchFilesOptions {
             path: scope.canonical.to_string_lossy().into_owned(),
@@ -158,17 +176,24 @@ pub(super) fn scan_directory(
             exclude: q.exclude(),
             exclude_dir: None,
             default_exclude_dir: Some(prune::walk_names(q.default_excludes(), &include)),
-            ignore: octocode_engine::search::walk::IgnorePolicy::new(
+            ignore: octocode_engine::types::IgnorePolicy::new(
                 q.include_ignored(),
                 q.include_hidden(),
             ),
             max_depth: q.max_depth(),
-            max_files: q.max_files(),
+            max_files: super::super::scan_window::window_files(q.scan_offset()),
             skip_files: Some(q.scan_offset()),
             max_file_bytes: u32::try_from(super::super::source::MAX_PARSE_SOURCE_BYTES).ok(),
         },
         demand(q, &price),
-        &|path| log.admit(path),
+        &|path| {
+            // Only a file the scan parses is one the scope leaves unread.
+            log.admit(path)
+                && scoped.as_ref().is_none_or(|scoped| {
+                    let is_dir = path.is_dir();
+                    (!is_dir && !parses(scope, path)) || scoped.reads(path, is_dir)
+                })
+        },
         &|path| parser_extension(scope, path),
         &|| {
             cancel.check().is_err()
@@ -177,6 +202,9 @@ pub(super) fn scan_directory(
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .is_some()
         },
+        scoped
+            .as_ref()
+            .map(|_| &keep_line as &octocode_engine::structural::KeepLine),
     );
     if let Some(error) = projection_failure
         .into_inner()
@@ -199,37 +227,9 @@ pub(super) fn scan_directory(
             .iter()
             .map(|file| (file.path.as_str(), file.source_sha256.as_deref())),
     );
-    // A walk stopped at its cap names where it stopped: the unread scopes.
-    let stop = || cancel.check().is_err();
-    let admit = |path: &std::path::Path, file_type| admission.permits(path, file_type);
-    let unwalked = r
-        .scan_frontier
-        .as_deref()
-        .filter(|_| r.scan_truncated && super::super::unwalked::at_ceiling(q.max_files()))
-        .and_then(|frontier| {
-            super::super::unwalked::Unwalked::of(
-                &super::super::unwalked::Rules {
-                    root: &scope.canonical,
-                    frontier,
-                    ignore: octocode_engine::search::walk::IgnorePolicy::new(
-                        q.include_ignored(),
-                        q.include_hidden(),
-                    ),
-                    prune: prune::walk_names(q.default_excludes(), &include),
-                    include: q.include(),
-                    exclude: q.exclude(),
-                    candidate: &|path| parses(scope, path),
-                    max_depth: q.max_depth(),
-                    admit: &admit,
-                    stop: &stop,
-                },
-                &q.to_value(),
-            )
-        });
     let logged = log.finish();
     // Preserve the scan-level coverage signals the group projection drops.
     Ok(Scan {
-        unwalked,
         sources,
         source_digest,
         ignore_rules: logged.ignore_rules,
@@ -264,6 +264,10 @@ pub(super) fn scan_directory(
         withheld: admission.skipped().withheld,
         unparsed: logged.unparsed,
         census: logged.census,
+        test_code_excluded: scoped
+            .as_ref()
+            .map(crate::tools::test_code::Scoped::excluded)
+            .unwrap_or_default(),
     })
 }
 

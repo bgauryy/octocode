@@ -6,15 +6,13 @@ import type { Client } from '@modelcontextprotocol/client';
 import { z } from 'zod';
 import {
   cliFromMcp,
-  connectClient,
-  createStdioTransport,
+  connectStdio,
+  defineCli,
   defineCommand,
   mcpServerOptions,
   registerOn,
   runCli,
-  withCommands,
   type CliSpec,
-  type ToolRegistrar,
 } from 'octocode-mcp-cli';
 
 export async function cliWithLocalCommands(client: Client): Promise<CliSpec> {
@@ -28,19 +26,18 @@ export async function cliWithLocalCommands(client: Client): Promise<CliSpec> {
     schema: z.object({}),
     run: () => spec.commands.map(command => command.name),
   });
-  spec = withCommands(imported, [doctor]);
+  spec = defineCli({ ...imported, commands: [...imported.commands, doctor] });
   return spec;
 }
 
 async function main(): Promise<void> {
   const expose = process.argv[2] === '--expose';
-  const transport = createStdioTransport({
+  const client = await connectStdio({
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-everything'],
-    stderr: expose ? 'pipe' : 'inherit',
+    // Exposed over stdio, the server's stderr must not interleave with this process's MCP stream.
+    stderr: expose ? 'ignore' : 'inherit',
   });
-  if (expose) transport.stderr?.on('data', () => undefined);
-  const client = await connectClient(transport);
   try {
     const spec = await cliWithLocalCommands(client);
     if (!expose) {
@@ -48,7 +45,7 @@ async function main(): Promise<void> {
       return;
     }
     const server = new McpServer({ name: spec.name, version: spec.version }, mcpServerOptions(spec));
-    registerOn(server as unknown as ToolRegistrar, spec);
+    registerOn(server as unknown as Parameters<typeof registerOn>[0], spec);
     const inbound = new StdioServerTransport();
     await server.connect(inbound);
     await new Promise<void>(resolve => {

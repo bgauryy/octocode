@@ -40,16 +40,20 @@ pub(super) fn annotate_diagnostics(
     assessment["errorCount"] = json!(errors.len());
     assessment["anchorErrorCount"] = json!(anchor_errors);
     if truncated {
-        crate::response::paging::mark_partial(row, "diagnosticsTruncated", &[]);
+        crate::response::paging::mark_partial(
+            row,
+            crate::response::paging::PartialReason::DiagnosticsTruncated,
+            &[],
+        );
     }
     if errors.is_empty() {
         return;
     }
     mark_anchor_line_errors(row, items, anchor_line);
-    if anchor_errors == 0 || row.get("kind").and_then(Value::as_str) != Some("empty") {
+    if anchor_errors == 0 || row.get("status").and_then(Value::as_str) != Some("empty") {
         crate::response::paging::mark_partial(
             row,
-            "documentAnalysisErrors",
+            crate::response::paging::PartialReason::DocumentAnalysisErrors,
             &[format!(
                 "The language server reported {} error diagnostics in this document. They may affect analysis beyond their own lines; this result does not establish complete semantic coverage.",
                 errors.len()

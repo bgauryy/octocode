@@ -55,13 +55,14 @@ fn settle_value(
     failure: &mut Option<FailureKind>,
 ) -> Result<Vec<Vec<super::result::Remaining>>, ContractValidationError> {
     crate::response::selection_errors::decorate(tool, structured, response_query);
-    super::notices::place(structured, tool.output().rows_key());
+    super::notices::place(structured, "results");
     // The notes stay with the pager for the pages a split row moves.
     let remaining = super::pages::take_remaining_notes(structured);
     // Hosts show agents this JSON: source reads carry their line numbers in
     // `content` itself. Numbering precedes validation so an unpaged
     // response is exactly what was checked.
     crate::response::numbered::number_read_rows(tool, structured);
+    super::pages::publish_rows(structured);
     // Validate the complete, sanitized rows before deriving error state or a
     // pagination snapshot from them.
     if isolate_output_rows(tool.as_str(), structured)? && failure.is_none() {
@@ -106,7 +107,7 @@ pub(crate) fn respond(
         .edit(|structured| {
             let prepared = super::pager::prepare(
                 ResponseInput {
-                    tool: tool.as_str().into(),
+                    tool,
                     structured: std::mem::take(structured),
                     options,
                     remaining,
@@ -149,7 +150,7 @@ pub(crate) fn respond_saved(
         .cut(|envelope| {
             let prepared = super::pager::prepare_saved(
                 &ResponseInput {
-                    tool: tool.as_str().into(),
+                    tool,
                     structured: Value::Null,
                     options,
                     remaining: remaining.to_vec(),
@@ -215,15 +216,20 @@ pub(crate) fn isolate_output_rows(
     };
     *structured = patched;
     // These errors are created here, after ordinary rows received their
-    // recovery guidance. Keep contract failures actionable as well.
-    if let Some(id) = ToolId::from_name(tool)
+    // recovery guidance. Keep contract failures actionable as well: the
+    // violation is the runtime's, so the shared recovery answers it.
+    if ToolId::from_name(tool).is_some()
         && let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut)
     {
         for row in rows {
             if crate::id::error_code_of(&row["data"])
                 == Some(octocode_contract_types::ErrorCode::OutputContractViolation)
             {
-                super::rows::attach_error_hint(id, &mut row["data"], &Value::Null);
+                super::rows::attach_error_hint(
+                    &crate::response::output::SharedOutput,
+                    &mut row["data"],
+                    &Value::Null,
+                );
             }
         }
     }

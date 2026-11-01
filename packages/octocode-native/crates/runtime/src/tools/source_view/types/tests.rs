@@ -49,10 +49,11 @@ fn line_reads_spell_published_ranges() {
             end: 10 * i + 2,
         })
         .collect::<Vec<_>>();
+    // One range past the cap: the read spans the first start to the last end.
     let span = wire(line_read(&q, &many).expect("read"));
     assert_eq!(
         span["ranges"],
-        serde_json::json!([{"startLine":1,"endLine":102}]),
+        serde_json::json!([{"startLine":1,"endLine":10 * RANGES_MAX_ITEMS + 2}]),
         "{span}"
     );
     assert!(span.get("startLine").is_none(), "{span}");

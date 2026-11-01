@@ -6,8 +6,9 @@ home-directory resolution, `.env` policy, the configuration contract
 server, extensions, and standalone skills bundle it. The native runtime resolves
 settings from the same contract; `npx octocode config` shows the result.
 
-The root entry uses Node builtins only. The `./schema` and `./mcp` subpaths
-re-export `@octocodeai/octocode-core` for interfaces.
+The root entry uses Node builtins only. The `./schema` (research tools) and
+`./chrome` (Chrome DevTools) subpaths re-export `@octocodeai/octocode-core` for
+interfaces.
 
 ## Public API
 
@@ -41,7 +42,7 @@ From the repository root:
 
 ```bash
 yarn workspace @octocodeai/config generate:config-contract
-yarn contracts:regen   # repo root: refresh core, regenerate contract/ (needs cargo-typify 0.8.0)
+node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen   # repo root: refresh core, regenerate contract/ (needs cargo-typify 0.8.0)
 yarn workspace @octocodeai/config build
 yarn workspace @octocodeai/config test
 yarn workspace @octocodeai/config lint
@@ -54,12 +55,11 @@ file against `config-contract.schema.json`. The TypeScript generator emits the
 field metadata and defaults this package exports and the user settings
 reference; the native build emits the resolver the runtime uses.
 
-Tool input/output types are generated, never hand-written: TypeScript
-consumers import `ToolQuery<'localFetch'>`, `LocalSearchQuery`,
-`GhSearchOutput`, and the rest from `@octocodeai/config/schema`, and
+Tool wire types are generated, never hand-written:
 `@octocodeai/octocode-native` embeds `contract/` (enforcement contract,
-fixtures, and Rust types) directly at build time. Change the Zod schema in
-`@octocodeai/octocode-core`, then run `yarn contracts:regen` — that one step
+fixtures, and Rust types) directly at build time, and TypeScript consumers use
+the core Zod schemas from `@octocodeai/config/schema`. Change the Zod schema in
+`@octocodeai/octocode-core`, then run `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` — that one step
 updates every consumer. See [ARCHITECTURE.md](./ARCHITECTURE.md#tool-types).
 
 See the repository [configuration reference](../../docs/CONFIGURATION.md),

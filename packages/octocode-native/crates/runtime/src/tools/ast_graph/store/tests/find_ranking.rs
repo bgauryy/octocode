@@ -48,7 +48,7 @@ fn find_matches_every_word_of_natural_text() {
         "{}",
         out.value
     );
-    let first = &out.value["results"][0];
+    let first = &out.value["rows"][0];
     assert_eq!(first["match"], "words", "{first}");
     assert!(first.get("matchedWords").is_none(), "{first}");
 }
@@ -88,7 +88,7 @@ fn find_without_a_full_match_returns_the_best_partial_coverage() {
         "{}",
         out.value
     );
-    for row in out.value["results"].as_array().expect("rows") {
+    for row in out.value["rows"].as_array().expect("rows") {
         assert_eq!(row["matchedWords"], json!(["parse", "config"]), "{row}");
     }
 }
@@ -97,7 +97,7 @@ fn find_without_a_full_match_returns_the_best_partial_coverage() {
 fn find_single_word_keeps_its_population_and_ranks_exact_names_by_callers() {
     let dir = words_fixture();
     let out = find(&dir, "read");
-    let rows = out.value["results"].as_array().expect("rows");
+    let rows = out.value["rows"].as_array().expect("rows");
     let expected = ["exact", "exact", "words", "words"];
     assert_eq!(
         rows.iter()
@@ -117,7 +117,7 @@ fn find_single_word_keeps_its_population_and_ranks_exact_names_by_callers() {
     );
     // The population is still every name or key containing the text.
     let all = ask(dir.0.as_path(), "find", Some("a"), |o| o.limit = Some(1000));
-    let containing = all.value["results"]
+    let containing = all.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
@@ -127,7 +127,7 @@ fn find_single_word_keeps_its_population_and_ranks_exact_names_by_callers() {
             name.contains("read") || id.contains("read")
         })
         .count();
-    assert_eq!(out.value["total"], containing, "{}", out.value);
+    assert_eq!(out.value["pagination"]["totalItems"], containing, "{}", out.value);
 }
 
 #[test]

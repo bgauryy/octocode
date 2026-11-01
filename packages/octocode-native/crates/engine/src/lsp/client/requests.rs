@@ -108,16 +108,45 @@ impl NativeLspClient {
     }
 
     /// Pull diagnostics for a single file — `textDocument/diagnostic` (LSP 3.17+).
-    /// Returns `DocumentDiagnosticReport` with `kind: "full"|"unchanged"` and `items: Diagnostic[]`.
+    /// Returns the full `DocumentDiagnosticReport` (`kind: "full"`, `items`).
+    /// The request names the last full report's `resultId` for an open
+    /// document, so a server whose diagnostics did not change answers
+    /// `unchanged`, and that previous report is returned.
     /// Prefer pull diagnostics over push (`publishDiagnostics`) for agent/CLI use: you control
     /// *when* to request them and avoid a notification firehose.
     pub async fn get_diagnostics(&self, file_path: String) -> Result<Value> {
         let uri = path_to_uri(&file_path)?;
-        self.request(
-            "textDocument/diagnostic",
-            json!({ "textDocument": { "uri": uri } }),
-        )
-        .await
+        let previous = self
+            .inner
+            .open_docs
+            .lock()
+            .map_err(|_| Error::new("open_docs lock poisoned"))?
+            .diagnostic_report(&uri);
+        let mut params = json!({ "textDocument": { "uri": uri } });
+        if let Some(result_id) = previous.as_deref().and_then(result_id) {
+            params["previousResultId"] = json!(result_id);
+        }
+        let report = self
+            .cached_request("textDocument/diagnostic", params, None)
+            .await?;
+        let full = match (report.get("kind").and_then(Value::as_str), previous) {
+            (Some("unchanged"), Some(previous)) => {
+                let mut full = Arc::unwrap_or_clone(previous);
+                if let Some(result_id) = report.get("resultId") {
+                    full["resultId"] = result_id.clone();
+                }
+                Arc::new(full)
+            }
+            _ => report,
+        };
+        if full.get("kind").and_then(Value::as_str) == Some("full") && result_id(&full).is_some() {
+            self.inner
+                .open_docs
+                .lock()
+                .map_err(|_| Error::new("open_docs lock poisoned"))?
+                .remember_diagnostic_report(&uri, Arc::clone(&full));
+        }
+        Ok(Arc::unwrap_or_clone(full))
     }
 
     /// Return the latest bounded `textDocument/publishDiagnostics` payload for
@@ -202,22 +231,23 @@ impl NativeLspClient {
     /// `method` under the current [`RESPONSE_SCOPE`], once every open
     /// document matches its file: a reused answer is shared, not copied,
     /// and only one given since the open documents' text last changed is
-    /// reused. A `settle` request keys its answer apart from the plain one
-    /// and waits `settle` only when it reaches the server.
+    /// reused, by a scope that allows reuse or by the call that asked for
+    /// it. A `settle` request keys its answer apart from the plain one and
+    /// waits `settle` only when it reaches the server.
     async fn cached_request(
         &self,
         method: &str,
         params: Value,
         settle: Option<Duration>,
     ) -> Result<Arc<Value>> {
-        self.sync_open_documents().await?;
-        let settle = settle.map(|settle| self.settle(settle));
-        let (reuse, generation) = RESPONSE_SCOPE
+        let (reuse, generation, call) = RESPONSE_SCOPE
             .try_with(|scope| {
                 let scope = scope.borrow();
-                (scope.reuse, scope.generation.clone())
+                (scope.reuse, scope.generation.clone(), scope.call)
             })
             .unwrap_or_default();
+        self.sync_open_documents_for(call).await?;
+        let settle = settle.map(|settle| self.settle(settle));
         if generation.is_empty() {
             if let Some(settle) = settle {
                 tokio::time::sleep(settle).await;
@@ -227,7 +257,9 @@ impl NativeLspClient {
         let variant = if settle.is_some() { "settled" } else { "" };
         let epoch = self.inner.content_epoch.load(Ordering::Acquire);
         let key = format!("{generation}\u{0}{epoch}\u{0}{variant}\u{0}{method}\u{0}{params}");
-        if reuse && let Some(hit) = self.inner.responses.get(&key) {
+        if let Some(hit) = self.inner.responses.get(&key)
+            && (reuse || (call.is_some() && hit.call == call))
+        {
             return Ok(hit.value);
         }
         if let Some(settle) = settle {
@@ -236,7 +268,7 @@ impl NativeLspClient {
         let value = Arc::new(self.send_request(method, params).await?);
         self.inner
             .responses
-            .insert(key, CachedResponse::new(Arc::clone(&value)));
+            .insert(key, CachedResponse::new(Arc::clone(&value), call));
         Ok(value)
     }
 
@@ -305,6 +337,11 @@ impl LocationRequest {
             Self::Implementation => "textDocument/implementation",
         }
     }
+}
+
+/// A diagnostic report's `resultId`.
+fn result_id(report: &Value) -> Option<&str> {
+    report.get("resultId").and_then(Value::as_str)
 }
 
 fn supports_partial_results(method: &str) -> bool {

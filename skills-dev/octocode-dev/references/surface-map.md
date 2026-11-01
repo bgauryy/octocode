@@ -14,13 +14,13 @@ Paths beginning `crates/` are relative to `packages/octocode-native/`; other pat
 | MCP + CLI instructions | `CORE/src/toolContract/instructions.ts` (`MCP_INSTRUCTIONS`, one string); the native CLI appends its `<cli>` line (`crates/cli/src/cli/schema.rs`) | Shared workflow guidance |
 | Output schemas / limits | `CORE/src/toolContract/{outputSchemas,outputEnvelope,outputResponse,limits}.ts` | Internal validation of produced results |
 | Contract hub (re-export only) | `packages/octocode-config/src/contracts/{schema,mcp}.ts` | Must stay a thin `export *` |
-| Tool contract (generated, embedded by native build.rs) | `packages/octocode-config/contract/{tool-contract.json,provenance.json,contract-fixtures.json,tool-types.schema.json,tool_types.rs}` | Never hand-edit; `yarn contracts:regen` |
+| Tool contract (generated, embedded by native build.rs) | `packages/octocode-config/contract/{tool-contract.json,provenance.json,contract-fixtures.json,tool-types.schema.json,tool_types.rs}` | Never hand-edit; `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` |
 | Field-effect review index | `crates/runtime/src/contracts/field-effect-coverage.json` + `crates/runtime/tests/contract_field_effects.rs` | Responsibilities and test routes; the index is not execution coverage |
 | Prepare / dispatch | `crates/runtime/src/contracts/{prepare,validate}.rs`, `crates/runtime/src/runtime/{dispatch,domain_dispatch,engine}.rs` | Exact schema admission, defaults, private-state rejection, routing |
 | Tool implementation | `crates/runtime/src/tools/<snake_tool>/` (`clasify` evaluates through `crates/runtime/src/tools/judgment/` and captures sources through `crates/runtime/src/tools/source_capture/`) | Business logic |
 | Providers / API | `crates/runtime/src/providers/{github,artifact,classification}/`, `crates/runtime/src/runtime/github.rs` | Request count, auth, errors |
 | Engine primitives | `packages/octocode-native/crates/engine/` | text search, AST, LSP, minify, secrets |
-| Caching | `crates/runtime/src/runtime/github_cache.rs`, `crates/runtime/src/cache/`, `crates/runtime/src/tools/gh_clone_repo/cache.rs`, `crates/runtime/tests/tool_cache_contracts.rs` | Keys, TTL, invalidation |
+| Caching | `crates/runtime/src/runtime/github_cache.rs`, `crates/runtime/src/cache/`, `crates/runtime/tests/tool_cache_contracts.rs` | Keys, TTL, invalidation |
 | Output shaping | `crates/runtime/src/response/{pager,row_pages,rows,stage,continuations,pages,result}.rs`; `crates/runtime/src/runtime/engine/channel/` | Complete evidence pages; typed `next.*` and `related[]`; prose `hints[]` |
 | Cursor storage and replay | `crates/runtime/src/response/cursor.rs`, `crates/runtime/src/runtime/engine/{cursors,page_replay}.rs` | Saved normalized request and progress, response pages, authority bindings |
 | Security | `crates/runtime/src/security/{content,walk,scan}.rs`, `crates/runtime/src/policy/` | Redaction, path sandbox |

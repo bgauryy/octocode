@@ -1,5 +1,5 @@
 //! lspSearch output facts for the shared response stages.
-use crate::response::output::{LIST_FILES_HINT, NO_HINT, ToolOutput};
+use crate::response::output::{LIST_FILES_HINT, ToolOutput};
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
@@ -21,16 +21,11 @@ fn shape(query: &Value) -> (&str, bool) {
 
 /// The tip of a failure code, on a failed row and on a request-level
 /// failure alike (the one place lspSearch failure tips are written);
-/// [`NO_HINT`] when the row's leads and per-call notes say it all
-/// (`anchorUnresolved`: `findSimilar`/`read`). A code shared by retryable
-/// and final causes names the row's `retryable` flag; the message names the
-/// cause.
+/// A code shared by retryable and final causes names the row's `retryable`
+/// flag; the message names the cause.
 fn failure_hint(code: ErrorCode, query: &Value) -> Option<&'static str> {
     let (operation, has_path) = shape(query);
     Some(match code {
-        ErrorCode::InvalidInput => {
-            "Correct the lspSearch fields the error names (see `octocode schema lspSearch`), then retry."
-        }
         // A stale or cancelled request is retryable; a relation the source
         // could not establish, or a request the server rejected, is final.
         ErrorCode::RequestFailed => {
@@ -39,16 +34,14 @@ fn failure_hint(code: ErrorCode, query: &Value) -> Option<&'static str> {
         // A closed connection restarts the server; a memory kill repeats,
         // and the row's text lead is all that is left.
         ErrorCode::ServerCrashed => {
-            "Retry once if retryable (it restarts); after a memory kill use the unverified text lead, or astSearch + localFetch."
+            "Retry once if retryable (it restarts); after a memory kill use the related[] text search (unverified), or astSearch + localFetch."
         }
         // The server holds no build of the file (clangd: no compile
         // command); retrying repeats it, project setup changes it.
         ErrorCode::MissingConfiguration => {
             "Configure the server's project (clangd: compile_commands.json, compile_flags.txt or .clangd); the next call reloads it."
         }
-        ErrorCode::NotAFile
-        | ErrorCode::BinaryFileUnsupported
-        | ErrorCode::PathValidationFailed => LIST_FILES_HINT,
+        ErrorCode::NotAFile | ErrorCode::PathValidationFailed => LIST_FILES_HINT,
         ErrorCode::ServerUnavailable if operation == "workspaceSymbol" && !has_path => {
             "Provide path for a representative workspace source file so Octocode can select its language server."
         }
@@ -68,7 +61,11 @@ fn failure_hint(code: ErrorCode, query: &Value) -> Option<&'static str> {
         ErrorCode::FileTooLarge => {
             "Use localSearch or astSearch to locate a bounded region, then read that exact source range."
         }
-        ErrorCode::AnchorUnresolved => NO_HINT,
+        // The row's `related` calls locate the name; a guessed identity would
+        // answer for a different symbol.
+        ErrorCode::AnchorUnresolved => {
+            "Locate the exact name and line with the related calls, then retry; do not guess another identity."
+        }
         _ => return None,
     })
 }

@@ -1,4 +1,4 @@
-Load only when a report needs an explorable network or a data chart. Ordinary reports use [Markdown and Mermaid](report-output.md).
+Load when a report needs an explorable network or a data chart. Ordinary reports use [Markdown and Mermaid](report-output.md).
 
 # Interactive report widgets
 

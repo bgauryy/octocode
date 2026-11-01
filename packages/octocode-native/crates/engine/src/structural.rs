@@ -30,7 +30,7 @@ pub use syntax_tree::{
 #[cfg(test)]
 use types::StructuralMatch;
 pub use types::{
-    FileMatches, StructuralDemand, StructuralDetailedMatch, StructuralDiagnostic,
+    FileMatches, KeepLine, StructuralDemand, StructuralDetailedMatch, StructuralDiagnostic,
     StructuralSearchDetailedResult, StructuralSearchFilesDetailedResult,
     StructuralSearchFilesOptions, WalkErrors,
 };

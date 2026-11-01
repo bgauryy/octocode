@@ -2,18 +2,25 @@
 use crate::policy::path::PathPolicy;
 use serde_json::Value;
 
-/// Keep executable requests, provider URIs and source text unchanged. Only
-/// evidence paths inside the workspace become relative to that workspace.
+/// Keep continuations, provider URIs and source text unchanged. Paths
+/// inside the workspace become relative to it: evidence paths, and the
+/// paths a related call's visible input names (a relative input path
+/// resolves against the same workspace). A continuation runs sealed, as
+/// written.
 pub(crate) fn workspace_relative(value: &mut Value, paths: &PathPolicy) {
     match value {
         Value::Object(fields) => {
-            if matches!(
-                fields.get("kind").and_then(Value::as_str),
-                Some("continue" | "related")
-            ) && fields.get("tool").is_some_and(Value::is_string)
-                && fields.get("input").is_some_and(Value::is_object)
-            {
-                return;
+            let lead = fields.get("tool").is_some_and(Value::is_string)
+                && fields.get("input").is_some_and(Value::is_object);
+            match fields.get("kind").and_then(Value::as_str) {
+                Some("continue") if lead => return,
+                Some("related") if lead => {
+                    if let Some(input) = fields.get_mut("input") {
+                        workspace_relative(input, paths);
+                    }
+                    return;
+                }
+                _ => {}
             }
             for (key, value) in fields {
                 if matches!(key.as_str(), "path" | "workspaceRoot")
@@ -87,7 +94,12 @@ mod tests {
         assert_eq!(row["matches"][0]["uri"], uri);
         assert_eq!(row["lsp"]["receipt"]["command"], command);
         assert_eq!(row["lsp"]["receipt"]["argv"][0], file);
-        assert_eq!(row["related"][0], related);
+        // A related call shows its input: its paths read like every other
+        // path. A continuation runs sealed as written.
+        assert_eq!(
+            row["related"][0]["input"]["queries"][0]["path"], "src/lib.ts",
+            "{row}"
+        );
         assert_eq!(row["next"]["retry"], retry);
         let normalized = row.clone();
         workspace_relative(&mut row, &paths);

@@ -51,8 +51,10 @@ fn structural_review_parser_interruption_resets_cached_parser() {
 fn structural_review_expired_match_deadline_is_explicit() {
     let language = lang("ts").tree_sitter_language();
     let tree = parse_tree(&language, "probe();").expect("tree");
-    let error = visit_named(tree.root_node(), Instant::now(), &mut |_| Ok(()))
-        .expect_err("expired deadline");
+    let error = visit_named(tree.root_node(), Deadline::at(Instant::now()), &mut |_| {
+        Ok(())
+    })
+    .expect_err("expired deadline");
     assert_eq!(error.code, "structural.match.deadline");
 }
 
@@ -62,19 +64,4 @@ fn expired_parser_deadline_is_honored_for_tiny_inputs() {
     let error = parse_tree_with_deadline(&language, "x", Instant::now())
         .expect_err("even a parse shorter than the progress callback interval must expire");
     assert_eq!(error.code, "structural.parse.interrupted");
-}
-
-/// The match deadline grows with the source: a large file (up to the 8 MiB
-/// parse limit) gets one more parse budget per MiB, so it is not cut by the
-/// budget a small file gets, and a small file keeps the shared budget.
-#[test]
-fn the_match_budget_scales_with_the_source_size() {
-    const MIB: usize = 1 << 20;
-    assert_eq!(match_budget(0), AST_EXECUTION_TIMEOUT);
-    assert_eq!(match_budget(MIB - 1), AST_EXECUTION_TIMEOUT);
-    assert_eq!(match_budget(3_600_000), AST_EXECUTION_TIMEOUT * 4);
-    assert_eq!(
-        match_budget(crate::signatures::MAX_PARSE_SIZE),
-        AST_EXECUTION_TIMEOUT * 9
-    );
 }

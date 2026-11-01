@@ -1,13 +1,27 @@
-//! `graph ingest`: build, redact and publish a snapshot (or reuse the
+//! graphBuild: build, redact and publish a snapshot (or reuse the
 //! current one).
 use super::*;
 use crate::tools::ast_graph::limits::{LIMITS, Limits};
+use crate::tools::ast_graph::progress;
 use octocode_engine::signatures::languages::RegistryView;
+#[cfg(test)]
+mod determinism_tests;
+#[cfg(test)]
+mod hooks;
 mod publication;
 mod redact;
+mod settled;
+mod snapshot;
+#[cfg(test)]
+mod tests;
+use publication::finish_checkpoint;
+#[cfg(test)]
+pub(super) use publication::publish;
 #[cfg(test)]
 pub(super) use redact::PASSES as REDACTIONS;
 pub(super) use redact::redact_secrets;
+use settled::settled_inputs;
+use snapshot::{Publish, publish_snapshot};
 
 /// Builds the graph for `options.path` and publishes a new snapshot.
 /// `cargo` is the configured `OCTOCODE_CARGO` for Rust workspace linking.
@@ -51,147 +65,111 @@ pub(super) fn ingest_with_registry(
             return GraphOutput::error(error.shared_code(), error.message);
         }
     };
-    let _lock = match super::build_lock::acquire(&home, cancel, paths) {
-        Ok(lock) => lock,
-        Err(error) => return error,
-    };
-    if let Err(error) = publication::cleanup(&home, paths, cancel) {
-        return error;
-    }
     let workspace = home
         .parent()
         .and_then(Path::parent)
         .map(Path::to_path_buf)
         .unwrap_or_default();
-    let max_files = options.max_files.unwrap_or(limits.max_files);
     let registry_identity = match super::super::graph::registry_identity(registry) {
         Ok(identity) => identity,
         Err(error) => return GraphOutput::error(error.code, error.message),
     };
-    if !options.force
-        && let Ok(root) = paths.validate(&options.path).map(|valid| valid.canonical)
-        && let Some(receipt) =
-            reuse_current(&home, &root, options, max_files, paths, &registry_identity)
-    {
-        let mut receipt = receipt;
-        receipt["totalMs"] = json!(started.elapsed().as_millis() as u64);
-        return GraphOutput::ok(receipt);
+    let root = paths
+        .validate(&options.path)
+        .ok()
+        .map(|valid| valid.canonical);
+    let newest = || {
+        root.as_deref()
+            .and_then(|root| newest_of_root(&home, root))
+            .map(|(id, _)| id)
+    };
+    let reuse = || {
+        let root = root.as_deref().filter(|_| !options.refresh)?;
+        reuse_current(&home, root, options, paths, &registry_identity)
+    };
+    // The scope's newest snapshot before building: another one under the
+    // lock was published meanwhile, and may make this build redundant.
+    let published_before = newest();
+    // An unchanged scope skips the build. The probe runs unlocked; under the
+    // lock the snapshot must still be the newest (or re-check as current).
+    if let Some(probe) = reuse() {
+        let lock = match publication::lock(&home, paths, cancel) {
+            Ok(lock) => lock,
+            Err(error) => return error,
+        };
+        let still_newest = probe["id"].as_str().map(str::to_owned) == newest();
+        if let Some(receipt) = if still_newest { Some(probe) } else { reuse() } {
+            return publication::point_latest(&home, receipt, started);
+        }
+        drop(lock);
     }
     let scan = Scan {
-        max_files,
         cargo,
         registry,
         limits,
     };
+    #[cfg(test)]
+    hooks::reach(hooks::Point::Build, &home);
+    // Named like every output path: relative to the workspace.
+    progress::emit(|| {
+        let scope = paths.workspace_relative(&options.path).unwrap_or_else(|| {
+            let within = options.path.strip_prefix(&workspace).ok();
+            within.unwrap_or(&options.path).display().to_string()
+        });
+        format!("scanning {scope}")
+    });
     let built = match build_for_ingest(options, paths, security, cancel, &scan) {
         Ok(built) => built,
         Err(output) => return output,
     };
-    let build_ms = started.elapsed().as_millis() as u64;
-    // A budget the scan's running check cannot bound (projection, encoding)
-    // still names the narrower scopes to ingest.
-    let too_broad = |mut output: GraphOutput| {
-        let files = built.facts.keys().map(String::as_str);
-        super::super::graph::scope::hint_narrower_scopes(&mut output.value, &built.root, files);
-        output
-    };
+    let build_ms = crate::num::millis_of(started.elapsed());
     let projection = match project_graph(&built, paths, security, cancel, limits) {
         Ok(projection) => projection,
-        Err(output) => return too_broad(output),
+        Err(output) => return snapshot::too_broad(&built, output),
     };
-    let staged = match publication::Staged::new(&home) {
-        Ok(staged) => staged,
-        Err(error) => {
-            return GraphOutput::error(
-                ErrorCode::FileAccessFailed,
-                format!("cannot stage graph: {error}"),
-            );
-        }
-    };
-    let (bytes, digest) =
-        match format::write_for_publish(&projection.tables, &staged.graph(), limits, cancel) {
-            Ok(encoded) => encoded,
-            Err(error) => return too_broad(GraphOutput::error(error.code, error.message)),
-        };
-    let slug = scope_slug(&built.root, &workspace);
-    let (stamp, created_at) = utc_now();
-    // Roots whose names map to one slug (`a-b`, `a/b`) still get distinct ids.
-    let root_tag = &octocode_engine::digest::sha256(built.root.to_string_lossy().as_bytes())[..6];
-    let id = match next_snapshot_id(&home, &format!("{stamp}-{slug}-{root_tag}")) {
-        Ok(id) => id,
-        Err(error) => return GraphOutput::error(ErrorCode::FileAccessFailed, error),
-    };
+    progress::emit(|| {
+        let tables = &projection.tables;
+        let (nodes, edges) = (tables.nodes.len(), tables.edges.len());
+        format!(
+            "linked {} files: {nodes} nodes, {edges} edges",
+            built.facts.len()
+        )
+    });
     let inputs = match settled_inputs(&built, &projection.tables, paths, cancel) {
         Ok(inputs) => inputs,
         Err(output) => return output,
     };
-    let manifest = manifest(&ManifestInput {
-        id: &id,
-        scope: &slug,
-        created_at: &created_at,
-        workspace: &workspace,
-        built: &built,
-        projection: &projection,
-        bytes,
-        digest: &digest,
-        max_files,
-        exclude_dir: &options.exclude_dir,
-        language_globs: &options.language_globs,
-        inputs: &inputs,
-        build_ms,
-        registry,
-        registry_identity: &registry_identity,
-    });
-    if let Err(error) = cancel.check() {
-        return GraphOutput::error(ErrorCode::Cancelled, error);
-    }
-    let dir = match staged.publish(&home, &id, &manifest) {
-        Ok(dir) => dir,
-        Err(error) => {
-            return GraphOutput::error(
-                ErrorCode::FileAccessFailed,
-                format!(
-                    "cannot finish publishing graph {id} at {}: {error}",
-                    home.join(&id).display()
-                ),
-            );
-        }
+    #[cfg(test)]
+    hooks::reach(hooks::Point::Publish, &home);
+    // Staging, ids, publication and retention: one process at a time.
+    let _lock = match publication::lock(&home, paths, cancel) {
+        Ok(lock) => lock,
+        Err(error) => return error,
     };
-    let checkpoint = super::super::graph::checkpoint::job_path(&home.join(".facts"), &built.root);
-    if let Err(error) = super::super::graph::checkpoint::complete(&checkpoint) {
-        return GraphOutput::error(
-            error.code,
-            format!(
-                "graph {id} was published at {}, but its extraction checkpoint could not be marked complete: {}",
-                dir.display(),
-                error.message
-            ),
-        );
+    if newest() != published_before
+        && let Some(receipt) = reuse()
+    {
+        if let Err(error) = finish_checkpoint(options, &home, &built, &receipt) {
+            return error;
+        }
+        return publication::point_latest(&home, receipt, started);
     }
-    let pruned = prune(&home, &built.root, options.keep.unwrap_or(DEFAULT_KEEP));
-    let mut receipt = json!({
-        "id": id,
-        "dir": dir.to_string_lossy(),
-        "root": built.root.to_string_lossy(),
-        "bytes": bytes,
-        "sha256": digest,
-        "counts": manifest["counts"],
-        "calls": manifest["calls"],
-        "argumentCoverage": manifest["argumentCoverage"],
-        "extraction": manifest["extraction"],
-        "linkage": manifest["linkage"],
-        "scan": manifest["scan"],
-        "buildMs": manifest["buildMs"],
-        "totalMs": started.elapsed().as_millis() as u64,
-        "next": format!("octocode graph query stats --graph {id} --workspace {}", octocode_io::shell::quote(&workspace.to_string_lossy())),
-    });
-    if manifest["diagnostics"]["total"].as_u64().unwrap_or(0) > 0 {
-        receipt["diagnostics"] = manifest["diagnostics"]["byCode"].clone();
-    }
-    if !pruned.is_empty() {
-        receipt["pruned"] = json!(pruned);
-    }
-    GraphOutput::ok(receipt)
+    publish_snapshot(
+        &Publish {
+            options,
+            home: &home,
+            workspace: &workspace,
+            built: &built,
+            projection: &projection,
+            inputs: &inputs,
+            build_ms,
+            registry,
+            registry_identity: &registry_identity,
+            limits,
+        },
+        cancel,
+        started,
+    )
 }
 
 /// Projects `built` into snapshot tables and redacts them. Row counts are
@@ -247,48 +225,12 @@ pub(super) fn project_graph(
     Ok(projection)
 }
 
-fn settled_inputs(
-    built: &super::super::types::BuiltGraph,
-    tables: &format::GraphTables,
-    paths: &PathPolicy,
-    cancel: &dyn CancellationCheck,
-) -> Result<BTreeMap<String, String>, GraphOutput> {
-    let inputs = snapshot_inputs(paths, &built.root, tables);
-    if inputs != built.resolution_inputs {
-        return Err(GraphOutput::error(
-            ErrorCode::ExecutionFailed,
-            "project configuration changed during graph analysis; rebuild from settled inputs",
-        ));
-    }
-    for (file, facts) in &built.facts {
-        if let Err(error) = cancel.check() {
-            return Err(GraphOutput::error(ErrorCode::Cancelled, error));
-        }
-        let source = match paths.validate_read(built.root.join(file)) {
-            Ok(source) => source.canonical,
-            Err(_) => {
-                return Err(GraphOutput::error(
-                    ErrorCode::ExecutionFailed,
-                    "source access changed during graph analysis; rebuild from accessible inputs",
-                ));
-            }
-        };
-        if source_matches(&source, &facts.digest, facts.stamp.as_ref()) != Some(true) {
-            return Err(GraphOutput::error(
-                ErrorCode::ExecutionFailed,
-                format!(
-                    "source {file:?} changed during graph analysis; rebuild from settled inputs"
-                ),
-            ));
-        }
-    }
-    Ok(inputs)
-}
+/// What a build stopped mid-extraction tells its caller.
+pub(super) const RESUME_HINT: &str =
+    "extraction committed so far is kept; build this scope again to resume from it";
 
-/// How one ingest scans: its file bound, `OCTOCODE_CARGO`, parsers and
-/// snapshot bounds.
+/// How one ingest scans: `OCTOCODE_CARGO`, parsers and snapshot bounds.
 pub(super) struct Scan<'a> {
-    pub max_files: u32,
     pub cargo: Option<&'a str>,
     pub registry: RegistryView<'a>,
     pub limits: &'a Limits,
@@ -304,22 +246,22 @@ pub(super) fn build_for_ingest(
     ingest: &Scan<'_>,
 ) -> Result<super::super::types::BuiltGraph, GraphOutput> {
     let scan = GraphScan {
-        checkpoint: graph_home(options.workspace.as_deref())
-            .ok()
-            .map(|home| home.join(".facts")),
-        force: options.force,
+        checkpoint: (!options.memory_only)
+            .then(|| {
+                graph_home(options.workspace.as_deref())
+                    .ok()
+                    .map(|home| home.join(".facts"))
+            })
+            .flatten(),
+        refresh: options.refresh,
         root: options.path.clone(),
         exclude_dir: INGEST_EXCLUDES
             .iter()
             .map(|x| (*x).to_owned())
             .chain(options.exclude_dir.iter().cloned())
             .collect(),
-        max_files: ingest.max_files,
         limits: *ingest.limits,
         language_globs: options.language_globs.clone(),
-        // Cargo metadata links `crate::`/workspace-crate imports; syntax-only
-        // Rust linking would leave them unresolved.
-        cargo_metadata: options.path.join("Cargo.toml").is_file(),
         cargo: ingest.cargo.map(str::to_owned),
     };
     // The builder upholds map-index invariants with `expect()`; a corrupt or
@@ -334,29 +276,25 @@ pub(super) fn build_for_ingest(
         )
     })) {
         Ok(Ok(built)) => Ok(built),
-        Ok(Err(error)) => Err(GraphOutput {
-            class: ExitClass::of(error.code),
-            next_query: None,
-            value: json!({"error": error.message, "errorCode": error.code, "hints": error.hints}),
-        }),
+        Ok(Err(mut error)) => {
+            // Extraction committed before a deadline or a stop is kept:
+            // the next build of this scope resumes from it.
+            if !options.memory_only
+                && matches!(error.code, ErrorCode::Cancelled | ErrorCode::Timeout)
+            {
+                error.hints.push(RESUME_HINT.to_owned());
+            }
+            Err(GraphOutput {
+                class: ExitClass::of(error.code),
+                next: Vec::new(),
+                #[cfg(test)]
+                validation: Value::Null,
+                value: json!({"error": error.message, "errorCode": error.code, "hints": error.hints}),
+            })
+        }
         Err(_) => Err(GraphOutput::error(
             ErrorCode::ExecutionFailed,
             "graph build panicked",
         )),
     }
-}
-
-/// Writes the snapshot under a temp dir, renames it into place and points
-/// the latest marker at it.
-#[cfg(test)]
-pub(super) fn publish(
-    home: &Path,
-    id: &str,
-    _stamp: &str,
-    bytes: &[u8],
-    manifest: &Value,
-) -> std::io::Result<PathBuf> {
-    let staged = publication::Staged::new(home)?;
-    write_atomic(&staged.graph(), bytes, true)?;
-    staged.publish(home, id, manifest)
 }

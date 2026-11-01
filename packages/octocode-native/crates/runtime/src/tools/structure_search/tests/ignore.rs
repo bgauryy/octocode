@@ -276,10 +276,10 @@ fn include_hidden_alone_lists_hidden_directories_and_leads_to_the_ignored_ones()
     }
 }
 
-/// A path-ordered listing is the walk order, so the walk stops once the
-/// requested limit is filled instead of scanning the whole tree.
+/// A path-ordered listing is the walk order, so the walk stops once its
+/// window is filled instead of scanning the whole tree.
 #[test]
-fn traversal_sorted_listing_stops_walking_at_the_limit() {
+fn traversal_sorted_listing_stops_walking_at_its_window() {
     let root = Fixture::new();
     for dir in ["a", "a-b", "b"] {
         std::fs::create_dir_all(root.0.join(dir)).expect("dir");
@@ -287,12 +287,13 @@ fn traversal_sorted_listing_stops_walking_at_the_limit() {
             std::fs::write(root.0.join(format!("{dir}/f{n}.go")), "x\n").expect("file");
         }
     }
-    let listing = |limit: Option<u32>| {
-        let mut query = json!({"operation":"files","path":root.0,"extensions":["go"],"sort":{"by":"traversal","order":"asc"}});
-        if let Some(limit) = limit {
-            query["maxEntries"] = json!(limit);
+    let listing = |window: Option<usize>| {
+        let query = json!({"operation":"files","path":root.0,"extensions":["go"],"sort":{"by":"traversal","order":"asc"}});
+        match window {
+            Some(window) => with_window(window, || run(&root.0, query)),
+            None => run(&root.0, query),
         }
-        run(&root.0, query).expect("files")
+        .expect("files")
     };
     let full = listing(None);
     let prefix = "./".to_owned();
@@ -314,15 +315,14 @@ fn traversal_sorted_listing_stops_walking_at_the_limit() {
     let cut = listing(Some(3));
     assert_eq!(names(&cut), all[..3], "{cut}");
     assert_eq!(cut["clipped"], true);
-    assert_eq!(cut["partialReasons"], json!(["maxEntries"]));
+    assert_eq!(cut["partialReasons"], json!(["walkWindow"]));
     // The walk stopped early: the total is a lower bound, not a count.
     assert!(cut.get("totalAvailable").is_none(), "{cut}");
     assert_eq!(cut["atLeast"], 4, "{cut}");
     assert!(cut.get("terminalLimit").is_none(), "{cut}");
-    assert_eq!(
-        cut["next"]["continueWalk"]["input"]["queries"][0]["maxEntries"], 6,
-        "{cut}"
-    );
+    let next = &cut["next"]["continueWalk"]["input"]["queries"][0];
+    assert!(next.get("limit").is_none(), "the window is internal: {cut}");
+    assert_eq!(next["scanOffset"], 3, "{cut}");
 }
 
 /// `tree` takes the same name filter as `files`; `files` takes `noIgnore`

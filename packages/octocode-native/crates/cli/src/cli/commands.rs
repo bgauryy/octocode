@@ -188,17 +188,17 @@ pub(super) enum Command {
         #[arg(long, hide = true)]
         manage: bool,
     },
+    /// Remove tool caches for this home and this workspace; stop MCP servers first.
+    #[command(hide = true, disable_help_subcommand = true)]
+    Cache {
+        #[command(subcommand)]
+        command: CacheCommand,
+    },
     /// GitHub authentication: `status`, `login`, or `logout`.
     #[command(disable_help_subcommand = true)]
     Auth {
         #[command(subcommand)]
         command: AuthCommand,
-    },
-    /// Build (`ingest <path>`) or query (`query <op>`) a persisted code graph in <workspace>/.octocode/graph.
-    #[command(long_about = super::graph::GRAPH_HELP, disable_help_subcommand = true)]
-    Graph {
-        #[command(subcommand)]
-        command: super::graph::GraphCommand,
     },
     /// Install, remove, or check bundled Octocode skills (`octocode skill --help`).
     #[command(disable_help_subcommand = true)]
@@ -326,4 +326,10 @@ mod tests {
             Some("{\"queries\":[]}".to_owned())
         );
     }
+}
+
+#[derive(Subcommand, Debug)]
+pub(super) enum CacheCommand {
+    /// Drain warm CLI servers, clear caches, and preserve clone and graph outputs.
+    Clear,
 }

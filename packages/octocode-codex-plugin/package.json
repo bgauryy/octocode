@@ -25,7 +25,8 @@
   ],
   "scripts": {
     "build": "node scripts/build.ts",
-    "lint": "prettier --check package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
+    "clean": "rm -rf plugin.json mcp.json assets skills LICENSE",
+    "lint": "prettier --check package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md && yarn run -T oxlint -c ../../.oxlintrc.json .",
     "format": "prettier --write package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "test": "node --test tests/package.test.ts",

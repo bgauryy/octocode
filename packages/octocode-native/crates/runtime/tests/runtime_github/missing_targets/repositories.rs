@@ -135,8 +135,9 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
                 && (call["input"]["queries"][0]["operation"] != "refs")),
         "{data}"
     );
-    // As on ghSearchCode and ghStructure, the one repair is a search for
-    // the repository's name, which names the owner that holds it.
+    // As on every GitHub tool (`gh_shared::failure::repository_recovery`):
+    // a search for the repository's name, which names the owner that holds
+    // it, and the owner's listing, labelled by one shared hint.
     let find = &crate::support::checks::related_call(data, "ghSearchRepo", |_| true);
     assert_eq!(find["tool"], "ghSearchRepo", "{data}");
     assert_eq!(
@@ -147,7 +148,7 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
     assert_eq!(
         data["hints"],
         json!([
-            "Verify the exact identifier, repository and revision, and access rights; a missing resource is not proof its contents do not exist elsewhere."
+            "The related[] ghSearchRepo calls list repositories named like `nope` under any owner (confirm the owner before using one) and the repositories `ghost` holds."
         ]),
         "{data}"
     );

@@ -1,4 +1,4 @@
-//! The commit one clone checks out, resolved with the caller's credential: the access check a cached checkout is served behind.
+//! The commit one fresh clone checks out, resolved with the caller's credential.
 use super::{CloneError, CloneFailure, GhCloneRepoQuery, repository_not_found};
 use octocode_contract_types::ErrorCode;
 use octocode_github::{
@@ -16,13 +16,10 @@ pub(super) struct Pin {
     pub(super) renamed: bool,
 }
 
-/// Resolve the clone's commit with the caller's credential. The clone cache
-/// is shared by every credential of the runtime and its keys name none (a
-/// refreshed token must not re-clone), so this read is also the access check
-/// a cached checkout is served behind. Any failed answer refuses the row, a
-/// rate limit or outage included: one caller's spent quota never unlocks
-/// another caller's checkout. The reads follow GitHub's rename redirect, so
-/// the canonical name costs no further request when nothing was renamed.
+/// Resolve and authorize the clone's commit with the caller's credential on
+/// every call. Any failed answer refuses the row, including rate limits and
+/// outages. Redirects supply the canonical repository name without another
+/// request when nothing was renamed.
 pub(super) async fn pin(
     provider: &GitHubProvider,
     query: &GhCloneRepoQuery,

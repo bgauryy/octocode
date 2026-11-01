@@ -45,7 +45,6 @@ fn candidates_carry_the_enclosing_declaration() {
         &ContentSecurity::new(),
         &NeverCancel,
         None,
-        None,
         Some(&selection),
     )
     .expect("search");
@@ -74,11 +73,9 @@ fn snippet_groups_merge_overlapping_or_touching_windows() {
         value_digest: <sha2::Sha256 as sha2::Digest>::digest(b"").into(),
         count: None,
         rank: None,
-        original_chars: None,
-
-        original_bytes: None,
     };
     let file = TextSearchFile {
+        term_counts: Vec::new(),
         path: "a.rs".into(),
         match_count: 4,
         matches: vec![hit(20), hit(1), hit(2), hit(9)],

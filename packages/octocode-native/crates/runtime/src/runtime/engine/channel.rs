@@ -5,8 +5,11 @@
 mod batch;
 mod publication;
 mod shaping;
-use super::cursors::{Pending, Registry};
-use super::page_replay::{PageReplay, PageReplayMemo, page_expiry, snapshot_expired};
+use super::cursors::Registry;
+use super::page_replay::{
+    PageReplay, PageReplayMemo, Refusal, RefusalScope, page_expiry, snapshot_expired,
+    source_changed,
+};
 use super::{RuntimeError, runtime_execution_error};
 use crate::contracts;
 use crate::execution::{ExecutionContext, ExecutionError};
@@ -24,6 +27,9 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 type StageResult = Result<Result<ToolOutcome, contracts::ContractValidationError>, ExecutionError>;
+
+/// A call's answer: its outcome, or the typed error a caller receives.
+type RunResult = Result<Result<ToolOutcome, RuntimeError>, ExecutionError>;
 
 /// Output settings one call reads from the resolved config.
 #[derive(Clone, Copy)]
@@ -45,16 +51,21 @@ pub(super) struct ChannelRun {
     pub(super) row_indices: Vec<usize>,
     /// Query that issued this saved work; fresh requests use their own indices.
     pub(super) origin_index: Option<usize>,
+    /// The request states its queries itself, rather than resuming saved work.
+    pub(super) fresh: bool,
     pub(super) response_query: Value,
     pub(super) clasify: bool,
     pub(super) dispatcher: crate::runtime::domain_dispatch::DomainDispatcher,
     pub(super) output: OutputSettings,
     pub(super) replayed: Option<Arc<PageReplay>>,
+    /// The saved page this run re-executes because its response is no
+    /// longer retained: the run answers it only when its sources reproduce
+    /// the content that page was cut from.
+    pub(super) pinned: Option<Cursor>,
     pub(super) replays: (Arc<PageReplayMemo>, [u8; 32]),
     pub(super) section_sessions: Arc<crate::tools::clasify::sections::Sessions>,
     pub(super) access: [u8; 32],
     pub(super) cursors: Arc<Registry>,
-    pub(super) cursor_set: Option<Pending>,
     pub(super) resume_identity: Option<String>,
 }
 
@@ -72,18 +83,28 @@ impl ChannelRun {
         if identity.as_ref().is_ok_and(|identity| identity == expected) {
             Ok(())
         } else {
-            Err(snapshot_expired())
+            Err(snapshot_expired(
+                Refusal::IdentityChanged,
+                RefusalScope {
+                    persistent: self.replays.0.persistent,
+                    mcp: self.mcp,
+                },
+            ))
         }
     }
 
-    pub(super) fn run(mut self, context: &ExecutionContext) -> StageResult {
+    pub(super) fn run(mut self, context: &ExecutionContext) -> RunResult {
+        let id = self.id;
+        let contract = |result: StageResult| {
+            result.map(|result| {
+                result.map_err(|error| super::admission::output_contract_error(id.as_str(), error))
+            })
+        };
         if let Some(replay) = self.replayed.take() {
             let mut stage = self.stage(Sanitized::scrubbed(Value::Null), true);
-            stage.options.saved = Some(crate::response::page_model::SavedResponse {
-                key: self.replays.1,
-                expires_at: replay.expires_at.clone(),
-                replayed: true,
-            });
+            if let Some(saved) = stage.options.saved.as_mut() {
+                saved.replayed = true;
+            }
             let stage::Staged { mut result, next } = stage::respond_saved(
                 stage::StageInput {
                     failure: replay.failure,
@@ -95,13 +116,14 @@ impl ChannelRun {
                 context,
             )?;
             if let Ok(outcome) = &mut result {
-                let Some(mut pending) = self.cursor_set.take() else {
-                    return Err(ExecutionError::WorkerFailed);
-                };
+                // The next saved page is bound to the identity the opened
+                // one was issued under.
+                let mut pending = self.pending();
+                pending.bind_github_identity(self.resume_identity.clone());
                 self.register_page(outcome, next, &mut pending)?;
                 self.cursors.retain(pending, context)?;
             }
-            return Ok(result);
+            return contract(Ok(result));
         }
         let rejected = std::mem::take(&mut self.rejected_rows);
         let mcp = self.mcp;
@@ -116,7 +138,10 @@ impl ChannelRun {
         let scope = continuations::Scope {
             is_available: &available,
         };
-        self.run_rows(rejected, &scope, context)
+        match self.run_rows(rejected, &scope, context)? {
+            Rows::Answered(result) => contract(Ok(result)),
+            Rows::Changed => Ok(Err(source_changed())),
+        }
     }
 
     /// The shared response-stage input for `structured`; the caller sets the
@@ -126,16 +151,20 @@ impl ChannelRun {
             tool: self.id,
             structured,
             options: ResponsePageOptions {
+                // Every read of saved work restarts its lifetime, so each
+                // page states the expiry its own read set. A later page is a
+                // replay whether it is cut from the retained response or
+                // from a re-execution that reproduced it.
                 saved: Some(crate::response::page_model::SavedResponse {
                     key: self.replays.1,
                     expires_at: page_expiry(),
-                    replayed: false,
+                    replayed: self.pinned.is_some(),
                 }),
                 ..self.options.clone()
             },
             failure: None,
             auto_page_chars: self.output.auto_page_chars,
-            allow_auto_paging,
+            allow_auto_paging: allow_auto_paging && self.id != ToolId::GhCloneRepo,
         }
     }
 
@@ -151,25 +180,31 @@ impl ChannelRun {
         rejected: Vec<(usize, Value)>,
         scope: &continuations::Scope<'_>,
         context: &ExecutionContext,
-    ) -> StageResult {
+    ) -> Result<Rows, ExecutionError> {
         let ShapedRows {
             mut structured,
             response_query,
             rejected_at,
             mut failure,
         } = self.shape_rows(rejected, context)?;
-        let mut pending = self.pending()?;
+        let mut pending = self.pending();
         if let Err(error) =
             structured.edit(|structured| self.publish(structured, scope, &mut pending))
         {
-            return Ok(Err(error));
+            return Ok(Rows::Answered(Err(error)));
         }
         let mut remaining =
             match stage::settle(self.id, &mut structured, &response_query, &mut failure) {
                 Ok(remaining) => remaining,
-                Err(error) => return Ok(Err(error)),
+                Err(error) => return Ok(Rows::Answered(Err(error))),
             };
         structured.edit(|output| crate::runtime::row_indices::inherit(output, self.origin_index));
+        if let Some(cursor) = &self.pinned
+            && crate::response::pager::content_snapshot(&structured, cursor.length)
+                != Some(cursor.content_snapshot())
+        {
+            return Ok(Rows::Changed);
+        }
         let settled = Settled {
             response_query: &response_query,
             failure,
@@ -193,20 +228,35 @@ impl ChannelRun {
             }
             self.register_page(outcome, next, &mut pending)?;
             self.retain_pending(pending, context)?;
-            crate::runtime::row_indices::attach_rejected(outcome, rejected_rows);
-            outcome
-                .structured_content
-                .edit(|output| {
-                    crate::response::pager::measure_page(
+            if self.fresh {
+                outcome.structured_content.edit(|output| {
+                    crate::response::pages::drop_echoes(
                         output,
-                        self.options
-                            .response_chars
-                            .or(Some(self.output.auto_page_chars)),
-                    )
-                })
-                .map_err(|_| ExecutionError::WorkerFailed)?;
+                        response_query["queries"]
+                            .as_array()
+                            .map_or(&[], Vec::as_slice),
+                        &self.row_indices,
+                    );
+                });
+            }
+            // Rejected rows ride page 1 outside the plan that measured it,
+            // so that page is measured again with them.
+            if !rejected_rows.is_empty() {
+                crate::runtime::row_indices::attach_rejected(outcome, rejected_rows);
+                outcome
+                    .structured_content
+                    .edit(|output| {
+                        crate::response::pager::measure_page(
+                            output,
+                            self.options
+                                .response_chars
+                                .or(Some(self.output.auto_page_chars)),
+                        )
+                    })
+                    .map_err(|_| ExecutionError::WorkerFailed)?;
+            }
         }
-        Ok(finished)
+        Ok(Rows::Answered(finished))
     }
 
     /// Respond over a settled envelope; the stage keeps a copy of it (the
@@ -224,12 +274,6 @@ impl ChannelRun {
             failure: settled.failure,
             ..self.stage(structured, true)
         };
-        let expires_at = stage
-            .options
-            .saved
-            .as_ref()
-            .map(|saved| saved.expires_at.clone())
-            .unwrap_or_default();
         let finished = stage::respond(stage, remaining.clone(), Some(&mut kept), context)?;
         let seed = kept.map(|structured| PageReplay {
             access: self.access,
@@ -238,7 +282,6 @@ impl ChannelRun {
             remaining,
             response_query: settled.response_query.clone(),
             failure: settled.failure,
-            expires_at,
             pages,
         });
         Ok((finished, seed))
@@ -295,6 +338,13 @@ impl ChannelRun {
         }
         Ok(())
     }
+}
+
+/// What executing the rows answered: the call's outcome, or, for a
+/// [`ChannelRun::pinned`] page, that its sources no longer reproduce it.
+enum Rows {
+    Answered(Result<ToolOutcome, contracts::ContractValidationError>),
+    Changed,
 }
 
 /// The settled facts every response of one call shares.

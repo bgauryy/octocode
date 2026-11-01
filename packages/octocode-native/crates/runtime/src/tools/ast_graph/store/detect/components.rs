@@ -1,4 +1,4 @@
-//! Component detectors (coupling, misplaced files) and the health summary.
+//! Component detectors (coupling) and the health summary.
 use super::*;
 
 /// Component-level Martin metrics: `unstable-dependency`, `main-sequence`.
@@ -66,13 +66,16 @@ pub(super) fn detect_components(c: &mut Ctx) {
         .collect::<BTreeSet<_>>()
         .len()
         >= 2;
+    let dirs = dir_units(v);
     let unit = |file: u32| -> String {
         if use_components {
             v.component
                 .get(&file)
                 .map_or(".".into(), |(dir, _, _)| (*dir).to_owned())
         } else {
-            dirname(v.key(file)).to_owned()
+            dirs.get(&file)
+                .map_or_else(|| dirname(v.key(file)), |dir| *dir)
+                .to_owned()
         }
     };
     let level = if use_components {
@@ -135,82 +138,6 @@ pub(super) fn detect_components(c: &mut Ctx) {
         }
     }
     push_pending(&mut c.findings, pending);
-}
-
-pub(super) fn detect_misplaced(c: &mut Ctx) {
-    let v = &c.v;
-    let mut pending = Vec::new();
-    for file in &v.files {
-        let key = v.key(*file);
-        let name = key.rsplit('/').next().unwrap_or(key);
-        let stem = name.split('.').next().unwrap_or(name);
-        if !v.file_level(*file)
-            || v.is_entry(*file)
-            || matches!(stem, "index" | "mod" | "__init__" | "lib" | "main")
-            || is_barrel(v, *file)
-        {
-            continue;
-        }
-        let home = dirname(key);
-        let package = v.component.get(file).map(|(dir, _, _)| *dir);
-        let mut by_dir = BTreeMap::<&str, usize>::new();
-        // What the file depends on decides where it belongs. Its importers do not: a shared
-        // utility imported by sixty locale files belongs with the code it serves, not in
-        // `locales/` (measured on zod: `v4/core/util.ts`).
-        let mut neighbors = v.out[*file as usize].clone();
-        // A file moves within its package: neighbours in another package
-        // are a layering question, not a placement one.
-        neighbors.retain(|other| v.component.get(other).map(|(dir, _, _)| *dir) == package);
-        for other in &neighbors {
-            *by_dir.entry(dirname(v.key(*other))).or_default() += 1;
-        }
-        let same = by_dir.get(home).copied().unwrap_or(0);
-        let total = neighbors.len();
-        if let Some((dir, count)) = by_dir
-            .iter()
-            .filter(|(dir, _)| **dir != home)
-            .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0)))
-            && *count >= 3
-            && *count * 10 >= total * 6
-            && same < *count
-            // A Rust module's place is its `mod` declaration: depending on
-            // the modules above it is the tree's normal direction.
-            && !(v.language(*file) == "rust" && ancestor_dir(dir, home))
-        {
-            pending.push((*file, (*dir).to_owned(), *count, same, total));
-        }
-    }
-    for (file, dir, count, same, total) in pending {
-        push(
-            &mut c.findings,
-            Draft {
-                detector: "misplaced-file",
-                subject: c.v.key(file).to_owned(),
-                id_parts: &[],
-                title: format!("Most of its dependencies live in {dir}"),
-                severity: 0.25,
-                confidence: 0.5,
-                impact: c.v.impact(file),
-                evidence: json!({"suggestedDir": dir, "edgesToSuggested": count, "edgesToOwnDir": same, "edges": total}),
-                controls: vec![
-                    "index/mod/__init__, entries and barrels excluded",
-                    "only the file's own imports count; importers do not pull it",
-                    "neighbours in other packages ignored",
-                    "rust modules are not moved up their own module tree",
-                ],
-                verify: Vec::new(),
-            },
-        );
-    }
-}
-
-/// Whether `dir` is `of` or a directory above it (`.` is above every path).
-fn ancestor_dir(dir: &str, of: &str) -> bool {
-    dir == "."
-        || dir == of
-        || of
-            .strip_prefix(dir)
-            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// Lakos cumulative component dependency, normalized against a balanced

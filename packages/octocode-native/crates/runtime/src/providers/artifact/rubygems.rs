@@ -90,7 +90,7 @@ pub(crate) async fn rubygems(
     // A page that crosses an API page boundary reads the next one; a short
     // API page is the last.
     let size = artifact_search_query::page_size(query);
-    let offset = state.offset.unwrap_or(0) as usize;
+    let offset = state.offset.map_or(0, crate::num::usize_of);
     let mut api_page = offset / RUBYGEMS_PAGE_ROWS + 1;
     let mut skip = offset % RUBYGEMS_PAGE_ROWS;
     let mut artifacts = Vec::new();

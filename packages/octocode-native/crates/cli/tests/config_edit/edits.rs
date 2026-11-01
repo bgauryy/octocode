@@ -211,7 +211,9 @@ fn config_get_masks_secrets_and_names_their_source() {
     let home_env = workspace.home.join(".env");
     std::fs::write(
         &home_env,
-        format!("GH_TOKEN={secret}\nPLAIN_SETTING=visible\n"),
+        format!(
+            "GH_TOKEN={secret}\nPLAIN_SETTING=visible\nTAVILY_API_KEY=tavily-secret-value\nEXA_API_KEY=exa-secret-value\nSERPER_API_KEY=serper-secret-value\nSCRAPING_ANT=scrapingant-secret-value\n"
+        ),
     )
     .unwrap();
     let project_env = workspace.workspace.join(".octocode/.env");
@@ -253,6 +255,24 @@ fn config_get_masks_secrets_and_names_their_source() {
         line,
         format!("[REDACTED-GH_TOKEN] (home: {})\n", home_env.display())
     );
+
+    for (key, value) in [
+        ("TAVILY_API_KEY", "tavily-secret-value"),
+        ("EXA_API_KEY", "exa-secret-value"),
+        ("SERPER_API_KEY", "serper-secret-value"),
+        ("SCRAPING_ANT", "scrapingant-secret-value"),
+    ] {
+        let output = get(key, true, None);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let json = as_json(&output);
+        assert_eq!(json["value"], format!("[REDACTED-{key}]").as_str());
+        assert!(!String::from_utf8_lossy(&output.stdout).contains(value));
+        assert!(!String::from_utf8_lossy(&output.stderr).contains(value));
+    }
 
     let workspace_key = as_json(&get("SERVICE_API_KEY", true, None));
     assert_eq!(workspace_key["value"], "[REDACTED-SERVICE_API_KEY]");

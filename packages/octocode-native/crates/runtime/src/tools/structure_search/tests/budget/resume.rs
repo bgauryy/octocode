@@ -92,20 +92,19 @@ fn the_ignored_retry_of_a_resumed_window_lists_from_the_start() {
 }
 
 /// A listing sorted by something else than walk order and cut by time lists
-/// its walk's first `maxEntries` rows in walk order, so the resumed walk
+/// its walk window's first rows in walk order, so the resumed walk
 /// reaches the rest: no row is lost to a sort a cut walk ranks differently.
 #[test]
 fn a_sorted_listing_cut_by_time_resumes_exactly() {
     for sort in ["name", "sizeBytes", "modifiedAt", "lineCount"] {
         let root = Fixture::new();
-        let mut start = flat_listing("files", &root, json!({"sort": {"by":sort,"order":"desc"}}));
+        let start = flat_listing("files", &root, json!({"sort": {"by":sort,"order":"desc"}}));
         let whole = {
             let mut all = listed_entries(&run(&root.0, start.clone()).expect("whole"));
             all.sort();
             all
         };
-        start["maxEntries"] = json!(3);
-        let (windows, _) = follow_windows(&root.0, start, &[STEP * 4]);
+        let (windows, _) = with_window(3, || follow_windows(&root.0, start, &[STEP * 4]));
         assert!(windows.len() > 1, "{sort}: the budget never cut the walk");
         let mut chained = windows.concat();
         chained.sort();
@@ -113,7 +112,7 @@ fn a_sorted_listing_cut_by_time_resumes_exactly() {
     }
 }
 
-/// A widening `continueWalk` skips the rows an earlier window listed. A walk
+/// A window-cut `continueWalk` skips the rows an earlier window listed. A walk
 /// it cut by time that never reached them lists nothing; its resuming
 /// `continueWalk` skips the
 /// rows still owed, so the rows between its cut and the earlier window's end
@@ -122,15 +121,17 @@ fn a_sorted_listing_cut_by_time_resumes_exactly() {
 fn a_walk_cut_before_the_rows_an_earlier_window_listed_skips_the_rest_after_it() {
     for operation in ["files", "tree"] {
         let root = Fixture::new();
-        let mut start = flat_listing(operation, &root, json!({}));
+        let start = flat_listing(operation, &root, json!({}));
         let whole = listed_entries(&run(&root.0, start.clone()).expect("whole"));
-        start["maxEntries"] = json!(4);
+        WINDOW.set(Some(4));
         let first = within(&root.0, start, Duration::from_secs(3600));
+        // Later windows take the whole rest, as a widened window did.
+        WINDOW.set(None);
         let mut chained = listed_entries(&first);
         assert_eq!(chained.len(), 4, "{operation}: {first}");
         let widen = first["next"]["continueWalk"]["input"]["queries"][0].clone();
         assert_eq!(widen["scanOffset"], 4, "{operation}: {first}");
-        // The widened walk is cut after two or three entries, before the four
+        // The next walk is cut after two or three entries, before the four
         // rows the first window listed.
         let second = within_checked(&root.0, widen, STEP * 5 / 3, &Slow);
         let cut = second["next"]["continueWalk"]["input"]["queries"][0].clone();
@@ -152,7 +153,7 @@ fn a_sorted_listing_cut_before_the_rows_an_earlier_window_listed_lists_none_and_
     let root = Fixture::new();
     let mut query = flat_listing("files", &root, json!({"sort":{"by":"name","order":"asc"}}));
     query["scanOffset"] = json!(4);
-    query["maxEntries"] = json!(8);
+    WINDOW.set(Some(8));
     let out = within_checked(&root.0, query.clone(), STEP * 5 / 3, &Slow);
     assert_row_contract(ToolId::StructureSearch, &out);
     assert!(listed_entries(&out).is_empty(), "{out}");

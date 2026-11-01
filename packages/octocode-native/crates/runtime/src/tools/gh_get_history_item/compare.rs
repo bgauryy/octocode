@@ -94,7 +94,11 @@ pub(super) async fn compare(
     // One marker: the file list stops at GitHub's cap and the trees could
     // not extend it. Its lead below reads the range's commits instead.
     if wants_files && file_limit {
-        crate::response::paging::mark_partial(&mut out, "providerFileLimit", &[]);
+        crate::response::paging::mark_partial(
+            &mut out,
+            crate::response::paging::PartialReason::ProviderFileLimit,
+            &[],
+        );
     }
     // Continuations read the same two commits.
     let pinned = query.with_compare_refs(&base_sha, &head_sha)?;
@@ -125,18 +129,7 @@ pub(super) async fn compare(
             },
         )
     });
-    cursors.commit_page = more
-        .then(|| {
-            crate::response::paging::next_cursor(
-                &mut out,
-                crate::id::ToolId::GhGetHistoryItem,
-                None,
-                "page",
-                page + 1,
-            )
-        })
-        .flatten()
-        .map(|next| u64::try_from(next).unwrap_or(u64::MAX));
+    cursors.commit_page = more.then(|| u64::try_from(page + 1).unwrap_or(u64::MAX));
     // A file answer leaves the range's commits to their own pages: the
     // section states their count with none shown, and its page lists them
     // from the first. An empty file answer is the whole answer.

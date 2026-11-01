@@ -27,6 +27,7 @@ import { checks as contentChecks } from './protocol/checks-content.mjs';
 import { checks as staleRefChecks } from './protocol/checks-stale-refs.mjs';
 import { checks as domainChecks } from './protocol/checks-domains.mjs';
 import { checks as evidenceChecks } from './protocol/checks-evidence.mjs';
+import { checks as devChecks } from './protocol/checks-dev.mjs';
 
 const args = process.argv.slice(2),
   get = flag => args[args.indexOf(flag) + 1],
@@ -110,6 +111,7 @@ try {
     ...staleRefChecks,
     ...domainChecks,
     ...evidenceChecks,
+    ...devChecks,
   ])
     await check(name, needs, fn);
 } catch (error) {

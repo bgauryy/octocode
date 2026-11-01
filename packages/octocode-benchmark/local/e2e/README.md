@@ -43,7 +43,7 @@ For real-provider acceptance, configure GitHub and classification credentials an
 OCTOCODE_LIVE=1 node packages/octocode-benchmark/local/e2e/harness/run-all.mjs remote
 ```
 
-That exercises all 14 tools through the built CLI and all 13 eligible tools through a fresh MCP server: the current checkout, authenticated GitHub lookup/search/history/read/clone flows, npm resolution, and real classification of literal text, a public text URL and a public image. The public text flow follows a GitHub redirect, checks final provenance and exact captured lines, then replays the saved read. It makes a small number of paid classification calls. Missing credentials, providers or language servers fail acceptance; they are not successful skips. Competitor, soak and published-version experiments are separate programs; their historical records are not acceptance evidence for the current contract.
+That exercises all 14 tools through the built CLI and all 13 eligible tools through a fresh MCP server: the current checkout, authenticated GitHub lookup/search/history/read/clone flows, npm resolution, and real classification of literal text, a public text URL and a public image. The public text flow follows a GitHub redirect, checks final provenance and exact captured lines, then replays the saved read. It makes a small number of paid classification calls. Missing credentials, providers or language servers fail acceptance; they are not successful skips. Competitor and published-version experiments are separate programs; their historical records are not acceptance evidence for the current contract.
 
 ## Coverage ownership
 

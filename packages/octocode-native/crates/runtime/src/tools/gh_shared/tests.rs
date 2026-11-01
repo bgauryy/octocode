@@ -6,22 +6,20 @@ use crate::id::ToolId;
 use octocode_contract_types::{GhSearchCodeQuery, GhSearchRepoQuery};
 use serde_json::json;
 
+/// An owner listing pages GitHub's REST list, which has no search window:
+/// page 1,000 (the former schema ceiling) continues to page 1,001.
 #[test]
-fn owner_listing_page_ceiling_keeps_rows_and_discloses_remaining_results() {
+fn owner_listing_continues_past_the_former_page_ceiling() {
     let query: GhSearchRepoQuery =
         serde_json::from_value(json!({"operation":"list","owner":"o","page":1000})).expect("query");
     let mut page = json!({"repositories":[{"repo":"o/r"}],"pagination":{"hasMore":true}});
     add_next(&mut page, ToolId::GhSearchRepo, &query, 1000, true);
     assert_eq!(page["repositories"].as_array().expect("rows").len(), 1);
-    assert!(page.get("calls").is_none(), "{page}");
-    assert_eq!(page["terminalLimit"], true, "{page}");
-    let mut earlier = json!({"repositories":[],"pagination":{"hasMore":true}});
-    add_next(&mut earlier, ToolId::GhSearchRepo, &query, 999, true);
     assert_eq!(
-        earlier["calls"]["nextPage"]["input"]["queries"][0]["page"],
-        1000
+        page["calls"]["nextPage"]["input"]["queries"][0]["page"],
+        1001
     );
-    assert!(earlier.get("terminalLimit").is_none());
+    assert!(page.get("terminalLimit").is_none(), "{page}");
 }
 
 #[test]
@@ -76,6 +74,8 @@ fn incomplete_and_cap_are_losslessly_typed() {
         },
     );
     assert_eq!(value["terminalLimit"], true);
+    // The count the page states stops at the cap, and says so.
+    assert_eq!(value["pagination"]["totalItemsCapped"], true, "{value}");
     // `partialReasons` names the cap and `pagination.totalItems` its
     // size: no `providerLimit` restates them.
     assert!(value.get("providerLimit").is_none(), "{value}");
@@ -87,6 +87,67 @@ fn incomplete_and_cap_are_losslessly_typed() {
 }
 
 mod provider_backed;
+
+/// A repository that did not resolve: every search tool's repair is the
+/// shared name search, the owner's listing when the owner is known, and the
+/// hint that labels the name search's rows as candidates under any owner.
+#[test]
+fn a_missing_repository_repair_labels_its_name_search() {
+    let missing = || {
+        GhFailure::new(
+            octocode_github::ProviderError::new(
+                octocode_github::ProviderErrorKind::NotFound,
+                "Not Found",
+            )
+            .with_reason(octocode_github::ProviderErrorReason::RepositoryNotFound),
+            "Not Found".to_owned(),
+        )
+        .hint("replaced")
+    };
+    let query = json!({"owner":"o","repo":"gone"});
+    let owned = with_search_repair(
+        missing(),
+        ToolId::GhStructure,
+        &query,
+        1,
+        Some("o"),
+        Some("gone"),
+    );
+    let calls = owned.calls.as_deref().expect("leads");
+    assert_eq!(calls, &repository_recovery(Some("o"), "gone"));
+    assert_eq!(
+        calls["findRepository2"]["input"]["queries"][0],
+        json!({"operation":"list","owner":"o"}),
+        "{calls}"
+    );
+    let [hint] = owned.hints.as_slice() else {
+        panic!("one hint: {:?}", owned.hints);
+    };
+    assert!(
+        hint.contains("named like `gone` under any owner")
+            && hint.contains("confirm the owner")
+            && hint.contains("`o` holds"),
+        "{hint}"
+    );
+    // Without an owner there is no listing to offer, and the hint does not
+    // promise one.
+    let ownerless = with_search_repair(
+        missing(),
+        ToolId::GhSearchRepo,
+        &query,
+        1,
+        None,
+        Some("gone"),
+    );
+    let calls = ownerless.calls.as_deref().expect("leads");
+    assert!(calls.get("findRepository2").is_none(), "{calls}");
+    assert_eq!(ownerless.hints, [repository_search_hint(None, "gone")]);
+    assert!(
+        !ownerless.hints[0].contains("holds"),
+        "{:?}",
+        ownerless.hints
+    );
+}
 
 /// Recovery leads never repeat a traversal the caller sent: `.` and `..`
 /// resolve lexically and clamp at the repository root.

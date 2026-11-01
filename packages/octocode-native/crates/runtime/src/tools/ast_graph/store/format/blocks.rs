@@ -115,13 +115,14 @@ pub(super) fn pack(tag: &[u8; 4], flat: &[u8]) -> Result<Vec<u8>, String> {
             }
             previous.truncate(shared);
             previous.extend_from_slice(r.take(suffix)?);
+            let id = u32::try_from(index).map_err(|_| "encoder string id overflows")?;
             if index % ROWS == 0 {
-                chunks.push((index as u32, index as u32, 0, Vec::new()));
+                chunks.push((id, id, 0, Vec::new()));
             }
             let chunk = chunks.last_mut().ok_or("encoder string chunk is absent")?;
             let restart = chunk.2 == 0;
             let shared = if restart { 0 } else { shared };
-            chunk.1 = index as u32;
+            chunk.1 = id;
             chunk.2 += 1;
             writer::put(&mut chunk.3, shared as u64);
             writer::put(&mut chunk.3, (previous.len() - shared) as u64);
@@ -130,7 +131,7 @@ pub(super) fn pack(tag: &[u8; 4], flat: &[u8]) -> Result<Vec<u8>, String> {
         if r.at != flat.len() {
             return Err("encoder string count does not match its body".into());
         }
-        return Ok(directory_and_bodies(count, chunks));
+        return directory_and_bodies(count, chunks);
     }
     if tag == b"SRCO" {
         // The origin pool's index entries, then its records: each block takes
@@ -146,7 +147,12 @@ pub(super) fn pack(tag: &[u8; 4], flat: &[u8]) -> Result<Vec<u8>, String> {
         }
         let mut record = r.at;
         for (index, group) in entries.chunks(ROWS).enumerate() {
-            let first = (index * ROWS) as u32;
+            let first = index
+                .checked_mul(ROWS)
+                .and_then(|first| u32::try_from(first).ok())
+                .ok_or("encoder origin id overflows")?;
+            let group_len =
+                u32::try_from(group.len()).map_err(|_| "encoder origin block overflows")?;
             let mut body = Vec::new();
             for (range, _) in group {
                 body.extend_from_slice(&flat[range.clone()]);
@@ -158,17 +164,12 @@ pub(super) fn pack(tag: &[u8; 4], flat: &[u8]) -> Result<Vec<u8>, String> {
                 .ok_or("encoder origin records are truncated")?;
             body.extend_from_slice(&flat[record..end]);
             record = end;
-            chunks.push((
-                first,
-                first + group.len() as u32 - 1,
-                group.len() as u32,
-                body,
-            ));
+            chunks.push((first, first + group_len - 1, group_len, body));
         }
         if record != flat.len() {
             return Err("encoder origin count does not match its body".into());
         }
-        return Ok(directory_and_bodies(count, chunks));
+        return directory_and_bodies(count, chunks);
     }
     for index in 0..count {
         let start = r.at;
@@ -177,7 +178,7 @@ pub(super) fn pack(tag: &[u8; 4], flat: &[u8]) -> Result<Vec<u8>, String> {
             for _ in 0..7 {
                 r.var()?;
             }
-            index as u32
+            u32::try_from(index).map_err(|_| "encoder node id overflows")?
         } else {
             r.var()?;
             let node = r.var_u32()?;
@@ -197,14 +198,25 @@ pub(super) fn pack(tag: &[u8; 4], flat: &[u8]) -> Result<Vec<u8>, String> {
     if r.at != flat.len() {
         return Err("encoder record count does not match its body".into());
     }
-    Ok(directory_and_bodies(count, chunks))
+    directory_and_bodies(count, chunks)
 }
 
-fn directory_and_bodies(count: usize, chunks: Vec<(u32, u32, u32, Vec<u8>)>) -> Vec<u8> {
+fn directory_and_bodies(
+    count: usize,
+    chunks: Vec<(u32, u32, u32, Vec<u8>)>,
+) -> Result<Vec<u8>, String> {
     let bytes = chunks.iter().map(|chunk| chunk.3.len()).sum::<usize>();
     let mut out = Vec::with_capacity(bytes + PREFIX + chunks.len() * ENTRY);
-    out.extend((count as u32).to_le_bytes());
-    out.extend((chunks.len() as u32).to_le_bytes());
+    out.extend(
+        u32::try_from(count)
+            .map_err(|_| "encoder record count overflows")?
+            .to_le_bytes(),
+    );
+    out.extend(
+        u32::try_from(chunks.len())
+            .map_err(|_| "encoder block count overflows")?
+            .to_le_bytes(),
+    );
     let mut offset = (PREFIX + chunks.len() * ENTRY) as u64;
     for (first, last, count, bytes) in &chunks {
         out.extend(first.to_le_bytes());
@@ -218,7 +230,7 @@ fn directory_and_bodies(count: usize, chunks: Vec<(u32, u32, u32, Vec<u8>)>) -> 
     for (_, _, _, bytes) in chunks {
         out.extend(bytes);
     }
-    out
+    Ok(out)
 }
 
 pub(super) fn digest(tag: &[u8; 4], bytes: &[u8]) -> Result<[u8; 32], String> {
@@ -240,7 +252,11 @@ pub(super) fn unpack(tag: &[u8; 4], bytes: &[u8]) -> Result<Vec<u8>, String> {
     writer::put(&mut out, count as u64);
     let mut records = Vec::new();
     for block in blocks {
-        let body = &bytes[block.offset as usize..(block.offset + block.len) as usize];
+        let body = usize::try_from(block.offset)
+            .ok()
+            .zip(usize::try_from(block.offset + block.len).ok())
+            .and_then(|(start, end)| bytes.get(start..end))
+            .ok_or("graph record block is outside its section")?;
         if Sha256::digest(body).as_slice() != block.digest {
             return Err("graph record block checksum mismatch".into());
         }

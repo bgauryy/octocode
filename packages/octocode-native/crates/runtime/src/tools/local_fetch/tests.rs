@@ -72,7 +72,15 @@ pub(super) fn fetch_with(
     paths: &impl PathAccess,
     scan: &impl crate::security::scan::ContentScan,
 ) -> LocalFetchResult {
-    execute_local_fetch(req, paths, scan, &NeverCancel, None, None)
+    execute_local_fetch(
+        req,
+        paths,
+        scan,
+        &NeverCancel,
+        None,
+        None,
+        &Default::default(),
+    )
 }
 
 pub(super) fn q(path: &Path) -> LocalFetchQuery {
@@ -134,6 +142,7 @@ const PY_TWO: &str = "import os\n\ndef first(a):\n    x = 1\n    return a\n\n\nd
 mod classified;
 mod compact_literals;
 mod declarations;
+mod limit;
 mod line_walks;
 mod long_lines;
 mod match_misses;
@@ -163,10 +172,9 @@ fn a_cold_symbols_view_seeds_the_declarations_cache_from_its_own_parse() {
     let out = fetch(&query, &workspace_policy(dir.path()));
     assert!(out.error.is_none(), "{out:?}");
     let path = file.to_string_lossy();
-    assert!(
-        crate::tools::declarations_cache::document(source, &path, None, || {
-            panic!("the symbols view's parse is cached")
-        })
-        .is_some()
-    );
+    // The shared cache is bounded across parallel tests: assert the parse
+    // went through it, not that it is still resident.
+    assert!(crate::tools::declarations_cache::parsed_through_cache(
+        source, &path, None
+    ));
 }

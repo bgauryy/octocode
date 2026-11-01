@@ -1,5 +1,4 @@
-//! Leads that read: the top hit, every clipped value, the skipped binaries.
-use crate::tools::local_search::local_search_query::Multiline;
+//! Leads that read the top hit or list skipped binaries.
 use crate::tools::local_search::local_search_query::View;
 use octocode_contract_types::RegexEngine;
 
@@ -7,20 +6,6 @@ use super::super::local_search_query;
 use super::*;
 
 impl Found<'_> {
-    /// The calls that read every clipped value on the page whole
-    /// (see [`numbered_calls`]).
-    pub(super) fn expand_values_leads(&self) -> Vec<(String, Value)> {
-        let query = self.query;
-        let expansions = expand_values(
-            self.paths,
-            self.output_root,
-            self.files,
-            self.layout.context,
-            local_search_query::multiline(query) != Multiline::Off,
-        );
-        numbered_calls("expandValues", &expansions)
-    }
-
     /// The natural next step on a first page with hits: read the top hit in
     /// context. A shown declaration of the searched symbol reads that
     /// declaration whole when one block read holds it; a larger one (a big
@@ -122,29 +107,4 @@ impl Found<'_> {
         };
         Some((warning, listing))
     }
-}
-
-/// Executable calls from `reads` (one-row calls, see [`expand_values`]):
-/// each run of one tool's rows in calls of as many rows as that tool
-/// accepts, the first named `name` and the rest `name2`, `name3`, …, so
-/// every read is one call away. A default page is cut so its reads fit one
-/// call (see `layout::stream::stream_pages`); a caller-sized page may need more.
-fn numbered_calls(name: &str, reads: &[Value]) -> Vec<(String, Value)> {
-    let mut calls = Vec::new();
-    for run in reads.chunk_by(|a, b| a["tool"] == b["tool"]) {
-        let Some(tool) = run[0]["tool"].as_str().and_then(ToolId::from_name) else {
-            continue;
-        };
-        let rows = run
-            .iter()
-            .filter_map(crate::response::result::continuation_row)
-            .cloned()
-            .collect::<Vec<_>>();
-        for chunk in rows.chunks(crate::response::result::rows_per_call(tool)) {
-            let key = crate::id::numbered(name, calls.len());
-            let call = Continuation::continued_input(tool, json!({ "queries": chunk })).build();
-            calls.push((key, call));
-        }
-    }
-    calls
 }

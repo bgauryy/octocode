@@ -2,7 +2,8 @@
 //! itself.
 
 use crate::error::{Error, ErrorKind, Result};
-use crate::search::walk::{IgnorePolicy, IgnoreRules, walk_builder};
+use crate::search::walk::{IgnoreRules, walk_builder};
+use crate::types::IgnorePolicy;
 use crate::types::{SearchSort, TextSearchOptions};
 use ignore::WalkBuilder;
 use ignore::overrides::Override;

@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Load this skill first whenever the user wants to think a problem through, brainstorm, validate an idea, find best practices or competitors, or choose between options (X or Y?); good for multi-provider web search, quote-verified claims, critique, debate and sourced recommendations."
+description: "Think through problems, validate ideas, compare options, research best practices or competitors, and recommend from checked sources. Supports distinct research directions, critique and debate when the decision needs them."
 ---
 
 # Octocode Brainstorming
@@ -10,7 +10,7 @@ Think a question through, research it from several directions, and recommend fro
 ```mermaid
 flowchart TD
   F[1 Frame] --> E{Effort}
-  E -- low --> LG[Parent searches + verifies] --> A[Answer + Sources]
+  E -- low --> LG[Search + verify: parent or one evidence actor] --> A[Answer + Sources]
   E -- medium/high --> G[2 Gather: gatherers self-verify; parent gate]
   G --> K[3 Critique per verified ledger; gated debate at high]
   K --> D[4 Decide: bias checks, recompose]
@@ -35,7 +35,7 @@ Pick the lowest effort that can change the decision; state it with a one-line re
 
 For work that spans phases or needs resuming, keep a [checkpoint](output.md#checkpoints) at `<workspace>/.octocode/octocode-brainstorming/tmp/<run>/state.md`. Interims use verified claims with Sources; a short `low` answer needs no separate state file.
 
-- Stop at a checkpoint at `high` (after framing), when the user asked to steer, or for the user's decisions (asset download, scope change); else continue.
+- At `high`, save the framing checkpoint before gathering. Pause when the user asked to steer or a missing decision changes scope, spend or authorization; otherwise continue the authorized work.
 - Continue from the relevant saved state and next unfinished phase. Reopen verified evidence only when source identity, applicability or the claim changes.
 - User stops: the interim is the answer; say what the remaining phases would add.
 
@@ -100,12 +100,12 @@ Script support comes from `skills/common`: [network guard](scripts/lib/net-guard
 
 ## Related skills
 
-- `octocode-research`: code or repository facts decide a direction.
-- `octocode-scraping`: pages need a saved corpus or fail plain fetching.
-- `octocode-chrome-devtools`: a source needs rendering or a live browser.
-- `octocode-rfc-generator`: an option is ready for a written decision.
-- `octocode-eval-benchmark`: an experiment must measure the options.
-- For an orchestrated multi-actor investigation: [octocode-workflows composition](../octocode-workflows/references/composition.md).
+- Use `octocode-research` when code or repository facts decide a direction.
+- Use `octocode-scraping` when pages need a saved corpus or fail plain fetching.
+- Use `octocode-chrome-devtools` when a source needs rendering or a live browser.
+- Use `octocode-rfc-generator` when an option is ready for a written decision.
+- Use `octocode-eval-benchmark` when an experiment must measure the options.
+- Use [octocode-workflows composition](../octocode-workflows/references/composition.md) for an orchestrated multi-actor investigation.
 
 ## Output
 

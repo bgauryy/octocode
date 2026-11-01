@@ -25,6 +25,7 @@ mod failures;
 mod fixtures;
 mod hierarchy;
 mod hierarchy_caps;
+mod limit;
 mod outline;
 mod pagination;
 mod receipts;
@@ -33,6 +34,7 @@ mod requests;
 mod server_context;
 mod servers;
 mod sources;
+mod test_code;
 mod unresolved_anchors;
 
 use fixtures::*;

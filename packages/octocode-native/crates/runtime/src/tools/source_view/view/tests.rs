@@ -107,7 +107,6 @@ fn fetch_partition_binding_rejects_same_count_legacy_replay() {
         context: crate::execution::ExecutionContext {
             cancellation: tokio_util::sync::CancellationToken::new(),
             deadline: Instant::now() + Duration::from_secs(5),
-            walk_threads: None,
             response_window: None,
             github_credential: None,
         },

@@ -305,20 +305,10 @@ fn check_literals(
             .iter()
             .any(|expected| super::literals::equivalent(value, expected))
     {
-        // Name the allowed values, and the one a near miss means, so a wrong
-        // view/entryType/etc. is self-correcting.
-        let allowed = values
-            .iter()
-            .map(|v| {
-                v.as_str()
-                    .map_or_else(|| v.to_string(), std::borrow::ToOwned::to_owned)
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
         return Err(schema_issue(
             "schema.enum",
             path.to_vec(),
-            format!("Value is outside the allowed enum; allowed: {allowed}"),
+            super::literals::enum_message(Some(value), values),
             schema,
             value,
         ));

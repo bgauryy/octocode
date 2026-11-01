@@ -315,6 +315,41 @@ pub(super) fn tier_dead_code(
     }
 }
 
+/// A mentioned unreachable file (tier 60: a bundler entry or a loader names
+/// it) is as likely live as its mention, and so is every file it imports:
+/// their `unreachable-file` and `test-only` findings drop to tier 60 and name
+/// the mentioned file in `evidence.reachedFrom`. Run after [`tier_dead_code`].
+pub(super) fn spread_mentioned_liveness(v: &View, findings: &mut [Finding]) {
+    let seeds = findings
+        .iter()
+        .filter(|f| f.detector == "unreachable-file" && f.evidence.get("mentionedIn").is_some())
+        .filter_map(|f| v.t.by_key(&f.subject))
+        .collect::<Vec<_>>();
+    if seeds.is_empty() {
+        return;
+    }
+    let origin = v.origins(&seeds, false);
+    for finding in findings.iter_mut() {
+        if !matches!(finding.detector, "unreachable-file" | "test-only")
+            || finding.evidence.get("mentionedIn").is_some()
+        {
+            continue;
+        }
+        let Some(file) = v.t.by_key(&finding.subject) else {
+            continue;
+        };
+        let from = origin[file as usize];
+        if from == NONE || from == file {
+            continue;
+        }
+        finding.tier = finding.tier.min(60);
+        finding.evidence["reachedFrom"] = json!(v.key(from));
+        finding
+            .controls
+            .push("a file mentioned in text imports it: live if that file is loaded by name");
+    }
+}
+
 /// Dedupe by subject: the strongest finding leads, others corroborate it.
 pub(super) fn corroborate(mut findings: Vec<Finding>) -> Vec<Finding> {
     findings.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));

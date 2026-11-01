@@ -3,11 +3,13 @@ use super::*;
 
 /// Partial reason of a references or callers row whose alias recovery lost
 /// a server request.
-pub(in super::super) const ALIAS_RECOVERY_FAILED: &str = "aliasRecoveryFailed";
+pub(in super::super) const ALIAS_RECOVERY_FAILED: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::AliasRecoveryFailed;
 
 /// Partial reason of a references or callers row whose verified-importer
 /// recovery lost a server request.
-pub(in super::super) const IMPORTER_REQUEST_FAILED: &str = "importerRequestFailed";
+pub(in super::super) const IMPORTER_REQUEST_FAILED: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::ImporterRequestFailed;
 
 /// Server requests a recovery stage could not complete. A recovery stage
 /// asks the server again from other anchors (aliases, importers); a request
@@ -74,7 +76,7 @@ impl RequestFailures {
         &self,
         row: &mut Value,
         query: &LspSearchQuery,
-        reason: &str,
+        reason: crate::response::paging::PartialReason,
         stage: &str,
     ) {
         let Some((message, count, _)) =
@@ -107,8 +109,7 @@ impl RequestFailures {
 }
 
 /// `next.nextPage` for a row that has a page after it: this query at that
-/// page, pinned by its `snapshot`. A page past the contract's `page` maximum
-/// ends the row at a terminal limit instead, with no lead.
+/// page, pinned by its `snapshot`.
 pub(in super::super) fn offer_next_page(
     query: &LspSearchQuery,
     row: &mut Value,
@@ -118,9 +119,7 @@ pub(in super::super) fn offer_next_page(
         return;
     };
     if let Some(call) = crate::response::paging::next_page_call(
-        row,
         ToolId::LspSearch,
-        None,
         lsp_search_query::to_row(query),
         "page",
         next.page,
@@ -131,8 +130,7 @@ pub(in super::super) fn offer_next_page(
 }
 
 pub(in super::super) fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
-    if value.pointer("/kind").and_then(Value::as_str) == Some("empty") {
-        value["status"] = json!("empty");
+    if value.pointer("/status").and_then(Value::as_str) == Some("empty") {
         // A workspaceRoot-only query has no file to fall back to reading, and
         // reading source cannot stand in for missing diagnostics.
         let category = value.pointer("/category").and_then(Value::as_str);

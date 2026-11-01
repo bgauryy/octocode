@@ -130,6 +130,7 @@ pub(super) fn environment_arrays(
     let mut home = Vec::new();
     let mut sources = Vec::new();
     let mut tokens = Vec::new();
+    let mut credentials = BTreeSet::new();
     let mut narrow = Vec::new();
     for (name, definition_value) in environment {
         let definition = object(definition_value, &format!("environment.{name}"))?;
@@ -148,6 +149,13 @@ pub(super) fn environment_arrays(
         }
         if definition.get("configSource").and_then(Value::as_bool) == Some(true) {
             sources.push(name.clone());
+        }
+        if bool_value(
+            definition.get("credential"),
+            false,
+            &format!("environment.{name}.credential"),
+        )? {
+            credentials.insert(name.clone());
         }
         if let Some(priority) = definition.get("tokenPriority") {
             tokens.push((
@@ -168,6 +176,13 @@ pub(super) fn environment_arrays(
             &format!("{}.env.name", field.path),
         )?
         .to_owned();
+        if bool_value(
+            field.definition.get("credential"),
+            false,
+            &format!("{}.credential", field.path),
+        )? {
+            credentials.insert(name.clone());
+        }
         match binding
             .get("dotenv")
             .and_then(Value::as_str)
@@ -206,6 +221,7 @@ pub(super) fn environment_arrays(
         unique(protected),
         unique(home),
         unique(sources),
+        credentials.into_iter().collect(),
         narrow,
     ))
 }

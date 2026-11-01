@@ -203,3 +203,51 @@ function c(props: Props) { props.scene.mutateG(); props.missing.nopeH(); }
         ],
     );
 }
+
+/// R-TS3: `const { a } = f()` takes the type of `a` in the object every
+/// `return` of the file's own non-async `f` builds, as tsserver infers it.
+#[test]
+fn destructured_call_results_take_the_returned_object_property_types() {
+    let source = r#"
+const make = (text: string) => {
+  const scene = new Scene([text]);
+  const helper = () => { return { scene: new Other() }; };
+  return { scene, id: text.length, repo: new Repo() };
+};
+function twice(flag: boolean) {
+  if (flag) { return { store: new Store() }; }
+  return { store: new Cache() };
+}
+const arrow = () => ({ conn: new Conn() });
+async function later() { return { db: new Db() }; }
+it("uses", async () => {
+  const { scene, repo: renamed, id } = make("a");
+  scene.mutateA();
+  renamed.findB();
+  id.toFixedC();
+  const { store } = twice(true);
+  store.putD();
+  const { conn } = arrow();
+  conn.openE();
+  const { db } = await later();
+  db.queryF();
+});
+function shadowed(make: () => unknown) {
+  const { scene } = make();
+  scene.nopeG();
+}
+"#;
+    assert_receivers(
+        source,
+        "src/a.test.ts",
+        &[
+            ("mutateA", Some("Scene")),
+            ("findB", Some("Repo")),
+            ("toFixedC", None),
+            ("putD", None),
+            ("openE", Some("Conn")),
+            ("queryF", None),
+            ("nopeG", None),
+        ],
+    );
+}

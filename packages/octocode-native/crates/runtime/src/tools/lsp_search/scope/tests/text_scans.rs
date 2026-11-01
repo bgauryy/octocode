@@ -34,34 +34,33 @@ async fn text_only_files_are_the_scanned_files_the_answer_misses() {
     assert_eq!(scope.text_only_files("g"), None);
 }
 
-/// The text check parses at most [`CODE_CHECK_MAX_FILES`] unanswered
-/// files, the bound the ignored-importer check shares; a file past it is
-/// not proven free of a use, so it counts as one.
+/// Every unanswered file is checked for a code use, however many: one that
+/// only mentions the name in a comment is never counted as text-only.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn text_check_files_past_the_parse_bound_count_as_uses() {
+async fn every_unanswered_file_is_checked_for_a_code_use() {
     let (_dir, root) = fixture();
     write(&root.join("a.ts"), "export function f() {}\n");
-    for index in 0..CODE_CHECK_MAX_FILES + 2 {
+    for index in 0..100 {
         write(
             &root.join(format!("c{index}.ts")),
             "// f is mentioned here\n",
         );
     }
+    write(&root.join("z.ts"), "f();\n");
     let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".into()]);
+    let cancel = crate::execution::cancel::NeverCancel;
     let files = scope
-        .text_files(
-            "f",
-            &workspace_policy(&root),
-            &crate::execution::cancel::NeverCancel,
-        )
+        .text_files("f", &workspace_policy(&root), &cancel)
         .await
         .expect("scan")
         .expect("files");
-    assert_eq!(files.len(), CODE_CHECK_MAX_FILES + 3, "{files:?}");
+    assert_eq!(files.len(), 102, "{files:?}");
     scope.answer([root.join("a.ts").to_string_lossy()]);
-    let uses = scope.text_only_files("f").expect("checked");
-    assert_eq!(uses.len(), 2, "{uses:?}");
-    assert!(uses.iter().all(|file| !file.ends_with("a.ts")), "{uses:?}");
+    scope.check_code_uses("f", &cancel).await.expect("checked");
+    assert_eq!(
+        scope.text_only_files("f"),
+        Some(vec![root.join("z.ts").to_string_lossy().into_owned()])
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -132,4 +131,37 @@ async fn the_ignored_index_skips_nested_repositories_and_names_them() {
         "{found:?}"
     );
     assert_eq!(found.nested_repositories, ["repos/other"], "{found:?}");
+}
+
+/// The scan has no time bound of its own: it walks the whole scope, and
+/// only the request stops it, keeping nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_scan_walks_the_whole_scope_until_its_request_stops_it() {
+    let (_dir, root) = fixture();
+    for index in 0..200 {
+        write(&root.join(format!("d{}/a{index}.ts", index % 7)), "f();\n");
+    }
+    let policy = workspace_policy(&root);
+    let include = ["*.ts".to_owned()];
+    let root = root.to_str().expect("utf-8 root");
+    let whole = scan_text(
+        root,
+        &include,
+        "f",
+        &policy,
+        &crate::execution::cancel::NeverCancel,
+    )
+    .await
+    .expect("scan")
+    .expect("files");
+    assert_eq!(whole.len(), 200);
+    let stopped = scan_text(root, &include, "f", &policy, &Stopped).await;
+    assert!(stopped.is_err_and(|failure| failure.is_cancelled()));
+}
+
+struct Stopped;
+impl crate::execution::cancel::CancellationCheck for Stopped {
+    fn check(&self) -> Result<(), String> {
+        Err("deadline".into())
+    }
 }

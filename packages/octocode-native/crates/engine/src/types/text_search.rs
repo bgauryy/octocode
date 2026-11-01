@@ -12,15 +12,14 @@ pub struct TextSearchMatch {
     /// 0-based byte offset of the first submatch within its line (UTF-8): where
     /// a byte-window read of a long line starts at the match.
     pub byte_offset: u32,
-    /// Assembled match + context window, truncated to `max_snippet_chars`.
+    /// Complete selected match and context window.
     pub value: String,
     /// Reconstruct this ordinary, context-free line from its source before
     /// displaying it. `Some(0)` is unpriced; a positive value is the runtime's
     /// exact redacted JSON row cost. Empty `value` is not the source text.
     /// Nonempty values are retained redactions or a materialized page.
     pub deferred: Option<u32>,
-    /// SHA-256 of the trimmed value before clipping. Duplicate ranking uses
-    /// this identity so changing the display width cannot reorder rows.
+    /// SHA-256 of the trimmed complete value for stable duplicate ranking.
     pub value_digest: [u8; 32],
     /// Frequency for this value when `count_unique` is enabled.
     pub count: Option<u32>,
@@ -29,14 +28,6 @@ pub struct TextSearchMatch {
     /// raise), 1 other code, 0 comment or string. Set for line matches;
     /// `None` for only-matching spans.
     pub rank: Option<u32>,
-    /// When the assembled content-view snippet was clipped to `max_snippet_chars`,
-    /// the original (pre-truncation) Unicode-scalar length of the value. `None`
-    /// when the snippet was not truncated. Lets callers surface a truncation
-    /// indicator on content-view snippets, not just only-matching spans.
-    pub original_chars: Option<u32>,
-    /// The same pre-truncation value's length in UTF-8 bytes, set with
-    /// `original_chars`: what a byte-paged read of the clipped line costs.
-    pub original_bytes: Option<u32>,
 }
 
 impl TextSearchMatch {
@@ -57,6 +48,11 @@ pub struct TextSearchFile {
     /// The bytes this file's values came from, when the search was asked to
     /// prove them ([`SourceValues::Hashed`]).
     pub source: Option<SearchedSource>,
+    /// Per entry of [`TextSearchOptions::terms`], in order: its matches
+    /// (count-matches; each match counts for the first term that makes it)
+    /// or the matched lines holding it (count-lines). Empty unless a count
+    /// view searched two or more terms.
+    pub term_counts: Vec<u32>,
 }
 
 /// A searched file's identity, taken from the one read the search made.
@@ -88,6 +84,8 @@ pub struct TextSearchStats {
     /// The share of `error_count` where a readable file failed in the regex
     /// matcher (a PCRE2 match or JIT-stack limit), not in reading it.
     pub pattern_error_count: Option<u32>,
+    /// What a [`TestCodeScope`](super::test_code::TestCodeScope) left out; `None` without one.
+    pub test_code_excluded: Option<super::test_code::TestCodeExcluded>,
     /// Files searched only up to their first NUL byte (`binaryQuit`) after
     /// real text, every one in path order; `binary_file_count` counts them.
     pub binary_files: Option<Vec<String>>,
@@ -117,8 +115,6 @@ pub struct TextSearchStats {
 /// A limit that ended a text search before it covered its scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CapReason {
-    /// More files matched than the collection cap keeps.
-    MaxCollectedFiles,
     /// A file held more only-matching spans than are kept per file.
     MaxOnlyMatchingPerFile,
     /// The PCRE2 wall-clock deadline stopped the search.
@@ -135,7 +131,6 @@ impl CapReason {
     /// The reason's wire name (`capReason`, `partialReasons`).
     pub fn name(self) -> &'static str {
         match self {
-            Self::MaxCollectedFiles => "maxCollectedFiles",
             Self::MaxOnlyMatchingPerFile => "maxOnlyMatchingPerFile",
             Self::Pcre2Deadline => "pcre2Deadline",
             Self::MaxFileSize => "maxFileSize",
@@ -190,6 +185,13 @@ pub struct TextSearchOptions {
     pub path: String,
     /// The search pattern (`matchString`).
     pub pattern: String,
+    /// Keep only production code or only test code (see [`TestCodeScope`](super::test_code::TestCodeScope));
+    /// `None` searches both.
+    pub test_code: Option<super::test_code::TestCodeScope>,
+    /// The alternatives `pattern` joins, in order, each a pattern of the same
+    /// syntax and case rule. With two or more, a count view counts each one
+    /// ([`TextSearchFile::term_counts`]).
+    pub terms: Option<Vec<String>>,
 
     // ── match flags ──────────────────────────────────────────────────────────
     /// How the pattern reads: literal text (`-F`), a Rust regex (default) or
@@ -228,7 +230,7 @@ pub struct TextSearchOptions {
     /// Exclude directories (`-g !<dir>/`).
     pub exclude_dir: Option<Vec<String>>,
     /// Which ignore rules and dot entries the walk leaves out.
-    pub ignore: crate::search::walk::IgnorePolicy,
+    pub ignore: crate::types::IgnorePolicy,
     /// Maximum directory descent below the search root. `0` searches files
     /// directly in the root, `1` includes one nested directory level, and so on.
     pub max_depth: Option<u32>,
@@ -239,25 +241,12 @@ pub struct TextSearchOptions {
     pub sort: SearchSort,
     /// Reverse the sort order (`--sortr`).
     pub sort_reverse: Option<bool>,
-    /// Max Unicode chars per assembled snippet (default 500).
-    pub max_snippet_chars: Option<u32>,
 
-    /// Native collection guard: stop after this many matched files have been
-    /// collected. Distinct from native runtime maxFiles, which is a per-page UI
-    /// size, not an engine resource cap. The cap is applied as a stable
-    /// truncation of the fully sorted result set, so page 1 is deterministic and
-    /// pagination snapshots stay valid across runs.
-    pub max_collected_files: Option<u32>,
     /// Per-file byte ceiling: a file larger than this is skipped before it is
     /// searched (surfaced as a `maxFileSize` cap reason). `None` uses
     /// [`DEFAULT_MAX_SEARCH_FILE_BYTES`]. Guards against OOM on pathological
     /// multi-GB single-line files.
     pub max_file_bytes: Option<u32>,
-    /// Worker threads for the parallel directory walk. `None` (or `0`) keeps
-    /// the ignore crate's default of one per available core; a caller running
-    /// several walks at once passes its share of the cores. Ignored when
-    /// `sort` is `traversal`, which always walks on one thread.
-    pub walk_threads: Option<u32>,
     /// How values are kept and whether each kept file's bytes are hashed.
     pub values: SourceValues,
 }

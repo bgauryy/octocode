@@ -25,7 +25,15 @@ fn a_narrow_response_window_keeps_byte_pages_a_sensible_size() {
     let mut collected = String::new();
     let mut pages = 0;
     loop {
-        let read = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(80), None);
+        let read = execute_local_fetch(
+            &query,
+            &paths,
+            &Safe,
+            &NeverCancel,
+            Some(80),
+            None,
+            &Default::default(),
+        );
         assert_eq!(read.status, ReadStatus::Success, "{read:?}");
         let page = read.pagination.as_ref().expect("pagination");
         assert_eq!(page.unit, ReadProgressUnit::Bytes, "{page:?}");

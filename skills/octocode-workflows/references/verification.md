@@ -2,7 +2,7 @@ Load when verifying workflow work, sharing coverage, resuming, recovering, or re
 
 # Verification and recovery
 
-The orchestrator is the sole ledger writer. Actors return raw observations keyed to its row; neither maintains a competing ledger nor accepts work. Reuse an existing task ledger; otherwise keep `coverage.md` at `<workspace>/.octocode/octocode-workflows/<task>/tmp/`.
+The orchestrator is the sole ledger writer. Actors return raw observations keyed to its row; neither maintains a competing ledger nor accepts work. Reuse an existing task ledger; otherwise keep `coverage.md` at `<workspace>/.octocode/octocode-workflows/tmp/<YYYY-MM-DD>-<slug>/`.
 
 ## Automatically check artifact identity
 
@@ -32,6 +32,8 @@ Keep each diagnosis a hypothesis test: claim, strongest rival, distinguishing ch
 | Evidence | Next action |
 |---|---|
 | Stale artifact, wrong endpoint, partial build, contract mismatch | Repair owner build/activation, rerun identity guard, replay same acceptance |
+| A command reported success but the artifact's timestamp or digest did not change | The command did not run as intended (shell quoting, wrong script, no-op target). Check the artifact, never the exit code alone |
+| A before/after comparison would measure a target that is still changing | Freeze a copy of the measured artifact before the change and measure both sides against fixed inputs |
 | Wrong fixture/assertion/configuration/state | Establish owning contract and intended setup; preserve a check for the original defect |
 | Product defect on intended build | Trace owning boundary, make smallest authorized correction, rebuild, invalidate/replay dependent rows |
 | Ambiguous cause or partial semantic evidence | Refresh context, narrow claim, run a discriminating probe, preserve disproof |

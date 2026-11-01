@@ -13,7 +13,7 @@ test('discovers nested skill tests without absorbing workspace-owned or hidden t
   const paths = [
     'skills/octocode-agentic-prompts/scripts/interview-grade.test.mjs',
     'skills/octocode-scraping/scripts/tests/provider-usage.test.mjs',
-    'skills-beta/example/scripts/test.test.mjs',
+    'skills-dev/example/scripts/test.test.mjs',
     'skills-dev/octocode-context-audit/scripts/tests/collectors.test.mjs',
     'skills/common/tests/report-flow.test.mjs',
     'skills-dev/octocode-dev/scripts/skill-tests.test.mjs',
@@ -69,7 +69,7 @@ test('an empty suite fails the skill task without blocking help', t => {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const scripts = path.join(root, 'skills-dev', 'octocode-dev', 'scripts');
   fs.mkdirSync(path.join(scripts, 'lib'), { recursive: true });
-  for (const relative of ['dev.mjs', 'lib/workspaces.mjs', 'lib/skill-tests.mjs']) {
+  for (const relative of ['dev.mjs', 'lib/workspaces.mjs', 'lib/skill-tests.mjs', 'lib/native-target.mjs']) {
     fs.copyFileSync(fileURLToPath(new URL(`./${relative}`, import.meta.url)), path.join(scripts, relative));
   }
   const run = task => spawnSync(process.execPath, [path.join(scripts, 'dev.mjs'), task], { cwd: root, encoding: 'utf8', timeout: 10_000 });

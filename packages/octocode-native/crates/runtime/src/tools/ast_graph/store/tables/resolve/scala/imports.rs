@@ -145,7 +145,7 @@ impl Linker<'_> {
         }
         let suffix = format!("/{package}");
         let scanned = self.scope.file_paths.iter().any(|file| {
-            let dir = crate::tools::ast_graph::graph::parent(file);
+            let dir = crate::tools::ast_graph::paths::parent(file);
             [".scala", ".sc", ".sbt"]
                 .iter()
                 .any(|ext| file.ends_with(ext))

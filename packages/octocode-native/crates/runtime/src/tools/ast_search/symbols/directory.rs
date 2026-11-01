@@ -21,7 +21,9 @@ fn directory_scan_options(
         exclude_dir: None,
         default_exclude_dir: Some(prune::walk_names(q.default_excludes.defaults(), &[])),
         exclude: ast_search_query_symbols::exclude(q),
-        max_files: ast_search_query_symbols::max_files(q),
+        max_files: crate::tools::ast_search::scan_window::window_files(
+            ast_search_query_symbols::scan_offset(q),
+        ),
         skip_files: Some(ast_search_query_symbols::scan_offset(q)),
         max_file_bytes: u32::try_from(crate::tools::ast_search::source::MAX_PARSE_SOURCE_BYTES)
             .ok(),
@@ -30,10 +32,7 @@ fn directory_scan_options(
             .map(crate::tools::ast_rule::language_globs),
         // The ignore rules `match` and the text tools walk by, off only with
         // `includeIgnored`.
-        ignore: octocode_engine::search::walk::IgnorePolicy::new(
-            q.include_ignored,
-            q.include_hidden,
-        ),
+        ignore: octocode_engine::types::IgnorePolicy::new(q.include_ignored, q.include_hidden),
     }
 }
 
@@ -45,8 +44,9 @@ pub(crate) fn outline_directory(
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Result<Outline, ToolError> {
-    let walk = walk_directory(q, canonical, paths, cancel)?;
-    outline_walked(q, canonical, walk, cancel)
+    let scoped = crate::tools::test_code::Scoped::of(q.test_code, paths);
+    let walk = walk_directory(q, canonical, (paths, scoped.as_ref()), cancel)?;
+    outline_walked(q, canonical, (walk, scoped.as_ref()), cancel)
 }
 
 /// The candidate files a directory outline scans, in walk order, and the
@@ -54,8 +54,6 @@ pub(crate) fn outline_directory(
 pub(super) struct DirectoryWalk {
     pub(super) files: octocode_engine::types::FileSystemQueryResult,
     withheld: crate::policy::discovery::Withheld,
-    /// What a walk cut at its file cap never reached.
-    unwalked: Option<crate::tools::ast_search::unwalked::Unwalked>,
     /// Entries the walk could not read, and how many for want of
     /// permission.
     walk_errors: (u32, u32),
@@ -66,7 +64,7 @@ pub(super) struct DirectoryWalk {
 pub(super) fn walk_directory(
     q: &AstSearchQuerySymbols,
     canonical: &std::path::Path,
-    paths: &PathPolicy,
+    (paths, scoped): (&PathPolicy, Option<&crate::tools::test_code::Scoped>),
     cancel: &dyn CancellationCheck,
 ) -> Result<DirectoryWalk, ToolError> {
     let outlined = octocode_engine::signatures::languages::RegistryView::installed()
@@ -84,82 +82,33 @@ pub(super) fn walk_directory(
     let files = octocode_engine::fact_scan::walk_graph_fact_files(
         &directory_scan_options(q, canonical),
         &|path, file_type| {
+            let outlinable = || {
+                outlined.iter().any(|extension| {
+                    octocode_engine::text::extension_of(&path.to_string_lossy(), true, "")
+                        == *extension
+                })
+            };
             // Only a directory or an outlinable file leaves absence unproven
             // when the policy withholds it or it is a link (the walk follows
             // none). The outline walk hides dot entries unless
             // `includeHidden`: one out of view is not disclosed.
             admission.admit(path, file_type, |is_dir| {
                 (q.include_hidden == Some(true) || !crate::tools::ast_search::is_dot_entry(path))
-                    && (is_dir
-                        || outlined.iter().any(|extension| {
-                            octocode_engine::text::extension_of(&path.to_string_lossy(), true, "")
-                                == *extension
-                        }))
+                    && (is_dir || outlinable())
+            }) && scoped.is_none_or(|scoped| {
+                // Only an outlinable file is one the scope leaves unread.
+                let is_dir = file_type.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
+                (!is_dir && !outlinable()) || scoped.reads(path, is_dir)
             })
         },
         &|| cancel.check().is_err(),
     )
     .map_err(|error| ToolError::graph_scan(&error, cancel))?;
-    let unwalked = unwalked_scopes(q, canonical, &files, paths, cancel);
     Ok(DirectoryWalk {
-        unwalked,
         walk_errors: (files.skipped, files.permission_denied),
         files,
         withheld: admission.skipped().withheld,
     })
-}
-
-/// The scopes a directory walk stopped at its file cap never reached, when
-/// that cap is the walk ceiling (a narrower `path` is the only way to them).
-fn unwalked_scopes(
-    q: &AstSearchQuerySymbols,
-    canonical: &std::path::Path,
-    files: &octocode_engine::types::FileSystemQueryResult,
-    paths: &PathPolicy,
-    cancel: &dyn CancellationCheck,
-) -> Option<crate::tools::ast_search::unwalked::Unwalked> {
-    let frontier = files.first_unlisted.as_deref().filter(|_| {
-        files.was_capped
-            && crate::tools::ast_search::unwalked::at_ceiling(ast_search_query_symbols::max_files(
-                q,
-            ))
-    })?;
-    let discovery = paths.discovery_walk();
-    let admit = |path: &std::path::Path, file_type| discovery.permits_entry(path, file_type);
-    let stop = || cancel.check().is_err();
-    // The walk's own candidates: a file of an outlined grammar, or one a
-    // `parserGlobs` rule names.
-    let parsers = crate::tools::ast_rule::GlobParsers::compile(
-        canonical,
-        ast_search_query_symbols::language_globs(q).as_ref(),
-    )
-    .ok()?;
-    let outlined: std::collections::BTreeSet<String> =
-        octocode_engine::signatures::languages::RegistryView::installed()
-            .extensions(octocode_engine::text::analysis::AnalysisOperation::Declarations)
-            .into_iter()
-            .collect();
-    let candidate = |path: &std::path::Path| {
-        crate::tools::ast_rule::has_extension_in(path, &outlined) || parsers.names(path)
-    };
-    crate::tools::ast_search::unwalked::Unwalked::of(
-        &crate::tools::ast_search::unwalked::Rules {
-            root: canonical,
-            frontier: std::path::Path::new(frontier),
-            ignore: octocode_engine::search::walk::IgnorePolicy::new(
-                q.include_ignored,
-                q.include_hidden,
-            ),
-            prune: prune::walk_names(q.default_excludes.defaults(), &[]),
-            include: None,
-            exclude: ast_search_query_symbols::exclude(q),
-            candidate: &candidate,
-            max_depth: None,
-            admit: &admit,
-            stop: &stop,
-        },
-        &crate::response::result::query_row(q, &[]),
-    )
 }
 
 /// The declarations of a walked directory's files. A name filter is a byte
@@ -168,7 +117,7 @@ fn unwalked_scopes(
 pub(super) fn outline_walked(
     q: &AstSearchQuerySymbols,
     canonical: &std::path::Path,
-    walk: DirectoryWalk,
+    (walk, scoped): (DirectoryWalk, Option<&crate::tools::test_code::Scoped>),
     cancel: &dyn CancellationCheck,
 ) -> Result<Outline, ToolError> {
     let filter = ast_search_query_symbols::name_filter(q);
@@ -196,12 +145,16 @@ pub(super) fn outline_walked(
         &|view| {
             let project = || -> Result<Option<OutlineFile>, ToolError> {
                 let cancelled = || cancel.check().is_err();
-                let mut maps = super::super::source::mapping_budget(&cancelled);
+                let mut maps = super::super::source::mapping_budget(cancel, &cancelled);
                 let mut evidence =
                     super::super::evidence::FileEvidence::new(view.source, &mut maps, cancel);
+                let file = canonical.join(view.relative_path);
                 let (rows, off_kind, notes) = reduce_document(
                     q,
-                    filter.as_ref(),
+                    (
+                        filter.as_ref(),
+                        scoped.map(|scoped| (scoped, file.as_path())),
+                    ),
                     view.facts,
                     || Some(view.content.to_owned()),
                     &mut evidence,
@@ -264,8 +217,10 @@ pub(super) fn outline_walked(
         diagnostics,
         withheld: walk.withheld,
         pruned: scan.pruned_dirs,
-        unwalked: walk.unwalked,
         walk_errors: walk.walk_errors,
+        test_code_excluded: scoped
+            .map(crate::tools::test_code::Scoped::excluded)
+            .unwrap_or_default(),
     })
 }
 

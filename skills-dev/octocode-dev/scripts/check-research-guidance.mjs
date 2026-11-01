@@ -1,16 +1,17 @@
 #!/usr/bin/env node
-/** Offline regression gate: tool-call examples in skills/octocode-research docs vs live input schemas; not an agent benchmark. */
+/** Offline regression gate: tool-call examples in every skill and doc vs live input schemas; not an agent benchmark. */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { guidanceFiles } from './lib/guidance-files.mjs';
+import { ROOT as root } from './lib/workspaces.mjs';
 
 const args = process.argv.slice(2);
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-research');
 if (args.includes('--help')) {
   console.log([
     'Usage: node skills-dev/octocode-dev/scripts/check-research-guidance.mjs [--json] [--self-test] [--examples]',
-    'Checks documented JSON tool examples in skills/octocode-research against live input schemas. No tool execution or writes.',
+    'Checks documented JSON tool examples in every skill, docs/ and package doc against live input schemas. No tool execution or writes.',
+    'Prose field paths are checked offline by check-vocabulary.mjs.',
     '--examples  validate examples (the default; combine with --self-test to run both)',
     '            against the complete live input schema from `octocode schema <tool> --view query`.',
     '            CLI lookup: $OCTOCODE_CLI (a .js file or binary), the monorepo build, then `octocode` on PATH.',
@@ -84,10 +85,8 @@ function validateSchema(schema, value, root, path = '$', errors = []) {
 
 /** Tool-call examples: fenced JSON `{tool,query}` items (array, object, or one per line) and CLI `octocode <tool> '<json>'` lines. */
 function extractExamples() {
-  const files = ['SKILL.md', 'README.md', ...readdirSync(join(root, 'references')).filter(f => f.endsWith('.md')).map(f => `references/${f}`)]
-    .filter(f => existsSync(join(root, f)));
   const examples = [];
-  for (const file of files) {
+  for (const file of guidanceFiles(root)) {
     const text = readFileSync(join(root, file), 'utf8');
     for (const block of text.matchAll(/```json\n([\s\S]*?)```/g)) {
       const line = text.slice(0, block.index).split('\n').length + 1;
@@ -124,12 +123,25 @@ function resolveCli() {
       // without requiring or using a developer's classification credential.
       stdio: 'pipe', timeout: 20000,
       env: { ...process.env, OCTOCODE_BETA: '1', OCTOCODE_CLASSIFICATION_API: 'schema-validation-only' },
-    }).toString()).inputSchema;
+    }).toString()).querySchema;
   } catch (error) {
     // A failing selected build must not be replaced by another version on PATH.
     resolveCli.lastError = `${cli}: ${commandFailure(error)}`;
   }
   return undefined;
+}
+
+/** One call envelope (`{"queries":[…], "responseChars"?}` or `{"cursor"}`), each row checked against the tool's query fields. */
+function envelopeErrors(schema, input) {
+  if (!input || typeof input !== 'object') return ['example is not a JSON object'];
+  const keys = Object.keys(input);
+  if (typeof input.cursor === 'string') return keys.length === 1 ? [] : ['a cursor envelope carries only cursor'];
+  if (!Array.isArray(input.queries) || !input.queries.length) return ['example names no queries'];
+  const unknown = keys.filter(key => key !== 'queries' && key !== 'responseChars');
+  return [
+    ...unknown.map(key => `unknown envelope field: ${key}`),
+    ...input.queries.flatMap((row, index) => validateSchema(schema, row, schema).map(error => `queries[${index}]: ${error}`)),
+  ];
 }
 
 function commandFailure(error) {
@@ -158,8 +170,8 @@ if (!args.includes('--self-test') || args.includes('--examples')) {
           catch (error) { schemas.set(ex.tool, { error: commandFailure(error) }); }
         }
         const result = schemas.get(ex.tool);
-        errors = result.schema ? validateSchema(result.schema, ex.query, result.schema)
-          : [`schema unavailable for ${ex.tool}: ${result.error || 'inputSchema missing from response'}`];
+        errors = result.schema ? envelopeErrors(result.schema, ex.query)
+          : [`schema unavailable for ${ex.tool}: ${result.error || 'querySchema missing from response'}`];
       }
       checks.push({ name: `example ${ex.tool} valid against live schema${errors.length ? `: ${errors.join('; ')}` : ''}`, file: `${ex.file}:${ex.line}`, pass: errors.length === 0 });
     }

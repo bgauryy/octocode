@@ -28,13 +28,13 @@ pub(crate) use failed_read::hosted_repository;
 pub(crate) use failed_read::{failure_scope, submodule_failure};
 pub use failure::GhFailure;
 pub(crate) use failure::{
-    REPOSITORY_ACCESS_HINT, owner_listing, owner_not_found_message, provider_hint,
-    provider_message, ref_recovery, repository_not_found, repository_search, search_failure,
-    validation_message, with_owner_listing, with_ref_recovery,
+    owner_listing, owner_not_found_message, provider_hint, provider_message, ref_recovery,
+    repository_not_found, repository_not_found_message, repository_recovery,
+    repository_search_hint, search_failure, validation_message, with_ref_recovery,
 };
 #[cfg(test)]
 pub(crate) use fields::pick_fields;
-pub(crate) use fields::{ensure_calls, field_names, finish_calls, pick_rows, push_warning_front};
+pub(crate) use fields::{ensure_calls, field_names, pick_rows, push_warning_front};
 #[cfg(test)]
 pub(crate) use paths::repo_path;
 pub(crate) use paths::{

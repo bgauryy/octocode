@@ -35,29 +35,27 @@ pub(crate) fn render_page(
     let unreadable = set.walk_errors.0 > 0;
     let incomplete = truncated || skipped > 0 || unreadable;
     let rows = &set.declarations[cut.range.clone()];
-    // An explicit `maxFiles` cut below the schema maximum is raisable:
-    // expandScan outlines on with a doubled bound. A cut by the scan time
-    // budget resumes where it stopped. Either resumes after the files this
-    // window outlined (`scanOffset`), so it is offered once the window's
-    // last page is reached.
-    let expand_scan = crate::tools::ast_search::scan_window::expand_scan(
-        truncated,
-        ast_search_query_symbols::max_files(q),
-        set.scan_resume,
-        crate::tools::ast_search::scan_window::ScanLimits::SYMBOLS,
-    );
-    let mut out = json!({"operation":"symbols","filesScanned":set.files_scanned,"filesSkipped":skipped,"diagnostics":outline_diagnostics(q, set),"isPartial":cut.more||incomplete||set.recovered});
+    // Every scan cut continues ([`scan_window::expand_scan`]): a cut by the
+    // scan time budget resumes after the files this window outlined
+    // (`scanOffset`), so it is offered once the window's last page is reached.
+    let expand_scan =
+        crate::tools::ast_search::scan_window::expand_scan(truncated, set.scan_resume);
+    let mut out = json!({"operation":"symbols","filesScanned":set.files_scanned,"filesSkipped":skipped,"diagnostics":outline_diagnostics(set),"isPartial":cut.more||incomplete||set.recovered});
+    if let Some(excluded) = set.test_code_excluded.stated() {
+        out["testCodeExcluded"] = json!(excluded);
+    }
     // Each coverage cut names itself, so a partial final page (no `next`)
     // still says why it is partial.
     for (cut, reason) in [
+        (truncated, crate::tools::ast_search::scan_window::CUT_REASON),
         (
-            truncated,
-            crate::tools::ast_search::scan_window::cut_reason(ast_search_query_symbols::max_files(
-                q,
-            )),
+            skipped > 0 || unreadable,
+            crate::response::paging::PartialReason::FilesSkipped,
         ),
-        (skipped > 0 || unreadable, "filesSkipped"),
-        (set.recovered, "parseRecovered"),
+        (
+            set.recovered,
+            crate::response::paging::PartialReason::ParseRecovered,
+        ),
     ] {
         if cut {
             crate::response::paging::mark_partial(&mut out, reason, &[]);
@@ -110,22 +108,11 @@ pub(crate) fn render_page(
     }
     out["pagination"] = cut.pagination;
     if skipped > 0 || unreadable {
-        crate::response::paging::terminal_limit(&mut out, "filesSkipped", &[]);
-    }
-    if truncated && expand_scan.is_none() {
         crate::response::paging::terminal_limit(
             &mut out,
-            crate::tools::ast_search::scan_window::cut_reason(ast_search_query_symbols::max_files(
-                q,
-            )),
+            crate::response::paging::PartialReason::FilesSkipped,
             &[],
         );
-        if let Some(unwalked) = &set.unwalked {
-            let query = crate::response::result::query_row(q, &[]);
-            unwalked.attach(&mut out, |reach| {
-                crate::tools::ast_search::unwalked::narrowed(&query, reach)
-            });
-        }
     }
     attach_symbol_leads(q, set, &mut out, cut.more, expand_scan);
     if set.declarations.is_empty() && !incomplete {
@@ -147,7 +134,8 @@ struct SymbolPage {
 }
 
 impl SymbolPage {
-    /// Top-level rows fitting the response budget; a page past the end is empty.
+    /// Top-level rows fitting the response budget, at most `limit`; a page
+    /// past the end is empty.
     fn of(
         q: &AstSearchQuerySymbols,
         set: &SymbolSet,
@@ -156,11 +144,11 @@ impl SymbolPage {
     ) -> Self {
         let declarations = &set.declarations;
         let page = ast_search_query_symbols::page(q).max(1) as usize;
-        let budget = crate::response::page_windows::page_budget(
-            response_window,
-            &crate::response::result::query_value(q),
+        let budget = crate::response::page_windows::page_budget(response_window);
+        let paging = crate::response::page_windows::Paging::of(
+            q.limit.map(|limit| crate::num::usize_of(limit.get())),
+            budget,
         );
-        let paging = crate::response::page_windows::Paging::of(None, budget);
         // Pages count top-level rows; each carries its members.
         let spans = top_level_spans(declarations);
         let sizes = row_sizes(declarations, &spans, set.directory.then_some(row_paths));
@@ -180,21 +168,11 @@ impl SymbolPage {
 
 /// The outline's diagnostics plus what its scan cut: a truncated candidate
 /// scan, and files no page outlines.
-fn outline_diagnostics(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Vec<Value> {
+fn outline_diagnostics(set: &SymbolSet) -> Vec<Value> {
     let mut diagnostics = set.diagnostics.clone();
     if set.truncated {
-        let message = match ast_search_query_symbols::max_files(q) {
-            Some(limit) => format!(
-                "Candidate scan hit the maxFiles limit ({limit}); files beyond it were not outlined."
-            ),
-            None => crate::tools::ast_search::scan_window::ceiling_note(set.scan_resume).map_or_else(
-                || {
-                    "Candidate scan stopped at its time budget; files beyond it were not outlined."
-                        .to_owned()
-                },
-                |note| format!("Candidate scan stopped; files beyond it were not outlined. {note}"),
-            ),
-        };
+        let message =
+            "Candidate scan stopped at its time budget; files beyond it were not outlined.";
         diagnostics.push(json!({"code":"structural.scan.truncated","message":message}));
     }
     if set.skipped > 0 {
@@ -218,9 +196,7 @@ fn attach_symbol_leads(
     let page = ast_search_query_symbols::page(q).max(1) as usize;
     if more
         && let Some(lead) = crate::response::paging::next_page_call(
-            out,
             ToolId::AstSearch,
-            Some("symbols"),
             crate::response::result::query_row(q, &[]),
             "page",
             page + 1,
@@ -231,13 +207,11 @@ fn attach_symbol_leads(
     }
     if let Some(window) = expand_scan.filter(|_| !more) {
         let mut nq = crate::response::result::query_row(q, &["snapshot"]);
-        if let Some(bound) = window.max_files {
-            nq["maxFiles"] = json!(bound);
-        }
         nq["scanOffset"] = json!(window.scan_offset);
         nq["page"] = json!(1);
         out["calls"]["expandScan"] =
             crate::response::result::Continuation::continued(ToolId::AstSearch, nq).build();
+        crate::tools::ast_search::scan_window::mark_resumed(out);
     }
     if let Some(lead) = &set.references {
         let name = crate::tools::leads::lsp::lead_name(&lead["input"]["queries"][0]);

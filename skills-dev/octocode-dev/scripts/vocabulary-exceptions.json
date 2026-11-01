@@ -1,0 +1,15 @@
+{
+  "exceptions": [
+    { "file": "docs/CONFIGURATION.md", "token": "local.enableLocl", "reason": "Deliberate typo in the example of the unknown-key warning." },
+    { "file": "skills-dev/octocode-dev/docs/ADDING_CONFIG.md", "token": "output.compact", "reason": "Hypothetical key in the add-a-setting walkthrough." },
+    { "file": "packages/octocode-native/docs/ADDING_CLASIFY_VENDOR.md", "token": "classification.vendor", "reason": "Hypothetical key a new vendor would declare." },
+    { "file": "packages/octocode-native/docs/ADDING_CLASIFY_VENDOR.md", "token": "classification.type", "reason": "Names the removed key so it is not reused." },
+    { "file": "skills/octocode-clean-agentic-code/references/tests.md", "token": "not.toBeNull", "reason": "Jest/Vitest matcher, not a tool field." },
+    { "file": "skills/octocode-eval-benchmark/references/skill-activation.md", "token": "input.skill", "reason": "Input of the host's Skill tool call, not an Octocode field." },
+    { "file": "skills/octocode-graph-view/references/commands.md", "token": "files[].metrics", "reason": "Field of the graph-view data.json model." },
+    { "file": "skills/octocode-graph-view/references/modeling.md", "token": "meta.summary", "reason": "Field of the graph-view data.json model." },
+    { "file": "skills/octocode-scraping/references/corpus.md", "token": "next.page", "reason": "Continuation of the scraping corpus scripts (scripts/corpus-find.mjs), not of an Octocode tool." },
+    { "file": "skills/octocode-scraping/references/recovery.md", "token": "next.route", "reason": "Field of the scraping fetch script output (scripts/fetch.mjs)." },
+    { "file": "skills/octocode-scraping/SKILL.md", "token": "next.route", "reason": "Field of the scraping fetch script output (scripts/fetch.mjs)." }
+  ]
+}

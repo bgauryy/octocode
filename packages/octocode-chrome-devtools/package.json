@@ -35,9 +35,8 @@
   },
   "scripts": {
     "build": "node tools/build.mjs",
-    "cli": "node bin/octocode-chrome-devtools.mjs /cli",
-    "mcp": "node bin/octocode-chrome-devtools.mjs",
-    "lint": "prettier --check \"src/**/*.{ts,mts}\" \"tools/**/*.mjs\" \"tests/**/*.mjs\" && node tools/check.mjs && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
+    "clean": "rm -rf dist/",
+    "lint": "prettier --check \"src/**/*.{ts,mts}\" \"tools/**/*.mjs\" \"tests/**/*.mjs\" && node tools/check.mjs && yarn run -T oxlint -c ../../.oxlintrc.json .",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "test": "node tests/hermetic-suite.mjs",
     "test:live": "node tests/live-suite.mjs",

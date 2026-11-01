@@ -3,7 +3,6 @@
 
 use super::identity::{call_identity, env_digest};
 pub(super) use super::served::Served;
-use super::served::recheck_provider;
 use super::sockets::{prune_siblings, touch};
 use super::{read_line_bounded, same_dir_form};
 use crate::cli::Printed;
@@ -99,6 +98,7 @@ pub(super) struct Daemon {
     pub(super) build: Build,
     /// A [`STOP`](super::sockets::STOP) request arrived.
     pub(super) stop: tokio::sync::Notify,
+    stopped: std::cell::RefCell<Vec<tokio::net::unix::OwnedWriteHalf>>,
 }
 
 impl Daemon {
@@ -117,6 +117,7 @@ impl Daemon {
             building: octocode_io::flight::KeyedFlight::transient(),
             build,
             stop: tokio::sync::Notify::new(),
+            stopped: std::cell::RefCell::default(),
         }
     }
 
@@ -129,14 +130,12 @@ impl Daemon {
         cwd: &Path,
         env: BTreeMap<String, String>,
         identity: &str,
-        tool: &str,
     ) -> Result<std::rc::Rc<Served>, String> {
         let key = (same_dir_form(cwd), env_digest(&env));
         let ticket = self.building.join(key.clone());
         let _turn = ticket.turn().await;
         if let Some(served) = self.runtimes.borrow_mut().get(&key)
             && served.identity == identity
-            && !recheck_provider(tool, served.provider_failed(), served.built.elapsed())
         {
             return Ok(std::rc::Rc::clone(served));
         }
@@ -157,11 +156,9 @@ impl Daemon {
         if built != identity {
             return Err("it runs under another configuration than this call".into());
         }
-        let runtime = runtime.check_clasify_provider().await;
         let served = std::rc::Rc::new(Served {
             runtime,
             identity: built,
-            built: std::time::Instant::now(),
         });
         // An evicted runtime ends when its last call returns; the servers
         // it used stay in the shared pool.
@@ -199,6 +196,11 @@ pub(super) async fn shut_down(daemon: &Daemon) {
         served.runtime.close().await;
     }
     daemon.lsp_pool.clear_all().await;
+    use tokio::io::AsyncWriteExt;
+    let waiters = std::mem::take(&mut *daemon.stopped.borrow_mut());
+    for mut waiter in waiters {
+        let _ = waiter.write_all(b"{\"stopped\":true}\n").await;
+    }
 }
 
 /// Accept connections until nothing has been asked for `idle`, or a
@@ -325,6 +327,9 @@ pub(super) async fn handle(daemon: &Daemon, stream: tokio::net::UnixStream, id: 
     touch(&daemon.socket);
     let reply = match serde_json::from_str::<Value>(&line) {
         Ok(request) if request["stop"] == true => {
+            if request["drain"] == true {
+                daemon.stopped.borrow_mut().push(write);
+            }
             daemon.stop.notify_one();
             return;
         }
@@ -385,6 +390,6 @@ pub(super) async fn served(
     if !ToolId::from_name(&tool).is_some_and(runs_on_server) {
         return Err(format!("it does not run {tool}"));
     }
-    let served = daemon.runtime_for(&cwd, env, &identity, &tool).await?;
+    let served = daemon.runtime_for(&cwd, env, &identity).await?;
     Ok((served, tool, json_out, request["input"].take()))
 }

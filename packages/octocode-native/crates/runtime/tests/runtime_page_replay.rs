@@ -1,4 +1,5 @@
 mod github;
+mod reexecution;
 mod saved_pages;
 mod snapshots;
 mod windows;

@@ -82,7 +82,7 @@ fn streamed_oversized_line_pages_its_bytes_and_later_selected_lines() {
 
 /// A streamed multi-range page stops inside the first span that needs
 /// several window pages: it serves every span before it and that span's
-/// first page, then continues that span alone (`continueWindow`) and reads
+/// first page, then continues that span alone (`nextPage`) and reads
 /// the ranges after it once (`readOtherRanges`, L2-F15). Following them
 /// reaches every requested line exactly once.
 #[test]

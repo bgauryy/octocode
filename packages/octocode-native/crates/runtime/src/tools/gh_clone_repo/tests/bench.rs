@@ -30,7 +30,7 @@ impl Bench {
     }
 
     pub(super) fn over(endpoint: GitHubEndpoint, fixture: Arc<Fixture>) -> Self {
-        let (root, cache_home) = home_root();
+        let (root, home) = home_root();
         let policy = test_support::workspace_policy(&root.0);
         let url = repository_url(
             &web_root(&endpoint).expect("root"),
@@ -39,8 +39,7 @@ impl Bench {
         )
         .expect("clone URL");
         let runner = RewriteRunner::new(&url, &fixture.bare_url);
-        let mut config = CloneConfig::persistent(&cache_home);
-        config.cache_ttl = Duration::from_secs(60);
+        let config = CloneConfig::persistent(&home);
         Self {
             fixture,
             _root: root,
@@ -90,7 +89,7 @@ pub(super) fn unbranched() -> GhCloneRepoQuery {
     }
 }
 
-/// Callers of one runtime that share its clone cache: each holds its own
+/// Callers of one runtime that share its checkout destinations: each holds its own
 /// token, as the API and git see it.
 pub(super) const ALICE: &str = "clone-token-alice";
 

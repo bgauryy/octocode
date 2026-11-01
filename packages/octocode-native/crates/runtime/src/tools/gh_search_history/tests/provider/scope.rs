@@ -38,9 +38,22 @@ async fn search_of_a_missing_repository_is_not_found() {
             ProviderErrorKind::NotFound,
             "{row}: {failure:?}"
         );
-        // The recovery is the repository's spelling, not a history filter.
+        // The recovery is the repository's spelling, not a history filter:
+        // the shared leads, labelled by the shared hint.
+        assert_eq!(
+            failure.hints,
+            [crate::tools::gh_shared::repository_search_hint(
+                Some("o"),
+                "missing"
+            )],
+            "{row}"
+        );
         let next = failure.calls.expect("a recovery lead");
-        assert_eq!(next["findRepository"]["tool"], "ghSearchRepo", "{next}");
+        assert_eq!(
+            next,
+            crate::tools::gh_shared::repository_recovery(Some("o"), "missing"),
+            "{row}"
+        );
     }
 }
 

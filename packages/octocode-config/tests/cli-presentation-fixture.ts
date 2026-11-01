@@ -33,4 +33,8 @@ export function strings(value: unknown): string[] {
 
 export const presentation = buildCliPresentation();
 export const tools = list(presentation.tools);
-export const tool = (name: string): Json => tools.find(entry => entry.name === name)!;
+export const tool = (name: string): Json => {
+  const found = tools.find(entry => entry.name === name);
+  if (!found) throw new Error(`No presented tool: ${name}`);
+  return found;
+};

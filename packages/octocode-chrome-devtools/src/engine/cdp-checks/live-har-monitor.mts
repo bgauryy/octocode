@@ -5,6 +5,7 @@ import type { RunnerSession } from '../cdp-runner-session.mjs';
 import { errorMessage } from '../error-message.mjs';
 import { observeFrameEvents } from '../frame-events.mjs';
 import type { MonitorEvent, NetworkRecord } from './live-har-format.mjs';
+import { printFindings, waitWindow } from './live-har-wait.mjs';
 import {
   LONG_TASK_OBSERVER_JS,
   collectPerformanceSnapshot,
@@ -39,10 +40,29 @@ function watchPageErrors(
       console.log(
         `[EXCEPTION_LOCATION] ${frame.url}:${frame.lineNumber}:${frame.columnNumber}`
       );
-    pushEvent({ kind: 'exception', message, frame });
+    pushEvent({
+      kind: 'exception',
+      message,
+      frame,
+      stack: exceptionDetails.stackTrace?.callFrames,
+    });
   });
 
-  cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
+  // Browser-side messages: failed resource loads, CSP and deprecation reports.
+  cdp.on('Log.entryAdded', ({ entry }) => {
+    if (!['error', 'warning'].includes(entry.level)) return;
+    console.log(`[LOG:${entry.level.toUpperCase()}] ${entry.text}`);
+    pushEvent({
+      kind: 'log',
+      type: entry.level,
+      source: entry.source,
+      message: entry.text,
+      url: entry.url,
+      stack: entry.stackTrace?.callFrames,
+    });
+  });
+
+  cdp.on('Runtime.consoleAPICalled', ({ type, args, stackTrace }) => {
     if (!['error', 'warning'].includes(type)) return;
     const message = args
       .map(
@@ -51,44 +71,25 @@ function watchPageErrors(
       )
       .join(' ');
     console.log(`[CONSOLE:${type.toUpperCase()}] ${message}`);
-    pushEvent({ kind: 'console', type, message });
+    pushEvent({
+      kind: 'console',
+      type,
+      message,
+      stack: stackTrace?.callFrames,
+    });
   });
 }
 
-export async function run(
+/** Records every request on `records` and reports failures and slow responses. */
+function watchNetwork(
   cdp: MonitorSession,
-  {
-    onReady,
-    monitorMs = MONITOR_MS,
-    url = MONITOR_URL,
-  }: { onReady?: () => Promise<void>; monitorMs?: number; url?: string } = {}
+  records: Map<string, NetworkRecord>,
+  pushEvent: (event: MonitorEvent) => void
 ) {
-  if (!Number.isSafeInteger(monitorMs) || monitorMs < 0)
-    throw new Error('Invalid monitorMs');
-  const captureStartedAt = Date.now();
-  let actionError: string | null = null;
-  await cdp.send('Runtime.enable');
-  await cdp.send('Network.enable');
-  await cdp.send('Log.enable');
-  await cdp.send('Page.enable');
-
-  await cdp.send('Runtime.evaluate', { expression: LONG_TASK_OBSERVER_JS });
-
-  const records = new Map<string, NetworkRecord>();
   const requestKey = (requestId: string, meta: { sessionId?: string }) =>
     JSON.stringify([meta.sessionId || null, requestId]);
   let hop = 0;
-  const events: MonitorEvent[] = [];
   let slowPrinted = 0;
-  const eventsPath = join(cdp.outputDir, 'events.ndjson');
-  writeFileSync(eventsPath, '', { mode: 0o600, flag: 'wx' });
-  console.log(`[ARTIFACT] EVENTS ${eventsPath}`);
-  const pushEvent = (event: MonitorEvent) => {
-    const safeEvent = { at: new Date().toISOString(), ...event };
-    events.push(safeEvent);
-    appendFileSync(eventsPath, JSON.stringify(safeEvent) + '\n');
-  };
-
   cdp.on(
     'Network.requestWillBeSent',
     (
@@ -203,7 +204,48 @@ export async function run(
       });
     }
   );
+}
 
+export async function run(
+  cdp: MonitorSession,
+  {
+    onReady,
+    monitorMs = MONITOR_MS,
+    url = MONITOR_URL,
+    waitUntil,
+    idleMs = 500,
+  }: {
+    onReady?: () => Promise<void>;
+    monitorMs?: number;
+    url?: string;
+    /** End the window early once the page loaded, or loaded and kept no request pending for idleMs. */
+    waitUntil?: 'load' | 'networkIdle';
+    idleMs?: number;
+  } = {}
+) {
+  if (![monitorMs, idleMs].every(ms => Number.isSafeInteger(ms) && ms >= 0))
+    throw new Error('Invalid monitorMs or idleMs');
+  const captureStartedAt = Date.now();
+  let actionError: string | null = null;
+  await cdp.send('Runtime.enable');
+  await cdp.send('Network.enable');
+  await cdp.send('Log.enable');
+  await cdp.send('Page.enable');
+
+  await cdp.send('Runtime.evaluate', { expression: LONG_TASK_OBSERVER_JS });
+
+  const records = new Map<string, NetworkRecord>();
+  const events: MonitorEvent[] = [];
+  const eventsPath = join(cdp.outputDir, 'events.ndjson');
+  writeFileSync(eventsPath, '', { mode: 0o600, flag: 'wx' });
+  console.log(`[ARTIFACT] EVENTS ${eventsPath}`);
+  const pushEvent = (event: MonitorEvent) => {
+    const safeEvent = { at: new Date().toISOString(), ...event };
+    events.push(safeEvent);
+    appendFileSync(eventsPath, JSON.stringify(safeEvent) + '\n');
+  };
+
+  watchNetwork(cdp, records, pushEvent);
   watchPageErrors(cdp, pushEvent);
 
   const frameEvents = await observeFrameEvents(cdp, [
@@ -211,6 +253,10 @@ export async function run(
     'Runtime',
     'Log',
   ]);
+  let loaded = !url;
+  cdp.on('Page.loadEventFired', () => {
+    loaded = true;
+  });
   if (url) await cdp.send('Page.navigate', { url: url });
   console.log(
     `[METRIC] live-monitor target="${url || cdp.targetInfo.url}" durationMs=${monitorMs}`
@@ -231,8 +277,14 @@ export async function run(
       ),
     1000
   );
+  const pending = () => [...records.values()].filter(r => !r.complete).length;
+  let settled = false;
   try {
-    await new Promise(resolve => setTimeout(resolve, monitorMs));
+    settled = await waitWindow(
+      { waitUntil, monitorMs, idleMs, startedAt: captureStartedAt },
+      () => loaded,
+      pending
+    );
   } finally {
     clearInterval(progress);
   }
@@ -290,18 +342,20 @@ export async function run(
   console.log(
     `[METRIC] requests=${summary.counts.requests} failed=${summary.counts.failed} slow=${summary.counts.slow} exceptions=${summary.counts.exceptions} consoleErrors=${summary.counts.consoleErrors} longTasks=${summary.counts.longTasks}`
   );
-  for (const failure of summary.failures.slice(0, MAX_STDOUT_ITEMS)) {
-    console.log(
-      `[NETWORK_ERROR] status=${failure.status} method=${failure.method} url=${failure.url}`
-    );
-  }
-  for (const slow of summary.slow.slice(0, MAX_STDOUT_ITEMS)) {
-    console.log(
-      `[METRIC] slow status=${slow.status} method=${slow.method} ms=${slow.ms} type=${slow.type} url=${slow.url}`
-    );
-  }
+  printFindings(summary, MAX_STDOUT_ITEMS);
   console.log(`[ARTIFACT] HAR ${harPath}`);
   console.log(`[ARTIFACT] EVENTS ${eventsPath}`);
   console.log(`[ARTIFACT] SUMMARY ${summaryPath}`);
   console.log(`[ARTIFACT] RESOURCE_TIMING ${resourcesPath}`);
+  return {
+    summary,
+    events,
+    loaded,
+    settled,
+    pending: pending(),
+    harPath,
+    eventsPath,
+    summaryPath,
+    resourcesPath,
+  };
 }

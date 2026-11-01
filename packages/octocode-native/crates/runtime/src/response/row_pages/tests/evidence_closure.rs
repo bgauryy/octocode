@@ -54,8 +54,8 @@ pub(super) fn origin(i: usize) -> Value {
 }
 
 pub(super) fn fixture(units: usize, rows: usize) -> Value {
-    json!({"op":"unresolved","graph":graph(),
-        "total":rows,"sourceEvidence":catalog(units),"results":(0..rows).map(|i|json!({
+    json!({"operation":"unresolved","graph":graph(),
+        "pagination":{"page":1,"totalItems":rows,"hasMore":false},"sourceEvidence":catalog(units),"rows":(0..rows).map(|i|json!({
             "id":format!("site:{i:03}"),"from":format!("source-{i:03}.rs#owner"),
             "targetName":"callback","edge":"passes","file":format!("source-{i:03}.rs"),"line":1,
             "reason":"binding-unrepresented","sourceDigest":"a".repeat(64),
@@ -139,7 +139,7 @@ pub(super) fn exact_closure(data: &Value, full: &Value) {
 
 fn plan(data: Value, tool: ToolId, budget: usize) -> RowPlan {
     assert_row_contract(tool, &data);
-    PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], Some(tool))
+    PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
         .plan(budget, &CancellationToken::new())
         .expect("valid dependency closure")
 }
@@ -148,7 +148,7 @@ fn plan(data: Value, tool: ToolId, budget: usize) -> RowPlan {
 fn hundred_unit_graph_fragments_fit_and_preserve_all_evidence_lazily() {
     let data = fixture(100, 100);
     let catalog = data["sourceEvidence"].clone();
-    let expected = data["results"].as_array().unwrap().clone();
+    let expected = data["rows"].as_array().unwrap().clone();
     MATERIALIZED.with(|count| count.set(0));
     let plan = plan(data, ToolId::GraphQuery, 12_000);
     assert!(plan.total_pages > 1);
@@ -182,7 +182,7 @@ fn hundred_unit_graph_fragments_fit_and_preserve_all_evidence_lazily() {
                     .len()
                     < 100
             );
-            seen.extend(row["data"]["results"].as_array().unwrap().iter().cloned());
+            seen.extend(row["data"]["rows"].as_array().unwrap().iter().cloned());
         }
     }
     assert_eq!(
@@ -196,9 +196,9 @@ fn shared_descriptor_union_is_charged_once_when_packing_fragments() {
     let data = fixture(1, 30);
     let catalog = data["sourceEvidence"].clone();
     let mut three = data.clone();
-    three["results"].as_array_mut().unwrap().truncate(3);
+    three["rows"].as_array_mut().unwrap().truncate(3);
     let budget = chars(&json!({"index":0,"data":three})) + 256;
-    let expected = data["results"].clone();
+    let expected = data["rows"].clone();
     let plan = plan(data, ToolId::GraphQuery, budget);
     assert!(plan.total_pages > 1);
     let mut seen = Vec::new();
@@ -210,7 +210,7 @@ fn shared_descriptor_union_is_charged_once_when_packing_fragments() {
         let mut count = 0;
         for row in rows {
             exact_closure(&row["data"], &catalog);
-            let results = row["data"]["results"].as_array().unwrap();
+            let results = row["data"]["rows"].as_array().unwrap();
             count += results.len();
             seen.extend(results.iter().cloned());
         }
@@ -313,7 +313,7 @@ fn escaped_keyed_records_preserve_each_origin_and_only_its_descriptor_closure() 
         );
     }
     let catalog = catalog(60);
-    let data = json!({"op":"drift","graph":graph(),"results":[{"id":"finding",
+    let data = json!({"operation":"drift","graph":graph(),"rows":[{"id":"finding",
         "evidence":{"textMentions":mentions}}],"sourceEvidence":catalog});
     let plan = plan(data, ToolId::GraphQuery, 12_000);
     assert!(plan.total_pages > 1);
@@ -326,7 +326,7 @@ fn escaped_keyed_records_preserve_each_origin_and_only_its_descriptor_closure() 
         for row in rows {
             assert_row_contract(ToolId::GraphQuery, &row["data"]);
             exact_closure(&row["data"], &catalog);
-            for finding in row["data"]["results"].as_array().unwrap() {
+            for finding in row["data"]["rows"].as_array().unwrap() {
                 for (key, values) in finding["evidence"]["textMentions"].as_object().unwrap() {
                     seen.entry(key.clone())
                         .or_default()
@@ -341,7 +341,7 @@ fn escaped_keyed_records_preserve_each_origin_and_only_its_descriptor_closure() 
 #[test]
 fn indivisible_origin_is_complete_and_explicitly_oversized_at_tiny_budget() {
     let catalog = catalog(100);
-    let data = json!({"op":"node","graph":graph(),"node":{"id":"atomic","sourceRange":range(),
+    let data = json!({"operation":"node","graph":graph(),"node":{"id":"atomic","sourceRange":range(),
         "sourceOrigin":origin(0)},"sourceEvidence":catalog});
     assert_row_contract(ToolId::GraphQuery, &data);
     let options = ResponsePageOptions {
@@ -357,7 +357,7 @@ fn indivisible_origin_is_complete_and_explicitly_oversized_at_tiny_budget() {
         &options,
         Vec::new(),
         &[],
-        Some(ToolId::GraphQuery),
+        ToolId::GraphQuery,
     );
     assert_eq!(pagination.total_pages, 1);
     assert_eq!(pagination.oversized, Some(true));

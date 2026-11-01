@@ -233,7 +233,20 @@ fn model_discovery_accepts_live_timestamp_strings_and_rejects_missing_fields() {
         json!({"models":null}),
         json!({"models":[{"name":""}]}),
         json!({"models":[{"name":"m","description":"d","release_date":null}]}),
+        json!({"data":[{"id":""}]}),
     ] {
         assert!(super::JEV.models(&invalid).is_err());
     }
+}
+
+#[test]
+fn model_discovery_reads_a_local_servers_openai_list_without_inventing_fields() {
+    // Ollama's `/v1/models`, served through FreeLlama.
+    let response = json!({"object":"list","data":[
+        {"id":"strands-decider:2b-nvfp4","object":"model","created":1793359804,"owned_by":"library"}
+    ]});
+    assert_eq!(
+        super::JEV.models(&response).unwrap(),
+        json!({"models":[{"name":"strands-decider:2b-nvfp4","description":"","release_date":""}]})
+    );
 }

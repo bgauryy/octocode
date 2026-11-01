@@ -167,7 +167,7 @@ fn stopped(stop: BudgetStop) -> ClassificationError {
         BudgetStop::Deadline => ClassificationError::new(
             ErrorCode::Timeout,
             "The page was not fetched before the call's deadline.",
-            "Retry with more time, or supply the page text as content.",
+            super::PAGE_DEADLINE_HINT,
         ),
         BudgetStop::Cancelled => ClassificationError::new(
             ErrorCode::Cancelled,

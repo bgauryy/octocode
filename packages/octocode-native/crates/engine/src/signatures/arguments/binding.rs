@@ -1,6 +1,7 @@
 //! Conservative lexical barriers for syntax adapters. A missing type is not
 //! evidence that a local name can be resolved through a global declaration.
 
+use crate::num::saturating_u32;
 use std::{collections::HashMap, time::Instant};
 use tree_sitter::Node;
 
@@ -80,8 +81,8 @@ impl Bindings {
                                     result.names.entry(name.to_owned()).or_default().push(
                                         Binding {
                                             name_range: ByteRange {
-                                                start_byte: part.start_byte() as u32,
-                                                end_byte: part.end_byte() as u32,
+                                                start_byte: saturating_u32(part.start_byte()),
+                                                end_byte: saturating_u32(part.end_byte()),
                                             }
                                             .into(),
                                             scope: scope.byte_range(),

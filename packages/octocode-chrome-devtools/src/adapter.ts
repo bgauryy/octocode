@@ -14,8 +14,7 @@ import {
   chromeInstructions,
   chromeResearchCommands,
   chromeSchemaFor,
-  type ChromeInvocation,
-} from '@octocodeai/config/schema';
+} from '@octocodeai/config/chrome';
 import manifest from '../package.json' with { type: 'json' };
 import { invoke, stopEngine } from './invocation.js';
 export { connectStdio, cliFromMcp, runCli } from 'octocode-mcp-cli';
@@ -65,7 +64,7 @@ export const spec = defineCli({
       run: async (input, context) => {
         const result = await invoke(
           name,
-          input as ChromeInvocation,
+          chromeSchemaFor(name).parse(input),
           context?.signal
         );
         return cliView(

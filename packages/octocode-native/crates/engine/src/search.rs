@@ -1,5 +1,5 @@
+pub mod cpu;
 pub mod fs_query;
-pub mod fs_resume;
 pub mod glob;
 pub mod pcre2_ranges;
 pub(crate) mod relevance;

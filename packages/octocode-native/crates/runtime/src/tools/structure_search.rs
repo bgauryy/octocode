@@ -7,7 +7,6 @@ mod memo;
 mod output;
 mod probe;
 use octocode_contract_types::{ErrorCode, StructureSearchQuery};
-pub(crate) use output::Output;
 mod resume;
 mod rows;
 #[cfg(test)]
@@ -19,9 +18,15 @@ use cut::TimeWindow;
 use probe::ProbeBound;
 use walked::Walked;
 
-/// Entries one walk may visit: the contract `maxEntries` maximum.
-fn max_walk() -> u32 {
-    u32_of_usize(crate::contracts::query_limits::structure_search::MAX_ENTRIES_MAXIMUM)
+/// The most rows one listing window walks, sorts and pages: the core walk
+/// window, internal. Windows continue past it (`next.continueWalk`), so it
+/// bounds no listing.
+fn max_entries() -> usize {
+    #[cfg(test)]
+    if let Some(window) = tests::WINDOW.get() {
+        return window;
+    }
+    crate::id::structure_search_policy::WALK_WINDOW
 }
 
 /// Wall time one listing walk may spend: the budget every unbounded local
@@ -196,24 +201,21 @@ struct Resumes<'a> {
 impl Resumes<'_> {
     /// The engine options for a listing walk of `walking`: the cursor of the
     /// window it resumes at `walk_offset` (when one is kept and nothing it
-    /// depends on changed), and a checkpoint at the window's `requested`-th
-    /// row, where a window cut at its rows ends.
+    /// depends on changed), and a checkpoint at the window's last row
+    /// (`window_end`), where a window cut at its rows ends.
     fn options(
         &self,
         walking: Walking<'_>,
         walk_offset: u32,
-        requested: usize,
-    ) -> (
-        Option<octocode_engine::search::fs_resume::WalkCursor>,
-        Option<u32>,
-    ) {
+        window_end: usize,
+    ) -> (Option<octocode_engine::types::WalkCursor>, Option<u32>) {
         if walking.budget().is_none() {
             return (None, None);
         }
         let resume = (walk_offset > 0)
             .then(|| resume::take(&self.identity, &self.paths.identity(), walk_offset))
             .flatten();
-        (resume, Some(u32_of_usize(requested)))
+        (resume, Some(u32_of_usize(window_end)))
     }
 
     /// Keep where the walk stands at the end of its window, for the window
@@ -286,8 +288,9 @@ fn walked(
     walk().map(|walk| (std::sync::Arc::new(walk), false))
 }
 
-/// A walk cut by time lists at most `requested` rows, the first ones in walk
-/// order: the window ends at the last of them (`walk_position`), and the walk
+/// A walk cut by time lists at most `window_end` rows (the earlier windows'
+/// and this one's), the first ones in walk order: the window ends at the
+/// last of them (`walk_position`), and the walk
 /// resumed there reaches the rows after it. Cut anywhere else (the best rows
 /// by a sort of a walk that timing cut short) the window could not tell the
 /// resume which rows it dropped, and two windows would overlap or leave a gap.
@@ -297,7 +300,7 @@ fn walked(
 /// window lists nothing.
 fn end_window(
     native: &mut octocode_engine::types::FileSystemQueryResult,
-    requested: usize,
+    window_end: usize,
     scan_offset: usize,
     in_walk_order: bool,
 ) -> TimeWindow {
@@ -313,8 +316,8 @@ fn end_window(
         .iter()
         .map(|entry| entry.walk_position)
         .filter(|position| *position > 0);
-    // Fewer rows than `requested`, or exactly that many: nothing to end early.
-    let Some(last) = rows.nth(requested.saturating_sub(1)) else {
+    // Fewer rows than `window_end`, or exactly that many: nothing to end early.
+    let Some(last) = rows.nth(window_end.saturating_sub(1)) else {
         return TimeWindow::Whole;
     };
     if rows.next().is_none() {

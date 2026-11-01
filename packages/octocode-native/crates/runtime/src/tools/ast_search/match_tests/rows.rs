@@ -3,10 +3,9 @@
 
 use super::*;
 
-/// A match row with every file and match page shown and no scope gap is
-/// `coverage.state: "complete"`: its expansions (`expandCaptures`, `expandValues`) and the
-/// hits read are drill-downs, so the response stage does not mark it
-/// partial. A file page left, or a scope gap, keeps it open.
+/// A result with every match delivered and no required call omits the
+/// coverage note. Structural expansion can retain a complete note; a file
+/// page left or a scope gap must remain visible.
 #[test]
 fn match_rows_without_unread_pages_are_complete() {
     let root = Fixture::new();
@@ -15,14 +14,69 @@ fn match_rows_without_unread_pages_are_complete() {
     root.write("b.ts", "call(1);\n");
     let base = json!({"operation":"match","path":root.0,"rule":{"pattern":"call($$$A)"},"parser":"typescript"});
     let out = run(&root.0, base.clone()).expect("match");
-    assert_eq!(out["coverage"]["state"], "complete", "{out}");
-    assert!(out["next"].get("expandCaptures").is_some(), "{out}");
+    assert!(
+        out.get("coverage").is_none(),
+        "a complete result without required calls needs no coverage note: {out}"
+    );
+    assert_eq!(out["pagination"]["hasMore"], false, "{out}");
+    assert_eq!(out["files"].as_array().expect("files").len(), 2);
+    assert_eq!(
+        out["files"][0]["matches"][0]["value"],
+        long.trim_end_matches(['\n', ';'])
+    );
+    assert_eq!(out["files"][1]["matches"][0]["value"], "call(1)");
+    assert!(
+        out["next"].get("expandCaptures").is_none(),
+        "the complete value already includes captures: {out}"
+    );
     let row = crate::response::rows::result_row(0, out.clone(), None);
     assert!(row.pointer("/data/isPartial").is_none(), "{row}");
-    let mut capped = base;
-    capped["maxFiles"] = json!(1);
-    let gap = run(&root.0, capped).expect("capped scan");
+    let _window = crate::tools::ast_search::scan_window::test_window(1);
+    let gap = run(&root.0, base).expect("capped scan");
     assert!(gap.get("coverage").is_none(), "{gap}");
+}
+
+/// Files without a grammar are named once, as a static notice that says
+/// absence there is unproven, and a match set that fills more than one
+/// page names its size and how to narrow it.
+#[test]
+fn census_notices_are_static_and_a_multi_page_set_names_how_to_narrow() {
+    let root = Fixture::new();
+    root.write("notes.md", "call(1)\n");
+    root.write("a.ts", "call(1);\n");
+    root.write("b.ts", "call(2);\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"call($$$A)"},"limit":1}),
+    )
+    .expect("match");
+    let notices = out["notices"].to_string();
+    assert!(notices.contains("absence there is unproven"), "{out}");
+    assert!(
+        notices.contains("2 matches in 2 files fill 2 pages"),
+        "{out}"
+    );
+    assert!(
+        !out["warnings"].to_string().contains("no AST grammar"),
+        "the census is a notice, said once by the response stage: {out}"
+    );
+}
+
+/// The read lead around a hit near the end of a file stops at its last
+/// line.
+#[test]
+fn the_read_lead_never_ends_past_the_last_line() {
+    let root = Fixture::new();
+    root.write("a.ts", "x();\ny();\ncall(1);\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"call($$$A)"},"parser":"typescript"}),
+    )
+    .expect("match");
+    let ranges = crate::tools::test_support::checks::related_call(&out, "localFetch", |_| true)
+        ["input"]["queries"][0]["ranges"]
+        .clone();
+    assert_eq!(ranges, json!([{"startLine":1,"endLine":3}]), "{out}");
 }
 
 #[test]
@@ -95,7 +149,7 @@ fn list_captures_are_withheld_by_default_and_expand_on_request() {
     // A lean row: no capture dump, the header stands in for the body.
     let (line, end, value) = lean_row(&out["files"][0]["matches"][0]);
     assert_eq!((line, end, value), (1, Some(5), "fn a() -> u8 …"), "{out}");
-    assert!(out["next"]["expandCaptures"].is_object(), "{out}");
+    assert!(has_capture_expansion(&out), "{out}");
 
     let mut expanded = query;
     expanded["includeCaptures"] = json!(true);
@@ -138,7 +192,7 @@ fn single_file_match_keeps_redacted_rows_and_directory_positions() {
 
 /// A multi-line match with a body block shows its header (text before the
 /// body) with line/endLine anchors, not the flattened body; captureText:true
-/// (next.expandCaptures) returns the whole match text.
+/// (the related capture expansion) returns the whole match text.
 #[test]
 fn block_matches_default_to_their_header_and_expand_on_request() {
     let root = Fixture::new();
@@ -152,7 +206,7 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
     let out = run(&root.0, query.clone()).expect("match");
     let header = json!({"line":1,"column":1,"endLine":6,"value":"pub fn load(\n    path: &str,\n) -> Result<u8, String> …","clipped":true});
     assert_eq!(out["files"][0]["matches"][0], header);
-    assert!(out["next"]["expandCaptures"].is_object(), "{out}");
+    assert!(has_capture_expansion(&out), "{out}");
     let mut proven = query.clone();
     proven["includeProvenance"] = json!(true);
     let traced = run(&root.0, proven).expect("match");
@@ -198,9 +252,10 @@ fn expanded_scans_reach_every_file_exactly_once() {
     for query in queries {
         let whole = ast_rows(&ast_chain(&root.0, query.clone()));
         assert_eq!(whole.len(), 45, "{query}");
-        let mut cut = query.clone();
-        cut["maxFiles"] = serde_json::json!(2);
-        let pages = ast_chain(&root.0, cut);
+        let pages = {
+            let _window = crate::tools::ast_search::scan_window::test_window(2);
+            ast_chain(&root.0, query.clone())
+        };
         assert!(pages.len() > 1, "{query}");
         assert!(
             pages.iter().any(|page| {
@@ -300,4 +355,15 @@ fn happy_path_rows_carry_the_next_hop_anchors() {
             "{row}"
         );
     }
+}
+
+/// The optional capture expansion: a related lead (never `next`) to the same
+/// query with `includeCaptures:true`.
+fn has_capture_expansion(out: &serde_json::Value) -> bool {
+    out["next"].get("expandCaptures").is_none()
+        && out["related"].as_array().is_some_and(|calls| {
+            calls.iter().any(|call| {
+                call["kind"] == "related" && call["input"]["queries"][0]["includeCaptures"] == true
+            })
+        })
 }

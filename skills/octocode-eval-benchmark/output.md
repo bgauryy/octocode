@@ -1,8 +1,8 @@
 # Output
 
-<!-- report-contract {"statuses":["Keep","Accept","Revert","Inconclusive","Invalid"],"required":["Question","Conditions","Results","Guardrails","Limits","Decision"],"anyOf":[]} -->
+<!-- report-contract {"statuses":["Keep","Discard","Accept","Revert","Inconclusive","Invalid"],"required":["Question","Conditions","Results","Guardrails","Limits","Decision"],"anyOf":[]} -->
 
-Task content only: no probe output, traces, receipts, run IDs, or process metadata. Lead with the verdict; visualize metric comparisons and retain exact values in tables. Machine results stay JSON or JSONL.
+Task content only: no probe output, traces, receipts, run IDs, or process metadata in report prose (run-folder paths and receipt files in the run folder are evidence, linked not pasted). Lead with the verdict; visualize metric comparisons and retain exact values in tables. Machine results stay JSON or JSONL.
 
 ## Response
 
@@ -26,10 +26,10 @@ Use the [shared format guide](references/report-output.md#choose-the-format); lo
 
 ## Saved report
 
-Save every run, even a smoke test, with `README.md` as entry point.
+Save every measured run, even a smoke test, with `README.md` as entry point. Editorial and regression results follow Response; save them under the general rule (table, diagram, about 40 lines, or on request), writing `None.` under sections that do not apply.
 
-Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Keep`, `Accept`, `Revert`, `Inconclusive`, `Invalid`.
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Keep`, `Discard`, `Accept`, `Revert`, `Inconclusive`, `Invalid`.
 
-Then the `#` title and a lead paragraph stating the answer. Always include `## Question`, `## Conditions`, `## Results`, `## Guardrails`, `## Limits`, and `## Decision`, with a metric table per split under Results. `Keep` marks development evidence. Link JSON or JSONL results in `dev/` and `held-out/`; don't paste them.
+Then the `#` title and a lead paragraph stating the answer. Always include `## Question`, `## Conditions`, `## Results`, `## Guardrails`, `## Limits`, and `## Decision`, with a metric table per split under Results. `Keep` and `Discard` mark development evidence. Link JSON or JSONL results in `dev/` and `held-out/`; don't paste them.
 
 After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

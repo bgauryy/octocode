@@ -60,7 +60,7 @@ fn schema_views_and_help_examples_are_usable_without_node() {
     );
     assert_eq!(
         query(&["schema", "clasify"])["availability"]["enabled"],
-        false
+        true
     );
     for args in [
         vec!["schema", "unknownTool"],

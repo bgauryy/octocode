@@ -3,6 +3,12 @@ Load when saving or rendering. The owning skill's `output.md` and `report-contra
 <!-- Generated copies: edit skills/common/references/report-output.md, then run skills/common/build.mjs. -->
 # Report output
 
+## Artifact ownership
+
+Use the target workspace root, never the installed skill, tool checkout or an existing `.octocode/` subdirectory. Unless the user names a destination, save authored results under `<workspace>/.octocode/<skill-name>/` and captures under its `tmp/`. Edits to project sources stay in place. Reuse an explicitly selected result for revisions; give a new analysis its own path so it cannot overwrite earlier evidence.
+
+Build copies are not evidence: record the build's digest and version in the run, and remove copied binaries and `node_modules` once the run is final and will not resume. Keep raw evidence and machine-readable records complete. A brief or visual may select a view, but must identify that selection and link to the full records. Preserve Unicode, long values, failed cases, citations, schema fields and executable continuations; disclose terminal limits and unread scope. Rendering reads the saved snapshot and leaves its source intact.
+
 ## Report header
 
 Start with YAML `status` and `question`; `confidence` is optional, `next` only for pending work. Then one `#` title and a BLUF answer with its main limitation. Use the user's timezone for dated filenames. Keep required frontmatter for the catalog only; never repeat it as a metadata block in the document.

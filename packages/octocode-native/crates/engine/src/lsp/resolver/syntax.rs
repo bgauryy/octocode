@@ -2,10 +2,10 @@
 //! walk, ranked by declaration, exactness and literal-ness.
 
 use super::line_scan::{find_symbol_in_line, hit_for};
-use super::{DEFAULT_RADIUS, check_budget, order_hint_error};
+use super::{DEFAULT_RADIUS, check_budget, hinted_line, line_delta, order_hint_error};
 use crate::error::Result;
 use crate::lsp::types::{LspFuzzyPosition, LspResolvedSymbol};
-use crate::structural::kinds::is_comment_kind;
+use crate::signatures::node_kinds::is_comment_kind;
 use crate::text::LineIndex;
 use crate::text::utf8_offsets::{byte_to_utf16_offset, hide_bom_in_line};
 use std::time::Instant;
@@ -137,10 +137,10 @@ pub(super) fn pick_candidate(
 
     let selected = match fuzzy.line_hint {
         Some(line_hint) if line_hint > 0 => {
-            let target = line_hint as i32 - 1;
+            let target = hinted_line(line_hint);
             let mut same_line: Vec<&SymbolCandidate> = candidates
                 .iter()
-                .filter(|candidate| candidate.line_index as i32 == target)
+                .filter(|candidate| candidate.line_index == target)
                 .collect();
             // Identifier occurrences come first (in column order), then
             // mentions inside string literals: `occurrence` indexes the
@@ -166,12 +166,10 @@ pub(super) fn pick_candidate(
             } else {
                 candidates
                     .into_iter()
-                    .filter(|candidate| {
-                        (candidate.line_index as i32 - target).abs() <= DEFAULT_RADIUS
-                    })
+                    .filter(|candidate| candidate.line_index.abs_diff(target) <= DEFAULT_RADIUS)
                     .min_by_key(|candidate| {
                         (
-                            (candidate.line_index as i32 - target).abs(),
+                            candidate.line_index.abs_diff(target),
                             candidate.is_literal,
                             !candidate.is_exact,
                             !candidate.is_declaration,
@@ -203,7 +201,7 @@ pub(super) fn pick_candidate(
         fuzzy
             .line_hint
             .filter(|line_hint| *line_hint > 0)
-            .map(|line_hint| selected.line_index as i32 - (line_hint as i32 - 1))
+            .map(|line_hint| line_delta(hinted_line(line_hint), selected.line_index))
             .unwrap_or(0),
     );
     hit.occurrences_on_line = identifiers
@@ -211,7 +209,7 @@ pub(super) fn pick_candidate(
         .filter(|(line_index, _)| *line_index == selected.line_index)
         .map(|(_, character)| {
             let (line, character) = hide_bom_in_line(selected.line_index, line, character);
-            byte_to_utf16_offset(line, character) as u32
+            crate::num::saturating_u32(byte_to_utf16_offset(line, character))
         })
         .collect();
     Ok(Some(hit))

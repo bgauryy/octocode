@@ -39,8 +39,8 @@ pub(in crate::tools::gh_get_history_item) fn reconcile_file_totals(
     let Some(total) = changed_files else { return };
     let listable = total.min(MAX_FILE_BATCHES * MAX_PER_PAGE);
     if !state.exhausted && !filtered {
-        let per = page["pageSize"].as_u64().unwrap_or(1).max(1) as usize;
-        let current = page["page"].as_u64().unwrap_or(1) as usize;
+        let per = crate::num::usize_of(page["pageSize"].as_u64().unwrap_or(1).max(1));
+        let current = crate::num::usize_of(page["page"].as_u64().unwrap_or(1));
         let more = page["hasMore"] == true;
         // Rebuilt from the facts, so the block keeps the one key order.
         let mut rebuilt = crate::response::pages::PageFacts::open(current, Some(per), more)
@@ -128,7 +128,11 @@ pub(in crate::tools::gh_get_history_item) fn lift_page_limits(row: &mut Value, p
     match page
         .pointer("/providerLimit/reason")
         .and_then(Value::as_str)
-    {
+        .and_then(|reason| {
+            reason
+                .parse::<crate::response::paging::PartialReason>()
+                .ok()
+        }) {
         Some(reason) => crate::response::paging::terminal_limit(row, reason, &[]),
         None => row["terminalLimit"] = json!(true),
     }

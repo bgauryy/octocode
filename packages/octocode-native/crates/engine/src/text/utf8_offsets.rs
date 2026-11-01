@@ -3,6 +3,8 @@
 //! All functions here walk the UTF-8 byte sequence in-place via `str::char_indices()`
 //! with no heap allocation proportional to content length.
 
+use crate::num::saturating_u32;
+
 // ── core offset helpers ───────────────────────────────────────────────────────
 
 /// UTF-16 code-unit offset of the first `byte_offset` bytes of `s` (snapped
@@ -133,31 +135,31 @@ impl LineIndex {
         let mut utf16_units: u32 = 0;
         for (byte_idx, ch) in content.char_indices() {
             if byte_idx >= utf16_checkpoints.len() * UTF16_CHECKPOINT_BYTES {
-                utf16_checkpoints.push((byte_idx as u32, utf16_units));
+                utf16_checkpoints.push((saturating_u32(byte_idx), utf16_units));
             }
-            utf16_units = utf16_units.saturating_add(ch.len_utf16() as u32);
+            utf16_units = utf16_units.saturating_add(saturating_u32(ch.len_utf16()));
             let next = byte_idx + 1;
             match ch {
                 // `\r\n` under the LSP rule already broke at the `\r`.
                 '\n' if lone_cr_breaks && byte_idx > 0 && bytes[byte_idx - 1] == b'\r' => {}
                 '\n' => {
-                    line_ends_byte.push(byte_idx as u32);
-                    line_starts_byte.push(next as u32);
+                    line_ends_byte.push(saturating_u32(byte_idx));
+                    line_starts_byte.push(saturating_u32(next));
                     line_starts_utf16.push(utf16_units);
                 }
                 '\r' if lone_cr_breaks => {
                     let crlf = bytes.get(next) == Some(&b'\n');
-                    line_ends_byte.push(byte_idx as u32);
-                    line_starts_byte.push((next + usize::from(crlf)) as u32);
+                    line_ends_byte.push(saturating_u32(byte_idx));
+                    line_starts_byte.push(saturating_u32(next + usize::from(crlf)));
                     line_starts_utf16.push(utf16_units + u32::from(crlf));
                 }
                 _ => {}
             }
         }
-        line_ends_byte.push(content.len() as u32);
+        line_ends_byte.push(saturating_u32(content.len()));
         Self {
             ends_with_break: !content.is_empty()
-                && line_starts_byte.last().copied() == Some(content.len() as u32),
+                && line_starts_byte.last().copied() == Some(saturating_u32(content.len())),
             line_starts_byte,
             line_ends_byte,
             line_starts_utf16,
@@ -217,7 +219,7 @@ impl LineIndex {
     /// (callers pass a boundary). Scans at most one checkpoint gap.
     fn utf16_before(&self, content: &str, byte: usize) -> u32 {
         if self.ascii {
-            return byte as u32;
+            return saturating_u32(byte);
         }
         let slot = (byte / UTF16_CHECKPOINT_BYTES).min(self.utf16_checkpoints.len() - 1);
         // Checkpoints snap forward to a char boundary, so the slot's byte can
@@ -230,7 +232,7 @@ impl LineIndex {
         base_units
             + content
                 .get(base_byte as usize..byte)
-                .map(|slice| slice.chars().map(char::len_utf16).sum::<usize>() as u32)
+                .map(|slice| saturating_u32(slice.chars().map(char::len_utf16).sum::<usize>()))
                 .unwrap_or(0)
     }
 
@@ -261,7 +263,7 @@ impl LineIndex {
         } else {
             0
         };
-        (line as u32, self.hide_bom(line, character))
+        (saturating_u32(line), self.hide_bom(line, character))
     }
 
     /// Inverse of [`byte_to_position`](Self::byte_to_position): a 0-based
@@ -271,8 +273,7 @@ impl LineIndex {
         let line_start = self
             .line_starts_byte
             .get(line as usize)
-            .copied()
-            .unwrap_or(content.len() as u32) as usize;
+            .map_or(content.len(), |&start| start as usize);
         let line_end = self
             .line_ends_byte
             .get(line as usize)
@@ -283,7 +284,7 @@ impl LineIndex {
             character
         };
         if self.ascii {
-            return line_start.saturating_add(character as usize).min(line_end) as u32;
+            return saturating_u32(line_start.saturating_add(character as usize).min(line_end));
         }
         // Jump to the last checkpoint at or before the target column on this
         // line, then scan forward (at most one checkpoint gap).
@@ -311,10 +312,10 @@ impl LineIndex {
             if utf16 >= character || byte >= line_end {
                 break;
             }
-            utf16 += ch.len_utf16() as u32;
+            utf16 += saturating_u32(ch.len_utf16());
             byte += ch.len_utf8();
         }
-        byte as u32
+        saturating_u32(byte)
     }
 
     /// UTF-16 column for a tree-sitter-style `(row, byte_column)` point,

@@ -215,15 +215,18 @@ fn match_context_past_the_hunk_without_head_text_is_flagged() {
 
 #[test]
 fn context_ranges_past_the_read_limit_preserve_every_requested_window() {
-    let patch = (0..12)
+    // Two more clipped windows than one read's `ranges` holds.
+    let hunks = crate::contracts::query_limits::gh_get_file_content::RANGES_MAX_ITEMS + 2;
+    let patch = (0..hunks)
         .map(|index| {
             let line = 50 + index * 100;
             format!("@@ -{line},3 +{line},3 @@\n before\n-old\n+needle-{index}\n after\n")
         })
         .collect::<String>();
     let found = match_patch(&patch, "needle", 10, None).expect("all hunks match");
-    assert_eq!(found.clipped, [(41, 1161)]);
-    for index in 0..12 {
+    // Each hit sits on new line 51 + 100·index, with 10 lines of context.
+    assert_eq!(found.clipped, [(41, 61 + (hunks - 1) * 100)]);
+    for index in 0..hunks {
         assert!(found.text.contains(&format!("+needle-{index}\n")));
     }
 }

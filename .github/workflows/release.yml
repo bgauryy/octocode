@@ -1,0 +1,226 @@
+name: Release
+
+# Builds every bin/platform.cjs platform, runs each binary on its own OS and
+# CPU, packs the npm tarballs and runs the upgrade-path check. It publishes
+# nothing: the owner downloads `release-packages`, checks SHA256SUMS and
+# publishes those tarballs (skills-dev/octocode-dev/docs/RELEASE.md).
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit, branch or tag to release (default: the dispatched ref)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # One commit for every job, and the matrices bin/platform.cjs derives
+  # (scripts/release-matrix.cjs maps each platform to its runners).
+  setup:
+    name: Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+      build: ${{ steps.matrix.outputs.build }}
+      verify: ${{ steps.matrix.outputs.verify }}
+      platforms: ${{ steps.matrix.outputs.platforms }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: matrix
+        run: node packages/octocode-native/scripts/release-matrix.cjs >> "$GITHUB_OUTPUT"
+
+  # The owners' build command per platform: darwin on macOS, Linux through
+  # cargo-zigbuild (other-CPU runner, glibc floor), Windows through cargo-xwin.
+  # No build cache: a release compiles only what this commit fetches.
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.build) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: packages/octocode-native
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      # rustup reads rust-toolchain.toml, so the pinned toolchain is the one used here.
+      - run: rustup target add ${{ matrix.triple }}
+      - if: matrix.os == 'linux'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - if: matrix.os != 'darwin'
+        name: Pinned cross tool
+        id: pins
+        run: |
+          cross=$(node ../../skills-dev/octocode-dev/scripts/rust-quality.mjs pins ${{ matrix.os == 'linux' && 'cargo-zigbuild' || 'cargo-xwin' }})
+          echo "cross=$cross" >> "$GITHUB_OUTPUT"
+      - if: matrix.os != 'darwin'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: ${{ steps.pins.outputs.cross }}
+      - name: Build
+        run: node scripts/build-native.cjs --release --target ${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}
+          path: packages/octocode-native/npm/${{ matrix.platform }}
+          if-no-files-found: error
+
+  # Each binary on its own OS and CPU (scripts/smoke-binary.cjs: identity,
+  # --version, fingerprint, schema, CLI and stdio MCP tool calls). musl runs in
+  # Alpine; every gnu platform also runs in an image whose glibc is the floor.
+  verify:
+    name: Verify ${{ matrix.name }}
+    needs: [setup, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.verify) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      PLATFORM: ${{ matrix.platform }}
+      CONTAINER: ${{ matrix.container }}
+      GLIBC: ${{ matrix.glibc }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}
+          path: ${{ runner.temp }}/npm/${{ matrix.platform }}
+      # Artifacts drop the mode bit.
+      - if: runner.os != 'Windows'
+        run: chmod 755 "$RUNNER_TEMP/npm/$PLATFORM/octocode"
+      - if: matrix.container
+        run: docker pull "$CONTAINER"
+      - if: matrix.glibc
+        name: The image's glibc is the floor
+        run: |
+          first=$(docker run --rm "$CONTAINER" ldd --version | sed -n 1p)
+          echo "$first"
+          [[ "$first" == *" $GLIBC" ]]
+      # binutils' reading of the symbol versions, beside smoke-binary.cjs's own.
+      - if: matrix.glibc
+        name: No GLIBC_ symbol version above the floor (readelf)
+        run: |
+          newest=$(readelf -V "$RUNNER_TEMP/npm/$PLATFORM/octocode" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sed 's/^GLIBC_//' | sort -uV | tail -n 1)
+          echo "newest GLIBC_$newest, floor $GLIBC"
+          [ "$(printf '%s\n' "$newest" "$GLIBC" | sort -V | tail -n 1)" = "$GLIBC" ]
+      - name: Smoke
+        run: >-
+          node packages/octocode-native/scripts/smoke-binary.cjs "$RUNNER_TEMP/npm/$PLATFORM"
+          --json "$RUNNER_TEMP/smoke-${{ matrix.id }}.json" ${CONTAINER:+--container "$CONTAINER"}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.id }}
+          path: ${{ runner.temp }}/smoke-${{ matrix.id }}.json
+          if-no-files-found: warn
+
+  # The verified binaries, packed as the owner publishes them, with SHA256SUMS.
+  pack:
+    name: Pack
+    needs: [setup, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: corepack enable
+      - run: yarn install --immutable --mode=skip-build
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: ${{ runner.temp }}/native
+      - name: Stage the verified binaries
+        env:
+          PLATFORMS: ${{ needs.setup.outputs.platforms }}
+        run: |
+          for platform in $PLATFORMS; do
+            cp -R "$RUNNER_TEMP/native/native-$platform/." "packages/octocode-native/npm/$platform/"
+          done
+          # Artifacts drop the mode bit; npm packs the mode the file has.
+          find packages/octocode-native/npm -type f -name octocode -exec chmod 755 {} +
+      - run: yarn workspace octocode build
+      - run: yarn workspace octocode-mcp build
+      - run: node packages/octocode-native/scripts/pack-release.cjs --out "$RUNNER_TEMP/release-packages"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: ${{ runner.temp }}/release-packages
+          if-no-files-found: error
+
+  # Installing these tarballs over the previous release, on each desktop OS.
+  upgrade:
+    name: Upgrade path (${{ matrix.runner }})
+    needs: [setup, pack]
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-packages
+          path: ${{ runner.temp }}/release-packages
+      - run: node packages/octocode-native/scripts/upgrade-path.mjs --packages "$RUNNER_TEMP/release-packages" --json "$RUNNER_TEMP/upgrade-path.json"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-path-${{ matrix.runner }}
+          path: ${{ runner.temp }}/upgrade-path.json
+          if-no-files-found: warn

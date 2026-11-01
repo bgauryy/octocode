@@ -11,17 +11,12 @@ use super::IgnoredIndex;
 use crate::policy::path::PathPolicy;
 use crate::tools::lsp_search::scope::canonical;
 use octocode_engine::search::text_search::TextSearchPathFilter;
-use octocode_engine::search::walk::{
-    IGNORE_FILES, IgnorePolicy, IgnoreRules, NestedRepositories, walk_builder,
-};
+use octocode_engine::search::walk::{IGNORE_FILES, IgnoreRules, NestedRepositories, walk_builder};
+use octocode_engine::types::IgnorePolicy;
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
-
-/// Wall time and entries of one index walk (both walks together).
-const INDEX_BUDGET: Duration = Duration::from_secs(30);
-const INDEX_MAX_ENTRIES: usize = 500_000;
+use std::time::SystemTime;
 
 /// A path's stamp: modification time and length; `None` when absent.
 type Stamp = Option<(Option<SystemTime>, u64)>;
@@ -128,16 +123,26 @@ struct Walked {
     complete: bool,
 }
 
+/// The bytes one kept path weighs in an index: its text and its entry.
+fn weight_of(path: &Path) -> usize {
+    path.as_os_str().len() + std::mem::size_of::<(PathBuf, Stamp, Kind)>()
+}
+
 fn walk_family(
     root: &Path,
     extensions: &[String],
     policy: &PathPolicy,
     ignores: IgnorePolicy,
     nested: Option<Arc<NestedRepositories>>,
-    bounded: &dyn Fn(usize) -> bool,
+    stopped: &(dyn Fn() -> bool + Sync),
+    bytes: &std::cell::Cell<usize>,
+    max_bytes: usize,
 ) -> Walked {
     let prune = crate::policy::prune::OwnWalk::new(root, []);
-    let dirs_policy = policy.clone();
+    // One cached read filter for the walk's directories and files: each
+    // decided from its parent's real path, not canonicalized one by one.
+    let filter = Arc::new(crate::policy::path::DiscoveryWalk::owned(policy.clone()));
+    let dirs_policy = Arc::clone(&filter);
     let mut builder = walk_builder(root, ignores, None);
     builder.filter_entry(move |entry| {
         let path = entry.path();
@@ -147,7 +152,7 @@ fn walk_family(
                 && !nested
                     .as_ref()
                     .is_some_and(|nested| nested.skips(path, true))
-                && dirs_policy.allows(path, true))
+                && dirs_policy.allows_entry(path, entry.file_type()))
     });
     let mut walked = Walked {
         files: BTreeSet::new(),
@@ -155,21 +160,37 @@ fn walk_family(
         ignore_files: Vec::new(),
         complete: true,
     };
-    for (entries, entry) in builder.build().enumerate() {
-        if bounded(entries) {
+    // Each kept path is charged before it is kept; one past `max_bytes`
+    // ends the walk, which is then incomplete.
+    let charge = |weight: usize| {
+        let total = bytes.get() + weight;
+        bytes.set(total);
+        total <= max_bytes
+    };
+    for entry in builder.build() {
+        if stopped() {
             walked.complete = false;
             break;
         }
         let Ok(entry) = entry else { continue };
         let path = entry.path();
         if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+            let files = IGNORE_FILES.map(|name| path.join(name));
+            let weight = weight_of(path) + files.iter().map(|file| weight_of(file)).sum::<usize>();
+            if !charge(weight) {
+                walked.complete = false;
+                break;
+            }
             walked.dirs.push((path.to_path_buf(), stamp(path)));
-            for name in IGNORE_FILES {
-                let file = path.join(name);
+            for file in files {
                 let stamped = stamp(&file);
                 walked.ignore_files.push((file, stamped));
             }
-        } else if family(extensions, path) && policy.allows(path, false) {
+        } else if family(extensions, path) && filter.allows_entry(path, entry.file_type()) {
+            if !charge(weight_of(path)) {
+                walked.complete = false;
+                break;
+            }
             walked.files.insert(canonical(&path.to_string_lossy()));
         }
     }
@@ -177,21 +198,32 @@ fn walk_family(
 }
 
 /// Build the index of `root` (family `include`, read `policy`): every
-/// family file the lifted walk lists that the honored walk does not.
+/// family file the lifted walk lists that the honored walk does not. The
+/// walks run to completion however long they take; only `stopped` and the
+/// index's share of memory ([`super::INDEX_BYTES`]) end them early, and
+/// then the index is incomplete.
 pub(super) fn build(
     root: &Path,
     include: &[String],
     policy: &PathPolicy,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> IgnoredIndex {
+    build_within(root, include, policy, stopped, super::INDEX_BYTES)
+}
+
+/// [`build`] whose walks keep at most `max_bytes` of paths.
+pub(super) fn build_within(
+    root: &Path,
+    include: &[String],
+    policy: &PathPolicy,
+    stopped: &(dyn Fn() -> bool + Sync),
+    max_bytes: usize,
+) -> IgnoredIndex {
     let extensions = include
         .iter()
         .filter_map(|glob| glob.strip_prefix("*.").map(str::to_owned))
         .collect::<Vec<_>>();
-    let started = Instant::now();
-    let bounded = |entries: usize| {
-        stopped() || started.elapsed() > INDEX_BUDGET || entries > INDEX_MAX_ENTRIES
-    };
+    let bytes = std::cell::Cell::new(0);
     let nested = Arc::new(NestedRepositories::new(root));
     let lifted = walk_family(
         root,
@@ -202,7 +234,9 @@ pub(super) fn build(
             include_hidden: false,
         },
         Some(Arc::clone(&nested)),
-        &bounded,
+        stopped,
+        &bytes,
+        max_bytes,
     );
     let honored = walk_family(
         root,
@@ -210,7 +244,9 @@ pub(super) fn build(
         policy,
         IgnorePolicy::default(),
         None,
-        &bounded,
+        stopped,
+        &bytes,
+        max_bytes,
     );
     let tracked = honored
         .dirs
@@ -239,6 +275,7 @@ pub(super) fn build(
         files: lifted.files.difference(&honored.files).cloned().collect(),
         nested: nested.skipped(),
         complete: lifted.complete && honored.complete,
+        bytes: bytes.get().min(max_bytes),
         snapshot: Snapshot {
             root: root.to_path_buf(),
             extensions,

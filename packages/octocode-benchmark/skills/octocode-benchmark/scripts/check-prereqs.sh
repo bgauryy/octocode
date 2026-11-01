@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Phase 0 prerequisites check for the octocode benchmark (all arms across matchups).
 # Usage:  bash skills/octocode-benchmark/scripts/check-prereqs.sh [published-spec]
-#   published-spec  optional npm spec for the octoc-npm pin, e.g. octocode@18.2.2;
+#   published-spec  optional npm spec for the octoc-npm pin, e.g. octocode@18.2.2 (must be an 18.x CLI: the probe uses 18.x syntax);
 #                   omitted = check only the local build (compare/bin/octoc)
 # Exit 0 = all required checks pass; exit 1 = at least one required check failed.
 # Prints one PASS/FAIL line per check and pins the versions it found (record these
@@ -33,7 +33,7 @@ if [ -f "$OCTO_CLI" ]; then
   probe="$(node "$OCTO_CLI" ghSearchRepo '{"queries":[{"operation":"get","owner":"sindresorhus","repo":"is"}]}' 2>&1)"
   printf '%s' "$probe" | grep -qi 'sindresorhus' && pass "octocode probe returned data" || bad "octocode probe failed: $(printf '%s' "$probe" | head -1)"
 else
-  bad "local build missing at $OCTO_CLI (run yarn build at the repo root, or set OCTO_CLI)"
+  bad "local build missing at $OCTO_CLI (run node skills-dev/octocode-dev/scripts/dev.mjs build:dev at the repo root, or set OCTO_CLI)"
 fi
 if [ -n "$OCTO_SPEC" ]; then
   echo "Octocode published pin (npx $OCTO_SPEC)"

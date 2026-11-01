@@ -25,7 +25,22 @@ A rule in the wrong layer is never read; give each rule one owning layer.
 - Exclusive branches: discriminant (`kind`/`status`), strict field set per branch; define absent, `null`, empty, default, unknown-field behavior; strict mode where it fits; validate again where the call executes.
 - Results: bounded default, action-relevant fields first, security and capability diagnostics visible; opaque IDs or raw payloads only for evidence or continuation; `response_format: concise | detailed` only for a distinct evidence need.
 - Errors say what failed and give the corrected call: `Error 400` → `path must be workspace-relative; retry with path: "src/a.ts"`.
+  - A misplaced field reports where it belongs, for example: `cursor is the whole input; send {"cursor":"…"} alone`.
+  - Drop errors that only follow from the first one, such as a row that "lacks" its own fields because it was never a row.
 - Large results return complete pages with executable continuations; a terminal limit or denied scope is explicit. Never silently truncate evidence or claim completeness from a partial page.
+- Continuations and warnings name what remains:
+  - A lead's name says what the next page carries, so a lead that carries more entries is not named after an enrichment.
+  - A warning never implies the page is complete.
+  - Required follow-ups (next page, restart after a stale snapshot) are required leads, never items in an optional list.
+  - Server instructions state how a complete result looks, for example: no `hasMore` and no continuation.
+- Partial results are visible, for example as `isPartial` with reasons, and the instructions say what an agent concludes from them.
+
+## Optimize descriptions, never trim
+
+- Every edit adds or sharpens guidance the agent uses at that decision point. Remove a sentence only when it repeats a fact the same agent sees at the same point.
+- A line that "restates the name" can hold the only reason to use the field (`wholeWord`: use it for identifiers). Keep the reason.
+- Size follows clarity: when better guidance outgrows a measured budget, raise the budget with the measured number, never cut the guidance.
+- Prove each change with the [interview loop](interview.md) before and after: valid cold calls, answers, and no new High finding.
 
 ## MCP wire
 
@@ -38,7 +53,7 @@ A rule in the wrong layer is never read; give each rule one owning layer.
 
 ## Set audit
 
-1. Inventory each tool's name, one-line job, and the layer stating it; a job stated nowhere is unroutable.
+1. Inventory from the published view the client receives (`tools/list`, initialize instructions), not from an author, enforcement or catalog view that also holds private fields. Record each tool's name, one-line job, and the layer that states it. A job stated nowhere is unroutable.
 2. Per close pair, write the deciding sentence; if you cannot, merge, rename, or add the condition to both descriptions.
 3. Compare shared fields (name, type, unit, default, requiredness, scope); generate equivalents from one definition; document real differences.
 4. Check each pair for drift; a `Next` prerequisite must match the target's required fields. Class (symptom) → repair:
@@ -48,6 +63,7 @@ A rule in the wrong layer is never read; give each rule one owning layer.
    - Semantic drift (`page` 1-based here, byte offset there) → one meaning per name.
    - Enum drift (guidance suggests a rejected value) → validate against the schema.
    - Phantom next (missing tool, field, or mode) → fix or delete it.
+   - Phantom output key: the instructions name a result key the tool never emits, or spell it differently. Name the emitted key.
    - Silent failure (disagree on what empty proves) → state it once in server instructions.
    - Authority drift (description implies a forbidden mutation) → server instructions win.
 

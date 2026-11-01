@@ -110,7 +110,7 @@ pub(crate) fn set_broadened(value: &mut Value, _row: &Value, lead: Value) {
     }
     super::push_hint(
         value,
-        "Related requests broaden the search by removing a filter; inspect each request before running it.",
+        "No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.",
     );
 }
 

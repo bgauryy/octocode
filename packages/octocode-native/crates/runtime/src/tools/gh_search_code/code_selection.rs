@@ -4,11 +4,8 @@ use crate::id::ToolId;
 /// Finish a classified provider page after shared sanitization and selection.
 /// Read leads may only name selected evidence; `unfiltered` remains the explicit
 /// route to the original page. Output fields never change the judged evidence.
-/// A `hidden` file (judged related or unknown on its listed lines) whose hits
-/// were not all listed gets `next.judgeHits` instead of its `readHits`: the
-/// same keyword read with this query's `classification`, so its unlisted hits
-/// are judged in their own windows (the deciding line of a capped file is
-/// often past the five it lists).
+/// A hidden unresolved file may need source judgment: its keyword read keeps
+/// this query's classification. Resolved files already supply every hit line.
 pub(super) fn finish_code_selection(
     value: &mut serde_json::Value,
     query: &serde_json::Value,
@@ -51,47 +48,62 @@ pub(super) fn finish_code_selection(
         ))
     };
     let mut judged = Vec::new();
-    if let Some(leads) = value.get("next").and_then(Value::as_object) {
-        for lead in leads.values() {
-            if lead["tool"] != ToolId::GhGetFileContent.as_str() {
-                continue;
-            }
-            for read in lead
-                .pointer("/input/queries")
+    for lead in value
+        .get("next")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|leads| leads.values())
+        .chain(
+            value
+                .get("related")
                 .and_then(Value::as_array)
                 .into_iter()
-                .flatten()
+                .flatten(),
+        )
+    {
+        if lead["tool"] != ToolId::GhGetFileContent.as_str() {
+            continue;
+        }
+        for read in lead
+            .pointer("/input/queries")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if read.get("matchString").is_some()
+                && read_identity(read).is_some_and(|id| hidden.contains(&id))
             {
-                if read.get("matchString").is_some()
-                    && read_identity(read).is_some_and(|id| hidden.contains(&id))
-                {
-                    let mut read = read.clone();
-                    if let Some(fields) = read.as_object_mut() {
-                        fields.remove("ranges");
-                        fields.remove("contextLines");
-                        fields.insert("classification".into(), query["classification"].clone());
-                    }
-                    if !judged.contains(&read) {
-                        judged.push(read);
-                    }
+                let mut read = read.clone();
+                if let Some(fields) = read.as_object_mut() {
+                    fields.remove("ranges");
+                    fields.remove("contextLines");
+                    fields.insert("classification".into(), query["classification"].clone());
+                }
+                if !judged.contains(&read) {
+                    judged.push(read);
                 }
             }
         }
     }
+
+    let retain_read = |lead: &mut Value| {
+        if lead["tool"] != ToolId::GhGetFileContent.as_str() {
+            return true;
+        }
+        let Some(rows) = lead
+            .pointer_mut("/input/queries")
+            .and_then(Value::as_array_mut)
+        else {
+            return false;
+        };
+        rows.retain(|read| read_identity(read).is_some_and(|id| selected.contains(&id)));
+        !rows.is_empty()
+    };
     if let Some(leads) = value.get_mut("next").and_then(Value::as_object_mut) {
-        leads.retain(|_, lead| {
-            if lead["tool"] != ToolId::GhGetFileContent.as_str() {
-                return true;
-            }
-            let Some(rows) = lead
-                .pointer_mut("/input/queries")
-                .and_then(Value::as_array_mut)
-            else {
-                return false;
-            };
-            rows.retain(|read| read_identity(read).is_some_and(|id| selected.contains(&id)));
-            !rows.is_empty()
-        });
+        leads.retain(|_, lead| retain_read(lead));
+    }
+    if let Some(leads) = value.get_mut("related").and_then(Value::as_array_mut) {
+        leads.retain_mut(retain_read);
     }
 
     for batch in judged.chunks(crate::response::result::rows_per_call(

@@ -74,7 +74,7 @@ fn import_counters_count_statements_like_the_diagnostics() {
     assert_eq!(imports["unresolvedInternal"], 2, "{imports}");
     assert_eq!(imports["resolved"], 1, "{imports}");
     let diagnostics = ask(root, "diagnostics", Some("unresolved-internal"));
-    assert_eq!(diagnostics["total"], 2, "{diagnostics}");
+    assert_eq!(diagnostics["pagination"]["totalItems"], 2, "{diagnostics}");
 }
 
 /// Relative JSON, style and asset imports are no linking gap.
@@ -107,7 +107,7 @@ fn syntax_basis_is_not_repeated_as_a_diagnostic_for_every_file() {
     ]);
     let root = ingested(&temp);
     let diagnostics = ask(root, "diagnostics", None);
-    assert_eq!(diagnostics["total"], 0, "{diagnostics}");
+    assert_eq!(diagnostics["pagination"]["totalItems"], 0, "{diagnostics}");
 }
 
 /// A file the scan could not read stays a node marked unparsed: an import
@@ -203,4 +203,41 @@ fn path_edges_carry_import_lines() {
     let root = ingested(&temp);
     let path = ask_with(root, "path", Some("a.ts"), |o| o.to = Some("b.ts".into()));
     assert_eq!(path["path"][1]["edgeLine"], 2, "{path}");
+}
+
+/// The agents-communication shape: `bin/cli.mjs` imports its build output
+/// `../dist/cli.js` (pruned from the scan) and `database.ts` imports
+/// `../../assets/schema.sql` (a loader asset no grammar parses). Both files
+/// exist on disk under the root, so neither is a linking gap nor an
+/// `unresolved-import` finding; an import of a missing file still is.
+#[test]
+fn files_on_disk_the_scan_does_not_hold_are_no_linking_gap() {
+    let temp = fixture(&[
+        ("bin/cli.mjs", "import '../dist/cli.js';\n"),
+        ("dist/cli.js", "export const built = 1;\n"),
+        (
+            "src/runtime/database.ts",
+            "import schemaSql from '../../assets/schema.sql';\nimport { gone } from './missing';\nexport const schema = [schemaSql, gone];\n",
+        ),
+        ("assets/schema.sql", "CREATE TABLE t (id INTEGER);\n"),
+    ]);
+    let root = ingested(&temp);
+    let imports = &ask(root, "stats", None)["imports"];
+    assert_eq!(imports["unresolvedInternal"], 1, "{imports}");
+    assert_eq!(imports["unscanned"], 2, "{imports}");
+    let issues = ask_with(root, "issues", None, |o| {
+        o.detectors = vec!["unresolved-import".into()];
+        o.min_tier = Some(0);
+    });
+    let rows = issues["rows"].as_array().cloned().unwrap_or_default();
+    let subjects = rows
+        .iter()
+        .filter_map(|row| row["subject"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(subjects, ["src/runtime/database.ts"], "{issues}");
+    assert!(
+        rows.iter()
+            .all(|row| !row.to_string().contains("schema.sql")),
+        "{issues}"
+    );
 }

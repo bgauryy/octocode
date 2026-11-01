@@ -10,7 +10,7 @@ const numbered = text => sourceView({ content: text ?? '' }).ranges.flatMap(r =>
 const lineNumbers = text => Array.from({ length: text.split('\n').length - Number(text.endsWith('\n')) }, (_, i) => i + 1);
 const fileRows = data => (data?.pullRequests ?? []).flatMap(pr => inventoryRows(pr.files).map(f => `${pr.number}:${f.path}:${f.status}`));
 const treeRows = data => structureFiles(data.files ?? []).map(f => f.path);
-const page = query => ({ input: { queries: [query], responseChars: 150 }, lead: 'responsePagination.next' });
+const page = (query, responseChars = 150) => ({ input: { queries: [query], responseChars }, lead: 'responsePagination.next' });
 const LOCAL = 6000, REMOTE = 6000;
 const repo = { owner: 'octo', repo: 'demo' };
 const source = { tool: 'localFetch', query: { path: 'src/greeter.ts', ranges: [{ startLine: 1, endLine: 4 }] } };
@@ -19,7 +19,10 @@ const LSP_PAGE_CALLS = 24;
 
 function codeSearchRows(data, json, context = new Map()) {
   const row = json?.results?.find(result => result.data === data);
-  const continued = row?.rowPart?.part > 1 && row.rowPart.continues?.array === '/data/files';
+  // The marker names the innermost continued array; a file continues when the marker is `/data/files` or lies
+  // under one of its files (`/data/files/<i>/…`), since every element on the marker's path continues.
+  const array = row?.rowPart?.continues?.array ?? '';
+  const continued = row?.rowPart?.part > 1 && (array === '/data/files' || array.startsWith('/data/files/'));
   return (data.files ?? []).flatMap((file, index) => {
     const { matches, lines, ...metadata } = file;
     const key = canon([row?.index ?? 0, file.owner, file.repo, file.path]);
@@ -58,17 +61,17 @@ export const CASES = {
     budgetMs: LOCAL,
     // Parallel surfaces share a snapshot; isolated advanced cases cover fresh builds.
     prepare: prepareGraph,
-    happy: { query: { path: '.' }, fields: ['id', 'dir', 'counts', 'scan'], rows: data => [data.id].filter(Boolean), min: 1, check: data => data.reused === true ? null : 'prepared snapshot must be reused on both surfaces' },
+    happy: { query: { path: '.' }, fields: ['id', 'counts', 'scan'], rows: data => [data.id].filter(Boolean), min: 1, check: data => data.reused === true ? null : 'prepared snapshot must be reused on both surfaces' },
     page: { na: 'a build receipt has no result collection' },
     empty: { na: 'a snapshot is built, reused or fails' },
-    invalid: { query: { maxFiles: 50001 } },
+    invalid: { query: { keep: 0 } },
     explore: [{ label: 'reuse', query: { path: '.' } }],
   },
   graphQuery: {
     budgetMs: LOCAL,
     prepare: prepareGraph,
-    happy: { query: { operation: 'find', target: 'greet' }, fields: ['graph', 'results', 'freshness'], rows: data => (data.results ?? []).map(row => row.id), min: 1 },
-    page: { query: { operation: 'find', target: 'greet', limit: 1 }, lead: 'page', unpaged: { query: { operation: 'find', target: 'greet', limit: 1000 } } },
+    happy: { query: { operation: 'find', target: 'greet' }, fields: ['graph', 'rows', 'freshness'], rows: data => (data.rows ?? []).map(row => row.id), min: 1 },
+    page: { query: { operation: 'find', target: 'greet', limit: 1 }, lead: 'nextPage', unpaged: { query: { operation: 'find', target: 'greet', limit: 1000 } } },
     empty: { query: { operation: 'find', target: 'zzzNoSuchSymbol' } },
     invalid: { query: { operation: 'unknown' } },
     explore: [{ label: 'stats', query: { operation: 'stats' } }, { label: 'cycles', query: { operation: 'cycles' }, class: 'empty' }],
@@ -104,7 +107,7 @@ export const CASES = {
   localFetch: {
     budgetMs: LOCAL, workspace: readerWorkspace,
     happy: { query: { path: 'src/greeter.ts' }, fields: ['content', 'totalLines'], rows: data => numbered(data.content), min: 18 },
-    page: { query: { path: 'large.txt' }, lead: 'continueWindow', expect: () => Array.from({ length: 1500 }, (_, i) => i + 1) },
+    page: { query: { path: 'large.txt' }, lead: 'nextPage', expect: () => Array.from({ length: 1500 }, (_, i) => i + 1) },
     empty: { query: { path: 'src/greeter.ts', matchString: ['zzzNoSuchText'] } },
     invalid: { query: { path: 'src/greeter.ts', ranges: ['1-4'] } },
     explore: [
@@ -133,7 +136,7 @@ export const CASES = {
   ghGetFileContent: {
     budgetMs: REMOTE,
     happy: { query: { ...repo, path: 'src/greeter.ts' }, fields: ['content', 'totalLines'], rows: data => numbered(data.content), min: 18 },
-    page: { query: { owner: 'octo', repo: 'demo-docs', path: 'guide.txt' }, lead: 'continueWindow', expect: ctx => lineNumbers(ctx.mock.model.repos.find(r => r.name === 'demo-docs').files['guide.txt']) },
+    page: { query: { owner: 'octo', repo: 'demo-docs', path: 'guide.txt' }, lead: 'nextPage', expect: ctx => lineNumbers(ctx.mock.model.repos.find(r => r.name === 'demo-docs').files['guide.txt']) },
     empty: { query: { ...repo, path: 'src/greeter.ts', matchString: ['zzzNoSuchText'] } },
     invalid: { query: repo },
     explore: [{ label: 'ranges', query: { ...repo, path: 'src/app.ts', ranges: [{ startLine: 1, endLine: 3 }] } }],
@@ -141,7 +144,7 @@ export const CASES = {
   ghStructure: {
     budgetMs: REMOTE,
     happy: { query: { ...repo, operation: 'tree', maxDepth: 3 }, fields: ['files', 'summary'], rows: treeRows, min: 7 },
-    page: { query: { ...repo, operation: 'tree', ref: 'feature-4', include: ['**/mod1*.ts'] }, lead: 'expandDates', expect: ctx => ctx.mock.model.pulls.find(pr => pr.number === 4).head.added.filter(p => /^pkg\/mod1\d*\.ts$/.test(p)) },
+    page: { query: { ...repo, operation: 'tree', ref: 'feature-4', include: ['**/mod1*.ts'] }, lead: 'nextPage', expect: ctx => ctx.mock.model.pulls.find(pr => pr.number === 4).head.added.filter(p => /^pkg\/mod1\d*\.ts$/.test(p)) },
     empty: { query: { ...repo, operation: 'tree', include: ['**/zzzNoSuchName*'] } },
     invalid: { query: { operation: 'tree', owner: 'octo' } },
     explore: [{ label: 'refs', query: { ...repo, operation: 'refs' }, check: data => data.tags?.includes('v1.0.0') && data.branches?.main ? null : 'fixture branch or tag missing' }],
@@ -179,7 +182,8 @@ export const CASES = {
   },
   ghCloneRepo: {
     budgetMs: 20000, needs: 'clone',
-    happy: { query: repo, fields: ['location'], rows: data => [data.location?.commitSha].filter(Boolean), min: 1 },
+    happy: { query: repo, fields: ['location'], rows: data => [data.location?.commitSha].filter(Boolean), min: 1,
+      check: data => typeof data.location?.clonedAt === 'string' && Number.isFinite(Date.parse(data.location.clonedAt)) ? null : 'fresh checkout must report its completion time' },
     page: { na: 'a completed checkout has no result collection' },
     empty: { na: 'a checkout exists or fails' },
     invalid: { query: { owner: 'octo' } },

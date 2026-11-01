@@ -1,6 +1,6 @@
 # Octocode CLI
 
-`octocode` runs the Rust engine used by MCP, with additional CLI-only tools. Shared tools use the same input contract. The npm package is a launcher; native owns validation, behavior, output and exit codes.
+`octocode` exposes all 16 research tools from the Rust engine used by MCP, plus setup and management commands. Tools use the same input contract on both interfaces. The npm package is a launcher; native owns validation, behavior, output and exit codes.
 
 ## Quick start
 
@@ -15,11 +15,35 @@ npx -y octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"start
 
 ### Tool commands
 
-Use `octocode <tool> '<JSON envelope>'`. All 16 tool names are listed in the [tools reference](OCTOCODE_TOOLS.md). `ghCloneRepo` is CLI-only; `graphBuild` and `graphQuery` are also available in MCP with `OCTOCODE_BETA=true`; public clasify requires a classification credential and a successful provider ping. Authenticated GitHub endpoints require a token; inspect `octocode auth status`.
+Use `octocode <tool> '<JSON envelope>'`. All 16 tools are listed and enabled in the CLI, including `clasify`, `ghCloneRepo`, `graphBuild` and `graphQuery`. MCP catalog filters and opt-ins do not remove CLI commands. A call that needs a missing credential, provider or language server reports that failure at invocation; filesystem policy and storage requirements still apply. See [configuration and MCP availability](CONFIGURATION.md#tool-availability-cli-and-mcp), and the [tools reference](OCTOCODE_TOOLS.md) for each tool's behavior.
+
+Each CLI call starts a new process. For many repeated calls, one long-lived `octocode mcp` session runs the same tools without that per-call startup.
 
 ### System commands
 
-`schema`, `config`, `auth`, `mcp`, `install`, `skill`, `graph` and `lsp-server` own their command-specific options. Run their help for available operations. These options do not create aliases for research-tool fields.
+`schema`, `config`, `auth`, `mcp`, `install`, `skill`, `cache` and `lsp-server` own their command-specific options. Run their help for available operations. These options do not create aliases for research-tool fields.
+
+### Clear tool caches
+
+Stop separate MCP processes and other tool calls, then run:
+
+```bash
+octocode cache clear --json
+```
+
+The command drains and stops warm CLI servers, then removes GitHub response,
+registry, outline, judgment, saved-page, continuation, section-assessment,
+materialization and URL-capture caches under the configured home. It also removes
+the current workspace's `.octocode/graph/.facts` extraction checkpoints. Repeat
+from each workspace whose graph checkpoints you want removed. The JSON receipt
+lists removed directories and `restartMcp: true`: separate MCP processes own their
+RAM and must restart to drop it. An active process can otherwise recreate files.
+
+Clones, published graph snapshots, credentials, settings, language-server installs,
+rate-limit coordination and unrelated home files stay. Saved continuation handles
+stop working. This explicit command can delete existing cache files even when
+`storage.mode` is `memory`; changing the setting alone never deletes them. A
+failure to drain a warm server or remove a directory reports an error.
 
 ## Flags
 
@@ -33,12 +57,12 @@ octocode schema localFetch --view query
 octocode schema localFetch --view variants
 ```
 
-The catalog describes availability; the query view describes authored input; the full view includes variants and rules. Defaults are owned by the contract. Discovery never requires copying private progress state.
+The CLI catalog lists all tools; the query view describes authored input; the full view includes variants and rules. MCP clients inspect their server's `tools/list` for its configured subset. Defaults are owned by the contract. Discovery never requires copying private progress state.
 
 ### The JSON form
 
-```json
-{"queries":[{"path":"src/index.ts"}],"responseChars":12000}
+```bash
+octocode localFetch '{"queries":[{"path":"src/index.ts"}],"responseChars":12000}'
 ```
 
 Copy an emitted continuation's `input` as the entire next request:
@@ -51,11 +75,11 @@ octocode localFetch '{"cursor":"<issued cursor>"}'
 
 ### Text output
 
-Text mode renders readable evidence on stdout and guidance on stderr. Emitted next steps use the same JSON input as MCP. Use JSON mode for programmatic reconstruction and exact row metadata.
+Text mode renders readable evidence on stdout and guidance on stderr, on a terminal or a pipe, for every tool. A single-row search, listing or outline prints one line per hit, file or declaration (`path:line:text`, `path:count  [term count …]`); any other result prints every field as indented `key: value` lines, a multi-line value as a `key: |` block. A batch prints each row under `## results[N]` and prefixes that row's stderr notes the same way. Nothing is clipped. Emitted next steps use the same JSON input as MCP. Use JSON mode for programmatic reconstruction and exact row metadata.
 
 ### Reading a JSON result
 
-`results[]` carries the original query `index`, `data` and an exceptional status when relevant. Pagination uses `page`. Complete `responsePagination.next` before the tool-level `next.*` calls. `related[]` starts new work; `hints[]` contains prose. [Data and handoff contract](TOOL_DATA_CONTRACT.md) owns shapes, paths, evidence and continuation semantics.
+`results[]` carries the original query `index`, `data` and an exceptional status when relevant. Paging state lives only in the issued cursor; no request sets a page. Complete `responsePagination.next` before the tool-level `next.*` calls. `related[]` starts new work; `hints[]` contains prose. [Data and handoff contract](TOOL_DATA_CONTRACT.md) owns shapes, paths, evidence and continuation semantics.
 
 ### Errors
 
@@ -84,119 +108,27 @@ octocode ghCloneRepo '{"queries":[{"owner":"bgauryy","repo":"octocode"}]}'
 
 Use the returned path with local tools. Clone storage requires persistent mode; configuration owns [cache storage](CONFIGURATION.md#cache-storage-and-lifecycle).
 
-## `graph` — persisted code graph
+## Code graph: `graphBuild` and `graphQuery`
 
-Machine callers can use `graphBuild` and `graphQuery` with the standard JSON
-envelope and generated schemas. They also run through MCP when beta is enabled,
-and are used by Octocode Code. CLI graph commands do not require beta. See [agent graph tools](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli-and-beta-mcp)
-for operation requirements and workspace snapshot storage. The positional
-commands below use the same Rust graph store.
-
-Parse a repository once, then answer structural questions in milliseconds
-without re-reading source. Local tools must be enabled. Unlike tool commands,
-`graph` takes positional arguments and flags. `graph --help`,
-`graph ingest --help` and `graph query --help` are the full reference.
+The graph tools are ordinary tool commands with the standard envelope; the CLI and
+MCP take the same input and cut the same pages. CLI calls do not need beta.
 
 ```bash
-octocode graph ingest .                         # build a snapshot (an unchanged tree is reused)
-octocode graph query stats                      # size, languages, hubs, gaps
-octocode graph query find 'create server'        # locate a node id by name, path or words
-octocode graph query callers 'src/server.ts#createServer'
-octocode graph query impact --since origin/main # blast radius and tests to run
-octocode graph query issues                     # ranked possible problems
-octocode graph query stale                      # changed since ingest? re-ingest
+octocode graphBuild --json '{"queries":[{"path":"."}]}'      # build or reuse a snapshot
+octocode graphQuery --json '{"queries":[{"operation":"stats","path":"."}]}'
+octocode graphQuery --json '{"queries":[{"operation":"find","path":".","target":"create server"}]}'
+octocode graphQuery --json '{"queries":[{"operation":"impact","path":".","since":"origin/main"}]}'
+octocode graphQuery --json '{"queries":[{"operation":"issues","path":"."}]}'
+octocode graphQuery --json '{"queries":[{"operation":"unresolved","path":".","target":["src/a.ts","src/b.ts"],"reasons":["not-declared-in-repo"]}],"responseChars":50000}'
 ```
 
-| Question | Op |
-|---|---|
-| What is in this repo? | `stats`, `hubs`, `symbols <file>` |
-| Where is X? | `find <text> [--kind file\|symbol\|package]`, `node <ref>` |
-| What does X use, or who uses X? | `deps`, `dependents`, `callers`, `callees` |
-| How are A and B connected? | `path <a> <b>`, `walk <ref> --depth n` |
-| What breaks if X changes? | `impact <ref>`, `impact --changed a,b`, `impact --since <rev>` |
-| What looks wrong? | `issues`, `cycles`, `diagnostics` |
-| What changed between two trees? | `drift --graph <head> --baseline <baseline>` (ingest both first) |
-| Is the snapshot current? | `stale` |
-
-- Node ids: `src/a.ts` (file), `src/a.ts#Class.method` (symbol), `pkg:react`
-  (package). An ambiguous reference exits `2` and lists `candidates`.
-- A cut list adds `truncated` and `next`, a paste-ready command; the exit stays
-  `0`. An answer over a snapshot whose scan was cut carries
-  `graph.partialReasons` and a `graph.reingest` command.
-- `ingest --language-glob <lang>=<glob>` (repeatable) picks a parser by
-  root-relative glob, such as `cpp=include/**/*.h`.
-- `dependents <file>` also lists files that use its exports through a
-  re-exporting module (rows with `edge: uses, via: reexport`).
-- Answers that follow calls carry `coverage.callInternalRecall`. Below 0.9 they
-  add a `warning`: treat those caller lists as a lower bound.
-- Results are leads from syntax. Confirm identity with `lspSearch` before
-  deleting or renaming. Reflection, dynamic dispatch and FFI edges are invisible.
-
-How ingest links calls, the snapshot format, and size bounds:
-[code graph architecture](../packages/octocode-native/docs/engine/CODE_GRAPH.md).
-
-### `issues` — ranked hypotheses
-
-Each finding carries `evidence`, the false-positive `controls` applied,
-`verify` commands, and a `score` (severity × confidence × (0.5 + 0.5 × PageRank
-percentile)).
-
-| Group | Detectors |
-|---|---|
-| Structure | `cycle` (runtime imports; witness plus `suggestedCuts`) · `dir-cycle` · `unreachable-file` · `test-only` · `unused-export` (JS/TS/Python) · `export-only-local` (exported but used only in its own file) |
-| Dependencies | `undeclared-dependency` (including hoisted phantoms) · `dev-dependency-in-production` · `boundary-violation` (deep imports between npm packages) · `unresolved-import` |
-| Architecture | `god-file` · `critical-file` (PageRank) · `single-point-of-failure` (articulation points) · `unstable-dependency` · `main-sequence` · `misplaced-file` |
-
-- Any edge keeps code alive. Only runtime imports between authored files prove
-  cycles, hubs, or layering; type-only, dynamic, and Python function-level
-  imports never do.
-- Test edges (from test files, or Rust `#[cfg(test)]` items such as `mod
-  tests`) never count toward production detectors, `cycles` or `hubs`;
-  traversals (`deps`, `walk`, `impact`) still follow them. A snapshot from an
-  older format asks for a re-ingest.
-- `dir-cycle` ignores a Rust module and its own child directory (`tree.rs` or
-  `tree/mod.rs` with `tree/child.rs`, and a crate root with its modules): one
-  module tree is no directory coupling.
-- `unused-export` and `export-only-local` judge only languages with
-  named-import linking; files in other languages are counted in a `notes`
-  entry by language instead of being reported clean.
-- Go, JVM and .NET files share package scope, so file-level checks skip them.
-  Python libraries skip reachability. Generated, bundled, vendored and unparsed
-  files are never subjects.
-- Each finding has a `tier`: `100` nothing references it; `90` no graph or code
-  reference (bare prose words are listed in `evidence.textMentions`); `60` the
-  file path, or every unused export, is referenced in code or qualified text
-  such as `mod.run` (`evidence.mentionedIn`; some exports alone keep 90), or
-  no mention scan ran. The default shows 90 and above; `--min-tier 60` shows
-  all, and `summary.hiddenBelowTier` counts the rest.
-- `--baseline <snapshot>` labels findings `new` or `existing` and lists
-  `resolvedFindings`. `summary.health` reports Lakos NCCD.
-
-### `impact` — blast radius
-
-- A changed file affects every importer, transitively. A changed symbol affects
-  only the `calls`, `uses` and `inherits` edges bound to it, plus importers that
-  bind no name (`precision: "symbol"`). Barrel files pass changes through by
-  symbol.
-- Depth defaults to 3 (`--depth` widens it). Rows carry `depth`, `risk`
-  (`direct` at depth 1, `likely` at 2, `transitive` at 3+), `packageDistance`,
-  `confidence` and `typesOnly`.
-- The summary (first page only) counts rows `byDepth` and lists
-  `affectedEntrypoints`, `testsToRun`, `components`, and `testFunctions`
-  (including Rust `mod tests` and pytest `test_*` functions). A list over 100
-  entries previews 100, and `nextLists` pages the rest from entry 100.
-- A manifest, lockfile, or tsconfig/pyproject/go.mod change affects everything
-  below its directory; `allAffected` marks a root-level change.
-
-### Recipes
-
-| Goal | Walk |
-|---|---|
-| Who can reach a dangerous operation? | `impact <wrapper>` on the function that deletes, spawns or writes. `affectedEntrypoints` is the attack surface. |
-| Unbounded recursion | `cycles --edge calls`; check each SCC that walks untrusted input for a depth bound. |
-| Choke points | `issues --detector single-point-of-failure,critical-file`. |
-| Is this cycle real? | `path <a> <b>` shows the witness; `issues --detector cycle` gives `suggestedCuts`. |
-| Dead or orphaned code | `issues --detector unreachable-file,unused-export` (add `test-only` for files only tests reach; `--entry <ref,...>` names entrypoints), then `dependents <ref> --edge imports,uses,calls` before deleting. |
+- `graphBuild` runs in the calling process and prints its progress on stderr;
+  `graphQuery` runs on the warm server, so later pages reuse the decoded snapshot.
+- Follow `responsePagination.next`, then `next.nextPage` and the other `next.*`
+  continuations, passing each `input` back unchanged.
+- `octocode schema graphQuery --view variants` lists every operation's fields.
+  Operations, `issues` detectors and tiers, `impact` and recipes:
+  [code graph](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli-and-beta-mcp).
 
 ---
 
@@ -266,8 +198,7 @@ octocode config view                                  # local settings page
 - `set`, `unset` and `check` take an environment key or its setting path
   (`classification.api`); `set` and `unset` edit the global `.env` only. They
   keep unrelated lines, lock and replace the file atomically, and never print
-  values.
-  with `invalidInput` (exit `2`). Internal limits such as timeouts, retries and
+  values. Internal limits such as timeouts, retries and
   page sizes are not settings.
 - `get` masks secrets as `[REDACTED-<KEY>]` and names where the value lives.
   `check --json` on an unset GitHub token key adds `githubTokenSource`, the
@@ -337,4 +268,4 @@ Node, npm, network access, or another `octocode` on `PATH`.
 
 ## How the CLI aligns with MCP
 
-Core owns one schema and vocabulary; config generates it; native validates and executes it. Both transports accept the same JSON envelopes and return the same evidence for shared tools. MCP lists only available tools, excludes CLI-only `ghCloneRepo`, and exposes `graphBuild` and `graphQuery` when beta is enabled. The launchers contain no tool logic.
+Core owns one schema and vocabulary; config generates it; native validates and executes it. Both transports accept the same JSON envelopes and return the same evidence. The CLI lists all tool commands; MCP applies the [configured availability controls](CONFIGURATION.md#tool-availability-cli-and-mcp). The launchers contain no tool logic.

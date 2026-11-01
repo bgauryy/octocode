@@ -234,3 +234,102 @@ fn reader_matching_forms_report_the_invalid_field_types() {
         }
     }
 }
+
+#[test]
+fn a_request_field_inside_a_query_names_where_it_goes_and_nothing_else() {
+    for (input, field, repair) in [
+        (
+            json!({"queries":[{"cursor":"cursor2.abc"}]}),
+            "cursor",
+            "alone, as next.input gives it, without queries",
+        ),
+        (
+            json!({"queries":[{"path":"src","matchString":["x"],"responseChars":900}]}),
+            "responseChars",
+            "beside queries",
+        ),
+    ] {
+        let error = prepare_many_and_validate("localSearch", input).expect_err(field);
+        let shown = crate::contracts::validate::messages::format_input_error("localSearch", &error);
+        let text = shown["error"].as_str().unwrap_or_default();
+        assert!(text.contains(field) && text.contains(repair), "{shown}");
+        // The row's missing fields follow from the misplacement: not shown.
+        assert!(shown.get("details").is_none(), "{shown}");
+    }
+}
+
+/// A missing selector names the value the sent fields need, from the
+/// contract's branches: `nameRegex` fits only the `files` operation of
+/// structureSearch, so the error says so instead of a bare missing field.
+#[test]
+fn a_missing_selector_names_the_value_the_sent_fields_require() {
+    let error = prepare_many_and_validate(
+        "structureSearch",
+        json!({"queries":[{"path":"src","nameRegex":"zzqq"}]}),
+    )
+    .expect_err("missing operation");
+    let message = crate::contracts::validate::format_input_error("structureSearch", &error);
+    assert!(
+        message["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("(nameRegex requires operation:\"files\")")),
+        "{message}"
+    );
+}
+
+/// A row without its selector matched no form, so an unknown field's
+/// repair is not one guessed form's field list: a field another row field
+/// declares (astSearch `rule.pattern`) is named with its owner, and any
+/// other unknown field lists the fields of every form.
+#[test]
+fn an_unknown_field_in_a_row_without_its_selector_names_every_form() {
+    let details = |tool: &str, row: serde_json::Value| {
+        let error = prepare_many_and_validate(tool, json!({"queries":[row]}))
+            .expect_err("missing operation");
+        crate::contracts::validate::format_input_error(tool, &error).to_string()
+    };
+    let nested = details("astSearch", json!({"path":"src","pattern":"fn $F()"}));
+    assert!(nested.contains("'pattern' is a field of rule"), "{nested}");
+    let unknown = details("astSearch", json!({"path":"src","zzqqField":1}));
+    for field in ["rule", "symbolFilter", "line"] {
+        assert!(unknown.contains(field), "{field} missing from {unknown}");
+    }
+}
+
+/// A sibling form that accepts the rejected value names its selectors only
+/// when its other selectors accept the row: graphQuery `direction:"both"`
+/// fits traversals, never `hubs`, so no `view` change can make it valid.
+#[test]
+fn a_sibling_hint_skips_forms_whose_other_selectors_reject_the_row() {
+    let error = prepare_many_and_validate(
+        "graphQuery",
+        json!({"queries":[{"operation":"hubs","path":".","direction":"both"}]}),
+    )
+    .expect_err("hubs rejects both");
+    let message = crate::contracts::validate::format_input_error("graphQuery", &error).to_string();
+    assert!(message.contains("direction"), "{message}");
+    assert!(!message.contains("requires"), "{message}");
+}
+
+/// A value only a sibling form accepts names the selector the row omitted
+/// that picks that form: `unique:"list"` needs `view:"matchOnly"`.
+#[test]
+fn a_sibling_hint_names_the_omitted_selector_that_accepts_the_value() {
+    let schema = json!({"anyOf":[
+        {"type":"object","additionalProperties":false,
+         "properties":{"view":{"const":"content"},"unique":{"enum":["off"]}}},
+        {"type":"object","additionalProperties":false,
+         "properties":{"view":{"const":"matchOnly"},"unique":{"enum":["off","list"]}},
+         "required":["view"]}
+    ]});
+    let mut value = json!({"unique":"list"});
+    let error = validate_schema(&schema, &schema, &mut value, &mut vec![])
+        .expect_err("list needs matchOnly");
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|item| item.message.contains(r#"(unique:"list" requires view:"matchOnly")"#)),
+        "{error:?}"
+    );
+}

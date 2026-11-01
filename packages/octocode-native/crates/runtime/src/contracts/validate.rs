@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod canonical_tests;
+#[cfg(test)]
+mod doc_examples_tests;
 mod issues;
 mod literals;
 mod messages;
@@ -8,6 +10,9 @@ mod numeric_tests;
 mod output;
 #[cfg(test)]
 mod pattern_tests;
+mod repair;
+#[cfg(test)]
+mod repair_tests;
 mod schema;
 mod union;
 
@@ -16,6 +21,7 @@ use issues::{internal, issue, query_label, schema_issue, sibling_requirement};
 pub use messages::{format_input_error, tool_error};
 pub use output::validate_output;
 pub(crate) use output::validate_output_in_place;
+pub(crate) use repair::queries as repair_queries;
 use schema::validate_input_schema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

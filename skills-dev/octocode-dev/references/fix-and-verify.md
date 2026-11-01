@@ -13,7 +13,7 @@ Load before editing and before reporting done. Changes cross two repos and a gen
 flowchart TD
   K{Change in} -- Core: schema, description, instructions --> C1["edit CORE"]
   C1 --> C2["core: yarn test && yarn lint"]
-  C2 --> C3["yarn contracts:regen at the monorepo root: refreshes the file: core copy, then regenerates packages/octocode-config/contract/"]
+  C2 --> C3["node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen at the monorepo root: refreshes the file: core copy, then regenerates packages/octocode-config/contract/"]
   C3 --> C4["declare any new field in field-effect-coverage.json"]
   C4 --> NB
   K -- Native runtime or engine --> N1["edit"]

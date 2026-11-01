@@ -14,10 +14,13 @@ fn tool<'a>(catalog: &'a Value, name: &str) -> &'a Value {
 async fn catalog_availability_matches_execution_gates() {
     let workspace = Workspace::new();
     let default = workspace.runtime(&[]);
-    let restricted = workspace.runtime(&[
+    let mut restricted_config = workspace.config(&[
         ("TOOLS_TO_RUN", "localSearch,ghSearchCode".into()),
         ("DISABLE_TOOLS", "ghSearchCode".into()),
     ]);
+    restricted_config.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;
+    let restricted =
+        octocode_native::runtime::ToolRuntime::new(restricted_config).expect("MCP runtime");
     for name in [
         "localSearch",
         "localFetch",

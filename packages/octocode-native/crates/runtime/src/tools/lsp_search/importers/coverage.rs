@@ -42,7 +42,7 @@ impl Importers {
     /// The candidate digest, salted into this request's location snapshot so
     /// a changed candidate list stales the window's later location pages.
     pub(in super::super) fn digest(&self) -> Option<&str> {
-        self.window.as_ref().map(|window| window.digest.as_str())
+        self.window.as_ref().map(Window::digest)
     }
 
     /// Candidates checked by this window and every earlier one, less this
@@ -97,13 +97,16 @@ impl Importers {
         for field in ["status", "category", "hints"] {
             object.remove(field);
         }
-        object.insert("kind".into(), json!(lsp_search_query::operation(query)));
+        object.insert(
+            "operation".into(),
+            json!(lsp_search_query::operation(query)),
+        );
         object.insert("matches".into(), json!([]));
         object.insert(
             "reason".into(),
             json!(format!(
                 "Candidates {from}-{to} of {} {held}; {tail}.",
-                window.total
+                window.total()
             )),
         );
     }
@@ -190,9 +193,9 @@ impl Importers {
         }
         if !ignored.unchecked.is_empty() {
             counts.push(format!(
-                "{} could not be checked for an import (unreadable, larger than {} MiB, unparsable, or past the first {CODE_CHECK_MAX_FILES} checked)",
+                "{} could not be checked for an import (unreadable, larger than {} MiB, or unparsable)",
                 ignored.unchecked.len(),
-                CODE_CHECK_MAX_BYTES / (1024 * 1024),
+                octocode_engine::signatures::MAX_PARSE_SIZE / (1024 * 1024),
             ));
         }
         let more = if ignored.unfinished {
@@ -209,8 +212,10 @@ impl Importers {
 
     /// Record the scan on the row's coverage so readers and
     /// `inferred_project::annotate` know importers were checked. A window
-    /// with later windows left is partial (not a terminal limit) and, on
-    /// its last location page, carries `next.nextImporterPage`.
+    /// with later windows left is partial (not a terminal limit), and every
+    /// location page of it carries `next.nextImporterPage`: the same query
+    /// on each page, so the same content-addressed cursor, which a reader
+    /// that follows every lead verifies once.
     pub(in super::super) fn annotate(
         &self,
         row: &mut Value,
@@ -232,6 +237,11 @@ impl Importers {
                 SCAN_COMPLETE
             });
             coverage["verifiedImporterFiles"] = json!(files);
+            // The request's workspaceRoot bounded the candidate scan below
+            // the anchor's repository: importers outside it went unscanned.
+            if scope.narrowed {
+                coverage["importerScanRoot"] = json!("workspaceRoot");
+            }
         }
         if let Some(window) = &self.window {
             self.settle_silent_page(row, query, window);
@@ -245,31 +255,24 @@ impl Importers {
             fields.remove("page");
         }
         let Some(next_importers) = crate::response::paging::next_page_call(
-            row,
             crate::id::ToolId::LspSearch,
-            None,
             base,
             "importerPage",
             usize::try_from(window.page).map_or(usize::MAX, |page| page.saturating_add(1)),
-            &[("snapshot", json!(window.digest))],
+            &[("snapshot", json!(window.digest()))],
         ) else {
             return;
         };
         let range = window.range(window.page + 1);
-        let last_location_page =
-            row.pointer("/pagination/hasMore").and_then(Value::as_bool) != Some(true);
         if !self.failed {
             let (from, to) = window.verified_candidates();
             let warning = format!(
-                "{total} candidate files mention this name outside the server's answer; importer recovery verifies {MAX_CANDIDATE_FILES} at a time. Verified candidates {from}-{to} of {total}; the importer lead (offered on the last page of sites) verifies candidates {}-{}.",
+                "{total} candidate files mention this name outside the server's answer; importer recovery verifies {MAX_CANDIDATE_FILES} at a time. Verified candidates {from}-{to} of {total}; the importer lead verifies candidates {}-{}.",
                 range.start + 1,
                 range.end,
-                total = window.total,
+                total = window.total(),
             );
             flag_partial(row, query, CAPPED_REASON, Some(&warning), scope);
-        }
-        if !last_location_page {
-            return;
         }
         row["next"]["nextImporterPage"] = next_importers;
     }

@@ -45,14 +45,14 @@ Load when reading script output, searching a session, mapping a site, or extract
 ## Corpus files
 
 - `warnings`: provider errors, target error pages, truncation, partial evidence.
-- `analysis` points to indexes and `automationGraph`/`automationGraphSchema`; a bridge adds `cdpBridge`, `cdpNetwork`, `cdpBodies`, `bridgeHandoff`, and `cdp/`, `extracts/cdp-*.jsonl` to `searchTargets`.
+- `AGENT_INDEX.json` `analysis` points to indexes and `automationGraph`/`automationGraphSchema`; a bridge adds `cdpBridge`, `cdpNetwork`, `cdpBodies`, `bridgeHandoff`, and `cdp/`, `extracts/cdp-*.jsonl` to `searchTargets`.
 - `cdp/` files per ingest id (`cdp-har-…`, `cdp-bodies-…`, `cdp-capture-…`): `<id>.redacted.har` (`<id>.raw.har` under `--no-redact`), `<id>-network-summary.json`, `<id>-network-bodies.json`, `<id>-body-NNN.txt`, redacted DOM captures.
 - Re-ingesting replaces that capture's rows in `sources.jsonl` and `extracts/cdp-*.jsonl`.
 - Redaction masks credentials by field name and token shape; `--no-redact` only for an explicit audit. Unredacted source files are never copied in.
 
 ## Site graph
 
-- `graph/graph.json`: unified automation graph (nodes, typed edges, risks, confidence, evidence), shape in `schemas/graph.schema.json` (not validated at runtime); hand it to downstream tools.
+- `graph/graph.json`: unified automation graph (nodes, typed edges, risks, confidence, evidence), shape in `schemas/graph.schema.json` (not validated at runtime); hand it to downstream tools. A repository test checks the producer against it.
 - `graph/site-graph.json`: page detail; `indexes/pages-NNN.json` pages large crawls.
 - `indexes/top-links.jsonl` ranks links; `workflowType: "pagination"` comes from `rel="next"/"prev"` or a `pagination`/`pager` class, never link text.
 - `extracts/resources.jsonl`: assets (`script`, `stylesheet`, `image`, `media`, `feed`), no `workflowType`.
@@ -85,8 +85,7 @@ Load when reading script output, searching a session, mapping a site, or extract
 {"queries": [{
   "operation": "evaluate",
   "source": {"tool": "localFetch", "query": {
-    "path": "/abs/.octocode/octocode-scraping/tmp/<sessionId>/text/page.clean.md",
-    "view": "content"
+    "path": "/abs/.octocode/octocode-scraping/tmp/<sessionId>/text/<pageId>.clean.part-001.md"
   }},
   "questions": {
     "choice_return": {"type": "noul", "instructions": "Does the page state what a Choice question returns?"},

@@ -78,15 +78,19 @@ impl GrammarFactCapabilities {
 }
 
 mod fs_query;
+pub(crate) mod fs_resume;
 mod graph_scan;
+mod ignore;
+mod test_code;
 mod text_search;
 
 pub use fs_query::{
-    EntryType, FileKind, FileSystemEntry, FileSystemQueryOptions, FileSystemQueryResult,
+    EntryType, FileKind, FileSystemEntry, FileSystemQueryOptions, FileSystemQueryResult, ListsEntry,
 };
-pub use graph_scan::{
-    GraphFactsScanDiagnostic, GraphFactsScanOptions, GraphLanguageGlob, GraphReferenceCount,
-};
+pub use fs_resume::{WalkCursor, WalkTally};
+pub use graph_scan::{GraphFactsScanDiagnostic, GraphFactsScanOptions, GraphLanguageGlob};
+pub use ignore::IgnorePolicy;
+pub use test_code::{TestCodeExcluded, TestCodeScope, WHOLE_FILE, wholly_left_out};
 pub use text_search::{
     BinaryExtensionCount, CapReason, CaseRule, PatternSyntax, SearchContext, SearchOutput,
     SearchSort, SearchedSource, SourceValues, SpanValues, TextSearchFile, TextSearchMatch,

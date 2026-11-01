@@ -1,11 +1,5 @@
 export function bytes(s) { return Buffer.byteLength(s || ''); }
 
-export function truncate(text, maxBytes) {
-  const buf = Buffer.from(text || '');
-  if (buf.length <= maxBytes) return { text: text || '', truncated: false, bytes: buf.length };
-  return { text: buf.subarray(0, maxBytes).toString('utf8'), truncated: true, bytes: buf.length };
-}
-
 export function chunkTextByBytes(text, maxBytes) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 4) throw new Error('chunk byte size must be an integer >= 4');
   const data = Buffer.from(text || ''), chunks = []; let at = 0;

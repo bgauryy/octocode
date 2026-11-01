@@ -234,7 +234,7 @@ try {
             repo: 'private',
             path: 'README.md',
             ref: 'a'.repeat(40),
-            forceRefresh: true,
+            refresh: true,
           }),
         });
         assert.ok(!JSON.stringify(denied).includes('private-fixture-content'));

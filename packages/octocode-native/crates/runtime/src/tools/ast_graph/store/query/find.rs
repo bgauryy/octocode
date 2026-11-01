@@ -116,8 +116,9 @@ pub(super) fn ranked(
     let mut words = identifier_words(text);
     let mut seen = std::collections::BTreeSet::new();
     words.retain(|word| seen.insert(word.clone()));
+    g.load_degrees(cancel)?;
     let mut found = Vec::new();
-    for id in 0..g.t.nodes.len() as u32 {
+    for id in g.t.node_ids() {
         check(cancel)?;
         if kind.is_some_and(|kind| g.t.nodes[id as usize].kind != kind) {
             continue;
@@ -193,11 +194,29 @@ pub(super) fn ranked(
 }
 
 impl Graph {
+    /// Ranking counts incoming edges: tables decoded without an edge index
+    /// take the counts from the snapshot's lookup section instead.
+    fn load_degrees(
+        &self,
+        cancel: &dyn crate::execution::cancel::CancellationCheck,
+    ) -> Result<(), GraphOutput> {
+        let Some(reader) = &self.selective else {
+            return Ok(());
+        };
+        if self.t.in_offsets.len() == self.t.nodes.len() + 1 || reader.borrow().has_degrees() {
+            return Ok(());
+        }
+        reader
+            .borrow_mut()
+            .load_degrees(&self.t, cancel)
+            .map_err(|message| *decode_failure(message, cancel))
+    }
+
     /// `ln(1 + incoming calls and imports)`, damped for a generic name
     /// (declared in more than [`GENERIC_NAME_FILES`] files) or a `_` prefix.
     fn centrality(&self, id: u32, generic: &mut HashMap<String, bool>) -> f64 {
         let counts = match &self.selective {
-            Some(reader) if reader.borrow().is_point() => reader.borrow().degrees(id, true),
+            Some(reader) if reader.borrow().has_degrees() => reader.borrow().degrees(id, true),
             _ => degree_counts(self.t.incoming(id)),
         };
         let degree = [EdgeKind::Calls, EdgeKind::Imports]
@@ -228,7 +247,7 @@ pub(super) fn find(
     range: std::ops::Range<usize>,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<Page, GraphOutput> {
-    let mut window = Window::new(range);
+    let mut window = Window::budgeted(range, g.page_budget);
     for hit in ranked(g, text, kind, cancel)? {
         window.try_push(|| {
             let mut row = g.node_json(hit.id, cancel)?;

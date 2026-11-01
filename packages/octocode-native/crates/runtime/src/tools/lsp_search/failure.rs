@@ -16,15 +16,15 @@ pub(super) use anchors::{anchor_recovery, attach_recovery_next, path_failure};
 use leads::symbol_search_lead;
 pub(super) use leads::{
     FILE_LEVEL_REASONS, LISTED_TEXT_FILES, TEXT_CHECK, flag_partial, flagged_with,
-    ignored_text_lead, shown_paths, term_search_lead, text_search_lead,
+    ignored_text_lead, record_text_only, shown_paths, term_search_lead, text_search_lead,
 };
 pub(super) use paging::{
     ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, RequestFailures, offer_next_page, with_next,
 };
 use rows::attach_text_search;
 pub(super) use rows::{
-    BUILD_SCRIPTS_COST, annotate_empty_includes, build_scripts_rerun, continuation, empty,
-    mark_anchor_line_errors, mark_diagnostics_unpublished, no_answer, partial_with_related_rerun,
+    BUILD_SCRIPTS_COST, annotate_empty_includes, continuation, empty, mark_anchor_line_errors,
+    mark_diagnostics_unpublished, next_action, no_answer, partial_with_related_rerun,
     same_query_rerun, stamp_coverage,
 };
 
@@ -169,13 +169,7 @@ impl LspFailure {
         if lsp_search_query::operation(query) == "callers" {
             let mut references = crate::response::result::query_row(
                 query,
-                &[
-                    "graphDepth",
-                    "page",
-                    "snapshot",
-                    "importerPage",
-                    "candidatePage",
-                ],
+                &["depth", "page", "snapshot", "importerPage", "candidatePage"],
             );
             references["operation"] = json!("references");
             crate::response::result::attach_related(

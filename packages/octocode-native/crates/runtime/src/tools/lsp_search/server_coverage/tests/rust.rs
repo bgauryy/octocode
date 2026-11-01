@@ -15,10 +15,14 @@ fn rust_rows_flag_feature_gated_mentions_and_offer_an_all_features_rerun() {
         "#[cfg(feature = \"x\")]\nfn spawn_blocking_extra() {}\n",
     )
     .expect("other");
-    let root = dir.path().to_string_lossy().into_owned();
-    let scope = Scope::new(root.clone(), vec!["*.rs".into()]);
+    let root = dir.path().canonicalize().expect("root");
+    let root = root.to_string_lossy().into_owned();
+    let scope = scanned(
+        Scope::new(root.clone(), vec!["*.rs".into()]),
+        "spawn_blocking",
+    );
     let row_query = json!({"path":format!("{root}/lib.rs"),"operation":"references","symbolName":"spawn_blocking","line":1});
-    let mut row = json!({"kind":"references","matches":[{"path":"lib.rs"}]});
+    let mut row = json!({"operation":"references","matches":[{"path":"lib.rs"}]});
     annotate(
         &mut row,
         &query(row_query.clone()),
@@ -53,7 +57,7 @@ fn rust_rows_flag_feature_gated_mentions_and_offer_an_all_features_rerun() {
             .as_object_mut()
             .expect("query")
             .extend(later.as_object().expect("fields").clone());
-        let mut page = json!({"kind":"references","matches":[{"path":"lib.rs"}]});
+        let mut page = json!({"operation":"references","matches":[{"path":"lib.rs"}]});
         annotate(
             &mut page,
             &query(later_query),
@@ -76,7 +80,7 @@ fn rust_rows_flag_feature_gated_mentions_and_offer_an_all_features_rerun() {
         );
     }
     // An all-features run is not flagged again.
-    let mut all = json!({"kind":"references","matches":[]});
+    let mut all = json!({"operation":"references","matches":[]});
     let mut all_query = row_query;
     all_query["rustContext"] = json!({"features":"all"});
     annotate(
@@ -101,9 +105,13 @@ fn all_features_run_flags_negated_feature_gates() {
         "#[cfg(not(feature = \"rt\"))]\nfn t() { spawn_blocking(); }\n",
     )
     .expect("negated");
-    let root = dir.path().to_string_lossy().into_owned();
-    let scope = Scope::new(root.clone(), vec!["*.rs".into()]);
-    let mut row = json!({"kind":"references","matches":[]});
+    let root = dir.path().canonicalize().expect("root");
+    let root = root.to_string_lossy().into_owned();
+    let scope = scanned(
+        Scope::new(root.clone(), vec!["*.rs".into()]),
+        "spawn_blocking",
+    );
+    let mut row = json!({"operation":"references","matches":[]});
     let q = query(
         json!({"path":format!("{root}/lib.rs"),"operation":"references",
         "symbolName":"spawn_blocking","line":1,"rustContext":{"features":"all"}}),
@@ -137,4 +145,41 @@ fn all_features_run_flags_negated_feature_gates() {
         "#[cfg(all(unix, not( feature = \"x\")))]"
     ));
     assert!(!has_negated_feature_gate("#[cfg(feature = \"x\")]"));
+}
+
+/// An incomplete gate scan's caveat reads the same on every row of a
+/// response: it is said once, through the notices channel.
+#[test]
+fn an_incomplete_gate_scan_is_noted_once_per_response() {
+    let dir = tempfile::tempdir().expect("dir");
+    std::fs::write(dir.path().join("lib.rs"), "pub fn once_noted() {}\n").expect("lib");
+    let root = dir.path().to_string_lossy().into_owned();
+    // No text scan ran (it failed): the check is incomplete.
+    let scope = Scope::new(root.clone(), vec!["*.rs".into()]);
+    let row = || {
+        let mut row = json!({"operation":"references","matches":[{"path":"lib.rs"}]});
+        annotate(
+            &mut row,
+            &query(
+                json!({"path":format!("{root}/lib.rs"),"operation":"references","symbolName":"once_noted","line":1}),
+            ),
+            Some("rust"),
+            Server {
+                anchor: &format!("{root}/lib.rs"),
+                root: &root,
+            },
+            &scope,
+        );
+        json!({"index":0,"data":row})
+    };
+    let mut response = json!({"results":[row(), row()]});
+    crate::response::notices::place(&mut response, "results");
+    let said = response
+        .to_string()
+        .matches("The gate scan was incomplete")
+        .count();
+    assert_eq!(said, 1, "{response}");
+    for row in response["results"].as_array().expect("rows") {
+        assert_eq!(row["data"]["partialReasons"], json!([CFG_REASON]), "{row}");
+    }
 }

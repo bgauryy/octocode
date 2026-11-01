@@ -78,7 +78,7 @@ async fn a_large_tree_reaches_every_entry_date_through_opaque_continuations() {
                 );
             }
         }
-        pending = data.pointer("/next/expandDates/input").cloned();
+        pending = data.pointer("/next/nextPage/input").cloned();
         if let Some(input) = &pending {
             support::assert_cursor_only(input);
         }

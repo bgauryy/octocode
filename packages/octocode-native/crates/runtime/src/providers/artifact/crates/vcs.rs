@@ -24,11 +24,11 @@ pub(super) async fn crate_vcs(
     // A published crate never changes: its VCS info (or its absence) is
     // read from the archive once.
     let resource = format!("crates:{name}@{version}:vcs");
-    let info = match client.fact(&resource) {
+    let info = match client.fact(&resource).await {
         Some(info) => info,
         None => {
             let info = archive_vcs_info(name, version, client).await?;
-            client.remember_fact(&resource, &info);
+            client.remember_fact(&resource, &info).await;
             info
         }
     };
@@ -169,8 +169,9 @@ impl TarScan {
                     self.state = self.header(&header);
                 }
                 TarState::Skip { remaining } => {
-                    let skipped = remaining.min(self.pending.len() as u64);
-                    self.pending.drain(..skipped as usize);
+                    let skipped = crate::num::usize_of(remaining).min(self.pending.len());
+                    self.pending.drain(..skipped);
+                    let skipped = u64::try_from(skipped).unwrap_or(u64::MAX);
                     if skipped < remaining {
                         self.state = TarState::Skip {
                             remaining: remaining - skipped,
@@ -183,8 +184,9 @@ impl TarScan {
                     if (self.pending.len() as u64) < padded {
                         return;
                     }
-                    let body = self.pending[..size as usize].to_vec();
-                    self.pending.drain(..padded as usize);
+                    // Both fit: `padded` (>= `size`) is at most the held bytes.
+                    let body = self.pending[..crate::num::usize_of(size)].to_vec();
+                    self.pending.drain(..crate::num::usize_of(padded));
                     self.state = TarState::Header;
                     if kind == b'L' {
                         let end = body

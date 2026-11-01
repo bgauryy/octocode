@@ -36,13 +36,15 @@ pub fn tool_error_result(tool: &str, error: &RuntimeError) -> RejectedCall {
     }
     if error.code == ErrorCode::Timeout && envelope.get("details").is_none() {
         if let Some(hint) = ToolId::from_name(tool)
-            .and_then(|id| crate::response::rows::error_code_hint(id, error.code, &Value::Null))
+            .and_then(|id| {
+                crate::response::rows::error_code_hint(id.output(), error.code, &Value::Null)
+            })
             .filter(|hint| !hint.is_empty())
         {
             envelope["details"] = json!([hint]);
         }
     } else if let Some(id) = ToolId::from_name(tool) {
-        crate::response::rows::attach_error_hint(id, &mut envelope, &Value::Null);
+        crate::response::rows::attach_error_hint(id.output(), &mut envelope, &Value::Null);
     }
     let envelope = Sanitized::scrubbed(envelope);
     let code = envelope["errorCode"]
@@ -62,30 +64,53 @@ pub fn tool_error_result(tool: &str, error: &RuntimeError) -> RejectedCall {
     RejectedCall { envelope, text }
 }
 
-/// The MCP `CallToolResult` of a finished call. Its one text block is the
-/// serialized JSON of its own `structuredContent` (MCP server/tools: a tool
-/// returning structured content also returns it serialized as text), so a
-/// client that reads only `content` sees the same result. A rejected call
+/// The parts of an MCP `CallToolResult`: `structured_content` and, as its one
+/// text block, `text`, the serialized JSON of that same value (MCP
+/// server/tools: a tool returning structured content also returns it
+/// serialized as text), so a client that reads only `content` sees the same
+/// result. The host builds its protocol result from these parts directly, so
+/// the envelope is serialized once for the text and once on the wire.
+#[derive(Debug)]
+pub struct McpResult {
+    pub text: String,
+    pub structured_content: Value,
+    pub is_error: bool,
+}
+
+impl McpResult {
+    /// The `CallToolResult` JSON object of these parts, for a consumer that
+    /// reads the result as a value rather than through a protocol type.
+    #[must_use]
+    pub fn into_value(self) -> Value {
+        json!({
+            "content": [{"type": "text", "text": self.text}],
+            "structuredContent": self.structured_content,
+            "isError": self.is_error,
+        })
+    }
+}
+
+/// The MCP result of a finished call ([`McpResult`]). A rejected call
 /// answers as a tool error; only a cancelled request or a closing runtime
 /// stays an error, because no client is waiting for its answer.
 pub fn mcp_result(
     tool: &str,
     result: Result<ToolOutcome, RuntimeError>,
-) -> Result<Value, RuntimeError> {
-    let (structured, is_error) = match result {
+) -> Result<McpResult, RuntimeError> {
+    let (structured_content, is_error) = match result {
         Ok(outcome) => (outcome.structured_content.into_value(), outcome.all_failed),
         Err(error) if matches!(error.code, ErrorCode::Cancelled | ErrorCode::Closed) => {
             return Err(error);
         }
         Err(error) => (tool_error_result(tool, &error).envelope.into_value(), true),
     };
-    let text = serde_json::to_string(&structured)
+    let text = serde_json::to_string(&structured_content)
         .map_err(|_| RuntimeError::new(ErrorCode::Response, "Cannot serialize response"))?;
-    let mut response = serde_json::Map::with_capacity(3);
-    response.insert("content".into(), json!([{"type": "text", "text": text}]));
-    response.insert("structuredContent".into(), structured);
-    response.insert("isError".into(), Value::Bool(is_error));
-    Ok(Value::Object(response))
+    Ok(McpResult {
+        text,
+        structured_content,
+        is_error,
+    })
 }
 
 /// An error envelope as one line, preserving the error, details and prose hints.
@@ -131,7 +156,9 @@ mod tests {
 
     /// The MCP tool error of `error`: its text is its envelope's JSON.
     fn mcp(tool: &str, error: RuntimeError) -> Value {
-        let result = mcp_result(tool, Err(error)).expect("an MCP tool error");
+        let result = mcp_result(tool, Err(error))
+            .expect("an MCP tool error")
+            .into_value();
         assert_eq!(
             result["content"],
             json!([{"type":"text","text":result["structuredContent"].to_string()}]),
@@ -173,7 +200,7 @@ mod tests {
         assert_eq!(
             result["structuredContent"],
             json!({"error":"clasify pages by itself","errorCode":"invalidInput",
-                "hints":[crate::response::rows::error_code_hint(ToolId::Clasify, ErrorCode::InvalidInput, &Value::Null).expect("input recovery")]})
+                "hints":[crate::response::rows::error_code_hint(ToolId::Clasify.output(), ErrorCode::InvalidInput, &Value::Null).expect("input recovery")]})
         );
     }
 

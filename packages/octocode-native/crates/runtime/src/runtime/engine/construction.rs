@@ -83,7 +83,7 @@ impl ToolRuntime {
         Self::print_startup_diagnostics(&runtime.config);
         // storage.mode=memory must not touch the disk cache at all.
         if config::is_persistent_storage_enabled(&runtime.config.resolved) {
-            super::super::maintenance::run_if_due(&runtime.config.home, runtime.limits.clone.ttl);
+            super::super::maintenance::run_if_due(&runtime.config.home, runtime.limits.capture_ttl);
         }
         if let Some(secs) = options.timeout_secs {
             // An embedder's budget replaces the surface default.
@@ -135,7 +135,7 @@ impl ToolRuntime {
         // and clasify URL captures under the cache home, never the rest of
         // it (credentials, logs).
         additional_roots.extend([
-            crate::tools::gh_clone_repo::cache::clones_root(&octocode_home),
+            crate::tools::gh_clone_repo::storage::clones_root(&octocode_home),
             crate::tools::gh_structure::materialize::materialize_root(&octocode_home),
             crate::tools::source_capture::url::capture_root(&octocode_home),
         ]);
@@ -160,21 +160,18 @@ impl ToolRuntime {
         // Each response cache owns its directory, so one cache's budget or
         // clear never touches the other's entries.
         let persistent = config::is_persistent_storage_enabled(&config.resolved);
-        let response_dir = persistent.then(|| octocode_home.join("tmp").join("response"));
-        if persistent {
-            crate::tools::declarations_cache::persist_symbols_views(
-                octocode_home.join("tmp").join("outline"),
-            );
-        }
+        let response_dir =
+            persistent.then(|| crate::cache::Directory::Response.path(&octocode_home));
+        let source_views = Arc::new(crate::tools::source_view::ViewCache::new(
+            persistent.then(|| crate::cache::Directory::Outline.path(&octocode_home)),
+        ));
         let github_cache = super::super::github_cache::GitHubContentCache::new(
             crate::cache::CacheConfig::default(),
             response_dir,
         );
-        let artifact_cache = persistent.then(|| {
-            Arc::new(crate::providers::artifact::ArtifactCache::new(Some(
-                octocode_home.join("tmp").join("artifact"),
-            )))
-        });
+        let artifact_cache = Arc::new(crate::providers::artifact::ArtifactCache::new(
+            persistent.then(|| crate::cache::Directory::Artifact.path(&octocode_home)),
+        ));
         let lsp_execution_config = Arc::new(crate::tools::lsp_search::LspExecutionConfig {
             config_path: config.resolved.lsp.config_path.clone(),
             trust_project_config: config.resolved.lsp.trust_project_config,
@@ -209,12 +206,12 @@ impl ToolRuntime {
         let page_replays = Arc::new(PageReplayMemo::new(&config, &input.cwd));
         let cursors = Arc::new(super::cursors::Registry::new(
             PageReplayMemo::cache_config(),
-            persistent.then(|| config.home.join("tmp").join("continuations")),
+            persistent.then(|| crate::cache::Directory::Continuations.path(&config.home)),
             page_replays.policy.clone(),
         ));
         let section_sessions = Arc::new(crate::tools::clasify::sections::Sessions::new(
             PageReplayMemo::cache_config(),
-            persistent.then(|| config.home.join("tmp").join("section-assessments")),
+            persistent.then(|| crate::cache::Directory::SectionAssessments.path(&config.home)),
             page_replays.policy.clone(),
         ));
         // Notices reach stderr and the warm-server reply outside any
@@ -237,6 +234,7 @@ impl ToolRuntime {
             owns_lsp_pool: lsp_pool.is_none(),
             lsp_pool: lsp_pool.unwrap_or_default(),
             local_views: Arc::default(),
+            source_views,
             page_replays,
             cursors,
             section_sessions,
@@ -277,7 +275,7 @@ fn evaluator(
         limits.network_timeout,
         u32::from(limits.max_retries),
         limits.classification_concurrency,
-        persistent.then(|| config.home.join("tmp").join("judgment")),
+        persistent.then(|| crate::cache::Directory::Judgment.path(&config.home)),
         config::is_stats_enabled(&config.resolved).then(|| config.home.clone()),
     )
 }

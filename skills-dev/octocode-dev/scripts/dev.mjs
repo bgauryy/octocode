@@ -4,8 +4,9 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ROOT } from './lib/workspaces.mjs';
+import { ROOT, SKILL_COLLECTIONS } from './lib/workspaces.mjs';
 import { skillTestCommand } from './lib/skill-tests.mjs';
+import { exceedsSize, NATIVE_DEBUG_LIMIT_BYTES, nativeDebugDir } from './lib/native-target.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // CI never builds native: native artifacts are built locally (`build:all` / `build:publish`).
@@ -17,7 +18,7 @@ const yarn = (...args) => ['yarn', args];
 // Shared assets have a private workspace; skill folders remain independently installable.
 const skill = (rel, ...args) => ['node', [path.join(ROOT, 'skills', rel), ...args]];
 const skillChecks = () => [
-  skill('octocode-skills/scripts/skill-review.mjs', ...['skills', 'skills-beta', 'skills-dev'].map(dir => path.join(ROOT, dir))),
+  skill('octocode-skills/scripts/skill-review.mjs', '--collections', ...SKILL_COLLECTIONS.map(dir => path.join(ROOT, dir))),
   skill('octocode-skills/scripts/skill-review.mjs', '--self-test'),
   skill('octocode-skills/scripts/skill-sync.mjs', '--self-test'),
   skillTestCommand(ROOT),
@@ -30,7 +31,11 @@ const SKILLS_COMMON = [yarn('workspace', '@octocodeai/skills-common', 'lint'), y
 /** task → [description, steps]; extra CLI args go to the last step. */
 const TASKS = {
   build: ['Release-mode build of every workspace (native host only, slow)', [health('run', 'build', '--parallel')]],
-  'build:dev': ['Fast debug build of every workspace (native host only, default locally)', [health('run', 'build', '--parallel', '--prefer', 'build:dev')]],
+  'build:dev': ['Fast debug build of every workspace (native host only, default locally); runs clean:cache first when native target/debug is over 50 GiB', () => {
+    const stale = exceedsSize(nativeDebugDir(), NATIVE_DEBUG_LIMIT_BYTES);
+    if (stale) console.log('dev build:dev: native target/debug is over 50 GiB, running clean:cache first');
+    return [...(stale ? TASKS['clean:cache'][1] : []), health('run', 'build', '--parallel', '--prefer', 'build:dev')];
+  }],
   'build:ci': ['Resolution check, then release build without benchmark or native', [script('prepublish.mjs'), health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
   'build:publish': ['Resolution check, all-platform native build, MCP publish build', [script('prepublish.mjs'), yarn('workspace', '@octocodeai/octocode-native', 'build:all'), yarn('workspace', 'octocode-mcp', 'build')]],
   test: ['Run every workspace test script', [health('run', 'test')]],
@@ -54,6 +59,7 @@ const TASKS = {
   'clean:cache': ['Drop stale native build copies; compiled dependencies stay warm', [yarn('workspace', '@octocodeai/octocode-native', 'clean:cache')]],
   'docs:verify': ['Docs links, catalog, config keys, publishing contracts', [script('docs-verify.mjs')]],
   'deps:dedupe': ['One version range per external dependency (--fix rewrites)', [script('dedupe-deps.mjs')]],
+  'contracts:regen': ['Refresh the core copy (yarn install), then regenerate the tool contract', [yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract')]],
   setup: ['Local dev resolutions (--dry-run, --install, --reset); then yarn install', [script('dev-setup.mjs')]],
   prepublish: ['Local-resolution check (--fix strips local resolutions, --dry-run previews)', [script('prepublish.mjs')]],
   'brew:formula': ['Render the Homebrew formula from the published native npm packages ([version] [--out FILE])', [script('brew-formula.mjs')]],

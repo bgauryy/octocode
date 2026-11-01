@@ -48,7 +48,7 @@ pub(in crate::tools::ast_graph::store) fn redact_secrets(
     // Batches are independent: scan them on every core.
     let next = std::sync::atomic::AtomicUsize::new(0);
     let redacted = std::thread::scope(|scope| {
-        let workers = (0..crate::tools::workers::workers(None, batches.len(), None))
+        let workers = (0..crate::tools::workers::workers(batches.len(), None))
             .map(|_| {
                 scope.spawn(|| {
                     let mut redacted = Vec::new();

@@ -107,7 +107,15 @@ fn redacted_context_lines_are_not_counted_outside_the_result() {
         &mut req,
         serde_json::json!({"contextLines":{"before":1,"after":1}}),
     );
-    let page = execute_local_fetch(&req, &paths, &Safe, &NeverCancel, Some(26), None);
+    let page = execute_local_fetch(
+        &req,
+        &paths,
+        &Safe,
+        &NeverCancel,
+        Some(26),
+        None,
+        &Default::default(),
+    );
     assert_eq!(outside(&page).len(), 1, "{:?}", page.warnings);
     let next = page
         .next
@@ -234,6 +242,7 @@ fn security_limit_is_terminal_but_offers_a_bounded_line_read() {
         &NeverCancel,
         None,
         None,
+        &Default::default(),
     );
     assert_eq!(result.error_code, Some(ErrorCode::ContentSecurityLimit));
     assert_eq!(result.terminal_limit, Some(true));

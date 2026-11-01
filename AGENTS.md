@@ -36,8 +36,14 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
 - Write clean code with clean architecture, and never break the layering: schemas and
   descriptions go in core, implementation goes here.
 - The CLI stays aligned with the MCP tools: same tools, fields and behavior.
+- Fix the root cause, not the symptom: reproduce it, find the code that produces the wrong
+  result, and fix it there with a test that failed first. If the fix needs a special case, the
+  diagnosis is not finished.
 - No rigid implementations and no handpicked solutions: solve the general case instead of
-  special-casing inputs, names or test fixtures.
+  special-casing inputs, names or test fixtures. No fixed timeouts, size caps or quotas that kill
+  or truncate valid work: let the owning layer's limit or its explicit refusal decide (for
+  example, split on `scopeTooBroad`, not at a guessed file count). Tests assert the invariant,
+  such as the constant itself or a lower bound, never a copied literal that every bump breaks.
 - No legacy paths, compatibility shims or extra complexity unless the task asks for them.
 - No aliases or duplication in any layer: one name and one source for each tool, field, setting
   and piece of logic.
@@ -68,8 +74,8 @@ Package versions are independent; the release line is listed under Release.
 
 ## Other folders
 
-- `skills/`: public Agent Skills (`octocode skill install`); `skills-beta/`: tested, unpublished
-  skills; `skills-dev/`: skills for working on this repo. `.agents/skills/` entries are symlinks
+- `skills/`: public Agent Skills (`octocode skill install`); `skills-dev/`: skills for working
+  on this repo. `.agents/skills/` entries are symlinks
   to those folders: edit the canonical folder.
 - `.claude-plugin/`, `.agents/plugins/`: plugin marketplace entries. `releases/`: packed plugin
   archives. `packages/octocode-benchmark/local/e2e/`: end-to-end suites against the built MCP server and CLI.
@@ -109,14 +115,14 @@ Change rules:
 
 ```mermaid
 flowchart LR
-  C[Core change] --> B[Build core] --> R["yarn contracts:regen here"] --> N[Rebuild native] --> U[Rebuild consumers]
+  C[Core change] --> B[Build core] --> R["node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen here"] --> N[Rebuild native] --> U[Rebuild consumers]
   X[Native change] --> N2["Rebuild native and the affected interface"] --> S["Restart any running MCP server: it serves the old contract"] --> E["Exercise $OCTO config --json, $OCTO schema, real tool calls"]
 ```
 
 - Core pipeline details: [contract pipeline](skills-dev/octocode-dev/docs/DEVELOPMENT.md#contract-pipeline).
   Declare and implement each new field in
   `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json`.
-- Don't hand-edit `packages/octocode-config/contract/` or `toolTypes.generated.ts`, and don't
+- Don't hand-edit `packages/octocode-config/contract/`, and don't
   hand-write wire types (Zod/TypeScript copies or serde query/result structs).
 - The binary embeds the contract it serves, so a stale one means regenerate and rebuild native;
   there is no runtime override.
@@ -125,11 +131,23 @@ flowchart LR
 
 ## Tool output keeps all the evidence
 
-Tool results never drop or truncate evidence to save bytes. A large result returns a complete
-page plus an executable `next.*` continuation that reaches every remaining row, line, file or
-patch exactly once, and says so explicitly when a limit is terminal. Size reductions may only
-remove duplication or metadata that carries no evidence. A silent gap is a correctness bug.
-Details: [tool quality](skills-dev/octocode-dev/docs/TOOL_QUALITY.md).
+Pagination comes first: never truncate, drop, summarize or replace requested evidence with
+ellipses to meet a byte, token or `responseChars` target. Return complete pieces with executable
+`responsePagination.next` or `next.*` calls that reach every remaining row, line, file or patch.
+Finish response pages before advancing tool-level continuations; copy each emitted call unchanged.
+`hasMore:true` without a reachable continuation is a defect.
+
+Keep an indivisible value whole and disclose it as oversized. A response-size target must never
+become a terminal evidence cap. If an upstream or resource limit makes evidence unreachable,
+disclose the terminal limit and unread scope; never claim completeness. Explicit views and required
+security redaction define the selected representation, not permission for further silent loss.
+Size reductions may remove only duplication or metadata that carries no evidence.
+
+Verify that walking every required page reconstructs the selected evidence exactly once, with no
+gaps or duplicates, on CLI and MCP. Cover tiny windows, Unicode, long values, mixed batches and
+transformed views. Treat truncated tool output as unread: retrieve the missing pages or narrower
+source slices before relying on it. Details: [tool quality](skills-dev/octocode-dev/docs/TOOL_QUALITY.md)
+and [continuation contract](docs/TOOL_DATA_CONTRACT.md#executable-continuations).
 
 ## Use Octocode on this repo
 

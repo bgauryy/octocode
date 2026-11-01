@@ -5,6 +5,7 @@ use super::reports_withheld;
 use super::walked::WalkMeta;
 use crate::response::result::ToolError;
 use crate::tools::display_name;
+use crate::tools::test_code::Excluded;
 use serde_json::{Value, json};
 
 /// What a listing walk's policy callback leaves out, counted as the walk
@@ -260,6 +261,9 @@ impl WalkMeta {
         use crate::tools::leads::skipped::{self, under};
         use octocode_contract_types::SkippedPathCause::{DefaultExcluded, Hidden, Ignored};
         out["summary"] = json!({"files": self.files, "dirs": self.dirs, "bytes": self.bytes});
+        if let Some(excluded) = self.test_code_excluded.and_then(Excluded::stated) {
+            out["testCodeExcluded"] = serde_json::to_value(excluded).unwrap_or_default();
+        }
         let left = &self.uncovered;
         let walked = under(root, Ignored, &left.ignored)
             .chain(under(root, Hidden, &left.hidden))

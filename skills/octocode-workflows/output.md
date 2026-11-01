@@ -26,7 +26,7 @@ Use the [shared format guide](references/report-output.md#choose-the-format); lo
 
 ## Saved report
 
-Save a workflow selection, handoff, or multi-file completion report at `<workspace>/.octocode/octocode-workflows/<YYYY-MM-DD>-<slug>.md` when the user requests it or it needs durable resume evidence. Working ledgers and captures belong under that task's `tmp/`; reuse an existing ledger rather than moving it.
+Save a workflow selection, handoff, or multi-file completion report at `<workspace>/.octocode/octocode-workflows/<YYYY-MM-DD>-<slug>.md` when the user requests it or it needs durable resume evidence. Working ledgers and captures belong under `<workspace>/.octocode/octocode-workflows/tmp/<YYYY-MM-DD>-<slug>/`; reuse an existing ledger rather than moving it.
 
 Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Proposed`, `Accepted`, `Needs work`.
 

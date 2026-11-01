@@ -160,8 +160,7 @@ export function keepReachable(generated: string, roots: Set<string>): string {
   const pending = generatedIn(roots);
   const applied = new Set<number>();
   while (pending.length > 0) {
-    while (pending.length > 0) {
-      const name = pending.pop() as string;
+    for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
       if (kept.has(name)) continue;
       kept.add(name);
       for (const used of definitions.get(name) ?? []) if (!kept.has(used)) pending.push(used);

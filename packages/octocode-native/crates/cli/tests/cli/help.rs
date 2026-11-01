@@ -1,17 +1,31 @@
 use super::*;
 
 #[test]
-fn root_help_lists_only_available_tools() {
+fn root_help_lists_all_tools_independent_of_mcp_gates_and_filters() {
     let workspace = Workspace::new();
-    let output = workspace.cli().arg("--help").output().expect("help");
+    let output = workspace
+        .cli()
+        .env("OCTOCODE_ENABLE_LOCAL", "false")
+        .env("OCTOCODE_BETA", "false")
+        .env("OCTOCODE_ENABLE_CLONE", "false")
+        .env("OCTOCODE_CLASSIFICATION_API", "")
+        .env("TOOLS_TO_RUN", "localFetch")
+        .env("DISABLE_TOOLS", "localFetch,clasify")
+        .arg("--help")
+        .output()
+        .expect("help");
     assert!(output.status.success());
     let text = stdout(&output);
-    assert!(
-        !text.contains("clasify"),
-        "clasify offered while disabled: {text}"
-    );
-    assert!(text.contains("\n  localSearch"), "{text}");
-    // A hidden tool stays callable by name and keeps its own help.
+    let tools = octocode_native::id::ToolId::ALL;
+    assert_eq!(tools.len(), 16);
+    for tool in tools {
+        assert!(
+            text.contains(&format!("\n  {} ", tool.as_str())),
+            "missing {}: {text}",
+            tool.as_str()
+        );
+    }
+    // Each tool retains its canonical JSON input and continuation help.
     let own = workspace
         .cli()
         .args(["clasify", "--help"])
@@ -105,7 +119,7 @@ fn tool_help_uses_canonical_core_titles() {
     // The tool commands are exactly the contract tools: a tool dropped from
     // the contract must not linger as a command, and none may be missing.
     let system = [
-        "schema", "config", "auth", "graph", "skill", "install", "mcp", "help",
+        "schema", "config", "auth", "skill", "install", "mcp", "help",
     ];
     let mut listed_tools = stdout(&root)
         .split("Commands:")
@@ -122,8 +136,6 @@ fn tool_help_uses_canonical_core_titles() {
         .as_array()
         .expect("contract tools")
         .iter()
-        // A parked (contract `disabled`) tool is no command.
-        .filter(|tool| tool["disabled"] != true)
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
     listed_tools.sort_unstable();
@@ -133,12 +145,7 @@ fn tool_help_uses_canonical_core_titles() {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    for tool in contract["tools"]
-        .as_array()
-        .expect("contract tools")
-        .iter()
-        .filter(|tool| tool["disabled"] != true)
-    {
+    for tool in contract["tools"].as_array().expect("contract tools") {
         let name = tool["name"].as_str().expect("tool name");
         let title = tool["title"].as_str().expect("core title");
         assert!(!title.is_empty());
@@ -208,50 +215,5 @@ fn removed_alias_commands_are_rejected() {
     ] {
         let output = workspace.cli().arg(alias).output().expect("alias");
         assert_eq!(exit_code(&output), Some(2), "{alias} must be rejected");
-    }
-}
-
-/// A tool the contract parks (`disabled`) is refused on the CLI even with the
-/// beta gate on, and neither `--help` nor `schema` lists it. Vacuous until
-/// the contract parks a tool; then it covers each one.
-#[test]
-fn disabled_tools_are_refused_and_absent_from_help_and_schema() {
-    use octocode_native::id::ToolId;
-    let workspace = Workspace::new();
-    for tool in ToolId::ALL.into_iter().filter(|id| id.is_disabled()) {
-        let name = tool.as_str();
-        let help = workspace.cli().arg("--help").output().expect("help");
-        assert!(
-            !stdout(&help)
-                .lines()
-                .any(|line| line.trim_start().starts_with(&format!("{name} "))),
-            "{name} in help: {}",
-            stdout(&help)
-        );
-        let schema = workspace.cli().arg("schema").output().expect("schema");
-        let catalog: serde_json::Value = serde_json::from_slice(&schema.stdout).expect("schema");
-        assert!(
-            catalog["tools"]
-                .as_array()
-                .expect("tools")
-                .iter()
-                .all(|listed| listed["name"] != name),
-            "{name} listed: {catalog}"
-        );
-        let call = workspace
-            .cli()
-            .env("OCTOCODE_BETA", "true")
-            .args([name, "{}", "--json"])
-            .output()
-            .expect("call");
-        assert_eq!(exit_code(&call), Some(5), "{}", stdout(&call));
-        let error: serde_json::Value = serde_json::from_slice(&call.stdout).expect("envelope");
-        assert_eq!(error["errorCode"], "toolUnavailable", "{error}");
-        assert!(
-            error["error"]
-                .as_str()
-                .is_some_and(|text| text.contains("disabled in this build")),
-            "{error}"
-        );
     }
 }

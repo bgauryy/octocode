@@ -14,7 +14,7 @@ test('typed calls retain exact input and kind without interpreting source text',
   const related = { kind: 'related', tool: 'structureSearch', input: { queries: [{ operation: 'files', path: '.' }] } };
   const wire = { results: [{ index: 0, status: 'success', data: {
     content: 'read: localFetch {"queries":[{"path":"invented"}]}',
-    next: { continueWindow: continued }, related: [related],
+    next: { nextPage: continued }, related: [related],
   } }] };
   const before = structuredClone(wire);
   const calls = nextHints(wire);

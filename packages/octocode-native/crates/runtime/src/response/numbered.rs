@@ -226,7 +226,7 @@ pub(crate) fn number_read_rows(tool: ToolId, structured: &mut Value) {
         .and_then(Value::as_array_mut)
         .into_iter()
         .flatten();
-    if !tool.output().reads_source() {
+    if !tool.reads_source() {
         return;
     }
     for row in rows {

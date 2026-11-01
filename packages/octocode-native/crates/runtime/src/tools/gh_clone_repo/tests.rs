@@ -19,12 +19,12 @@ use std::time::{Duration, Instant};
 
 mod access;
 mod bench;
-mod caching;
 mod concurrency;
 mod git_process;
 mod home;
 mod lifecycle;
 mod pinning;
+mod replacement;
 mod rows;
 mod sparse;
 
@@ -65,7 +65,10 @@ impl RewriteRunner {
             .args
             .iter()
             .map(|argument| {
-                if argument == &self.from {
+                if argument
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&self.from.to_string_lossy())
+                {
                     self.to.clone()
                 } else {
                     argument.clone()
@@ -293,12 +296,12 @@ fn fixture_runner(fixture: &Fixture) -> RewriteRunner {
     )
 }
 
-/// A temp root and the existing clone-cache `home` inside it.
+/// A temp root and the existing clone-output `home` inside it.
 fn home_root() -> (test_support::Fixture, PathBuf) {
     let root = test_support::Fixture::new();
-    let cache_home = root.0.join("home");
-    fs::create_dir_all(&cache_home).expect("home");
-    (root, cache_home)
+    let home = root.0.join("home");
+    fs::create_dir_all(&home).expect("home");
+    (root, home)
 }
 
 fn query() -> GhCloneRepoQuery {

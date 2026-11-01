@@ -3,8 +3,6 @@ use super::{
     Open, Slicer, collection_pointer, continues_chars, empty_declared_siblings, enclosing_element,
     lean_declared_skeleton, lean_elements,
 };
-#[cfg(test)]
-use super::{empty_secondary_lists, lean_skeleton, take_largest_array};
 use serde_json::Value;
 use std::ops::Range;
 use tokio_util::sync::CancellationToken;
@@ -128,8 +126,43 @@ pub(super) struct Selection {
 pub(super) type Evidence = Option<Selection>;
 pub(super) type Planned = (Fragment, usize);
 
+impl FragmentKind {
+    /// The continuation marker this fragment carries, if any.
+    fn marker_mut(&mut self) -> Option<(&mut String, &mut usize)> {
+        match self {
+            Self::Continues { array, index, .. } => Some((array, index)),
+            Self::Joined { inner, .. } => inner.marker_mut(),
+            Self::Whole(_) | Self::Records { .. } | Self::Chunk { .. } => None,
+        }
+    }
+}
+
+/// Mark the fragments after `at` as continuing element `index` of `array`.
+/// A fragment that already continues an element inside that one (it was
+/// planned in a copy holding the element alone, at index 0) keeps its
+/// innermost marker, moved into the joined row's coordinates, so the
+/// marker's pointer names every continued level.
 pub(super) fn mark_continuations(array: &str, at: usize, index: usize, out: &mut [Planned]) {
     for (fragment, size) in out.iter_mut().skip(at + 1) {
+        if let Some((nested, nested_index)) = fragment.kind.marker_mut() {
+            let before = continues_chars(nested, *nested_index);
+            let inside = nested
+                .strip_prefix(array)
+                .and_then(|rest| rest.strip_prefix("/0"))
+                .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+                .map(str::to_owned);
+            match inside {
+                Some(rest) => *nested = format!("{array}/{index}{rest}"),
+                // The element itself (index 0 of the copy), or a marker
+                // outside it: the element is what continues.
+                None => {
+                    array.clone_into(nested);
+                    *nested_index = index;
+                }
+            }
+            *size = *size - before + continues_chars(nested, *nested_index);
+            continue;
+        }
         let inner = std::mem::replace(&mut fragment.kind, FragmentKind::Whole(0));
         fragment.kind = FragmentKind::Continues {
             inner: Box::new(inner),
@@ -159,18 +192,30 @@ pub(super) struct RecordSplit {
     records: Vec<(String, Value)>,
 }
 
-#[derive(Default)]
 pub(super) struct FragmentArena {
     pub(super) wholes: Vec<Value>,
     pub(super) records: Vec<RecordSplit>,
-    pub(super) collection_routes:
-        Option<&'static crate::contracts::output_fields::CollectionRoutes>,
+    /// The tool's declared collections: the only arrays a row splits on.
+    pub(super) collection_routes: &'static crate::contracts::output_fields::CollectionRoutes,
     pub(super) splits: Vec<RowSplit>,
-    pub(super) page_context: Option<&'static crate::contracts::output_fields::PageContextFields>,
+    pub(super) page_context: &'static crate::contracts::output_fields::PageContextFields,
     pub(super) catalogs: Vec<Catalog>,
 }
 
 impl FragmentArena {
+    /// An empty arena that splits rows on `tool`'s declared collections.
+    pub(super) fn new(tool: crate::id::ToolId) -> Self {
+        let page_context = crate::contracts::output_fields::page_context_fields(tool);
+        Self {
+            wholes: Vec::new(),
+            records: Vec::new(),
+            collection_routes: &page_context.collection_routes,
+            splits: Vec::new(),
+            page_context,
+            catalogs: Vec::new(),
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn plan(
         &mut self,
@@ -211,10 +256,7 @@ impl FragmentArena {
         let row_chars = size(&row)? + self.evidence_chars(&evidence)?;
         // A row left whole is also its last part: it keeps the tail room.
         let declared = (row_chars + window.tail > head)
-            .then(|| {
-                self.collection_routes
-                    .and_then(|routes| collection_pointer(&row, routes))
-            })
+            .then(|| collection_pointer(&row, self.collection_routes))
             .flatten();
         if let Some(pointer) = &declared
             && let Some(records) = row.pointer_mut(pointer).and_then(Value::as_object_mut)
@@ -222,25 +264,12 @@ impl FragmentArena {
             let records = std::mem::take(records);
             return self.plan_records(row, pointer.clone(), records, catalog, window, out);
         }
-        let taken = if let Some(pointer) = declared {
+        let taken = declared.and_then(|pointer| {
             row.pointer_mut(&pointer)
                 .and_then(Value::as_array_mut)
                 .map(std::mem::take)
                 .map(|items| (pointer, items))
-        } else {
-            #[cfg(test)]
-            {
-                if row_chars > head && self.collection_routes.is_none() {
-                    take_largest_array(&mut row)
-                } else {
-                    None
-                }
-            }
-            #[cfg(not(test))]
-            {
-                None
-            }
-        };
+        });
         let Some((pointer, items)) = taken else {
             out.push((
                 Fragment {
@@ -328,9 +357,7 @@ impl FragmentArena {
     ) -> Result<[Skeleton; 2], DependencyError> {
         let mut later = row.clone();
         self.empty_secondary_lists(&mut later, pointer);
-        if let Some(context) = self.page_context {
-            lean_elements(&mut later, pointer, context);
-        }
+        lean_elements(&mut later, pointer, self.page_context);
         let make = |value: Value| -> Result<Skeleton, DependencyError> {
             let evidence = self.dependencies(catalog, &value, cancelled)?;
             Ok(Skeleton {
@@ -343,12 +370,7 @@ impl FragmentArena {
     }
 
     pub(super) fn empty_secondary_lists(&self, row: &mut Value, pointer: &str) {
-        if let Some(routes) = self.collection_routes {
-            empty_declared_siblings(row, pointer, routes);
-        } else {
-            #[cfg(test)]
-            empty_secondary_lists(row, pointer);
-        }
+        empty_declared_siblings(row, pointer, self.collection_routes);
     }
 
     fn lean_skeleton(
@@ -358,26 +380,20 @@ impl FragmentArena {
         pointer: &str,
         catalog: Option<usize>,
     ) -> Result<Option<Value>, DependencyError> {
-        match self.collection_routes {
-            Some(routes) => lean_declared_skeleton(row, window.budget, pointer, routes, &|value| {
+        lean_declared_skeleton(
+            row,
+            window.budget,
+            pointer,
+            self.collection_routes,
+            &|value| {
                 Ok(size(value)?
                     + self.evidence_chars(&self.dependencies(
                         catalog,
                         value,
                         window.cancelled,
                     )?)?)
-            }),
-            None => {
-                #[cfg(test)]
-                {
-                    Ok(lean_skeleton(row, window.budget, pointer))
-                }
-                #[cfg(not(test))]
-                {
-                    Ok(None)
-                }
-            }
-        }
+            },
+        )
     }
 }
 

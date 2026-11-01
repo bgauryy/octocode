@@ -1,5 +1,4 @@
 use super::*;
-use crate::cache::disk::PRUNE_MARKER;
 #[cfg(unix)]
 use crate::cache::disk::{DiskHeader, now_unix};
 
@@ -36,20 +35,21 @@ fn disk_tier_keeps_immutable_entries_and_expires_volatile_ones() {
 #[test]
 fn disk_tier_is_byte_bounded_least_recently_used_first() {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::<String>::new(
-        CacheConfig {
-            disk_bytes: 1,
-            ..CacheConfig::default()
-        },
-        Some(dir.path().into()),
-    );
-    // The first write scans (here pruning everything); later writes skip the scan.
+    let store = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
     store.put(key("old", "x"), "a".repeat(100), 100, CacheClass::Immutable);
     store.put(key("new", "x"), "b".repeat(100), 100, CacheClass::Immutable);
-    assert_eq!(entry_files(dir.path()).len(), 1, "pruning is amortized");
-    let _ = fs::remove_file(dir.path().join(PRUNE_MARKER));
-    store.disk.as_ref().unwrap().prune(300);
-    assert_eq!(entry_files(dir.path()).len(), 1);
+    let disk = store.disk.as_ref().unwrap();
+    let older = disk.file(&key("old", "x"));
+    fs::File::options()
+        .write(true)
+        .open(&older)
+        .unwrap()
+        .set_modified(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap();
+    let newer = disk.file(&key("new", "x"));
+    disk.prune(fs::metadata(&newer).unwrap().len());
+    assert!(!older.exists());
+    assert!(newer.exists());
     store.disk.as_ref().unwrap().prune(0);
     assert!(entry_files(dir.path()).is_empty());
 }
@@ -176,6 +176,7 @@ fn disk_entries_that_are_not_bounded_regular_files_are_evicted_misses() {
     };
 
     let fifo = disk.file(&key("fifo", "x"));
+    fs::create_dir_all(fifo.parent().unwrap()).unwrap();
     crate::tools::test_support::make_fifo(&fifo);
     let (sender, receiver) = std::sync::mpsc::channel();
     let reader = std::sync::Arc::clone(&store);
@@ -277,4 +278,37 @@ fn confirmed_retention_requires_capacity_and_every_configured_tier() {
     age_disk_entries(&dir, 121);
     reopened.clear_memory();
     assert!(reopened.get(&key("saved", "x")).is_none());
+}
+
+/// Reads in one process (memory hits included) restart an idle entry's
+/// lifetime on disk, so another process or a restart finds it alive; an
+/// entry unused for its lifetime is gone from disk too.
+#[test]
+fn idle_entries_on_disk_count_age_from_their_last_read() {
+    let ttl = Duration::from_millis(600);
+    let dir = tempfile::tempdir().unwrap();
+    let writer = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    writer.put(key("walk", "x"), "page".into(), 4, CacheClass::Idle { ttl });
+    for _ in 0..3 {
+        std::thread::sleep(ttl / 2);
+        assert!(writer.get(&key("walk", "x")).is_some(), "a memory hit");
+    }
+    let restarted = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    assert_eq!(
+        restarted
+            .get(&key("walk", "x"))
+            .map(|hit| (*hit.value).clone()),
+        Some("page".to_owned()),
+        "the memory reads kept the disk entry alive"
+    );
+    std::thread::sleep(ttl + ttl / 4);
+    let later = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    assert!(
+        later.get(&key("walk", "x")).is_none(),
+        "unused for its lifetime"
+    );
+    assert!(
+        entry_files(dir.path()).is_empty(),
+        "the expired file is removed"
+    );
 }

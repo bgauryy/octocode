@@ -107,11 +107,14 @@ pub(in super::super) fn attach_recovery_next(value: &mut Value, query: &LspSearc
 pub(in super::super) fn anchor_recovery(
     value: &mut Value,
     query: &LspSearchQuery,
-    _source: Option<&str>,
+    source: Option<&str>,
 ) {
     let Some(name) = lsp_search_query::symbol_name(query) else {
         return;
     };
+    if let Some(source) = source {
+        keep_reads_that_find(value, query, name, source);
+    }
     let mut search = json!({"operation": "workspaceSymbol", "symbolQuery": name});
     let asked = lsp_search_query::to_row(query);
     for key in ["path", "workspaceRoot", "rustContext"] {
@@ -123,4 +126,49 @@ pub(in super::super) fn anchor_recovery(
         value,
         crate::response::result::Continuation::related(ToolId::LspSearch, search).build(),
     );
+}
+
+/// The anchor's `localFetch` read stays only when it finds `name`
+/// (case-sensitive, as the read asks). When the file holds `name` only in
+/// another case, the error names the nearest such line to the anchor and
+/// the read searches case-insensitively; with no occurrence at all, there
+/// is nothing in the file to read, and only the workspace search remains.
+fn keep_reads_that_find(value: &mut Value, query: &LspSearchQuery, name: &str, source: &str) {
+    if name.is_empty() || source.contains(name) {
+        return;
+    }
+    let mut read = None;
+    if let Some(related) = value.get_mut("related").and_then(Value::as_array_mut) {
+        related.retain(|call| {
+            let reads_name = call["tool"] == "localFetch"
+                && call["input"]["queries"][0]["matchString"] == json!([name]);
+            if reads_name {
+                read = Some(call["input"]["queries"][0].clone());
+            }
+            !reads_name
+        });
+    }
+    let folded = name.to_lowercase();
+    let anchor = lsp_search_query::anchor_line(query).unwrap_or(1);
+    let Some(line) = source
+        .lines()
+        .zip(1u32..)
+        .filter(|(text, _)| text.to_lowercase().contains(&folded))
+        .map(|(_, number)| number)
+        .min_by_key(|number| number.abs_diff(anchor))
+    else {
+        return;
+    };
+    if let Some(error) = value["error"].as_str() {
+        value["error"] = json!(format!(
+            "{error}; the file has '{name}' only in another case, nearest at line {line}"
+        ));
+    }
+    if let Some(mut read) = read {
+        read["caseMode"] = json!("insensitive");
+        crate::response::result::attach_related(
+            value,
+            crate::response::result::Continuation::related(ToolId::LocalFetch, read).build(),
+        );
+    }
 }

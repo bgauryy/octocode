@@ -1,5 +1,4 @@
-//! ghSearchCode leads: the reads a shaped page offers (top hit, capped hit
-//! lists, a file the index did not search at the requested ref).
+//! ghSearchCode leads: optional top-hit reads and required unresolved-source reads.
 use super::code_output::{Resolution, requested_ref, row_repo};
 use crate::id::ToolId;
 use crate::num::u32_of_usize;
@@ -29,7 +28,7 @@ pub(super) fn read_top_match(top: &Value) -> Option<Value> {
     // A cross-tool read states its reason in `why`; its query carries only
     // the brief the caller sent, which the response stage copies.
     Some(
-        Continuation::continued(
+        Continuation::related(
             ToolId::GhGetFileContent,
             json!({
                 "owner": file.get("owner")?,
@@ -51,17 +50,12 @@ pub(super) fn code_hit(path: &str) -> bool {
     ) && !octocode_engine::text::test_paths::is_test_path(path)
 }
 
-/// ghGetFileContent read of the keyword lines of one file at the resolved
-/// commit, whole and numbered: the lossless continuation of a hit list that
-/// was capped or cut to keyword windows. The same case-insensitive literal
-/// any-of match as the listing. `resume` (the last shown line and the line
-/// count) reads only the lines after the shown hits, so none repeats; without
-/// it the read covers every keyword line of the file again.
+/// Read source keyword lines when the provider result could not be resolved
+/// to a locally scanned blob. Resolved blobs already show every hit whole.
 pub(super) fn hits_read(
     query: &GhSearchCodeQuery,
     row: &serde_json::Map<String, Value>,
     sha: &str,
-    resume: Option<(u32, usize)>,
 ) -> Option<Value> {
     let path = row.get("path")?.as_str()?;
     let (owner, repo) = row_repo(query, row)?;
@@ -72,11 +66,6 @@ pub(super) fn hits_read(
         "ref": sha,
         "contextLines": {"before":0,"after":0},
     });
-    if let Some((after, line_count)) = resume
-        && usize::try_from(after).is_ok_and(|after| after < line_count)
-    {
-        read["ranges"] = json!([{"startLine": after + 1, "endLine": line_count}]);
-    }
     keyword_match(&mut read, query)?;
     Some(Continuation::continued(ToolId::GhGetFileContent, read).build())
 }
@@ -196,7 +185,7 @@ pub(super) fn declaration_read(
         "block": true,
         "ref": sha,
     });
-    Some(Continuation::continued(ToolId::GhGetFileContent, read).build())
+    Some(Continuation::related(ToolId::GhGetFileContent, read).build())
 }
 
 /// ghGetFileContent read of a resolved file's best hit for the goal (5 lines
@@ -231,7 +220,7 @@ pub(super) fn line_read(
         // the window before the read runs.
         "ref": sha,
     });
-    Some(Continuation::continued(ToolId::GhGetFileContent, read).build())
+    Some(Continuation::related(ToolId::GhGetFileContent, read).build())
 }
 
 /// The read of a file the index did not search at the requested ref: the

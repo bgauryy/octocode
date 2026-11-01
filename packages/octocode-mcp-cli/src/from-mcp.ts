@@ -1,4 +1,4 @@
-import { Client, StreamableHTTPClientTransport, type StreamableHTTPClientTransportOptions } from '@modelcontextprotocol/client';
+import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport, type StdioServerParameters } from '@modelcontextprotocol/client/stdio';
 import { cliView, contentText, type CliView } from './run.js';
 import { commandToken, defineCli, defineCommand, type CliSpec, type JsonSchema, type ToolAnnotations } from './spec.js';
@@ -197,14 +197,6 @@ export function createStdioTransport(parameters: StdioServerParameters): StdioCl
   return new StdioClientTransport(parameters);
 }
 
-export function createStreamableHttpTransport(
-  url: string | URL,
-  options?: StreamableHTTPClientTransportOptions,
-): StreamableHTTPClientTransport {
-  const target = typeof url === 'string' ? new URL(url) : url;
-  return new StreamableHTTPClientTransport(target, options);
-}
-
 export async function connectClient(transport: Parameters<Client['connect']>[0]): Promise<Client> {
   const client = new Client({ name: 'octocode-mcp-cli', version: '0.1.0' });
   await client.connect(transport);
@@ -218,10 +210,3 @@ export async function connectStdio(
   return connect(createStdioTransport(parameters));
 }
 
-export async function connectStreamableHttp(
-  url: string | URL,
-  options?: StreamableHTTPClientTransportOptions,
-  connect: (transport: StreamableHTTPClientTransport) => Promise<Client> = connectClient,
-): Promise<Client> {
-  return connect(createStreamableHttpTransport(url, options));
-}

@@ -30,15 +30,6 @@ export const readText = (file) => {
     return null;
   }
 };
-export const readJson = (file) => {
-  const text = readText(file);
-  if (text == null) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-};
 
 export function projectSlug(dir) {
   return dir.replace(/[^A-Za-z0-9]/g, "-");

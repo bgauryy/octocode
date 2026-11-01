@@ -11,6 +11,7 @@ use aho_corasick::AhoCorasick;
 use grep_matcher::Matcher;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder};
 use sha2::{Digest as _, Sha256};
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
@@ -79,7 +80,7 @@ pub(super) fn read_prefix(file: &std::fs::File, len: u64) -> std::io::Result<Vec
 }
 
 /// Leading bytes kept from the searched read for the generated-header check.
-const HEAD_BYTES: usize = relevance::GENERATED_HEADER_BYTES as usize;
+const HEAD_BYTES: usize = relevance::GENERATED_HEADER_BYTES;
 
 /// The searcher's read of one opened file. Every byte the search reads
 /// passes through here once, so the generated-header prefix and the
@@ -197,6 +198,12 @@ pub(super) struct FileOutcome {
     pub(super) copied: Option<CopiedRead>,
     /// A returned line was not UTF-8 (see [`CollectSink::not_utf8`]).
     pub(super) not_utf8: bool,
+    /// Per searched term (see [`CollectSink::term_counts`]).
+    pub(super) term_counts: Vec<u32>,
+    /// Matched lines a test-code scope left out.
+    pub(super) test_lines_excluded: u32,
+    /// The file's test-only spans, when a hit read them.
+    pub(super) test_spans: Option<std::sync::Arc<Vec<[u32; 2]>>>,
 }
 
 impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
@@ -216,6 +223,9 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             generated_header: None,
             copied: None,
             not_utf8: sink.not_utf8,
+            term_counts: sink.term_counts,
+            test_lines_excluded: sink.test_lines_excluded,
+            test_spans: sink.test_spans,
         }
     }
 }
@@ -236,6 +246,9 @@ pub(super) struct FileSearcher<'a, M: Matcher> {
     /// Keep the read bytes for the file-level terms check.
     pub(super) copy: bool,
     pub(super) words: Option<&'a AhoCorasick>,
+    /// One matcher per searched term, counted per term by a count view
+    /// (empty: no per-term counts).
+    pub(super) terms: &'a [M],
 }
 
 impl<M: Matcher> FileSearcher<'_, M> {
@@ -243,17 +256,28 @@ impl<M: Matcher> FileSearcher<'_, M> {
     /// is quit as binary, the searcher has dropped the whole buffer holding
     /// the NUL, so the NUL-free prefix is searched again from byte 0 and its
     /// matches replace the first pass.
-    pub(super) fn search(&mut self, file: &std::fs::File) -> std::io::Result<FileOutcome> {
+    pub(super) fn search(
+        &mut self,
+        file: &std::fs::File,
+        path: &Path,
+    ) -> std::io::Result<FileOutcome> {
         let mut work = self.work;
-        if work.deferred_snippet.is_some() {
+        if work.deferred_line {
             let prefix = read_prefix(file, 3)?;
             if crate::text::has_utf16_bom(&prefix) {
-                work.deferred_snippet = None;
+                work.deferred_line = false;
             }
             std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
         }
         let mut tap = SourceTap::new(file, self.keep_head, self.copy);
-        let mut sink = CollectSink::new(self.matcher, work, self.deadline, self.stop, self.words);
+        let mut sink = CollectSink::new(
+            self.matcher,
+            work,
+            self.deadline,
+            self.stop,
+            (self.words, self.terms),
+        );
+        sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
         // `search_file` reads through this same reader path: memory maps are
         // never used, and multiline reads the whole file under the heap limit.
         self.searcher
@@ -286,8 +310,9 @@ impl<M: Matcher> FileSearcher<'_, M> {
             self.work,
             self.deadline,
             self.stop,
-            self.words,
+            (self.words, self.terms),
         );
+        prefix_sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
         prefix_searcher.search_slice(self.matcher, &prefix, &mut prefix_sink)?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;

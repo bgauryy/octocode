@@ -23,9 +23,6 @@ const ISOLATED_NAMES = new Set(['ALLOWED_PATHS', 'WORKSPACE_ROOT', 'TOOLS_TO_RUN
 /** One fake credential per tool and surface: the runtime paces GitHub searches per credential. */
 export const tokenFor = (tool, surface) => ['th', 'fake', tool, surface, String(process.pid)].join('-');
 
-/** Startup may ping model readiness even when admission rejects the tool input. */
-export const withoutReadinessPings = requests => requests.filter(entry => entry.request !== 'GET /v1/models');
-
 function lspAvailable(fixture, env) {
   const names = ['tsgo', 'tsserver', 'typescript-language-server'];
   let typescript = false;
@@ -57,7 +54,7 @@ function hermeticEnv(home, mockUrl, live, tmp) {
     // HTTPS with the allowlisted local registry proxy.
     NO_PROXY: '127.0.0.1,localhost,::1', no_proxy: '127.0.0.1,localhost,::1',
     HTTPS_PROXY: DEAD_PROXY, https_proxy: DEAD_PROXY, HTTP_PROXY: DEAD_PROXY, http_proxy: DEAD_PROXY, ALL_PROXY: DEAD_PROXY, all_proxy: DEAD_PROXY,
-    OCTOCODE_HOME: path.join(home, '.octocode'), OCTOCODE_BETA: 'true', OCTOCODE_LSP_AUTO_INSTALL: 'off', OCTOCODE_LSP_PREWARM: 'off',
+    OCTOCODE_HOME: path.join(home, '.octocode'), OCTOCODE_BETA: 'true', OCTOCODE_ENABLE_CLONE: 'true', OCTOCODE_LSP_AUTO_INSTALL: 'off', OCTOCODE_LSP_PREWARM: 'off',
     GITHUB_API_URL: `${mockUrl}/api/v3`, OCTOCODE_ALLOW_PRIVATE_REGISTRY: 'true',
     OCTOCODE_CLASSIFICATION_API_HOST: mockUrl,
   };

@@ -50,11 +50,6 @@ coverage
 .env
 .cursor
 .context
-# Exception for committed skill bundle
-!/skills/octocode-research/output/
-# Canonical Agent Skills live here; generated scripts have targeted ignores above.
-/skills/octocode-agent-communication/
-/skills/octocode-reflection/
 # Bundled skills copied into the octocode CLI package during build/prepack.
 /packages/octocode/skills/
 # sqlite DB

@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Load this skill first whenever the user wants code, a PR, a diff or a design roasted, torn apart or critiqued with brutal honesty; good for ranked, evidence-backed burns that each come with a fix."
+description: "Give a requested blunt critique of code, PRs, diffs or designs. Rank proven defects by impact, attach evidence and a repair to each finding, and keep the criticism about the code."
 ---
 
 # Octocode Roast
@@ -59,8 +59,8 @@ Open with the verdict, **Blocking**, **Needs work** or **Acceptable**, and the w
 - For a substantial highest-impact finding, explain where the failure enters, what it affects, and the order to repair it safely.
 - Close with the fix order, each fix beside the check that proves it, #1 first.
 - For many findings, explain the consequential ones in detail and group the rest compactly while preserving their evidence and repair.
-- Save when the user asks or the roast outgrows chat: `<workspace>/.octocode/octocode-roast/<YYYY-MM-DD>-<slug>.md`, front matter `status` and `question` (`confidence` when useful, `next` for pending work), then `## Findings` and `## Fix order`. Keep unverified leads distinct from findings.
-- After delivering the roast or requested fixes, offer an HTML report once. If HTML was already requested, use an available report renderer without asking again; keep the Markdown source. Distinguish successful generation from browser inspection, and disclose when rendering cannot be verified.
+- Save when the user asks or the roast outgrows chat: `<workspace>/.octocode/octocode-roast/<YYYY-MM-DD>-<slug>.md`, front matter `status` (the verdict: `Blocking`, `Needs work` or `Acceptable`) and `question` (`confidence` when useful, `next` for pending work), then `## Findings` and `## Fix order`. Keep unverified leads distinct from findings; scratch goes in its `tmp/`.
+- After delivering the roast or requested fixes, offer an HTML report once when a report renderer is available (for example the one another installed Octocode skill ships). If HTML was already requested, use an available report renderer without asking again; keep the Markdown source. Distinguish successful generation from browser inspection, and disclose when rendering cannot be verified.
 
 ## Redemption
 

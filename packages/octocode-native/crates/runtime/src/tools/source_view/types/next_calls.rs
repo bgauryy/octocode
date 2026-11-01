@@ -64,12 +64,12 @@ pub struct NextCalls {
         default
     )]
     pub next_candidate_page: Option<FetchCall>,
-    #[serde(rename = "continueWindow", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "nextPage", skip_serializing_if = "Option::is_none")]
     pub continue_window: Option<FetchCall>,
     #[serde(rename = "readBoundedLines", skip_serializing_if = "Option::is_none")]
     pub read_bounded_lines: Option<FetchCall>,
     /// The requested `ranges` after the span a streamed multi-range page
-    /// stopped inside (that span reads on through `continueWindow`).
+    /// stopped inside (that span reads on through `nextPage`).
     #[serde(
         rename = "readOtherRanges",
         skip_serializing_if = "Option::is_none",
@@ -149,7 +149,7 @@ impl NextCalls {
         "unfiltered" Page unfiltered,
         "unfilteredUnknown" Page unfiltered_unknown,
         "nextCandidatePage" Page next_candidate_page,
-        "continueWindow" Page continue_window,
+        "nextPage" Page continue_window,
         "readBoundedLines" Current read_bounded_lines,
         "readOtherRanges" Page read_other_ranges,
         "restart" Current restart,

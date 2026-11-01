@@ -1,4 +1,7 @@
-//! An OS lock serializes publication, latest and retention across CLI processes.
+//! An OS lock serializes publication, latest and retention across CLI
+//! processes. Builds run outside it: [`super::ingest`] takes it only to
+//! stage, publish and prune.
+use super::super::graph::checkpoint::lock;
 use super::*;
 
 pub(super) fn acquire(
@@ -21,22 +24,12 @@ pub(super) fn acquire(
         ));
     }
     std::fs::create_dir_all(home).map_err(io_error)?;
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(target)
-        .map_err(io_error)?;
-    loop {
-        cancel
-            .check()
-            .map_err(|e| GraphOutput::error(ErrorCode::Cancelled, e))?;
-        match file.try_lock() {
-            Ok(()) => return Ok(file),
-            Err(std::fs::TryLockError::WouldBlock) => {
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-            Err(std::fs::TryLockError::Error(e)) => return Err(io_error(e)),
+    let file = lock::open(&target).map_err(io_error)?;
+    match lock::exclusive(&file, cancel) {
+        Ok(()) => Ok(file),
+        Err(lock::Wait::Cancelled(message)) => {
+            Err(GraphOutput::error(ErrorCode::Cancelled, message))
         }
+        Err(lock::Wait::Failed(error)) => Err(io_error(error)),
     }
 }

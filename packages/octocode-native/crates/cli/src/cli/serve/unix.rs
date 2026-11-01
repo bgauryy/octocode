@@ -10,7 +10,7 @@ mod tests;
 
 pub(in crate::cli) use client::call;
 pub(in crate::cli) use daemon::run;
-pub(in crate::cli) use sockets::stop_all;
+pub(in crate::cli) use sockets::{stop_all, stop_all_and_wait};
 
 use std::path::{Path, PathBuf};
 

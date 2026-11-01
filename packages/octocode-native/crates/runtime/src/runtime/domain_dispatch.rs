@@ -1,4 +1,6 @@
 //! One domain execution path for public tools and Jev's bounded read context.
+mod finalize;
+mod panic_site;
 mod source_reader;
 use super::{dispatch, github, github_cache::GitHubContentCache};
 use crate::execution::{ExecutionContext, ExecutionError};
@@ -32,14 +34,15 @@ pub(crate) struct DomainDispatcher {
     pub handle: tokio::runtime::Handle,
     pub lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
     pub(crate) local_views: Arc<crate::security::scan::SanitizedViewMemo>,
+    pub(crate) source_views: Arc<crate::tools::source_view::ViewCache>,
     pub lsp_execution_config: Arc<LspExecutionConfig>,
     pub availability: Arc<crate::execution::availability::ToolAvailability>,
     /// Provider readiness and an enabled goals surface, independent of the
     /// public clasify tool's availability.
     pub(crate) selection_available: bool,
     pub(crate) evaluator: crate::tools::judgment::Evaluator,
-    /// Registry answers for artifactSearch; `None` under memory storage.
-    pub(crate) artifact_cache: Option<Arc<crate::providers::artifact::ArtifactCache>>,
+    /// Registry answers for artifactSearch under the runtime's storage policy.
+    pub(crate) artifact_cache: Arc<crate::providers::artifact::ArtifactCache>,
 }
 
 #[cfg(test)]
@@ -59,6 +62,7 @@ impl DomainDispatcher {
                     &self.limits,
                     self.home.clone(),
                     self.github_cache.clone(),
+                    self.source_views.clone(),
                 )
             })
             .as_ref()
@@ -154,7 +158,7 @@ impl DomainDispatcher {
             deadline: context.deadline,
             cancellation: context.cancellation.clone(),
             allow_private_registry: self.config.resolved.network.allow_private_registry,
-            cache: self.artifact_cache.as_deref(),
+            cache: Some(&self.artifact_cache),
             timeout: self.limits.network_timeout,
             max_retries: self.limits.max_retries,
             tags: tags
@@ -278,12 +282,16 @@ impl DomainDispatcher {
                     query,
                     &context,
                     &dispatch::LocalEnv {
+                        memory_only: !crate::config::is_persistent_storage_enabled(
+                            &self.config.resolved,
+                        ),
                         cargo: self
                             .config
                             .env_value(crate::config::environment::OCTOCODE_CARGO),
                         paths: &self.paths,
                         security: &self.security,
                         views: &self.local_views,
+                        source_views: &self.source_views,
                         selection: Some(&selection),
                     },
                 )
@@ -338,17 +346,17 @@ mod within_request_tests;
 /// Streamed listing, walk and lspSearch pages are cut at the automatic
 /// response window, which every call of a walk shares (an explicit
 /// `responseChars` is per call, so it never moves a page cut and a
-/// continuation under another window names the same page). localFetch
-/// continues by offset: its reader fits the row's share of the response
-/// page, the caller's or the automatic ([`ExecutionContext::row_page_chars`],
-/// see `response::read_share`), and each row continues by its own
-/// `next.continueWindow`.
+/// continuation under another window names the same page). localFetch and
+/// graphQuery continue by offset: a read or graph page fits the row's share
+/// of the response page, the caller's or the automatic
+/// ([`ExecutionContext::row_page_chars`], see `response::read_share`), and
+/// each row continues by its own `next` offset.
 fn local_response_window(
     tool: ToolId,
     context: &ExecutionContext,
     auto_page_chars: usize,
 ) -> Option<usize> {
-    let window = if tool == ToolId::LocalFetch {
+    let window = if matches!(tool, ToolId::LocalFetch | ToolId::GraphQuery) {
         context.row_page_chars(auto_page_chars)
     } else {
         auto_page_chars
@@ -361,13 +369,15 @@ mod page_chars_tests;
 
 /// A failed engine operation becomes one row; sibling rows keep executing.
 /// Worker-thread and FFI boundaries retain their own unwind containment.
+/// A panic is a defect: its failure names the source location to report.
 fn execute_row(
     work: impl FnOnce() -> Result<DomainResult, ExecutionError>,
 ) -> Result<DomainResult, ExecutionError> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).unwrap_or_else(|_| {
+    panic_site::contain(work).unwrap_or_else(|site| {
+        let at = site.map(|site| format!(" at {site}")).unwrap_or_default();
         Ok(DomainResult::failure(
             ErrorCode::ExecutionFailed,
-            "The tool row failed on pathological input.",
+            format!("The tool row panicked{at}; this is a tool defect."),
             Vec::new(),
             None,
         ))

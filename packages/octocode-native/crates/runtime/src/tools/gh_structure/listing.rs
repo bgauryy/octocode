@@ -40,7 +40,9 @@ pub(super) struct ListingPage<'a> {
 impl<'a> ListingPage<'a> {
     pub(super) fn of(query: &GhStructureQueryTree, all: &'a [TreeEntry]) -> Self {
         let current = query.page.map_or(1, crate::num::usize_of);
-        let per_page = crate::id::gh_structure_policy::TREE_PAGE_SIZE.min(max_entries_per_page());
+        // Entries per page: the query's `limit` (its contract default when
+        // omitted); the tree is held whole, so any size pages it losslessly.
+        let per_page = crate::num::usize_of(query.limit);
         let total_entries = all.len();
         let total_pages = crate::response::page_windows::count_pages(total_entries, per_page);
         let start = current
@@ -112,17 +114,14 @@ pub(super) fn disclose_limits(
 ) {
     use crate::response::paging::{mark_partial, terminal_limit};
     if traversal.contents_limit {
-        terminal_limit(value, "providerContentsLimit", &[]);
+        terminal_limit(
+            value,
+            crate::response::paging::PartialReason::ProviderContentsLimit,
+            &[],
+        );
         value["providerLimit"] = json!({
             "reason": "providerContentsLimit",
             "maxEntriesPerDirectory": CONTENTS_LIMIT
-        });
-    }
-    if traversal.fetch_limit {
-        terminal_limit(value, "treeFetchLimit", &[]);
-        value["providerLimit"] = json!({
-            "reason": "treeFetchLimit",
-            "maxDirectoryFetches": MAX_DIRECTORY_FETCHES
         });
     }
     if !traversal.omitted.is_empty() && page.current == 1 {
@@ -131,11 +130,13 @@ pub(super) fn disclose_limits(
         value["omitted"] = json!(traversal.omitted);
     }
     if traversal.failed_subtrees > 0 {
-        mark_partial(value, "partialTreeFailures", &[]);
-        output.diagnostics.add(
-            "partialTreeFailures",
+        mark_partial(
+            value,
+            crate::response::paging::PartialReason::PartialTreeFailures,
+            &[],
+        );
+        output.diagnostics.hint(
             "One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.",
-            true,
         );
     }
 }
@@ -276,26 +277,16 @@ pub(super) fn attach_continuations(
             offset: 0,
         })
     });
-    let cursor = |value: &mut Value, field: &str, next: usize| {
-        crate::response::paging::next_cursor(value, ToolId::GhStructure, None, field, next)
-    };
     if let Some(resume) = materialize_resume {
-        let page_cursor = cursor(value, "page", resume.page);
-        let offset_cursor = cursor(value, "materializeOffset", resume.offset);
-        if let (Some(next_page), Some(offset)) = (page_cursor, offset_cursor) {
-            let mut next_query = query_row(query, &["dateOffset"]);
-            next_query["page"] = json!(next_page);
-            next_query["materialize"] = json!(true);
-            next_query["materializeOffset"] = json!(offset);
-            value["calls"]["continueMaterialize"] = continuation(next_query);
-        }
-        mark_materialize_partial(value);
-    } else if has_more
-        && !materialize
-        && let Some(next_page) = cursor(value, "page", current + 1)
-    {
         let mut next_query = query_row(query, &["dateOffset"]);
-        next_query["page"] = json!(next_page);
+        next_query["page"] = json!(resume.page);
+        next_query["materialize"] = json!(true);
+        next_query["materializeOffset"] = json!(resume.offset);
+        value["calls"]["continueMaterialize"] = continuation(next_query);
+        mark_materialize_partial(value);
+    } else if has_more && !materialize {
+        let mut next_query = query_row(query, &["dateOffset"]);
+        next_query["page"] = json!(current + 1);
         value["calls"]["nextPage"] = continuation(next_query);
     }
     if retry_tree {

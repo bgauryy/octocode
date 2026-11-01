@@ -4,7 +4,7 @@ use octocode_contract_types::LocalFetchQuery;
 
 /// A file of short lines read under a window too small for the whole file
 /// is cut to whole-line pages: each page states the unit its
-/// `continueWindow` pages in, no page calls the file one long line, and the
+/// `nextPage` pages in, no page calls the file one long line, and the
 /// walk reaches every byte exactly once.
 #[test]
 fn a_page_cut_to_a_small_window_states_the_unit_it_pages_in() {

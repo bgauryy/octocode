@@ -1,8 +1,5 @@
 mod source_context;
 use std::collections::HashMap;
-use std::time::Instant;
-
-use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
 
 use super::language::AgLanguage;
 use super::query::StructuralQuery;
@@ -19,7 +16,9 @@ mod rule;
 mod selector;
 
 pub(super) use error::CompileError;
-pub(super) use matching::{ExecutionError, named_children, node_text, parse_tree_with_deadline};
+pub(super) use matching::{
+    Deadline, ExecutionError, named_children, node_text, parse_tree_with_deadline,
+};
 pub use rule::EXAMPLE_RULE;
 pub(super) use rule::{RawPattern, RawRule, decode_rule};
 
@@ -99,8 +98,8 @@ pub(super) fn compile_matcher(
     match query.parts() {
         (Some(pattern), None) if is_document_probe(pattern) => {
             Ok(Box::new(move |content, found| {
-                let deadline = match_deadline(content);
-                let tree = parse_tree_with_deadline(&language, content, deadline)?;
+                let deadline = Deadline::UNBOUNDED;
+                let tree = parse_tree_with_deadline(&language, content, deadline.parse_by())?;
                 let root = tree.root_node();
                 found.push(root, || {
                     to_structural_match(root, content, HashMap::new(), HashMap::new())
@@ -111,12 +110,13 @@ pub(super) fn compile_matcher(
         (Some(pattern), None) => {
             let compiled = CompiledPattern::new(lang, pattern)?;
             Ok(Box::new(move |content, found| {
-                let deadline = match_deadline(content);
+                let deadline = Deadline::UNBOUNDED;
                 if compiled.is_special() {
                     return compiled.find_special_matches(content, deadline, &recovery, found);
                 }
 
-                let tree = parse_tree_with_deadline(compiled.language(), content, deadline)?;
+                let tree =
+                    parse_tree_with_deadline(compiled.language(), content, deadline.parse_by())?;
                 if recovery.hides_match(&tree, content) {
                     found.mark_recovered();
                 }
@@ -156,8 +156,8 @@ pub(super) fn compile_matcher(
             let compiled = CompiledRule::compile(lang, query.parsed_rule()?)?;
             if let Some(kind) = compiled.simple_kind().map(str::to_owned) {
                 return Ok(Box::new(move |content, found| {
-                    let deadline = match_deadline(content);
-                    let tree = parse_tree_with_deadline(&language, content, deadline)?;
+                    let deadline = Deadline::UNBOUNDED;
+                    let tree = parse_tree_with_deadline(&language, content, deadline.parse_by())?;
                     if recovery.hides_match(&tree, content) {
                         found.mark_recovered();
                     }
@@ -173,8 +173,8 @@ pub(super) fn compile_matcher(
                 }));
             }
             Ok(Box::new(move |content, found| {
-                let deadline = match_deadline(content);
-                let tree = parse_tree_with_deadline(&language, content, deadline)?;
+                let deadline = Deadline::UNBOUNDED;
+                let tree = parse_tree_with_deadline(&language, content, deadline.parse_by())?;
                 if recovery.hides_match(&tree, content) {
                     found.mark_recovered();
                 }
@@ -216,20 +216,6 @@ pub(super) fn compile_matcher(
         }
         _ => unreachable!("StructuralQuery validates the query shape"),
     }
-}
-
-/// How long matching may take on a source of `len` bytes: the shared parse
-/// budget, plus one more per whole MiB, so a large source (the parse limit
-/// is 8 MiB) is not cut nondeterministically by a small file's budget. A cut
-/// match discards the file's matches, and no page resumes inside a file.
-pub(super) fn match_budget(len: usize) -> std::time::Duration {
-    let extra = u32::try_from(len >> 20).unwrap_or(u32::MAX);
-    AST_EXECUTION_TIMEOUT.saturating_mul(extra.saturating_add(1))
-}
-
-/// The match deadline of `content`, from now (see [`match_budget`]).
-pub(super) fn match_deadline(content: &str) -> Instant {
-    Instant::now() + match_budget(content.len())
 }
 
 fn is_document_probe(pattern: &str) -> bool {

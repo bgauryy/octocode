@@ -1,38 +1,23 @@
-//! What a page cut charges: file entries, rows, the reads that expand
-//! clipped values, and the enclosing names rows carry.
+//! What a page cut charges: file entries, complete rows and enclosing names.
 use crate::tools::local_search::local_search_query;
-use crate::tools::local_search::local_search_query::Multiline;
-use crate::tools::local_search::local_search_query::View;
 
 use super::super::enclosing::{
     ENCLOSING_FIELD_CHARS, ENCLOSING_RESERVE_CHARS, Outline, outlined_language,
 };
-use super::super::local_search_query::{effective_match_content_length, shows_span_columns};
-use super::entries::{FILE_ENTRY_CHARS, digits, row_chars};
-use super::expansion::expansion_read_chars;
+use super::super::local_search_query::shows_span_columns;
+use super::entries::{FILE_ENTRY_CHARS, row_chars};
 use super::list_view;
-use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use octocode_contract_types::LocalSearchQuery;
-use octocode_engine::types::SearchContext;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-/// Serialized sizes a page is cut by. Rows render with workspace-relative
-/// paths, so a file entry costs its root prefix too; a clipped row rides
-/// its file's `next.expandValues*` read (see [`expand_values`]): the page
-/// pays for that read, so it still fits.
+/// Serialized sizes a page is cut by. File entries include the workspace-relative prefix.
 pub(super) struct PageCosts {
     pub(super) prefix_chars: usize,
-    /// matchOnly rows show their exact span clipped to the display bound.
-    pub(super) match_only_limit: Option<usize>,
     /// Span rows carry `column` in the response (see [`shows_span_columns`]).
     pub(super) span_columns: bool,
-    pub(super) expand_context: SearchContext,
-    /// Multiline values are read once per file (see [`expansion_rows`]).
-    pub(super) multiline: bool,
-    pub(super) read_chars: usize,
     /// Rows are shown, so each hit row of an outlined language carries its
     /// `enclosing` name: the cut charges it (see [`PageCosts::name`]).
     pub(super) shows_names: bool,
@@ -176,9 +161,7 @@ impl PageCosts {
         query: &LocalSearchQuery,
         paths: &PathPolicy,
         output_root: &std::path::Path,
-        context: SearchContext,
     ) -> Self {
-        let match_only = local_search_query::view(query) == View::MatchOnly;
         let prefix_chars = match paths.workspace_relative(output_root).as_deref() {
             Some(".") => 0,
             Some(relative) => octocode_engine::json_size::string_body_units(relative) + 1,
@@ -188,38 +171,16 @@ impl PageCosts {
         };
         Self {
             prefix_chars,
-            match_only_limit: match_only.then_some(effective_match_content_length(query) as usize),
             span_columns: shows_span_columns(query),
-            expand_context: if match_only {
-                SearchContext::default()
-            } else {
-                context
-            },
-            multiline: local_search_query::multiline(query) != Multiline::Off,
             shows_names: !list_view(local_search_query::view(query)),
             owners: HashMap::new(),
-            read_chars: expansion_read_chars(
-                query,
-                local_search_query::multiline(query) != Multiline::Off,
-            ),
-        }
-    }
-
-    pub(super) fn clipped(&self, matched: &octocode_engine::types::TextSearchMatch) -> bool {
-        match self.match_only_limit {
-            Some(limit) => matched.value.chars().nth(limit).is_some(),
-            None => matched.original_chars.is_some(),
         }
     }
 
     pub(super) fn file(&self, file: &octocode_engine::types::TextSearchFile) -> usize {
-        let path = octocode_engine::json_size::string_body_units(&file.path) + self.prefix_chars;
-        let entry = path + FILE_ENTRY_CHARS;
-        if file.matches.iter().any(|m| self.clipped(m)) {
-            entry + self.read_chars + path
-        } else {
-            entry
-        }
+        octocode_engine::json_size::string_body_units(&file.path)
+            + self.prefix_chars
+            + FILE_ENTRY_CHARS
     }
 
     /// The enclosing name a hit row of file `index` carries (priced independently): its owner in a file the cut outlined, a reserve in
@@ -245,15 +206,6 @@ impl PageCosts {
     }
 
     pub(super) fn row(&self, matched: &octocode_engine::types::TextSearchMatch) -> usize {
-        let row = row_chars(matched, self.match_only_limit, self.span_columns);
-        if self.clipped(matched) {
-            // Its line range, and a share of the extra read every
-            // `RANGES_MAX_ITEMS` ranges open.
-            row + 2 * digits(matched.line.saturating_add(self.expand_context.after))
-                + 4
-                + self.read_chars.div_ceil(RANGES_MAX_ITEMS)
-        } else {
-            row
-        }
+        row_chars(matched, self.span_columns)
     }
 }

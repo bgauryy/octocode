@@ -165,6 +165,12 @@ pub(crate) fn offset(query: &LocalFetchQuery) -> Option<usize> {
     read_progress(query).map(|progress| usize_of_signed(progress.offset))
 }
 
+/// Lines one page holds at most: the caller's `limit`; omitted, the page
+/// budget alone cuts it.
+pub(crate) fn line_limit(query: &LocalFetchQuery) -> usize {
+    each_shape!(query, q => q.limit.map_or(usize::MAX, |limit| usize_of(limit.get())))
+}
+
 pub(crate) fn unit(query: &LocalFetchQuery) -> ReadProgressUnit {
     read_progress(query).map_or(ReadProgressUnit::Lines, |progress| progress.unit)
 }

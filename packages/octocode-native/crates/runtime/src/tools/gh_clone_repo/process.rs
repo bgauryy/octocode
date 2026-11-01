@@ -53,7 +53,7 @@ impl GitRunRequest<'_> {
 pub struct GitRunControl<'a> {
     pub cancellation: &'a dyn CancellationCheck,
     pub deadline: Instant,
-    pub cache_home: &'a Path,
+    pub home: &'a Path,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -244,7 +244,7 @@ impl SystemGit {
                 "Clone request deadline elapsed before Git execution.",
             ));
         }
-        let git_tmp = control.cache_home.join("tmp");
+        let git_tmp = control.home.join("tmp");
         let git_home = git_tmp.join("git-home");
         std::fs::create_dir_all(&git_home).map_err(|error| {
             CloneError::new(
@@ -291,7 +291,7 @@ impl SystemGit {
         let stderr = scrub(
             &String::from_utf8_lossy(&output.stderr),
             request.authorization,
-            control.cache_home,
+            control.home,
         );
         if !output.status.success() {
             let suffix = if stderr.trim().is_empty() {

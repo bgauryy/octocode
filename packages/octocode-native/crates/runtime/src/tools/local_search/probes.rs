@@ -42,6 +42,40 @@ pub(super) fn probe_unsearched(
 }
 
 /// The walk the query ran: the causes it skipped paths by.
+/// The hint of an empty search whose case rule decided it: a case-sensitive
+/// search (`caseMode:"sensitive"`, or `smart` with an uppercase letter)
+/// that the same walk matches with case ignored. `None` otherwise, without
+/// a probe when the search already ignored case.
+pub(super) fn case_hint(
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    search_options: &TextSearchOptions,
+    cancel: &impl CancellationCheck,
+) -> Option<String> {
+    let mode = local_search_query::case_mode(query);
+    let sensitive = match mode {
+        octocode_contract_types::CaseMode::Sensitive => true,
+        octocode_contract_types::CaseMode::Smart => local_search_query::patterns(query)
+            .0
+            .iter()
+            .any(|term| term.chars().any(char::is_uppercase)),
+        octocode_contract_types::CaseMode::Insensitive => false,
+    };
+    if !sensitive {
+        return None;
+    }
+    let mut probe = search_options.probe(SearchOutput::FilesWithMatch);
+    probe.case = octocode_engine::types::CaseRule::Insensitive;
+    let defaults = query_walk(query).default_excludes;
+    let (found, _, _) = probe_walked(probe, paths, defaults, cancel)?;
+    (!found.files.is_empty()).then(|| {
+        format!(
+            "No case-sensitive match, but {} file(s) match with case ignored; caseMode:\"insensitive\" finds them.",
+            found.files.len()
+        )
+    })
+}
+
 fn query_walk(query: &LocalSearchQuery) -> Walk {
     Walk {
         ignored: local_search_query::include_ignored(query) == Some(true),
@@ -282,7 +316,7 @@ fn probe_lifted(
     } else {
         SearchOutput::FilesWithMatch
     });
-    lifted.ignore = octocode_engine::search::walk::IgnorePolicy {
+    lifted.ignore = octocode_engine::types::IgnorePolicy {
         include_ignored: walk.ignored,
         include_hidden: walk.hidden,
     };

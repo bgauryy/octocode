@@ -139,23 +139,57 @@ pub(super) async fn salted_locations(
             authorized
         })
         .collect::<Vec<_>>();
+    let excluded = super::test_scope::retain_locations(query, sources.policy(), &mut locations);
     // Internal shape (exact provider ranges, without engine-only fields) drives
     // ordering, snapshots and grouping; `public_location` shapes emitted rows.
     locations = locations.into_iter().map(compact_location).collect();
     locations.sort_by_key(location_sort_key);
     locations.dedup_by(|a, b| location_sort_key(a) == location_sort_key(b));
-    if locations.is_empty() {
+    let mut row = if locations.is_empty() {
         // Locations exist but policy withheld them: not an absence.
         if out_of_policy > 0 {
-            return withheld(query, out_of_policy);
+            withheld(query, out_of_policy)
+        } else {
+            no_answer(
+                query,
+                "noLocations",
+                &format!("{provider} returned no locations"),
+            )
         }
-        return no_answer(
-            query,
-            "noLocations",
-            &format!("{provider} returned no locations"),
-        );
-    }
-    let snapshot = salted_snapshot(query, kind, &locations, salt);
+    } else {
+        let shape = LocationShape {
+            kind,
+            provider,
+            salt,
+            budget,
+        };
+        location_page(query, sources, &locations, shape).await
+    };
+    super::test_scope::disclose(&mut row, excluded);
+    row
+}
+
+/// What a location page is named and may spend.
+struct LocationShape<'a> {
+    kind: &'a str,
+    provider: &'a str,
+    salt: Option<&'a str>,
+    budget: usize,
+}
+
+/// The page row of the kept, ordered `locations`.
+async fn location_page(
+    query: &LspSearchQuery,
+    sources: &mut SourceCache<'_>,
+    locations: &[Value],
+    LocationShape {
+        kind,
+        provider,
+        salt,
+        budget,
+    }: LocationShape<'_>,
+) -> Value {
+    let snapshot = salted_snapshot(query, kind, locations, salt);
     if snapshot_mismatch(query, &snapshot) {
         return snapshot_changed(query);
     }
@@ -163,15 +197,15 @@ pub(super) async fn salted_locations(
     // the page unit becomes a file summary.
     let grouped = lsp_search_query::view(query) == "files";
     let entries = if grouped {
-        group_by_file(&locations)
+        group_by_file(locations)
     } else {
-        locations.clone()
+        locations.to_vec()
     };
     let sizes = location_sizes(&entries, grouped, lsp_search_query::context_lines(query));
     let (page, pagination, next_page) = paginate(
         &entries,
         lsp_search_query::page(query).unwrap_or(1),
-        &Pages::of(budget, &sizes, &snapshot),
+        &Pages::of(query, budget, &sizes, &snapshot),
     );
     let mut declaration_reads: Vec<Value> = Vec::new();
     let (key, rows) = if grouped {
@@ -192,7 +226,7 @@ pub(super) async fn salted_locations(
         let page = page.into_iter().map(public_location).collect::<Vec<_>>();
         ("matches", json!(page))
     };
-    let mut row = location_payload(kind, provider, key, rows, &locations, pagination);
+    let mut row = location_payload(kind, provider, key, rows, locations, pagination);
     offer_next_page(query, &mut row, next_page);
     // A clipped body is a partial row with its reason; the reads reach the
     // omitted lines.

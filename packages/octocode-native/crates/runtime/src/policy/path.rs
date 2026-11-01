@@ -38,18 +38,6 @@ pub struct PathPolicy {
     home_dir: Option<PathBuf>,
 }
 
-/// A search walk enters a directory the policy admits and reads a file it
-/// admits for reading.
-impl octocode_engine::search::text_search::TextSearchPathFilter for PathPolicy {
-    fn allows(&self, path: &Path, is_dir: bool) -> bool {
-        if is_dir {
-            self.validate(path).is_ok()
-        } else {
-            self.validate_read(path).is_ok()
-        }
-    }
-}
-
 impl PathPolicy {
     pub fn new(config: PathPolicyConfig) -> Result<Self, PolicyError> {
         let home = config.home_dir;
@@ -154,9 +142,9 @@ impl PathPolicy {
                 (
                     PolicyErrorCode::SymlinkEscape,
                     format!(
-                        "Symlink '{}' resolves to '{}', outside allowed directories{}",
+                        "Symlink '{}' resolves to {}, outside allowed directories{}",
                         self.display_requested(input, lexical),
-                        self.redact(&real),
+                        self.describe_target(&real),
                         self.describe_roots()
                     ),
                 )

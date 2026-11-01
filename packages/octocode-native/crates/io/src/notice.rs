@@ -22,9 +22,15 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 /// One call's notices: the first of each kind, in the order raised.
 type Notices = Mutex<Vec<(&'static str, String)>>;
 
-/// The notices one call raised. Clones share them.
+/// Where one call's progress lines go while it runs (see
+/// [`Scope::with_progress`]).
+pub type Progress = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// The notices one call raised, and the host's listener for its progress
+/// lines when the host shows them live (an MCP client that sent a progress
+/// token). Clones share both.
 #[derive(Clone)]
-pub struct Scope(Arc<Notices>);
+pub struct Scope(Arc<Notices>, Option<Progress>);
 
 thread_local! {
     static THREAD: RefCell<Option<Scope>> = const { RefCell::new(None) };
@@ -55,7 +61,7 @@ impl Default for Scope {
         let mut live = lock(&LIVE);
         live.retain(|scope| scope.strong_count() > 0);
         live.push(Arc::downgrade(&notices));
-        Self(notices)
+        Self(notices, None)
     }
 }
 
@@ -86,6 +92,19 @@ impl Scope {
     #[must_use]
     pub fn current() -> Option<Self> {
         THREAD.with(|thread| thread.borrow().clone())
+    }
+
+    /// A new scope whose call's progress lines go to `progress` as they
+    /// happen.
+    #[must_use]
+    pub fn with_progress(progress: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        Self(Self::default().0, Some(Arc::new(progress)))
+    }
+
+    /// The listener for this scope's progress lines, when its host gave one.
+    #[must_use]
+    pub fn progress(&self) -> Option<Progress> {
+        self.1.clone()
     }
 
     /// The notices raised in this scope, the first of each kind, in the
@@ -169,6 +188,7 @@ pub fn emit(text: impl Into<String>, scope: Option<&Scope>) {
 #[cfg(test)]
 mod tests {
     use super::{Scope, carried, raise};
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn repeated_diagnostics_are_scoped_and_unscoped_ones_are_not_broadcast() {
@@ -247,5 +267,25 @@ mod tests {
             .run(async { raise("notice-test-task", "notice-test-task: one") })
             .await;
         assert_eq!(of(&later, "notice-test-task"), ["notice-test-task: one"]);
+    }
+
+    /// A scope with a progress listener hands it to the code running in it,
+    /// on its thread and on work carried elsewhere; other scopes have none.
+    #[test]
+    fn a_scope_carries_its_progress_listener() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        let scope = Scope::with_progress(move |line| {
+            sink.lock().expect("lines").push(line.to_owned());
+        });
+        let _in = scope.enter();
+        let carried = carried(|| Scope::current().and_then(|scope| scope.progress()));
+        let listener = std::thread::spawn(carried)
+            .join()
+            .expect("thread")
+            .expect("listener");
+        listener("parsed 1/2 files");
+        assert_eq!(*seen.lock().expect("lines"), ["parsed 1/2 files"]);
+        assert!(Scope::default().progress().is_none());
     }
 }

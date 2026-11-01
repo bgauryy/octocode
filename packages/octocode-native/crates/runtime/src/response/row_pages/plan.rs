@@ -2,15 +2,16 @@ use super::super::result::Remaining;
 use super::arena::Window;
 use super::evidence::DependencyError;
 use super::{
-    FragmentArena, PartShare, Placed, delivered_collections, drop_delivered_elsewhere, fair_shares,
+    FragmentArena, PartShare, Placed, delivered_collections, drop_delivered_elsewhere,
     keep_row_next, row_next_chars, row_part_chars, volatile_reserve,
 };
 use serde_json::{Map, Value, json};
-use std::collections::BTreeSet;
 use tokio_util::sync::CancellationToken;
 
 mod fields;
+mod pages;
 use fields::{insert_field, restore_fields, take_guidance};
+use pages::{Pages, head_limit};
 
 /// The page plan of a row-scoped response: every fragment of every row,
 /// placed on a page by its size.
@@ -25,7 +26,36 @@ pub(super) struct RowPlan {
     delivered: Vec<Vec<String>>,
     placed: Vec<Placed>,
     pub(super) total_pages: usize,
-    pub(super) rows: usize,
+    /// Each row's query index ([`query_indexes`]).
+    queries: Vec<usize>,
+}
+
+/// The query indexes of the rows a page leaves for later pages, in row
+/// order: rows none of whose parts is on the page or an earlier one, and
+/// rows split across it.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct Later {
+    pub(super) unserved: Vec<usize>,
+    pub(super) continued: Vec<usize>,
+}
+
+impl Later {
+    pub(super) fn is_empty(&self) -> bool {
+        self.unserved.is_empty() && self.continued.is_empty()
+    }
+}
+
+/// Each row's query index: the `index` it carries, else its position.
+pub(super) fn query_indexes(rows: &[Value]) -> Vec<usize> {
+    rows.iter()
+        .enumerate()
+        .map(|(position, row)| {
+            row.get("index")
+                .and_then(Value::as_u64)
+                .and_then(|index| usize::try_from(index).ok())
+                .unwrap_or(position)
+        })
+        .collect()
 }
 
 /// The rows of one envelope readied for planning at any row budget: their
@@ -39,17 +69,18 @@ pub(super) struct PreparedRows {
     reserves: Vec<usize>,
     /// Each row's chars on a page: its comma and reserve added.
     sizes: Vec<usize>,
-    tool: Option<crate::id::ToolId>,
+    tool: crate::id::ToolId,
     volatile: Vec<Option<Map<String, Value>>>,
+    queries: Vec<usize>,
 }
 
 impl PreparedRows {
     pub(super) fn new(
         mut rows: Vec<Value>,
         volatile: &[Option<Map<String, Value>>],
-        tool: Option<crate::id::ToolId>,
+        tool: crate::id::ToolId,
     ) -> Self {
-        let first_names = tool.map_or(&[][..], |tool| tool.output().first_fragment_fields());
+        let first_names = tool.first_fragment_fields();
         let before = rows
             .iter()
             .map(|row| octocode_engine::json_size::utf16_units(row).unwrap_or(0))
@@ -81,28 +112,29 @@ impl PreparedRows {
                 fields
             })
             .collect::<Vec<_>>();
-        let reserves = rows
+        // Each row is measured once more, without its first-fragment fields.
+        let chars: Vec<usize> = rows
+            .iter()
+            .map(|row| octocode_engine::json_size::utf16_units(row).unwrap_or(0))
+            .collect();
+        let reserves = chars
             .iter()
             .enumerate()
-            .map(|(index, row)| {
-                before[index]
-                    .saturating_sub(octocode_engine::json_size::utf16_units(row).unwrap_or(0))
+            .map(|(index, chars)| {
+                before[index].saturating_sub(*chars)
                     + volatile
                         .get(index)
                         .and_then(Option::as_ref)
                         .map_or(0, volatile_reserve)
             })
             .collect::<Vec<_>>();
-        let chars: Vec<usize> = rows
-            .iter()
-            .map(|row| octocode_engine::json_size::utf16_units(row).unwrap_or(0))
-            .collect();
         let sizes = chars
             .iter()
             .zip(&reserves)
             .map(|(chars, reserve)| chars + 1 + reserve)
             .collect();
         Self {
+            queries: query_indexes(&rows),
             rows,
             first_fields,
             reserves,
@@ -110,6 +142,11 @@ impl PreparedRows {
             tool,
             volatile: volatile.to_vec(),
         }
+    }
+
+    /// Each row's query index.
+    pub(super) fn queries(&self) -> &[usize] {
+        &self.queries
     }
 
     /// The rows' sizes added up: what they take on a page when none is split.
@@ -140,16 +177,11 @@ impl PreparedRows {
             sizes,
             tool,
             volatile,
+            queries,
         } = self;
-        let shares = fair_shares(&sizes, row_budget);
-        let page_context = tool.map(crate::contracts::output_fields::page_context_fields);
-        let mut arena = FragmentArena {
-            page_context,
-            collection_routes: page_context.map(|context| &context.collection_routes),
-            ..FragmentArena::default()
-        };
-        let mut heads = Vec::with_capacity(rows.len());
-        let mut tails = Vec::new();
+        let mut arena = FragmentArena::new(tool);
+        let page_context = arena.page_context;
+        let mut pages = Pages::new(row_budget);
         let mut guidance = Vec::with_capacity(rows.len());
         let mut delivered = Vec::with_capacity(rows.len());
         for (position, mut row) in rows.into_iter().enumerate() {
@@ -160,9 +192,7 @@ impl PreparedRows {
                 .map(|share| row_next_chars(&row, share));
             guidance.push(take_guidance(&mut row));
             let catalog = arena.take_catalog(&mut row, cancelled)?;
-            delivered.push(page_context.map_or_else(Vec::new, |context| {
-                delivered_collections(&row, &context.fixed_paths)
-            }));
+            delivered.push(delivered_collections(&row, &page_context.fixed_paths));
             let mut extra = arena.dependencies(
                 catalog,
                 &Value::Object(first_fields[position].clone()),
@@ -174,7 +204,7 @@ impl PreparedRows {
                 arena.merge_evidence(&mut extra, &added, cancelled)?;
             }
             let extra_chars = arena.evidence_chars(&extra)?;
-            let head = head_limit(sizes[position], shares[position], reserves[position]);
+            let head = head_limit(sizes[position], pages.room(), reserves[position]);
             let parts = plan_row(
                 &mut arena,
                 row,
@@ -202,15 +232,11 @@ impl PreparedRows {
                 &extra,
                 kept,
             )?;
-            for placed in parts {
-                if placed.0.part == 1 {
-                    heads.push(placed);
-                } else {
-                    tails.push(placed);
-                }
+            for (fragment, chars) in parts {
+                pages.place(fragment, chars);
             }
         }
-        let (placed, total_pages) = assign_pages(heads.into_iter().chain(tails), row_budget);
+        let (placed, total_pages) = pages.finish();
         Ok(RowPlan {
             arena,
             first_fields,
@@ -218,7 +244,7 @@ impl PreparedRows {
             delivered,
             placed,
             total_pages,
-            rows: sizes.len(),
+            queries,
         })
     }
 }
@@ -242,13 +268,11 @@ impl RowPlan {
                     return Err(DependencyError::Cancelled);
                 }
                 let mut value = self.arena.materialize(&p.fragment);
-                if let Some(context) = self.arena.page_context {
-                    drop_delivered_elsewhere(
-                        &mut value,
-                        &self.delivered[p.row],
-                        &context.optional_paths,
-                    );
-                }
+                drop_delivered_elsewhere(
+                    &mut value,
+                    &self.delivered[p.row],
+                    &self.arena.page_context.optional_paths,
+                );
                 if let Some(row) = value.as_object_mut() {
                     restore_fields(row, self.guidance[p.row].clone());
                 }
@@ -287,30 +311,30 @@ impl RowPlan {
             .collect()
     }
 
-    /// How many rows have a part on a page after `page`.
-    pub(super) fn rows_after(&self, page: usize) -> usize {
-        let mut later: Vec<usize> = self
-            .placed
-            .iter()
-            .filter(|p| p.page > page)
-            .map(|p| p.row)
-            .collect();
-        later.sort_unstable();
-        later.dedup();
-        later.len()
-    }
-}
-
-/// A row's first-fragment bound: unbounded when the row fits its fair
-/// share of page one, else that share less the row's comma, per-call
-/// facts, and `rowPart`.
-fn head_limit(size: usize, share: usize, reserve: usize) -> usize {
-    if size <= share {
-        usize::MAX
-    } else {
-        share
-            .saturating_sub(1 + reserve + row_part_chars(1, size.max(1)))
-            .max(1)
+    /// The rows with a part on a page after `page`, by query index: unserved
+    /// when no part is on `page` or before, else continued.
+    pub(super) fn later(&self, page: usize) -> Later {
+        let rows = self.queries.len();
+        let (mut started, mut pending) = (vec![false; rows], vec![false; rows]);
+        for placed in &self.placed {
+            if placed.page > page {
+                pending[placed.row] = true;
+            } else {
+                started[placed.row] = true;
+            }
+        }
+        let mut later = Later::default();
+        for (row, query) in self.queries.iter().enumerate() {
+            if !pending[row] {
+                continue;
+            }
+            if started[row] {
+                later.continued.push(*query);
+            } else {
+                later.unserved.push(*query);
+            }
+        }
+        later
     }
 }
 
@@ -358,32 +382,4 @@ fn plan_row(
             Ok((placed, chars + 1 + part_chars + added + kept))
         })
         .collect()
-}
-
-/// Assign pages in order: a page takes fragments while they fit
-/// `row_budget`, and never two parts of one row, so the entry for a row on
-/// a page is all of that row the page holds. Returns the fragments and the
-/// page count.
-fn assign_pages(
-    order: impl Iterator<Item = (Placed, usize)>,
-    row_budget: usize,
-) -> (Vec<Placed>, usize) {
-    let mut placed = Vec::new();
-    let mut page = 0usize;
-    let mut page_chars = 0usize;
-    let mut page_rows = BTreeSet::new();
-    for (mut fragment, chars) in order {
-        if !page_rows.is_empty()
-            && (page_rows.contains(&fragment.row) || page_chars + chars > row_budget)
-        {
-            page += 1;
-            page_chars = 0;
-            page_rows.clear();
-        }
-        page_chars += chars;
-        page_rows.insert(fragment.row);
-        fragment.page = page;
-        placed.push(fragment);
-    }
-    (placed, page + 1)
 }

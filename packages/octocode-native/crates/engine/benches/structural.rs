@@ -9,7 +9,7 @@
 //! pattern compilation + `match_multi_capture` walk over every node. Parse time
 //! dominates on small inputs, so we sweep three realistic TypeScript sizes to
 //! separate fixed parse cost from per-node match cost. A regression inside the
-//! matcher core is invisible to the Node/CLI benchmarks (JS+FFI noise) — this is
+//! matcher core is invisible to the end-to-end CLI benchmarks (process noise) — this is
 //! the only place it shows up as pure-Rust latency.
 
 use std::hint::black_box;

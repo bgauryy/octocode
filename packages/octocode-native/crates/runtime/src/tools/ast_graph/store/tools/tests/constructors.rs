@@ -1,8 +1,7 @@
 use super::*;
 
 fn rows(dir: &Path, operation: &str, target: &str) -> Value {
-    let mut input =
-        json!({"operation":operation,"path":"app","target":target,"edges":["calls"],"limit":1000});
+    let mut input = json!({"operation":operation,"path":"app","target":target,"edges":["calls"],"limit":1000,"includeProvenance":true});
     if operation == "witnesses" {
         input["confidence"] = json!("low");
     }
@@ -42,7 +41,7 @@ fn constructor_boundaries_retain_sites_without_borrowing_unrelated_bindings() {
     let mut original = Vec::new();
     for (file, source) in sources.into_iter().take(3) {
         let out = rows(&dir.0, "unresolved", file);
-        let found = out["results"].as_array().unwrap();
+        let found = out["rows"].as_array().unwrap();
         assert!(!found.is_empty(), "{out}");
         for row in found {
             *reasons
@@ -58,8 +57,11 @@ fn constructor_boundaries_retain_sites_without_borrowing_unrelated_bindings() {
                 octocode_engine::digest::sha256(source.as_bytes())
             );
         }
-        assert_eq!(rows(&dir.0, "witnesses", file)["total"], 0);
-        original.push((file, out["results"].clone()));
+        assert_eq!(
+            rows(&dir.0, "witnesses", file)["pagination"]["totalItems"],
+            0
+        );
+        original.push((file, out["rows"].clone()));
     }
     assert_eq!(
         reasons,
@@ -74,11 +76,11 @@ fn constructor_boundaries_retain_sites_without_borrowing_unrelated_bindings() {
     let fresh = call(
         &dir.0,
         ToolId::GraphBuild,
-        json!({"path":"app","force":true}),
+        json!({"path":"app","refresh":true}),
     );
     assert_eq!(fresh["linkage"], built["linkage"]);
     for (file, expected) in original {
-        assert_eq!(rows(&dir.0, "unresolved", file)["results"], expected);
+        assert_eq!(rows(&dir.0, "unresolved", file)["rows"], expected);
     }
 }
 
@@ -95,8 +97,8 @@ fn named_constructions_only_link_type_candidates_and_oxc_keeps_callable_construc
     );
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     let named = rows(&dir.0, "witnesses", "named.cpp");
-    assert_eq!(named["total"], 2, "{named}");
-    for row in named["results"].as_array().unwrap() {
+    assert_eq!(named["pagination"]["totalItems"], 2, "{named}");
+    for row in named["rows"].as_array().unwrap() {
         let target = call(
             &dir.0,
             ToolId::GraphQuery,
@@ -106,9 +108,9 @@ fn named_constructions_only_link_type_candidates_and_oxc_keeps_callable_construc
         assert_eq!(row["detail"], "constructs:local");
     }
     let js = rows(&dir.0, "witnesses", "factory.js");
-    assert_eq!(js["total"], 2, "{js}");
+    assert_eq!(js["pagination"]["totalItems"], 2, "{js}");
     assert_eq!(
-        js["results"]
+        js["rows"]
             .as_array()
             .unwrap()
             .iter()
@@ -130,12 +132,12 @@ fn recovered_constructor_stays_unresolved_while_healthy_neighbor_links() {
     assert_eq!(built["linkage"]["eligible"], 1);
     assert_eq!(built["linkage"]["excluded"], 1);
     let out = rows(&dir.0, "unresolved", "recovered.java");
-    assert_eq!(out["total"], 1, "{out}");
-    assert_eq!(out["results"][0]["reason"], "recovered-declaration");
+    assert_eq!(out["pagination"]["totalItems"], 1, "{out}");
+    assert_eq!(out["rows"][0]["reason"], "recovered-declaration");
     let healthy = rows(&dir.0, "witnesses", "recovered.java");
-    assert_eq!(healthy["total"], 1, "{healthy}");
+    assert_eq!(healthy["pagination"]["totalItems"], 1, "{healthy}");
     assert!(
-        healthy["results"][0]["from"]
+        healthy["rows"][0]["from"]
             .as_str()
             .unwrap()
             .ends_with(".healthy")
@@ -151,16 +153,19 @@ fn leading_global_constructor_does_not_bind_a_nested_type() {
     );
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     let out = rows(&dir.0, "witnesses", "global.cpp");
-    assert_eq!(out["total"], 1, "{out}");
-    assert_eq!(out["results"][0]["to"], "global.cpp#Box");
+    assert_eq!(out["pagination"]["totalItems"], 1, "{out}");
+    assert_eq!(out["rows"][0]["to"], "global.cpp#Box");
     dir.write(
         "app/global.cpp",
         "namespace inner { struct Box {}; void run(){ new ::Box(); } }",
     );
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
-    assert_eq!(rows(&dir.0, "witnesses", "global.cpp")["total"], 0);
+    assert_eq!(
+        rows(&dir.0, "witnesses", "global.cpp")["pagination"]["totalItems"],
+        0
+    );
     let unresolved = rows(&dir.0, "unresolved", "global.cpp");
-    assert_eq!(unresolved["total"], 1, "{unresolved}");
+    assert_eq!(unresolved["pagination"]["totalItems"], 1, "{unresolved}");
 }
 
 #[test]
@@ -179,11 +184,14 @@ fn constructors_require_the_full_written_container_and_lexical_visibility() {
         dir.write("app/scoped.cpp", source);
         call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
         let out = rows(&dir.0, "witnesses", "scoped.cpp");
-        assert_eq!(out["total"], 0, "{source}: {out}");
+        assert_eq!(out["pagination"]["totalItems"], 0, "{source}: {out}");
         let unresolved = rows(&dir.0, "unresolved", "scoped.cpp");
-        assert_eq!(unresolved["total"], expected, "{unresolved}");
+        assert_eq!(
+            unresolved["pagination"]["totalItems"], expected,
+            "{unresolved}"
+        );
         let mut ids = BTreeSet::new();
-        for row in unresolved["results"].as_array().unwrap() {
+        for row in unresolved["rows"].as_array().unwrap() {
             assert!(ids.insert(row["id"].as_str().unwrap()));
             let start = row["sourceRange"]["startByte"].as_u64().unwrap() as usize;
             let end = row["sourceRange"]["endByte"].as_u64().unwrap() as usize;
@@ -197,9 +205,9 @@ fn constructors_require_the_full_written_container_and_lexical_visibility() {
     );
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     let out = rows(&dir.0, "witnesses", "scoped.cpp");
-    assert_eq!(out["total"], 2, "{out}");
+    assert_eq!(out["pagination"]["totalItems"], 2, "{out}");
     assert!(
-        out["results"]
+        out["rows"]
             .as_array()
             .unwrap()
             .iter()
@@ -213,16 +221,16 @@ fn exact_namespace_constructor_paths_preserve_ambiguity_without_casing_heuristic
     dir.write("app/namespaces.cpp","namespace lower { struct Box {}; } struct Root {}; void run(){ new lower::Box(); new ::lower::Box(); new ::Root(); }");
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     let out = rows(&dir.0, "witnesses", "namespaces.cpp");
-    assert_eq!(out["total"], 3, "{out}");
+    assert_eq!(out["pagination"]["totalItems"], 3, "{out}");
     assert!(
-        out["results"]
+        out["rows"]
             .as_array()
             .unwrap()
             .iter()
             .all(|row| row["confidence"] == "high")
     );
     assert_eq!(
-        out["results"]
+        out["rows"]
             .as_array()
             .unwrap()
             .iter()
@@ -233,9 +241,9 @@ fn exact_namespace_constructor_paths_preserve_ambiguity_without_casing_heuristic
     dir.write("app/namespaces.cpp","namespace lower { struct Box {}; }\nnamespace lower { struct Box {}; }\nvoid run(){ new lower::Box(); }");
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     let ambiguous = rows(&dir.0, "witnesses", "namespaces.cpp");
-    assert_eq!(ambiguous["total"], 2, "{ambiguous}");
+    assert_eq!(ambiguous["pagination"]["totalItems"], 2, "{ambiguous}");
     assert!(
-        ambiguous["results"]
+        ambiguous["rows"]
             .as_array()
             .unwrap()
             .iter()
@@ -246,7 +254,7 @@ fn exact_namespace_constructor_paths_preserve_ambiguity_without_casing_heuristic
         ToolId::GraphQuery,
         json!({"operation":"witnesses","path":"app","target":"namespaces.cpp","edges":["calls"],"confidence":"high"}),
     );
-    assert_eq!(strong["total"], 0);
+    assert_eq!(strong["pagination"]["totalItems"], 0);
 }
 
 #[test]
@@ -258,11 +266,11 @@ fn anonymous_namespace_occurrences_remain_distinct_and_do_not_flatten_to_root() 
     let scopes = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"candidates","path":"app","target":"(anonymous namespace)","kind":"symbol"}),
+        json!({"operation":"candidates","path":"app","target":"(anonymous namespace)","kind":"symbol","includeProvenance":true}),
     );
-    assert_eq!(scopes["total"], 2, "{scopes}");
+    assert_eq!(scopes["pagination"]["totalItems"], 2, "{scopes}");
     assert_eq!(
-        scopes["results"]
+        scopes["rows"]
             .as_array()
             .unwrap()
             .iter()
@@ -271,14 +279,20 @@ fn anonymous_namespace_occurrences_remain_distinct_and_do_not_flatten_to_root() 
             .len(),
         2
     );
-    for row in scopes["results"].as_array().unwrap() {
+    for row in scopes["rows"].as_array().unwrap() {
         assert_eq!(row["symbolKind"], "namespace");
         let start = row["sourceRange"]["startByte"].as_u64().unwrap() as usize;
         let end = row["sourceRange"]["endByte"].as_u64().unwrap() as usize;
         assert!(source[start..end].starts_with("namespace {"));
     }
-    assert_eq!(rows(&dir.0, "witnesses", "anonymous.cpp")["total"], 0);
-    assert_eq!(rows(&dir.0, "unresolved", "anonymous.cpp")["total"], 2);
+    assert_eq!(
+        rows(&dir.0, "witnesses", "anonymous.cpp")["pagination"]["totalItems"],
+        0
+    );
+    assert_eq!(
+        rows(&dir.0, "unresolved", "anonymous.cpp")["pagination"]["totalItems"],
+        2
+    );
 }
 
 #[test]
@@ -292,14 +306,14 @@ fn unproven_namespace_reopening_keeps_explicit_unassessed_sites_and_counts() {
         let built = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
         assert_eq!(built["linkage"]["eligible"], 0, "{built}");
         assert_eq!(built["linkage"]["excluded"], 1, "{built}");
-        assert_eq!(rows(&dir.0, "witnesses", "reopened.cpp")["total"], 0);
-        let out = rows(&dir.0, "unresolved", "reopened.cpp");
-        assert_eq!(out["total"], 1, "{out}");
         assert_eq!(
-            out["results"][0]["reason"],
-            "constructor-binding-not-assessed"
+            rows(&dir.0, "witnesses", "reopened.cpp")["pagination"]["totalItems"],
+            0
         );
-        assert_eq!(out["results"][0]["targetName"], "Box");
-        assert!(out["results"][0].get("candidates").is_none());
+        let out = rows(&dir.0, "unresolved", "reopened.cpp");
+        assert_eq!(out["pagination"]["totalItems"], 1, "{out}");
+        assert_eq!(out["rows"][0]["reason"], "constructor-binding-not-assessed");
+        assert_eq!(out["rows"][0]["targetName"], "Box");
+        assert!(out["rows"][0].get("candidates").is_none());
     }
 }

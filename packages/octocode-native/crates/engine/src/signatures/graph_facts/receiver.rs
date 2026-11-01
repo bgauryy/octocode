@@ -114,6 +114,8 @@ struct Binding {
     from: usize,
     /// Byte where its scope ends.
     until: usize,
+    /// A Rust `let` without a type whose value is a call (`let x = c.f()?;`).
+    value_call: Option<crate::graph::GraphReceiverCall>,
 }
 
 /// Per-tree receiver-type resolver; caches function bindings, type fields
@@ -185,6 +187,7 @@ impl<'t> ReceiverTypes<'t> {
             return match self.local(receiver, path, name, content) {
                 Some(binding) => binding.ty.clone(),
                 None if lang.has_implicit_this() => self.enclosing_field(path, name, content, true),
+                None if lang == Lang::Rust => self.rust_item_type(name, content),
                 None => None,
             };
         }
@@ -355,10 +358,11 @@ mod type_text;
 use crate::signatures::receiver_fields::{Fields, merge};
 use bindings::{bind_pattern, push};
 use cpp::cpp_declarator_name;
+pub(super) use rust::rust_return_types;
 #[cfg(feature = "tree-sitter-scala")]
 pub(super) use scala::ScalaTerms;
 use type_text::is_identifier;
-pub(super) use type_text::{clean_type_text, python_type_text};
+pub(super) use type_text::{clean_type_text, python_type_text, rust_try_argument};
 
 #[cfg(test)]
 mod tests;

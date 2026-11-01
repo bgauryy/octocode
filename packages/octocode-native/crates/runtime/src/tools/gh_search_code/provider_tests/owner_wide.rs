@@ -62,7 +62,9 @@ async fn owner_wide_rows_list_numbered_lines_at_the_indexed_commit() {
         assert_eq!(row["owner"], "o", "{}", out.data);
         assert_eq!(row["commitSha"], SHA, "{}", out.data);
     }
-    let read = &out.data["next"]["read"]["input"]["queries"][0];
+    let read =
+        &crate::tools::test_support::checks::related_call(&out.data, "ghGetFileContent", |_| true)
+            ["input"]["queries"][0];
     assert_eq!(read["ref"], SHA, "{}", out.data);
     assert_eq!(read["owner"], "o", "{}", out.data);
     assert_eq!(read["repo"], "a", "{}", out.data);

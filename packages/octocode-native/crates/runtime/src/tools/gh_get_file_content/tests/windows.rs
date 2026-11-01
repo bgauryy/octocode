@@ -153,7 +153,7 @@ async fn default_read_uses_budget_and_canonical_cursor_progress() {
     )
     .await;
     let next = result.file.calls.expect("budget requires continuation");
-    let row = &next["continueWindow"]["input"]["queries"][0];
+    let row = &next["nextPage"]["input"]["queries"][0];
     assert_eq!(row["ref"], sha);
     assert!(
         row["readProgress"]["offset"]
@@ -192,11 +192,7 @@ async fn a_minified_file_walks_to_its_end_through_next_continue() {
         text.push_str(file.content.content.as_deref().unwrap_or_default());
         pages += 1;
         assert!(pages < 40, "runaway paging");
-        match file
-            .calls
-            .as_ref()
-            .map(|next| next["continueWindow"].clone())
-        {
+        match file.calls.as_ref().map(|next| next["nextPage"].clone()) {
             Some(next) if !next.is_null() => {
                 query = next["input"]["queries"][0].clone();
             }
@@ -237,7 +233,7 @@ async fn oversized_full_content_is_partial_not_empty() {
     assert_eq!(file.content.is_partial, Some(true));
     // The continuation resumes exactly where the page ends: no line of
     // the file falls between the two.
-    let window = &file.calls.as_ref().expect("next")["continueWindow"]["input"]["queries"][0];
+    let window = &file.calls.as_ref().expect("next")["nextPage"]["input"]["queries"][0];
     // Line pages: the offset is the first unread line.
     let line = "line of text\n".len();
     let offset = window["readProgress"]["offset"].as_u64().expect("offset") as usize;
@@ -248,7 +244,7 @@ async fn oversized_full_content_is_partial_not_empty() {
 
 /// The row's response window sizes a ranged read's page: a smaller
 /// window serves fewer lines, a larger one more, and each page ends in
-/// the tool's own `continueWindow` at the read commit, so a small
+/// the tool's own `nextPage` at the read commit, so a small
 /// `responseChars` never falls through to text pages of the response.
 #[tokio::test]
 async fn the_response_window_sizes_the_read_page() {
@@ -283,7 +279,7 @@ async fn the_response_window_sizes_the_read_page() {
             .count();
         assert!(chars <= window, "window {window}: content of {chars} chars");
         let next = file.calls.as_ref().expect("next");
-        let page = &next["continueWindow"]["input"]["queries"][0];
+        let page = &next["nextPage"]["input"]["queries"][0];
         assert_eq!(page["ref"], sha, "{next}");
         lines.push(
             file.content
@@ -330,13 +326,13 @@ async fn saved_windows_reuse_cached_bytes_or_reacquire_only_the_pinned_commit() 
         };
         let first = read(
             &provider,
-            json!({"owner":"a","repo":"b","path":"source.txt","ref":"main","forceRefresh":true}),
+            json!({"owner":"a","repo":"b","path":"source.txt","ref":"main","refresh":true}),
         )
         .await;
-        let row = first.file.calls.expect("saved window")["continueWindow"]["input"]["queries"][0]
-            .clone();
+        let row =
+            first.file.calls.expect("saved window")["nextPage"]["input"]["queries"][0].clone();
         assert_eq!(row["ref"], sha);
-        assert_eq!(row["forceRefresh"], true);
+        assert_eq!(row["refresh"], true);
         assert!(
             row["readProgress"]["offset"]
                 .as_u64()

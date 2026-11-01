@@ -34,6 +34,7 @@ pub(super) fn ask(dir: &Fixture, op: &str, target: &str, offset: usize, full: bo
         offset: Some(offset),
         limit: Some(7),
         check_freshness: true,
+        include_provenance: true,
         ..Default::default()
     };
     match run_with(&options, &workspace_policy(&dir.0), &NeverCancel, !full) {
@@ -43,7 +44,6 @@ pub(super) fn ask(dir: &Fixture, op: &str, target: &str, offset: usize, full: bo
 
 pub(super) fn evidence(mut output: GraphOutput) -> Value {
     let object = output.value.as_object_mut().unwrap();
-    object.remove("validation");
     object.remove("freshness");
     output.value
 }
@@ -62,15 +62,15 @@ fn selective_point_queries_match_full_projection_across_record_blocks() {
         let point = ask(&dir, op, target, offset, false);
         let full = ask(&dir, op, target, offset, true);
         assert_eq!(point.class, full.class, "{op}: {}", point.value);
-        if point.value.get("validation").is_some() {
-            assert_eq!(point.value["validation"]["scope"], "accessedBlocks");
+        if !point.validation.is_null() {
+            assert_eq!(point.validation["scope"], "accessedBlocks");
             assert!(
-                point.value["validation"]["bytesRead"].as_u64().unwrap()
-                    < point.value["validation"]["snapshotBytes"].as_u64().unwrap()
+                point.validation["bytesRead"].as_u64().unwrap()
+                    < point.validation["snapshotBytes"].as_u64().unwrap()
             );
-            assert!(point.value["validation"]["decodedNodes"].as_u64().unwrap() < 701);
-            assert_eq!(point.value["validation"]["decodedEdges"], 0);
-            assert_eq!(point.value["validation"]["decodedWitnesses"], 0);
+            assert!(point.validation["decodedNodes"].as_u64().unwrap() < 701);
+            assert_eq!(point.validation["decodedEdges"], 0);
+            assert_eq!(point.validation["decodedWitnesses"], 0);
         }
         assert_eq!(evidence(point), evidence(full), "{op}/{target}/{offset}");
     }
@@ -83,9 +83,9 @@ fn selective_find_pages_reach_every_row_once() {
     for offset in (0..700).step_by(7) {
         let out = ask(&dir, "find", "fn", offset, false);
         assert_eq!(out.class, ExitClass::Success, "{}", out.value);
-        assert_eq!(out.value["total"], 700);
+        assert_eq!(out.value["pagination"]["totalItems"], 700);
         ids.extend(
-            out.value["results"]
+            out.value["rows"]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -112,14 +112,9 @@ fn topology_skips_occurrence_bodies_and_point_freshness_keeps_inventory_checks()
             selected.class,
             ExitClass::Success | ExitClass::Empty
         ));
-        assert_eq!(selected.value["validation"]["scope"], "accessedBlocks");
-        assert_eq!(selected.value["validation"]["decodedWitnesses"], 0);
-        assert!(
-            selected.value["validation"]["decodedEdges"]
-                .as_u64()
-                .unwrap()
-                > 0
-        );
+        assert_eq!(selected.validation["scope"], "accessedBlocks");
+        assert_eq!(selected.validation["decodedWitnesses"], 0);
+        assert!(selected.validation["decodedEdges"].as_u64().unwrap() > 0);
         assert_eq!(evidence(selected), evidence(full), "{op}");
     }
     assert_eq!(
@@ -129,7 +124,6 @@ fn topology_skips_occurrence_bodies_and_point_freshness_keeps_inventory_checks()
     dir.write("app/added.ts", "export const added = 1;");
     let selected = ask(&dir, "node", "fn0000", 0, false);
     assert_eq!(selected.value["freshness"]["fresh"], false);
-    assert_eq!(selected.value["freshness"]["addedChecked"], true);
     assert_eq!(
         evidence(selected),
         evidence(ask(&dir, "node", "fn0000", 0, true))
@@ -161,8 +155,8 @@ fn selective_integrity_discloses_unread_corruption_and_rejects_requested_blocks(
     let point = ask(&dir, "node", "fn0000", 0, false);
     assert_eq!(point.class, ExitClass::Success, "{}", point.value);
     assert!(
-        point.value["validation"]["checkedBlocks"].as_u64().unwrap()
-            < point.value["validation"]["totalBlocks"].as_u64().unwrap()
+        point.validation["checkedBlocks"].as_u64().unwrap()
+            < point.validation["totalBlocks"].as_u64().unwrap()
     );
     assert_ne!(
         ask(&dir, "witnesses", "fn0000", 0, false).class,
@@ -229,7 +223,7 @@ fn point_and_topology_reads_skip_evidence_text() {
     ] {
         let out = ask(&dir, op, target, 0, false);
         assert_eq!(out.class, ExitClass::Success, "{op}: {}", out.value);
-        let read = out.value["validation"]["bytesRead"].as_u64().unwrap();
+        let read = out.validation["bytesRead"].as_u64().unwrap();
         assert!(
             read <= bytes.len() as u64 + directories - unread,
             "{op} read {read} of {} bytes",
@@ -238,7 +232,7 @@ fn point_and_topology_reads_skip_evidence_text() {
     }
     let file = ask(&dir, "node", "code.ts", 0, false);
     assert!(
-        file.value["validation"]["bytesRead"].as_u64().unwrap()
+        file.validation["bytesRead"].as_u64().unwrap()
             <= bytes.len() as u64 - unread - len(b"SRCE"),
         "a file node renders no source origin"
     );

@@ -14,9 +14,6 @@ fn hit(line: u32, value: &str) -> octocode_engine::types::TextSearchMatch {
         value_digest: octocode_engine::types::TextSearchMatch::digest_of(value),
         count: None,
         rank: None,
-        original_chars: None,
-
-        original_bytes: None,
     }
 }
 
@@ -48,6 +45,7 @@ fn a_parallel_redaction_records_in_file_order() {
         }
         std::fs::write(&path, body).expect("fixture");
         files.push(octocode_engine::types::TextSearchFile {
+            term_counts: Vec::new(),
             path: path.to_string_lossy().into_owned(),
             match_count: matches.len() as u32,
             matches,
@@ -70,7 +68,6 @@ fn a_parallel_redaction_records_in_file_order() {
         expected_digest: &expected,
         security: &security,
         cancel: &NeverCancel,
-        walk_threads: None,
     };
     let redact = || {
         let mut parsed = scan.clone();
@@ -111,6 +108,7 @@ fn file_with(
     matches: Vec<octocode_engine::types::TextSearchMatch>,
 ) -> octocode_engine::types::TextSearchFile {
     octocode_engine::types::TextSearchFile {
+        term_counts: Vec::new(),
         path: "source.txt".into(),
         match_count: matches.len() as u32,
         matches,
@@ -175,7 +173,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
     )
     .expect("fixture");
     let mut file = file_with(vec![hit(5, "…interiorKeyBo")]);
-    let verified = guard_clipped_secrets(
+    let verified = guard_source_secrets(
         &mut file,
         &source,
         Expected::Fresh,
@@ -200,7 +198,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
     .expect("fixture");
     let mut file = file_with(vec![hit(5, "plain text")]);
     assert_eq!(
-        guard_clipped_secrets(
+        guard_source_secrets(
             &mut file,
             &source,
             Expected::Fresh,
@@ -228,7 +226,7 @@ fn a_stored_digest_binds_the_check_to_the_stored_bytes() {
     let digest: super::super::sources::Digest = Sha256::digest(stored.as_bytes()).into();
     let check = |expected| {
         let mut file = file_with(vec![hit(2, "the hit")]);
-        let outcome = guard_clipped_secrets(
+        let outcome = guard_source_secrets(
             &mut file,
             &source,
             expected,
@@ -262,7 +260,7 @@ fn a_neighborhood_over_the_retained_budget_fails_closed() {
     let giant = "a".repeat(MAX_VERIFY_RETAINED_BYTES + 1);
     std::fs::write(&source, format!("{giant}\n")).expect("fixture");
     let mut file = file_with(vec![hit(1, "…aaaa…")]);
-    let verified = guard_clipped_secrets(
+    let verified = guard_source_secrets(
         &mut file,
         &source,
         Expected::Fresh,
@@ -290,7 +288,7 @@ fn verification_stops_when_cancelled() {
     let source = dir.path().join("source.txt");
     std::fs::write(&source, "line\n".repeat(VERIFY_CANCEL_EVERY * 2)).expect("fixture");
     let mut file = file_with(vec![hit((VERIFY_CANCEL_EVERY * 2) as u32, "line")]);
-    let reason = guard_clipped_secrets(
+    let reason = guard_source_secrets(
         &mut file,
         &source,
         Expected::Fresh,

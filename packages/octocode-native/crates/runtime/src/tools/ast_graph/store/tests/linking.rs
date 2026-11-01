@@ -86,7 +86,7 @@ fn plan_2_string_referenced_files_are_low_tier_and_hidden_by_default() {
         shown.contains(&"src/orphan.ts".to_owned()),
         "true orphan still shown: {shown:?}"
     );
-    let orphan = default.value["results"]
+    let orphan = default.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
@@ -98,7 +98,7 @@ fn plan_2_string_referenced_files_are_low_tier_and_hidden_by_default() {
         o.limit = Some(500);
         o.min_tier = Some(0);
     });
-    let worker = all.value["results"]
+    let worker = all.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
@@ -121,7 +121,7 @@ fn plan_2_string_referenced_files_are_low_tier_and_hidden_by_default() {
     let unused = findings(&all, "unused-export");
     assert!(
         !unused.contains(&"src/local.ts".to_owned()) || {
-            let row = all.value["results"]
+            let row = all.value["rows"]
                 .as_array()
                 .expect("rows")
                 .iter()
@@ -167,7 +167,7 @@ fn plan_3_type_qualified_calls_and_scoped_disambiguation_link() {
         |o| o.confidence = Some("medium".into()),
     );
     assert!(
-        callees.value["results"]
+        callees.value["rows"]
             .as_array()
             .unwrap()
             .iter()
@@ -180,7 +180,7 @@ fn plan_3_type_qualified_calls_and_scoped_disambiguation_link() {
         |o| o.confidence = Some("high".into()),
     );
     assert_eq!(
-        strong.value["total"], 0,
+        strong.value["pagination"]["totalItems"], 0,
         "same-package bindings remain candidates: {}",
         strong.value
     );
@@ -235,7 +235,7 @@ fn plan_4_receiver_typed_member_calls_link() {
         Some("src/service.rs#run"),
         |_| {},
     );
-    let rows = rust.value["results"].as_array().expect("rows");
+    let rows = rust.value["rows"].as_array().expect("rows");
     assert!(
         rows.iter()
             .any(|r| r["id"] == "src/store.rs#Store.save" && r["via"] == "receiver-type"),

@@ -12,7 +12,7 @@ fn line_counts_only_read_the_selected_page() {
     let before = super::super::rows::line_count_reads();
     let first = run_budget(
         &root.0,
-        json!({"operation":"files","path":root.0,"sort":{"by":"name","order":"asc"},"maxEntries":4}),
+        json!({"operation":"files","path":root.0,"sort":{"by":"name","order":"asc"},"limit":4}),
         1,
     )
     .expect("listing");

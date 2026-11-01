@@ -75,6 +75,14 @@ fn render_symbols_view(
         Ok(outline) => code(outline),
         Err(reason) => match crate::content::markdown_heading_outline(source, path) {
             Some(headings) => code(headings),
+            None
+                if reason == OutlineUnavailable::UnsupportedLanguage
+                    && crate::content::DocumentFormat::of(
+                        path.split(['?', '#']).next().unwrap_or(path),
+                    ) == Some(crate::content::DocumentFormat::Markdown) =>
+            {
+                (Err(OutlineUnavailable::NoDeclarations), None)
+            }
             // A data document lists its keys, gutters and spans included.
             None => match super::key_outline::key_outline(source, path) {
                 Some(keys) if keys.text.len() < source.len() => (
@@ -141,4 +149,32 @@ fn declaration_ranges(outline: String, source: &str, path: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markdown_without_atx_headings_reports_no_declarations() {
+        for path in ["README.md", "guide.MARKDOWN", "page.mdx"] {
+            for source in [
+                "",
+                "Ordinary prose.\n",
+                "Title\n=====\n",
+                "```\n# Code\n```\n",
+            ] {
+                let view = render_symbols_view(source, path, Vec::new());
+                assert_eq!(
+                    view.outline,
+                    Err(OutlineUnavailable::NoDeclarations),
+                    "{path}: {source:?}"
+                );
+            }
+        }
+        assert_eq!(
+            render_symbols_view("Ordinary prose.\n", "notes.txt", Vec::new()).outline,
+            Err(OutlineUnavailable::UnsupportedLanguage)
+        );
+    }
 }

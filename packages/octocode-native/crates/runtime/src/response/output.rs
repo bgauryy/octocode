@@ -1,10 +1,12 @@
-//! Tool-owned output facts. The shared response stages ask the tool through
-//! `ToolId::output` (the dispatch in `runtime::tool_output`) instead of
-//! branching on the tool: each tool answers for its own recovery tips,
-//! evidence kind, path anchoring and text shape.
+//! Tool-owned output behavior. The runtime hands the shared stages the
+//! tool's [`ToolOutput`] (resolved by `ToolId::output` in
+//! `runtime::tool_output`), so `response` never imports a tool module and
+//! never branches on the tool. Plain per-tool facts (source reads, provider
+//! page selection, first-fragment fields) are data on `ToolId`.
 //!
-//! A tool module implements [`ToolOutput`] on a unit struct and the
-//! dispatch points its `ToolId` at it.
+//! A tool with its own recovery or selection finish implements
+//! [`ToolOutput`] on a unit struct; every other tool answers with
+//! [`SharedOutput`].
 
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
@@ -31,34 +33,17 @@ pub(crate) trait ToolOutput: Sync {
         None
     }
 
-    fn rows_key(&self) -> &'static str {
-        "results"
-    }
-
-    /// Shared row definitions carried by the first display fragment only.
-    fn first_fragment_fields(&self) -> &'static [&'static str] {
-        &[]
-    }
-
-    /// Each row carries one source `content` string a caller copies from
-    /// (numbered lines, sized to its share of the response page).
-    fn reads_source(&self) -> bool {
-        false
-    }
-
-    /// Whether `classification` selects this tool's rows at the shared response
-    /// boundary, over one sanitized provider page (code search), instead of
-    /// before the tool's own source pagination.
-    fn selects_provider_page(&self) -> bool {
-        false
-    }
-
     /// Finish a classified provider page's row `data` after selection: the
     /// tool's own leads may only name the selected evidence. `hidden` holds
     /// the rows this page judged related or unknown (neither shown nor
     /// excluded), for a judged read of what their rows did not list.
     fn finish_selection(&self, _data: &mut Value, _query: &Value, _hidden: &[Value]) {}
 }
+
+/// The output of a tool with no recovery or selection finish of its own:
+/// only the shared recovery table answers for it.
+pub(crate) struct SharedOutput;
+impl ToolOutput for SharedOutput {}
 
 /// Roots are widened only from a trusted source, so the hint names where the
 /// setting is read: a workspace `.env` or `.octocoderc` is ignored for it.
@@ -67,13 +52,11 @@ pub(crate) trait ToolOutput: Sync {
 pub(crate) const SANDBOX_HINT: &str = "Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.";
 
 /// Recovery for a path that does not resolve: check it from its parent.
-pub(crate) const VERIFY_PATH_HINT: &str =
-    "Verify the path exists (structureSearch on its parent directory), then retry the exact path.";
+pub(crate) const VERIFY_PATH_HINT: &str = "Path not found: list its parent directory with structureSearch, then retry with the exact listed path.";
 
 /// An `error_hint` for a code whose typed error and leads are the whole
 /// answer: no fallback text is added.
 pub(crate) const NO_HINT: &str = "";
 
 /// Recovery for a path a local read could not open (`fileAccessFailed`).
-pub(crate) const LIST_FILES_HINT: &str =
-    "Verify the path with structureSearch operation:\"files\", then retry the exact path.";
+pub(crate) const LIST_FILES_HINT: &str = "Path did not open as a file: list it with structureSearch operation:\"files\", then retry with one exact listed file.";

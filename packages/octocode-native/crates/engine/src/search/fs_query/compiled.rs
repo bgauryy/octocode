@@ -10,10 +10,9 @@ use super::filters::NameFilter;
 use super::{EntryFilter, Visit};
 use crate::error::{Error, ErrorKind};
 use crate::search::glob;
-use crate::search::walk::{IgnorePolicy, IgnoreRules, Prune, RootedPrune};
+use crate::search::walk::{IgnoreRules, Prune, RootedPrune};
+use crate::types::IgnorePolicy;
 use crate::types::{EntryType, FileSystemQueryOptions};
-
-pub(super) const DEFAULT_LIMIT: usize = 10_000;
 
 pub(super) struct CompiledQuery {
     pub(super) root: PathBuf,
@@ -50,11 +49,13 @@ pub(super) struct CompiledQuery {
     pub(super) time_budget: Option<std::time::Duration>,
     /// Leading entries (walk order) an earlier walk inspected: replayed.
     pub(super) skip_entries: u32,
-    /// Which walk a [`WalkCursor`](crate::search::fs_resume::WalkCursor) belongs to: everything here that decides
+    /// Which walk a [`WalkCursor`](crate::types::fs_resume::WalkCursor) belongs to: everything here that decides
     /// the order and the directories of the walk.
     pub(super) shape: u64,
     /// Keep a window checkpoint at this listed entry.
     pub(super) window_rows: Option<u32>,
+    /// The caller's listing rule ([`FileSystemQueryOptions::lists`]).
+    pub(super) lists: Option<crate::types::ListsEntry>,
 }
 
 impl CompiledQuery {
@@ -123,17 +124,18 @@ impl CompiledQuery {
             prune: Prune::new(options.exclude_dir.iter().flatten()),
             defaults,
             exclude,
-            limit: options.limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT),
+            limit: options.limit.map_or(usize::MAX, |n| n as usize),
             time_budget: options.time_budget,
             skip_entries: options.skip_entries.unwrap_or(0),
             shape,
             window_rows: options.window_rows,
+            lists: options.lists,
         })
     }
 }
 
 /// A digest of what decides the order and the directories of a walk (never
-/// which entries it lists): a [`WalkCursor`](crate::search::fs_resume::WalkCursor) continues only a walk of the
+/// which entries it lists): a [`WalkCursor`](crate::types::fs_resume::WalkCursor) continues only a walk of the
 /// same shape.
 fn walk_shape(options: &FileSystemQueryOptions) -> u64 {
     use std::hash::{Hash, Hasher};

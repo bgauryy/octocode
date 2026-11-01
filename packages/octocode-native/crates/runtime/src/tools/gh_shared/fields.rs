@@ -93,10 +93,3 @@ fn carried_keys(rows: &[Value], id: &[&str]) -> Vec<String> {
     }
     keys
 }
-
-/// Assemble the producer's explicitly typed private calls into public channels.
-pub(crate) fn finish_calls(value: &mut Value) {
-    if let Some(calls) = value.as_object_mut().and_then(|row| row.remove("calls")) {
-        crate::response::result::attach_calls(value, calls);
-    }
-}

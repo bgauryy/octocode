@@ -6,9 +6,11 @@
 //! Single flight is composed, not built in: a caller that must not run the
 //! same load twice holds a `KeyedFlight` turn ([`crate::flight`]) around its
 //! `get`-then-`insert`.
+use lru::LruCache;
 use std::borrow::Borrow;
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::collections::BTreeSet;
+use std::hash::Hash;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 /// A memo's budgets.
@@ -17,8 +19,7 @@ pub struct MemoLimits {
     pub max_entries: usize,
     /// Total weight kept, in the caller's unit (bytes, graph elements...).
     pub max_weight: usize,
-    /// Keep the newest entry even when it alone exceeds `max_weight` (and
-    /// evict everything else). Otherwise such an entry is not stored.
+    /// Keep the newest entry alone even when it exceeds `max_weight`.
     pub keep_newest: bool,
 }
 
@@ -35,102 +36,132 @@ struct Entry<V, M> {
     meta: M,
     weight: usize,
     stored_at: Instant,
-    ttl: Option<Duration>,
-    /// This entry's slot in [`Inner::order`].
-    tick: u64,
-}
-
-impl<V, M> Entry<V, M> {
-    fn expired(&self, now: Instant) -> bool {
-        self.ttl
-            .is_some_and(|ttl| now.saturating_duration_since(self.stored_at) >= ttl)
-    }
+    expires_at: Option<Instant>,
 }
 
 struct Inner<K, V, M> {
-    entries: BTreeMap<K, Entry<V, M>>,
-    /// Keys by last use: the first tick is the least recently used.
-    order: BTreeMap<u64, K>,
-    next_tick: u64,
+    entries: LruCache<K, Entry<V, M>>,
+    /// Only expiring entries occupy this index; removal also removes the deadline.
+    expiry: BTreeSet<(Instant, K)>,
     weight: usize,
 }
 
-impl<K: Ord, V, M> Inner<K, V, M> {
-    fn remove<Q: Ord + ?Sized>(&mut self, key: &Q) -> Option<Entry<V, M>>
+impl<K: Hash + Eq + Ord + Clone, V, M> Inner<K, V, M> {
+    fn remove<Q: Hash + Eq + ?Sized>(&mut self, key: &Q) -> Option<Entry<V, M>>
     where
         K: Borrow<Q>,
     {
-        let entry = self.entries.remove(key)?;
-        self.weight = self.weight.saturating_sub(entry.weight);
-        self.order.remove(&entry.tick);
+        let (key, entry) = self.entries.pop_entry(key)?;
+        self.forget(&key, &entry);
         Some(entry)
     }
 
-    fn pop_oldest(&mut self) -> bool {
-        let Some((_, oldest)) = self.order.pop_first() else {
-            return false;
-        };
-        if let Some(entry) = self.entries.remove(&oldest) {
-            self.weight = self.weight.saturating_sub(entry.weight);
+    fn forget(&mut self, key: &K, entry: &Entry<V, M>) {
+        self.weight = self.weight.saturating_sub(entry.weight);
+        if let Some(deadline) = entry.expires_at {
+            self.expiry.remove(&(deadline, key.clone()));
         }
-        true
+    }
+
+    fn expire(&mut self, now: Instant) {
+        while self
+            .expiry
+            .first()
+            .is_some_and(|(deadline, _)| *deadline <= now)
+        {
+            let Some((_, key)) = self.expiry.pop_first() else {
+                break;
+            };
+            if let Some(entry) = self.entries.pop(&key) {
+                self.weight = self.weight.saturating_sub(entry.weight);
+            }
+        }
     }
 }
 
 pub struct Memo<K, V, M = ()> {
     limits: MemoLimits,
-    inner: Mutex<Inner<K, V, M>>,
+    inner: OnceLock<Arc<Mutex<Inner<K, V, M>>>>,
 }
 
-impl<K: Ord + Clone, V, M: Clone> Memo<K, V, M> {
+impl<
+    K: Hash + Eq + Ord + Clone + Send + 'static,
+    V: Send + Sync + 'static,
+    M: Clone + Send + 'static,
+> Memo<K, V, M>
+{
     pub const fn new(limits: MemoLimits) -> Self {
         Self {
             limits,
-            inner: Mutex::new(Inner {
-                entries: BTreeMap::new(),
-                order: BTreeMap::new(),
-                next_tick: 0,
-                weight: 0,
-            }),
+            inner: OnceLock::new(),
         }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner<K, V, M>> {
-        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+        self.inner
+            .get_or_init(|| {
+                let inner = Arc::new(Mutex::new(Inner {
+                    entries: LruCache::unbounded(),
+                    expiry: BTreeSet::new(),
+                    weight: 0,
+                }));
+                REGISTRY.register(inner.clone());
+                inner
+            })
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The unexpired entry for `key`, now the most recently used.
-    pub fn get<Q: Ord + ?Sized>(&self, key: &Q) -> Option<Hit<V, M>>
+    pub fn get<Q: Hash + Eq + ?Sized>(&self, key: &Q) -> Option<Hit<V, M>>
     where
         K: Borrow<Q>,
     {
         self.get_at(key, Instant::now())
     }
 
-    /// [`Self::get`] as of `now`: the clock is a parameter so a test can age
-    /// an entry without sleeping, as [`Self::insert_full`] takes `stored_at`.
-    fn get_at<Q: Ord + ?Sized>(&self, key: &Q, now: Instant) -> Option<Hit<V, M>>
+    fn get_at<Q: Hash + Eq + ?Sized>(&self, key: &Q, now: Instant) -> Option<Hit<V, M>>
     where
         K: Borrow<Q>,
     {
         let mut inner = self.lock();
-        if inner.entries.get(key)?.expired(now) {
+        if inner
+            .entries
+            .peek(key)?
+            .expires_at
+            .is_some_and(|deadline| deadline <= now)
+        {
             inner.remove(key);
             return None;
         }
-        let tick = inner.next_tick;
-        inner.next_tick += 1;
-        let inner = &mut *inner;
-        let entry = inner.entries.get_mut(key)?;
-        if let Some(touched) = inner.order.remove(&entry.tick) {
-            inner.order.insert(tick, touched);
-            entry.tick = tick;
-        }
+        let entry = inner.entries.get(key)?;
         Some(Hit {
             value: Arc::clone(&entry.value),
             meta: entry.meta.clone(),
             age: now.saturating_duration_since(entry.stored_at),
         })
+    }
+
+    /// Restart the lifetime of `key`'s entry: its age counts from now and it
+    /// expires `ttl` from now. A missing entry is left alone.
+    pub fn touch<Q: Hash + Eq + ?Sized>(&self, key: &Q, ttl: Duration)
+    where
+        K: Borrow<Q>,
+    {
+        let now = Instant::now();
+        let mut inner = self.lock();
+        let Some((key, mut entry)) = inner.entries.pop_entry(key) else {
+            return;
+        };
+        if let Some(deadline) = entry.expires_at {
+            inner.expiry.remove(&(deadline, key.clone()));
+        }
+        entry.stored_at = now;
+        entry.expires_at = now.checked_add(ttl);
+        if let Some(deadline) = entry.expires_at {
+            inner.expiry.insert((deadline, key.clone()));
+        }
+        inner.entries.put(key, entry);
     }
 
     /// Store `value` for `key` (replacing any entry) with no metadata.
@@ -147,9 +178,8 @@ impl<K: Ord + Clone, V, M: Clone> Memo<K, V, M> {
         self.insert_full(key, value, M::default(), weight, ttl, Instant::now())
     }
 
-    /// Store `value` with `meta`, `weight` and `ttl`, aged from `stored_at`.
-    /// Expired entries go first, then the least recently used ones until
-    /// both budgets hold.
+    /// Expired entries go first, then LRU entries until both strict budgets hold.
+    /// An already expired value is returned to its caller without displacing live entries.
     pub fn insert_full(
         &self,
         key: K,
@@ -162,46 +192,42 @@ impl<K: Ord + Clone, V, M: Clone> Memo<K, V, M> {
         let value = value.into();
         let mut inner = self.lock();
         inner.remove(&key);
+        let now = Instant::now();
         if self.limits.max_entries == 0
             || (weight > self.limits.max_weight && !self.limits.keep_newest)
+            || ttl.is_some_and(|ttl| now.saturating_duration_since(stored_at) >= ttl)
         {
             return value;
         }
-        let now = Instant::now();
-        let expired = inner
-            .entries
-            .iter()
-            .filter(|(_, entry)| entry.expired(now))
-            .map(|(key, _)| key.clone())
-            .collect::<Vec<_>>();
-        for key in expired {
-            inner.remove(&key);
-        }
+        inner.expire(now);
         while !inner.entries.is_empty()
             && (inner.entries.len() >= self.limits.max_entries
                 || inner.weight.saturating_add(weight) > self.limits.max_weight)
         {
-            inner.pop_oldest();
+            let Some((old_key, entry)) = inner.entries.pop_lru() else {
+                break;
+            };
+            inner.forget(&old_key, &entry);
         }
-        let tick = inner.next_tick;
-        inner.next_tick += 1;
-        inner.order.insert(tick, key.clone());
+        let expires_at = ttl.and_then(|ttl| stored_at.checked_add(ttl));
+        if let Some(deadline) = expires_at {
+            inner.expiry.insert((deadline, key.clone()));
+        }
         inner.weight = inner.weight.saturating_add(weight);
-        inner.entries.insert(
+        inner.entries.put(
             key,
             Entry {
                 value: Arc::clone(&value),
                 meta,
                 weight,
                 stored_at,
-                ttl,
-                tick,
+                expires_at,
             },
         );
         value
     }
 
-    pub fn remove<Q: Ord + ?Sized>(&self, key: &Q)
+    pub fn remove<Q: Hash + Eq + ?Sized>(&self, key: &Q)
     where
         K: Borrow<Q>,
     {
@@ -210,16 +236,15 @@ impl<K: Ord + Clone, V, M: Clone> Memo<K, V, M> {
 
     pub fn clear(&self) {
         let mut inner = self.lock();
-        inner.entries.clear();
-        inner.order.clear();
+        inner.entries = LruCache::unbounded();
+        inner.expiry.clear();
         inner.weight = 0;
     }
 
-    /// Entries held, expired ones included until they are next touched.
+    /// Entries held, expired ones included until touched or another insertion.
     pub fn len(&self) -> usize {
         self.lock().entries.len()
     }
-
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -227,140 +252,62 @@ impl<K: Ord + Clone, V, M: Clone> Memo<K, V, M> {
     /// Keys from least to most recently used, and their total weight.
     pub fn contents(&self) -> (Vec<K>, usize) {
         let inner = self.lock();
-        (inner.order.values().cloned().collect(), inner.weight)
+        (
+            inner
+                .entries
+                .iter()
+                .rev()
+                .map(|(key, _)| key.clone())
+                .collect(),
+            inner.weight,
+        )
     }
+}
+
+trait Clear: Send + Sync {
+    fn clear(&self);
+}
+
+impl<K: Hash + Eq + Send, V: Send + Sync, M: Send> Clear for Mutex<Inner<K, V, M>> {
+    fn clear(&self) {
+        let mut inner = self.lock().unwrap_or_else(PoisonError::into_inner);
+        inner.entries = LruCache::unbounded();
+        inner.expiry.clear();
+        inner.weight = 0;
+    }
+}
+
+#[derive(Default)]
+struct Registry(Mutex<Vec<Weak<dyn Clear>>>);
+static REGISTRY: Registry = Registry(Mutex::new(Vec::new()));
+
+impl Registry {
+    fn register(&self, cache: Arc<dyn Clear>) {
+        let mut stores = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        stores.retain(|store| store.strong_count() != 0);
+        stores.push(Arc::downgrade(&cache));
+    }
+
+    fn clear(&self) {
+        // Release the registry lock before entering a cache.
+        let stores: Vec<_> = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect();
+        for store in stores {
+            store.clear();
+        }
+    }
+}
+
+/// Clear every initialized memo in this process, including tool-local statics.
+/// Callers must quiesce tool execution first; values already borrowed by a caller remain valid.
+pub fn clear_process_memos() {
+    REGISTRY.clear();
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{Memo, MemoLimits};
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
-
-    const fn limits(max_entries: usize, max_weight: usize) -> MemoLimits {
-        MemoLimits {
-            max_entries,
-            max_weight,
-            keep_newest: false,
-        }
-    }
-
-    #[test]
-    fn least_recently_used_entries_go_first_to_keep_both_budgets() {
-        let memo = Memo::<&str, u8>::new(limits(3, 10));
-        for key in ["a", "b", "c"] {
-            memo.insert(key, 0, 3, None);
-        }
-        assert!(memo.get("a").is_some(), "touching makes `a` the newest");
-        memo.insert("d", 0, 3, None);
-        assert_eq!(memo.contents(), (vec!["c", "a", "d"], 9));
-        memo.insert("big", 0, 8, None);
-        assert_eq!(memo.contents(), (vec!["big"], 8));
-        memo.insert("huge", 0, 11, None);
-        assert_eq!(memo.contents(), (vec!["big"], 8), "over budget: not kept");
-        memo.insert("big", 0, 11, None);
-        assert!(
-            memo.is_empty(),
-            "a too-heavy replacement still drops the old value"
-        );
-    }
-
-    #[test]
-    fn keep_newest_keeps_an_overweight_entry_alone() {
-        let memo = Memo::<&str, u8>::new(MemoLimits {
-            keep_newest: true,
-            ..limits(2, 10)
-        });
-        memo.insert("a", 0, 4, None);
-        memo.insert("heavy", 0, 30, None);
-        assert_eq!(memo.contents(), (vec!["heavy"], 30));
-        memo.insert("b", 0, 4, None);
-        assert_eq!(memo.contents(), (vec!["b"], 4));
-    }
-
-    #[test]
-    fn an_entry_that_exactly_fits_the_weight_budget_is_kept() {
-        let memo = Memo::<&str, u8>::new(limits(4, 10));
-        memo.insert("exact", 0, 10, None);
-        assert_eq!(memo.contents(), (vec!["exact"], 10), "alone at the cap");
-
-        let memo = Memo::<&str, u8>::new(limits(4, 10));
-        memo.insert("a", 0, 3, None);
-        memo.insert("b", 0, 7, None);
-        assert_eq!(
-            memo.contents(),
-            (vec!["a", "b"], 10),
-            "a total equal to the cap evicts nothing"
-        );
-        memo.insert("c", 0, 1, None);
-        assert_eq!(
-            memo.contents(),
-            (vec!["b", "c"], 8),
-            "one over evicts the oldest"
-        );
-    }
-
-    #[test]
-    fn clear_drops_every_entry_and_frees_the_whole_budget() {
-        let memo = Memo::<&str, u8>::new(limits(4, 10));
-        memo.insert("a", 0, 6, None);
-        memo.insert("b", 0, 4, None);
-        memo.clear();
-        assert_eq!(memo.len(), 0);
-        assert!(memo.get("a").is_none());
-        assert_eq!(memo.contents(), (Vec::<&str>::new(), 0));
-        memo.insert("c", 0, 10, None);
-        assert_eq!(memo.contents(), (vec!["c"], 10));
-    }
-
-    #[test]
-    fn is_empty_tracks_whether_any_entry_is_held() {
-        let memo = Memo::<&str, u8>::new(limits(4, 10));
-        assert!(memo.is_empty());
-        memo.insert("a", 0, 1, None);
-        assert!(!memo.is_empty());
-        memo.remove("a");
-        assert!(memo.is_empty());
-    }
-
-    #[test]
-    fn entries_expire_by_their_own_lifetime_and_hits_share_the_value() {
-        let memo = Memo::<String, String, u8>::new(limits(8, 100));
-        let start = Instant::now();
-        memo.insert_full(
-            "short".into(),
-            "v".to_owned(),
-            7,
-            1,
-            Some(Duration::from_secs(1)),
-            start,
-        );
-        let kept = memo.insert("kept".into(), "w".to_owned(), 1, None);
-        let hit = memo.get_at("short", start).expect("fresh");
-        assert_eq!((hit.value.as_str(), hit.meta), ("v", 7));
-        assert!(
-            memo.get_at("short", start + Duration::from_secs(1))
-                .is_none()
-        );
-        assert_eq!(memo.len(), 1, "an expired entry is dropped when touched");
-        let hit = memo.get("kept").expect("no lifetime");
-        assert!(Arc::ptr_eq(&hit.value, &kept));
-    }
-
-    #[test]
-    fn a_poisoned_lock_is_recovered_not_skipped() {
-        let memo = Arc::new(Memo::<u8, u8>::new(limits(4, 4)));
-        memo.insert(1, 1, 1, None);
-        let poisoner = Arc::clone(&memo);
-        let _ = std::thread::spawn(move || {
-            let _guard = poisoner.inner.lock().unwrap();
-            panic!("poison the memo");
-        })
-        .join();
-        assert!(memo.inner.is_poisoned());
-        assert_eq!(memo.get(&1).map(|hit| *hit.value), Some(1));
-        memo.insert(2, 2, 1, None);
-        memo.remove(&1);
-        assert_eq!(memo.contents().0, vec![2]);
-    }
-}
+mod tests;

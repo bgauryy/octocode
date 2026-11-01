@@ -90,18 +90,3 @@ pub(super) fn keep_row_next(value: &mut Value, share: PartShare, notes: &[Remain
     retain(value.get_mut("data").and_then(Value::as_object_mut));
     retain(value.as_object_mut());
 }
-
-/// Page-one share of `capacity` for rows of `sizes`: an equal split, where a
-/// row smaller than its share keeps only its size and leaves the rest to the
-/// larger rows.
-pub(crate) fn fair_shares(sizes: &[usize], capacity: usize) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..sizes.len()).collect();
-    order.sort_by_key(|&row| (sizes[row], row));
-    let mut shares = vec![0; sizes.len()];
-    let mut left = capacity;
-    for (taken, &row) in order.iter().enumerate() {
-        shares[row] = sizes[row].min(left / (sizes.len() - taken));
-        left -= shares[row];
-    }
-    shares
-}

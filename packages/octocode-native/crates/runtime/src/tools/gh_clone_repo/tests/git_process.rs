@@ -7,11 +7,11 @@ use super::*;
 #[test]
 fn only_network_git_steps_carry_the_credential() {
     let fixture = Fixture::shared();
-    let (root, cache_home) = home_root();
+    let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&cache_home);
+    let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     clone_pinned(
         &fixture,
@@ -112,7 +112,7 @@ fn system_git_cancellation_kills_and_reaps_process_group() {
         &GitRunControl {
             cancellation: cancellation.as_ref(),
             deadline,
-            cache_home: &root.0,
+            home: &root.0,
         },
     );
     let (pid, cancelled_at) = join
@@ -152,7 +152,7 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
     let control = GitRunControl {
         cancellation: &NeverCancel,
         deadline: Instant::now() + Duration::from_secs(15),
-        cache_home: &root.0,
+        home: &root.0,
     };
     let token = "highly-sensitive-token";
     let failed = runner
@@ -250,21 +250,20 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
         .trim()
         .to_owned();
 
-    let (root, cache_home) = home_root();
+    let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let mut config = CloneConfig::persistent(&cache_home);
-    config.cache_ttl = Duration::from_secs(60);
+    let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
-    // The same commit by branch then by SHA: the second is a cache hit, which
+    // The same commit by branch then by SHA: both calls fetch fresh and
     // reports the symlinks its meta recorded. A directory scope also holds
     // the root's files (the link among them); a file scope holds only it.
-    for (branch, sparse, cached, listed) in [
-        ("main", None, false, true),
-        (head.as_str(), None, true, true),
-        ("main", Some("src"), false, true),
-        ("main", Some("src/lib.rs"), false, false),
+    for (branch, sparse, listed) in [
+        ("main", None, true),
+        (head.as_str(), None, true),
+        ("main", Some("src"), true),
+        ("main", Some("src/lib.rs"), false),
     ] {
         let clone = clone_pinned(
             &fixture,
@@ -276,7 +275,6 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
             &context,
         )
         .expect("clone");
-        assert_eq!(clone.location.cached, cached, "{branch} {sparse:?}");
         let link = Path::new(&clone.location.local_path).join("escape");
         if listed {
             let meta = fs::symlink_metadata(&link).expect("escape entry");
@@ -290,27 +288,6 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
             assert!(!link.exists(), "{branch} {sparse:?}");
             assert_eq!(clone.location.symlinks, None, "{branch} {sparse:?}");
         }
-    }
-    // An entry whose meta lacks a recorded fact (an older layout) is no
-    // cache hit: it is cloned again, and the new meta records every fact.
-    for field in ["symlinks", "checkoutBytes", "sizeBytes"] {
-        let full = clone_pinned(&fixture, &query(), &context).expect("cached clone");
-        assert!(full.location.cached, "{field}");
-        let meta_path = Path::new(&full.location.local_path).join(cache::META_FILE);
-        let mut meta: serde_json::Value =
-            serde_json::from_slice(&fs::read(&meta_path).expect("meta")).expect("meta JSON");
-        assert_eq!(meta["symlinks"], serde_json::json!(["escape"]));
-        meta.as_object_mut().expect("meta object").remove(field);
-        fs::write(&meta_path, serde_json::to_vec(&meta).expect("meta bytes")).expect("old meta");
-        let old = clone_pinned(&fixture, &query(), &context).expect("old entry re-cloned");
-        assert!(
-            !old.location.cached,
-            "{field}: an incomplete meta was served"
-        );
-        assert_eq!(old.location.symlinks, Some(vec!["escape".to_owned()]));
-        let meta: serde_json::Value =
-            serde_json::from_slice(&fs::read(&meta_path).expect("meta")).expect("meta JSON");
-        assert!(meta.get(field).is_some(), "{field} recorded again: {meta}");
     }
     let seen = runner
         .seen

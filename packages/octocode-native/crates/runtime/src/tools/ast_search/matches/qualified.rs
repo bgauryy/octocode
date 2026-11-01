@@ -140,7 +140,7 @@ fn directory_probe(
     let qualified = spelled
         .next()
         .filter(|first| spelled.all(|other| &other == first))?;
-    let workers = crate::tools::workers::workers(None, probed.len(), None);
+    let workers = crate::tools::workers::workers(probed.len(), None);
     let stop = || cancel.check().is_err();
     let found = crate::tools::workers::each_parallel(
         &mut probed,

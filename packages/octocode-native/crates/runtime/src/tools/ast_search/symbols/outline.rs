@@ -113,19 +113,29 @@ const PROVENANCE_KEYS: [&str; 6] = [
 ];
 
 /// [`reduce_file`] over one file's declarations facts.
+/// A `testCode` scope keeps only the declarations on its side of the
+/// file at `path`.
 pub(super) fn reduce_document(
     q: &AstSearchQuerySymbols,
-    filter: Option<&NameFilter>,
+    (filter, scoped): (
+        Option<&NameFilter>,
+        Option<(&crate::tools::test_code::Scoped, &std::path::Path)>,
+    ),
     facts: &octocode_engine::graph::GraphFactsDocument,
     source: impl FnOnce() -> Option<String>,
     evidence: &mut super::super::evidence::FileEvidence<'_, '_, '_>,
 ) -> Result<Reduced, ToolError> {
-    let Ok(Value::Array(declarations)) = serde_json::to_value(&facts.declarations) else {
+    let Ok(Value::Array(mut declarations)) = serde_json::to_value(&facts.declarations) else {
         return Err(ToolError::new(
             ErrorCode::ExecutionFailed,
             "Could not encode declarations.",
         ));
     };
+    if let Some((scoped, path)) = scoped {
+        declarations.retain(|row| {
+            scoped.keeps(path, crate::num::u32_of(row["line"].as_u64().unwrap_or(0)))
+        });
+    }
     let (mut rows, mut off_kind, notes) = reduce_file(
         q,
         filter,
@@ -151,6 +161,13 @@ pub(super) fn reduce_document(
             if let Some(fields) = row.as_object_mut() {
                 for key in PROVENANCE_KEYS {
                     fields.shift_remove(key);
+                }
+                // A clean parse qualifies nothing; any other status stays.
+                if fields
+                    .get("parseAssessment")
+                    .is_some_and(|assessment| assessment["status"] == "parsed")
+                {
+                    fields.shift_remove("parseAssessment");
                 }
             }
             continue;
@@ -192,19 +209,19 @@ pub(crate) struct Outline {
     pub(super) withheld: crate::policy::discovery::Withheld,
     /// Root-relative directories the default excludes pruned unseen.
     pub(super) pruned: Vec<String>,
-    /// The scopes a walk cut at the ceiling never reached.
-    pub(super) unwalked: Option<crate::tools::ast_search::unwalked::Unwalked>,
     /// Entries the walk could not read, and how many for want of
     /// permission: absence below them is unproven.
     pub(super) walk_errors: (u32, u32),
+    /// What a `testCode` scope left out.
+    pub(super) test_code_excluded: crate::tools::test_code::Excluded,
 }
 
 /// One file's declarations; `Err` is a terminal row (size limit, no
 /// extractor) rather than a tool error.
 pub(super) fn outline_file(
     q: &AstSearchQuerySymbols,
-    canonical: &std::path::Path,
-    display_path: &str,
+    (canonical, display_path): (&std::path::Path, &str),
+    scoped: Option<&crate::tools::test_code::Scoped>,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<Result<Outline, Value>, ToolError> {
     let Some(b) = crate::tools::ast_search::source::read_parse_source(canonical)? else {
@@ -222,7 +239,7 @@ pub(super) fn outline_file(
     // Parse the file as the directory scan does: admitted by the one text
     // rule, raw. Output strings are redacted by the response stage.
     let cancelled = || cancel.check().is_err();
-    let mut maps = super::super::source::mapping_budget(&cancelled);
+    let mut maps = super::super::source::mapping_budget(cancel, &cancelled);
     let admitted = super::super::source::admitted(canonical, &b, &mut maps)?;
     let source = admitted.text();
     let source_path = canonical.to_string_lossy();
@@ -283,7 +300,10 @@ pub(super) fn outline_file(
     let mut evidence = super::super::evidence::FileEvidence::new(&bound, &mut maps, cancel);
     let (rows, off_kind, notes) = reduce_document(
         q,
-        ast_search_query_symbols::name_filter(q).as_ref(),
+        (
+            ast_search_query_symbols::name_filter(q).as_ref(),
+            scoped.map(|scoped| (scoped, canonical)),
+        ),
         &document,
         || Some(source.to_string()),
         &mut evidence,
@@ -306,8 +326,10 @@ pub(super) fn outline_file(
         diagnostics,
         withheld: Default::default(),
         pruned: Vec::new(),
-        unwalked: None,
         walk_errors: (0, 0),
+        test_code_excluded: scoped
+            .map(crate::tools::test_code::Scoped::excluded)
+            .unwrap_or_default(),
     }))
 }
 
@@ -323,7 +345,7 @@ fn no_extractor(canonical: &std::path::Path, display_path: &str, kind: &str) -> 
         "path": display_path,
         "error": format!("No declaration extractor supports {kind} files."),
         "hints": [format!(
-            "symbols does not outline {kind} files; the read lead outlines this one, or search it with localSearch."
+            "symbols does not outline {kind} files; the related[] localFetch request outlines this one, or search it with localSearch."
         )],
     });
     row["calls"]["read"] = super::super::output::unsupported_read(&path);

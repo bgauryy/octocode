@@ -30,7 +30,7 @@ Other non-Unix targets retain the checked-path fallback.
 
 ## Public catalog
 
-The runtime owns all fourteen catalog tools ([tools reference](../../docs/OCTOCODE_TOOLS.md)). Availability is resolved once per runtime from configuration, surface, and the clasify provider startup ping (`execution/availability.rs`). Each tool is `Available` or carries one reason: `Disabled` (the contract parks it on every surface), `ToolList` (`tools.enabled` / `tools.disabled`), `CliOnly`, `MissingConfiguration` with the unset settings in order, or `ProviderUnavailable` after a failed ping. The catalog, admission, clasify context errors, and CLI schema project that value. CLI help resolves configuration without a network request. GitHub and artifact tools are enabled by default; local tools honor local policy. `ghCloneRepo` is CLI-only and needs persistent storage. Public `clasify` needs a successful provider ping and a nonblank classification credential (`OCTOCODE_CLASSIFICATION_API` or `classification.api`). Optional `classification` belongs only to `localFetch`, `localSearch`, `ghGetFileContent`, and `ghSearchCode`, and only when that credential is present, whatever the beta state. The [availability guide](../../docs/OCTOCODE_CLASIFY.md#availability) owns the gate combinations. Public tool input accepts `{ "queries": [...] }` with optional `responseChars`, or an issued `{ "cursor": "…" }`. Bare rows, aliases, coercions, and caller-supplied private progress are rejected.
+The runtime owns all 16 catalog tools ([tools reference](../../docs/OCTOCODE_TOOLS.md)). `execution/availability.rs` resolves exposure from configuration and surface without contacting providers. CLI exposes every tool in the build. MCP applies its tool lists and local switch, beta for both graph tools, clone opt-in for `ghCloneRepo`, and a nonblank key for `clasify`. Admission and emitted leads enforce MCP policy even through a CLI-created runtime. Credentials, clone storage, path policy and content security are checked when calls execute; provider failures do not change discovery. The [configuration matrix](../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp) owns user-facing rules. Optional `classification` belongs to `localFetch`, `localSearch`, `ghGetFileContent`, and `ghSearchCode` when a credential is present, independently of beta. Public input accepts `{ "queries": [...] }` with optional `responseChars`, or an issued `{ "cursor": "…" }`. Bare rows, aliases, coercions and caller-supplied private progress are rejected.
 
 `clasify` exposes model discovery, whole-resource evaluation and section assessment. An evaluation row holds keyed `noul`/`choice`/`score` questions over exactly one literal `content` or one `source`, with image assets available for supported primitives. `tools/source_capture` captures a source completely through the same authorized readers a direct call runs (contract validation, input security, the reader's path policy and redaction, output sanitization), following every content page pinned to the first page's file snapshot or commit; a selection over the state limit (`clasify.semanticPolicy.maxStateChars`) fails its row instead of being judged in part. A URL source is fetched over HTTPS under the address policy and saved as a capture file that a `localFetch` lead reads back. The row returns the provider's validated answers unchanged, the model that answered, its usage, and for a source an executable `next.read` continuation of exactly what was judged. Optional `context` is included in the question instructions; captured text is not returned as another body. A failed row keeps its own error; siblings keep their answers.
 
@@ -59,8 +59,8 @@ Production imports point one way: `id`/`num` → `contracts` → `policy` → `c
 | `response` | Contract-checked indexed rows, evidence-preserving pagination, typed continuations, sanitized rendering, and the result vocabulary tools write (`result`, `paging`, `page_windows`, `numbered`, `output`, `outcome`, `exit` classification) | Tool execution |
 | `tools/lsp_search` + `runtime/domain_dispatch` | Runtime composition around the engine language-server pool (pool owned by the runtime engine, dispatched and prewarmed through `domain_dispatch`) | A second lifecycle implementation |
 | `tools/<shared>` (the list, each module's purpose and its layer live in `tools/module_boundaries/tool_edges.rs` `SHARED_LAYERS`; the helpers in `tools.rs` are its lowest layer) | Logic two or more tools use: for example `empty_walk` (why an empty local walk is empty and the minimal flags that lift it), `leads` (follow-up queries one tool offers into another), `declarations_cache`, `gh_shared`, `source_view` (the one view engine over fetched source text: localFetch and ghGetFileContent render through it), `source_capture` (its `SourceReader` trait is how clasify reads through the runtime's dispatcher without naming it) | Tool-specific behavior. The guard rejects every tool-to-tool and shared-to-tool edge, and every shared-to-shared edge that does not point to a lower layer (for example `selection` and `source_capture` import `judgment`, never the reverse). |
-| `tools/ast_graph/store` | CLI-only persisted code graph (`npx octocode graph ingest` / `graph query`): immutable snapshots under `<workspace>/.octocode/graph/` | A public tool contract or MCP surface |
-| `crates/cli` | Arguments, human output, and shell exits | Node or duplicated tools |
+| `tools/ast_graph/store` | Persisted code graph behind `graphBuild` and `graphQuery`: immutable snapshots under `<workspace>/.octocode/graph/` | Tool schemas or MCP registration |
+| `crates/cli` | Arguments, human output, and shell exits | Node, duplicated tools, or use-case decisions (`runtime/auth.rs` decides what `auth login`/`status`/`logout` do; the CLI prints) |
 | `crates/cli/src/cli/mcp_server/` | The stdio MCP server: tool and instruction listing composed from the embedded presentation and runtime catalog (`listing.rs`), request dispatch into the runtime and era-specific response metadata (`handler.rs`), startup, signals and shutdown (`mcp_server.rs`) | Tool behavior or contract text |
 | `crates/cli/src/cli/serve/` | The warm server for read-only CLI tool calls: socket, runtimes per directory and environment on one language-server pool, and its limits ([README](README.md#warm-tool-server)) | Tool behavior |
 | `crates/cli/src/cli/mcp_install.rs`, `mcp_manage.rs`, `mcp_clients.rs` | MCP client configuration writers and the client path catalogue | Tool execution |
@@ -95,21 +95,57 @@ credential selection, cache policy, and generated tool contracts. `crates/cli`
 owns the `octocode` binary (CLI and MCP server). All six crates inherit one workspace version and remain
 unpublished Cargo packages.
 
-In-memory page and scan memos (`tools/page_memo.rs`, `octocode_io::memo`) are
-process-global statics, bounded by TTL, entry, and byte limits, and keyed by
-snapshot and `PathPolicy` identity; an `octocode serve` process shares them
-across all of its runtimes. On-disk runtime caches live under `<home>/tmp/`
-only when storage is persistent: `response` (tool response cache),
-`response-pages` (immutable settled output pages),
-`continuations` (issued handles for complete saved requests and response pages),
-`artifact` (registry responses), `judgment` (classification answers),
-`section-assessments` (frozen section work plans),
-`ratelimit` (cross-process GitHub limiter facts), `capture/url` (URL source
-captures), and `clone` / `clone-tmp` (`ghCloneRepo`). The response, artifact
-and judgment stores evict by entry class and byte budget themselves;
-`runtime/maintenance.rs` sweeps the rest by age once a day (rate-limit facts,
-URL captures at their published retention). Clone entries are evicted only
-through `ghCloneRepo`, which checks their locks and local edits.
+`octocode_io::memo::Memo` owns strict in-process entry and weight limits, shared
+`Arc` payloads and per-entry TTL. It uses the `lru` crate for recency and an ordered
+deadline index for expiry: insertion visits expired and evicted entries rather than
+scanning the entire cache. Replacing or removing an entry removes its old deadline.
+Already-expired values cannot evict live work. Clearing also releases map capacity.
+The weak memo registry lets maintenance clear initialized tool-local statics without
+retaining dropped runtimes. Source/page identities still partition global scan memos.
+
+The runtime owns its provider, outline, judgment and saved-work stores. Each uses
+RAM in both storage modes; `cache::Directory` inventories the optional persistent
+tiers under `<home>/tmp/`. Outline ownership follows the runtime rather than a
+first-initialized global home. Store keys share one `Arc<CacheKey>` between the LRU
+and deadline index, avoiding duplicate key strings for expiring entries.
+
+Disk admission holds a per-store OS lock and persists an upper bound on entry
+bytes before atomic publication. The existing atomic stream writer writes the
+header and borrowed body separately, avoiding another body-sized RAM buffer.
+Interrupted process writes and reader deletions can overcount;
+missing or corrupt accounting triggers a full scan. Expiry maintenance scans at
+most once per minute unless capacity pressure requires reconciliation. Pressure
+also frees one eighth of the budget as headroom, amortizing oldest-access eviction.
+The strict bound covers published entry headers and bodies; bookkeeping, filesystem
+allocation and one atomic-write staging copy are outside it. Writes are not
+fsynced, so the accounting bound does not guarantee recovery after an OS crash
+or power loss. Lock contention or
+I/O failure skips disk retention and makes `put_confirmed` return false. The RAM
+tier remains usable. Cache clearing requires separate MCP processes to stop so
+no writer retains a lock in a removed directory.
+
+Provider cache disk work runs on bounded blocking
+workers; RAM hits avoid that hop. Strict `put_confirmed` and transactional
+`get_current` retain their synchronous saved-work guarantees. Moka remains in the
+engine's recomputable parsed-facts and language-server response caches. We chose
+`lru` for the shared store because guaranteed admission and immediate byte limits
+matter for continuations; asynchronous admission would change that contract.
+
+Graph builds publish requested snapshots in either storage mode; only persistent
+mode saves reusable `.facts` extraction checkpoints. `ghCloneRepo` uses an uncached
+provider scope, fresh staging and atomic publication under `<home>/clones/`. It
+replaces only clean destinations and retains no metadata or response replay. Clone
+outputs have no TTL or eviction. HTTP connections and rate-limit admission remain
+shared operational state.
+
+`ToolRuntime::clear_caches` drains and closes its runtime, waits for cache I/O,
+clears process memos and parsed facts, and removes inventoried home caches and the
+current workspace's graph checkpoints. The CLI first requests acknowledged shutdown
+of warm servers. Other runtimes/processes must be quiesced by the owner; separate
+MCP processes must restart. This avoids filesystem polling or cross-process locks
+on every tool call. Clone outputs, graph snapshots, credentials, installations and
+rate-limit coordination remain intact. `runtime/maintenance.rs` separately performs
+the existing best-effort daily age sweep of derived captures and materializations.
 
 Public continuations use one issued-handle registry (`runtime/engine/cursors`). Each
 opaque handle selects a target tool, the complete normalized request, and either
@@ -140,7 +176,9 @@ The engine's `scan_budget` holds the time and walk budget of an unbounded scan (
 
 `crates/engine` is consumed as a Rust library with its default grammar set. PCRE2 is unconditional, structural matching is implemented by the engine’s `structural/octo` modules over the shared Tree-sitter registry, and the default build includes every grammar. It exposes reusable algorithms, not public policy, and has no host-interface surface. Engine errors carry a `reason` and an `ErrorKind`.
 
-Tension: the engine is described as algorithms, not policy, yet it owns the language-server pool and its process IO (`lsp/pool.rs`, `lsp/client.rs`). Those stay in the engine so the CLI daemon and the MCP server share one pool; moving them out is a design decision, not a cleanup.
+The engine's top-level modules are layered too (`ENGINE_LAYERS` in the same `tools/module_boundaries.rs` guard): shared vocabulary (`symbol_kind`, `stamp`, `json_size`, …), `digest` and `text` below the DTOs (`types`), the DTOs below `search` and `signatures`, and those below `lsp`, `structural`, `security` and `fact_scan`. No two engine modules import each other.
+
+Tension: the engine is described as algorithms, not policy, yet it owns the language-server pool and its process IO (`lsp/pool.rs`, `lsp/client.rs`). Those stay in the engine so the CLI daemon and the MCP server share one pool; moving them out is a design decision, not a cleanup. No lower engine module imports `lsp`, so the move stays open.
 
 AST declaration extraction indexes local export aliases by symbol name in the engine
 and polls cancellation during outline construction. Runtime owns a bounded cache of
@@ -239,11 +277,11 @@ Every local tool walks under one policy owned by `engine::search::walk` and one 
 
 ## Contract generation
 
-`@octocodeai/octocode-core` authors the tool contracts (Zod). `@octocodeai/config` is the only generator: `yarn contracts:regen` (repo root) refreshes core and writes `packages/octocode-config/contract/` — the enforcement contract JSON, parity fixtures, provenance, and generated Rust wire types. Native keeps no copy. `build.rs` embeds those files in place (`contracts::generated`), reruns when they change, and refuses to build when provenance or `tool_types.rs` names a different fingerprint than the contract. A test recomputes the embedded bytes' SHA-256 against provenance, so a hand edit fails without any native-side pin to update.
+`@octocodeai/octocode-core` authors the tool contracts (Zod). `@octocodeai/config` is the only generator: `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` (repo root) refreshes core and writes `packages/octocode-config/contract/` — the enforcement contract JSON, parity fixtures, provenance, and generated Rust wire types. Native keeps no copy. `build.rs` embeds those files in place (`contracts::generated`), reruns when they change, and refuses to build when provenance or `tool_types.rs` names a different fingerprint than the contract. A test recomputes the embedded bytes' SHA-256 against provenance, so a hand edit fails without any native-side pin to update.
 
 Core's `toolContract/constraints.ts` and `constraints/` declare shared constraints once for Zod validation and the enforcement schema. Object sizes and array membership use JSON Schema keywords; conditional relationships, ordered bounds, totals, logical tree depth and URL component policies use generic annotations. Native interprets the supplied field names, bounds, diagnostics and paths. Core's guarded exporter rejects unrepresented custom checks instead of silently dropping refinements. Native audits every embedded schema once, including inactive branches, and propagates invalid-contract errors through predicate probes. AST request shape, scope and recursive rule constraints belong to core; the engine still decodes and compiles rules against its language grammars. Generated parity fixtures check admission, defaults and selected diagnostics against core.
 
-Tool wire types come from the same run: the `octocode-contract-types` crate (`crates/contract-types`) `include!`s `contract/tool_types.rs` (typify, from the bundled JSON Schema that also produces the TypeScript types), trimmed to the generated types native source names and what they reach, so native compiles only those. Naming a generated type the file lacks fails to compile until `yarn contracts:regen`; `check:tool-contract` fails when the names native uses changed. Ordinary tools parse their validated rows directly into generated `<Tool>Query` types and build continuations from them. Tool modules add accessors for engine integer types as plain functions taking the query (Rust allows no `impl` block on another crate's type), but never a second serde wire type. `field-effect-coverage.json` is a review index of native field owners, not execution proof. Behavioral tests exercise matcher, filter, context, pagination, and security effects.
+Tool wire types come from the same run: the `octocode-contract-types` crate (`crates/contract-types`) `include!`s `contract/tool_types.rs` (typify, from the bundled JSON Schema that also produces the TypeScript types), trimmed to the generated types native source names and what they reach, so native compiles only those. Naming a generated type the file lacks fails to compile until `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen`; `check:tool-contract` fails when the names native uses changed. Ordinary tools parse their validated rows directly into generated `<Tool>Query` types and build continuations from them. Tool modules add accessors for engine integer types as plain functions taking the query (Rust allows no `impl` block on another crate's type), but never a second serde wire type. `field-effect-coverage.json` is a review index of native field owners, not execution proof. Behavioral tests exercise matcher, filter, context, pagination, and security effects.
 
 Contract annotations native alone reads stay out of every agent-facing schema. One is `x-listing` (core `listing()`): what a listing query field does to the walk (`name`, `metadata`, `prune`, `scope`). `build.rs` renders it as `contracts::listing_roles`, and structureSearch derives its filter lists, its filtered-listing test and the walk identity a cursor continues from that table. A role native does not know fails the build. A field with a role that the walk does not apply fails `structure_search::tests::roles`.
 

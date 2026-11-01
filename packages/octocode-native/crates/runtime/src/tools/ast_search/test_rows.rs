@@ -92,30 +92,6 @@ pub(super) fn run_window(
     execute_ast(&query, &paths, &security, &NeverCancel, Some(window))
 }
 
-/// The localFetch read rows of the one `expandValues` lead, by path. The
-/// lead has one name (never `expandValues2`…) and batches its rows within
-/// localFetch's input limit.
-pub(super) fn value_reads(out: &serde_json::Value) -> Vec<serde_json::Value> {
-    let mut rows = Vec::new();
-    for (name, read) in out["next"].as_object().into_iter().flatten() {
-        if !name.starts_with("expandValues") {
-            continue;
-        }
-        assert_eq!(read["tool"], "localFetch", "{read}");
-        assert_eq!(read["kind"], "continue", "{read}");
-        let batch = read["input"]["queries"].as_array().expect("rows");
-        assert!(batch.len() <= crate::response::result::rows_per_call(ToolId::LocalFetch));
-        for row in batch {
-            crate::contracts::validate_built_query("localFetch", row.clone())
-                .expect("valid reader row");
-            rows.push(row.clone());
-        }
-    }
-    let mut reads = rows;
-    reads.sort_by_key(|row| row["path"].as_str().map(str::to_owned));
-    reads
-}
-
 /// Walks `query` and every page lead of each page (`checks::walk`: each
 /// call once, each row once, every output and lead within the contract).
 /// A page offers one continuation (the next page, else the scan resume), and

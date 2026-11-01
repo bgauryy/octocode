@@ -18,12 +18,13 @@ impl ChannelRun {
         let rejected_at: Vec<usize> = rejected.iter().map(|(index, _)| *index).collect();
         for ((row, index), query) in rows.iter_mut().zip(&self.row_indices).zip(&self.queries) {
             if row["status"] == "error" {
-                rows::attach_error_hint(self.id, &mut row["data"], query);
+                rows::require_restart(self.id, &mut row["data"], query);
+                rows::attach_error_notice(self.id.output(), &mut row["data"], query);
             }
             row["index"] = json!(index);
         }
         for (_, row) in &mut rejected {
-            rows::attach_error_hint(self.id, &mut row["data"], &Value::Null);
+            rows::attach_error_notice(self.id.output(), &mut row["data"], &Value::Null);
         }
         rows.extend(rejected.into_iter().map(|(_, row)| row));
         rows.sort_by_key(|row| row["index"].as_u64());
@@ -51,9 +52,10 @@ impl ChannelRun {
         )?;
         let mut response_query = self.response_query.clone();
         structured.edit(|structured| {
-            if self.id.output().selects_provider_page() {
+            if self.id.selects_provider_page() {
                 crate::tools::selection::apply_sanitized_rows(
                     self.id,
+                    self.id.output(),
                     structured,
                     &self.queries,
                     &self.row_indices,

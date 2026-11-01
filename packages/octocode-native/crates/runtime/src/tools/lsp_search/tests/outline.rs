@@ -50,9 +50,9 @@ fn document_symbols_are_compact_outline_rows() {
     // declaration states its range, and two symbols on one line carry
     // their 1-based column.
     assert_eq!(
-        serde_json::json!({"kind": envelope["kind"], "symbols": envelope["symbols"]}),
+        serde_json::json!({"operation": envelope["operation"], "symbols": envelope["symbols"]}),
         serde_json::json!({
-            "kind": "documentSymbols",
+            "operation": "documentSymbols",
             "symbols": [
                 {"symbolName":"Greeter","kind":"class","line":3,"endLine":9,
                  "members":[{"symbolName":"greet","kind":"method","line":4,"endLine":6}]},
@@ -274,7 +274,7 @@ fn hover_range_is_published_as_a_one_based_display_range() {
         "lspSearch",
         &public_row(&serde_json::json!({
             "lsp": {"serverAvailable": true, "provider": "hoverProvider"},
-            "kind": "hover", "hover": hover
+            "operation": "hover", "hover": hover
         })),
     )
     .expect("published hover satisfies the internal output contract");

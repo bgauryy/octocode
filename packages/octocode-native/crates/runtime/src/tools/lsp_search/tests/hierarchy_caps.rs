@@ -48,7 +48,7 @@ async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
         "operation": "callers", "path": file.to_string_lossy(),
         "symbolName": "root",
         "line": 1,
-        "graphDepth": 2
+        "depth": 2
     }));
     let items = deep
         .edges
@@ -68,7 +68,11 @@ async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
     );
     assert_eq!(row["unexpandedParents"][0]["symbolName"], "hub");
     let resume = &row["next"]["continueWalk"]["input"]["queries"][0];
-    assert_eq!(resume["graphDepth"], 1, "{resume}");
+    assert_eq!(
+        crate::tools::test_support::opened(crate::id::ToolId::LspSearch, resume)["depth"],
+        1,
+        "{resume}"
+    );
     // Re-anchored by name and 1-based line, never a 0-based position.
     assert!(resume.get("position").is_none(), "{resume}");
     assert_eq!(resume["symbolName"], "hub", "{resume}");
@@ -145,7 +149,7 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
         "operation": "callers", "path": file.to_string_lossy(),
         "symbolName": "root",
         "line": 1,
-        "graphDepth": 2
+        "depth": 2
     }));
     let items = walk
         .edges
@@ -179,7 +183,10 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
     );
     assert!(row.get("terminalLimit").is_none(), "{}", row["next"]);
     let resume_query = &row["next"]["continueWalk"]["input"]["queries"][0];
-    assert_eq!(resume_query["graphDepth"], 1);
+    assert_eq!(
+        crate::tools::test_support::opened(crate::id::ToolId::LspSearch, resume_query)["depth"],
+        1
+    );
     assert_eq!(resume_query["path"], file.to_string_lossy().as_ref());
     // Walk continuations re-anchor by symbol and 1-based line.
     assert!(resume_query.get("position").is_none(), "{resume_query}");
@@ -261,7 +268,7 @@ async fn node_capped_walk_does_not_depend_on_server_order() {
     assert_eq!(walked[0], walked[1]);
 }
 
-/// A walk whose last level reached `graphDepth` left those nodes
+/// A walk whose last level reached `depth` left those nodes
 /// unexpanded: `next.walkDeeper` reruns it one level deeper, without marking
 /// the answer partial. A walk that ran out of nodes first, or one at the
 /// maximum depth, offers nothing.
@@ -276,7 +283,7 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
             "operation": "callers", "path": file.to_string_lossy(),
             "symbolName": "root",
             "line": 1,
-            "graphDepth": depth
+            "depth": depth
         }));
         let items = walk
             .edges
@@ -300,9 +307,9 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
     let shallow = walk(1).await.expect("walk");
     let row = row_at(1, &shallow);
     let deeper = &crate::tools::test_support::checks::related_call(&row, "lspSearch", |input| {
-        input["queries"][0]["graphDepth"] == 2
+        input["queries"][0]["depth"] == 2
     })["input"]["queries"][0];
-    assert_eq!(deeper["graphDepth"], 2, "{}", row["next"]);
+    assert_eq!(deeper["depth"], 2, "{}", row["next"]);
     assert_eq!(deeper["symbolName"], "root");
     assert!(row.get("isPartial").is_none(), "{row}");
 
@@ -315,27 +322,26 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
             .as_array()
             .into_iter()
             .flatten()
-            .any(|call| call["tool"] == "lspSearch"
-                && call["input"]["queries"][0]["graphDepth"] == 2),
+            .any(|call| call["tool"] == "lspSearch" && call["input"]["queries"][0]["depth"] == 2),
         "{}",
         row["next"]
     );
 
-    // The deepest walk the contract allows has no deeper level to offer.
-    let deepest = walk(MAX_HIERARCHY_DEPTH).await.expect("walk");
-    let mut long = deepest;
+    // Depth has no maximum: a walk whose last level still has nodes always
+    // offers the next one.
+    let far = 1_000;
+    let mut long = walk(far).await.expect("walk");
     for edge in &mut long.edges {
-        edge.level = MAX_HIERARCHY_DEPTH;
+        edge.level = far;
     }
-    let row = row_at(MAX_HIERARCHY_DEPTH, &long);
+    let row = row_at(far, &long);
     assert!(
-        !row["related"]
+        row["related"]
             .as_array()
             .into_iter()
             .flatten()
             .any(|call| call["tool"] == "lspSearch"
-                && call["input"]["queries"][0]["graphDepth"] == 2),
-        "{}",
-        row["next"]
+                && call["input"]["queries"][0]["depth"] == far + 1),
+        "{row}"
     );
 }

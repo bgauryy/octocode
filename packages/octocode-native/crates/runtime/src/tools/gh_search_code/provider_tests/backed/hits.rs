@@ -1,7 +1,7 @@
 //! Hit rows: numbered occurrences, reads of every hit, owner-wide fragments and path matches.
 use super::*;
 use octocode_github::mock_http::mount_json;
-use serde_json::{Value, json};
+use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -56,7 +56,9 @@ async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
             "{row}"
         );
     }
-    let read = &data["next"]["read"]["input"]["queries"][0];
+    let read = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| {
+        true
+    })["input"]["queries"][0];
     assert_eq!(read["owner"], "a", "{data}");
     // The top hit declares `wrap_app`, so the read is that whole
     // declaration, never a fixed line window that may cut it.
@@ -71,75 +73,14 @@ async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
         .expect("read is a valid ghGetFileContent query");
 }
 
-/// A file whose hits are capped or whose hit lines are cut carries an
-/// executable read of every keyword line at the resolved commit, so
-/// no hit stays unreachable; a fully shown file gets none.
+/// Resolved source hits reach the response pager whole, without a replay read.
 #[tokio::test]
-async fn capped_or_clipped_hit_files_carry_a_read_of_every_hit() {
+async fn complete_long_and_many_hits_need_no_recovery_read() {
     let server = MockServer::builder().start().await;
     mount_code_search(&server).await;
     mount_ref(&server, "HEAD").await;
-    mount_content(
-        &server,
-        "src/handler.py",
-        &format!("x = '{}' + wrap_app\n", "a".repeat(400)),
-    )
-    .await;
-    mount_content(&server, "src/routing.py", &"wrap_app()\n".repeat(25)).await;
-    let out = run(
-        &server,
-        json!({"owner":"a","repo":"b","keywords":["wrap_app"]}),
-    )
-    .await
-    .expect("search");
-    let data = &out.data;
-    let reads: Vec<&Value> = ["readHits", "readHits2"]
-        .iter()
-        .filter_map(|key| data["next"].get(*key))
-        .collect();
-    assert_eq!(reads.len(), 2, "{data}");
-    assert!(data["next"].get("readHits3").is_none(), "{data}");
-    let mut paths: Vec<&str> = reads
-        .iter()
-        .map(|read| read["input"]["queries"][0]["path"].as_str().expect("path"))
-        .collect();
-    paths.sort_unstable();
-    assert_eq!(paths, ["src/handler.py", "src/routing.py"], "{data}");
-    for read in reads {
-        assert_eq!(read["tool"], "ghGetFileContent", "{data}");
-        let query = &read["input"]["queries"][0];
-        assert_eq!(query["ref"], TREE_SHA, "{data}");
-        assert_eq!(query["matchString"], json!(["wrap_app"]), "{data}");
-        assert_eq!(
-            query["contextLines"],
-            json!({"before":0,"after":0}),
-            "{data}"
-        );
-        // A file whose first five hits are shown resumes after them
-        // (lines 6-25 hold the other twenty); a file whose shown line
-        // was cut re-reads its hits whole.
-        match query["path"].as_str().expect("path") {
-            "src/routing.py" => assert_eq!(
-                query["ranges"],
-                json!([{"startLine":6,"endLine":25}]),
-                "{data}"
-            ),
-            _ => assert!(query.get("ranges").is_none(), "{data}"),
-        }
-        crate::contracts::validate_query("ghGetFileContent", query.clone())
-            .expect("readHits is a valid ghGetFileContent query");
-    }
-}
-
-/// The listing matches keywords case-insensitively, so the hit read
-/// does too: an uppercase keyword under smart case would skip counted
-/// lowercase hits.
-#[tokio::test]
-async fn hit_reads_match_case_like_the_listing() {
-    let server = MockServer::builder().start().await;
-    mount_code_search(&server).await;
-    mount_ref(&server, "HEAD").await;
-    mount_content(&server, "src/handler.py", "def wrap_app(app):\n").await;
+    let long = format!("x = '{}' + wrap_app", "λ🦀".repeat(400));
+    mount_content(&server, "src/handler.py", &format!("{long}\n")).await;
     mount_content(&server, "src/routing.py", &"wrap_app()\n".repeat(25)).await;
     let out = run(
         &server,
@@ -147,9 +88,25 @@ async fn hit_reads_match_case_like_the_listing() {
     )
     .await
     .expect("search");
-    let query = &out.data["next"]["readHits"]["input"]["queries"][0];
-    assert_eq!(query["path"], "src/routing.py", "{}", out.data);
-    assert_eq!(query["caseMode"], "insensitive", "{}", out.data);
+    let items = out.data["files"].as_array().expect("files");
+    let lines = |path: &str| {
+        items.iter().find(|row| row["path"] == path).expect("file")["lines"]
+            .as_array()
+            .expect("lines")
+            .clone()
+    };
+    assert_eq!(lines("src/handler.py"), vec![json!(format!("1\t{long}"))]);
+    assert_eq!(
+        lines("src/routing.py"),
+        (1..=25)
+            .map(|n| json!(format!("{n}\twrap_app()")))
+            .collect::<Vec<_>>()
+    );
+    assert!(out.data["next"].get("readHits").is_none());
+    assert_eq!(
+        crate::tools::test_support::checks::related_call(&out.data, "ghGetFileContent", |_| true)["kind"],
+        "related"
+    );
 }
 
 /// A fully shown hit list needs no extra read.

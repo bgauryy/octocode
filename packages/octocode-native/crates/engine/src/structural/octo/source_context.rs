@@ -1,4 +1,5 @@
 use super::matching::ExecutionError;
+use crate::num::saturating_u32;
 use crate::text::analysis::{
     AnalysisOperation, ByteRange, ObservedSpan, Producer, RepresentationContent,
     RepresentationHandle, SourceTemplates, UnitHandle,
@@ -55,7 +56,7 @@ impl SourceContext {
                 adapter.clone(),
                 RepresentationContent::Prefix {
                     input: RepresentationHandle(0),
-                    end_byte: range.end_byte as u32,
+                    end_byte: saturating_u32(range.end_byte),
                     tail: tail.to_owned(),
                 },
             )
@@ -66,8 +67,8 @@ impl SourceContext {
                 AnalysisOperation::StructuralSearch,
                 representation,
                 vec![ByteRange::new(
-                    range.start_byte as u32,
-                    (range.end_byte + tail.len()) as u32,
+                    saturating_u32(range.start_byte),
+                    saturating_u32(range.end_byte + tail.len()),
                 )],
             )
             .map_err(fail)?;
@@ -81,8 +82,8 @@ impl SourceContext {
     pub fn span(&self, node: Node<'_>) -> ObservedSpan {
         self.range(
             tree_id(node),
-            node.start_byte() as u32,
-            node.end_byte() as u32,
+            saturating_u32(node.start_byte()),
+            saturating_u32(node.end_byte()),
         )
     }
     #[expect(

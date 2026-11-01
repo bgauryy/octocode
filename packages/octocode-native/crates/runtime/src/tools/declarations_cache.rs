@@ -1,10 +1,13 @@
-//! One declarations parse per source version, shared by every reader of a
-//! file's declarations (outline pages, block reads, search hits, LSP
-//! narrowing) and kept typed: a reader never re-parses JSON. The rendered
-//! symbols view is kept here too. Authorization and source decoding happen
-//! in the caller on every request; the key uses the decoded content,
-//! canonical path and the parser extension actually used (none for the
-//! file's own grammar), rather than mutable timestamps.
+//! One parse per source version, shared by every reader of a file's
+//! syntax facts and kept typed: a reader never re-parses JSON. Two parses
+//! share the store and its single flight: the declarations parse (outline
+//! pages, block reads, search hits, LSP narrowing) and the full graph facts
+//! (CommonJS loads and heritage edges, read by lspSearch importer recovery
+//! and type-hierarchy fallbacks). The rendered symbols view is kept here
+//! too. Authorization and source decoding happen in the caller on every
+//! request; the key uses the parse kind, decoded content, canonical path and
+//! the parser extension actually used (none for the file's own grammar),
+//! rather than mutable timestamps.
 
 use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
 use octocode_engine::graph::GraphFactsDocument;
@@ -32,8 +35,8 @@ fn cache() -> &'static Store<GraphFactsDocument> {
     CACHE.get_or_init(|| {
         Store::new(
             CacheConfig {
-                max_entries: 128,
-                max_bytes: 32 * 1024 * 1024,
+                max_entries: 384,
+                max_bytes: 96 * 1024 * 1024,
                 ..CacheConfig::default()
             },
             None,
@@ -52,13 +55,33 @@ pub(crate) fn document(
     parser: Option<&str>,
     extraction: impl FnOnce() -> Option<GraphFactsDocument>,
 ) -> Option<Arc<GraphFactsDocument>> {
-    // A parser extension never contains `/`, so `auto` cannot collide with one.
-    let parser = parser.map_or_else(|| "auto".to_owned(), |extension| format!("ext/{extension}"));
-    let key = CacheKey {
-        namespace: "ast-declarations".into(),
-        scope: format!("{parser}\0{canonical_path}"),
-        resource: octocode_engine::digest::sha256(source.as_bytes()),
-    };
+    parse_once(
+        key_of(DECLARATIONS, source, canonical_path, parser),
+        canonical_path,
+        extraction,
+    )
+}
+
+/// The full graph facts of `content` at `path` (its own grammar): what the
+/// declarations parse leaves out, CommonJS loads and heritage edges, once
+/// per source version; `None` when no extractor parses it (never kept).
+pub(crate) fn graph_facts(content: &str, path: &str) -> Option<Arc<GraphFactsDocument>> {
+    parse_once(key_of(GRAPH_FACTS, content, path, None), path, || {
+        octocode_engine::signatures::extract_graph_facts(content, path)
+    })
+}
+
+/// Cache namespaces: one per parse kind.
+const DECLARATIONS: &str = "ast-declarations";
+const GRAPH_FACTS: &str = "graph-facts";
+
+/// The cached parse under `key`, or `extraction`'s, parsed by one reader of
+/// a concurrent wave (see [`FLIGHT`]).
+fn parse_once(
+    key: CacheKey,
+    canonical_path: &str,
+    extraction: impl FnOnce() -> Option<GraphFactsDocument>,
+) -> Option<Arc<GraphFactsDocument>> {
     if let Some(hit) = cache().get(&key) {
         return Some(hit.value);
     }
@@ -77,6 +100,11 @@ pub(crate) fn document(
     // parsing (only this key's turn), and never retain a failed extraction
     // past its wave.
     let outcome = extraction().map(|document| {
+        #[cfg(test)]
+        PARSED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(key.clone());
         let bytes = weight(&document) + canonical_path.len() + key.resource.len();
         // Keyed by the source digest, so an entry never goes stale. The
         // stored value is the one returned: no copy, no second lookup.
@@ -84,6 +112,48 @@ pub(crate) fn document(
     });
     *slot = Wave::Parsed(outcome.clone());
     outcome
+}
+
+/// Every key a parse went through the cache under. The cache itself is
+/// bounded and shared by every test thread, so residency proves nothing
+/// under parallel load; this record does.
+#[cfg(test)]
+static PARSED: std::sync::Mutex<std::collections::BTreeSet<CacheKey>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Whether `source` at `canonical_path` was parsed through [`document`]
+/// with `parser` (`None`: the file's own grammar).
+#[cfg(test)]
+pub(crate) fn parsed_through_cache(
+    source: &str,
+    canonical_path: &str,
+    parser: Option<&str>,
+) -> bool {
+    PARSED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .contains(&key_of(DECLARATIONS, source, canonical_path, parser))
+}
+
+/// Whether `source` at `path` was parsed through [`graph_facts`].
+#[cfg(test)]
+pub(crate) fn facts_parsed_through_cache(source: &str, path: &str) -> bool {
+    PARSED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .contains(&key_of(GRAPH_FACTS, source, path, None))
+}
+
+/// The cache key of `source` at `canonical_path` parsed as `namespace` with
+/// `parser`.
+fn key_of(namespace: &str, source: &str, canonical_path: &str, parser: Option<&str>) -> CacheKey {
+    // A parser extension never contains `/`, so `auto` cannot collide with one.
+    let parser = parser.map_or_else(|| "auto".to_owned(), |extension| format!("ext/{extension}"));
+    CacheKey {
+        namespace: namespace.into(),
+        scope: format!("{parser}\0{canonical_path}"),
+        resource: octocode_engine::digest::sha256(source.as_bytes()),
+    }
 }
 
 /// A parse's cache weight, estimated from what it holds (never by
@@ -94,6 +164,7 @@ fn weight(document: &GraphFactsDocument) -> usize {
     let facts = document.imports.len()
         + document.exports.len()
         + document.calls.len()
+        + document.argument_sites.len()
         + document.common_js.len()
         + document.edges.len()
         + document.modules.len()
@@ -168,34 +239,22 @@ pub(crate) struct SymbolsView {
 /// when the rendered view changes shape; a release changes the scope.
 /// v2: views render from redacted text (v1 files held raw secrets and are
 /// never read again).
-const SYMBOLS_NAMESPACE: &str = "symbols-view/v2";
+/// v3: corrected Markdown headings and complete YAML block-scalar spans.
+const SYMBOLS_NAMESPACE: &str = "symbols-view/v3";
 
-static SYMBOLS: OnceLock<Store<SymbolsView>> = OnceLock::new();
-static SYMBOLS_DISK: OnceLock<std::path::PathBuf> = OnceLock::new();
-
-/// Keep rendered symbols views in `dir` too, across processes. The runtime
-/// calls it once, before any read, when storage is persistent; a later
-/// call (or one after the first view) changes nothing.
-pub(crate) fn persist_symbols_views(dir: std::path::PathBuf) {
-    let _ = SYMBOLS_DISK.set(dir);
+/// A runtime's rendered views, with its own optional persistence directory.
+pub(crate) fn symbols_store(dir: Option<std::path::PathBuf>) -> Store<SymbolsView> {
+    Store::new(
+        CacheConfig {
+            max_entries: 64,
+            max_bytes: 32 * 1024 * 1024,
+            disk_bytes: 256 * 1024 * 1024,
+        },
+        dir,
+    )
 }
 
-/// The process's symbols views: in memory, and on disk once
-/// [`persist_symbols_views`] named a directory.
-pub(crate) fn symbols_store() -> &'static Store<SymbolsView> {
-    SYMBOLS.get_or_init(|| {
-        Store::new(
-            CacheConfig {
-                max_entries: 64,
-                max_bytes: 32 * 1024 * 1024,
-                disk_bytes: 256 * 1024 * 1024,
-            },
-            SYMBOLS_DISK.get().cloned(),
-        )
-    })
-}
-
-/// The `minify:"symbols"` view of `source` at `path` in `store`: rendered
+/// The `view:"symbols"` view of `source` at `path` in `store`: rendered
 /// once per source version and reused by every outline page; a hit costs
 /// no render and no redaction. A missing outline is a verdict of the same
 /// version, so it is kept too. `render` builds the view from redacted text

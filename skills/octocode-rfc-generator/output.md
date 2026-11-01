@@ -11,7 +11,7 @@ Always include `## Summary`, `## Proposed design`, `## Validation and success`, 
 | Summary | Decision, effect, why worth it; flag a provisional choice |
 | Problem and context | Current behavior, affected users, deciding evidence, cost of inaction |
 | Goals and scope | Checkable outcomes, constraints, exclusions |
-| Proposed design | Behavior with examples; boundaries, interfaces, data flow, failures, compatibility, security |
+| Proposed design | Behavior with examples; boundaries, interfaces, data flow, failures, compatibility, security; agent-facing text changed (instruction sections, role files, tool descriptions and promptGuidelines), with the file that owns each and the test that pins it |
 | Alternatives and rationale | Viable options, costs, benefits, why this fits, what could change it |
 | Risks and mitigations | Drawbacks, failure conditions, prevention or detection |
 | Implementation and rollout | Prerequisites, dependency-ordered steps, migration, rollout signals, rollback |
@@ -51,8 +51,12 @@ Use the [shared format guide](references/report-output.md#choose-the-format); lo
 
 Save every RFC; when HTML was requested, rerender its folder after each revision.
 
-Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Proposed`, `Accepted`, `Implemented` (built and verified; `next` names any eval still owed), `Rejected`, `Superseded` (name the replacement in the lead).
+Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Proposed`, `Accepted`, `Implemented`, `Rejected`, `Superseded`.
+
+`Implemented` means built and verified; `next` names any eval still owed. For `Superseded`, name the replacement in the lead.
 
 Then the `#` title, a lead paragraph stating the answer, and the Structure sections.
+
+Scratch notes and long requests: `<workspace>/.octocode/octocode-rfc-generator/tmp/`.
 
 After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

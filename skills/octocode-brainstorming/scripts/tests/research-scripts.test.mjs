@@ -18,11 +18,17 @@ function serve(handler) {
   });
 }
 function run(script, args, env = {}) {
+  const cwd = mkdtempSync(join(tmpdir(), 'brainstorming-provider-cwd-'));
+  const home = mkdtempSync(join(tmpdir(), 'brainstorming-provider-home-'));
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [join(scripts, script), ...args], { env: { PATH: process.env.PATH, ...env } });
+    const child = spawn(process.execPath, [join(scripts, script), ...args], { cwd, env: { PATH: process.env.PATH, OCTOCODE_HOME: home, ...env } });
     let stdout = '';
     child.stdout.on('data', (d) => { stdout += d; });
-    child.on('close', (status) => resolve({ status, stdout, json: (() => { try { return JSON.parse(stdout); } catch { return null; } })() }));
+    child.on('close', (status) => {
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+      resolve({ status, stdout, json: (() => { try { return JSON.parse(stdout); } catch { return null; } })() });
+    });
   });
 }
 const readBody = (req) => new Promise((resolve) => { let s = ''; req.on('data', (d) => { s += d; }); req.on('end', () => resolve(s ? JSON.parse(s) : {})); });

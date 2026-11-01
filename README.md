@@ -21,7 +21,7 @@ Octocode gives Cursor, Claude, VS Code, Codex, Pi, and any MCP client deep, cite
 - **Evidence, not guesses:** every answer cites exact files and lines.
 - **Research loop:** orient → search → read exact evidence → prove identity with LSP.
 - **Lean context:** reads return only the lines you need ([benchmarks](#benchmarks)).
-- **Filter evidence:** optional `classification` has an AI judge (Jev) keep only the relevant search hits or passages; the beta `clasify` tool answers typed questions about unread source, then the agent verifies the source.
+- **Filter evidence:** optional `classification` selects relevant search hits or passages; `clasify` answers typed questions about unread source, then the agent verifies the source.
 - **Keep researching:** required continuations reach the remaining evidence; related calls offer useful next steps.
 - **Secure by default:** read-only research, secrets redacted, path guardrails.
 - **Free and open source** under the MIT license.
@@ -32,7 +32,9 @@ The idea and the research loop: [The Octocode protocol](https://github.com/bgaur
 
 ## Quick start
 
-Requires Node.js 24.15+ (24.x).
+The npm/npx launchers require Node.js 22+. The standalone native `octocode`
+binary does not require Node.js. Optional skill scripts can have their own
+dependencies; follow the relevant skill's setup instructions.
 
 ### 1. Sign in to GitHub
 
@@ -54,7 +56,7 @@ Add it to any MCP client:
   "octocode": {
     "command": "npx",
     "type": "stdio",
-    "args": ["octocode-mcp@latest"]
+    "args": ["-y", "octocode-mcp@latest"]
   }
 }
 ```
@@ -117,7 +119,7 @@ Full results, the speed comparison and the evaluation: [benchmark README](https:
 
 ## Tools
 
-**16 tools.** Your agent gets 12 tools over MCP and 15 in the CLI by default. Beta (`OCTOCODE_BETA=true`) exposes `graphBuild` and `graphQuery` through MCP; their CLI availability is unchanged. `ghCloneRepo` stays CLI-only. A classification credential and successful provider ping add `clasify` independently of beta.
+**16 tools.** The default configuration exposes 12 tools over MCP and 16 in the CLI. All CLI tools stay available as MCP catalog settings change. MCP has separate opt-ins for graph tools, cloning, and classification. See the [CLI/MCP availability matrix](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#tool-availability-cli-and-mcp) for defaults and setup. Provider credentials and language servers are checked when a call needs them.
 
 Every tool runs from the CLI with the same JSON input as MCP: `npx octocode <tool> '{"queries":[…]}'`. Use `npx octocode schema <tool>` to inspect its fields. Resume an issued continuation by passing its `{ "cursor": "…" }` input unchanged.
 
@@ -135,9 +137,10 @@ Every tool runs from the CLI with the same JSON input as MCP: `npx octocode <too
 | Find pull requests, issues, and commits | `ghSearchHistory` | `octocode ghSearchHistory '{"queries":[{"operation":"pullRequest","keywords":["mmap"],"owner":"BurntSushi","repo":"ripgrep"}]}'` |
 | Read a pull request, issue, or commit | `ghGetHistoryItem` | `octocode ghGetHistoryItem '{"queries":[{"operation":"pullRequest","number":2000,"owner":"BurntSushi","repo":"ripgrep"}]}'` |
 | Check package versions and dependencies | `artifactSearch` | `octocode artifactSearch '{"queries":[{"operation":"resolve","packageName":"zod","ecosystem":"npm"}]}'` |
-| Answer typed questions about evidence (beta) | `clasify` | `octocode clasify '{"queries":[{"operation":"evaluate","content":"The timeout defaults to 30 seconds.","questions":{"timeout":{"type":"noul","instructions":"Does this define a default timeout?"}}}]}'` |
-| Clone a repository for deep local work (CLI) | `ghCloneRepo` | `octocode ghCloneRepo '{"queries":[{"owner":"BurntSushi","repo":"ripgrep","paths":["crates/globset"]}]}'` |
-| Map imports, callers, cycles and dead code (CLI) | `graph` | `octocode graph ingest src`, then `octocode graph query hubs` |
+| Answer typed questions about evidence | `clasify` | `octocode clasify '{"queries":[{"operation":"evaluate","content":"The timeout defaults to 30 seconds.","questions":{"timeout":{"type":"noul","instructions":"Does this define a default timeout?"}}}]}'` |
+| Clone a repository for deep local work | `ghCloneRepo` | `octocode ghCloneRepo '{"queries":[{"owner":"BurntSushi","repo":"ripgrep","paths":["crates/globset"]}]}'` |
+| Build a reusable syntax graph | `graphBuild` | `octocode graphBuild '{"queries":[{"path":"src"}]}'` |
+| Explore dependencies, calls and cycles | `graphQuery` | `octocode graphQuery '{"queries":[{"operation":"hubs","path":"src"}]}'` |
 
 Full reference: [Tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [clasify guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md).
 
@@ -159,17 +162,9 @@ Full guide: [CLI](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CL
 
 ## Configuration
 
-Everything is optional. Set options in the MCP `env` block, the shell, or `~/.octocode/.env`:
+Start with [CONFIGURATION.md](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md): CLI/MCP availability, optional features, settings files, precedence, storage, and the complete generated settings reference.
 
-| Variable | What it does |
-|---|---|
-| `WORKSPACE_ROOT`, `ALLOWED_PATHS` | which local directories tools may read |
-| `TOOLS_TO_RUN`, `DISABLE_TOOLS` | choose which tools your agent sees |
-| `OCTOCODE_CLASSIFICATION_API` | enable `classification` filtering ([get a key](https://docs.typesafe.ai/introduction)) |
-| `OCTOCODE_BETA` | enable the beta `clasify` tool (with the key above) |
-| `GITHUB_API_URL` | use GitHub Enterprise |
-
-All settings: [CONFIGURATION.md](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
+Run `npx -y octocode config view` to edit settings, keys, and MCP client entries. The CLI keeps all tool commands available; MCP catalog settings choose what an agent sees. Both interfaces enforce filesystem policy and execution requirements.
 
 ---
 
@@ -203,8 +198,9 @@ Install with `npx octocode skill install <name>` ([all skills](https://github.co
 | [octocode-chrome-devtools](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools) | browser evidence: network, console, storage |
 | [octocode-skills](https://github.com/bgauryy/octocode/tree/main/skills/octocode-skills) | creating and maintaining skills |
 | [octocode-agents-communication](https://github.com/bgauryy/octocode/tree/main/skills/octocode-agents-communication) | coordinating several agents |
+| [octocode-graph-view](https://github.com/bgauryy/octocode/tree/main/skills/octocode-graph-view) | mapping files, imports and calls with verified graph evidence |
 
-Unpublished: [octocode-graph-view](https://github.com/bgauryy/octocode/tree/main/skills-beta/octocode-graph-view) (tested), and the repository skills in [`skills-dev/`](https://github.com/bgauryy/octocode/tree/main/skills-dev).
+Unpublished: the repository skills in [`skills-dev/`](https://github.com/bgauryy/octocode/tree/main/skills-dev).
 
 ---
 
@@ -235,7 +231,7 @@ All docs: [documentation hub](https://github.com/bgauryy/octocode/blob/main/docs
 | Concepts | [Protocol](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_PROTOCOL.md) · [Manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Workflows](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_WORKFLOWS.md) |
 | Interfaces | [MCP](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [CLI](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) |
 | Tools | [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Data contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) · [clasify](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md) |
-| Setup | [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [All settings](https://github.com/bgauryy/octocode/blob/main/docs/generated/CONFIG_SETTINGS.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) |
+| Setup | [Configuration and all settings](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) |
 | Engine | [Languages](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) · [Language servers](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) · [Code graph](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/CODE_GRAPH.md) |
 | Results | [Benchmark](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/README.md) |
 | Contributing | [AGENTS.md](https://github.com/bgauryy/octocode/blob/main/AGENTS.md) · [Development](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/DEVELOPMENT.md) · [Release](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/RELEASE.md) |
@@ -250,6 +246,6 @@ All docs: [documentation hub](https://github.com/bgauryy/octocode/blob/main/docs
 | GitHub auth fails | `npx octocode auth status`, then `npx octocode auth login --refresh` |
 | MCP cannot reach GitHub | run `npx octocode auth login` (or `gh auth login`) once, then restart the MCP server |
 | Path is outside allowed roots | add the directory to `ALLOWED_PATHS` |
-| Node.js errors | use Node.js 24.15+ (24.x) |
+| Node.js errors | use Node.js 22+ for the npm/npx launchers, or run the standalone native binary without Node.js |
 
 More fixes: [authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md#troubleshooting) · [configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#troubleshooting).

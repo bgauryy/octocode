@@ -34,8 +34,8 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "clean": "rm -rf dist/",
-    "lint": "yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
+    "clean": "rm -rf dist/ coverage/",
+    "lint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "test": "vitest run --coverage",
     "test:servers": "vitest run --config vitest.servers.config.ts",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",

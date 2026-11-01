@@ -263,7 +263,9 @@ pub(crate) async fn go(
         },
     };
     if let Some(next) = string(data.get("nextPageToken")) {
-        client.remember_cursor(&go_page_key(query, page + 1), &next);
+        client
+            .remember_cursor(&go_page_key(query, page + 1), &next)
+            .await;
     }
     let data = &data;
     // pkg.go.dev answers a search with no match as `items: null`.

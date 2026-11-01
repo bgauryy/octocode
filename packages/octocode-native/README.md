@@ -55,8 +55,16 @@ installs only the one whose `os`, `cpu` and `libc` match the machine:
 | `@octocodeai/octocode-native-win32-x64-msvc` | Windows x64 |
 | `@octocodeai/octocode-native-win32-arm64-msvc` | Windows ARM64 |
 
-On Linux the launcher picks the musl package when `/usr/bin/ldd` names musl, or
-when Node reports no glibc runtime and `ldd --version` names musl.
+On Linux the launcher picks the musl package when `/usr/bin/ldd` names musl and
+the glibc one when it carries the GNU C Library header; only an `ldd` that names
+neither falls back to Node's glibc report and `ldd --version`.
+
+Scripts that call the binary many times can skip the launcher's Node startup by
+running the binary it would start: `resolveNativeBinaryPath()` from
+`bin/resolve-binary.cjs` is the launcher's own resolver and returns that path
+(it throws when the platform package is missing; the launcher then downloads
+it). Keep the launcher when `OCTOCODE_NATIVE_BIN` is set, since it applies that
+override's policy.
 
 When npm skipped the platform package (`--omit=optional`, or a lockfile written
 on another platform), the launcher downloads that package once at the pinned
@@ -115,7 +123,8 @@ packages/octocode-native/
 ├─ crates/{engine,io,github,contract-types,runtime,cli}/
 ├─ bin/         platform map, binary resolver, registry fallback, signal-forwarding launcher (bundled into the launchers)
 ├─ npm/<p>/     one package per platform: the `octocode` binary
-└─ scripts/     build-native.cjs (build + atomic staging), stage-binary.cjs, platform-packages.cjs (derived manifests)
+└─ scripts/     build-native.cjs (build + atomic staging), stage-binary.cjs, platform-packages.cjs (derived manifests),
+               release: release-matrix.cjs, binary-identity.cjs, smoke-binary.cjs, pack-release.cjs (docs/PUBLISHING.md)
 ```
 
 Cross-platform and release builds (`build:target <platform>`, `build:all`) and
@@ -153,31 +162,30 @@ Field reference: [OCTOCODE_TOOLS.md](../../docs/OCTOCODE_TOOLS.md).
 Tool commands take one JSON envelope (positional, `--input <file>`, or `--input -`). They print text on a terminal or a pipe:
 rg-style lines for search hits, the rendered result otherwise, with notes and
 runnable follow-up commands on stderr (`crates/cli/src/cli/lines.rs`). `--json`
-prints JSON, indented on a terminal. `octocode --help` lists the tools available under the
-current configuration: by default the 12 MCP tools plus the CLI-only
-`ghCloneRepo`. Beta `clasify` (with a classification key) appears with
-`OCTOCODE_BETA=true`. Gates: [OCTOCODE_TOOLS.md](../../docs/OCTOCODE_TOOLS.md)
-and [clasify availability](../../docs/OCTOCODE_CLASIFY.md#availability).
+prints JSON, indented on a terminal. `octocode --help` and `schema` expose every tool in
+the build. Credentials and storage prerequisites are checked when a tool runs.
+MCP has independent beta, classification and clone opt-ins; the
+[configuration matrix](../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp) owns their rules.
 
 | Command | What it does |
 |---|---|
 | `schema [tool]` | Tool catalog with agent instructions, or one tool's contract (`--view query`, `--view variants`, `--select FIELD=VALUE`) |
 | `config` | Config paths, loaded key names, and warnings; never values (`--json`). Subcommands: `view`, `home`, `get KEY`, `set KEY VALUE` / `set KEY --stdin`, `unset KEY`, `check KEY` |
+| `cache clear` | Drain warm CLI servers and remove tool caches; [scope and MCP restart](../../docs/OCTOCODE_CLI.md#clear-tool-caches) |
 | `auth` | `status`, `login` (device flow; `--hostname`, `--force`, `--refresh`), `logout` |
 | `graph` | `ingest <path>` and `query <op>` over a persisted code graph ([CODE_GRAPH.md](docs/engine/CODE_GRAPH.md)) |
 | `install` | Add the MCP server to an agent client: `--ide <id>` from `--list` |
 | `skill list\|info\|install\|remove\|check` | Manage the embedded public skills without Node |
 | `help` | Help for the binary or a command |
 
-Hidden maintenance commands: `cache <status|clear>`,
-`lsp-server <list|install|uninstall|clean|status>`, and `serve` (the warm
+Hidden maintenance commands: `cache clear`, `lsp-server <list|install|uninstall|clean|status>`, and `serve` (the warm
 tool server, started automatically). Exit codes are printed by
 `octocode --help` and documented in the
 [CLI guide](../../docs/OCTOCODE_CLI.md#exit-codes).
 
 ### Warm tool server
 
-Every read-only tool call (all tools except `ghCloneRepo`)
+Every read-only tool call (all tools except `ghCloneRepo` and `graphBuild`, which write)
 runs on `octocode serve`, so a later page reuses what an earlier call computed,
 as it does in one MCP session: page memos, stored scans, outlines, symbol
 pages, graph reports, and warm language servers. The first call of a workspace

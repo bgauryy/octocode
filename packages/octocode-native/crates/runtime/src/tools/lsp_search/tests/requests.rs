@@ -120,7 +120,7 @@ fn semantic_operations_require_their_advertised_lsp_capability() {
 #[test]
 fn hover_rejects_walk_controls_with_the_operations_that_take_them() {
     for (field, value, applies) in [
-        ("graphDepth", serde_json::json!(2), "callers"),
+        ("depth", serde_json::json!(2), "callers"),
         ("view", serde_json::json!("files"), "references"),
     ] {
         let mut row = serde_json::json!({"operation":"hover","path":"/tmp/a.rs","symbolName":"main","line":1});
@@ -198,7 +198,7 @@ fn anchor_file_uri_is_stated_once_per_row() {
     super::super::receipt::drop_same_uri(&mut symbol, canonical);
     assert!(symbol.get("uri").is_none(), "{symbol}");
     // A payload whose locations all sit in ANOTHER file keeps its uri.
-    let mut other = serde_json::json!({"kind":"references","uri":"file:///repo/src/index.ts"});
+    let mut other = serde_json::json!({"operation":"references","uri":"file:///repo/src/index.ts"});
     super::super::receipt::drop_same_uri(&mut other, canonical);
     assert_eq!(other["uri"], "file:///repo/src/index.ts");
     // Percent-encoding differences still name the same file.

@@ -1,5 +1,6 @@
 //! Recovery context for extracted occurrences, without guessing repaired names.
 
+use crate::num::saturating_u32;
 use tree_sitter::Node;
 
 use crate::graph::{GraphParseAssessment, GraphParseScope, ObservedSpan};
@@ -8,7 +9,10 @@ use crate::signatures::nodes::declaration_extent;
 use super::positions::NodePositions;
 
 pub(super) fn byte_range(node: Node<'_>) -> ObservedSpan {
-    ObservedSpan::root(node.start_byte() as u32, node.end_byte() as u32)
+    ObservedSpan::root(
+        saturating_u32(node.start_byte()),
+        saturating_u32(node.end_byte()),
+    )
 }
 
 /// A clean child can belong to a recovered header. Inspect the carried

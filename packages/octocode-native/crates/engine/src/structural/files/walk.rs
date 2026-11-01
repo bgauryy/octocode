@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 use crate::search::glob::Globs;
-use crate::search::walk::{IgnorePolicy, Prune, RootedPrune, Stop, walk_builder};
+use crate::search::walk::{Prune, RootedPrune, Stop, walk_builder};
 use crate::structural::types::WalkErrors;
+use crate::types::IgnorePolicy;
 
 /// Loud existence check shared by every entry point.
 pub(super) fn check_root_exists(root: &Path) -> Result<std::fs::Metadata> {

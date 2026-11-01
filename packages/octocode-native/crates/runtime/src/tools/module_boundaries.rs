@@ -11,10 +11,10 @@
 //! groups, `self`, `super` and aliases, and inline `crate::`/`super::`/bound
 //! paths.
 //!
-//! The same scanner keeps the crate's top-level modules layered
-//! ([`LAYERS`]): production code of a module never names a module of a
-//! higher layer, so the lower layers stay separable from tools and the
-//! runtime engine.
+//! The same scanner keeps each crate's top-level modules layered
+//! ([`LAYERS`] for this crate, [`ENGINE_LAYERS`] for `octocode-engine`):
+//! production code of a module never names a module of a higher layer, so
+//! the lower layers stay separable from the ones that drive them.
 
 use std::path::{Path, PathBuf};
 
@@ -44,6 +44,28 @@ const LAYERS: &[&[&str]] = &[
     &["providers"],
     &["tools"],
     &["runtime"],
+];
+
+/// `octocode-engine`'s top-level modules, lowest layer first: shared
+/// vocabulary and text below the DTOs (`types`), the DTOs below the search,
+/// parse and graph-fact engines, and those below the language-server pool,
+/// structural matching, redaction and fact scans that compose them.
+const ENGINE_LAYERS: &[&[&str]] = &[
+    &[
+        "deep_stack",
+        "json_size",
+        "num",
+        "process_env",
+        "scan_budget",
+        "stamp",
+        "symbol_kind",
+    ],
+    &["digest"],
+    &["text"],
+    &["error", "graph"],
+    &["minify", "process", "types"],
+    &["search", "signatures"],
+    &["fact_scan", "lsp", "security", "structural"],
 ];
 
 /// Whether `path` is mounted only for tests: it, or a module above it, is
@@ -77,8 +99,8 @@ fn mounted_for_tests(src: &Path, path: &Path) -> bool {
     gated || (dir != src && mounted_for_tests(src, &parent))
 }
 
-fn layer_of(module: &str) -> Option<usize> {
-    LAYERS.iter().position(|layer| layer.contains(&module))
+fn layer_of(layers: &[&[&str]], module: &str) -> Option<usize> {
+    layers.iter().position(|layer| layer.contains(&module))
 }
 
 fn is_test_file(path: &Path) -> bool {
@@ -92,7 +114,8 @@ fn is_test_file(path: &Path) -> bool {
         })
 }
 
-fn rust_files(path: &Path, out: &mut Vec<PathBuf>) {
+/// Every production `.rs` file under `path`, sorted.
+pub(super) fn rust_files(path: &Path, out: &mut Vec<PathBuf>) {
     if path.is_file() {
         if path.extension().is_some_and(|ext| ext == "rs") && !is_test_file(path) {
             out.push(path.to_owned());
@@ -120,31 +143,28 @@ fn module_files(dir: &Path, name: &str, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Production code never imports a higher layer: `id` and `num` below the
-/// contracts, the request kernel (`execution`) below response shaping, and
-/// response below providers, tools and the runtime engine that drives them.
-#[test]
-fn top_level_modules_import_only_lower_layers() {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+/// Every import in `src`'s production code from a top-level module into a
+/// module of a higher layer of `layers`.
+fn upward_imports(src: &Path, layers: &[&[&str]]) -> Vec<String> {
     let mut violations = Vec::new();
-    let mut tops: Vec<String> = std::fs::read_dir(&src)
+    let mut tops: Vec<String> = std::fs::read_dir(src)
         .expect("read src/")
         .filter_map(Result::ok)
         .filter_map(|entry| {
             let path = entry.path();
             let name = path.file_stem()?.to_str()?.to_owned();
-            (name != "lib" && !mounted_for_tests(&src, &path)).then_some(name)
+            (name != "lib" && !mounted_for_tests(src, &path)).then_some(name)
         })
         .collect();
     tops.sort();
     tops.dedup();
     for top in &tops {
-        let layer = layer_of(top)
-            .unwrap_or_else(|| panic!("src/{top} is in no LAYERS entry: place it there"));
+        let layer = layer_of(layers, top)
+            .unwrap_or_else(|| panic!("{}/{top} is in no layer: place it there", src.display()));
         let mut files = Vec::new();
-        module_files(&src, top, &mut files);
+        module_files(src, top, &mut files);
         for path in files {
-            if mounted_for_tests(&src, &path) {
+            if mounted_for_tests(src, &path) {
                 continue;
             }
             let source = std::fs::read_to_string(&path)
@@ -164,9 +184,9 @@ fn top_level_modules_import_only_lower_layers() {
                 let Some(imported) = named.first() else {
                     continue;
                 };
-                if let Some(above) = layer_of(imported).filter(|above| *above > layer) {
+                if let Some(above) = layer_of(layers, imported).filter(|above| *above > layer) {
                     let shown = path
-                        .strip_prefix(&src)
+                        .strip_prefix(src)
                         .unwrap_or(&path)
                         .display()
                         .to_string();
@@ -179,9 +199,33 @@ fn top_level_modules_import_only_lower_layers() {
     }
     violations.sort();
     violations.dedup();
+    violations
+}
+
+const UPWARD: &str = "a module imports a higher layer; move the shared piece down or pass it in through a trait the lower layer defines";
+
+/// Production code never imports a higher layer: `id` and `num` below the
+/// contracts, the request kernel (`execution`) below response shaping, and
+/// response below providers, tools and the runtime engine that drives them.
+#[test]
+fn top_level_modules_import_only_lower_layers() {
+    let violations = upward_imports(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), LAYERS);
     assert!(
         violations.is_empty(),
-        "a module imports a higher layer; move the shared piece down or pass it in through a trait the lower layer defines:\n  {}",
+        "{UPWARD}:\n  {}",
+        violations.join("\n  ")
+    );
+}
+
+/// The engine's modules form no cycle: each imports only its own and lower
+/// layers of [`ENGINE_LAYERS`].
+#[test]
+fn engine_modules_import_only_lower_layers() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../engine/src");
+    let violations = upward_imports(&src, ENGINE_LAYERS);
+    assert!(
+        violations.is_empty(),
+        "{UPWARD}:\n  {}",
         violations.join("\n  ")
     );
 }

@@ -67,6 +67,6 @@ pub(super) fn repository_output(
             set_broadened(&mut output.data, &copied_search(query), broader);
         }
     }
-    crate::tools::gh_shared::finish_calls(&mut output.data);
+    crate::response::result::finish_calls(&mut output.data);
     output
 }

@@ -29,9 +29,9 @@ fn rust_context_overlays_the_engine_headless_defaults() {
     assert_eq!(options["cargo"]["targetDir"], true);
     assert_eq!(options["procMacro"]["enable"], false);
     assert_eq!(options["checkOnSave"], false);
-    assert_eq!(
-        options["cachePriming"]["enable"], false,
-        "engine defaults the overlay does not set are kept"
+    assert!(
+        options.get("cachePriming").is_none(),
+        "the overlay sets no option the engine leaves at rust-analyzer's default"
     );
     assert!(
         options.get("cfg").is_none(),

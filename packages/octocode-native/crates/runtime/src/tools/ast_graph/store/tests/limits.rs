@@ -10,7 +10,7 @@ fn options(dir: &Path) -> IngestOptions {
     IngestOptions {
         path: dir.join("app"),
         workspace: Some(dir.to_path_buf()),
-        force: true,
+        refresh: true,
         ..Default::default()
     }
 }
@@ -218,7 +218,6 @@ fn build(
     security: &ContentSecurity,
 ) -> crate::tools::ast_graph::types::BuiltGraph {
     let scan = Scan {
-        max_files: LIMITS.max_files,
         cargo: None,
         registry: RegistryView::installed(),
         limits: &LIMITS,

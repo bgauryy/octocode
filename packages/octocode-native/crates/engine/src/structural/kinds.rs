@@ -1,4 +1,4 @@
-//! Grammar node-kind lookup shared by the structural matchers.
+//! Grammar node-kind ids for the structural matchers.
 
 use tree_sitter::Language;
 
@@ -21,17 +21,6 @@ pub(super) fn named_kind_id(language: &Language, kind: &str) -> Option<u16> {
     } else {
         Some(id)
     }
-}
-
-/// A comment node kind (`comment`, `line_comment`, `block_comment`, …).
-pub(crate) fn is_comment_kind(kind: &str) -> bool {
-    kind.contains("comment")
-}
-
-/// A string or character literal node kind (`string`, `string_literal`,
-/// `raw_string_literal`, `template_string`, `char_literal`, …).
-pub(crate) fn is_string_kind(kind: &str) -> bool {
-    kind.contains("string") || kind.contains("char_literal") || kind == "string_content"
 }
 
 #[cfg(test)]

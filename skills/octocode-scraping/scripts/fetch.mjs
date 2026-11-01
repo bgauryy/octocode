@@ -8,6 +8,9 @@ import { discoverSitemap, fetchRobotsPolicy, sleep } from './lib/client.mjs';
 import { initCorpus, writePage, writeSession } from './lib/corpus.mjs';
 import { resolvedUrlProblem } from './lib/net-guard.mjs';
 import { autoSelectProvider, resolveProvider } from './lib/providers.mjs';
+import { loadOctocodeEnv } from './lib/config-env.mjs';
+
+loadOctocodeEnv();
 
 let config;
 try {

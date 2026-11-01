@@ -31,7 +31,7 @@ impl KeyState {
         facts.circuit_cause = Some(cause);
         if facts.circuit_failures >= config.circuit_failures {
             facts.circuit_open_until_ms =
-                now_ms().saturating_add(config.circuit_open.as_millis() as u64);
+                now_ms().saturating_add(super::millis(config.circuit_open));
         }
     }
 }

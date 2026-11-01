@@ -72,8 +72,8 @@ pub(super) struct Scan {
     /// Without `parser`: the files the walk admitted, by parser extension
     /// (the census the scope's grammar is inferred from).
     pub(super) census: std::collections::BTreeMap<String, usize>,
-    /// The scopes a scan cut at the walk ceiling never read.
-    pub(super) unwalked: Option<crate::tools::ast_search::unwalked::Unwalked>,
+    /// What a `testCode` scope left out.
+    pub(super) test_code_excluded: crate::tools::test_code::Excluded,
 }
 
 /// Example paths a file-count warning names.
@@ -119,17 +119,18 @@ impl NamedFiles {
     }
 }
 
-/// The warning that names the files passed over for want of a grammar and
-/// the field that parses them.
+/// The notice that names the files passed over for want of a grammar, that
+/// absence there is unproven (an empty result included), and the field
+/// that parses them.
 pub(super) fn unparsed_notice(files: &NamedFiles) -> Option<String> {
     let names = files.listed();
     match files.count {
         0 => None,
         1 => Some(format!(
-            "1 file skipped: no AST grammar for its name ({names}); if it is source code, parserGlobs maps its name to a grammar."
+            "1 file skipped: no AST grammar for its name ({names}); it was not searched, so absence there is unproven; if it is source code, parserGlobs maps its name to a grammar."
         )),
         count => Some(format!(
-            "{count} files skipped: no AST grammar for their names ({names}); if they are source code, parserGlobs maps their names to a grammar."
+            "{count} files skipped: no AST grammar for their names ({names}); they were not searched, so absence there is unproven; if they are source code, parserGlobs maps their names to a grammar."
         )),
     }
 }
@@ -156,13 +157,15 @@ pub(super) struct Group {
         Vec<std::sync::Arc<octocode_engine::text::analysis::SourceDescriptors>>,
     /// What the file adds to a file page: its first match page.
     pub(super) chars: usize,
+    /// Rows the file counts against `limit` on a file page: its first match
+    /// page's rows, or every row when its matches span match pages (it
+    /// then takes a file page alone, so no later match page of a file page
+    /// exceeds `limit`).
+    pub(super) rows: usize,
     /// This match page starts past the file's last match.
     pub(super) out_of_range: bool,
     pub(super) more_matches: bool,
     pub(super) truncated_captures: bool,
-    /// The longest value this match page shortened, in characters.
-    /// Line spans of this match page's rows whose shown text was cut.
-    pub(super) clipped: Vec<(u64, u64)>,
     /// A priced file whose rows are not built yet: its index in the scan's
     /// files ([`rebuild_page`]).
     pub(super) priced: Option<usize>,
@@ -170,11 +173,9 @@ pub(super) struct Group {
 
 /// How the candidate scan ended early, and where a resume starts.
 #[derive(Clone, Copy)]
-pub(super) struct ScanCut<'a> {
+pub(super) struct ScanCut {
     pub(super) truncated: bool,
     pub(super) resume: Option<u32>,
-    /// What a cut at the walk ceiling left unread.
-    pub(super) unwalked: Option<&'a crate::tools::ast_search::unwalked::Unwalked>,
 }
 
 /// Rows per file plus per-file coverage: files that parsed, files whose

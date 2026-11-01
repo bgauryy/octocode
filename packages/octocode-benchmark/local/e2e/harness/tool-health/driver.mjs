@@ -17,10 +17,9 @@ export function statusClass(json) {
   if (rows.every(row => row.status === 'empty' || row.status === 'outOfRange')) return 'outOfRange';
   return 'ok';
 }
-export const writes = call => call.tool === 'ghCloneRepo' ? 'writes the clone cache (exercised by the ghCloneRepo case)' : null;
-function skipReason(lead, { tools, cliOnly, surface, allow }) {
+export const writes = call => call.tool === 'ghCloneRepo' ? 'writes a fresh checkout (exercised by the ghCloneRepo case)' : null;
+function skipReason(lead, { tools, allow }) {
   if (!tools.has(lead.tool)) return 'target is not a contract tool';
-  if (surface === 'mcp' && cliOnly.has(lead.tool)) return `${lead.tool} is CLI-only (not on MCP)`;
   return allow.includes(lead.key) ? null : writes(lead);
 }
 
@@ -39,8 +38,8 @@ export function metadataOf(json) {
   return metadata;
 }
 
-export function createDriver({ validate, validateInput = () => null, validateTransport = () => null, tools, cliOnly, schemaOf }) {
-  async function explore(tool, input, { surface, call, maxCalls = 8, maxPages = 12, rows = () => undefined, allow = [] }) {
+export function createDriver({ validate, validateInput = () => null, validateTransport = () => null, tools, schemaOf }) {
+  async function explore(tool, input, { surface, call, maxCalls = 8, maxPages = Infinity, rows = () => undefined, allow = [] }) {
     const report = { tool, surface, input, calls: [], failures: [], skipped: [], graph: new Set(), chains: [], budgetCut: 0, converged: 0, metadata: [] };
     const fail = (check, detail, at) => report.failures.push({ check, detail: short(detail, 400), at });
     const identity = (name, request) => `${name} ${canon(request)}`;
@@ -78,12 +77,12 @@ export function createDriver({ validate, validateInput = () => null, validateTra
           ? `${item.label} > related.${lead.tool}:${canon(lead.input)}`
           : `${item.label} > ${lead.container}.${lead.key}`;
         const source = `${item.label}|${item.tool}|${canon(graphInput(item.input))}`;
-        if (!cliOnly.has(lead.tool)) report.graph.add(`${source} --${lead.kind}:${lead.kind === 'related' ? 'related' : lead.path}--> ${lead.tool} ${canon(graphInput(lead.input))}`);
+        report.graph.add(`${source} --${lead.kind}:${lead.kind === 'related' ? 'related' : lead.path}--> ${lead.tool} ${canon(graphInput(lead.input))}`);
         if (repeatedLead({ lead, item, id, here, seen, report, fail })) continue;
         const child = { ...lead, label, depth: lead.kind === 'continue' ? item.depth + 1 : 0, ancestors: new Set([...item.ancestors, identity(item.tool, item.input)]), children: [], executed: false };
         if (lead.kind === 'continue' && lead.key === 'responsePagination.next') child.responseGroup = group;
         seen.set(id, child);
-        const reason = skipReason(lead, { tools, cliOnly, surface, allow });
+        const reason = skipReason(lead, { tools, allow });
         if (reason) {
           report.skipped.push({ key: `${lead.container}.${lead.key}`, tool: lead.tool, reason });
           if (lead.kind === 'continue') fail('lead.unreachable', reason, label);
@@ -126,7 +125,6 @@ function repeatedLead({ lead, item, id, here, seen, report, fail }) {
   return true;
 }
 
-const completed = node => node.executed && node.children.every(completed);
 function leadFailure(item, cls, json) {
   if (!item.kind || cls === 'broken') return null;
   if (capturedRows(item, json)) return null;
@@ -144,10 +142,12 @@ function attachChain({ child, item, json, rows, report, fail }) {
     ? item.chain : newChain({ lead: child, item, json, rowsFn }, fail);
   if (child.chain !== item.chain) report.chains.push(child.chain);
 }
+// Continuation handles are content-addressed: the same required work offered
+// again (on a later page, or from a sibling) is one handle, followed once.
+// Only a lead back to an ancestor is a cycle.
 function repeatReason(lead, prior, identity, item) {
   if (lead.kind !== 'continue') return null;
-  if (prior === item || item.ancestors.has(identity)) return 'an ancestor';
-  return completed(prior) ? null : 'unfinished work';
+  return prior === item || item.ancestors.has(identity) ? 'an ancestor' : null;
 }
 
 function newChain({ lead, item, json, rowsFn }, fail) {

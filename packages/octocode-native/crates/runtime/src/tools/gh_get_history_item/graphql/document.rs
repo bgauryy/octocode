@@ -46,6 +46,15 @@ pub(super) const COMMITS: Connection = Connection {
     total: None,
 };
 
+/// The PR's labels: every page is read on (GitHub serves no count beside them).
+pub(super) const LABELS: Connection = Connection {
+    key: "labels",
+    field: "labels",
+    variable: "labels",
+    nodes: "name",
+    total: None,
+};
+
 /// Nodes per connection page: GitHub's maximum, the size of one REST batch.
 pub(super) const CONNECTION_PAGE: u32 = 100;
 
@@ -76,7 +85,6 @@ impl Connection {
 pub(super) fn pull_request_document(wants: &GraphqlWants) -> (String, Vec<(&'static str, u32)>) {
     let mut selections: Vec<String> = [
         "number title url state isDraft author { login }",
-        "labels(first:20){ pageInfo{ hasNextPage } nodes { name } }",
         "baseRefName baseRefOid headRefName headRefOid createdAt updatedAt closedAt mergedAt mergeCommit { oid }",
         "comments { totalCount } changedFiles additions deletions",
         // Totals only: an alias keeps the count apart from a paged
@@ -91,6 +99,7 @@ pub(super) fn pull_request_document(wants: &GraphqlWants) -> (String, Vec<(&'sta
     let mut variables = Vec::new();
     let mut header = String::from("query($owner:String!,$repo:String!,$number:Int!");
     for (wanted, connection) in [
+        (true, &LABELS),
         (wants.files, &FILES),
         (wants.discussion, &DISCUSSION),
         (wants.reviews, &REVIEWS),

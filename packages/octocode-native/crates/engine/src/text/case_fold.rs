@@ -83,7 +83,9 @@ impl<'a> Folded<'a> {
         start..end.max(start)
     }
 
-    /// The source char index of the char [`Self::origin`] names.
+    /// The source char index of the char [`Self::origin`] names; the tests'
+    /// oracle for the byte mapping.
+    #[cfg(test)]
     #[must_use]
     pub fn char_index(&self, at: usize) -> usize {
         self.source[..self.origin(at).start].chars().count()

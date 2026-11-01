@@ -280,7 +280,7 @@ fn declared_in_paths_are_workspace_relative() {
         public_edge(Expansion::OutgoingCalls, &edge(callee, 10), None),
         public_edge(Expansion::OutgoingCalls, &edge(outside, 11), None),
     ];
-    let mut row = serde_json::json!({"kind": "callees", "matches": items});
+    let mut row = serde_json::json!({"operation": "callees", "matches": items});
     compact_calls(&mut row, &[], &repo_policy());
     let calls = row["files"][0]["matches"].as_array().expect("calls");
     let map_line = name_line("map") + 1;

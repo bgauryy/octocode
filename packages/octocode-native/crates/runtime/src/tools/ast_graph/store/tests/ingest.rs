@@ -90,7 +90,7 @@ fn ingest_classifies_roles_entries_and_declared_dependencies() {
     assert_eq!(roles["entry"], 1, "dist/main.js maps back to src/main.ts");
 
     let deps = ask(root, "deps", Some("src/fmt.ts"), |_| {});
-    let vias = deps.value["results"]
+    let vias = deps.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
@@ -139,7 +139,7 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
     let huge = ask(dir.0.as_path(), "node", Some("src/huge.min.js"), |_| {});
     assert_eq!(huge.class, ExitClass::Success, "{}", huge.value);
     let deps = ask(dir.0.as_path(), "deps", Some("src/uses.ts"), |_| {});
-    let rows = deps.value["results"].as_array().expect("rows");
+    let rows = deps.value["rows"].as_array().expect("rows");
     assert!(
         rows.iter()
             .any(|r| r["id"] == "src/huge.min.js" && r["via"] == "unparsed-target"),
@@ -148,7 +148,7 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
     );
     let outline = ask(dir.0.as_path(), "symbols", Some("src/small.min.js"), |_| {});
     assert_eq!(
-        outline.value["total"], 400,
+        outline.value["pagination"]["totalItems"], 400,
         "admitted minified declarations must remain queryable: {}",
         outline.value
     );
@@ -161,10 +161,10 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
             o.edges = vec!["calls".into()];
         },
     );
-    assert_eq!(calls.value["total"], 200, "{}", calls.value);
+    assert_eq!(calls.value["pagination"]["totalItems"], 200, "{}", calls.value);
 
     let issues = ask(dir.0.as_path(), "issues", None, |o| o.limit = Some(500));
-    let subjects = issues.value["results"]
+    let subjects = issues.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
@@ -175,7 +175,7 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
         "{subjects:?}"
     );
     assert!(
-        !issues.value["results"]
+        !issues.value["rows"]
             .as_array()
             .expect("rows")
             .iter()
@@ -321,7 +321,7 @@ fn ingest_language_globs_choose_the_parser() {
         let found = ask(root, "find", Some("Widget"), |o| {
             o.kind = Some("symbol".into());
         });
-        found.value["results"][0]["symbolKind"].clone()
+        found.value["rows"][0]["symbolKind"].clone()
     };
     let plain = with_globs(&[]);
     assert_eq!(plain.class, ExitClass::Success, "{}", plain.value);

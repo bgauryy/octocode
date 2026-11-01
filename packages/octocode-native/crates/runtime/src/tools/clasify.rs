@@ -28,14 +28,6 @@ use evaluate::evaluate_row;
 use reply::{answered, error_kind, failed, unread_resources_code};
 use rows::parse_rows;
 
-/// clasify's output facts: rows are keyed query results with their own shape.
-pub(crate) struct Output;
-impl crate::response::output::ToolOutput for Output {
-    fn first_fragment_fields(&self) -> &'static [&'static str] {
-        &["/data/questions"]
-    }
-}
-
 /// The finished result rows and their call-level facts.
 pub(crate) struct Receipts {
     pub rows: Vec<Value>,

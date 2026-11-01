@@ -16,7 +16,11 @@ const WINDOW: usize = 16_384;
 /// (`checks::walk`: each call once, every output and lead within the
 /// contract). `rows` names the items a page delivers, each exactly once
 /// across the walk. Returns the raw pages in the order reached.
-fn walk(root: &std::path::Path, row: Value, rows: fn(&Value) -> Vec<String>) -> Vec<Value> {
+pub(super) fn walk(
+    root: &std::path::Path,
+    row: Value,
+    rows: fn(&Value) -> Vec<String>,
+) -> Vec<Value> {
     let (paths, security) = simple_policy(root);
     let mut outputs = Vec::new();
     checks::walker::walk("astSearch", json!({"queries":[row]}), |call| {
@@ -51,7 +55,7 @@ fn node_rows(out: &Value) -> Vec<String> {
 }
 
 /// Every match of a match page, as `path line:column`.
-fn match_rows(out: &Value) -> Vec<String> {
+pub(super) fn match_rows(out: &Value) -> Vec<String> {
     match_cells(out)
         .into_iter()
         .map(|(path, line, column)| format!("{path} {line}:{column}"))
@@ -72,14 +76,14 @@ fn a_single_symbols_page_states_its_pagination() {
     assert_eq!(outputs[0]["pagination"]["hasMore"], false, "{}", outputs[0]);
 }
 
-fn numbered_functions(count: usize) -> String {
+pub(super) fn numbered_functions(count: usize) -> String {
     (0..count)
         .map(|index| format!("export function declaredName{index}(value: number): number {{ return value + {index}; }}\n"))
         .collect()
 }
 
 /// Every symbol row of a symbols page, in the shape the page carries them.
-fn symbol_rows(out: &Value) -> Vec<String> {
+pub(super) fn symbol_rows(out: &Value) -> Vec<String> {
     let rows = |symbols: &Value| {
         symbols
             .as_array()

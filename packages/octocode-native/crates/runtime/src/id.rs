@@ -75,6 +75,31 @@ impl ToolId {
     pub(crate) const fn supports_concurrent_queries(self) -> bool {
         !matches!(self, Self::Clasify)
     }
+
+    /// Each row carries one source `content` string a caller copies from
+    /// (numbered lines, sized to its share of the response page).
+    #[must_use]
+    pub(crate) const fn reads_source(self) -> bool {
+        matches!(self, Self::LocalFetch | Self::GhGetFileContent)
+    }
+
+    /// Whether `classification` selects this tool's rows at the shared response
+    /// boundary, over one sanitized provider page (code search), instead of
+    /// before the tool's own source pagination.
+    #[must_use]
+    pub(crate) const fn selects_provider_page(self) -> bool {
+        matches!(self, Self::GhSearchCode)
+    }
+
+    /// Shared row definitions carried by the first display fragment only:
+    /// clasify rows are keyed query results that state their questions once.
+    #[must_use]
+    pub(crate) const fn first_fragment_fields(self) -> &'static [&'static str] {
+        match self {
+            Self::Clasify => &["/data/questions"],
+            _ => &[],
+        }
+    }
 }
 
 impl FromStr for ToolId {
@@ -151,7 +176,6 @@ mod tests {
                 ToolFamily::Remote => "remote",
             };
             assert_eq!(tool["family"], family, "{id}");
-            assert_eq!(tool["cliOnly"], id.is_cli_only(), "{id}");
             assert_eq!(tool["beta"], id.is_beta(), "{id}");
             assert_eq!(tool["title"], id.title(), "{id}");
             assert_eq!(

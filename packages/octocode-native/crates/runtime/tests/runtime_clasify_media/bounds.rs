@@ -3,7 +3,6 @@
 use super::{Answer, png, provider, requests, row, runtime};
 use crate::runtime_clasify::clasify;
 use crate::support::{Run as _, Workspace};
-use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use wiremock::matchers::method;
 use wiremock::{Mock, Request, Respond, ResponseTemplate};
@@ -85,21 +84,25 @@ async fn image_asset_admission_respects_disabled_reader_and_path_policy() {
         &[("DISABLE_TOOLS", "localFetch".into())],
     );
     let error = disabled
-        .run(
+        .run_mcp(
             "disabled-media".into(),
             "clasify".into(),
             json!({"queries":[row("missing.png")]}),
         )
         .await
-        .expect_err("disabled source reader must be rejected at admission");
-    assert_eq!(error.code, ErrorCode::InvalidInput);
+        .expect("MCP refusal response");
+    assert_eq!(error["structuredContent"]["errorCode"], "invalidInput");
     assert!(
-        error
-            .validation_issues
-            .unwrap()
-            .iter()
-            .any(|issue| issue.path == ["queries", "0", "assets", "image_a", "source"])
+        error["structuredContent"]["error"]
+            .as_str()
+            .is_some_and(
+                |message| message.contains("queries.0.assets.image_a.source")
+                    && message.contains("localFetch")
+                    && message.contains("DISABLE_TOOLS")
+            ),
+        "{error}"
     );
+    assert!(requests(&server).await.is_empty());
     disabled.close().await;
     let enabled = runtime(&workspace, &server, &[]);
     let outside = tempfile::tempdir().unwrap();

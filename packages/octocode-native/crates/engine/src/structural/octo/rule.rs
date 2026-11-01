@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use regex::Regex;
 use serde::Deserialize;
 use tree_sitter::Node;
@@ -303,7 +301,7 @@ impl CompiledRule {
 
 pub(super) struct Document<'a, 't> {
     pub(super) content: &'a str,
-    pub(super) deadline: Instant,
+    pub(super) deadline: super::Deadline,
     pub(super) root: Node<'t>,
     pub(super) line_index: &'a crate::text::LineIndex,
 }

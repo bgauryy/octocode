@@ -3,8 +3,10 @@
 
 use super::*;
 
+mod call_sites;
 mod identity;
 mod pages;
+mod per_binding;
 mod recovery;
 mod windows;
 
@@ -168,8 +170,11 @@ struct Walked {
 
 /// Run `start` and every page lead its pages offer (`checks::Walker`: each
 /// call once, each match row once, every output and lead within the
-/// contract). A page offers `next.nextPage` or `next.nextImporterPage`,
-/// never both. Also returns those continuations, by name, for stale checks.
+/// contract). Every page of a window with windows left offers
+/// `next.nextImporterPage`, the same continuation on each: a published
+/// cursor names its content, so a reader follows it once (the test
+/// publisher numbers its cursors, so the walk drops a repeated one here).
+/// Also returns every continuation offered, by name.
 async fn walk_pages(
     pool: &LspClientPool,
     root: &Path,
@@ -180,6 +185,7 @@ async fn walk_pages(
     let paths = crate::tools::test_support::workspace_policy(root);
     let mut pages = Vec::new();
     let mut continuations = Vec::new();
+    let mut followed = Vec::new();
     let mut walker = Walker::new(
         ToolId::LspSearch.as_str(),
         serde_json::json!({ "queries": [start] }),
@@ -205,17 +211,23 @@ async fn walk_pages(
         assert_ne!(result["status"], "error", "{result}");
         let page = next_row(&result, "nextPage");
         let importer = next_row(&result, "nextImporterPage");
-        assert!(
-            page.is_none() || importer.is_none(),
-            "nextImporterPage only on a window's last location page: {result}"
-        );
+        let mut offered = result.clone();
+        if let Some(call) = &importer
+            && followed.contains(call)
+            && let Some(next) = offered
+                .get_mut("next")
+                .and_then(serde_json::Value::as_object_mut)
+        {
+            next.remove("nextImporterPage");
+        }
+        followed.extend(importer.clone().filter(|call| !followed.contains(call)));
         for (name, call) in [("nextPage", page), ("nextImporterPage", importer)] {
             if let Some(call) = call {
                 continuations.push((name.to_owned(), call));
             }
         }
         walker.accept(Page {
-            output: crate::tools::test_support::published(ToolId::LspSearch, &result),
+            output: crate::tools::test_support::published(ToolId::LspSearch, &offered),
             rows: match_rows(&result),
         });
         pages.push(Walked {

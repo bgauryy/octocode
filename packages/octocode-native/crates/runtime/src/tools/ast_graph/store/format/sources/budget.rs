@@ -14,10 +14,21 @@ pub(super) struct Budget<'a> {
     max_bytes: usize,
     max_items: usize,
     deadline: Instant,
+    /// Checks made: the request is polled on every [`POLL`]th.
+    ticks: std::cell::Cell<u32>,
 }
+
+/// Source steps between polls of the request's cancellation and deadline.
+/// A step is a few instructions, while a poll can take the request's lock:
+/// a stop is still seen within microseconds. Tests poll every step, so
+/// their poll counts name exact stopping points.
+#[cfg(not(test))]
+pub(super) const POLL: u32 = 256;
+#[cfg(test)]
+pub(super) const POLL: u32 = 1;
 impl<'a> Budget<'a> {
     /// The source table's charge within `limits` (its bytes and items),
-    /// for one pass of at most their source deadline.
+    /// for one pass that ends with its request.
     pub fn new(cancel: &'a dyn CancellationCheck, limits: &Limits) -> Self {
         Self {
             cancel,
@@ -25,10 +36,16 @@ impl<'a> Budget<'a> {
             items: 0,
             max_bytes: limits.source_bytes,
             max_items: limits.table_items,
-            deadline: Instant::now() + limits.source_deadline,
+            deadline: crate::execution::cancel::deadline_of(cancel),
+            ticks: std::cell::Cell::new(0),
         }
     }
     pub fn check(&self) -> Result<(), SourceError> {
+        let tick = self.ticks.get();
+        self.ticks.set(tick.wrapping_add(1));
+        if !tick.is_multiple_of(POLL) {
+            return Ok(());
+        }
         self.cancel.check().map_err(|_| SourceError::Cancelled)?;
         if Instant::now() >= self.deadline {
             return Err(SourceError::Deadline);

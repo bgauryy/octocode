@@ -22,7 +22,7 @@ pub(super) fn stats(
     let m = &g.manifest;
     Ok(GraphOutput::ok(json!({
         "graph": g.summary(),
-        "op": "stats",
+        "operation": "stats",
         "octocodeVersion": m["octocodeVersion"],
         "scan": m["scan"],
         "counts": m["counts"],
@@ -56,7 +56,6 @@ pub(super) fn degree_counts<'a>(
 pub(super) fn node(
     g: &Graph,
     id: u32,
-    options: &QueryOptions,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<GraphOutput, GraphOutput> {
     let record = g.node_record(id, cancel)?;
@@ -73,30 +72,8 @@ pub(super) fn node(
         out.insert("out".into(), json!(degree_counts(g.t.out(id).iter())));
         out.insert("in".into(), json!(degree_counts(g.t.incoming(id))));
     }
-    // Each lead is pinned to this snapshot, like every `next`.
-    let lead = |op: &str, depth: Option<u32>| {
-        let next = QueryOptions {
-            op: op.to_owned(),
-            target: Some(g.key(id).to_owned()),
-            workspace: options.workspace.clone(),
-            graph: options.graph.clone(),
-            depth,
-            ..QueryOptions::default()
-        };
-        command(&next, &g.id)
-    };
-    let hints = match record.kind {
-        NodeKind::File => vec![
-            lead("symbols", None),
-            lead("dependents", None),
-            lead("deps", Some(2)),
-        ],
-        NodeKind::Symbol => vec![lead("callers", None), lead("callees", None)],
-        NodeKind::Package => vec![lead("dependents", None)],
-    };
-    out.insert("next".into(), json!(hints));
     Ok(GraphOutput::ok(
-        json!({"graph": g.summary(), "op": "node", "node": out}),
+        json!({"graph": g.summary(), "operation": "node", "node": out}),
     ))
 }
 
@@ -126,33 +103,44 @@ pub(super) fn descendants(g: &Graph, root: u32) -> Vec<u32> {
     out
 }
 
+/// The symbols nested under each of `roots`, in root order and source order
+/// within each; a symbol under several roots is listed once, under the first.
+/// `depth` counts from its root. One root also echoes it as `target`.
 pub(super) fn symbols(
     g: &Graph,
-    root: u32,
+    roots: &[u32],
     range: std::ops::Range<usize>,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<(Map<String, Value>, Page), GraphOutput> {
-    let mut window = Window::new(range);
-    let mut stack = vec![(root, 0u32)];
-    while let Some((id, depth)) = stack.pop() {
-        check(cancel)?;
-        let mut children = contained_symbols(g, id);
-        children.sort_by_key(|child| (g.t.nodes[*child as usize].line, *child));
-        for child in children.into_iter().rev() {
-            stack.push((child, depth + 1));
-        }
-        if id != root {
-            window.try_push(|| {
-                let mut row = g.node_json(id, cancel)?;
-                if !g.compact_provenance {
-                    row.remove("file");
-                }
-                row.insert("depth".into(), json!(depth));
-                Ok(Value::Object(row))
-            })?;
+    let mut window = Window::budgeted(range, g.page_budget);
+    let mut listed = std::collections::HashSet::new();
+    for &root in roots {
+        let mut stack = vec![(root, 0u32)];
+        while let Some((id, depth)) = stack.pop() {
+            check(cancel)?;
+            if id != root && !listed.insert(id) {
+                continue;
+            }
+            let mut children = contained_symbols(g, id);
+            children.sort_by_key(|child| (g.t.nodes[*child as usize].line, *child));
+            for child in children.into_iter().rev() {
+                stack.push((child, depth + 1));
+            }
+            if id != root {
+                window.try_push(|| {
+                    let mut row = g.node_json(id, cancel)?;
+                    if !g.compact_provenance {
+                        row.remove("file");
+                    }
+                    row.insert("depth".into(), json!(depth));
+                    Ok(Value::Object(row))
+                })?;
+            }
         }
     }
     let mut extra = Map::new();
-    extra.insert("target".into(), Value::Object(g.node_json(root, cancel)?));
+    if let [root] = roots {
+        extra.insert("target".into(), Value::Object(g.node_json(*root, cancel)?));
+    }
     Ok((extra, window.finish()))
 }

@@ -14,7 +14,7 @@ import { selfTest } from './lib/report/self-test.mjs';
 const HELP = `Render skill Markdown output as one self-contained HTML report. The page stays closed.
 
 Usage:
-  node scripts/render-report.mjs <file.md | folder> [--out <file.html>] [--title <text>] [--open] [--json] [--strict]
+  node scripts/render-report.mjs <file.md | folder> [--out <file.html>] [--title <text>] [--workspace <dir>] [--open] [--json] [--strict]
   node scripts/render-report.mjs <file.md | folder> --manifest [--query <text>] [--limit <n>] [--offset <n>] [--all]
   node scripts/render-report.mjs --self-test
   node scripts/render-report.mjs --help
@@ -89,8 +89,8 @@ function render(args) {
   try {
     const report = buildReport(args.positional[0], { title: args.title, workspace: args.workspace });
     const out = path.resolve(args.out || defaultOut(report.abs, report.isDir, report.workspace));
-    fs.mkdirSync(path.dirname(out), { recursive: true });
     if (args.strict && report.warnings.length) { console.error(JSON.stringify({validation:'failed',warnings:report.warnings})); return 2; }
+    fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, report.html);
     const opened = args.open && canOpen() ? openFile(out) : false;
     for (const w of report.warnings) console.error(`warning: ${w}`);

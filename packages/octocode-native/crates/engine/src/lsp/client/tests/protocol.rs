@@ -159,7 +159,7 @@ fn rust_analyzer_client_starts_headless_unless_the_caller_overrides() {
         Some(&json!(false))
     );
     assert_eq!(options.pointer("/checkOnSave"), Some(&json!(false)));
-    assert_eq!(options.pointer("/cachePriming/enable"), Some(&json!(false)));
+    assert_eq!(options.pointer("/cachePriming"), None);
 
     config.initialization_options = Some(json!({"cargo": {"buildScripts": {"enable": true}}}));
     let client = NativeLspClient::new(config);
@@ -195,4 +195,42 @@ fn rust_analyzer_client_starts_headless_unless_the_caller_overrides() {
             .initialization_options
             .is_none()
     );
+}
+
+#[test]
+fn initialize_offers_file_events_to_servers_that_register_for_them() {
+    let params = initialize_params(&ts_config()).expect("initialize params");
+    let watched = params
+        .pointer("/capabilities/workspace/didChangeWatchedFiles")
+        .expect("didChangeWatchedFiles");
+    assert_eq!(watched["dynamicRegistration"], json!(true));
+    assert_eq!(watched["relativePatternSupport"], json!(true));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_server_that_registers_for_file_events_receives_them() {
+    use super::document_sync::{
+        client_with_fake_server_using, read_client_frame, send_server_frame,
+    };
+    let (client, mut reader, mut writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    assert!(!client.watches_files().await);
+    send_server_frame(
+        &mut writer,
+        json!({"jsonrpc":"2.0","id":"w","method":"client/registerCapability","params":{"registrations":[{
+            "id":"watch","method":"workspace/didChangeWatchedFiles",
+            "registerOptions":{"watchers":[{"globPattern":"**/*.ts"}]}
+        }]}}),
+    )
+    .await;
+    let reply = read_client_frame(&mut reader).await;
+    assert_eq!(reply["id"], "w");
+    assert!(client.watches_files().await, "the registration is noted");
+    client
+        .notify_watched_files(vec![("file:///w/new.ts".to_owned(), 1)])
+        .await
+        .expect("notify");
+    let event = read_client_frame(&mut reader).await;
+    assert_eq!(event["method"], "workspace/didChangeWatchedFiles");
+    assert_eq!(event["params"]["changes"][0]["uri"], "file:///w/new.ts");
 }

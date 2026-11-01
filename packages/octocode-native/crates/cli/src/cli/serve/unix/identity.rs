@@ -60,17 +60,29 @@ pub(super) fn workspace_of(cwd: &Path) -> PathBuf {
         .to_path_buf()
 }
 
-/// This binary by path, size and modification time: a rebuild is another
-/// build.
+/// This binary by real path, version, size and modification time: a
+/// rebuild is another build, and every path that reaches the same file (a
+/// symlink, a relative or `..` spelling) is the same build, so it reaches
+/// the same server and its warm language servers.
 pub(super) fn exe_identity() -> Option<String> {
-    let exe = std::env::current_exe().ok()?;
+    build_identity(&std::env::current_exe().ok()?)
+}
+
+/// [`exe_identity`] of the binary at `exe`.
+pub(super) fn build_identity(exe: &Path) -> Option<String> {
+    let exe = std::fs::canonicalize(exe).ok()?;
     let meta = std::fs::metadata(&exe).ok()?;
     let built = meta
         .modified()
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .map_or(0, |age| age.as_nanos());
-    Some(format!("{}|{}|{built}", exe.display(), meta.len()))
+    Some(format!(
+        "{}|{}|{}|{built}",
+        exe.display(),
+        env!("CARGO_PKG_VERSION"),
+        meta.len()
+    ))
 }
 
 /// 16 hex digits over the build, the workspace and the call identity.

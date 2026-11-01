@@ -18,7 +18,6 @@ pub(super) struct Source {
     pub(super) sha256: String,
     /// The redacted text; a non-match read shares its preparation's copy.
     pub(super) text: std::sync::Arc<String>,
-    pub(super) chars: usize,
     pub(super) bytes: usize,
     pub(super) total_lines: usize,
     pub(super) key_blocks_redacted: bool,
@@ -97,7 +96,6 @@ pub(crate) struct Prepared {
     /// Bytes of the source as read (a leading BOM and the encoding
     /// fallback change the decoded text, not the file's size).
     pub(super) raw_bytes: usize,
-    pub(super) chars: usize,
     pub(super) total_lines: usize,
     pub(super) warning: Option<&'static str>,
 }
@@ -119,7 +117,6 @@ impl Prepared {
         // complete block in a single view).
         let (keyed, changed) = security.redact_key_blocks(&raw);
         Self {
-            chars: raw.encode_utf16().count(),
             total_lines: line_count(&raw),
             raw_bytes: bytes.len(),
             // The pass keeps the line count, so its changes map onto lines.
@@ -249,7 +246,6 @@ pub(super) fn prepare_source(
     Ok(Source {
         sha256,
         text,
-        chars: prepared.chars,
         bytes: prepared.raw_bytes,
         total_lines: prepared.total_lines,
         key_blocks_redacted,

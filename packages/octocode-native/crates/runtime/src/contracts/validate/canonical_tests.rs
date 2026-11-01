@@ -137,8 +137,6 @@ fn admission_preserves_content_and_does_not_rewrite_legacy_inputs() {
         assert_eq!(parsed["queries"][0][field], input["queries"][0][field]);
     }
     for (field, value) in [
-        ("mainGoal", json!("x")),
-        ("reasoning", json!("x")),
         ("extras", json!([])),
         ("length", json!(5)),
         ("ranges", json!(["1-2"])),
@@ -152,6 +150,21 @@ fn admission_preserves_content_and_does_not_rewrite_legacy_inputs() {
             "{field}"
         );
     }
+}
+
+#[test]
+fn every_tool_row_accepts_the_brief_and_bounds_it() {
+    let row = json!({"path":"/tmp/source.rs","mainGoal":"Find the retry policy","reasoning":"The reader owns it"});
+    let parsed = validate("localFetch", json!({"queries":[row.clone()]})).expect("brief accepted");
+    assert_eq!(parsed["queries"][0]["mainGoal"], row["mainGoal"]);
+    // A saved request keeps the brief beside its private progress.
+    let saved = json!({"queries":[{"path":"/tmp/source.rs","mainGoal":"Find the retry policy","reasoning":"The reader owns it","readProgress":{"unit":"lines","offset":3}}]});
+    let rows = prepare_saved_rows("localFetch", saved).expect("saved brief accepted");
+    let row = rows[0].as_ref().expect("row");
+    assert_eq!(row["mainGoal"], "Find the retry policy");
+    assert_eq!(row["reasoning"], "The reader owns it");
+    let long = json!({"path":"/tmp/source.rs","reasoning":"x".repeat(501)});
+    assert!(validate("localFetch", json!({"queries":[long]})).is_err());
 }
 
 #[test]

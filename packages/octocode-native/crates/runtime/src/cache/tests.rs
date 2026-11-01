@@ -2,6 +2,7 @@ use super::*;
 use crate::cache::disk::DiskHeader;
 use crate::cache::disk::ENTRY_EXTENSION;
 use std::path::Path;
+mod capacity;
 mod disk;
 mod memory;
 

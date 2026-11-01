@@ -18,9 +18,7 @@ try {
 }
 ```
 
-`connectStdio` and `connectStreamableHttp` perform the MCP handshake through `@modelcontextprotocol/client`. `cliFromMcp` takes that connected `Client`. Server instructions are the default output and the root `--help`. Each tool name is a command. The tool description is that command's `--help` lead. The tool `inputSchema` is the usage line and the FLAGS section. `runCli` sends `tools/call` with the flag values and prints the tool result.
-
-`connectStreamableHttp(url)` is the same path for a Streamable HTTP server.
+`connectStdio` performs the MCP handshake through `@modelcontextprotocol/client`. `cliFromMcp` takes that connected `Client`. Server instructions are the default output and the root `--help`. Each tool name is a command. The tool description is that command's `--help` lead. The tool `inputSchema` is the usage line and the FLAGS section. `runCli` sends `tools/call` with the flag values and prints the tool result.
 
 ## Build a CLI, add a command, expose it
 
@@ -46,7 +44,7 @@ const doctor = defineCommand({
   schema: z.object({}),
   run: () => spec.commands.map(command => command.name),
 });
-spec = withCommands(imported, [doctor]);
+spec = defineCli({ ...imported, commands: [...imported.commands, doctor] });
 
 process.exitCode = await runCli(spec, process.argv.slice(2));
 
@@ -54,7 +52,7 @@ const server = new McpServer({ name: spec.name, version: spec.version }, mcpServ
 registerOn(server, spec);
 ```
 
-`withCommands` appends commands. `help` and `version` stay reserved. `defineCli` rejects a second command with the same name.
+`defineCli` takes the imported commands plus your own. `help` and `version` stay reserved. `defineCli` rejects a second command with the same name.
 
 ## Octocode tools
 
@@ -63,7 +61,7 @@ registerOn(server, spec);
 ```bash
 node examples/octocode-cli.ts
 node examples/octocode-cli.ts localSearch --help
-node examples/octocode-cli.ts localSearch --queries '[{"matchString":"value","path":"packages/octocode-mcp-cli/src/help.ts"}]'
+node examples/octocode-cli.ts localSearch --queries '[{"matchString":["value"],"path":"packages/octocode-mcp-cli/src/help.ts"}]'
 ```
 
 Build `octocode-mcp` before the example. The script reads `packages/octocode-mcp/dist/index.js` and exits 2 when that file is missing. A tool absent from `tools/list` (CLI-only, gated, or deferred) is absent here. This library does not import `octocode` or `octocode-mcp`.
@@ -88,7 +86,7 @@ node examples/filesystem-cli.ts /allowed/dir read_text_file --path /allowed/dir/
 ## Add a command
 
 ```ts
-import { defineCli, defineCommand, runCli, withCommands } from 'octocode-mcp-cli';
+import { defineCli, defineCommand, runCli } from 'octocode-mcp-cli';
 import { z } from 'zod';
 
 const search = defineCommand({
@@ -133,9 +131,7 @@ Screen sections are `USAGE`, `COMMANDS`, `FLAGS`, `OUTPUT`, `HINTS`, `EXAMPLES`,
 
 Command examples are validated against the complete input schema, including conditional requirements. A schema that cannot produce a valid sample has no generated example; it still exposes its full flags and JSON schema. Authored JSON Schema `examples` take priority. Array flags accept repeated values or a JSON array, including an empty array. `undefined` handler results emit no output, so streaming handlers do not append an extra frame. Errors with an integer `exitCode` between 1 and 255 preserve that status. Standard JSON Schema formats are validated by `ajv-formats`.
 
-`emitTypeScript(spec, filePath)` writes the imported commands to one module. Descriptions and instructions are `JSON.stringify` literals. Add further commands in a separate file.
-
-`cliToMcp(spec)` returns protocol tool definitions for a CLI you already have. `registerOn(server, spec)` registers them. `mcpServerOptions(spec)` is `{ instructions }` for the `McpServer` constructor.
+`registerOn(server, spec)` registers a CLI's commands as MCP tools on a server. `mcpServerOptions(spec)` is `{ instructions }` for the `McpServer` constructor.
 
 ## Current fidelity limits
 

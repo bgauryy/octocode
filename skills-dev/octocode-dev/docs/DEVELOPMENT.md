@@ -37,15 +37,15 @@ Where each part of [the protocol](../../../docs/OCTOCODE_PROTOCOL.md) lives. Nat
 | Concept | Where |
 |---|---|
 | Contracts, descriptions, instructions, budgets | core `src/toolContract/` (`tools/<tool>.ts`, `instructions.ts`, `published*.ts`, `output*.ts`, `limits.ts`) → `packages/octocode-config/contract/` |
-| MCP server: startup, tool listing from the embedded presentation, call dispatch | `crates/cli/src/cli/mcp_server/` (`mod.rs`, `listing.rs`, `handler.rs`) |
+| MCP server: startup, tool listing from the embedded presentation, call dispatch | `crates/cli/src/cli/mcp_server.rs`, `mcp_server/` (`listing.rs`, `handler.rs`) |
 | MCP launcher: runs `octocode mcp` | `packages/octocode-mcp/src/index.ts` |
-| CLI dispatch and exit codes | `crates/cli/src/cli/mod.rs` |
-| Validation and row isolation | `crates/runtime/src/contracts/` (`validate.rs`, `mod.rs`) |
+| CLI dispatch and exit codes | `crates/cli/src/cli.rs` |
+| Validation and row isolation | `crates/runtime/src/contracts.rs`, `contracts/validate.rs` |
 | Gate, dispatch, row shaping | `crates/runtime/src/runtime/engine.rs`, `domain_dispatch.rs` |
 | Minimal output, next-step filtering | `crates/runtime/src/response/rows.rs` |
 | Continuation compaction and brief inheritance | `crates/runtime/src/response/continuations.rs` |
-| Page and lead split (`next` and `hints`) | `crates/runtime/src/response/channels.rs` |
-| Rendering and response paging | `crates/runtime/src/response/render.rs`, `stage.rs`, `pager.rs` |
+| Page and lead split (`next` and `hints`) | `crates/runtime/src/response/result.rs` (follow-up calls), `notices.rs` (static notices) |
+| Rendering and response paging | `crates/runtime/src/response/stage.rs`, `pager.rs` |
 | Snapshot identity | `crates/runtime/src/tools/local_search/cursor.rs`; response tokens in `crates/runtime/src/response/pager.rs` |
 | Path sandbox and directory pruning | `crates/runtime/src/policy/path.rs`, `policy/prune.rs` |
 | Secret scanning and redaction | `crates/engine/src/security/`, `crates/runtime/src/security/content.rs` |
@@ -64,8 +64,8 @@ Where each part of [the protocol](../../../docs/OCTOCODE_PROTOCOL.md) lives. Nat
 ```mermaid
 flowchart TD
   A["Author in core: Zod schema, description, instructions, limits"] --> B[Build core]
-  B --> C["yarn contracts:regen at the repo root: refreshes the file: copy of core (yarn install), then runs @octocodeai/config generate:tool-contract, the only generator"]
-  C --> D["Output: packages/octocode-config/contract/ and src/contracts/toolTypes.generated.ts; committed, never hand-edited; check:tool-contract fails when it is stale"]
+  B --> C["node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen at the repo root: refreshes the file: copy of core (yarn install), then runs @octocodeai/config generate:tool-contract, the only generator"]
+  C --> D["Output: packages/octocode-config/contract/; committed, never hand-edited; check:tool-contract fails when it is stale"]
   D --> E["Rebuild native: yarn workspace @octocodeai/octocode-native build:dev; crates/runtime/build.rs embeds contract/ in place"]
   E --> F{Fingerprint matches?}
   F -- yes --> G["Native serves the contract: CLI and octocode mcp"]
@@ -89,7 +89,7 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 
 - `yarn workspace @octocodeai/octocode-native build:all`: release native binaries for all platforms (clears old binaries first). `$DEV build:publish` runs it.
 - `yarn workspace @octocodeai/octocode-native check:target <platform>`: type-check one other platform (cargo-zigbuild or cargo-xwin) without linking; the fast loop for `cfg(windows)`/`cfg(target_os)` code. Details: [PUBLISHING.md](../../../packages/octocode-native/docs/PUBLISHING.md#build).
-- `yarn contracts:regen`: regenerate the tool contract from core.
+- `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen`: regenerate the tool contract from core.
 
 | Package | Test | Lint / format |
 |---|---|---|
@@ -102,7 +102,7 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 
 ### Lint, typecheck and file-length rules
 
-- **oxlint**: the root `.oxlintrc.json` is the only lint config. Each workspace `lint` runs `yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .`, so every rule is an error. Beyond the correctness and suspicious categories it sets `max-lines` 400 (physical lines), `max-lines-per-function` 80, `complexity` 15, `max-depth` 4, `max-params` 4, `typescript/no-explicit-any`, `typescript/consistent-type-imports`, `typescript/no-floating-promises`, `import/no-cycle` and `no-console` (off for tests, `bin/`, `scripts/`, `tools/` and build files). Generated files (`*.generated.*`) are ignored.
+- **oxlint**: the root `.oxlintrc.json` is the only lint config. Each workspace `lint` runs `yarn run -T oxlint -c ../../.oxlintrc.json .`, and the config's `options` turn on type-aware rules and deny warnings, so every rule is an error. Beyond the correctness and suspicious categories it sets `max-lines` 400 (physical lines), `max-lines-per-function` 80, `complexity` 15, `max-depth` 4, `max-params` 4, `typescript/no-explicit-any`, `typescript/consistent-type-imports`, `typescript/no-floating-promises`, `import/no-cycle` and `no-console` (off for tests, `bin/`, `scripts/`, `tools/` and build files). Generated files (`*.generated.*`) are ignored.
 - **oxlint baseline**: violations that predate a rule are recorded in `.oxlintrc.baseline.json` (the root config `extends` it): one override per file that switches a rule off or raises a size limit to the file's current value. The baseline only shrinks. `node skills-dev/octocode-dev/scripts/oxlint-baseline.mjs` fails on a stale entry (a file now cleaner than its entry) and on a violation without one; `--write` removes and lowers entries but never adds one. Fix new violations in the code. Core (`../octocode-mcp-host/packages/octocode-core`) lints with copies of both files; this repo's are canonical, and `$DEV verify` runs `core-lint-sync.mjs`, which fails when core's `scripts/oxlint-baseline.mjs` is not byte-identical or its `.oxlintrc.json` rules differ (its `$schema`, `ignorePatterns` and overrides scoped to `packages/...` are layout-specific), and skips without the sibling checkout.
 - **File length**: `node skills-dev/octocode-dev/scripts/check-file-length.mjs` allows 400 physical lines in every `.ts`/`.tsx`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`/`.rs` file, tests included; generated files (`*.generated.*`, `tool_types.rs`) and fixtures are skipped. `file-length-baseline.json` beside the script records the files that were longer (path → lines): a new file over 400 fails, a baselined file that grows fails, and an entry for a file now at or under 400 (or deleted) is stale and fails. `--write` drops stale entries and lowers shrunk counts; it never adds one. Split long files by responsibility.
 - **TypeScript**: every project extends the root `tsconfig.base.json` (`strict`, `verbatimModuleSyntax`, `isolatedModules`). Typecheck with `tsgo --noEmit`; declarations are still emitted by `tsc` (TypeScript 6) in the packages that publish them.
@@ -135,8 +135,9 @@ Each tool prints one line, `PASS`/`FAIL`/`SKIP`, with its total and slowest-call
 - `build:dev` (debug native + TypeScript, no clean or lint) is the default local build; use `build` only for release or performance artifacts. Check exit codes, not output paths.
 - Rust integration tests are one binary per crate: `tests/main.rs` declares each `tests/*.rs` as a `mod`.
 - Don't commit local lld or sccache Cargo configuration.
-- One build lane uses the repo's warm `target/`. Parallel lanes share at most three Cargo target directories in total, each in a scratch directory (never `target/<name>`), deleted when done. Cargo's lock serializes builds in one directory, and the same `--features` keeps compiled units shared.
-- Reset a bloated `target/` with `dev.mjs clean:cache` (stale native copies) or `dev.mjs clean` (all build outputs). Most of the bloat is `target/debug/incremental`: Cargo keeps one session per crate hash and never removes one when features or the toolchain change; `clean:cache` drops them with our crates and keeps dependencies warm.
+- One build lane uses the repo's warm `target/`. Parallel lanes share at most three Cargo target directories in total, each in a scratch directory (never `target/<name>`), built with `CARGO_INCREMENTAL=0` and deleted when done. A lane is rarely rebuilt, and dropping incremental data measured 31% smaller on `octocode-engine` (1596 MB to 1101 MB). Cargo's lock serializes builds in one directory, and the same `--features` keeps compiled units shared.
+- Reset a bloated `target/` with `dev.mjs clean:cache` (stale native copies) or `dev.mjs clean` (all build outputs). `dev.mjs build:dev` and `test:rust` run `clean:cache` first when native `target/debug` is over 50 GiB; plain `cargo` commands do not. Most of the bloat is `target/debug/deps`: Cargo keeps one copy of our crates per feature, package, and toolchain selection and never removes one (on 2026-11-01, 244 GB in `deps/` and 20 GB in `incremental/`, with 114 copies of `octocode_native`); `clean:cache` drops them and keeps dependencies warm.
+- Benchmark campaigns keep a `build/` snapshot so a resumed run uses the same build. Remove it only when the campaign is final; `fingerprint.txt` records which build ran.
 - After a `rust-toolchain.toml` bump, the old toolchain's dependency builds stay in `target/` (about 29 GiB on the 1.99.1 bump). `cargo sweep --toolchains <new-toolchain> .` (cargo-sweep) removes them, `target/platforms/` included, then `clean:cache` drops the stale incremental sessions.
 
 ### Rust dev tools

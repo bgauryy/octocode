@@ -86,7 +86,7 @@ pub(in super::super) fn subtype_snippets(
     file: &str,
     base: &str,
 ) -> Vec<LspCodeSnippet> {
-    let Some(document) = octocode_engine::signatures::extract_graph_facts(content, file) else {
+    let Some(document) = crate::tools::declarations_cache::graph_facts(content, file) else {
         return Vec::new();
     };
     let Ok(uri) = octocode_engine::lsp::uri::path_to_uri(file) else {
@@ -146,7 +146,7 @@ pub(in super::super) fn scan_subtypes(
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> (Vec<LspCodeSnippet>, Vec<String>) {
     let files = files.iter().collect::<Vec<_>>();
-    let workers = crate::tools::workers::workers(None, files.len(), None);
+    let workers = crate::tools::workers::workers(files.len(), None);
     let chunk = files.len().div_ceil(workers).max(1);
     let (mut found, mut unread) = std::thread::scope(|scope| {
         let handles = files

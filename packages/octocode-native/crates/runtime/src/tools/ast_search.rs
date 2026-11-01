@@ -14,6 +14,8 @@ mod language;
 #[cfg(test)]
 mod lead_tests;
 #[cfg(test)]
+mod limit_tests;
+#[cfg(test)]
 mod match_tests;
 mod matches;
 mod memo;
@@ -36,10 +38,9 @@ mod symbols;
 mod symbols_tests;
 mod syntax;
 #[cfg(test)]
-mod test_rows;
-mod unwalked;
+mod test_code_tests;
 #[cfg(test)]
-mod unwalked_tests;
+mod test_rows;
 
 use octocode_contract_types::{AstSearchQuery, ErrorCode};
 use serde_json::Value;
@@ -182,18 +183,4 @@ pub use syntax::execute_syntax;
 pub(super) fn is_dot_entry(path: &std::path::Path) -> bool {
     path.file_name()
         .is_some_and(|name| name.to_string_lossy().starts_with('.'))
-}
-
-fn parser_globs(
-    globs: &octocode_contract_types::AstParserGlobs,
-) -> std::collections::BTreeMap<String, Vec<String>> {
-    globs
-        .iter()
-        .map(|(parser, patterns)| {
-            (
-                parser.to_string(),
-                patterns.iter().map(ToString::to_string).collect(),
-            )
-        })
-        .collect()
 }

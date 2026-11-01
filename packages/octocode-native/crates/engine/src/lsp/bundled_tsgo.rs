@@ -11,7 +11,7 @@ use crate::lsp::commands::is_executable_path;
 use std::path::{Path, PathBuf};
 
 /// The bundled tsgo for this platform, searched from the directory holding
-/// `anchor` (octocode's executable or addon) up through its ancestors.
+/// `anchor` (octocode's executable) up through its ancestors.
 pub(crate) fn bundled_tsgo(anchor: &Path) -> Option<PathBuf> {
     bundled_tsgo_for(anchor, &crate::lsp::managed::npm_platform_id())
 }
@@ -85,7 +85,7 @@ mod tests {
         let root = TmpDir::new();
         let tsgo = root.join("node_modules/@typescript/native-preview-linux-x64/lib/tsgo");
         write_executable(&tsgo);
-        let anchor = root.join("node_modules/octocode-native/npm/addon/octocode.node");
+        let anchor = root.join("node_modules/@octocodeai/octocode-native-linux-x64/octocode");
         let found = bundled_tsgo_for(&anchor, "linux-x64").expect("found");
         assert_eq!(found, std::fs::canonicalize(&tsgo).expect("canonical"));
         assert_eq!(bundled_tsgo_for(&anchor, "linux-arm64"), None);

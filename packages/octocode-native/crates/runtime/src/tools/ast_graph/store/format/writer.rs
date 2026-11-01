@@ -40,7 +40,7 @@ pub(super) fn put_opt(out: &mut Vec<u8>, value: u32) {
 }
 
 pub(super) fn zigzag(value: i64) -> u64 {
-    ((value << 1) ^ (value >> 63)) as u64
+    ((value << 1) ^ (value >> 63)).cast_unsigned()
 }
 
 pub(super) fn varints(values: &[u32]) -> Vec<u8> {
@@ -166,10 +166,11 @@ impl<'t> Encoder<'t> {
         evidence.sort_unstable();
         evidence.dedup();
         texts.extend(evidence);
-        let ids = texts
-            .iter()
-            .enumerate()
-            .map(|(index, text)| (*text, index as u32))
+        // String ids are `u32` columns; the preflight refuses a dictionary
+        // past them before any id is written.
+        let ids = (0..=u32::MAX)
+            .zip(&texts)
+            .map(|(index, text)| (*text, index))
             .collect();
         Self {
             tables,

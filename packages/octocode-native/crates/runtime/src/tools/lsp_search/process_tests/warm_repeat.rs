@@ -115,6 +115,7 @@ fn warm_references_repeat_sends_no_requests_and_reads_each_file_once() {
             let generation = ResponseScope {
                 reuse: true,
                 generation: "anchor+fingerprint".into(),
+                call: None,
             };
             RESPONSE_SCOPE.scope(
                 std::cell::RefCell::new(generation),

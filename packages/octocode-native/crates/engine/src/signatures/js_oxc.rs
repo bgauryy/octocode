@@ -16,18 +16,19 @@ use oxc_span::SourceType;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::deep_stack::{job_cancelled, run_on_deep_stack_with_timeout, with_thread_allocator};
+use crate::deep_stack::{job_cancelled, run_on_deep_stack, with_thread_allocator};
 use crate::text::JS_TS_EXTENSIONS;
 
 use super::{
-    extractor::AST_EXECUTION_TIMEOUT,
     js_oxc_calls::collect_program_calls,
     js_oxc_commonjs,
     js_oxc_references::{CountTarget, value_reference_counts},
     js_oxc_shared::SpanPositions,
 };
-use crate::graph::{GraphFactDeclaration, GraphFactEdge, GraphFactsDocument, GraphRange};
+use crate::graph::{GraphFactEdge, GraphFactsDocument, GraphRange};
 
+pub(super) mod call_sites;
+mod callers;
 mod module_facts;
 mod outline;
 mod symbols;
@@ -103,9 +104,11 @@ fn is_oxc_path(file_path: &str) -> bool {
     JS_TS_EXTENSIONS.contains(&crate::text::extension_of(file_path, true, "ts").as_str())
 }
 
-/// Run an oxc `job` on the deep-stack pool under the AST timeout. `None` for
-/// oversized input or a non-JS/TS path. oxc can ICE on pathological input;
-/// the unwind is contained so it never aborts the process.
+/// Run an oxc `job` on the deep-stack pool to completion: one file cannot be
+/// paged, and input is bounded by `MAX_PARSE_SIZE` (see
+/// `extractor::whole_file_deadline`). `None` for oversized input or a
+/// non-JS/TS path. oxc can ICE on pathological input; the unwind is contained
+/// so it never aborts the process.
 fn on_oxc_worker<T: Send + 'static>(
     content: &str,
     file_path: &str,
@@ -116,7 +119,7 @@ fn on_oxc_worker<T: Send + 'static>(
     }
     let content = content.to_owned();
     let file_path = file_path.to_owned();
-    run_on_deep_stack_with_timeout(AST_EXECUTION_TIMEOUT, move || {
+    run_on_deep_stack(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&content, &file_path)))
             .unwrap_or(None)
     })
@@ -182,13 +185,10 @@ fn extract_graph_facts_with_metadata_inner(
             .with_build_nodes(true)
             .build(&parser_ret.program)
             .semantic;
+        let program = &parser_ret.program;
         let (common_js_exports, common_js_note) =
             if js_oxc_commonjs::may_contain_exports(&parser_ret.tokens, content) {
-                js_oxc_commonjs::collect_common_js_exports(
-                    &semantic,
-                    &parser_ret.program,
-                    &line_index,
-                )
+                js_oxc_commonjs::collect_common_js_exports(&semantic, program, &line_index)
             } else {
                 Default::default()
             };
@@ -229,14 +229,7 @@ fn extract_graph_facts_with_metadata_inner(
         } else {
             Vec::new()
         };
-        let mut declarations_by_name: std::collections::HashMap<&str, Vec<&GraphFactDeclaration>> =
-            std::collections::HashMap::new();
-        for declaration in &declarations {
-            declarations_by_name
-                .entry(&declaration.name)
-                .or_default()
-                .push(declaration);
-        }
+        let callers = callers::Callers::new(&declarations);
         for (index, call) in calls.iter_mut().enumerate() {
             // Names are display labels. Source ranges identify the enclosing occurrence;
             // callee binding resolution requires semantics and remains explicitly unknown.
@@ -244,29 +237,10 @@ fn extract_graph_facts_with_metadata_inner(
                 "call:{}@{}:{}:{index}",
                 file_path, call.range.start.line, call.range.start.character
             );
-            let caller = declarations_by_name
-                .get(call.caller.as_str())
-                .into_iter()
-                .flat_map(|items| items.iter().copied())
-                .filter(|declaration| {
-                    (
-                        declaration.range.start.line,
-                        declaration.range.start.character,
-                    ) <= (call.range.start.line, call.range.start.character)
-                        && (declaration.range.end.line, declaration.range.end.character)
-                            >= (call.range.end.line, call.range.end.character)
-                })
-                .min_by_key(|declaration| {
-                    (
-                        declaration.range.end.line - declaration.range.start.line,
-                        declaration
-                            .range
-                            .end
-                            .character
-                            .saturating_sub(declaration.range.start.character),
-                    )
-                });
-            call.caller_id = caller.map(|declaration| declaration.id.clone());
+            if let Some(caller) = callers.of(call) {
+                call.caller.clone_from(&caller.name);
+                call.caller_id = Some(caller.id.clone());
+            }
             edges.push(GraphFactEdge {
                 id: format!("edge:{}", call.id),
                 from: call
@@ -284,12 +258,12 @@ fn extract_graph_facts_with_metadata_inner(
             });
         }
         push_heritage_edges(&declarations, heritage, &mut edges);
-
+        let base = super::native_graph_facts(ext, file_path, content);
         let argument_sites = super::js_oxc_arguments::collect(
             &semantic,
             &parser_ret,
             &line_index,
-            content,
+            (content, &base.source_digest),
             file_path,
             &declarations,
             &imports,
@@ -310,7 +284,7 @@ fn extract_graph_facts_with_metadata_inner(
                 .map(|error| parse_error(error.message.to_string()))
                 .chain(common_js_note)
                 .collect(),
-            ..super::native_graph_facts(ext, file_path, content)
+            ..base
         };
         if job_cancelled() {
             return None;
@@ -339,6 +313,17 @@ fn extract_graph_facts_with_metadata_inner(
 /// multi-megabyte facts document it never reads.
 pub(crate) fn extract_declarations(content: &str, file_path: &str) -> Option<GraphFactsDocument> {
     on_oxc_worker(content, file_path, extract_declarations_inner)
+}
+
+/// [`extract_declarations`] for a caller already on the deep-stack pool:
+/// parsed in place, with no copy of `content` for another job.
+pub(crate) fn extract_declarations_in_place(
+    content: &str,
+    path: &str,
+) -> Option<GraphFactsDocument> {
+    let parse = || extract_declarations_inner(content, path);
+    (content.len() <= crate::signatures::MAX_PARSE_SIZE && is_oxc_path(path))
+        .then(|| std::panic::catch_unwind(std::panic::AssertUnwindSafe(parse)).unwrap_or(None))?
 }
 
 fn extract_declarations_inner(content: &str, file_path: &str) -> Option<GraphFactsDocument> {

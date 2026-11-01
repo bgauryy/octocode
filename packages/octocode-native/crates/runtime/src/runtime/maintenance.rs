@@ -26,8 +26,8 @@ pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
             return false;
         }
     }
-    // Clone entries may contain local edits. Their lock/status-aware eviction
-    // runs through ghCloneRepo; a directory-age sweep cannot safely remove them.
+    // Clone outputs may contain local edits. Neither current outputs nor
+    // older tmp/clone checkouts are cache entries or safe age-sweep targets.
     // The response and registry caches (`tmp/response`, `tmp/artifact`) age
     // by entry class and byte budget in their own store, which alone evicts
     // them: an age sweep would drop entries the store keeps.

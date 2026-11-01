@@ -1,100 +1,46 @@
-import { chromeCommands } from './chrome-contract.mjs';
-const recipe = (file: string, description: string, options: string[] = []) => ({
+import { chromeCommands, chromeRecipeOptionNames } from './chrome-contract.mjs';
+// Option names come from the typed recipe options in the shared contract.
+const recipe = (file: string, description: string) => ({
   file: `cdp-checks/${file}.mjs`,
   description,
-  options,
+  options: chromeRecipeOptionNames[file] ?? [],
 });
 export const checks = {
   'page-snapshot': recipe(
     'page-snapshot',
-    'Capture current controls, regions and frame refs',
-    [
-      'SNAPSHOT_DEPTH',
-      'SNAPSHOT_WAIT_SELECTOR',
-      'SNAPSHOT_WAIT_TEXT',
-      'SNAPSHOT_WAIT_MS',
-      'SNAPSHOT_MAX',
-      'SNAPSHOT_TEXT',
-      'SNAPSHOT_ROOT',
-      'SNAPSHOT_VIEWPORT',
-      'SNAPSHOT_OUTLINE',
-      'SNAPSHOT_CONTEXT',
-      'SNAPSHOT_URLS',
-      'SNAPSHOT_CLICKABLE',
-      'SNAPSHOT_STDOUT',
-    ]
+    'Capture current controls, regions and frame refs'
   ),
   'page-screenshot': recipe(
     'page-screenshot',
-    'Capture viewport, element or all full-page tiles',
-    [
-      'SHOT_FULL',
-      'SHOT_SELECTOR',
-      'SHOT_FORMAT',
-      'SHOT_QUALITY',
-      'SHOT_SCALE',
-      'SHOT_ANNOTATE',
-    ]
+    'Capture viewport, element or all full-page tiles'
   ),
   'dom-operations-check': recipe(
     'dom-operations-check',
-    'Legacy DOM actions; prefer step or run plans',
-    [
-      'DOM_SELECTOR',
-      'DOM_REF',
-      'DOM_ROLE',
-      'DOM_NAME',
-      'DOM_ACTION',
-      'DOM_VALUE',
-      'DOM_STABILITY_MS',
-      'DOM_INPUT',
-      'DOM_KEY',
-      'DOM_SETTLE_MS',
-      'DOM_DIALOG',
-      'DOM_STEPS',
-      'DOM_WAIT_TEXT',
-      'DOM_WAIT_MS',
-      'DOM_TO_REF',
-      'DOM_TO_SELECTOR',
-      'DOM_DIFF',
-      'DOM_TRACE_EVENTS',
-    ]
+    'Legacy DOM actions; prefer step or run plans'
   ),
   'live-har-monitor': recipe(
     'live-har-monitor',
-    'Observe network and console during a bounded window',
-    ['MONITOR_MS', 'MONITOR_URL', 'SLOW_MS', 'MAX_STDOUT_ITEMS']
+    'Observe network and console during a bounded window'
   ),
   'network-body-har-fetch-check': recipe(
     'network-body-har-fetch-check',
-    'Capture matching response bodies and HAR',
-    ['BODY_URL', 'BODY_MATCH', 'BODY_WAIT_MS']
+    'Capture matching response bodies and HAR'
   ),
   'network-measure-check': recipe(
     'network-measure-check',
-    'Measure network health',
-    ['MEASURE_URL', 'MEASURE_EXISTING', 'NET_WAIT_MS', 'NET_SLOW_MS']
+    'Measure network health'
   ),
   'performance-measure-check': recipe(
     'performance-measure-check',
-    'Measure rendering and performance',
-    ['MEASURE_URL', 'MEASURE_EXISTING', 'PERF_WAIT_MS', 'PERF_SLOW_RESOURCE_MS']
+    'Measure rendering and performance'
   ),
   'storage-measure-check': recipe(
     'storage-measure-check',
-    'Inventory storage names and cookie flags',
-    ['MEASURE_URL', 'MEASURE_EXISTING', 'STORAGE_WAIT_MS']
+    'Inventory storage names and cookie flags'
   ),
   'webmcp-tools': recipe(
     'webmcp-tools',
-    'Discover or invoke page-declared WebMCP tools',
-    [
-      'WEBMCP_ACTION',
-      'WEBMCP_TOOL',
-      'WEBMCP_INPUT',
-      'WEBMCP_FRAME',
-      'WEBMCP_WAIT_MS',
-    ]
+    'Discover or invoke page-declared WebMCP tools'
   ),
   'actionability-diagnostics': recipe(
     'actionability-diagnostics',
@@ -106,13 +52,11 @@ export const checks = {
   ),
   'stealth-check': recipe(
     'stealth-check',
-    'Inspect optional emulation and detector evidence',
-    ['STEALTH_CHECK_URL']
+    'Inspect optional emulation and detector evidence'
   ),
   'affiliates-stealth-check': recipe(
     'affiliates-stealth-check',
-    'Inspect optional emulation on affiliate detector',
-    ['AFFILIATES_CHECK_URL']
+    'Inspect optional emulation on affiliate detector'
   ),
 };
 const helperFiles = {
@@ -130,6 +74,7 @@ const helperFiles = {
   'har-ingest': 'har-ingest-to-scrape.mjs',
   'corpus-query': 'corpus-run-local.mjs',
   session: 'session-cli.mjs',
+  'dev-check': 'dev-check.mjs',
 };
 export const helpers: Record<string, [file: string, description: string]> =
   Object.fromEntries(

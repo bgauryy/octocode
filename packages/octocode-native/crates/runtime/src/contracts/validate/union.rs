@@ -1,4 +1,5 @@
 //! Union branch selection and actionable diagnostics from the embedded schema.
+mod branches;
 mod failures;
 mod selectors;
 mod siblings;
@@ -11,8 +12,8 @@ use failures::{
     only_missing, required_alternatives, score, selected_failures, widen_literal_issues,
 };
 use selectors::{
-    annotate_forbidden_fields, annotate_sibling_selectors, render_selector, selector_literals,
-    selectors_accept, sibling_selector_values,
+    annotate_forbidden_fields, annotate_missing_selector, annotate_sibling_selectors,
+    render_selector, selector_literals, selectors_accept, sibling_selector_values,
 };
 use serde_json::Value;
 use siblings::{annotate_sibling_branch_fields, branch_object};
@@ -237,6 +238,7 @@ fn reference(
     let mut success = None;
     let mut successes = 0;
     let mut failures = Vec::new();
+    let mut undeclared = Vec::new();
     for branch in branches {
         let mut candidate = value.clone();
         match validate_with_mode(root, branch, &mut candidate, &mut path.to_vec(), mode) {
@@ -247,7 +249,10 @@ fn reference(
                 }
             }
             Err(error) if error.is_contract_error() => return Err(error),
-            Err(error) => failures.push(error.issues),
+            Err(error) => {
+                failures.push(error.issues);
+                undeclared.push(branches::undeclared_fields(root, branch, value));
+            }
         }
     }
     if let Some(candidate) = success
@@ -272,14 +277,16 @@ fn reference(
     // (all branches when its selectors match none) before one branch is
     // chosen, so the surfaced error lists the full set for the chosen form,
     // never another form's literals.
-    let allowed = aggregate_allowed_literals(&selected_failures(&failures, path));
+    let selectors = branches::selector_fields(root, branches);
+    let allowed = aggregate_allowed_literals(&selected_failures(&failures, path, &selectors));
     let missing_sets = failures
         .iter()
         .filter_map(|issues| only_missing(issues, path.len()))
         .collect::<Vec<_>>();
-    let Some(mut selected) = failures
+    let Some((mut selected, _)) = failures
         .into_iter()
-        .min_by_key(|issues| score(issues, path.len()))
+        .zip(undeclared)
+        .min_by_key(|(issues, undeclared)| score(issues, path.len(), &selectors, *undeclared))
     else {
         return Err(issue(
             "schema.union",
@@ -292,6 +299,7 @@ fn reference(
     annotate_sibling_branch_fields(&mut selected, root, branches, value);
     annotate_sibling_selectors(&mut selected, root, branches, value, path);
     annotate_forbidden_fields(&mut selected, root, branches, value, path);
+    annotate_missing_selector(&mut selected, root, branches, value, path);
     // A wrong or missing selector is the first repair: the other issues are
     // relative to the branch it picked. The sort is stable.
     let depth = path.len();

@@ -17,7 +17,7 @@ const provenance = { contract: contract.fingerprint, native: nativeBinaryStamp()
 const { validateInput, validateOutput } = contractValidators();
 const presentation = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/octocode-config/contract/cli-presentation.json'), 'utf8'));
 const catalog = new Map(contract.tools.map(tool => [tool.name, tool]));
-const driver = createDriver({ validate: validateOutput, validateInput, tools: new Set(catalog.keys()), cliOnly: new Set(contract.tools.filter(t => t.cliOnly).map(t => t.name)), schemaOf: tool => catalog.get(tool).outputSchema });
+const driver = createDriver({ validate: validateOutput, validateInput, tools: new Set(catalog.keys()), schemaOf: tool => catalog.get(tool).outputSchema });
 const client = await startServer({ env, timeoutMs: 90_000 });
 const calls = [], exercised = new Set();
 const data = result => rowsOf(result.json)[0]?.data;
@@ -53,7 +53,7 @@ async function call(surface, tool, input) {
 
 async function exercise(tool, query, inspect, { label = tool, responseChars = 4000 } = {}) {
   const results = {};
-  for (const surface of catalog.get(tool).cliOnly ? ['cli'] : ['cli', 'mcp']) {
+  for (const surface of ['cli', 'mcp']) {
     const report = await driver.explore(tool, { queries: [query], responseChars }, {
       surface, maxCalls: 1, maxPages: 24, call: (name, input) => call(surface, name, input),
     });
@@ -95,7 +95,7 @@ async function publicSourceChecks({ ref, file, lines }) {
 }
 
 try {
-  check('fresh MCP exposes every eligible tool', contract.tools.filter(t => !t.cliOnly && !t.disabled).every(t => client.tools.some(listed => listed.name === t.name)));
+  check('fresh MCP exposes every eligible tool', contract.tools.every(t => client.tools.some(listed => listed.name === t.name)));
   for (const listed of client.tools) {
     const expected = presentation.tools.find(tool => tool.name === listed.name);
     // JSON key order is irrelevant; compilation validates the actual advertised schema.
@@ -130,8 +130,8 @@ try {
   await exercise('clasify', { operation: 'evaluate', content: 'The color is blue.', questions: { blue: { type: 'noul', instructions: 'Does the text explicitly say the color is blue?' } } }, d => typeof d?.answers?.blue?.noul === 'number' && !!d?.usage, { label: 'clasify.evaluate' });
   if (publicSource) await publicSourceChecks(publicSource);
   await exercise('clasify', { operation: 'evaluate', content: { image: 'avatar' }, assets: { avatar: { source: { url: 'https://avatars.githubusercontent.com/u/583231?v=4' } } }, questions: { visible: { type: 'noul', instructions: 'Is a character visible in avatar?' } } }, d => typeof d?.answers?.visible?.noul === 'number' && d?.assets?.avatar?.width >= 280 && fs.statSync(d.assets.avatar.path).size > 0, { label: 'clasify.publicImage' });
-  for (const tool of contract.tools.filter(t => !t.disabled)) {
-    for (const surface of tool.cliOnly ? ['cli'] : ['cli', 'mcp']) {
+  for (const tool of contract.tools) {
+    for (const surface of ['cli', 'mcp']) {
       const rejected = await call(surface, tool.name, { queries: [], unexpectedField: true });
       check(`${tool.name}.${surface}.rejectsMalformed`, errorCodes(rejected.json).includes('invalidInput') && (surface === 'cli' ? rejected.status === 2 : rejected.isError));
     }
@@ -139,8 +139,8 @@ try {
 } catch (error) {
   check('live execution completes', false, error.stack);
 } finally { client.close(); }
-for (const tool of contract.tools.filter(t => !t.disabled)) {
-  for (const surface of tool.cliOnly ? ['cli'] : ['cli', 'mcp']) check(`${tool.name}.${surface}.covered`, exercised.has(`${tool.name}.${surface}`));
+for (const tool of contract.tools) {
+  for (const surface of ['cli', 'mcp']) check(`${tool.name}.${surface}.covered`, exercised.has(`${tool.name}.${surface}`));
 }
 provenance.stable = !!provenance.native && provenance.native.sha256 === nativeBinaryStamp()?.sha256;
 check('built native artifact unchanged during acceptance', provenance.stable);

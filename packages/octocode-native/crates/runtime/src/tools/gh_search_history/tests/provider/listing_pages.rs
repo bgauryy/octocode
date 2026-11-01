@@ -175,7 +175,9 @@ async fn a_rest_list_page_with_more_carries_no_static_total_warning() {
 }
 
 #[tokio::test]
-async fn a_rest_list_at_the_private_page_limit_keeps_rows_and_stops() {
+/// A REST list has no search window: page 1,000 (the former schema ceiling)
+/// keeps its rows and continues to the page GitHub links next.
+async fn a_rest_list_past_the_former_page_ceiling_continues() {
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -220,10 +222,12 @@ async fn a_rest_list_at_the_private_page_limit_keeps_rows_and_stops() {
             &Passthrough,
         )
         .await
-        .expect("last admitted page");
+        .expect("page 1000");
         assert_eq!(data[collection].as_array().map(Vec::len), Some(1), "{data}");
-        assert_eq!(data["terminalLimit"], true, "{data}");
-        assert_eq!(data["isPartial"], true, "{data}");
-        assert!(data["next"].get("nextPage").is_none(), "{data}");
+        assert!(data.get("terminalLimit").is_none(), "{data}");
+        assert_eq!(
+            data["next"]["nextPage"]["input"]["queries"][0]["page"], 1001,
+            "{data}"
+        );
     }
 }

@@ -1,6 +1,6 @@
 //! JSON members, scanned (never parsed) so broken nesting degrades to the
 //! nearest container still visible.
-use super::{Entry, MAX_DEPTH};
+use super::Entry;
 use std::collections::HashSet;
 
 /// A string member of an object that is an array element: its key, its
@@ -130,7 +130,7 @@ pub(super) fn json_entries(content: &str) -> Vec<Entry> {
                     ),
                     // An object element of a listed array spans from its
                     // opening line.
-                    Some(_) if open == b'{' && depth <= MAX_DEPTH => {
+                    Some(_) if open == b'{' => {
                         entries.push(Entry::at(line, depth));
                         (Some(entries.len() - 1), true)
                     }

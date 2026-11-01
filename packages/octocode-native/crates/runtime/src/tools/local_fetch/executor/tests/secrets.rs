@@ -61,6 +61,7 @@ fn match_string_cannot_probe_line_level_secrets() {
             &NeverCancel,
             None,
             None,
+            &Default::default(),
         )
     };
     let right = probe("AKIAIOSFODNN7EXAMPL");
@@ -90,6 +91,7 @@ fn match_string_cannot_probe_line_level_secrets() {
         &NeverCancel,
         None,
         None,
+        &Default::default(),
     );
     assert!(
         !miss.hints.iter().any(|hint| hint == REDACTED_MATCH_HINT),

@@ -60,7 +60,6 @@ fn search_with(
         &ContentSecurity::new(),
         &NeverCancel,
         None,
-        None,
         Some(&selection),
     )
 }
@@ -130,7 +129,7 @@ fn oversized_unknown_group_does_not_claim_its_hits_were_judged() {
 }
 
 #[test]
-fn a_selection_that_keeps_no_judged_hit_reads_as_the_answer() {
+fn a_selection_that_keeps_no_judged_hit_is_not_absence() {
     let root = tempfile::tempdir().expect("fixture");
     std::fs::write(root.path().join("a.rs"), "needle drop\nx\nneedle drop\n").expect("a");
     let result = search(root.path(), json!({}), None).expect("search");
@@ -138,8 +137,16 @@ fn a_selection_that_keeps_no_judged_hit_reads_as_the_answer() {
     assert_eq!((receipt.selected_items, receipt.unknown_items), (0, 0));
     assert!(
         result.warnings.iter().any(|note| note.contains(
-            "every chunk was judged and none passed the questions, so none of the 2 hit rows (1 files) is listed; that is the answer"
+            "every chunk was judged and none passed the questions, so none of the 2 hit rows (1 files) is listed. An empty classified result is not absence: the unfiltered search matched those 2 rows, and `next.unfiltered` lists them."
         )),
+        "{:?}",
+        result.warnings
+    );
+    assert!(
+        result
+            .warnings
+            .iter()
+            .all(|note| !note.contains("the answer")),
         "{:?}",
         result.warnings
     );
@@ -192,7 +199,6 @@ fn the_unknown_lead_reaches_exactly_the_files_holding_unknown_hits() {
         &policy,
         &ContentSecurity::new(),
         &NeverCancel,
-        None,
         None,
         None,
     )

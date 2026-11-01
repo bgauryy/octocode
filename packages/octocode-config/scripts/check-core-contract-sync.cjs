@@ -5,7 +5,7 @@
 //
 // Usage: node scripts/check-core-contract-sync.cjs
 //
-// Downloads the npm-published core version pinned in the workspace root
+// Downloads the npm-published core version pinned in octocode-config's
 // package.json and checks contract/ against THAT — what a clean install of the
 // released packages delivers. (Freshness against the workspace core is
 // `check:tool-contract`.) Run it before publishing native.
@@ -65,7 +65,7 @@ async function checkAgainst(coreDir, label) {
     console.error(`  octocode-config contract/: ${provenance.contractFingerprint}`);
     console.error(`  ${label} computes:        ${current}`);
     console.error(
-      '  Fix: `yarn contracts:regen` against the intended core, align the core dependency version, or publish the matching core first.'
+      '  Fix: `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` against the intended core, align the core dependency version, or publish the matching core first.'
     );
     process.exit(1);
   }

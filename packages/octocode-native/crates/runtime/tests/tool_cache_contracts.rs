@@ -12,6 +12,7 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod github_reads;
+mod storage;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -69,17 +70,12 @@ async fn ghsearchhistory_revalidates_without_cache_telemetry() {
 
 // ─── artifactSearch ──────────────────────────────────────────────────────────
 
-/// When `storage.mode=memory` the artifact in-process HTTP cache must be
-/// bypassed: both calls to the same package URL must reach the HTTP layer.
-///
-/// Contrast: with the default `persistent` mode the second call is a cache hit
-/// (not tested here to avoid process-static cache pollution across tests).
+/// Memory storage reuses registry responses within one runtime, but a new
+/// runtime starts cold and neither runtime persists those responses.
 #[tokio::test]
-async fn artifactsearch_memory_storage_mode_bypasses_in_process_cache() {
+async fn artifactsearch_memory_storage_reuses_ram_without_persisting() {
     let server = MockServer::builder().start().await;
-    // Use a unique package name so this test doesn't share state with the
-    // process-global artifact cache from other tests.
-    let pkg = format!("cache-bypass-test-{}", std::process::id());
+    let pkg = "memory-cache-fixture";
     // The npm `exact` code fetches `/{name}/{spec}` where spec defaults to
     // "latest".  The response must be a single-version object (not the full
     // registry envelope) containing at minimum `name` and `version`.
@@ -88,9 +84,9 @@ async fn artifactsearch_memory_storage_mode_bypasses_in_process_cache() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "name": pkg,
             "version": "1.0.0",
-            "description": "cache bypass fixture",
+            "description": "memory cache fixture",
         })))
-        .expect(2) // memory mode must not serve the second call from cache
+        .expect(2)
         .mount(&server)
         .await;
 
@@ -119,14 +115,19 @@ async fn artifactsearch_memory_storage_mode_bypasses_in_process_cache() {
             "call {call_n} must succeed"
         );
     }
-    // wiremock enforces expect(2) on drop → fails if second call was cached.
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
     runtime.close().await;
+    let restarted = workspace.runtime(&settings);
+    let outcome = call(&restarted, "artifactSearch", query).await.unwrap();
+    assert_eq!(row_status(&outcome), "success");
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    assert!(!workspace.home.join("tmp/artifact").exists());
+    restarted.close().await;
 }
 
-// ─── local tools (no caching) ────────────────────────────────────────────────
+// ─── local tool presentation ────────────────────────────────────────────────
 
-/// `localSearch` and `localFetch` never cache their results.  Repeated calls
-/// for the same file must not add public cache telemetry.
+/// Reusing internal work must not add cache telemetry to public evidence.
 #[tokio::test]
 async fn local_tools_never_set_cache_flag() {
     let workspace = Workspace::new();

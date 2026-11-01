@@ -52,7 +52,7 @@ pub(super) struct Found<'a> {
 
 impl Found<'_> {
     /// Leads in the tool's own rank: a read of the top hit, the symbol's
-    /// lspSearch lead, then reads of clipped values, the skipped binaries
+    /// lspSearch lead, then the skipped binaries
     /// and the literal search. Returns what it disclosed of the skipped
     /// paths.
     pub(super) fn add_leads(
@@ -87,9 +87,6 @@ impl Found<'_> {
                 crate::tools::leads::lsp::lead_name(&row),
                 Continuation::related(ToolId::LspSearch, row).build(),
             );
-        }
-        for (name, lead) in self.expand_values_leads() {
-            add(name, lead);
         }
         // Binaries were never text to search: a row with hits states their
         // count in `stats`, an empty row says it in `warnings`, where the
@@ -136,7 +133,9 @@ impl Found<'_> {
                 .filter(|total| *total >= LARGE_RESULT_MATCHES)
         {
             add("viewFileCount".into(), count_lead(query));
-            hints.push(format!("{total} matches."));
+            hints.push(format!(
+                "{total} matches: run the related[] view:\"countMatches\" request to rank files before paging."
+            ));
         }
         // Files whose match the `fileHas`/`fileLacks` terms removed: the
         // empty page is the filter's, not the pattern's.
@@ -170,7 +169,7 @@ impl Found<'_> {
         if unsearched.unchecked {
             stats
                 .partial_reasons
-                .push(crate::tools::leads::skipped::SKIPPED_UNCHECKED.to_owned());
+                .push(crate::tools::leads::skipped::SKIPPED_UNCHECKED);
         }
         let skipped_paths = if first_disclosure {
             self.skipped_paths(unsearched.observed)?
@@ -275,14 +274,4 @@ fn walk_scope(query: &LocalSearchQuery, listing: &mut Value) {
     if !local_search_query::default_excludes(query).defaults() {
         listing["defaultExcludes"] = json!(false);
     }
-}
-
-/// The searched scope's top directories (a structureSearch tree one level
-/// deep): a search past the collection cap splits by them, each part
-/// collecting its own files.
-pub(super) fn scope_directories(query: &LocalSearchQuery) -> Value {
-    let mut tree =
-        json!({"operation": "tree", "path": local_search_query::path(query), "maxDepth": 1});
-    walk_scope(query, &mut tree);
-    Continuation::related(ToolId::StructureSearch, tree).build()
 }

@@ -96,7 +96,7 @@ fn stale_detects_edits_and_prune_keeps_the_newest_snapshots() {
     dir.write("app/src/a.ts", "export const a = 2;\n");
     let stale = ask(dir.0.as_path(), "stale", None, |_| {});
     assert_eq!(
-        stale.value["results"],
+        stale.value["rows"],
         json!([{"file": "src/a.ts", "status": "changed"}])
     );
 
@@ -149,7 +149,7 @@ fn plan_9_unchanged_tree_reuses_the_latest_snapshot() {
         &IngestOptions {
             path: dir.0.as_path().join("app"),
             workspace: Some(dir.0.as_path().to_path_buf()),
-            force: true,
+            refresh: true,
             ..Default::default()
         },
         &workspace_policy(dir.0.as_path()),
@@ -182,7 +182,7 @@ fn an_older_format_snapshot_is_rebuilt_not_reused() {
     assert!(
         stale.value["error"]
             .as_str()
-            .is_some_and(|e| e.contains("re-run `octocode graph ingest`")),
+            .is_some_and(|e| e.contains("rebuild it with graphBuild")),
         "{}",
         stale.value
     );

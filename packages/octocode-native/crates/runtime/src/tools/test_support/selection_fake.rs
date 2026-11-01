@@ -26,7 +26,6 @@ pub(crate) fn runtime(
         context: crate::execution::ExecutionContext {
             cancellation: tokio_util::sync::CancellationToken::new(),
             deadline: Instant::now() + timeout,
-            walk_threads: None,
             response_window: None,
             github_credential: None,
         },

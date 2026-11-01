@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use tree_sitter::{Language, Node, Tree};
 
-use crate::signatures::extractor::{AST_EXECUTION_TIMEOUT, ParseFailure, parse_with_deadline};
+use crate::signatures::extractor::{ParseFailure, parse_with_deadline, whole_file_deadline};
 use crate::structural::octo::macro_bodies::{MAX_MACRO_DEPTH, MacroBodies};
 
 use crate::structural::octo::line_index_support::to_structural_match_with_context;
@@ -31,7 +31,7 @@ pub(in crate::structural::octo) fn parse_tree(
             "Injected compile parser interruption",
         ));
     }
-    parse_tree_with_deadline(language, content, Instant::now() + AST_EXECUTION_TIMEOUT)
+    parse_tree_with_deadline(language, content, whole_file_deadline())
 }
 
 pub(in crate::structural) fn parse_tree_with_deadline(
@@ -53,7 +53,7 @@ pub(in crate::structural) fn parse_tree_with_deadline(
 
 pub(in crate::structural::octo) fn visit_named<'tree>(
     node: Node<'tree>,
-    deadline: Instant,
+    deadline: super::Deadline,
     f: &mut impl FnMut(Node<'tree>) -> Result<(), ExecutionError>,
 ) -> Result<(), ExecutionError> {
     let mut cursor = node.walk();
@@ -92,7 +92,7 @@ pub(in crate::structural::octo) fn visit_named_expanding_macros(
     content: &str,
     language: &Language,
     macros: Option<&MacroBodies>,
-    deadline: Instant,
+    deadline: super::Deadline,
     f: &mut CandidateVisitor<'_>,
 ) -> Result<(), ExecutionError> {
     let source = SourceContext::root(root, content);
@@ -125,7 +125,7 @@ fn walk_expanding<'tree>(
     content: &str,
     language: &Language,
     macros: Option<&MacroBodies>,
-    deadline: Instant,
+    deadline: super::Deadline,
     f: &mut CandidateVisitor<'_>,
 ) -> Result<(), ExecutionError> {
     let mut cursor = root.walk();
@@ -189,7 +189,7 @@ fn walk_expanding<'tree>(
 pub(in crate::structural::octo) fn ancestors_from_root<'tree>(
     root: Node<'tree>,
     node: Node<'tree>,
-    deadline: Instant,
+    deadline: super::Deadline,
 ) -> Result<Vec<Node<'tree>>, ExecutionError> {
     let mut chain = Vec::new();
     let mut current = root;
@@ -213,7 +213,7 @@ pub(in crate::structural::octo) fn collect_kind_matches(
     content: &str,
     language: &Language,
     macros: Option<&MacroBodies>,
-    deadline: Instant,
+    deadline: super::Deadline,
     found: &mut Found<'_>,
 ) -> Result<(), ExecutionError> {
     let line_index = LineIndex::tree_sitter(content);

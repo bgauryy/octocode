@@ -31,14 +31,14 @@ fn ambiguity_continues_the_exact_normalized_population_after_its_preview() {
             json!({"operation":"node","path":"app","target":target}),
         );
         assert_eq!(first["errorCode"], "invalidInput");
-        assert_eq!(first["total"], 25);
+        assert_eq!(first["pagination"]["totalItems"], 25);
         let preview = first["candidates"].as_array().unwrap();
         assert_eq!(preview.len(), 20);
         let mut ids = preview
             .iter()
             .map(|r| r["id"].as_str().unwrap().to_owned())
             .collect::<BTreeSet<_>>();
-        let mut request = first["next"]["page"]["input"]["queries"][0].clone();
+        let mut request = first["next"]["nextPage"]["input"]["queries"][0].clone();
         assert_eq!(request["operation"], "candidates");
         assert_eq!(request["target"], "SharedCollision");
         assert_eq!(request["offset"], 20);
@@ -47,11 +47,11 @@ fn ambiguity_continues_the_exact_normalized_population_after_its_preview() {
             request["limit"] = json!(2);
             let page = call(&dir.0, ToolId::GraphQuery, request);
             assert_eq!(page["graph"]["id"], graph);
-            assert_eq!(page["total"], 25);
-            for row in page["results"].as_array().unwrap() {
+            assert_eq!(page["pagination"]["totalItems"], 25);
+            for row in page["rows"].as_array().unwrap() {
                 assert!(ids.insert(row["id"].as_str().unwrap().to_owned()));
             }
-            match page.pointer("/next/page/input/queries/0") {
+            match page.pointer("/next/nextPage/input/queries/0") {
                 Some(next) => request = next.clone(),
                 None => break,
             }
@@ -72,14 +72,14 @@ fn ambiguous_destinations_and_impact_seeds_retain_the_failed_reference_only() {
         let mut input = input;
         input["path"] = json!("app");
         let first = call(&dir.0, ToolId::GraphQuery, input);
-        let request = &first["next"]["page"]["input"]["queries"][0];
+        let request = &first["next"]["nextPage"]["input"]["queries"][0];
         assert_eq!(request["target"], "SharedCollision");
         assert_eq!(request["offset"], 20);
         for key in ["to", "edges", "confidence", "changed", "depth"] {
             assert!(request.get(key).is_none(), "{request}");
         }
         let rest = call(&dir.0, ToolId::GraphQuery, request.clone());
-        assert_eq!(rest["results"].as_array().unwrap().len(), 5);
+        assert_eq!(rest["rows"].as_array().unwrap().len(), 5);
     }
     let output = query(
         &QueryOptions {
@@ -91,7 +91,10 @@ fn ambiguous_destinations_and_impact_seeds_retain_the_failed_reference_only() {
         &workspace_policy(&dir.0),
     );
     assert_eq!(
-        output.next_query.as_ref().unwrap().target.as_deref(),
+        crate::tools::ast_graph::test_support::next_query(&output)
+            .unwrap()
+            .target
+            .as_deref(),
         Some("entry.ts")
     );
 }
@@ -110,16 +113,16 @@ fn candidates_remain_pinned_when_a_new_snapshot_becomes_latest() {
     let rest = call(
         &dir.0,
         ToolId::GraphQuery,
-        first["next"]["page"]["input"]["queries"][0].clone(),
+        first["next"]["nextPage"]["input"]["queries"][0].clone(),
     );
-    assert_eq!(rest["total"], 25);
+    assert_eq!(rest["pagination"]["totalItems"], 25);
     assert_eq!(rest["graph"]["id"], first["graph"]["id"]);
     let current = call(
         &dir.0,
         ToolId::GraphQuery,
         json!({"operation":"candidates","path":"app","target":"./SharedCollision"}),
     );
-    assert_eq!(current["total"], 26);
+    assert_eq!(current["pagination"]["totalItems"], 26);
 }
 
 #[test]
@@ -135,15 +138,15 @@ fn candidate_exact_keys_empty_and_past_end_pages_validate() {
             ToolId::GraphQuery,
             json!({"operation":"candidates","path":"app","target":target}),
         );
-        assert_eq!(page["total"], total);
+        assert_eq!(page["pagination"]["totalItems"], total);
     }
     let page = call(
         &dir.0,
         ToolId::GraphQuery,
         json!({"operation":"candidates","path":"app","target":"SharedCollision","offset":99,"limit":1}),
     );
-    assert_eq!(page["total"], 25);
-    assert_eq!(page["results"], json!([]));
+    assert_eq!(page["pagination"]["totalItems"], 25);
+    assert_eq!(page["rows"], json!([]));
     assert!(page.get("next").is_none());
 }
 
@@ -175,10 +178,10 @@ fn direct_and_public_call_queries_share_high_default_and_explicit_weak_levels() 
             input["confidence"] = json!(level);
         }
         let public = call(&dir.0, ToolId::GraphQuery, input);
-        assert_eq!(direct.value["results"], public["results"]);
+        assert_eq!(direct.value["rows"], public["rows"]);
         assert_eq!(direct.value["confidence"], public["confidence"]);
         assert_eq!(
-            public["total"],
+            public["pagination"]["totalItems"],
             if matches!(confidence, Some("medium" | "low")) {
                 1
             } else {
@@ -197,12 +200,33 @@ fn snapshot_absolute_candidate_keys_do_not_follow_changed_filesystem_aliases() {
     let request =
         json!({"operation":"candidates","path":"app","target":canonical.to_str().unwrap()});
     let before = call(&dir.0, ToolId::GraphQuery, request.clone());
-    assert_eq!(before["total"], 1);
-    assert_eq!(before["results"][0]["id"], "other.ts");
+    assert_eq!(before["pagination"]["totalItems"], 1);
+    assert_eq!(before["rows"][0]["id"], "other.ts");
     std::fs::remove_file(&file).unwrap();
     std::os::unix::fs::symlink(dir.0.join("app/declaration-00.ts"), &file).unwrap();
     let mut pinned = request;
     pinned["graph"] = before["graph"]["id"].clone();
     let after = call(&dir.0, ToolId::GraphQuery, pinned);
-    assert_eq!(after["results"], before["results"]);
+    assert_eq!(after["rows"], before["rows"]);
+}
+
+#[test]
+fn a_missing_reference_offers_its_near_names_as_ready_calls() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export function shared_target(){}\n");
+    call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let row = json!({"operation":"callers","path":"app","target":"shared_targets"});
+    let row = crate::contracts::validate_built_query(ToolId::GraphQuery.as_str(), row)
+        .expect("input contract");
+    let result = execute(ToolId::GraphQuery, &row, &dir.0, &context()).expect("execute");
+    assert_eq!(result.data["errorCode"], "notFound", "{}", result.data);
+    assert!(result.data.get("suggestions").is_none(), "{}", result.data);
+    let related = result.data["related"].as_array().expect("related calls");
+    assert!(!related.is_empty(), "{}", result.data);
+    for call in related {
+        assert_eq!(call["kind"], "related");
+        assert_eq!(call["input"]["queries"][0]["operation"], "callers");
+        assert_eq!(call["input"]["queries"][0]["target"], "a.ts#shared_target");
+    }
+    crate::tools::test_support::assert_row_contract(ToolId::GraphQuery, &result.data);
 }

@@ -8,7 +8,7 @@
  * GitHub or classifier credentials, and HTTP(S) routed to a dead proxy with
  * loopback exempt, so local fixture servers stay reachable.
  */
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,17 +20,24 @@ export const CREDENTIAL_ENV = /TOKEN$|^OCTOCODE_CLASSIFICATION_/;
 /** Flags that switch suites onto live services. */
 export const LIVE_ENV = ['OCTOCODE_LIVE', 'RUN_MCP_LIVE', 'RUN_CHROME_LIVE', 'OCTOCODE_CHROME_DEBUG_E2E'];
 const PROXY_ENV = ['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY'];
+const homes = new Set<string>();
+
+function removeHomes(): void {
+  for (const home of homes) rmSync(home, { recursive: true, force: true });
+}
 
 /**
  * `base` without credentials or live flags, with a new empty home under the OS
- * temp dir (`label` names it) and the dead proxy. The home is left for the OS
- * temp cleanup.
+ * temp dir (`label` names it) and the dead proxy. The home is removed when the
+ * process exits; vitest workers skip exit handlers, so the vitest guard removes its own.
  */
 export function hermeticEnv(
   base: NodeJS.ProcessEnv = process.env,
   label = 'test'
 ): NodeJS.ProcessEnv {
   const home = mkdtempSync(join(tmpdir(), `octocode-${label}-home-`));
+  if (homes.size === 0) process.once('exit', removeHomes);
+  homes.add(home);
   const env: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(base)) {
     if (!CREDENTIAL_ENV.test(name) && !LIVE_ENV.includes(name)) env[name] = value;

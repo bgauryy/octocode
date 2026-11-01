@@ -65,7 +65,7 @@ fn call_edges_compact_to_per_file_call_rows() {
     render["from"]["detail"] = serde_json::json!("pub fn render(\n    ctx: &Ctx,\n) -> Svg");
     let mut other = caller("/repo/svg.ts", "other", "function", 900, 950, &[(910, 3)]);
     other["from"]["detail"] = serde_json::json!("pub(crate) async fn other()");
-    let mut row = serde_json::json!({"kind": "callers", "matches": [
+    let mut row = serde_json::json!({"operation": "callers", "matches": [
         render,
         method,
         recovered,
@@ -97,7 +97,7 @@ fn call_edges_compact_to_per_file_call_rows() {
         .expect("compact callers satisfy the output contract");
     // A module caller is top-level code named by its file; that name
     // anchors no lspSearch call, so its row has no symbolName.
-    let mut module = serde_json::json!({"kind": "callers", "matches": [
+    let mut module = serde_json::json!({"operation": "callers", "matches": [
         caller("/repo/public.test.ts", "public.test.ts", "module", 1, 40, &[(12, 3)]),
     ]});
     compact_calls(&mut module, &[], &repo_policy());
@@ -128,7 +128,7 @@ fn call_edges_compact_to_per_file_call_rows() {
         ambiguous,
         callee
     ]);
-    let mut deep = serde_json::json!({"kind": "callers", "matches": items.clone()});
+    let mut deep = serde_json::json!({"operation": "callers", "matches": items.clone()});
     compact_calls(&mut deep, items.as_array().expect("items"), &repo_policy());
     assert_eq!(
         deep["files"],
@@ -152,7 +152,7 @@ fn call_edges_compact_to_per_file_call_rows() {
     crate::contracts::validate_output("lspSearch", &public_row(&deep))
         .expect("compact hierarchy rows satisfy the output contract");
     // Type-hierarchy items are nodes, not calls: they stay items.
-    let mut types = serde_json::json!({"kind": "supertypes", "matches": [
+    let mut types = serde_json::json!({"operation": "supertypes", "matches": [
         {"name": "Base", "kind": "class", "uri": "file:///repo/a.ts", "level": 1}
     ]});
     let before = types.clone();
@@ -192,7 +192,7 @@ fn outgoing_call_sites_are_filed_under_the_caller() {
         items.iter().all(|item| item.get("via").is_none()),
         "level-1 edges name no parent: {items:?}"
     );
-    let mut row = serde_json::json!({"kind": "callers", "matches": items});
+    let mut row = serde_json::json!({"operation": "callers", "matches": items});
     compact_calls(&mut row, &[], &repo_policy());
     let helper_line = name_line("helper") + 1;
     let boot_line = name_line("boot") + 1;
@@ -222,7 +222,7 @@ fn signatures_are_kept_only_for_callers_that_share_a_name() {
             "level": 1
         })
     };
-    let mut row = serde_json::json!({"kind": "callers", "matches": [
+    let mut row = serde_json::json!({"operation": "callers", "matches": [
         caller("/repo/a.rs", "fn render(ctx: &Ctx) -> Svg", 10, 12),
         caller("/repo/b.rs", "fn render(page: &Page)", 20, 22)
     ]});

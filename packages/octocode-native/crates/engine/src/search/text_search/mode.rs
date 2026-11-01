@@ -17,7 +17,7 @@ pub(super) enum Mode {
 #[derive(Clone, Copy)]
 pub(super) struct MatchWork {
     pub(super) materialize_line: bool,
-    pub(super) deferred_snippet: Option<usize>,
+    pub(super) deferred_line: bool,
     pub(super) enumerate_submatches: bool,
     pub(super) collect_spans: bool,
     /// Sum [`relevance::line_weight`](crate::search::relevance::line_weight) over matched lines.
@@ -27,7 +27,7 @@ pub(super) struct MatchWork {
 pub(super) fn match_work(mode: Mode, only_matching: bool) -> MatchWork {
     MatchWork {
         materialize_line: mode == Mode::Normal,
-        deferred_snippet: None,
+        deferred_line: false,
         enumerate_submatches: mode != Mode::CountLines,
         collect_spans: mode == Mode::Normal && only_matching,
         weigh_lines: false,
@@ -96,6 +96,21 @@ pub(super) fn alternation_words(opts: &TextSearchOptions) -> Option<AhoCorasick>
         .ascii_case_insensitive(insensitive)
         .build(&words)
         .ok()
+}
+
+/// One matcher per searched term, built like the search's own: only a
+/// count view of two or more terms counts them (empty otherwise).
+pub(super) fn term_matchers<M>(
+    opts: &TextSearchOptions,
+    mode: Mode,
+    build: impl Fn(&str) -> crate::error::Result<M>,
+) -> crate::error::Result<Vec<M>> {
+    match opts.terms.as_deref() {
+        Some(terms) if terms.len() > 1 && matches!(mode, Mode::CountMatches | Mode::CountLines) => {
+            terms.iter().map(|term| build(term)).collect()
+        }
+        _ => Ok(Vec::new()),
+    }
 }
 
 pub(super) fn resolve_mode(opts: &TextSearchOptions) -> Mode {

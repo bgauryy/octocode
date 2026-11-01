@@ -1,7 +1,6 @@
 //! The code graph: [`graph`] links one scan's syntax facts into a
 //! [`types::BuiltGraph`]; [`store`] projects it into a persisted snapshot
-//! (`octocode graph ingest`) and answers questions from it (`octocode graph
-//! query`).
+//! (`graphBuild`) and answers questions from it (`graphQuery`).
 mod algorithms;
 mod aliases;
 mod cargo;
@@ -13,12 +12,14 @@ mod js_paths;
 mod limits;
 mod linking;
 mod packages;
+mod paths;
+pub mod progress;
 pub mod store;
 mod types;
 
 /// Bump when persisted linking semantics change without a binary format
 /// change: snapshots and extraction checkpoints of another version rebuild.
-const ANALYSIS_VERSION: u32 = 16;
+const ANALYSIS_VERSION: u32 = 20;
 
 #[cfg(test)]
 mod link_tests;

@@ -1,5 +1,6 @@
 use super::*;
 mod admission;
+mod deadline;
 mod lazy;
 mod profile;
 use crate::execution::cancel::NeverCancel;

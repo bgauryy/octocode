@@ -181,11 +181,7 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
                 assert_eq!(grammar.language_id, language_id, ".{ext}");
                 assert!(
                     grammar
-                        .parse_before(
-                            "",
-                            std::time::Instant::now()
-                                + crate::signatures::extractor::AST_EXECUTION_TIMEOUT
-                        )
+                        .parse_before("", crate::signatures::extractor::whole_file_deadline())
                         .is_some(),
                     ".{ext}: LSP parser ABI"
                 );

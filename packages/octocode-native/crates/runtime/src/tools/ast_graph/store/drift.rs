@@ -1,4 +1,4 @@
-//! `graph query drift`: the structural difference between two snapshots.
+//! graphQuery `drift`: the structural difference between two snapshots.
 //!
 //! Nodes are keyed by their root-relative key, so snapshots of two roots
 //! (a checkout of the base branch beside the head) compare. A relation is
@@ -34,7 +34,7 @@ fn files(t: &GraphTables) -> BTreeMap<&str, Option<&str>> {
         .iter()
         .map(|(node, digest)| (*node, t.str(*digest)))
         .collect::<BTreeMap<_, _>>();
-    (0..t.nodes.len() as u32)
+    t.node_ids()
         .filter(|id| t.nodes[*id as usize].kind == NodeKind::File)
         .map(|id| (t.str(t.nodes[id as usize].key), digests.get(&id).copied()))
         .collect()
@@ -144,7 +144,8 @@ pub(super) fn diff(base: &GraphTables, head: &GraphTables) -> Drift {
             json!({"category": "relation", "change": change, "from": from, "to": to, "edge": edge})
         }));
     }
-    let delta = |head: usize, base: usize| head as i64 - base as i64;
+    let delta =
+        |head: usize, base: usize| crate::num::i64_of_usize(head) - crate::num::i64_of_usize(base);
     let summary = json!({
         "filesAdded": counts["added"],
         "filesRemoved": counts["removed"],

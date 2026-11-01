@@ -33,6 +33,6 @@ fn all_tools_enabled(command: &mut std::process::Command) -> &mut std::process::
     command
         .env("OCTOCODE_CLASSIFICATION_API", "fixture-key")
         .env("OCTOCODE_BETA", "true")
-        // The clone cache (ghCloneRepo) needs persistent storage.
+        // Clone outputs (ghCloneRepo) need persistent storage.
         .env("OCTOCODE_STORAGE_MODE", "persistent")
 }

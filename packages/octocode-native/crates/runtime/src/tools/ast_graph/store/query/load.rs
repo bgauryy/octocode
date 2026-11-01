@@ -37,7 +37,7 @@ pub(super) fn locate(options: &QueryOptions) -> Result<(PathBuf, bool), Failure>
                 }
             ),
             None => format!(
-                "no graph under {}: workspace {} has no snapshot (the workspace is --workspace, else the nearest .git ancestor inside the allowed roots, else the current directory). Run `octocode graph ingest <path>` to write one here, or pass --workspace <dir> naming the workspace that holds .octocode/graph",
+                "no graph under {}: workspace {} has no snapshot. Build one with graphBuild for the path, then query it with the same path",
                 home.display(),
                 home.parent()
                     .and_then(Path::parent)
@@ -109,7 +109,7 @@ pub(super) fn ambiguous_graph(spec: &str, candidates: &[String]) -> Failure {
     let mut out = GraphOutput::error(
         ErrorCode::InvalidInput,
         format!(
-            "{} graphs match {spec:?}; pass one exact id with --graph",
+            "{} graphs match {spec:?}; pass one exact snapshot id as graph",
             candidates.len()
         ),
     );
@@ -165,7 +165,7 @@ pub(super) fn load_with(
     if !valid_registry {
         return Err(fail(
             ErrorCode::Decode,
-            "graph manifest has no valid captured registry inventory; re-run `octocode graph ingest`",
+            "graph manifest has no valid captured registry inventory; rebuild it with graphBuild",
         ));
     }
     // Every later read, hash, mention scan and `git -C` runs under the
@@ -179,7 +179,7 @@ pub(super) fn load_with(
         return Err(fail(
             ErrorCode::Decode,
             format!(
-                "{MANIFEST_FILE} root {root:?} is not a canonical path; re-run `octocode graph ingest`"
+                "{MANIFEST_FILE} root {root:?} is not a canonical path; rebuild it with graphBuild"
             ),
         ));
     }
@@ -188,7 +188,20 @@ pub(super) fn load_with(
         .ok_or_else(|| fail(ErrorCode::Decode, "graph manifest digest is missing"))?;
     let point = selective && matches!(options.op.as_str(), "node" | "find" | "candidates");
     let evidence = matches!(options.op.as_str(), "witnesses" | "unresolved");
-    let (t, selective, validation) = if selective {
+    let tables_kind = if evidence {
+        format!("evidence:{}", options.op)
+    } else if point {
+        format!("point:{}", matches!(options.op.as_str(), "node" | "find"))
+    } else {
+        "topology".to_owned()
+    };
+    let reuse = (selective && options.reuse_snapshot)
+        .then(|| super::opened::Key::of(&dir, expected, tables_kind))
+        .flatten();
+    let cached = reuse.as_ref().and_then(super::opened::check_out);
+    let (t, selective, validation) = if let Some((tables, reader)) = cached {
+        (tables, Some(std::cell::RefCell::new(reader)), None)
+    } else if selective {
         let mut reader =
             super::super::format::SnapshotReader::open(&dir.join(GRAPH_FILE), expected, cancel)
                 .map_err(|message| decode_failure(message, cancel))?;
@@ -217,13 +230,17 @@ pub(super) fn load_with(
         (tables, None, Some(validation))
     };
     let id = manifest["id"].as_str().unwrap_or_default().to_owned();
+    #[cfg(not(test))]
+    let _ = validation;
     Ok(Graph {
         explicit_path: explicit_path.then_some(dir),
         id,
         manifest,
         t,
         selective,
+        #[cfg(test)]
         validation,
+        reuse,
         ..Default::default()
     })
 }

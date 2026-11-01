@@ -286,3 +286,61 @@ fn a_positive_time_budget_inspects_the_first_new_entry() {
         assert_eq!(cut.walk_position, skip + 1, "skip {skip}");
     }
 }
+
+/// A directory whose listing outlasts the walk's time budget is given up
+/// mid-read: the window stops before its first entry (naming the
+/// directory), and a resume, by position or by cursor, lists it whole, so
+/// the windows together list every entry exactly once.
+#[test]
+fn a_listing_that_outlasts_the_budget_is_left_whole_to_the_resume() {
+    let root = TmpDir::new();
+    File::create(root.join("a.ts")).expect("file");
+    fs::create_dir(root.join("big")).expect("dir");
+    for index in 0..300 {
+        File::create(root.join("big").join(format!("{index:03}.ts"))).expect("file");
+    }
+    File::create(root.join("z.ts")).expect("file");
+    let walk = |skip: u32, resume: Option<WalkCursor>, late_at_big: bool| {
+        query_file_system(
+            FileSystemQueryOptions {
+                path: root.to_string_lossy().to_string(),
+                skip_entries: Some(skip),
+                resume,
+                time_budget: late_at_big.then_some(std::time::Duration::from_secs(3600)),
+                ..Default::default()
+            },
+            &|path, _, _| {
+                // The budget runs out as the walk admits `big`: during its
+                // listing, which the walk reads right after.
+                if late_at_big && path.file_name().is_some_and(|name| name == "big") {
+                    crate::scan_budget::advance_walk_clock(std::time::Duration::from_secs(7200));
+                }
+                true
+            },
+            &|| false,
+        )
+        .expect("query")
+    };
+    let names = |result: &FileSystemQueryResult| {
+        result
+            .entries
+            .iter()
+            .map(|entry| entry.relative_path.clone())
+            .collect::<Vec<_>>()
+    };
+    let whole = names(&walk(0, None, false));
+    let cut = walk(0, None, true);
+    assert_eq!(cut.time_cut.as_deref(), Some("big/"), "{:?}", names(&cut));
+    assert!(
+        names(&cut).iter().all(|path| !path.starts_with("big/")),
+        "nothing of the unread listing is listed"
+    );
+    for (rest, how) in [
+        (walk(cut.walk_position, None, false), "position"),
+        (walk(cut.walk_position, cut.cursor.clone(), false), "cursor"),
+    ] {
+        let mut joined = names(&cut);
+        joined.extend(names(&rest));
+        assert_eq!(joined, whole, "resumed by {how}");
+    }
+}

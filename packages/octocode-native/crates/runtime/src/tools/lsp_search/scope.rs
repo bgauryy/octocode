@@ -6,6 +6,9 @@
 //! (importer candidates, the Rust cfg-gate count, `textOnlyFiles`) and the
 //! `findText` lead use one wider scope instead:
 //!
+//! 0. the request's explicit `workspaceRoot`, when it holds the anchor:
+//!    the caller chose the project, so candidates outside it are not
+//!    scanned, and coverage says so (`importerScanRoot`);
 //! 1. the nearest ancestor holding `.git` (a directory or a worktree file);
 //! 2. else the outermost workspace manifest (`pnpm-workspace.yaml`,
 //!    `lerna.json`, `package.json` with `workspaces`, `Cargo.toml` with
@@ -15,29 +18,31 @@
 //! clamped to the read policy: an unauthorized root becomes the outermost
 //! authorized ancestor of the file. The scope is never the process cwd.
 //! `include` is the anchor language's family globs, from the engine grammar
-//! registry.
+//! registry. A scanned file outside the anchor declaration's reach (see
+//! `reach`) is out of reach, not text-only.
 
 use super::blocking_cancellable;
 use super::failure::LspFailure;
-use super::render::word_pattern;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use octocode_engine::search::text_search::search_cancellable;
+use octocode_engine::text::word_pattern;
 use octocode_engine::types::TextSearchOptions;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 mod ignored_index;
 mod paths;
+mod reach;
 mod scan;
 mod text;
 pub(super) use paths::{canonical, canonical_uri, widest_authorized_dir, with_canonical_memo};
-use paths::{family_include, search_root};
+use paths::{explicit_root, family_include, search_root};
 pub(super) use scan::IgnoredMentions;
-use scan::{fingerprint, scan_text};
+use scan::{Fingerprint, scan_text, shared_fingerprint};
 pub(super) use text::imports_in_code;
 
 /// Project files whose edits change what a language server answers.
@@ -64,38 +69,12 @@ const PROJECT_FILES: [&str; 20] = [
     ".clangd",
 ];
 
-/// Bounds of the scope fingerprint walk; past either, responses are not
-/// reused across requests (correct, only slower).
-const FINGERPRINT_MAX_FILES: usize = 20_000;
-const FINGERPRINT_BUDGET: Duration = Duration::from_millis(150);
 /// A file modified this recently also hashes its content: some filesystems
 /// keep coarse mtimes, so a same-second edit keeps its length and mtime.
 const FRESH_MTIME: Duration = Duration::from_secs(2);
 /// A larger unsettled source disables cache reuse rather than reading it
 /// whole merely to decide whether a lexical scan may be reused.
 const FRESH_CONTENT_MAX_BYTES: usize = 1024 * 1024;
-/// Files one check parses to tell a use from a mention: the text check
-/// (a code use, not a comment or string) and the ignored-importer check (an
-/// import, not a spelling; `importers`). Each reads them in turn, at most
-/// [`CODE_CHECK_MAX_BYTES`] apiece, so this bounds the work a request adds
-/// per check. A file past it is not proven free of a use, so it counts
-/// against completeness: as a use in `textOnlyFiles`, as an unchecked
-/// ignored file. The bound is one constant so both checks decide the same
-/// number of files.
-pub(super) const CODE_CHECK_MAX_FILES: usize = 64;
-/// Largest file the code-use and ignored-importer checks read; a larger one
-/// counts as a use, or as an unchecked ignored file.
-pub(super) const CODE_CHECK_MAX_BYTES: usize = 4 * 1024 * 1024;
-/// Bound of the text scan. A slower scan reports no files (no
-/// `textOnlyFiles`, and importer recovery reports a failed scan).
-const TEXT_SCAN_BUDGET: Duration = Duration::from_secs(3);
-/// How long a request waits for its scope's ignored-file index (see
-/// `ignored_index`) when no built one holds: a background walk builds it
-/// while the server answers, and a request past this bound reports the
-/// ignored scan unfinished.
-const IGNORED_INDEX_WAIT: Duration = Duration::from_secs(2);
-/// Bound of one request's read of the indexed ignored files for its name.
-const IGNORED_READ_BUDGET: Duration = Duration::from_secs(1);
 
 /// Text scans by `(root, include, symbol, scope fingerprint, policy)`. The
 /// fingerprint covers every family file under the root, so an unchanged
@@ -109,18 +88,29 @@ static TEXT_SCANS: octocode_io::memo::Memo<String, BTreeSet<String>> =
         keep_newest: false,
     });
 
+/// The reach of the anchor's declaration of one symbol, once read (`None`:
+/// no bound is known).
+type ReachSlot = Mutex<Option<(String, Option<Arc<reach::Reach>>)>>;
+
 /// The files a word-bounded name appears in, for one symbol.
 struct TextScan {
     symbol: String,
-    /// Canonical paths; `None` when the scan failed or hit a bound.
+    /// Canonical paths; `None` when the scan failed.
     files: Option<Arc<BTreeSet<String>>>,
 }
 
 pub(super) struct Scope {
     /// Canonical directory every lexical scan and lead covers.
     pub(super) root: String,
+    /// The request's explicit `workspaceRoot` narrowed `root` below the
+    /// root the anchor's repository would give: files outside it are not
+    /// scanned.
+    pub(super) narrowed: bool,
     /// Family globs (`*.ts`, …); empty means every file.
     pub(super) include: Vec<String>,
+    /// The language server's workspace root (canonical), whose ignored
+    /// files the server may still compile; `None` when unknown.
+    server_root: Option<PathBuf>,
     text: Mutex<Option<TextScan>>,
     /// Digest of every family and project file under `root`, when the
     /// request computed one within its bounds (see `fingerprint`).
@@ -131,9 +121,16 @@ pub(super) struct Scope {
     /// Canonical files the language server's answer covers (listed, or
     /// verified as importers), recorded by the operation.
     answered: Mutex<BTreeSet<String>>,
-    /// Whether a text-scan file uses a symbol in code (not only in comments
-    /// or strings), by symbol and canonical path; see [`Self::text_only_files`].
-    code_uses: Mutex<HashMap<String, bool>>,
+    /// How a text-scan file uses a symbol (in code, only in comments or
+    /// strings, or out of the declaration's reach), by symbol and canonical
+    /// path; see [`Self::text_only_files`].
+    code_uses: Arc<Mutex<HashMap<String, text::Use>>>,
+    /// The request's anchor, whose declaration bounds the reach of the
+    /// scanned files ([`Self::anchor_site`]).
+    site: Mutex<Option<reach::Site>>,
+    /// The reach of that declaration for a symbol, read once (`None`: no
+    /// bound is known).
+    reach: Arc<ReachSlot>,
     /// The anchor file (canonical) and the zero-based lines of it the answer
     /// covers, the anchor's own line included; see [`Self::anchor_gap`].
     anchor_lines: Mutex<Option<(String, BTreeSet<u32>)>>,
@@ -143,28 +140,54 @@ impl Scope {
     pub(super) fn new(root: String, include: Vec<String>) -> Self {
         Self {
             root,
+            narrowed: false,
             include,
+            server_root: None,
             text: Mutex::new(None),
             fingerprint: Mutex::new(None),
             walk_entries: Mutex::new(None),
             answered: Mutex::new(BTreeSet::new()),
-            code_uses: Mutex::new(HashMap::new()),
+            code_uses: Arc::new(Mutex::new(HashMap::new())),
+            site: Mutex::new(None),
+            reach: Arc::new(Mutex::new(None)),
             anchor_lines: Mutex::new(None),
         }
     }
 
+    /// Record the request's anchor: canonical `path` and zero-based
+    /// position. When it starts a declaration, that declaration's reach
+    /// bounds which scanned files could reference it.
+    pub(super) fn anchor_site(&self, path: &str, line: u32, character: u32) {
+        if let Ok(mut slot) = self.site.lock() {
+            *slot = Some(reach::Site {
+                path: path.to_owned(),
+                line,
+                character,
+            });
+        }
+    }
+
     /// The scope of a request anchored at `anchor` (a file or, for a
-    /// workspace-root query, a directory).
+    /// workspace-root query, a directory), under the request's explicit
+    /// `workspace_root` when it holds the anchor.
     pub(super) fn resolve(
         anchor: &str,
         server_root: &str,
+        workspace_root: Option<&str>,
         policy: &PathPolicy,
         language_id: Option<&str>,
     ) -> Self {
-        Self::new(
-            search_root(Path::new(anchor), server_root, policy),
-            family_include(language_id, Path::new(anchor)),
-        )
+        let anchor_path = Path::new(anchor);
+        let wide = search_root(anchor_path, server_root, policy);
+        let explicit = workspace_root.and_then(|root| explicit_root(anchor_path, root, policy));
+        let mut scope = Self::new(
+            explicit.clone().unwrap_or_else(|| wide.clone()),
+            family_include(language_id, anchor_path),
+        );
+        scope.narrowed =
+            explicit.is_some_and(|root| root != wide && Path::new(&root).starts_with(&wide));
+        scope.server_root = std::fs::canonicalize(server_root).ok();
+        scope
     }
 
     /// Record the scope fingerprint this request computed; text scans under
@@ -238,9 +261,12 @@ impl Scope {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()?;
-        let text = crate::tools::source::read_bounded(Path::new(&file), CODE_CHECK_MAX_BYTES)
-            .ok()
-            .and_then(|bytes| super::source::admitted_text(&bytes).ok())?;
+        let text = crate::tools::source::read_bounded(
+            Path::new(&file),
+            octocode_engine::signatures::MAX_PARSE_SIZE,
+        )
+        .ok()
+        .and_then(|bytes| super::source::admitted_text(&bytes).ok())?;
         let lines = octocode_engine::lsp::resolver::code_occurrence_lines(&file, &text, symbol)?;
         lines
             .iter()
@@ -269,10 +295,38 @@ impl Scope {
         );
     }
 
+    /// This request's scope fingerprint ([`WalkInputs::fingerprint`]) on a
+    /// blocking worker that follows `cancel`. A walk with no fingerprint
+    /// (the request stopped it, or a file could not be stamped) is counted
+    /// as failed in the LSP trace (`lsp.trace`): the request then reuses no
+    /// response and sends no watched-file events, and that is never silent.
+    pub(super) async fn walk_fingerprint(
+        &self,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<Option<Fingerprint>, LspFailure> {
+        let walked = self.walk_inputs();
+        let measured = octocode_engine::lsp::diagnostics::Phase::ScopeFingerprint
+            .measure(async {
+                match blocking_cancellable(cancel, move |stopped| walked.fingerprint(stopped)).await
+                {
+                    Ok(Some(Some(found))) => Ok(found),
+                    Ok(_) => Err(None),
+                    Err(failure) => Err(Some(failure)),
+                }
+            })
+            .await;
+        match measured {
+            Ok(found) => Ok(Some(found)),
+            Err(None) => Ok(None),
+            Err(Some(failure)) => Err(failure),
+        }
+    }
+
     /// The owned inputs of the fingerprint walk, for a blocking worker.
     pub(super) fn walk_inputs(&self) -> WalkInputs {
         WalkInputs {
             root: PathBuf::from(&self.root),
+            server_root: self.server_root.clone(),
             include: self.include.clone(),
         }
     }
@@ -281,18 +335,25 @@ impl Scope {
 /// What the scope fingerprint walks: the scope root and its family globs.
 pub(super) struct WalkInputs {
     root: PathBuf,
+    server_root: Option<PathBuf>,
     include: Vec<String>,
 }
 
 impl WalkInputs {
     /// Digest of every family and project file under the scope (relative
     /// path, length, mtime; content too for a fresh mtime), so any edit,
-    /// addition, or removal changes it. `None` past the walk's bounds.
-    pub(super) fn fingerprint(
-        &self,
-        stopped: &(dyn Fn() -> bool + Sync),
-    ) -> Option<(String, Arc<BTreeMap<String, String>>)> {
-        fingerprint(&self.root, &self.include, stopped, FINGERPRINT_BUDGET)
+    /// addition, or removal changes it; one walk for the queries that ask
+    /// at once ([`shared_fingerprint`]). `None` when the request stopped
+    /// the walk or a file could not be stamped.
+    pub(super) fn fingerprint(&self, stopped: &(dyn Fn() -> bool + Sync)) -> Option<Fingerprint> {
+        shared_fingerprint(
+            &scan::FingerprintScope {
+                root: &self.root,
+                server_root: self.server_root.as_deref(),
+                include: &self.include,
+            },
+            stopped,
+        )
     }
 }
 

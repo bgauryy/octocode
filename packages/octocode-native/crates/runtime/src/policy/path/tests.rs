@@ -2,6 +2,7 @@ use super::*;
 
 mod credential_directories;
 mod denials;
+mod read_filter;
 
 /// Callers own cleanup.
 fn fixture() -> PathBuf {
@@ -105,6 +106,64 @@ fn walk_discovery_matches_permits_discovery_for_every_entry() {
             "{entry}"
         );
     }
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(outside);
+}
+
+/// A walk that visits each directory before its entries (as every local
+/// walk does) resolves real paths top-down: one canonicalization for the
+/// whole tree, with every decision still equal to `permits_discovery`,
+/// under a root reached through a symlinked ancestor (`/var` →
+/// `/private/var` on macOS) and beside links that stay in or escape.
+#[cfg(unix)]
+#[test]
+fn a_top_down_walk_canonicalizes_once_and_decides_as_permits_discovery() {
+    let root = fixture();
+    let outside = fixture();
+    std::fs::write(outside.join("secret.txt"), "x").expect("outside");
+    let mut entries = Vec::new();
+    for top in ["a", "b"] {
+        for mid in ["c", "d"] {
+            let dir = format!("{top}/{mid}/deep");
+            std::fs::create_dir_all(root.join(&dir)).expect("dirs");
+            std::fs::write(root.join(&dir).join("lib.rs"), "x").expect("file");
+            std::fs::write(root.join(&dir).join(".env.local"), "x").expect("sensitive");
+            entries.extend([
+                top.to_owned(),
+                format!("{top}/{mid}"),
+                dir.clone(),
+                format!("{dir}/lib.rs"),
+                format!("{dir}/.env.local"),
+            ]);
+        }
+    }
+    std::fs::create_dir_all(root.join("a/.ssh")).expect("credential dir");
+    std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("a/c/escape"))
+        .expect("escaping link");
+    std::os::unix::fs::symlink(root.join("b"), root.join("a/inside")).expect("inner link");
+    entries.extend(["a/.ssh".into(), "a/c/escape".into(), "a/inside".into()]);
+    entries.sort();
+    entries.dedup();
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let walk = policy.discovery_walk();
+    let before = walk::CANONICALIZED.with(std::cell::Cell::get);
+    for entry in &entries {
+        let path = root.join(entry);
+        let kind = std::fs::symlink_metadata(&path)
+            .ok()
+            .map(|meta| meta.file_type());
+        assert_eq!(
+            walk.permits_entry(&path, kind),
+            policy.permits_discovery(&path),
+            "{entry}"
+        );
+    }
+    let canonicalized = walk::CANONICALIZED.with(std::cell::Cell::get) - before;
+    assert_eq!(canonicalized, 1, "only the walk root's parent");
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(outside);
 }

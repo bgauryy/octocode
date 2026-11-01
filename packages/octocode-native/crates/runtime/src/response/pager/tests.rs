@@ -13,7 +13,7 @@ fn walk_tool(tool: &str, input: &Value, budget: usize) -> Vec<Value> {
     loop {
         let prepared = prepare(
             ResponseInput {
-                tool: tool.into(),
+                tool: tool.parse().expect("tool name"),
                 structured: input.clone(),
                 options: options.clone(),
                 remaining: Vec::new(),
@@ -24,7 +24,12 @@ fn walk_tool(tool: &str, input: &Value, budget: usize) -> Vec<Value> {
         let page = prepared.value;
         if let Some(pagination) = page.get("responsePagination") {
             let chars = page.to_string().encode_utf16().count();
-            assert!(chars <= budget || pagination["oversized"] == true);
+            // Exactly the pages a full measure finds over budget say so.
+            assert_eq!(
+                pagination.get("oversized") == Some(&json!(true)),
+                chars > budget,
+                "{chars} chars at {budget}: {pagination}"
+            );
             for removed in [
                 "returnedChars",
                 "totalChars",
@@ -102,7 +107,7 @@ fn split_rows_publish_required_continuation_after_all_evidence_and_related_once(
 fn unpaged_output_is_unchanged_and_cancellation_never_returns_a_partial_page() {
     let input = json!({"results":[{"index":0,"data":{"content":"😀\nexact"}}]});
     let response = ResponseInput {
-        tool: "localFetch".into(),
+        tool: crate::id::ToolId::LocalFetch,
         structured: input.clone(),
         options: ResponsePageOptions::default(),
         remaining: Vec::new(),
@@ -132,7 +137,7 @@ fn immutable_replay_uses_one_plan_and_preserves_provider_facts_once() {
     loop {
         let prepared = prepare_saved(
             &ResponseInput {
-                tool: "localSearch".into(),
+                tool: crate::id::ToolId::LocalSearch,
                 structured: Value::Null,
                 options: options.clone(),
                 remaining: Vec::new(),
@@ -172,7 +177,7 @@ fn mismatched_or_out_of_range_internal_page_locators_are_rejected_without_restar
     };
     let first = prepare(
         ResponseInput {
-            tool: "localSearch".into(),
+            tool: crate::id::ToolId::LocalSearch,
             structured: input.clone(),
             options: base.clone(),
             remaining: Vec::new(),
@@ -199,7 +204,7 @@ fn mismatched_or_out_of_range_internal_page_locators_are_rejected_without_restar
         assert_eq!(
             prepare(
                 ResponseInput {
-                    tool: "localSearch".into(),
+                    tool: crate::id::ToolId::LocalSearch,
                     structured: input.clone(),
                     options,
                     remaining: Vec::new()

@@ -1,5 +1,5 @@
 use super::aliases::ResolveContext;
-use super::cargo::{CargoCrates, load_cargo_crates};
+use super::cargo::{CargoCrates, enclosing_manifests, load_cargo_crates};
 use super::js_paths::{ModulesByName, probe_js};
 use super::linking::Linker;
 use super::packages::{PackageIndex, PackageLink};
@@ -11,11 +11,10 @@ use crate::{
 use octocode_contract_types::ErrorCode;
 use octocode_engine::graph::{GraphFactCode, GraphFactDiagnostic};
 use octocode_engine::signatures::languages::RegistryView;
-use octocode_engine::text::{lexical, slash_path};
 use octocode_engine::types::GraphFactsScanOptions;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     sync::PoisonError,
 };
 
@@ -25,14 +24,12 @@ pub(super) mod checkpoint;
 mod exports;
 mod imports;
 mod link;
-mod paths;
 mod resolve;
 mod rust;
 mod scan;
 pub(crate) mod scope;
+use super::paths::{dirname, join, join_within_root, normalize};
 use link::*;
-pub(crate) use paths::normalize;
-pub(super) use paths::{climb, dirname, join, join_within_root, parent};
 pub(super) use resolve::OUTSIDE_ROOT;
 use resolve::*;
 pub(super) use rust::rust_module_child_dir;
@@ -43,18 +40,16 @@ use rust::*;
 #[derive(Clone, Debug, Default)]
 pub(crate) struct GraphScan {
     pub checkpoint: Option<PathBuf>,
-    pub force: bool,
+    /// Rebuild the extraction checkpoint instead of resuming or reusing it.
+    pub refresh: bool,
     /// The scan root (validated under the path policy before the walk).
     pub root: PathBuf,
     /// Directory names pruned on top of the default excluded directories.
     pub exclude_dir: Vec<String>,
-    pub max_files: u32,
     /// The snapshot bounds the scan and linking refuse past.
     pub limits: super::limits::Limits,
     /// AST parsers by root-relative glob.
     pub language_globs: BTreeMap<String, Vec<String>>,
-    /// Link Rust through `cargo metadata` (else syntax only).
-    pub cargo_metadata: bool,
     /// The configured `OCTOCODE_CARGO`; `None` runs `cargo` from PATH.
     pub cargo: Option<String>,
 }
@@ -114,7 +109,6 @@ pub(crate) fn build_graph_with_registry(
         parsed_files: facts.parsed.saturating_sub(reused_files),
         root: validated.canonical,
         files_skipped: facts.files_skipped,
-        truncated: facts.truncated,
         limits: scan.limits,
         tally,
         ..Default::default()
@@ -138,7 +132,7 @@ pub(crate) fn build_graph_with_registry(
                 .chain(facts.skipped.iter().map(|skip| skip.relative_path.as_str())),
         ),
     );
-    let (rust_cargo_unavailable, cargo_crates) = cargo_linking(scan, &mut built, &known, cancel);
+    let cargo_crates = cargo_linking(scan, &mut built, &known, cancel);
     let rust_modules = RustModules::build(
         facts.kept.iter().filter_map(|(_, kept)| kept.modules()),
         &known,
@@ -167,38 +161,68 @@ pub(crate) fn build_graph_with_registry(
     let inputs = LinkInputs {
         known: &known,
         security,
-        rust_cargo_unavailable,
         cargo_crates: &cargo_crates,
         rust_modules: &rust_modules,
         ctx: &resolve_context,
         packages: &packages,
     };
-    for (relative, kept) in facts.kept {
+    // Restoring a spilled file decodes its artifact: a window of files is
+    // restored in parallel, then linked one by one in scan order, so the
+    // graph is the same at any width. The window bounds the decoded facts
+    // held at once.
+    let width = crate::tools::workers::workers(facts.kept.len(), None);
+    let mut kept = facts.kept.into_iter();
+    loop {
         cancel.check().map_err(cancelled)?;
-        let (entry, marks, source) = kept.restore(&relative, job.as_ref())?;
-        let file = normalize(&entry.relative_path);
-        link_entry(&mut built, &inputs, entry, marks);
-        if let Some(facts) = built.facts.get_mut(&file) {
-            facts.source = source;
+        let mut window = kept.by_ref().take(width * 4).map(Some).collect::<Vec<_>>();
+        if window.is_empty() {
+            break;
         }
-        // Past a bound the snapshot cannot publish: refuse now, not after
-        // projection, redaction and encoding.
-        if let Err((table, bound)) = scan.limits.admit(&built.tally) {
-            return Err(scope::too_broad(
-                &built.root,
-                known.iter().map(String::as_str),
-                &format!(
-                    "{} files are too many for one graph snapshot: linking the first {} projects more than the snapshot's {bound} {table} rows",
-                    known.len(),
-                    built.facts.len()
-                ),
-            ));
+        let restored = crate::tools::workers::each_parallel(&mut window, width, |slot| {
+            slot.take()
+                .map(|(relative, kept)| kept.restore(&relative, job.as_ref()))
+        });
+        for restored in restored.into_iter().flatten() {
+            cancel.check().map_err(cancelled)?;
+            link_restored(&mut built, &inputs, &known, scan, restored?)?;
         }
     }
     diagnose_unlinked_path_imports(&mut built, security);
     built.diagnostics.sort();
     built.diagnostics.dedup();
     Ok(built)
+}
+
+/// Links one restored file into `built`, refusing once the snapshot passes
+/// a bound: refused now, not after projection, redaction and encoding.
+fn link_restored(
+    built: &mut BuiltGraph,
+    inputs: &LinkInputs<'_>,
+    known: &BTreeSet<String>,
+    scan: &GraphScan,
+    (entry, marks, source): (
+        octocode_engine::graph::GraphFactsTypedEntry,
+        super::classify::SourceMarks,
+        capture::CapturedSource,
+    ),
+) -> Result<(), ToolError> {
+    let file = normalize(&entry.relative_path);
+    link_entry(built, inputs, entry, marks);
+    if let Some(facts) = built.facts.get_mut(&file) {
+        facts.source = source;
+    }
+    if let Err((table, bound)) = scan.limits.admit(&built.tally) {
+        return Err(scope::too_broad(
+            &built.root,
+            known.iter().map(String::as_str),
+            &format!(
+                "{} files are too many for one graph snapshot: linking the first {} projects more than the snapshot's {bound} {table} rows",
+                known.len(),
+                built.facts.len()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn registry_identity(registry: RegistryView<'_>) -> Result<String, ToolError> {

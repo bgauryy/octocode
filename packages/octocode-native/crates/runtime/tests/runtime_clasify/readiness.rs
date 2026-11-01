@@ -1,12 +1,11 @@
 use crate::support::{Run as _, Workspace, provider_env};
 use octocode_contract_types::ErrorCode;
 use serde_json::json;
-use std::time::{Duration, Instant};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
-async fn clasify_provider_ping_controls_availability_without_beta() {
+async fn clasify_provider_errors_only_on_requested_models_invocation() {
     for (response, expected) in [
         (
             ResponseTemplate::new(200).set_body_json(json!({"models":[]})),
@@ -24,12 +23,6 @@ async fn clasify_provider_ping_controls_availability_without_beta() {
             ResponseTemplate::new(200).set_body_json(json!({"wrong":[]})),
             Some(ErrorCode::InvalidClassificationResponse),
         ),
-        (
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"models":[]}))
-                .set_delay(Duration::from_secs(8)),
-            Some(ErrorCode::Timeout),
-        ),
     ] {
         let server = MockServer::start().await;
         let workspace = Workspace::new();
@@ -37,42 +30,51 @@ async fn clasify_provider_ping_controls_availability_without_beta() {
             .and(path("/v1/models"))
             .and(header("authorization", "Bearer fixture-key"))
             .respond_with(response)
-            .expect(1)
+            .expect(1..)
             .mount(&server)
             .await;
-        let started = Instant::now();
-        let runtime = workspace
-            .runtime(&provider_env(
-                &server,
-                &[
-                    ("OCTOCODE_CLASSIFICATION_API", "fixture-key".into()),
-                    ("OCTOCODE_BETA", "false".into()),
-                ],
-            ))
-            .check_clasify_provider()
+        let runtime = workspace.runtime(&provider_env(
+            &server,
+            &[
+                ("OCTOCODE_CLASSIFICATION_API", "fixture-key".into()),
+                ("OCTOCODE_BETA", "false".into()),
+            ],
+        ));
+        assert!(runtime.is_available("clasify"));
+        let _catalog = runtime.catalog();
+        assert!(server.received_requests().await.unwrap().is_empty());
+        let result = runtime
+            .run(
+                "models".into(),
+                "clasify".into(),
+                json!({"queries":[{"operation":"models"}]}),
+            )
             .await;
-        assert!(started.elapsed() < Duration::from_secs(7));
-        assert_eq!(runtime.is_available("clasify"), expected.is_none());
-        assert_eq!(runtime.catalog()["presentation"]["selection"], true);
+        let outcome = result.expect("provider failures are isolated result rows");
         if let Some(code) = expected {
-            let error = runtime
-                .run(
-                    "probe".into(),
-                    "clasify".into(),
-                    json!({"queries":[{"operation":"models"}]}),
-                )
-                .await
-                .expect_err("provider blocked");
-            assert_eq!(error.code, code);
-            assert!(error.message.contains("ping failed"));
-            assert!(!error.message.contains("fixture-key"));
+            assert_eq!(
+                outcome.structured_content["results"][0]["data"]["errorCode"],
+                json!(code)
+            );
+            assert!(
+                !outcome
+                    .structured_content
+                    .to_string()
+                    .contains("fixture-key")
+            );
+        } else {
+            assert!(!outcome.all_failed, "{:?}", outcome.structured_content);
         }
+        assert!(
+            runtime.is_available("clasify"),
+            "provider response must not change discovery"
+        );
         runtime.close().await;
     }
 }
 
 #[tokio::test]
-async fn clasify_ping_skips_missing_keys_and_explicit_tool_exclusions() {
+async fn runtime_and_catalog_construction_never_contact_provider() {
     let server = MockServer::start().await;
     let workspace = Workspace::new();
     for env in [
@@ -80,13 +82,22 @@ async fn clasify_ping_skips_missing_keys_and_explicit_tool_exclusions() {
         vec![("OCTOCODE_CLASSIFICATION_API", "  ".into())],
         vec![("DISABLE_TOOLS", "clasify".into())],
         vec![("TOOLS_TO_RUN", "localFetch".into())],
+        vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key".into())],
     ] {
-        let runtime = workspace
-            .runtime(&provider_env(&server, &env))
-            .check_clasify_provider()
-            .await;
-        assert!(!runtime.is_available("clasify"));
-        runtime.close().await;
+        for surface in [
+            octocode_native::config::RuntimeSurface::Cli,
+            octocode_native::config::RuntimeSurface::Mcp,
+        ] {
+            let mut input = workspace.config(&provider_env(&server, &env));
+            input.runtime_surface = surface;
+            let runtime = octocode_native::runtime::ToolRuntime::with_limits(
+                input,
+                crate::support::FIXTURE_LIMITS,
+            )
+            .expect("runtime");
+            let _catalog = runtime.catalog();
+            runtime.close().await;
+        }
     }
     assert!(server.received_requests().await.unwrap().is_empty());
 }

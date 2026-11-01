@@ -55,6 +55,7 @@ pub struct GhGetFileContentFile {
 pub(crate) struct Shaping<S> {
     pub security: S,
     pub memo: Arc<crate::security::scan::SanitizedViewMemo>,
+    pub views: Arc<crate::tools::source_view::ViewCache>,
     pub context: crate::execution::ExecutionContext,
     pub selection: crate::tools::selection::Runtime,
 }
@@ -186,7 +187,7 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     // the immutable SHA.
     let continuing = access::progress(query).is_some()
         && access::reference(query).is_some_and(octocode_github::is_full_sha);
-    let force_refresh = access::force_refresh(query).unwrap_or(false) && !continuing;
+    let force_refresh = access::refresh(query).unwrap_or(false) && !continuing;
     let sha = provider
         .resolve_reference(
             access::owner(query),
@@ -223,6 +224,7 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     let fetched = Fetched {
         window,
         renamed_warning,
+        views: shaping.views.clone(),
     };
     let mut result = if !access::classified(query) {
         let scanner = MemoizedScan::new(&shaping.security, &shaping.memo);
@@ -264,15 +266,12 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     Ok(result)
 }
 
-/// This tool's output facts for the shared response stages.
+/// This tool's recovery for the shared response stages.
 pub(crate) struct Output;
 impl crate::response::output::ToolOutput for Output {
     fn error_hint(&self, code: ErrorCode, _query: &serde_json::Value) -> Option<&'static str> {
         // The message names the item; `repair` is the corrected read.
         (code == ErrorCode::InvalidPattern).then_some(crate::response::output::NO_HINT)
-    }
-    fn reads_source(&self) -> bool {
-        true
     }
 }
 

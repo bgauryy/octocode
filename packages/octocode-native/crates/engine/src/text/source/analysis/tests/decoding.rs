@@ -101,3 +101,32 @@ proptest::proptest! {
         }
     }
 }
+
+/// One admission names its bytes and its text by digest: the text digest is
+/// the bytes' own when the text is those bytes, and the text's hash when
+/// decoding changed them (BOM-marked UTF-16).
+#[test]
+fn admitted_digests_name_the_bytes_and_the_text() {
+    let utf16: Vec<u8> = [0xff, 0xfe]
+        .into_iter()
+        .chain("fn é() {}\n".encode_utf16().flat_map(u16::to_le_bytes))
+        .collect();
+    for bytes in [
+        b"fn plain() {}\n".to_vec(),
+        "\u{feff}fn bom() {}\n".as_bytes().to_vec(),
+        utf16,
+    ] {
+        let admitted = AdmittedSource::from_bytes(&bytes, "a.rs", &mut budget()).unwrap();
+        assert_eq!(
+            admitted.source_digest(),
+            Some(crate::digest::sha256(&bytes).as_str())
+        );
+        assert_eq!(
+            admitted.text_digest(),
+            crate::digest::sha256(admitted.text().as_bytes())
+        );
+    }
+    let text = AdmittedSource::from_text("x");
+    assert_eq!(text.source_digest(), None);
+    assert_eq!(text.text_digest(), crate::digest::sha256(b"x"));
+}

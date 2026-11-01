@@ -110,4 +110,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { drift, platformManifest };
+module.exports = { LAUNCHERS, drift, platformManifest };

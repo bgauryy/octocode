@@ -49,7 +49,7 @@ impl OwnedArtifact {
                 .reference_counts
                 .into_iter()
                 .map(
-                    |(declaration_id, count)| octocode_engine::types::GraphReferenceCount {
+                    |(declaration_id, count)| octocode_engine::graph::GraphReferenceCount {
                         declaration_id,
                         count,
                     },

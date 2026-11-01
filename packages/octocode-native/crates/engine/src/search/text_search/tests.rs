@@ -1,4 +1,3 @@
-use super::collect::*;
 use super::file_search::*;
 use super::mode::*;
 use super::pcre2::*;
@@ -32,6 +31,8 @@ mod ranking;
 mod selection;
 mod snippets;
 mod spans;
+mod term_counts;
+mod test_code;
 mod walk_parity;
 
 struct AllowAll;

@@ -19,7 +19,7 @@ impl BoundSource<'_> {
                     .get(*source_index as usize)
                     .ok_or(SourceError::InvalidMap("missing source"))?;
                 if source.text().len() != *byte_length as usize
-                    || crate::digest::sha256(source.text().as_bytes()) != *source_digest
+                    || source.text_digest() != source_digest.as_str()
                 {
                     return Err(SourceError::InvalidMap("decoded source identity"));
                 }

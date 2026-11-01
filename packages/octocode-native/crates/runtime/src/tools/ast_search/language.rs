@@ -178,8 +178,18 @@ pub(super) fn cpp_header_note(
 
 fn header_parse_note(path: &std::path::Path, source: &str) -> Option<String> {
     let errors = |language| octocode_engine::structural::count_syntax_errors(source, language);
-    let (c, cpp) = (errors("c")?, errors("cpp")?);
     let repair = "set parser:\"cpp\" (parserGlobs for a directory).";
+    let c = errors("c")?;
+    // A clean C parse is misread C++ only through a keyword it reads as a
+    // name, so a source spelling none needs no C++ parse.
+    if c == 0
+        && !CPP_KEYWORD_NAMES
+            .iter()
+            .any(|keyword| source.contains(keyword))
+    {
+        return None;
+    }
+    let cpp = errors("cpp")?;
     if c > cpp {
         return Some(format!(
             "{} parses as C with {c} syntax error(s) and as C++ with {cpp}; {repair}",
@@ -206,11 +216,25 @@ fn header_parse_note(path: &std::path::Path, source: &str) -> Option<String> {
     ))
 }
 
-/// The rule for C++ keywords the C grammar parses as type or variable names.
+/// C++ keywords the C grammar parses as type or variable names.
+const CPP_KEYWORD_NAMES: [&str; 10] = [
+    "class",
+    "namespace",
+    "template",
+    "typename",
+    "virtual",
+    "public",
+    "private",
+    "protected",
+    "operator",
+    "using",
+];
+
+/// The rule for [`CPP_KEYWORD_NAMES`] spelled as a C type or variable name.
 fn cpp_keyword_names_rule() -> serde_json::Value {
     serde_json::json!({
         "any": [{"kind": "type_identifier"}, {"kind": "identifier"}],
-        "regex": "^(class|namespace|template|typename|virtual|public|private|protected|operator|using)$"
+        "regex": format!("^({})$", CPP_KEYWORD_NAMES.join("|"))
     })
 }
 

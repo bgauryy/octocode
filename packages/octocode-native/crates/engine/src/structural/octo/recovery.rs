@@ -26,7 +26,7 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::structural::kinds::{is_comment_kind, is_string_kind};
+use crate::signatures::node_kinds::{is_comment_kind, is_string_kind};
 
 /// The literal anchors of a query (`None`: anchorless).
 pub(super) struct Recovery(Option<Vec<String>>);

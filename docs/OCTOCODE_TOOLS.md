@@ -1,6 +1,6 @@
 # Octocode tools reference
 
-The full catalog has 16 tools. The default catalog contains 12 tools over MCP and 15 in the CLI. `ghCloneRepo` is CLI-only; `OCTOCODE_BETA=true` adds `graphBuild` and `graphQuery` to MCP while CLI graph tools remain available; `clasify` requires a classification credential and a successful provider ping. Live discovery reports availability for the current configuration.
+The catalog has 16 tools, all listed and enabled in the CLI. MCP exposes a configured subset. [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) owns defaults, graph/clone/classification opt-ins and catalog filters. Listing a tool does not guarantee its provider or language server is ready; invocation reports those failures.
 
 ## How every tool call works
 
@@ -33,7 +33,18 @@ The query view describes authored fields. The variants view lists each operation
 
 ### Results, evidence, partial failures, and continuations
 
-Each result has its input `index` and `data`. Check row status and partial-coverage facts even when the enclosing request succeeds. `next.*` and `responsePagination.next` contain `{kind:"continue",tool,input:{cursor}}`; `related[]` contains `{kind:"related",tool,input:{queries:[...]}}`. Execute the supplied `input` unchanged. `hints[]` contains prose only. See the [data contract](TOOL_DATA_CONTRACT.md).
+Each result has its input `index` and `data`. Check row status and partial-coverage facts even when the enclosing request succeeds: a failed row has `status:"error"` with `errorCode` (and `httpStatus` for provider failures), and the exit code is not per row. `next.*` and `responsePagination.next` contain `{kind:"continue",tool,input:{cursor}}`; `related[]` contains `{kind:"related",tool,input:{queries:[...]}}`, optional ready-made calls that may widen scope (hidden or ignored paths). Execute the supplied `input` unchanged. `hints[]` contains prose only. See the [data contract](TOOL_DATA_CONTRACT.md).
+
+Pages use these literal keys:
+
+| Key | Pages | Follow |
+|---|---|---|
+| `responsePagination{page,totalPages,hasMore,next}` | One response split across calls (`responseChars`, default 20,000) | `responsePagination.next` first |
+| `rowPart{part,of}` | One row split across response pages | Read every part before using the row |
+| `pagination{hasMore,…}` | A row's own list | The row's `next.<name>`, such as `next.nextPage` |
+| `contentPagination.<section>` | One `ghGetHistoryItem` collection; `countScope` says what `totalItems` counts | That section's `next.*` |
+
+A claim about what a `next.<name>` covers needs that call. A result is complete for a claim when nothing reports `hasMore:true` and no `next` covers the claim, whether or not a paging object appears. `isPartial`, `warnings` or `totalItemsCapped` (then `totalItems` is the reachable count) mean incomplete. Absence also needs the unfiltered preset: `includeHidden:true`, `includeIgnored:true`, `defaultExcludes:false` and no `classification`. `status:"empty"` with skipped paths or `unknownItems>0` is not absence.
 
 ## Internal, external, and hybrid tools
 
@@ -41,7 +52,14 @@ Local research tools read authorized files; `graphBuild` also writes derived sna
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
-Use text search for exact spelling, AST for syntax, LSP for semantic locations, and history for changes. Graph edges and AST matches are candidates; confirm callers or references with LSP before claiming code is unused. [Research flows](OCTOCODE_WORKFLOWS.md) connect these tools.
+Use text search for exact spelling, AST for code patterns and connections expressed in syntax, LSP for resolved definitions and references, and history for changes. Three structural sources answer different questions:
+
+| Source | Answers | Scope |
+|---|---|---|
+| Graph (`graphBuild`, `graphQuery`) | Whole-repository structure: imports, calls, cycles, change impact, ranked issues | Every file of one snapshot, from syntax; edges are candidates |
+| LSP (`lspSearch`) | Exact per-symbol identity: definition, references, call hierarchy as the language server resolves them | One symbol at a time |
+| AST (`astSearch`) | Per-pattern syntax: every place a code shape occurs | Matching source, no cross-file resolution |
+ AST rules can find calls inside methods, imports, inheritance clauses, and containment or ordering relationships. They return matching source, not a resolved graph of callers. Graph edges and AST matches are candidates; confirm callers or references with LSP before claiming code is unused. [Research flows](OCTOCODE_WORKFLOWS.md) connect these tools.
 
 ## GitHub tools reference
 
@@ -59,7 +77,7 @@ Find repositories with `operation:"search"`, list an owner with `"list"`, or ins
 
 ### `ghSearchCode`
 
-Search GitHub’s code index with `keywords`. Scope with owner/repository and typed filters. The index may lag or omit a requested revision; read returned paths at the intended ref before making a source claim. Read continuations reach evidence omitted from the displayed hit window.
+Search GitHub’s code index with `keywords`. Scope with owner/repository and typed filters. Hits always come from the default-branch index: `ref` never widens the search, it re-reads those hits at that revision, and `atRef:false` marks a row whose path or hit is not there. For a symbol at a tag or commit, find its path with `ghStructure` at that ref, then read it with `ghGetFileContent`. Read continuations reach evidence omitted from the displayed hit window.
 
 ```json
 {"queries":[{"keywords":["localSearch"],"owner":"bgauryy","repo":"octocode"}]}
@@ -67,7 +85,7 @@ Search GitHub’s code index with `keywords`. Scope with owner/repository and ty
 
 ### `ghStructure`
 
-Inspect a repository tree, refs or language inventory using `operation:"tree"`, `"refs"` or `"languages"`. Tree depth bounds the requested view. `include` and `exclude` are glob arrays; do not embed an implicit pattern language in a path.
+Inspect a repository tree, refs or language inventory using `operation:"tree"`, `"refs"` or `"languages"`. Tree depth bounds the requested view. `include` is an array of repository-relative globs, also when `path` is set (`**/name.ts` or `path/**/name.ts`; a bare name matches only that exact repository-relative path); `path` names an exact directory.
 
 ```json
 {"queries":[{"maxDepth":2,"operation":"tree","owner":"bgauryy","path":"packages","repo":"octocode"}]}
@@ -91,7 +109,7 @@ Find pull requests, issues or commits with `operation`. `keywords` searches text
 
 ### `ghGetHistoryItem`
 
-Read a pull request or issue by `number`, a commit by `ref`, or a comparison by `baseRef` and `headRef`. `sections` selects the evidence needed. Files, comments, reviews, commits and patches can have independent continuations; complete each requested collection. Matcher fields have the same meaning as in other text tools.
+Read a pull request or issue by `number`, a commit by `ref`, or a comparison by `baseRef` and `headRef`. `sections` selects the evidence needed. Files, comments, reviews, commits and patches can have independent continuations; complete each requested collection. Inline review comments are `reviewComments`; review bodies are `reviews`. A `files` row reads `M +5 -1 path` (status letter, additions, deletions). Each collection's `contentPagination.<section>.countScope` is `complete` (the whole collection), `loaded` (rows so far; more pages remain) or `partial` (a provider limit ended it). Matcher fields have the same meaning as in other text tools.
 
 ```json
 {"queries":[{"number":1,"operation":"pullRequest","owner":"bgauryy","repo":"octocode"}]}
@@ -99,7 +117,7 @@ Read a pull request or issue by `number`, a commit by `ref`, or a comparison by 
 
 ### `ghCloneRepo`
 
-Materialize a cached checkout for local tools. Requires persistent storage and is exposed through the CLI. Use the returned local path for search, AST and LSP. A sparse checkout has a scoped view; follow materialization continuations before claiming complete local coverage.
+Fetch a fresh checkout for local tools on every call. Execution requires persistent storage; MCP exposure has a separate [clone opt-in](CONFIGURATION.md#tool-availability-cli-and-mcp). Use the returned local path for search, AST and LSP. A sparse checkout covers only its requested paths; retain that scope and the returned commit identity in local coverage claims. Checkouts live under `<OCTOCODE_HOME>/clones/`. The same commit, sparse selection and history depth replace a clean destination atomically; tracked edits, untracked or ignored files, local commits or Git refs (including branches, tags and stashes) prevent replacement. Clone has no cache lookup, TTL, eviction, cache metadata, or `refresh` field. It bypasses shared provider caches and returns complete receipts even beyond `responseChars`, without saving response pages. Existing checkouts from older versions remain untouched.
 
 ```json
 {"queries":[{"owner":"bgauryy","repo":"octocode"}]}
@@ -129,7 +147,7 @@ Search authorized local text with `matchString` as an array. Choose the advertis
 
 ### `astSearch`
 
-Use `operation:"match"` with a typed `rule` object, `"symbols"` for declarations, or `"syntaxTree"` for parse structure. `parser` chooses a parser when required. `symbolFilter` is a typed mode/terms filter. A syntax match does not prove a runtime call or reference. Declaration nodes own their evidence fields; each result path resolves against the workspace or is an admitted absolute path.
+Use `operation:"match"` with a typed `rule` object, `"symbols"` for declarations, or `"syntaxTree"` for parse structure. `parser` chooses a parser when required. `symbolFilter` is a typed mode/terms filter. A syntax match does not prove a runtime call or reference. Declaration nodes own their evidence fields; each result path resolves against the workspace or is an admitted absolute path. A scan cut by its time budget continues with `next.expandScan` after the files it evaluated; no file count or walk ceiling ends a scan.
 
 ```json
 {"queries":[{"operation":"match","parser":"typescript","path":"src","rule":{"pattern":"eval($X)"}}]}
@@ -137,7 +155,7 @@ Use `operation:"match"` with a typed `rule` object, `"symbols"` for declarations
 
 ### `structureSearch`
 
-Use `operation:"tree"` to inspect a directory scope or `"files"` to discover paths. Shared include/exclude globs and explicit metadata filters control the walk. `entryType` uses descriptive enum values such as `file` and `directory`. A listing groups file entries by directory; read source separately. `view:"paths"` requests names with directory and symlink markers, omitting size, time and line-count details. The default `view:"details"` retains those details. Sorting by `lineCount` still reads file content in either view.
+Use `operation:"tree"` to inspect a directory scope or `"files"` to discover paths. Shared include/exclude globs and explicit metadata filters control the walk. `entryType` uses descriptive enum values such as `file` and `directory`. A listing groups file entries by directory; read source separately. `view:"paths"` requests names with directory and symlink markers, omitting size, time and line-count details. The default `view:"details"` retains those details. Sorting by `lineCount` still reads file content in either view. `limit` bounds one window of the listing (the entries it walks, sorts and lists; default 10,000); `responseChars` sets each page's size, `next.nextPage` pages the window and `next.continueWalk` lists the next window, so no walk ceiling ends a listing. `sort` orders the whole window before paging, so page 1 starts the global order. Resolve a shorthand path here (`nameRegex`, `view:"paths"`) before other local tools, and ask when several candidates match.
 
 ```json
 {"queries":[{"maxDepth":2,"operation":"tree","path":".","view":"paths"}]}
@@ -145,7 +163,17 @@ Use `operation:"tree"` to inspect a directory scope or `"files"` to discover pat
 
 ### `localFetch`
 
-Read a known local file. Path-only reads exact content; `ranges` uses inclusive startLine/endLine objects, and `matchString` selects matched regions. `contextLines` sets before/after context. `view:"compact"` transforms content; `view:"symbols"` outlines it. A binary source produces a typed error. Secret scanning happens before projection, including range reads.
+Read a known local file using a workspace-relative or absolute path. Path-only reads source content. Choose a view before choosing selectors:
+
+| View | Use it for | Selectors |
+|---|---|---|
+| `content` (default) | Source evidence and quotations | Whole file, inclusive `ranges`, or `matchString` with optional ranges and `contextLines` |
+| `symbols` | Preview code declarations, Markdown `#` headings, or data keys and containers | Whole file; use displayed source lines or spans for a content range read |
+| `compact` | Reduce comments and whitespace where safe | Whole file or `ranges` |
+
+Reuse a search's `matchString`, `regexEngine`, `caseMode` and `wholeWord` to read its hits in context. Copy source text, not line-numbered snippets; literal matching is the default. `contextLines` defaults to zero before and after each match. `block:true` expands each match to its whole enclosing declaration, body included; use `contextLines` for a signature only. If any match hits a multiline declaration head, only head hits expand; other matches retain their context windows. Without a head hit, body matches can expand their containing declaration. Use LSP to resolve a call's definition.
+
+In a symbols outline, `13-17` marks a declaration spanning lines 13–17 inclusive, a single number one line, and `… (lines 4-9)` folded lines; attributes and doc comments print on their own lines above the range. `totalLines` is the file's length, while `pagination.total` counts only the units the read selected. Symbol outlines describe syntax, not resolved identity, and data outlines summarize containers rather than list every nested scalar. Markdown outlines recognize ATX (`#`) headings; underline-style Setext headings require content reads. Inspect `viewFallback` when a symbols read cannot produce a useful outline. A binary source produces a typed error. Secret scanning happens before projection, including range reads.
 
 Compact reads preserve literal content and source-line citations. YAML compact reads retain the selected text, including comments and blank lines, because those bytes can belong to scalar values; `view:"symbols"` still outlines YAML keys. If a transformed view cannot be mapped to source lines, the reader keeps the original selected text. Local and GitHub file reads share this behavior.
 
@@ -157,7 +185,7 @@ Compact reads preserve literal content and source-line citations. YAML compact r
 
 ### `lspSearch`
 
-Use observed `path`, `line` and `symbolName` anchors for definitions, references, callers, callees, hover and type navigation. `occurrence` distinguishes repeated names on one line (zero-based). `workspaceSymbol` takes `symbolQuery` and a path or workspaceRoot; document operations take a path. Location output uses `view:"content"` or `"files"`. Follow importer, hierarchy and result continuations. Missing or indexing servers do not prove absence.
+Use observed `path`, `line` and `symbolName` anchors for definitions, references, callers, callees, hover and type navigation. `occurrence` distinguishes repeated names on one line (zero-based). `workspaceSymbol` takes `symbolQuery` and a path or workspaceRoot; document operations take a path. Location output uses `view:"content"` or `"files"`. Follow importer, hierarchy and result continuations. Missing or indexing servers do not prove absence. References rows carry `role` (`call`, `import` or `reference`). `coverage.importerScan` (`complete`, `capped` or `failed`) reports the scan for importing files the server missed, and `verifiedImporterFiles` how many it added: `complete` with 0 means none were missed. Row paths are workspace-relative whatever the result's `workspaceRoot`. `workspaceSymbol` has no completeness marker; confirm a missing name with `localSearch`.
 
 ```json
 {"queries":[{"line":10,"path":"src/index.ts","symbolName":"run"}]}
@@ -167,7 +195,7 @@ Use observed `path`, `line` and `symbolName` anchors for definitions, references
 
 ### `clasify`
 
-Evaluate supplied `content` or an unread `source`, discover models, or assess sections of keyed `resources`. Questions request typed answers. Text sources and image assets keep evidence provenance without returning their provider payloads. Use inline `classification` on search/read when selecting retrieved evidence is the task. See the [classification guide](OCTOCODE_CLASIFY.md).
+Evaluate supplied `content` or an unread `source`, discover models, or assess sections of keyed `resources`. Questions request typed answers. Text sources and image assets keep evidence provenance without returning their provider payloads. Use inline `classification` on search/read when selecting retrieved evidence is the task. A `score` question lists up to 11 levels, so a 0–10 rubric fits; a score is a model judgment, so ground it with a source search before reporting it. `next.read` is the read needed to cite an answer's lines. See the [classification guide](OCTOCODE_CLASIFY.md).
 
 ```json
 {"queries":[{"content":"Create a replacement credential, then restart the service.","operation":"evaluate","questions":{"restart":{"instructions":"Does rotating the credential require restarting the service?","type":"noul"}}}]}
@@ -175,7 +203,7 @@ Evaluate supplied `content` or an unread `source`, discover models, or assess se
 
 ### Context selection
 
-`classification` is supported by localSearch, localFetch, ghSearchCode and ghGetFileContent. The receipt distinguishes selected, related, excluded and unknown units. Complete selected-view continuations for a selected claim; follow unfiltered or inspection continuations when the claim needs omitted evidence. Unknown is never a negative decision.
+`classification` is supported by localSearch, localFetch, ghSearchCode and ghGetFileContent. The receipt distinguishes selected, related, excluded and unknown units. A unit is kept when any predicate puts more than 0.5 on direct evidence; each page judges up to 64 units, one model call each. `next.nextCandidatePage` completes a selected list; `next.unfiltered` (the whole view) or `next.unfilteredUnknown` (the unknown units) is needed before an absence or count claim, including after an empty classified result. Unknown is never a negative decision.
 
 ### Rust build context
 
@@ -188,7 +216,7 @@ Evaluate supplied `content` or an unread `source`, discover models, or assess se
 | `buildScripts` | `false` | Run build scripts and load their cfg and generated sources. |
 | `procMacros` | `false` | Expand procedural macros; requires `buildScripts: true`. |
 
-- In a crate with a build script that did not run, an incoming answer missing files that spell the name is partial (`buildScriptsOff`) and offers `includeBuildScripts` in `related`: the same query with `rustContext.buildScripts: true`. One note states the cost: it executes the workspace's build scripts (repository code) in a separate rust-analyzer (~2 GB).
+- In a crate with a build script that did not run, an incoming answer missing files that spell the name is partial (`buildScriptsOff`) and offers a `related[]` lead with `rustContext.buildScripts:true`: the same query in that context. One note states the cost: it executes the workspace's build scripts (repository code) in a separate rust-analyzer (~2 GB).
 - rust-analyzer loads only the package directory, so an `include!` of a file outside it never resolves: an answer missing files that spell the name through such an include is partial (`includeOutsidePackage`) with a warning naming the file; no `rustContext` recovers it; check those uses lexically with `localSearch`.
 - A file that several files declare as a module (`#[path = "support/x.rs"] mod x;` in a bench and a test) is compiled once per declaring crate, and rust-analyzer answers for one copy: an incoming answer missing files that spell the name is partial (`sharedModuleFile`) with a warning naming the declaring files; check the other copies' uses lexically with `localSearch`.
 - A context is an overlay: it changes only the fields it sets, and only where the value differs from the effective one (the configured server options, else rust-analyzer's default). Everything else, `cfg(test)` code included, stays as the default server analyzes it, so `{}` or a context equal to the defaults reuses the default server. Build scripts and proc macros run only when `buildScripts`/`procMacros` is true; enabled providers run workspace code, and the context is not a sandbox.
@@ -205,7 +233,7 @@ Every `lspSearch` operation, including `documentSymbols`, needs a real server. W
 
 ### Subtypes and implementations without an answer in time
 
-`subtypes` on a server with no type hierarchy asks `textDocument/implementation`; `implementation` on a class, interface, struct or trait asks it directly. For both, a syntax scan of the files that spell the name (declarations whose `extends`/`implements` clause names it) runs at the same time. For `subtypes` it adds no wait; for `implementation`, a server answer also waits for the scan, and the declarations it found that the server left out (a function-local impl, say) follow as rows labelled `source: "native-graph-facts"`, partial (`partialReasons: ["scanOnlyImplementations"]`, no retry); page 1 states their count once (the `source` label's meaning is in the output schema). The server's rows win when they arrive: while the scan runs and for up to 20 s after it finishes. If the request fails (timeout, crash, rejected) or is still silent after that grace, the scan's rows are the answer, labelled `lsp.source: "native-graph-facts"`, partial (`partialReasons: ["serverUnanswered"]`) with a `related` rerun to ask the server again, and a note that they are unverified (the base is matched by name, not resolved to the declaration) and direct only (run the operation on each to descend). Files the scan could not read are named in a warning, add `heritageUnread` to `partialReasons`, and get a `related` text search over them. A server answer is labelled `lsp.source: "implementation"`; for `subtypes`, direct and transitive subtypes are not told apart. rust-analyzer answers a trait with its impl blocks: each trait impl (`impl Trait for Type`) is a direct subtype row with `kind: "impl"`, named by its self type, and has no subtypes of its own. A `subtypes` walk checks the anchor type's candidates 200 at a time: past the first window the row is partial (`hierarchyCandidateLimit`) and its last page offers `next.nextCandidatePage`; a deeper type with more than 200 candidates stays a terminal limit. `implementation` on a function, method or other member has no scan: a timeout stays an error with the retry tip and the astSearch/localSearch route.
+`subtypes` on a server with no type hierarchy asks `textDocument/implementation`; `implementation` on a class, interface, struct or trait asks it directly. For both, a syntax scan of the files that spell the name (declarations whose `extends`/`implements` clause names it) runs at the same time. For `subtypes` it adds no wait; for `implementation`, a server answer also waits for the scan, and the declarations it found that the server left out (a function-local impl, say) follow as rows labelled `source: "native-graph-facts"`, partial (`partialReasons: ["scanOnlyImplementations"]`, no retry); page 1 states their count once (the `source` label's meaning is in the output schema). The server's rows win when they arrive: while the scan runs and for up to 20 s after it finishes. If the request fails (timeout, crash, rejected) or is still silent after that grace, the scan's rows are the answer, labelled `lsp.source: "native-graph-facts"`, partial (`partialReasons: ["serverUnanswered"]`) with a `related` rerun to ask the server again, and a note that they are unverified (the base is matched by name, not resolved to the declaration) and direct only (run the operation on each to descend). Files the scan could not read are named in a warning, add `heritageUnread` to `partialReasons`, and get a `related` text search over them. A server answer is labelled `lsp.source: "implementation"`; for `subtypes`, direct and transitive subtypes are not told apart. rust-analyzer answers a trait with its impl blocks: each trait impl (`impl Trait for Type`) is a direct subtype row with `kind: "impl"`, named by its self type, and has no subtypes of its own. A `subtypes` walk checks the anchor type's candidates 200 at a time: past the first window the row is partial (`hierarchyCandidateLimit`) and its last page offers `next.nextCandidatePage`; a deeper type with more than 200 candidates is checked 200 at a time too: the walk checks its first window, adds `hierarchyCandidateLimit`, and resumes it with `next.continueWalk*` as the anchor of its own walk, whose candidates page the same way. `implementation` on a function, method or other member has no scan: a timeout stays an error with the retry tip and the astSearch/localSearch route.
 
 ### TypeScript backends
 
@@ -246,13 +274,18 @@ Storage and cache ownership are documented in [configuration](CONFIGURATION.md#c
 ### `graphBuild` and `graphQuery`
 
 Build or reuse a syntax graph with `graphBuild`, then explore the exact scope with
-`graphQuery`. Both use `{queries:[...]}`; use `--json` for CLI machine output.
-MCP lists and executes both when `OCTOCODE_BETA=true` or `local.beta` is enabled.
+`graphQuery`. Both use `{queries:[...]}`; use `--json` for CLI machine output. They
+are the only graph surface: the CLI has no separate graph command.
+Both are always available as CLI commands; [configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) controls MCP exposure.
 `graphBuild` writes snapshots and prunes older retained snapshots; `graphQuery` is read-only. Query the build's exact path even when pinning its ID.
 Snapshots live under the current workspace's `.octocode/graph`. `keep` defaults
 to three per scope; increase it when retaining comparison baselines. Query
 continuations pin the snapshot, and every successful query reports freshness.
 Call traversal defaults to high confidence. Verify consequential findings with
-LSP and source reads. See [code graph architecture](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli-and-beta-mcp).
+LSP and source reads: `impact` rows reached through imports are module-level
+candidates, so confirm a symbol change breaks them with `lspSearch` references.
+Run `graphBuild` when the user asked for graph analysis; otherwise ask first. For bulk evidence, send `responseChars: 50000`, list up to
+the schema's maximum of sources as `witnesses`/`unresolved`/`symbols` `target`, and filter
+`unresolved` with `reasons` before paging. See [code graph architecture](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli-and-beta-mcp).
 
-`includeProvenance` defaults to `true`. Set it to `false` to represent proven unchanged UTF-8 mappings as `sourceOrigin:"identity"` (and the corresponding selection, binding or recipient origin). Their file, source digest and byte spans remain on the row. Transcoded, transformed, excluded and multi-source mappings retain explicit origins and source descriptors. This projection changes neither graph scope nor reachable rows; continuations preserve it.
+`includeProvenance` (default `false`) is defined once in [Minimal by default](TOOL_DATA_CONTRACT.md#minimal-by-default).

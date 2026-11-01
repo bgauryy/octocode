@@ -40,6 +40,37 @@ fn restarts_remove_only_declared_private_progress_and_are_new_work() {
     );
 }
 
+/// Every tool's related call publishes without the private progress its
+/// contract marks `x-cursor`, whatever row it was built from; continued work
+/// keeps it for its cursor.
+#[test]
+fn related_calls_of_every_tool_publish_no_private_progress() {
+    let mut private = 0;
+    for tool in ToolId::ALL.iter().copied() {
+        let fields = crate::contracts::state_fields(tool);
+        private += fields.len();
+        let mut row = json!({"path":"src"});
+        for field in fields {
+            row[field] = json!("state");
+        }
+        let related = Continuation::related(tool, row.clone()).build();
+        let batch =
+            Continuation::related_input(tool, json!({"queries":[row.clone(), row.clone()]}))
+                .build();
+        for published in [
+            &related["input"]["queries"][0],
+            &batch["input"]["queries"][1],
+        ] {
+            assert_eq!(published, &json!({"path":"src"}), "{tool:?}");
+        }
+        let continued = Continuation::continued(tool, row.clone()).build();
+        for field in fields {
+            assert_eq!(continued["input"]["queries"][0][field], "state", "{tool:?}");
+        }
+    }
+    assert!(private > 0, "some tool declares private progress");
+}
+
 #[test]
 fn explicit_kind_routes_error_work_independently_of_names() {
     let resume = Continuation::continued(ToolId::LocalFetch, json!({"path":"a"})).build();

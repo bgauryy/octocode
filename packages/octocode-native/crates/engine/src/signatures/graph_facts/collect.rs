@@ -233,6 +233,11 @@ fn declaration_fact(
                     active_decl.is_some_and(|parent| acc.public_namespace_scopes.contains(parent)),
                 );
                 let parent = active_decl.map(str::to_owned);
+                let (return_type, try_type) = if acc.ext == "rs" {
+                    super::receiver::rust_return_types(node, ancestors, content)
+                } else {
+                    (None, None)
+                };
                 acc.non_reference_tokens.insert(name_token.start_byte());
                 GraphFactDeclaration {
                     id,
@@ -260,6 +265,8 @@ fn declaration_fact(
                         acc.visibility_adapter,
                         crate::signatures::visibility::VisibilityAdapter::CFamily
                     ) && super::c_family::is_prototype(node, kind),
+                    return_type,
+                    try_type,
                 }
             })
     })
@@ -364,6 +371,7 @@ fn collect_call(
         term_binding: false,
         self_template: None,
         macros: acc.macro_chain.clone().unwrap_or_default(),
+        receiver_call: None,
     });
     acc.edges.push(GraphFactEdge {
         id: format!("{from}->{callee}:calls:{line}:{}", acc.edges.len()),

@@ -56,9 +56,34 @@ impl PathPolicy {
         format!(" (allowed: {})", shown.join(", "))
     }
 
+    /// A symlink's resolved target for a denial: as `redact` shows it, and
+    /// marked when its directories are withheld (a target outside the
+    /// workspace and home keeps only its name), so the name never reads as
+    /// a path beside the link.
+    pub(super) fn describe_target(&self, real: &Path) -> String {
+        let shown = self.redact(real);
+        let withheld = self.workspace_relative(real).is_none()
+            && self
+                .home_dir
+                .as_ref()
+                .is_none_or(|home| !lexical(real).starts_with(home));
+        if withheld {
+            format!("'…/{shown}' (its outside directories withheld)")
+        } else {
+            format!("'{shown}'")
+        }
+    }
+
     pub(super) fn io_error(&self, error: std::io::Error, input: &Path) -> PolicyError {
+        let mut cause = "";
         let (code, prefix) = match error.kind() {
             std::io::ErrorKind::NotFound => (PolicyErrorCode::NotFound, "Path does not exist"),
+            // A file used as a directory (`package.json/child`): the path
+            // cannot exist, so it is missing, and the message says why.
+            std::io::ErrorKind::NotADirectory => {
+                cause = " (a parent of it is a file, not a directory)";
+                (PolicyErrorCode::NotFound, "Path does not exist")
+            }
             std::io::ErrorKind::PermissionDenied => (
                 PolicyErrorCode::PermissionDenied,
                 "Permission denied accessing path",
@@ -73,6 +98,6 @@ impl PathPolicy {
             _ => (PolicyErrorCode::Io, "Unexpected error validating path"),
         };
         let shown = self.display_requested(input, &self.expand_and_resolve(input));
-        PolicyError::new(code, format!("{prefix}: {shown}")).with_path(shown)
+        PolicyError::new(code, format!("{prefix}: {shown}{cause}")).with_path(shown)
     }
 }

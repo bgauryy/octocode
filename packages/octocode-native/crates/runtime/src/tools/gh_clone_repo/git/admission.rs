@@ -22,7 +22,7 @@ pub(super) fn git_permit(
     let state_dir = context
         .config
         .persistent
-        .then(|| context.config.cache_home.join("tmp").join("ratelimit"));
+        .then(|| context.config.home.join("tmp").join("ratelimit"));
     budget
         .acquire_git_blocking(
             &LimiterKey::for_url(&url, token),

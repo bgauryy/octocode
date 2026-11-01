@@ -108,12 +108,16 @@ pub(super) fn write_snapshot(
     output
         .write_all(&FORMAT_VERSION.to_le_bytes())
         .map_err(io_error)?;
+    let sections = u32::try_from(tags.len())
+        .map_err(|_| invalid_graph("graph section count overflows its u32 header".into()))?;
     output
-        .write_all(&(tags.len() as u32).to_le_bytes())
+        .write_all(&sections.to_le_bytes())
         .map_err(io_error)?;
     output.write_all(&digest).map_err(io_error)?;
     output.write_all(&directory).map_err(io_error)?;
-    Ok((offset as usize, hex::encode(digest)))
+    let written = usize::try_from(offset)
+        .map_err(|_| invalid_graph("graph snapshot size overflows this platform".into()))?;
+    Ok((written, hex::encode(digest)))
 }
 
 fn write_section(

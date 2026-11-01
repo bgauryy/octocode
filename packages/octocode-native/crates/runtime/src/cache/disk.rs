@@ -3,15 +3,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
-/// Disk scans are O(files); amortize them across writes.
-const PRUNE_EVERY_WRITES: usize = 64;
-/// Cross-process throttle: one-shot CLI processes each write a few entries, so
-/// a marker file bounds pruning to once per interval across processes.
-const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
-pub(super) const PRUNE_MARKER: &str = ".last-prune";
+mod capacity;
 
 /// The extension of an entry file. Entries of the retired JSON-envelope
 /// layout (`.json`, value base64 inside JSON) are removed by the next prune.
@@ -28,6 +22,18 @@ pub(super) struct DiskHeader {
 }
 
 impl DiskHeader {
+    /// How old the entry in `file` is at `now` (unix seconds): since it was
+    /// stored, or for an idle class since its last use, which every read
+    /// records as the file's modification time ([`Disk::touch`]).
+    pub(super) fn age(&self, file: &fs::File, now: u64) -> Duration {
+        if self.class.idle().is_some()
+            && let Ok(used) = file.metadata().and_then(|meta| meta.modified())
+        {
+            return SystemTime::now().duration_since(used).unwrap_or_default();
+        }
+        Duration::from_secs(now.saturating_sub(self.stored_at_unix))
+    }
+
     /// The header line and the value bytes of an entry file.
     pub(super) fn split(bytes: &[u8]) -> Option<(Self, &[u8])> {
         let end = bytes.iter().position(|byte| *byte == b'\n')?;
@@ -75,7 +81,7 @@ fn expired(path: &std::path::Path, now: u64) -> bool {
         return false;
     }
     DiskHeader::split(&head).is_some_and(|(header, _)| {
-        let age = Duration::from_secs(now.saturating_sub(header.stored_at_unix));
+        let age = header.age(&file, now);
         header.class.freshness(age).is_none()
     })
 }
@@ -85,20 +91,24 @@ pub(super) fn now_unix() -> u64 {
     crate::civil_date::unix_secs().unsigned_abs()
 }
 
+/// Set `file`'s modification time to now. A read-only handle may not set
+/// times (Windows), so a writer is the fallback.
+fn touch_file(file: &fs::File, path: &std::path::Path) {
+    let now = SystemTime::now();
+    if file.set_modified(now).is_err()
+        && let Ok(writer) = fs::File::options().write(true).open(path)
+    {
+        let _ = writer.set_modified(now);
+    }
+}
+
 pub(crate) struct Disk {
     dir: PathBuf,
-    /// Writes by this process: pruning runs on the first and then every
-    /// [`PRUNE_EVERY_WRITES`] writes instead of scanning per write.
-    writes: AtomicUsize,
 }
 
 impl Disk {
     pub(crate) fn new(dir: PathBuf) -> Self {
-        let _ = octocode_io::atomic::create_private_dir_all(&dir);
-        Self {
-            dir,
-            writes: AtomicUsize::new(0),
-        }
+        Self { dir }
     }
 
     pub(crate) fn file(&self, key: &CacheKey) -> PathBuf {
@@ -145,20 +155,23 @@ impl Disk {
             let _ = fs::remove_file(&path);
             return None;
         };
-        let age = Duration::from_secs(now_unix().saturating_sub(header.stored_at_unix));
+        let age = header.age(&file, now_unix());
         if header.class.freshness(age).is_none() {
             let _ = fs::remove_file(&path);
             return None;
         }
-        // A read counts as use for the oldest-first pruning. A read-only
-        // handle may not set times (Windows), so a writer is the fallback.
-        let now = SystemTime::now();
-        if file.set_modified(now).is_err()
-            && let Ok(writer) = fs::File::options().write(true).open(&path)
-        {
-            let _ = writer.set_modified(now);
-        }
+        // A read counts as use for the oldest-first pruning and restarts an
+        // idle entry's lifetime.
+        touch_file(&file, &path);
         Some((value, header.class, age, bytes.len()))
+    }
+
+    /// Record a use of `key`'s entry file: its modification time becomes now.
+    pub(super) fn touch(&self, key: &CacheKey) {
+        let path = self.file(key);
+        if let Ok(file) = crate::private_file::open_no_follow(&path, false) {
+            touch_file(&file, &path);
+        }
     }
 
     pub(super) fn write<V, C: DiskCodec<V>>(
@@ -190,96 +203,6 @@ impl Disk {
             return false;
         };
         bytes.push(b'\n');
-        bytes.extend_from_slice(value);
-        if bytes.len() > config.max_bytes {
-            return false;
-        }
-        // Owner-only replacement: values may be private source, and an
-        // in-place rewrite would keep a pre-existing file's loose mode.
-        if octocode_io::atomic::write_atomic(&path, &bytes, false).is_err() {
-            return false;
-        }
-        if self
-            .writes
-            .fetch_add(1, Ordering::Relaxed)
-            .is_multiple_of(PRUNE_EVERY_WRITES)
-            && self.prune_due()
-        {
-            self.prune(config.disk_bytes);
-        }
-        path.is_file()
-    }
-
-    /// True when no process pruned within [`PRUNE_INTERVAL`]; claims the slot
-    /// by touching the marker.
-    fn prune_due(&self) -> bool {
-        let marker = self.dir.join(PRUNE_MARKER);
-        let recent = fs::metadata(&marker)
-            .and_then(|meta| meta.modified())
-            .ok()
-            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-            .is_some_and(|elapsed| elapsed < PRUNE_INTERVAL);
-        if recent {
-            return false;
-        }
-        let _ = fs::write(&marker, b"");
-        true
-    }
-
-    /// Remove expired entries, then keep the directory within `budget`
-    /// bytes, removing the least recently used files first.
-    pub(crate) fn prune(&self, budget: u64) {
-        let Ok(read_dir) = fs::read_dir(&self.dir) else {
-            return;
-        };
-        let now = SystemTime::now();
-        let unix_now = now_unix();
-        let mut files: Vec<(SystemTime, u64, PathBuf)> = read_dir
-            .flatten()
-            .filter_map(|entry| {
-                let path = entry.path();
-                let meta = entry.metadata().ok()?;
-                let modified = meta.modified().ok()?;
-                match path.extension().and_then(|ext| ext.to_str()) {
-                    // An entry past its `Volatile` TTL is dead weight a read
-                    // would delete anyway: it goes before any live one.
-                    Some(ENTRY_EXTENSION) if expired(&path, unix_now) => {
-                        let _ = fs::remove_file(&path);
-                        None
-                    }
-                    Some(ENTRY_EXTENSION) => Some((modified, meta.len(), path)),
-                    // No reader understands the retired layout any more.
-                    Some(RETIRED_EXTENSION) => {
-                        let _ = fs::remove_file(&path);
-                        None
-                    }
-                    // A temp file older than any write could take is a crash
-                    // leftover from between the temp write and the rename.
-                    Some("tmp") => {
-                        if now
-                            .duration_since(modified)
-                            .is_ok_and(|age| age > ORPHAN_TEMP_AGE)
-                        {
-                            let _ = fs::remove_file(&path);
-                        }
-                        None
-                    }
-                    _ => None,
-                }
-            })
-            .collect();
-        let mut total: u64 = files.iter().map(|(_, len, _)| len).sum();
-        if total <= budget {
-            return;
-        }
-        files.sort_by_key(|(mtime, _, _)| *mtime);
-        for (_, len, path) in files {
-            if total <= budget {
-                break;
-            }
-            if fs::remove_file(path).is_ok() {
-                total = total.saturating_sub(len);
-            }
-        }
+        self.publish(&path, [&bytes, value], config)
     }
 }

@@ -155,10 +155,11 @@ const mcp = await startServer({ entry: mcpEntry, cwd: CWD, env, replaceEnv: true
 const listed = mcp.tools;
 const listedNames = new Set(listed.map(t => t.name));
 const toolsListChars = JSON.stringify({ tools: listed }).length;
-const cliOnly = tool => SIDE === 'local' && !listedNames.has(tool) && outputContract?.tools.some(t => t.name === tool);
+// A local contract tool this MCP session does not list (an opt-in gate is off) still runs through the CLI.
+const unlistedContractTool = tool => SIDE === 'local' && !listedNames.has(tool) && outputContract?.tools.some(t => t.name === tool);
 
 async function callOnce(tool, query) {
-  if (cliOnly(tool)) {
+  if (unlistedContractTool(tool)) {
     const r = await runCli(tool, query);
     const text = r.json ? JSON.stringify(r.json) : '';
     return { ms: r.ms, isError: r.code !== 0 && !r.json, text, sc: r.json, via: 'cli', cliErr: r.code !== 0 ? r.err : undefined };

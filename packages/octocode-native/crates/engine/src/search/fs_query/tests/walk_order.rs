@@ -167,7 +167,9 @@ fn a_listing_read_ahead_is_taken_once_or_dropped() {
     }
     let mut ahead = ReadAhead::start().expect("workers");
     ahead.queue([root.join("a"), root.join("b")].into_iter());
-    let taken = ahead.take(&root.join("a")).expect("read ahead");
+    let read_ahead::Taken::Read(taken) = ahead.take(&root.join("a"), None) else {
+        panic!("read ahead");
+    };
     let (children, errors) = taken.entries.expect("listing");
     assert!(errors.is_empty());
     assert_eq!(
@@ -178,7 +180,19 @@ fn a_listing_read_ahead_is_taken_once_or_dropped() {
         ["f.ts"]
     );
     assert!(taken.read_at.is_some());
-    assert!(ahead.take(&root.join("a")).is_none(), "taken once");
+    assert!(
+        matches!(
+            ahead.take(&root.join("a"), None),
+            read_ahead::Taken::NotQueued
+        ),
+        "taken once"
+    );
     ahead.drop_unused(&root.join("b"));
-    assert!(ahead.take(&root.join("b")).is_none(), "dropped");
+    assert!(
+        matches!(
+            ahead.take(&root.join("b"), None),
+            read_ahead::Taken::NotQueued
+        ),
+        "dropped"
+    );
 }

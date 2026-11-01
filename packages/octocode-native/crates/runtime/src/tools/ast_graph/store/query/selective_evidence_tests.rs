@@ -45,7 +45,7 @@ fn evidence_pages_match_full_decode_and_read_only_their_string_blocks() {
             let lazy = ask(&dir, op, target, offset, false);
             let full = ask(&dir, op, target, offset, true);
             assert_eq!(lazy.class, full.class, "{op}: {}", lazy.value);
-            let validation = &lazy.value["validation"];
+            let validation = &lazy.validation;
             assert_eq!(validation["scope"], "accessedBlocks", "{}", lazy.value);
             assert_eq!(validation["decodedEdges"], 0);
             assert!(
@@ -55,7 +55,7 @@ fn evidence_pages_match_full_decode_and_read_only_their_string_blocks() {
             );
             if op == "witnesses" && target == "code.ts" {
                 ids.extend(
-                    lazy.value["results"]
+                    lazy.value["rows"]
                         .as_array()
                         .unwrap()
                         .iter()
@@ -82,8 +82,8 @@ fn evidence_pages_reject_corrupt_blocks_they_read_and_disclose_unread_ones() {
     let page = ask(&dir, "witnesses", "fn0000", 0, false);
     assert_eq!(page.class, ExitClass::Success, "{}", page.value);
     assert!(
-        page.value["validation"]["checkedBlocks"].as_u64().unwrap()
-            < page.value["validation"]["totalBlocks"].as_u64().unwrap()
+        page.validation["checkedBlocks"].as_u64().unwrap()
+            < page.validation["totalBlocks"].as_u64().unwrap()
     );
     assert!(super::super::format::decode(&untouched).is_err());
     std::fs::write(&graph, corrupt_blocks(&original, b"STRE")).unwrap();
@@ -127,6 +127,7 @@ fn argument_evidence_pages_match_full_decode() {
                     workspace: Some(dir.0.to_path_buf()),
                     offset: Some(offset),
                     limit: Some(5),
+                    include_provenance: true,
                     ..Default::default()
                 };
                 match run_with(&options, &workspace_policy(&dir.0), &NeverCancel, !full) {
@@ -135,8 +136,8 @@ fn argument_evidence_pages_match_full_decode() {
             };
             let (lazy, full) = (page(false), page(true));
             assert_eq!(lazy.class, full.class, "{op}: {}", lazy.value);
-            assert_eq!(lazy.value["validation"]["scope"], "accessedBlocks");
-            rendered += lazy.value["results"]
+            assert_eq!(lazy.validation["scope"], "accessedBlocks");
+            rendered += lazy.value["rows"]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -185,14 +186,14 @@ fn origin_pages_read_only_their_origin_blocks_and_match_full_decode() {
         let lazy = ask(&dir, "unresolved", "code.ts", offset, false);
         let full = ask(&dir, "unresolved", "code.ts", offset, true);
         assert_eq!(lazy.class, ExitClass::Success, "{}", lazy.value);
-        assert_eq!(lazy.value["total"], 700, "{}", lazy.value);
+        assert_eq!(lazy.value["pagination"]["totalItems"], 700, "{}", lazy.value);
         assert!(
-            lazy.value["results"][0]["sourceOrigin"].is_object()
-                || lazy.value["results"][0]["sourceOrigin"] == "identity",
+            lazy.value["rows"][0]["sourceOrigin"].is_object()
+                || lazy.value["rows"][0]["sourceOrigin"] == "identity",
             "{}",
             lazy.value
         );
-        let read = lazy.value["validation"]["bytesRead"].as_u64().unwrap();
+        let read = lazy.validation["bytesRead"].as_u64().unwrap();
         assert!(
             read + srco_len as u64 / 2 < bytes.len() as u64,
             "page {offset} read most origin records: {read} of {}",
@@ -219,4 +220,64 @@ fn origin_pages_reject_corrupt_origin_blocks_they_read() {
     std::fs::write(&graph, corrupt_blocks(&original, b"SRCO")).unwrap();
     let page = ask(&dir, "unresolved", "code.ts", 0, false);
     assert_eq!(page.value["errorCode"], "decode", "{}", page.value);
+}
+
+/// An unknown evidence scope is `notFound` with ranked suggestions on both
+/// decode paths, like every other node reference.
+#[test]
+fn evidence_scope_that_matches_no_node_is_not_found() {
+    let (dir, _) = fixture();
+    for op in ["witnesses", "unresolved"] {
+        for full in [false, true] {
+            let out = ask(&dir, op, "no/such/fn0001", 0, full);
+            assert_eq!(out.value["errorCode"], "notFound", "{op}: {}", out.value);
+            assert!(
+                out.value["suggestions"]
+                    .as_array()
+                    .is_some_and(|s| !s.is_empty()),
+                "{op}: {}",
+                out.value
+            );
+        }
+    }
+}
+
+/// Coverage is a fact of the answer, not of a page: it goes out once.
+#[test]
+fn evidence_coverage_goes_out_with_the_first_page_only() {
+    let (dir, _) = fixture();
+    let first = ask(&dir, "witnesses", "code.ts", 0, false);
+    let later = ask(&dir, "witnesses", "code.ts", 7, false);
+    assert!(first.value["coverage"].is_object(), "{}", first.value);
+    assert!(
+        first.value.get("argumentCoverage").is_some(),
+        "{}",
+        first.value
+    );
+    for key in ["coverage", "argumentCoverage"] {
+        assert!(later.value.get(key).is_none(), "{key}: {}", later.value);
+    }
+}
+
+/// `view:"files"` lists each file once with its edge count; counts sum to
+/// the edge total of the ungrouped walk.
+#[test]
+fn grouped_callers_count_edges_per_file() {
+    let (dir, _) = fixture();
+    let run = |view: Option<&str>| {
+        let options = QueryOptions {
+            op: "callers".into(),
+            target: Some("code.ts#fn0000".into()),
+            workspace: Some(dir.0.to_path_buf()),
+            view: view.map(str::to_owned),
+            ..Default::default()
+        };
+        match run_with(&options, &workspace_policy(&dir.0), &NeverCancel, true) {
+            Ok(out) | Err(out) => out.value,
+        }
+    };
+    let (edges, files) = (run(None), run(Some("files")));
+    assert_eq!(files["pagination"]["totalItems"], 1, "{files}");
+    assert_eq!(files["rows"][0]["file"], "code.ts", "{files}");
+    assert_eq!(files["rows"][0]["edges"], edges["pagination"]["totalItems"], "{files}");
 }

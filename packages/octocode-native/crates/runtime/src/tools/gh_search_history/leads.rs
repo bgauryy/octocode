@@ -161,9 +161,8 @@ pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
     Some(Continuation::related(ToolId::GhSearchHistory, row).build())
 }
 
-/// Result page `page` (the cursor [`crate::response::paging::next_cursor`]
-/// admitted), at the page size this one used.
-pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize, _page_size: usize) -> Value {
+/// Result page `page` of the same query.
+pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize) -> Value {
     let mut next = same_query(q);
     next["page"] = json!(page);
     Continuation::continued(ToolId::GhSearchHistory, next).build()

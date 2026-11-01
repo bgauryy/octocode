@@ -12,7 +12,7 @@ fn authored_property(root: &Value, property: &Value) -> bool {
 /// them (`type: noul|choice`) and first, or a record's key and the shape of
 /// its values (`{<name>: {type: noul|choice, instructions}}`). `None` for an
 /// object of any fields.
-fn object_shape(root: &Value, schema: &Value, depth: usize) -> Option<String> {
+pub(super) fn object_shape(root: &Value, schema: &Value, depth: usize) -> Option<String> {
     let defs = &root["$defs"];
     let schema = super::super::super::resolve_ref(schema, defs);
     let mut forms = vec![schema];
@@ -103,6 +103,13 @@ pub(super) fn validate_object(
             {
                 Some(shape) => format!("Expected object {shape}"),
                 None => "Expected object".to_owned(),
+            };
+            let message = match (!union::speculative())
+                .then(|| super::super::repair::object(schema, &root["$defs"], received))
+                .flatten()
+            {
+                Some(repair) => format!("{message}; {repair}"),
+                None => message,
             };
             return Err(schema_issue(
                 "schema.type",

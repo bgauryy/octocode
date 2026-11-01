@@ -24,7 +24,7 @@ pub(super) async fn run(runtime: &ToolRuntime, command: SkillCommand, json_outpu
     let store = runtime.config().home.join("skills");
     let needs_env = matches!(&command, SkillCommand::List | SkillCommand::Info { .. })
         || matches!(&command, SkillCommand::Check(args) if !args.no_env);
-    let github_auth = needs_env && super::system::active_token_source(runtime).await.is_some();
+    let github_auth = needs_env && runtime.active_token_source().await.is_some();
     let result = match command {
         SkillCommand::Install(args) => install(&store, args),
         SkillCommand::Remove(args) => remove(&store, args),

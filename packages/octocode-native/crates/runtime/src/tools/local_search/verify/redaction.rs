@@ -46,7 +46,7 @@ pub(in crate::tools::local_search) fn redact_scan(
     };
     // Files redact independently: on parallel workers, merged in file order
     // so the record (and the first failure) is the one a serial pass makes.
-    let workers = crate::tools::workers::workers(scope.walk_threads, parsed.files.len(), None);
+    let workers = crate::tools::workers::workers(parsed.files.len(), None);
     let outcomes = crate::tools::workers::each_parallel(&mut parsed.files, workers, |file| {
         redact_file(scope, file)
     });
@@ -161,7 +161,7 @@ fn redact_file(
             };
             if matched.deferred.is_some() {
                 matched.deferred = None;
-                let price = crate::tools::local_search::layout::row_chars(matched, None, false);
+                let price = crate::tools::local_search::layout::row_chars(matched, false);
                 matched.deferred = Some(u32_of_usize(price));
                 if !changed {
                     matched.value = String::new();
@@ -213,20 +213,20 @@ pub(super) fn redact_key_block_lines<'a>(
     };
     let mut redact = vec![false; value_lines.len()];
     let mut aligned = false;
-    for offset in 0..value_lines.len().max(1) as u32 {
+    for offset in 0..u32_of_usize(value_lines.len().max(1)) {
         let Some(first) = line.checked_sub(offset).filter(|first| *first >= 1) else {
             break;
         };
         if !value_lines
             .iter()
             .enumerate()
-            .all(|(i, value_line)| fits(value_line, first + i as u32))
+            .all(|(i, value_line)| fits(value_line, first.saturating_add(u32_of_usize(i))))
         {
             continue;
         }
         aligned = true;
         for (i, flag) in redact.iter_mut().enumerate() {
-            *flag |= in_block(first + i as u32);
+            *flag |= in_block(first.saturating_add(u32_of_usize(i)));
         }
     }
     if !aligned {

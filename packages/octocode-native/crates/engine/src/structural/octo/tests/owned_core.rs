@@ -177,7 +177,7 @@ fn owned_core_stop_rule_depth_and_interruption_remain_explicit() {
         line_index: &line_index,
         content: "first(); middle(); last();",
         root: tree.root_node(),
-        deadline: Instant::now(),
+        deadline: Deadline::at(Instant::now()),
     };
     let error = rule
         .matches(

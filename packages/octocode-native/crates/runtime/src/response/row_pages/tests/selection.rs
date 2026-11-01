@@ -53,7 +53,7 @@ fn budget_selection_preserves_every_row_across_varied_shapes() {
             &envelope,
             &options,
             volatile.clone(),
-            None,
+            crate::id::ToolId::LocalSearch,
             &block,
             &CancellationToken::new(),
         )

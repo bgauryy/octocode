@@ -6,9 +6,9 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 
 - Precedence: [SKILL.md](../SKILL.md#writing-rules).
 - Check changed text for structure, claims, steps, terminology, links, and accessibility.
-- Review comment (Conventional Comments) per material issue: label (issue, suggestion, question, nitpick, praise), blocking or not, location, rewrite, why; the label opens `Issue`. Group nitpicks: "`setup.md:14`: `The file is deleted by the job` → The job deletes the file."
+- Review comment (Conventional Comments) per material issue: label (issue, suggestion, question, nitpick, praise), blocking or not, location, rewrite, why; in a saved report, the label and blocking flag start the `Issue` cell. Group nitpicks: "`setup.md:14`: `The file is deleted by the job` → The job deletes the file."
 - Fix depends on an uncertain fact: verify with `octocode-research` first.
-- Disputed, possibly changed, or sensitive public-claim rule: check the live Google page; on conflict, update this file and say what changed.
+- Disputed, possibly changed, or sensitive public-claim rule: check the live Google page; on conflict, follow the live page and report the discrepancy for this skill's maintainer.
 - Claim only the pages you checked.
 
 ## Voice and tone ([tone](https://developers.google.com/style/tone), [voice](https://developers.google.com/style/voice))
@@ -22,7 +22,7 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 
 ## Words ([word list](https://developers.google.com/style/word-list), [inclusive](https://developers.google.com/style/inclusive-documentation), [abbreviations](https://developers.google.com/style/abbreviations))
 
-- Word in question: search the bundled `assets/google-word-list.tsv` with `localSearch`; use the matching entry in context.
+- Word in question: search the bundled [word list](../assets/google-word-list.tsv) (`grep -i '<word>' <skill-folder>/assets/google-word-list.tsv`; `localSearch` only when the skill folder is inside the allowed roots); use the matching entry in context.
 - `allows you to` → lets you; `utilize`, `leverage` → use; `click on` → click; `abort`, `kill` → stop.
 - Inclusive: `whitelist`/`blacklist` → allowlist/denylist; `master`/`slave` → primary/replica; `sanity check` → quick check; `guys` → everyone; generic `he` → they.
 - Code-fixed terms stay in code font; prose uses the preferred word.

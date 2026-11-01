@@ -51,9 +51,6 @@ pub struct LocalFetchResult {
     pub blocks: Vec<DeclaredBlock>,
     pub selected_match_count: Option<usize>,
     pub modified: Option<String>,
-    pub source_chars: Option<usize>,
-    pub source_bytes: Option<usize>,
-    pub returned_chars: Option<usize>,
     pub returned_bytes: Option<usize>,
     pub returned_lines: Option<usize>,
     pub pagination: Option<Pagination>,
@@ -91,9 +88,6 @@ impl LocalFetchResult {
             blocks: vec![],
             selected_match_count: None,
             modified: None,
-            source_chars: None,
-            source_bytes: None,
-            returned_chars: None,
             returned_bytes: None,
             returned_lines: None,
             pagination: None,
@@ -258,13 +252,11 @@ impl LocalFetchResult {
         Ok(())
     }
 
-    /// Source and returned-size measurements when the reader computed them.
+    /// What the row states about its source beside the text. Size counters
+    /// stay internal: `totalLines` and the page's own text say what an agent
+    /// needs, and the reader only measures with them.
     fn serialize_counters<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
         opt(map, "modified", &self.modified)?;
-        opt(map, "sourceChars", &self.source_chars)?;
-        opt(map, "sourceBytes", &self.source_bytes)?;
-        opt(map, "returnedChars", &self.returned_chars)?;
-        opt(map, "returnedBytes", &self.returned_bytes)?;
         opt(map, "returnedLines", &self.returned_lines)
     }
 }

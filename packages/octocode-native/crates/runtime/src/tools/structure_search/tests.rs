@@ -15,6 +15,7 @@ mod budget;
 mod files;
 mod ignore;
 mod inputs;
+mod limit;
 mod lines;
 mod listing;
 mod pages;
@@ -24,9 +25,24 @@ mod roles;
 mod scans;
 mod skips;
 mod summaries;
+mod test_code;
 mod tree;
 mod views;
-mod walk_ceiling;
+mod walk_windows;
+
+thread_local! {
+    /// A test's walk window in place of the core one, so window cuts are
+    /// exercised on small fixtures ([`with_window`]).
+    pub(super) static WINDOW: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs `body` with walk windows of `window` entries.
+fn with_window<T>(window: usize, body: impl FnOnce() -> T) -> T {
+    WINDOW.set(Some(window));
+    let out = body();
+    WINDOW.set(None);
+    out
+}
 
 /// Tests speak JSON rows, or a continuation's complete input (its one row);
 /// the runtime owns the typed parse.

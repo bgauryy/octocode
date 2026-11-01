@@ -171,3 +171,40 @@ fn a_page_past_an_exhausted_window_is_empty_and_flagged_not_clamped() {
     assert_eq!(page["hasMore"], false);
     assert_eq!(page["outOfRange"], true);
 }
+
+/// Comments, reviews and discussion have no provider cap (GitHub documents
+/// only `per_page` max 100 for them, unlike the 3000-file and 250-commit
+/// lists): a filtered scan past item 3000 still finds its match and is
+/// neither capped nor terminal.
+#[tokio::test]
+async fn a_collection_scan_reads_past_three_thousand_items() {
+    let total = 30 * MAX_PER_PAGE + 50;
+    let server = MockServer::builder().start().await;
+    for page in 1..=total.div_ceil(MAX_PER_PAGE) {
+        mount_batch(&server, page, total, 1).await;
+    }
+    let provider = one_shot_provider(&server);
+    let wanted = format!("f{}", total - 1);
+    let loaded = load_window(
+        &provider.transport,
+        &["files"],
+        WindowSpec {
+            max_batches: MAX_COLLECTION_BATCHES,
+            ..spec(10, true, Some(total))
+        },
+        |item| item["filename"] == wanted.as_str(),
+        &default_context(),
+    )
+    .await
+    .expect("window");
+    assert!(!loaded.state.capped, "no provider cap applies");
+    assert!(
+        loaded
+            .items
+            .iter()
+            .any(|item| item["filename"] == wanted.as_str())
+    );
+    let mut page = json!({});
+    mark_capped(&mut page, loaded.state.capped);
+    assert!(page.get("terminalLimit").is_none(), "{page}");
+}

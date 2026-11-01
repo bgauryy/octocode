@@ -129,8 +129,6 @@ fn security_limit(
         "The selected content view exceeds the secret scanner size limit. Byte windows cannot safely split unscanned content. Select a smaller source-line range.".into(),
     );
     result.total_lines = Some(source.total_lines);
-    result.source_chars = Some(source.chars);
-    result.source_bytes = Some(source.bytes);
     result.terminal_limit(PartialReason::SecuritySelectedView);
     if source.total_lines > 1
         && (local_fetch_query::start_line(q).is_none()

@@ -17,7 +17,7 @@ impl Flags {
             None => None,
             Some(value) => Some(NodeKind::parse(value).ok_or_else(|| {
                 invalid(format!(
-                    "unknown --kind {value:?}; expected file, symbol, or package"
+                    "unknown kind {value:?}; expected file, symbol, or package"
                 ))
             })?),
         };
@@ -31,9 +31,7 @@ impl Flags {
         {
             edge_kinds.push(EdgeKind::parse(value).ok_or_else(|| {
                 let kinds = EdgeKind::ALL.map(EdgeKind::as_str).join(", ");
-                invalid(format!(
-                    "unknown --edge {value:?}; expected one of: {kinds}"
-                ))
+                invalid(format!("unknown edge {value:?}; expected one of: {kinds}"))
             })?);
         }
         let direction = match options.direction.as_deref() {
@@ -43,7 +41,7 @@ impl Flags {
             Some("both") => Some(Direction::Both),
             Some(other) => {
                 return Err(invalid(format!(
-                    "unknown --direction {other:?}; expected out, in, or both"
+                    "unknown direction {other:?}; expected out, in, or both"
                 )));
             }
         };
@@ -53,25 +51,44 @@ impl Flags {
             None | Some("high") => Confidence::High,
             Some(other) => {
                 return Err(invalid(format!(
-                    "unknown --confidence {other:?}; expected high, medium, or low"
+                    "unknown confidence {other:?}; expected high, medium, or low"
                 )));
             }
         };
-        if let Some(depth) = options
-            .depth
-            .filter(|depth| !(1..=MAX_DEPTH).contains(depth))
-        {
+        let listed = matches!(options.op.as_str(), "witnesses" | "unresolved" | "symbols");
+        if !options.targets.is_empty() && !listed {
             return Err(invalid(format!(
-                "--depth {depth} is out of range; expected 1-{MAX_DEPTH}"
+                "`{}` takes one target; several apply to witnesses, unresolved and symbols",
+                options.op
             )));
         }
-        if let Some(limit) = options
-            .limit
-            .filter(|limit| !(1..=MAX_LIMIT).contains(limit))
-        {
-            return Err(invalid(format!(
-                "--limit {limit} is out of range; expected 1-{MAX_LIMIT}"
-            )));
+        if !options.reasons.is_empty() {
+            if options.op != "unresolved" {
+                return Err(invalid("reasons applies to unresolved".to_owned()));
+            }
+            let known = unresolved_reasons();
+            if let Some(unknown) = options
+                .reasons
+                .iter()
+                .find(|r| !known.contains(&r.as_str()))
+            {
+                return Err(invalid(format!(
+                    "unknown reason {unknown:?}; expected one of: {}",
+                    known.join(", ")
+                )));
+            }
+        }
+        // The contract bounds no depth: a walk ends where the graph does.
+        if options.depth == Some(0) {
+            return Err(invalid(
+                "depth 0 is out of range; expected 1 or more".to_owned(),
+            ));
+        }
+        // The contract bounds no limit: pages and responseChars bound a page.
+        if options.limit == Some(0) {
+            return Err(invalid(
+                "limit 0 is out of range; expected 1 or more".to_owned(),
+            ));
         }
         Ok(Self {
             kind,
@@ -81,4 +98,19 @@ impl Flags {
             depth: options.depth,
         })
     }
+}
+
+/// The unresolved-row reason vocabulary the graphQuery contract declares.
+fn unresolved_reasons() -> Vec<&'static str> {
+    crate::contracts::query_schema_value(
+        crate::id::ToolId::GraphQuery,
+        Some("unresolved"),
+        "reasons",
+        "items",
+    )
+    .and_then(|items| items["enum"].as_array())
+    .into_iter()
+    .flatten()
+    .filter_map(Value::as_str)
+    .collect()
 }

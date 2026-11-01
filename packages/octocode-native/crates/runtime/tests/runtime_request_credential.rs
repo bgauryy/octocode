@@ -185,7 +185,8 @@ async fn rejected_request_token_never_falls_back_or_echoes() {
                 )
                 .await,
         )
-        .unwrap();
+        .unwrap()
+        .into_value();
         let text = result.to_string();
         assert!(!text.contains(&bad), "token echoed: {text}");
         assert!(!text.contains("ambient body"), "fell back: {text}");

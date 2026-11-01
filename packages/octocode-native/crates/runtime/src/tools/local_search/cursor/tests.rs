@@ -12,11 +12,10 @@ fn scan() -> (Vec<TextSearchFile>, TextSearchStats) {
         value_digest: [line as u8; 32],
         count: None,
         rank: Some(1),
-        original_chars: None,
-        original_bytes: None,
     };
     let files = vec![
         TextSearchFile {
+            term_counts: Vec::new(),
             path: "src/a.rs".into(),
             match_count: 2,
             matches: vec![hit(1, "fn needle()"), hit(9, "needle();")],
@@ -27,6 +26,7 @@ fn scan() -> (Vec<TextSearchFile>, TextSearchStats) {
             }),
         },
         TextSearchFile {
+            term_counts: Vec::new(),
             path: "src/b.rs".into(),
             match_count: 1,
             matches: vec![hit(4, "needle")],
@@ -58,7 +58,7 @@ fn the_snapshot_binds_every_row_field_and_no_stamp() {
     assert!(malformed_snapshot(&query).is_none());
 
     type Edit = fn(&mut Vec<TextSearchFile>, &mut TextSearchStats);
-    let bound: [(&str, Edit); 18] = [
+    let bound: [(&str, Edit); 16] = [
         ("path", |f, _| f[0].path.push('x')),
         ("matchCount", |f, _| f[0].match_count += 1),
         ("line", |f, _| f[0].matches[0].line += 1),
@@ -67,12 +67,6 @@ fn the_snapshot_binds_every_row_field_and_no_stamp() {
         ("value", |f, _| f[0].matches[0].value.push('x')),
         ("valueDigest", |f, _| f[0].matches[0].value_digest[0] ^= 1),
         ("rank", |f, _| f[0].matches[0].rank = Some(3)),
-        ("originalChars", |f, _| {
-            f[0].matches[0].original_chars = Some(9);
-        }),
-        ("originalBytes", |f, _| {
-            f[0].matches[0].original_bytes = Some(9);
-        }),
         ("count", |f, _| f[0].matches[0].count = Some(1)),
         ("sourceDigest", |f, _| {
             if let Some(source) = &mut f[0].source {
@@ -93,7 +87,7 @@ fn the_snapshot_binds_every_row_field_and_no_stamp() {
         ("matchTotal", |_, s| s.match_count = Some(4)),
         ("filesScanned", |_, s| s.files_searched = Some(11)),
         ("capReason", |_, s| {
-            s.cap_reasons = vec![octocode_engine::types::CapReason::MaxCollectedFiles];
+            s.cap_reasons = vec![octocode_engine::types::CapReason::MaxFileSize];
         }),
         ("firstError", |_, s| s.first_error = Some("denied".into())),
     ];

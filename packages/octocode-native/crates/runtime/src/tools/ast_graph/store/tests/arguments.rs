@@ -15,14 +15,15 @@ fn named_argument_occurrences_page_without_becoming_invocations() {
     let mut slots = BTreeSet::new();
     for offset in 0..3 {
         let out = ask(&dir.0, "witnesses", Some("args.ts#run"), |o| {
+            o.include_provenance = true;
             o.edges = vec!["passes".into()];
             o.to = Some("args.ts#handler".into());
             o.limit = Some(1);
             o.offset = Some(offset);
             o.confidence = Some("high".into());
         });
-        assert_eq!(out.value["total"], 3, "{}", out.value);
-        let row = &out.value["results"][0];
+        assert_eq!(out.value["pagination"]["totalItems"], 3, "{}", out.value);
+        let row = &out.value["rows"][0];
         assert_eq!(row["edge"], "passes");
         assert_eq!(row["targetName"], "handler");
         assert_eq!(row["from"], "args.ts#run");
@@ -52,19 +53,25 @@ fn named_argument_occurrences_page_without_becoming_invocations() {
                 row["argument"]["index"].as_u64().unwrap()
             ))
         );
-        assert_eq!(out.value.get("next").is_some(), offset < 2);
-        assert_eq!(
-            out.value["argumentCoverage"],
-            built.value["argumentCoverage"]
-        );
+        assert_eq!(crate::tools::ast_graph::test_support::next_offset(&out).is_some(), offset < 2);
+        // Coverage is an answer fact: stated once, on the first page.
+        if offset == 0 {
+            assert_eq!(
+                out.value["argumentCoverage"],
+                built.value["argumentCoverage"]
+            );
+        } else {
+            assert!(out.value.get("argumentCoverage").is_none());
+        }
     }
     let calls = ask(&dir.0, "witnesses", Some("args.ts#run"), |o| {
+        o.include_provenance = true;
         o.edges = vec!["calls".into()];
         o.to = Some("args.ts#handler".into());
     });
-    assert_eq!(calls.value["total"], 0, "{}", calls.value);
+    assert_eq!(calls.value["pagination"]["totalItems"], 0, "{}", calls.value);
     let sink = ask(&dir.0, "callees", Some("args.ts#sink"), |_| {});
-    assert_eq!(sink.value["total"], 0);
+    assert_eq!(sink.value["pagination"]["totalItems"], 0);
     let counts = &built.value["argumentCoverage"]["byLanguage"]["typescript"]["counts"];
     assert_eq!(counts["directReferences"], 3);
     let reused = ingest_root(&dir.0, &dir.0.join("app"), None, false);
@@ -82,18 +89,20 @@ fn argument_barriers_and_unsupported_forms_remain_queryable() {
     let built = ingest_root(&dir.0, &dir.0.join("app"), None, false);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
     let linked = ask(&dir.0, "witnesses", Some("barriers.ts#run"), |o| {
+        o.include_provenance = true;
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(linked.value["total"], 0, "{}", linked.value);
+    assert_eq!(linked.value["pagination"]["totalItems"], 0, "{}", linked.value);
     let mut ids = BTreeSet::new();
     for offset in 0..2 {
         let page = ask(&dir.0, "unresolved", Some("barriers.ts#run"), |o| {
+            o.include_provenance = true;
             o.edges = vec!["passes".into()];
             o.limit = Some(1);
             o.offset = Some(offset);
         });
-        assert_eq!(page.value["total"], 2, "{}", page.value);
-        let row = &page.value["results"][0];
+        assert_eq!(page.value["pagination"]["totalItems"], 2, "{}", page.value);
+        let row = &page.value["rows"][0];
         assert!(ids.insert(row["id"].as_str().unwrap().to_owned()));
         if row["reason"] == "binding-unrepresented" {
             assert_eq!(slice(source, &row["sourceRange"]), "handler");
@@ -135,7 +144,7 @@ fn argument_coverage_distinguishes_unsupported_and_observed_empty() {
     );
     for operation in ["witnesses", "unresolved"] {
         let out = ask(&dir.0, operation, None, |o| o.edges = vec!["passes".into()]);
-        assert_eq!(out.value["total"], 0);
+        assert_eq!(out.value["pagination"]["totalItems"], 0);
         assert_eq!(&out.value["argumentCoverage"], coverage);
     }
 }
@@ -157,12 +166,13 @@ fn argument_candidates_preserve_noncall_confidence_and_source_encoding() {
     let built = ingest_root(&dir.0, &dir.0.join("app"), None, false);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
     let out = ask(&dir.0, "witnesses", Some("encoded.ts#run"), |o| {
+        o.include_provenance = true;
         o.edges = vec!["passes".into()];
         o.confidence = Some("high".into());
     });
-    assert_eq!(out.value["total"], 4, "{}", out.value);
+    assert_eq!(out.value["pagination"]["totalItems"], 4, "{}", out.value);
     let mut ids = BTreeSet::new();
-    for row in out.value["results"].as_array().unwrap() {
+    for row in out.value["rows"].as_array().unwrap() {
         assert_eq!(row["confidence"], "medium");
         assert_eq!(
             row["sourceDigest"],
@@ -216,11 +226,12 @@ fn argument_observations_survive_every_grammar_family_and_macro_boundaries() {
         let mut references = Vec::new();
         for operation in ["witnesses", "unresolved"] {
             let out = ask(&dir.0, operation, Some(file), |o| {
+                o.include_provenance = true;
                 o.edges = vec!["passes".into()];
             });
-            assert!(out.value["results"].is_array(), "{file}: {}", out.value);
+            assert!(out.value["rows"].is_array(), "{file}: {}", out.value);
             references.extend(
-                out.value["results"]
+                out.value["rows"]
                     .as_array()
                     .unwrap()
                     .iter()
@@ -236,9 +247,10 @@ fn argument_observations_survive_every_grammar_family_and_macro_boundaries() {
         assert_eq!(slice(source, &references[0]["sourceRange"]), "handler");
     }
     let gaps = ask(&dir.0, "unresolved", Some("a.rs"), |o| {
+        o.include_provenance = true;
         o.edges = vec!["passes".into()];
     });
-    let group = gaps.value["results"]
+    let group = gaps.value["rows"]
         .as_array()
         .unwrap()
         .iter()
@@ -274,26 +286,28 @@ fn wide_argument_lists_keep_every_slot_across_pages() {
         assert_eq!(built.value["calls"]["sites"], 1);
         assert_eq!(built.value["calls"]["linked"], 1);
         let calls = ask(&dir.0, "witnesses", Some("wide.rs"), |o| {
+            o.include_provenance = true;
             o.edges = vec!["calls".into()];
         });
-        assert_eq!(calls.value["total"], 1);
-        assert_eq!(calls.value["results"][0]["to"], "wide.rs#consume");
+        assert_eq!(calls.value["pagination"]["totalItems"], 1);
+        assert_eq!(calls.value["rows"][0]["to"], "wide.rs#consume");
         let mut ids = BTreeSet::new();
         let mut slots = BTreeSet::new();
         for offset in (0..1203).step_by(71) {
             let out = ask(&dir.0, "witnesses", Some("wide.rs"), |o| {
+                o.include_provenance = true;
                 o.edges = vec!["passes".into()];
                 o.limit = Some(71);
                 o.offset = Some(offset);
             });
-            assert_eq!(out.value["total"], 1203, "{}", out.value);
-            for row in out.value["results"].as_array().unwrap() {
+            assert_eq!(out.value["pagination"]["totalItems"], 1203, "{}", out.value);
+            for row in out.value["rows"].as_array().unwrap() {
                 assert_eq!(row["from"], "wide.rs#main");
                 assert_eq!(row["to"], "wide.rs#handler");
                 assert!(ids.insert(row["id"].as_str().unwrap().to_owned()));
                 assert!(slots.insert(row["argument"]["index"].as_u64().unwrap()));
             }
-            assert_eq!(out.value.get("next").is_some(), offset + 71 < 1203);
+            assert_eq!(crate::tools::ast_graph::test_support::next_offset(&out).is_some(), offset + 71 < 1203);
         }
         assert_eq!(ids.len(), 1203);
         assert_eq!(slots, (0..1203).collect());

@@ -1,7 +1,6 @@
 //! Every graph build and snapshot bound, owned once. A build is refused as
 //! soon as its snapshot can no longer publish; writers take [`Limits`]
 //! (tests lower them), readers decode untrusted snapshots under [`LIMITS`].
-use std::time::Duration;
 
 /// The bounds one graph build and its snapshot obey.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,19 +18,16 @@ pub(crate) struct Limits {
     pub source_bytes: usize,
     /// Mapping work of the source table.
     pub source_work: usize,
-    /// Wall clock of one source-table pass. The write side keeps it too:
-    /// CLI `graph ingest` runs under no outer cancel or deadline.
-    pub source_deadline: Duration,
     /// Checkpoint artifacts on disk.
     pub spill_bytes: u64,
     /// Artifacts held in memory because they hold secrets.
     pub memory_only_bytes: u64,
+    /// Encoded bytes of the artifacts a checkpointed build keeps decoded
+    /// for linking; past it, linking reads them back from disk. The facts
+    /// memo's budget, which a checkpointed build no longer fills.
+    pub retained_bytes: u64,
     /// One extraction artifact.
     pub artifact_bytes: usize,
-    /// Files walked when the caller names no bound.
-    pub max_files: u32,
-    /// Source correspondence of one file at capture.
-    pub file_map_deadline: Duration,
 }
 
 pub(crate) const LIMITS: Limits = Limits {
@@ -41,12 +37,10 @@ pub(crate) const LIMITS: Limits = Limits {
     string_bytes: 512 << 20,
     source_bytes: 512 << 20,
     source_work: 512 << 20,
-    source_deadline: Duration::from_secs(30),
     spill_bytes: 2 << 30,
     memory_only_bytes: 64 << 20,
+    retained_bytes: 128 << 20,
     artifact_bytes: 64 << 20,
-    max_files: 50_000,
-    file_map_deadline: Duration::from_secs(30),
 };
 
 /// Sections one snapshot may hold (format shape, read side).

@@ -71,7 +71,7 @@ fn a_trusted_workspace_tsgo_is_preferred_over_tsserver() {
 }
 
 /// An install tree whose `node_modules` ships octocode's own tsgo, plus
-/// the anchor file (the executable or addon) inside it.
+/// the anchor file (the executable) inside it.
 #[cfg(unix)]
 fn install_with_bundled_tsgo() -> (TmpDir, PathBuf, PathBuf) {
     use std::os::unix::fs::PermissionsExt;

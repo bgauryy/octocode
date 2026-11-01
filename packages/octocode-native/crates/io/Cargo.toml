@@ -17,6 +17,7 @@ bytes = { workspace = true }
 futures-util = { workspace = true }
 getrandom = { workspace = true }
 hex = { workspace = true }
+lru = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 tokio-util = { workspace = true }

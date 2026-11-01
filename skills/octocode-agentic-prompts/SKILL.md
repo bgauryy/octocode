@@ -1,6 +1,6 @@
 ---
 name: octocode-agentic-prompts
-description: "Load this skill first whenever you write or fix a system prompt, subagent brief, AGENTS.md or CLAUDE.md rule, or tool description, or an agent ignores its instructions; good for tracing which rule the agent sees, resolving conflicts, cutting context and interviewing small models."
+description: "Write or repair system prompts, subagent briefs, AGENTS.md, CLAUDE.md and tool descriptions; trace ignored instructions to their effective context, resolve conflicts, and verify retained behavior."
 ---
 
 # Octocode Agentic Prompts
@@ -27,6 +27,7 @@ flowchart LR
 ## Write and repair
 
 - One owner per behavior.
+- Optimize, never trim: each edit adds or sharpens guidance an agent uses; remove only a duplicate of the same fact at the same decision point ([tools](references/tools.md#optimize-descriptions-never-trim)).
 - Rule = action + the condition that makes it useful, side by side; reason or example only to resolve ambiguity. Uppercase MUST/NEVER only for safety, permissions, secrets, or hard contracts.
 - Scattered, repeated, or rigid shapes → one known [protocol](references/protocols.md) whose slots use the receiver's words; never relabel a clear list or format free reasoning.
 - Preserve identifiers, working branches, commands, required metadata. Resolve conflicts by host hierarchy and the user's existing authorization.
@@ -44,7 +45,7 @@ Before and after the change, run realistic requests and edge cases: action clear
 |---|---|---|
 | Repository evidence needs Octocode | [MCP/CLI guide](references/octocode-usage.md) | Discovery, invocation, complete reads, recovery |
 | Wording, tags, techniques, loaders | [Writing](references/writing.md) | Techniques, effective context |
-| Tool descriptions, schemas, MCP wire | [Tools](references/tools.md) | Layer owners, set audit |
+| Tool descriptions, schemas, MCP wire | [Tools](references/tools.md) | Layer owners, continuation naming, optimizing descriptions, set audit |
 | Delegation, handoffs, base prompts, cross-app payloads | [Agents](references/agents.md) | Frozen base, Zod packet |
 | Rigid, repeated, or ad-hoc shapes | [Protocols](references/protocols.md) | Catalog, rewrite steps |
 | Overflow, compaction, cost, caching, untrusted text | [Context](references/context.md) | Cut vs keep, data vs authority |

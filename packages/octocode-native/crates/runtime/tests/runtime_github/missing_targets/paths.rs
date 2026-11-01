@@ -55,8 +55,7 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let read =
-        |file: &str| json!({"owner":"a","repo":"b","path":file,"ref":"main","forceRefresh":true});
+    let read = |file: &str| json!({"owner":"a","repo":"b","path":file,"ref":"main","refresh":true});
     let outcome = call(&runtime, "ghGetFileContent", read("Tokio/src/lib.rs"))
         .await
         .expect("error row");

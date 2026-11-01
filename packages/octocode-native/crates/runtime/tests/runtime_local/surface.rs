@@ -1,7 +1,6 @@
 //! Runtime surface: briefs, bulk rows, tool availability, the catalog and replay.
 
 use crate::support::{self, Run as _, Workspace, call};
-use octocode_contract_types::ErrorCode;
 use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
 use serde_json::json;
@@ -58,18 +57,36 @@ async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
 }
 
 #[tokio::test]
-async fn disabled_local_family_is_unavailable() {
+async fn cli_ignores_discovery_filters_but_mcp_on_cli_host_enforces_them() {
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("OCTOCODE_ENABLE_LOCAL", "false".into())]);
-    let error = call(
-        &runtime,
-        "localFetch",
-        json!({"path": workspace.workspace.join("missing.txt")}),
-    )
-    .await
-    .expect_err("disabled");
-    assert_eq!(error.code, ErrorCode::ToolUnavailable);
-    runtime.close().await;
+    let source = workspace.write("allowed.txt", "local source\n");
+    for env in [
+        vec![("OCTOCODE_ENABLE_LOCAL", "false".into())],
+        vec![("DISABLE_TOOLS", "localFetch".into())],
+        vec![("TOOLS_TO_RUN", "ghSearchCode".into())],
+    ] {
+        let runtime = workspace.runtime(&env);
+        for tool in octocode_native::id::ToolId::ALL {
+            assert!(runtime.is_available(tool.as_str()), "CLI {}", tool.as_str());
+        }
+        let read = call(&runtime, "localFetch", json!({"path":source}))
+            .await
+            .expect("CLI read");
+        assert!(!read.all_failed);
+        let refused = runtime
+            .run_mcp(
+                "mcp-filter".into(),
+                "localFetch".into(),
+                json!({"queries":[{"path":source}]}),
+            )
+            .await
+            .expect("MCP response");
+        assert_eq!(
+            refused["structuredContent"]["errorCode"], "toolUnavailable",
+            "{refused}"
+        );
+        runtime.close().await;
+    }
 }
 
 #[tokio::test]
@@ -90,7 +107,7 @@ async fn host_options_environment_controls_embedded_tool_availability() {
         ..HostOptions::default()
     })
     .expect("embedded runtime with explicit environment");
-    // Beta never opens a CLI-only tool on MCP.
+    // Beta does not opt MCP into cloning.
     assert!(runtime.is_available("astSearch"));
     let catalog = runtime.catalog();
     {
@@ -103,7 +120,7 @@ async fn host_options_environment_controls_embedded_tool_availability() {
             .find(|tool| tool["name"] == name)
             .unwrap_or_else(|| panic!("{name} entry"));
         assert_eq!(entry["available"], false, "{name}");
-        assert_eq!(entry["unavailableReason"], "cliOnly", "{name}");
+        assert_eq!(entry["unavailableReason"], "missingConfiguration", "{name}");
     }
     let error = runtime
         .run_mcp(
@@ -115,7 +132,7 @@ async fn host_options_environment_controls_embedded_tool_availability() {
         .expect("MCP answers a refused call as a tool error");
     assert_eq!(
         error["structuredContent"]["errorCode"], "toolUnavailable",
-        "ghCloneRepo is CLI-only: {error}"
+        "ghCloneRepo requires its own opt-in: {error}"
     );
     runtime.close().await;
 }

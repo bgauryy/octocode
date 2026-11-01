@@ -11,9 +11,9 @@ use super::filters::{EntryKind, lstat, visit_path};
 use super::read_ahead::{self, ReadAhead};
 use super::{EntryFilter, Visit};
 use crate::error::Error;
-use crate::search::fs_resume::{Child, Frame, WalkCursor, WalkTally};
 use crate::search::walk::Stop;
 use crate::types::FileSystemEntry;
+use crate::types::fs_resume::{Child, Frame, WalkCursor, WalkTally};
 
 /// Hard ceiling on directory-recursion depth. Symlink cycles are already
 /// avoided (symlink_metadata never reports a symlink as a dir), so this only
@@ -94,15 +94,25 @@ pub(super) fn walk_children(
     walk_frame(frame, &[], query, state, admit, stop)
 }
 
-/// A directory's entries in walk order, or `None` when it is too deep, past
-/// `max_depth`, or unreadable (counted, unless the walk this one resumes
-/// counted it).
+/// What reading a directory the walk enters gave.
+enum Children {
+    Read(Vec<Child>, Option<std::time::SystemTime>),
+    /// Too deep, past `max_depth`, or unreadable (counted, unless the walk
+    /// this one resumes counted it): nothing to walk.
+    None,
+    /// The walk's time budget ran out while the listing was read: the walk
+    /// stops before the directory's first entry, and the window that
+    /// resumes it lists the directory whole.
+    Late,
+}
+
+/// A directory's entries in walk order ([`Children`]).
 fn read_children(
     base: &Path,
     depth: u32,
     query: &CompiledQuery,
     state: &mut QueryState,
-) -> Option<(Vec<Child>, Option<std::time::SystemTime>)> {
+) -> Children {
     // The walk this one resumes read this directory when it inspected the
     // entry that led here (the root: before its first entry), and counted
     // what failed to read: counted again, a failure would show twice.
@@ -111,15 +121,27 @@ fn read_children(
         if !reread {
             state.tally.unreadable(state.position, false);
         }
-        return None;
+        return Children::None;
     }
     if query.max_depth.is_some_and(|max_depth| depth > max_depth) {
-        return None;
+        return Children::None;
     }
 
-    let listing = match state.ahead.as_mut().and_then(|ahead| ahead.take(base)) {
-        Some(listing) => listing,
-        None => read_ahead::read_listing(base),
+    // The deadline is set once the window inspected a new entry, so a
+    // directory the window starts in (the root, a resumed one) is always
+    // listed and every window makes progress.
+    let deadline = state.deadline;
+    let taken = match state.ahead.as_mut() {
+        Some(ahead) => ahead.take(base, deadline),
+        None => read_ahead::Taken::NotQueued,
+    };
+    let listing = match taken {
+        read_ahead::Taken::Read(listing) => listing,
+        read_ahead::Taken::Late => return Children::Late,
+        read_ahead::Taken::NotQueued => match read_ahead::read_listing_until(base, deadline) {
+            Some(listing) => listing,
+            None => return Children::Late,
+        },
     };
     state.directories_read += 1;
     if state.ahead.is_none() && state.directories_read == read_ahead::START_AFTER_DIRECTORIES {
@@ -132,7 +154,7 @@ fn read_children(
             if !reread {
                 state.unreadable(&err);
             }
-            return None;
+            return Children::None;
         }
     };
     if !reread {
@@ -140,7 +162,7 @@ fn read_children(
             state.unreadable(err);
         }
     }
-    Some((children, listing.read_at))
+    Children::Read(children, listing.read_at)
 }
 
 /// Walk one directory of the walk: `frame` from its `next` entry on, the
@@ -156,11 +178,19 @@ pub(super) fn walk_frame(
     let children = match frame.children.clone() {
         Some(children) => children,
         None => match read_children(&frame.base, frame.depth, query, state) {
-            Some((children, read_at)) => {
+            Children::Read(children, read_at) => {
                 frame.read_at = read_at;
                 Arc::new(children)
             }
-            None => return Ok(()),
+            Children::None => return Ok(()),
+            Children::Late => {
+                let relative = frame.base.strip_prefix(&query.root).unwrap_or(&frame.base);
+                let mut cut = crate::text::slash_path(relative);
+                cut.push('/');
+                state.time_cut = Some(cut);
+                state.cursor = Some(state.cursor(query.shape, Some(frame)));
+                return Ok(());
+            }
         },
     };
     frame.children = Some(children);

@@ -2,6 +2,7 @@ use super::*;
 use budget::{Budget, Input, invalid};
 use octocode_engine::text::analysis::SourceCatalog;
 mod codec;
+mod parallel;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct OriginIndex {
@@ -184,57 +185,12 @@ impl OriginPool {
         out.extend_from_slice(&self.encoded);
         Ok(())
     }
-    pub fn push(
-        &mut self,
-        origin: &OriginProjection,
-        descriptors: &SourceDescriptors,
-        budget: &mut Budget<'_>,
-    ) -> Result<u32, SourceError> {
-        if self.index.len() >= LIMITS.table_items {
-            return Err(SourceError::LimitExceeded("graph source origin count"));
-        }
-        let reference = narrow(self.index.len())?;
-        let offset = self.encoded.len();
-        if let Err(error) = codec::write(&mut self.encoded, origin, descriptors, budget) {
-            self.encoded.truncate(offset);
-            return Err(error);
-        }
-        // Decode once to compute the exact reconstruction admission cost. This
-        // retains neither cloned IDs nor nested vectors in the published table.
-        let before = (budget.bytes, budget.items);
-        let mut input = Input::new(&self.encoded[offset..], budget);
-        let (unit, decoded) = codec::read(&mut input, descriptors)?;
-        let entry = OriginIndex {
-            offset: narrow(offset)?,
-            unit,
-            range: super::range(&decoded),
-            bytes: narrow(input.budget.bytes - before.0)?,
-            items: narrow(input.budget.items - before.1)?,
-        };
-        budget.grow(&mut self.index, 1)?;
-        self.index.push(entry);
-        Ok(reference)
-    }
     pub fn admit_read(&self, budget: &mut Budget<'_>) -> Result<(), SourceError> {
         budget.vector_cost::<OriginIndex>(self.index.len())?;
         for entry in &self.index {
             budget.charge(entry.bytes as usize, entry.items as usize)?;
         }
         budget.charge(self.encoded.len(), 0)
-    }
-    pub fn validate(
-        &self,
-        descriptors: &SourceDescriptors,
-        budget: &mut Budget<'_>,
-    ) -> Result<(), SourceError> {
-        let cancel = budget.cancel;
-        let stop = || cancel.check().is_err();
-        let mut map = super::map_budget(&stop);
-        let catalog = SourceCatalog::new(descriptors, &mut map)?;
-        for reference in 0..self.index.len() {
-            self.checked_origin(narrow(reference)?, descriptors, &catalog, &mut map, budget)?;
-        }
-        Ok(())
     }
     /// One origin, decoded and validated against `catalog` and its index entry.
     pub fn checked_origin(

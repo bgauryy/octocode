@@ -123,8 +123,14 @@ pub(crate) mod artifact_search_query {
             _ => {}
         }
     }
-    pub(crate) fn page_size(_query: &ArtifactSearchQuery) -> usize {
-        crate::id::artifact_search_policy::PAGE_SIZE
+    /// Discovery rows per page: the query's `limit`, its contract default
+    /// when omitted. A resolve reads one release and pages nothing.
+    pub(crate) fn page_size(query: &ArtifactSearchQuery) -> usize {
+        match query {
+            ArtifactSearchQuery::Search1(query) => crate::num::usize_of(query.limit),
+            ArtifactSearchQuery::Search6(query) => crate::num::usize_of(query.limit),
+            _ => crate::contracts::query_limits::artifact_search::search::LIMIT_DEFAULT,
+        }
     }
     pub(crate) fn keyword_list(query: &ArtifactSearchQuery) -> Vec<String> {
         match query {
@@ -229,10 +235,9 @@ mod tests {
     }
 
     /// A cursor names one page's start: moving the page clears it, and a
-    /// cursor past the contract's bound is left off rather than carried.
+    /// cursor of any length is carried.
     #[test]
-    fn a_cursor_belongs_to_its_page_and_the_contract_bounds_it() {
-        use crate::contracts::query_limits::artifact_search::REGISTRY_CURSOR_MAX_LENGTH as CURSOR_MAX_LENGTH;
+    fn a_cursor_belongs_to_its_page() {
         let mut query = artifact_query(
             serde_json::json!({"operation":"search","ecosystem": "go", "keywords": ["http"], "page": 2, "registryCursor": "c2"}),
             None,
@@ -248,8 +253,10 @@ mod tests {
         );
         artifact_search_query::set_cursor(&mut query, Some("c3"));
         assert_eq!(artifact_search_query::cursor(&query), Some("c3"));
-        artifact_search_query::set_cursor(&mut query, Some(&"x".repeat(CURSOR_MAX_LENGTH + 1)));
-        assert_eq!(artifact_search_query::cursor(&query), None);
+        // A registry cursor has no contract ceiling (X14): a long one is carried.
+        let long = "x".repeat(20_000);
+        artifact_search_query::set_cursor(&mut query, Some(&long));
+        assert_eq!(artifact_search_query::cursor(&query), Some(long.as_str()));
         let exact = artifact_query(
             serde_json::json!({"operation":"resolve","packageName": "ajv"}),
             None,

@@ -1,6 +1,6 @@
 ---
 name: octocode-workflows
-description: "Load this skill first whenever the user asks to choose, compose, coordinate, resume or verify an agentic workflow, or run a whole-system audit, role-based investigation, runtime surgery or independent acceptance."
+description: "Choose, compose, coordinate, resume or verify an agentic workflow, including whole-system audits, role-based investigations, runtime surgery and independent acceptance. Ordinary domain tasks use their owner skill directly."
 ---
 
 # Octocode Workflows

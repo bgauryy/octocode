@@ -19,7 +19,7 @@ fn recovered_and_dynamic_scope_arguments_do_not_create_bindings() {
         let out = ask(&dir.0, "unresolved", Some(target), |o| {
             o.edges = vec!["passes".into()];
         });
-        let row = out.value["results"]
+        let row = out.value["rows"]
             .as_array()
             .unwrap()
             .iter()
@@ -30,12 +30,12 @@ fn recovered_and_dynamic_scope_arguments_do_not_create_bindings() {
         let linked = ask(&dir.0, "witnesses", Some(target), |o| {
             o.edges = vec!["passes".into()];
         });
-        assert_eq!(linked.value["total"], 0, "{}", linked.value);
+        assert_eq!(linked.value["pagination"]["totalItems"], 0, "{}", linked.value);
     }
     let healthy = ask(&dir.0, "witnesses", Some("scope.js#healthy"), |o| {
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(healthy.value["total"], 1, "{}", healthy.value);
+    assert_eq!(healthy.value["pagination"]["totalItems"], 1, "{}", healthy.value);
     assert!(
         built.value["argumentCoverage"]["byLanguage"]["javascript"]
             .get("counts")
@@ -61,14 +61,14 @@ fn argument_binding_premises_exclude_unrelated_members() {
     let imported = ask(&dir.0, "witnesses", Some("imported.ts#run"), |o| {
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(imported.value["total"], 1, "{}", imported.value);
-    assert_eq!(imported.value["results"][0]["to"], "exported.ts#handler");
-    assert_eq!(imported.value["results"][0]["detail"], "import-binding");
+    assert_eq!(imported.value["pagination"]["totalItems"], 1, "{}", imported.value);
+    assert_eq!(imported.value["rows"][0]["to"], "exported.ts#handler");
+    assert_eq!(imported.value["rows"][0]["detail"], "import-binding");
     let rust = ask(&dir.0, "witnesses", Some("scope.rs"), |o| {
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(rust.value["total"], 3, "{}", rust.value);
-    for row in rust.value["results"].as_array().unwrap() {
+    assert_eq!(rust.value["pagination"]["totalItems"], 3, "{}", rust.value);
+    for row in rust.value["rows"].as_array().unwrap() {
         assert!(
             matches!(
                 row["to"].as_str(),
@@ -90,8 +90,8 @@ fn nearest_ordinary_lexical_scope_wins_for_argument_candidates() {
     let rows = ask(&dir.0, "witnesses", Some("module.rs"), |o| {
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(rows.value["total"], 2, "{}", rows.value);
-    for row in rows.value["results"].as_array().unwrap() {
+    assert_eq!(rows.value["pagination"]["totalItems"], 2, "{}", rows.value);
+    for row in rows.value["rows"].as_array().unwrap() {
         if row["from"] == "module.rs#outer" {
             assert_eq!(row["to"], "module.rs#handler");
         } else {

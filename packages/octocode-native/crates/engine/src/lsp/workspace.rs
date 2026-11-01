@@ -138,12 +138,35 @@ fn typescript_config_above(file_path: &str, directory: &Path, root: &Path) -> Op
     if !crate::lsp::family::is_typescript_family(language_id.as_deref()) {
         return None;
     }
-    let config_dir = directory.ancestors().find(|dir| {
+    let config_dir = typescript_project_dir(directory)?;
+    (!config_dir.starts_with(root)).then(|| config_dir.to_path_buf())
+}
+
+/// The nearest ancestor of `directory` (itself included) holding a
+/// `tsconfig.json`/`jsconfig.json`: where tsserver finds the project of a
+/// file in `directory`.
+pub fn typescript_project_dir(directory: &Path) -> Option<&Path> {
+    directory.ancestors().find(|dir| {
         TYPESCRIPT_PROJECT_CONFIGS
             .iter()
             .any(|name| dir.join(name).is_file())
-    })?;
-    (!config_dir.starts_with(root)).then(|| config_dir.to_path_buf())
+    })
+}
+
+/// The clangd configuration files that apply to a file in `directory`,
+/// nearest first: each `CLANGD_PROJECT_CONFIG_FILES` entry in the directory
+/// and every ancestor. Presence does not prove clangd selected one or that
+/// its compile command is valid.
+pub fn clangd_config_sources(directory: &Path) -> Vec<PathBuf> {
+    directory
+        .ancestors()
+        .flat_map(|dir| {
+            crate::lsp::config::CLANGD_PROJECT_CONFIG_FILES
+                .iter()
+                .map(move |name| dir.join(name))
+        })
+        .filter(|path| path.is_file())
+        .collect()
 }
 
 /// The nearest ancestor of `directory` (itself included) holding a
@@ -191,15 +214,17 @@ pub struct PackageIncludes {
     /// analyzes it as part of one, so uses in the others' copies are not
     /// references of the symbol it answers for.
     pub declared_by: Vec<PathBuf>,
-    /// The scan stopped at its file bound: more includes may exist.
+    /// The request stopped the scan: more includes may exist.
     pub has_more: bool,
 }
 
-/// [`PackageIncludes`] of the Cargo package `file` belongs to, scanning at
-/// most `limit` of its `.rs` files (nested packages and ignored files are
-/// not its sources). `generated` is empty when the package has no build
-/// script: without one no build-script output exists to load.
-pub fn cargo_package_includes(file: &Path, limit: usize) -> Option<PackageIncludes> {
+/// [`PackageIncludes`] of the Cargo package `file` belongs to, scanning
+/// every one of its `.rs` files (nested packages and ignored files are not
+/// its sources) until `stopped` (the request's cancellation or deadline)
+/// says to stop, which `has_more` discloses: no file count bounds it.
+/// `generated` is empty when the package has no build script: without one
+/// no build-script output exists to load.
+pub fn cargo_package_includes(file: &Path, stopped: &dyn Fn() -> bool) -> Option<PackageIncludes> {
     let package = cargo_package_dir(file.parent()?)?;
     let build_script = cargo_package_build_script(&package);
     let has_build_script = build_script.is_some();
@@ -215,7 +240,6 @@ pub fn cargo_package_includes(file: &Path, limit: usize) -> Option<PackageInclud
     let anchor = lexical(file);
     let mut includes = PackageIncludes::default();
     let mut modules = modules::ModuleSources::default();
-    let mut visited = 0;
     for entry in walker.flatten() {
         let path = entry.path();
         if !entry.file_type().is_some_and(|kind| kind.is_file())
@@ -223,11 +247,10 @@ pub fn cargo_package_includes(file: &Path, limit: usize) -> Option<PackageInclud
         {
             continue;
         }
-        if visited >= limit {
+        if stopped() {
             includes.has_more = true;
             break;
         }
-        visited += 1;
         let Ok(text) = std::fs::read_to_string(path) else {
             continue;
         };

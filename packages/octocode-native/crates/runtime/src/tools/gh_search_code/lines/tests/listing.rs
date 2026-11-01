@@ -1,52 +1,5 @@
-//! The hit lines a scan lists: numbering, windows, caps, resume points and sanitizing.
+//! Complete hit lines: numbering, Unicode, selection and sanitizing.
 use super::*;
-
-/// The resume line is where the next unshown hit can start, only
-/// when the shown lines are exactly the first hits and none was cut.
-#[test]
-fn a_listing_that_is_a_hit_prefix_resumes_after_its_last_line() {
-    let text = "x\n".repeat(2) + &"hit()\n".repeat(8);
-    let FileHits::Lines {
-        lines,
-        total,
-        resume_after,
-        ..
-    } = scan(text.as_bytes(), "a.rs", &["hit".into()], "", &Passthrough)
-    else {
-        panic!("hits")
-    };
-    assert_eq!((lines.len(), total), (MAX_LINES_PER_FILE, 8));
-    assert_eq!(resume_after, Some(7));
-    // The last hit is shown: nothing is left to continue.
-    let text = "hit()\n".repeat(3);
-    let FileHits::Lines { resume_after, .. } =
-        scan(text.as_bytes(), "a.rs", &["hit".into()], "", &Passthrough)
-    else {
-        panic!("hits")
-    };
-    assert_eq!(resume_after, Some(3));
-    // A listing that skipped a hit line (a keyword-only line beside
-    // lines holding every keyword) is not a prefix of the hits.
-    let text = "alpha\n".to_owned() + &"alpha beta\n".repeat(6);
-    let FileHits::Lines { resume_after, .. } = scan(
-        text.as_bytes(),
-        "a.rs",
-        &["alpha".into(), "beta".into()],
-        "",
-        &Passthrough,
-    ) else {
-        panic!("hits")
-    };
-    assert_eq!(resume_after, None);
-    // A cut line cannot be resumed after: its tail was not shown.
-    let text = format!("hit {}\n{}", "a".repeat(400), "hit\n".repeat(7));
-    let FileHits::Lines { resume_after, .. } =
-        scan(text.as_bytes(), "a.rs", &["hit".into()], "", &Passthrough)
-    else {
-        panic!("hits")
-    };
-    assert_eq!(resume_after, None);
-}
 
 #[test]
 fn every_keyword_line_is_numbered_case_insensitively() {
@@ -70,9 +23,7 @@ fn every_keyword_line_is_numbered_case_insensitively() {
             best: 2,
             total: 2,
             line_count: 4,
-            clipped: false,
             declaration: None,
-            resume_after: Some(4)
         }
     );
     assert_eq!(
@@ -128,33 +79,9 @@ fn a_utf16_file_scans_like_a_local_read() {
     }
 }
 
+/// Multiple keywords retain every matching source line, including partial keyword matches.
 #[test]
-fn long_lines_keep_a_window_around_the_keyword() {
-    let line = format!("{}needle{}", "a".repeat(500), "b".repeat(500));
-    let FileHits::Lines { lines, clipped, .. } = scan(
-        line.as_bytes(),
-        "a.js",
-        &["needle".into()],
-        "",
-        &Passthrough,
-    ) else {
-        panic!("hit");
-    };
-    // The cut is flagged so the page carries a read of the whole line.
-    assert!(clipped);
-    assert!(lines[0].starts_with("1\t…"), "{}", lines[0]);
-    assert!(lines[0].contains("needle"));
-    // The same cut localSearch makes: `…` opens the window, `...` closes it,
-    // and the shown line spends exactly the budget.
-    assert!(lines[0].ends_with("..."), "{}", lines[0]);
-    assert_eq!(lines[0].chars().count(), "1\t".len() + MAX_LINE_CHARS);
-}
-
-/// Several keywords list the lines holding every keyword; lines with
-/// only some stay counted for the readHits continuation. A file where no
-/// line holds them all lists each keyword's first line.
-#[test]
-fn lines_with_every_keyword_are_listed_first() {
+fn all_keyword_lines_are_listed_in_source_order() {
     let keywords = ["octocode".to_owned(), "mcp".to_owned()];
     let text = "# Octocode\nOctocode MCP server\nmcp only\noctocode only\nthe octocode mcp tools\n";
     let FileHits::Lines { lines, total, .. } =
@@ -164,7 +91,10 @@ fn lines_with_every_keyword_are_listed_first() {
     };
     assert_eq!(
         lines,
-        vec!["2\tOctocode MCP server", "5\tthe octocode mcp tools"]
+        text.lines()
+            .enumerate()
+            .map(|(i, line)| format!("{}\t{line}", i + 1))
+            .collect::<Vec<_>>()
     );
     assert_eq!(total, 5);
     let spread = "octocode one\noctocode two\nmcp three\nmcp four\n";
@@ -173,17 +103,20 @@ fn lines_with_every_keyword_are_listed_first() {
     else {
         panic!("hit");
     };
-    // The window anchoring the read (lines 2-3) is listed too.
+    // Anchoring the optional read does not change which hit lines are returned.
     assert_eq!(
         lines,
-        vec!["1\toctocode one", "2\toctocode two", "3\tmcp three"]
+        spread
+            .lines()
+            .enumerate()
+            .map(|(i, line)| format!("{}\t{line}", i + 1))
+            .collect::<Vec<_>>()
     );
     assert_eq!(total, 4);
 }
 
 /// A hit line whose lowercase form moves char boundaries, even at an
-/// equal byte length, lists verbatim rather than panicking, and a long
-/// line keeps its keyword in the window.
+/// equal byte length, lists verbatim rather than panicking.
 #[test]
 fn hit_lines_that_lowercase_to_other_boundaries_list_verbatim() {
     let lines = |text: &str, keyword: &str| match scan(
@@ -204,20 +137,16 @@ fn hit_lines_that_lowercase_to_other_boundaries_list_verbatim() {
     for prefix in ["İ", "ẞ", "e\u{301}", "👍🏽"] {
         let line = format!("{}needle{}", prefix.repeat(300), "b".repeat(300));
         let shown = &lines(&line, "needle")[0];
-        assert!(shown.starts_with("1\t…"), "{prefix}: {shown}");
+        assert_eq!(shown, &format!("1\t{line}"), "{prefix}");
         assert!(shown.contains("needle"), "{prefix}: {shown}");
     }
 }
 
 #[test]
-fn many_hits_are_capped_but_counted() {
+fn many_hits_are_all_retained() {
     let text = "needle\n".repeat(30);
     let FileHits::Lines {
-        lines,
-        total,
-        last,
-        clipped,
-        ..
+        lines, total, last, ..
     } = scan(
         text.as_bytes(),
         "a.rs",
@@ -228,17 +157,14 @@ fn many_hits_are_capped_but_counted() {
     else {
         panic!("hit");
     };
-    assert_eq!(lines.len(), MAX_LINES_PER_FILE);
+    assert_eq!(lines.len(), total);
     assert_eq!(total, 30);
     assert_eq!(last, 30);
-    assert!(!clipped);
 }
 
-/// A long hit line is cut to a window around its keyword; a secret the cut
-/// splits (its `ghp_` prefix outside the window) must not show in part:
-/// the line is sanitized whole before the window is cut.
+/// A long hit line is sanitized whole, including a secret far from the keyword.
 #[test]
-fn a_cut_long_line_never_shows_part_of_a_secret() {
+fn a_complete_long_line_never_shows_a_secret() {
     let secret = format!("ghp_{}", "Zq7".repeat(12));
     let security = crate::security::ContentSecurity::new();
     for gap in 0..8 {
@@ -257,4 +183,40 @@ fn a_cut_long_line_never_shows_part_of_a_secret() {
         assert!(shown.contains("needle"), "{shown}");
         assert!(!shown.contains(&secret[8..28]), "gap {gap}: {shown}");
     }
+}
+
+#[test]
+fn complete_long_unicode_hit_values_reach_response_pagination() {
+    let line = format!("{}needle{} END", "λ🦀 ".repeat(1000), " x".repeat(300));
+    let FileHits::Lines { lines, .. } = scan(
+        line.as_bytes(),
+        "a.js",
+        &["needle".into()],
+        "",
+        &Passthrough,
+    ) else {
+        panic!("hit")
+    };
+    assert_eq!(lines, vec![format!("1\t{line}")]);
+}
+
+#[test]
+fn every_keyword_hit_reaches_response_pagination_once() {
+    let text = "alpha\nalpha beta\nbeta\n".repeat(9);
+    let FileHits::Lines { lines, total, .. } = scan(
+        text.as_bytes(),
+        "a.txt",
+        &["alpha".into(), "beta".into()],
+        "",
+        &Passthrough,
+    ) else {
+        panic!("hits")
+    };
+    let expected = text
+        .lines()
+        .enumerate()
+        .map(|(i, line)| format!("{}\t{line}", i + 1))
+        .collect::<Vec<_>>();
+    assert_eq!(total, expected.len());
+    assert_eq!(lines, expected);
 }

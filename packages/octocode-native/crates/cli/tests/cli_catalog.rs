@@ -2,32 +2,27 @@ use crate::support;
 
 use support::Workspace;
 
-/// `schema <tool>` carries the runtime's availability: enabled, or the
-/// variables of exactly the prerequisites still unset.
+/// CLI schemas expose every tool without resolving provider prerequisites.
 #[tokio::test]
-async fn schema_availability_names_the_unset_prerequisites() {
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/v1/models"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"models":[]})))
-        .expect(2)
-        .mount(&server)
-        .await;
+async fn schema_availability_is_independent_of_invocation_prerequisites() {
+    let server = wiremock::MockServer::start().await;
     let workspace = Workspace::new();
     for (beta, key) in [(false, false), (false, true), (true, false), (true, true)] {
         let availability = async |tool: &str| {
             let mut command = workspace.cli();
             command
                 .args(["schema", tool])
-                .env("OCTOCODE_CLASSIFICATION_API_HOST", server.uri());
-            if beta {
-                command.env("OCTOCODE_BETA", "true");
-            }
-            if key {
-                command.env("OCTOCODE_CLASSIFICATION_API", "fixture-key");
-            }
+                .env("OCTOCODE_CLASSIFICATION_API_HOST", server.uri())
+                .env("OCTOCODE_ENABLE_LOCAL", "false")
+                .env("OCTOCODE_ENABLE_CLONE", "false")
+                .env("OCTOCODE_STORAGE_MODE", "memory")
+                .env("TOOLS_TO_RUN", "localFetch")
+                .env("DISABLE_TOOLS", "localFetch,clasify")
+                .env("OCTOCODE_BETA", if beta { "true" } else { "false" })
+                .env(
+                    "OCTOCODE_CLASSIFICATION_API",
+                    if key { "fixture-key" } else { "" },
+                );
             let output =
                 tokio::task::spawn_blocking(move || command.output().expect("schema command"))
                     .await
@@ -37,14 +32,24 @@ async fn schema_availability_names_the_unset_prerequisites() {
                 serde_json::from_slice(&output.stdout).expect("schema JSON");
             view["availability"].clone()
         };
-        let clasify = availability("clasify").await;
-        assert_eq!(clasify["enabled"], key, "{clasify}");
-        let unset: Vec<&str> = [(!key).then_some("OCTOCODE_CLASSIFICATION_API")]
-            .into_iter()
-            .flatten()
-            .collect();
-        if !unset.is_empty() {
-            assert_eq!(clasify["envVar"], unset.join("|"), "{clasify}");
+        for tool in [
+            "clasify",
+            "localFetch",
+            "graphBuild",
+            "graphQuery",
+            "ghCloneRepo",
+        ] {
+            let available = availability(tool).await;
+            assert_eq!(available["enabled"], true, "{tool}: {available}");
+            assert!(available.get("envVar").is_none(), "{tool}: {available}");
+            assert!(
+                available.get("unavailableReason").is_none(),
+                "{tool}: {available}"
+            );
         }
     }
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "schema must not probe a configured provider"
+    );
 }

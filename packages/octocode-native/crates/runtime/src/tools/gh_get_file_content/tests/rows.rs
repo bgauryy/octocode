@@ -153,5 +153,4 @@ async fn a_zero_byte_file_is_a_successful_read() {
     .unwrap_or_else(|failure| panic!("{}", failure.message));
     assert_eq!(read.status, None, "{}", read.data);
     assert_eq!(read.data["content"], "", "{}", read.data);
-    assert_eq!(read.data["sourceBytes"], 0, "{}", read.data);
 }

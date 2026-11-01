@@ -3,8 +3,8 @@ import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { cliView } from '../src/run.js';
-import { defineCli, defineCommand, type CliCommand } from '../src/spec.js';
-import { cliToMcp, jsonSchemaStandard, mcpServerOptions, registerOn, type ToolRegistrar } from '../src/to-mcp.js';
+import { commandJsonSchema, defineCli, defineCommand, type CliCommand } from '../src/spec.js';
+import { jsonSchemaStandard, mcpServerOptions, registerOn, type ToolRegistrar } from '../src/to-mcp.js';
 
 const schema = z.object({ query: z.string().describe('Search text') });
 const inputSchema = {
@@ -42,24 +42,14 @@ const spec = defineCli({
   ],
 });
 
-describe('cliToMcp', () => {
-  it('keeps instructions, Zod JSON Schema, and the original imported schema', () => {
-    const exported = cliToMcp(spec);
-    expect(exported.instructions).toBe(spec.instructions);
-    expect(exported.tools.map(tool => tool.description)).toEqual(['Search issues', 'Add a note', 'Quiet']);
-    expect(exported.tools[0]?.inputSchema).toEqual(z.toJSONSchema(schema, { io: 'input' }));
-    expect(exported.tools[1]?.inputSchema).toBe(inputSchema);
-    expect(exported.tools[1]?.name).toBe('notes.add');
-    expect(exported.tools[1]).toMatchObject({
-      title: 'Add note',
-      outputSchema: { type: 'object', properties: { note: { type: 'string' } }, required: ['note'] },
-      annotations: { readOnlyHint: false },
-    });
-    expect(exported.tools[0]?.description).toBe('Search issues');
+describe('commandJsonSchema', () => {
+  it('gives the Zod input JSON Schema and the original imported schema', () => {
     const zodCommand = spec.commands[0] as CliCommand;
-    expect(() => cliToMcp({ ...spec, commands: [{ ...zodCommand, schema: undefined }] })).toThrow(/schema/);
     const mcpCommand = spec.commands[1] as CliCommand;
-    expect(() => cliToMcp({ ...spec, commands: [{ ...mcpCommand, inputSchema: undefined }] })).toThrow(/inputSchema/);
+    expect(commandJsonSchema(zodCommand)).toEqual(z.toJSONSchema(schema, { io: 'input' }));
+    expect(commandJsonSchema(mcpCommand)).toBe(inputSchema);
+    expect(() => commandJsonSchema({ ...zodCommand, schema: undefined })).toThrow(/schema/);
+    expect(() => commandJsonSchema({ ...mcpCommand, inputSchema: undefined })).toThrow(/inputSchema/);
   });
 
   it('registers Zod schemas and a Standard Schema wrapper', async () => {
@@ -174,10 +164,10 @@ describe('request cancellation', () => {
 describe('authored MCP input JSON Schema', () => {
   it('exports optional defaults and transformation inputs without altering imported schemas', () => {
     const command = defineCommand({ name: 'defaults', description: 'Defaults', schema: z.object({ query: z.string(), args: z.array(z.string()).default([]), length: z.string() }), run: input => input });
-    const tools = cliToMcp(defineCli({ name: 'defaults', instructions: '', commands: [command] })).tools;
-    expect(tools[0]?.inputSchema.required).toEqual(['query', 'length']);
-    expect(tools[0]?.inputSchema.properties).toMatchObject({ args: { default: [] }, length: { type: 'string' } });
+    const exported = commandJsonSchema(command);
+    expect(exported.required).toEqual(['query', 'length']);
+    expect(exported.properties).toMatchObject({ args: { default: [] }, length: { type: 'string' } });
     const transformed = defineCommand({ name: 'transform', description: 'Transform', schema: z.object({ length: z.string().transform(value => value.length) }), run: input => input });
-    expect(cliToMcp(defineCli({ name: 'transform', instructions: '', commands: [transformed] })).tools[0]?.inputSchema.properties).toMatchObject({ length: { type: 'string' } });
+    expect(commandJsonSchema(transformed).properties).toMatchObject({ length: { type: 'string' } });
   });
 });

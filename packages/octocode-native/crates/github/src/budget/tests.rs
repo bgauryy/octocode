@@ -110,3 +110,12 @@ fn full_code_search_window() -> (Arc<GitHubBudget>, Arc<KeyState>) {
     }
     (budget, state)
 }
+
+/// Duration conversions are exact in range and saturate past `u64`.
+#[test]
+fn millis_and_ceil_secs_saturate() {
+    assert_eq!(super::millis(Duration::from_millis(1_234)), 1_234);
+    assert_eq!(super::ceil_secs(Duration::from_millis(1_001)), 2);
+    assert_eq!(super::millis(Duration::MAX), u64::MAX);
+    assert_eq!(super::ceil_secs(Duration::MAX), u64::MAX);
+}

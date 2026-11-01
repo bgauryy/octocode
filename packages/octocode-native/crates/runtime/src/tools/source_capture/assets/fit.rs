@@ -29,7 +29,8 @@ pub(super) fn fit(
     let (mut width, mut height) = (width, height);
     if width > max || height > max {
         let scale = (max as f64 / width as f64).min(max as f64 / height as f64);
-        let side = |length: usize| ((length as f64 * scale).round() as usize).clamp(1, max);
+        let side =
+            |length: usize| crate::num::usize_of_f64((length as f64 * scale).round()).clamp(1, max);
         let (scaled_width, scaled_height) = (side(width), side(height));
         rgba = downscale(&rgba, width, height, scaled_width, scaled_height);
         (width, height) = (scaled_width, scaled_height);
@@ -53,6 +54,11 @@ pub(super) fn fit(
     ))
 }
 
+/// One premultiplied color channel, rounded into a byte.
+fn channel(value: f32) -> u8 {
+    u8::try_from(crate::num::usize_of_f64(f64::from(value.round()))).unwrap_or(u8::MAX)
+}
+
 /// Each output index's source taps on one axis: the exact fractional
 /// coverage of the source pixels under it, normalized to sum to one.
 fn taps(input: usize, output: usize) -> Vec<Vec<(usize, f32)>> {
@@ -60,10 +66,15 @@ fn taps(input: usize, output: usize) -> Vec<Vec<(usize, f32)>> {
     (0..output)
         .map(|index| {
             let (start, end) = (index as f64 * scale, (index + 1) as f64 * scale);
-            (start.floor() as usize..(end.ceil() as usize).min(input))
+            (crate::num::usize_of_f64(start.floor())..crate::num::usize_of_f64(end.ceil()).min(input))
                 .filter_map(|source| {
                     let cover = end.min(source as f64 + 1.0) - start.max(source as f64);
-                    (cover > 0.0).then_some((source, (cover / scale) as f32))
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "a tap weight is a fraction in 0..=1; f32 keeps the resampler's working precision"
+                    )]
+                    let weight = (cover / scale) as f32;
+                    (cover > 0.0).then_some((source, weight))
                 })
                 .collect()
         })
@@ -111,17 +122,12 @@ fn downscale(
         for [red, green, blue, alpha] in sum {
             let color = |value: f32| {
                 if alpha > 0.0 {
-                    (value * 255.0 / alpha).round().clamp(0.0, 255.0) as u8
+                    channel(value * 255.0 / alpha)
                 } else {
                     0
                 }
             };
-            out.extend([
-                color(red),
-                color(green),
-                color(blue),
-                alpha.round().clamp(0.0, 255.0) as u8,
-            ]);
+            out.extend([color(red), color(green), color(blue), channel(alpha)]);
         }
     }
     out

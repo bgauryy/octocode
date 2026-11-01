@@ -33,7 +33,34 @@ fn range(origin: &OriginProjection) -> ByteRange {
             .map_or(0, |s| s.source_range.end_byte),
     )
 }
-fn map_budget(stop: &(dyn Fn() -> bool + Sync)) -> octocode_engine::text::analysis::MapBudget<'_> {
+/// `cancel` as a source-map stop, polled on every [`budget::POLL`]th step.
+struct Poll<'a> {
+    cancel: &'a dyn CancellationCheck,
+    ticks: std::sync::atomic::AtomicU32,
+}
+
+impl<'a> Poll<'a> {
+    fn new(cancel: &'a dyn CancellationCheck) -> Self {
+        Self {
+            cancel,
+            ticks: std::sync::atomic::AtomicU32::new(0),
+        }
+    }
+
+    fn stopped(&self) -> bool {
+        let tick = self
+            .ticks
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        tick.is_multiple_of(budget::POLL) && self.cancel.check().is_err()
+    }
+}
+
+/// A source-map pass within the snapshot's bounds, ending with `cancel`'s
+/// request.
+fn map_budget<'a>(
+    cancel: &dyn CancellationCheck,
+    stop: &'a (dyn Fn() -> bool + Sync),
+) -> octocode_engine::text::analysis::MapBudget<'a> {
     use octocode_engine::text::analysis::{MapBudget, MapLimits};
     MapBudget::new(
         MapLimits {
@@ -41,7 +68,7 @@ fn map_budget(stop: &(dyn Fn() -> bool + Sync)) -> octocode_engine::text::analys
             work: LIMITS.source_work,
             ..Default::default()
         },
-        std::time::Instant::now() + LIMITS.source_deadline,
+        crate::execution::cancel::deadline_of(cancel),
         stop,
     )
 }
@@ -57,11 +84,10 @@ impl SourceTable {
             ..Default::default()
         };
         let mut budget = budget::Budget::new(cancel, &LIMITS);
-        for origin in origins {
-            output
-                .origins
-                .push(origin, &output.descriptors, &mut budget)?;
-        }
+        let origins = origins.into_iter().collect::<Vec<_>>();
+        output
+            .origins
+            .extend(&origins, &output.descriptors, &mut budget)?;
         output.validate_with_cancel(cancel)?;
         Ok(output)
     }
@@ -103,8 +129,9 @@ impl SourceTable {
         let entry = *self.origins.get(reference).map_err(ToolError::source)?;
         projection.reserve(entry.bytes as usize, entry.items as usize, cancel)?;
         let scope = self.unit_scope(entry.unit).map_err(ToolError::source)?;
-        let stop = || cancel.check().is_err();
-        let mut map = map_budget(&stop);
+        let poll = Poll::new(cancel);
+        let stop = || poll.stopped();
+        let mut map = map_budget(cancel, &stop);
         let catalog = SourceCatalog::new(&scope, &mut map).map_err(ToolError::source)?;
         self.origins
             .checked_origin(

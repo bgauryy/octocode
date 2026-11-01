@@ -111,7 +111,7 @@ fn python_bare_names_never_bind_another_module_without_an_import() {
     let unresolved = ask_with(root, "unresolved", Some("pkg/caller.py"), |o| {
         o.edges = vec!["calls".into()];
     });
-    assert_eq!(unresolved["total"], 2, "{unresolved}");
+    assert_eq!(unresolved["pagination"]["totalItems"], 2, "{unresolved}");
 }
 
 #[test]
@@ -229,6 +229,6 @@ fn python_type_checking_imports_are_not_runtime_cycles() {
     ]);
     let root = ingested(&temp);
     let cycles = ask(root, "cycles", None);
-    let rows = cycles["results"].as_array().cloned().unwrap_or_default();
+    let rows = cycles["rows"].as_array().cloned().unwrap_or_default();
     assert!(rows.iter().all(|row| row["runtime"] == false), "{cycles}");
 }

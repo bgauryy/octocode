@@ -24,6 +24,10 @@ pub(crate) struct Declaration {
     pub owner: Option<String>,
     /// A C/C++ function declared without its body.
     pub prototype: bool,
+    /// A Rust function's declared return type and the type `?` yields from
+    /// it (see `GraphFactDeclaration::return_type`).
+    pub return_type: Option<String>,
+    pub try_type: Option<String>,
 }
 
 impl Declaration {
@@ -92,6 +96,9 @@ pub(crate) struct Call {
     /// Rust expression macros whose arguments hold the call, outermost first
     /// (`ready`, `std::task::ready`); empty for plain code.
     pub macros: Vec<String>,
+    /// The call whose value an untyped Rust receiver is (see
+    /// `GraphFactCall::receiver_call`).
+    pub receiver_call: Option<octocode_engine::graph::GraphReceiverCall>,
 }
 /// A declaration's base type (`class A extends Base`, `impl Display for A`),
 /// as written at the declaration site.
@@ -162,7 +169,7 @@ pub(crate) enum DiagnosticCode {
 }
 
 impl DiagnosticCode {
-    /// The code a snapshot stores and `graph query diagnostics` prints.
+    /// The code a snapshot stores and graphQuery `diagnostics` returns.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::FactsSchemaUnsupported => "facts-schema-unsupported",
@@ -214,6 +221,10 @@ pub(crate) enum ImportOutcome {
     Unsupported,
     /// A relative JSON/style/asset specifier: no graph edge, no linking gap.
     NonCode,
+    /// A relative path to a file that exists on disk under the snapshot
+    /// root but that the scan does not hold (ignored or pruned build output,
+    /// an asset no grammar parses): no graph edge, no linking gap.
+    Unscanned,
 }
 
 /// The linked graph of one scan: per-file facts and the file graph. The
@@ -229,8 +240,6 @@ pub(crate) struct BuiltGraph {
     pub facts: BTreeMap<String, FileFacts>,
     pub nodes: BTreeMap<String, FileGraphNode>,
     pub files_skipped: u32,
-    /// The file scan stopped at `maxFiles`.
-    pub truncated: bool,
     /// The bounds linking refuses past.
     pub limits: super::limits::Limits,
     /// Snapshot rows the build certainly projects: the scan's nodes and
@@ -238,7 +247,7 @@ pub(crate) struct BuiltGraph {
     pub tally: super::limits::Tally,
     pub languages: Vec<(String, u32, String)>,
     /// Import tallies indexed by [`ImportOutcome`].
-    pub imports: [u32; 5],
+    pub imports: [u32; 6],
     /// Statements already tallied in `imports` for the file named by
     /// `counted_file`, so a statement that binds several names counts once.
     pub(super) counted_file: String,

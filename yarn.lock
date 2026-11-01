@@ -760,12 +760,11 @@ __metadata:
   resolution: "@octocodeai/config@workspace:packages/octocode-config"
   dependencies:
     "@modelcontextprotocol/client": "npm:^2.3.1"
-    "@octocodeai/octocode-core": "npm:21.0.1"
+    "@octocodeai/octocode-core": "npm:21.2.0"
     "@types/node": "npm:^24.19.2"
     "@vitest/coverage-v8": "npm:^5.0.4"
     ajv: "npm:^8.20.0"
     esbuild: "npm:^0.28.2"
-    json-schema-to-typescript: "npm:16.0.0"
     typescript: "npm:^6.0.3"
     vite: "npm:^8.3.4"
     vitest: "npm:^5.0.4"
@@ -815,12 +814,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
-  version: 21.0.1
-  resolution: "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core#../octocode-mcp-host/packages/octocode-core::hash=3003f1&locator=octocode-monorepo%40workspace%3A."
+"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
+  version: 21.2.0
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=b5e311&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/0266c11985217901221b81b3b6647572fc6055437ecc59806a0c2c8cbd970d3340fb974151e103e71ab48ce397377bc854daa927ce0f53d048a24d0eeb5b41af
+  checksum: 10c0/7e5e0804676af61da88c964d22c88e855a77e8b3189eb949859748afbfe44ff3451130fd30297e0e9cd390be9abae74fa7dee77afa6857edc93a92b38f456200
   languageName: node
   linkType: hard
 
@@ -885,6 +884,8 @@ __metadata:
 "@octocodeai/skills-common@workspace:skills/common":
   version: 0.0.0-use.local
   resolution: "@octocodeai/skills-common@workspace:skills/common"
+  dependencies:
+    esbuild: "npm:^0.28.2"
   languageName: unknown
   linkType: soft
 

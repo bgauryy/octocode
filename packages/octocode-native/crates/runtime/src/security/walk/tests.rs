@@ -11,7 +11,7 @@ fn redacts_content_and_query_and_location_but_preserves_tool() {
         "title": "secret",
         "nested": [{"body": "a secret value"}],
         "next": {
-            "continueWindow": {
+            "nextPage": {
                 "tool": "secret-tool",
                 "query": {"path": "secret.rs"},
                 "confidence": "exact",
@@ -24,13 +24,10 @@ fn redacts_content_and_query_and_location_but_preserves_tool() {
     assert_eq!(value["title"], "[MASKED]");
     assert_eq!(value["nested"][0]["body"], "a [MASKED] value");
     // The executable tool identifier is preserved verbatim…
-    assert_eq!(value["next"]["continueWindow"]["tool"], "secret-tool");
+    assert_eq!(value["next"]["nextPage"]["tool"], "secret-tool");
     // …but query, why, and location string leaves are now scanned.
-    assert_eq!(
-        value["next"]["continueWindow"]["query"]["path"],
-        "[MASKED].rs"
-    );
-    assert_eq!(value["next"]["continueWindow"]["why"], "because [MASKED]");
+    assert_eq!(value["next"]["nextPage"]["query"]["path"], "[MASKED].rs");
+    assert_eq!(value["next"]["nextPage"]["why"], "because [MASKED]");
     assert_eq!(value["location"]["localPath"], "/tmp/[MASKED]/repo");
 }
 
@@ -113,11 +110,11 @@ fn redacted_value_is_redacted_wherever_it_recurs() {
 #[test]
 fn non_secret_leaves_pass_through_unchanged() {
     let mut value = json!({
-        "next": {"continueWindow": {"tool": "localFetch", "query": {"path": "src/a.rs"}}},
+        "next": {"nextPage": {"tool": "localFetch", "query": {"path": "src/a.rs"}}},
         "location": {"localPath": "/tmp/clean/repo"}
     });
     sanitize_json(&mut value, &mut mask).expect("sanitize");
-    assert_eq!(value["next"]["continueWindow"]["query"]["path"], "src/a.rs");
+    assert_eq!(value["next"]["nextPage"]["query"]["path"], "src/a.rs");
     assert_eq!(value["location"]["localPath"], "/tmp/clean/repo");
 }
 

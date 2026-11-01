@@ -232,5 +232,6 @@ fn short_retry() -> RetryPolicy {
 mod content;
 mod graphql;
 mod limits;
+mod refs;
 mod search;
 mod transport;

@@ -69,9 +69,7 @@ pub(super) fn render_tree_page(
     }
     if *more {
         if let Some(lead) = crate::response::paging::next_page_call(
-            &mut out,
             ToolId::AstSearch,
-            Some("syntaxTree"),
             crate::response::result::query_row(q, &[]),
             "page",
             usize_of(page) + 1,
@@ -93,22 +91,18 @@ fn is_walk_cut(code: &str) -> bool {
 }
 
 /// The `partialReasons` of a partial walk, from its engine diagnostics: a
-/// recovered parse, the walk deadline, the node limit.
-fn walk_cuts(codes: &[String]) -> Vec<&'static str> {
-    let reasons = codes
+/// recovered parse or the walk deadline, the only two causes the engine
+/// marks a walk partial for.
+fn walk_cuts(codes: &[String]) -> Vec<crate::response::paging::PartialReason> {
+    use crate::response::paging::PartialReason;
+    codes
         .iter()
         .filter_map(|code| match code.as_str() {
-            "syntaxTree.parse.recovered" => Some("parseRecovered"),
-            "syntaxTree.budget.deadline" => Some("deadline"),
-            "syntaxTree.budget.nodeLimit" => Some("nodeLimit"),
+            "syntaxTree.parse.recovered" => Some(PartialReason::ParseRecovered),
+            "syntaxTree.budget.deadline" => Some(PartialReason::Deadline),
             _ => None,
         })
-        .collect::<Vec<_>>();
-    if reasons.is_empty() {
-        vec!["walkCut"]
-    } else {
-        reasons
-    }
+        .collect()
 }
 
 pub(super) fn node_page_row(n: &octocode_engine::structural::SyntaxTreeNode) -> serde_json::Value {

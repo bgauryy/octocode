@@ -86,7 +86,7 @@ async fn nuget_tail_pages_respect_page_size_past_the_skip_limit() {
     artifact_search_query::set_page(&mut paged, 201);
     assert_eq!(
         super::super::page_out_of_range(&paged).map(|limit| limit.reason),
-        Some("providerResultCap")
+        Some(crate::response::paging::PartialReason::ProviderResultCap)
     );
     assert!(
         super::super::validate_cursor_state(
@@ -113,4 +113,42 @@ async fn nuget_tail_pages_respect_page_size_past_the_skip_limit() {
             .iter()
             .all(|&(skip, take)| skip <= 3000 && take <= 1000)
     );
+}
+
+/// "Latest" reads registration pages newest first until one holds a stable
+/// release, however many prerelease-only pages come first: no fixed page
+/// count decides it.
+#[tokio::test]
+async fn latest_reads_past_any_number_of_prerelease_only_pages() {
+    let prerelease_pages = 6;
+    let mut pages = vec![json!({"lower": "1.0.0", "upper": "1.0.0", "items": [
+        {"catalogEntry": {"id": "Newtonsoft.Json", "version": "1.0.0"}}
+    ]})];
+    for n in 1..=prerelease_pages {
+        let version = format!("2.0.0-beta.{n}");
+        pages.push(json!({"lower": version, "upper": version, "items": [
+            {"catalogEntry": {"id": "Newtonsoft.Json", "version": version}}
+        ]}));
+    }
+    let http = super::super::test_http::RouteHttp::routes(vec![
+        (
+            "/v3/registration5/newtonsoft.json/index.json",
+            json!({"items": pages}),
+        ),
+        (
+            "/v3/index.json",
+            json!({"resources": [{"@type": "RegistrationsBaseUrl/3.6.0",
+                "@id": "https://api.nuget.org/v3/registration5/"}]}),
+        ),
+    ]);
+    let b = super::super::test_http::test_budget();
+    let client = RegistryClient::uncached(&http, &b);
+    let q = super::super::query::artifact_query(
+        json!({"operation":"resolve","ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json"}),
+        None,
+    );
+    let page = nuget(&q, &ArtifactProviderState::default(), &client)
+        .await
+        .expect("nuget latest");
+    assert_eq!(page.artifacts[0].version.as_deref(), Some("1.0.0"));
 }

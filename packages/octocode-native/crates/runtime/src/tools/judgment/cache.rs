@@ -37,20 +37,8 @@ struct Identity<'a> {
 
 /// Hex SHA-256 of `identity`'s compact JSON, hashed while it serializes.
 fn digest(identity: &Identity<'_>) -> String {
-    struct Hasher(sha2::Sha256);
-    impl std::io::Write for Hasher {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            sha2::Digest::update(&mut self.0, bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut hasher = Hasher(<sha2::Sha256 as sha2::Digest>::new());
     // Borrowed JSON values and plain fields always serialize.
-    let _ = serde_json::to_writer(&mut hasher, identity);
-    hex::encode(sha2::Digest::finalize(hasher.0))
+    crate::digest::json_sha256(identity)
 }
 
 pub(super) struct Judgments {

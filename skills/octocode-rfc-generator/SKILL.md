@@ -1,6 +1,6 @@
 ---
 name: octocode-rfc-generator
-description: "Load this skill first when the user asks for a technical plan, proposal, design document or migration decision before building, even without saying RFC; good for alternatives, rollout, risks, rollback and proposal review."
+description: "Write or review RFCs, design documents and migration proposals before implementation. Connect one decision to alternatives, validation, rollout, risks and rollback in a single document."
 ---
 
 # Octocode RFC Generator
@@ -28,6 +28,7 @@ flowchart LR
 
 ## Research and decide
 
+- Before drafting, list earlier RFCs with `--manifest` ([report commands](references/report-output.md#render-and-retrieve)); revise a selected one or mark it `Superseded`.
 - Frame problem, users, goals, constraints, and current behavior; verify deciding facts with `octocode-research`.
 - Decision (ADR): context, decision, status (header `status`), consequences. Compare viable alternatives (status quo when useful); each recommendation carries its because (evidence) and the check that would reverse it.
 - Open deciding blocker: a direction with explicit open questions, never a final recommendation ([readiness](references/checklist.md#before-declaring-ready)).
@@ -40,7 +41,7 @@ flowchart LR
 - Write per [output](output.md): proposal and effect first, then design and tradeoffs.
 - Check against current sources, dependencies, acceptance criteria, and project checks; `octocode-documentation` for readability. Report material gaps outside the RFC.
 - An RFC does not authorize implementation; reuse the user's authorization for scoped saves and edits.
-- Save the RFC per [output](output.md#saved-report), then offer HTML; check `--manifest` for earlier RFCs first.
+- Save the RFC per [output](output.md#saved-report), then offer HTML.
 
 ## Resources
 
@@ -53,12 +54,12 @@ flowchart LR
 
 ## Related skills
 
-- `octocode-research`: verify option claims and current behavior.
-- `octocode-architect`: boundary and structural tradeoffs.
-- `octocode-brainstorming`: issue or option space still open.
-- `octocode-documentation`: RFC language, or an ADR for a settled decision.
-- `octocode-eval-benchmark`: deciding claims need measurement.
-- For an orchestrated multi-actor task: [octocode-workflows composition](../octocode-workflows/references/composition.md).
+- Use `octocode-research` when option claims or current behavior need verification.
+- Use `octocode-architect` when boundaries or structural tradeoffs decide the option.
+- Use `octocode-brainstorming` when the issue or option space is still open.
+- Use `octocode-documentation` for RFC language, or an ADR for a settled decision.
+- Use `octocode-eval-benchmark` when deciding claims need measurement.
+- Use [octocode-workflows composition](../octocode-workflows/references/composition.md) for an orchestrated multi-actor task.
 
 ## Output
 

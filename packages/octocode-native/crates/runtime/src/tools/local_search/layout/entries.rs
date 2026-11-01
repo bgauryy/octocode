@@ -67,13 +67,12 @@ pub(super) const FILE_ENTRY_CHARS: usize = "{\"path\":\"\",\"matches\":[]},".len
 /// The value is priced in place, never copied.
 pub(crate) fn row_chars(
     matched: &octocode_engine::types::TextSearchMatch,
-    display_cap: Option<usize>,
     span_columns: bool,
 ) -> usize {
     if let Some(price) = matched.deferred.filter(|price| *price > 0) {
         return price as usize;
     }
-    let (mut row, value) = project_shape(matched, display_cap);
+    let (mut row, value) = project_shape(matched);
     if !span_columns {
         row.column = None;
     }
@@ -94,7 +93,23 @@ pub(super) fn listed_file_chars(
         View::CountLines => ",\"matchedLineCount\":".len(),
         _ => return "{\"path\":\"\"}".len() + string_body_units(&file.path),
     };
-    "{\"path\":\"\"}".len() + string_body_units(&file.path) + count + digits(file.match_count)
+    // `,"termCounts":[a,b,…]` when the view counts two or more terms.
+    let terms = if file.term_counts.is_empty() {
+        0
+    } else {
+        ",\"termCounts\":[]".len()
+            + file.term_counts.len().saturating_sub(1)
+            + file
+                .term_counts
+                .iter()
+                .map(|count| digits(*count))
+                .sum::<usize>()
+    };
+    "{\"path\":\"\"}".len()
+        + string_body_units(&file.path)
+        + count
+        + digits(file.match_count)
+        + terms
 }
 
 /// Serialized chars of `n` in decimal.

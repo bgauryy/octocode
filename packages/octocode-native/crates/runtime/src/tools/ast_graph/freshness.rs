@@ -1,6 +1,6 @@
 //! What a built graph depends on besides the sources it parsed, and how to
-//! tell it has not changed: a persisted snapshot (`graph ingest` reuse,
-//! `graph query stale`) records digests of the linking configs it read.
+//! tell it has not changed: a persisted snapshot (graphBuild reuse,
+//! graphQuery `stale`) records digests of the linking configs it read.
 //!
 //! Linking reads manifests and compiler configs (`tsconfig.json`,
 //! `package.json`, `Cargo.toml`, `go.mod`, ...) beside the scanned files and

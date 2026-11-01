@@ -76,10 +76,14 @@ pub(super) async fn go_walk(
     page: u64,
     client: &RegistryClient<'_>,
 ) -> Result<(serde_json::Map<String, Value>, bool), ArtifactError> {
-    let (mut hop, mut token) = (2..=page)
-        .rev()
-        .find_map(|hop| Some((hop, Some(client.cursor(&go_page_key(query, hop))?))))
-        .unwrap_or((1, None));
+    let (mut hop, mut token) = (1, None);
+    for candidate in (2..=page).rev() {
+        if let Some(saved) = client.cursor(&go_page_key(query, candidate)).await {
+            hop = candidate;
+            token = Some(saved);
+            break;
+        }
+    }
     let walked = hop < page;
     loop {
         let data = go_search(query, token, client).await.map_err(|mut error| {
@@ -101,7 +105,9 @@ pub(super) async fn go_walk(
         let Some(next) = string(data.get("nextPageToken")) else {
             return Ok((data, false));
         };
-        client.remember_cursor(&go_page_key(query, hop + 1), &next);
+        client
+            .remember_cursor(&go_page_key(query, hop + 1), &next)
+            .await;
         token = Some(next);
         hop += 1;
     }

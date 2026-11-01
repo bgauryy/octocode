@@ -1,5 +1,5 @@
 //! Cacheable GitHub reads: a repeated ghGetFileContent or ghStructure call
-//! is served from the cache (and `forceRefresh` bypasses it), while
+//! is served from the cache (and `refresh` bypasses it), while
 //! ghGetHistoryItem revalidates every read.
 use super::*;
 
@@ -40,14 +40,14 @@ async fn ghgetfilecontent_reuses_cached_evidence_without_public_telemetry() {
     runtime.close().await;
 }
 
-/// `forceRefresh: true` must bypass the populated cache and issue a fresh HTTP
+/// `refresh: true` must bypass the populated cache and issue a fresh HTTP
 /// request. Public results retain evidence rather than cache telemetry.
 #[tokio::test]
 async fn ghgetfilecontent_force_refresh_bypasses_populated_cache() {
     let server = MockServer::builder().start().await;
     let sha = sha('b');
     // The mock always returns 200 — it must NOT return 304 even on the second
-    // call because forceRefresh skips the cached ETag.
+    // call because refresh skips the cached ETag.
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/contents/fresh.rs"))
         .respond_with(
@@ -77,11 +77,11 @@ async fn ghgetfilecontent_force_refresh_bypasses_populated_cache() {
     .unwrap();
     assert_eq!(row_status(&first), "success");
 
-    // Second call with forceRefresh: must not use cache.
+    // Second call with refresh: must not use cache.
     let second = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"o","repo":"r","path":"fresh.rs","ref":sha,"forceRefresh":true}),
+        json!({"owner":"o","repo":"r","path":"fresh.rs","ref":sha,"refresh":true}),
     )
     .await
     .unwrap();

@@ -1,6 +1,6 @@
 ---
 name: octocode-eval-benchmark
-description: "Load this skill first whenever the user asks whether a change, prompt, model or skill is really better, or wants variants, baselines or skill activation compared; good for A/B tests, held-out cases and grader calibration."
+description: "Evaluate whether code, prompts, models, workflows or skills improve measured outcomes. Design baseline comparisons, held-out cases, activation tests and calibrated graders; distinguish editorial review from behavioral evidence."
 ---
 
 # Octocode eval benchmark
@@ -33,7 +33,7 @@ flowchart LR
 - Failures, Unknowns, errors, retries, and cost stay in the denominator and report.
 - The deployment instruction is the subject; answer-specific coaching is leakage.
 - `Keep` is provisional, `Discard` not final ([loop](references/loop.md#keepdiscard-loop)); final verdicts: `Accept`, `Revert`, `Inconclusive`, `Invalid` ([verdict](references/design.md#verdict)).
-- Stop condition: a second Inconclusive or Invalid final run; then report the limit and the next measurement needed.
+- Stop condition: a second Inconclusive or Invalid final run on fresh or unexposed tasks; then report the limit and the next measurement needed.
 - Public benchmarks orient; representative private tasks decide ([public benchmarks](references/design.md#public-benchmarks)).
 
 ## Resources

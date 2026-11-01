@@ -147,15 +147,6 @@ export function defineCli(input: {
   };
 }
 
-export function withCommands(spec: CliSpec, extra: readonly CliCommand[]): CliSpec {
-  return defineCli({
-    name: spec.name,
-    instructions: spec.instructions,
-    version: spec.version,
-    commands: [...spec.commands, ...extra],
-  });
-}
-
 export function commandJsonSchema(command: CliCommand): JsonSchema {
   if (command.source === 'mcp') {
     if (!command.inputSchema) throw new Error(`MCP command ${command.name} has no inputSchema`);

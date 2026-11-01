@@ -125,7 +125,7 @@ impl Row {
             // Whole epoch milliseconds, shown as an ISO 8601 instant.
             modified_ms
                 .filter(|_| modified_shown)
-                .map(|modified| modified.round() as i64),
+                .map(|modified| crate::num::i64_of_f64(modified.round())),
         );
         Self {
             dir,
@@ -169,7 +169,7 @@ impl Row {
             self.kind,
             Some(self.size),
             lines.and_then(Lines::shown_in_details),
-            Some(self.modified.round() as i64),
+            Some(crate::num::i64_of_f64(self.modified.round())),
         ))
     }
 }
@@ -217,8 +217,8 @@ pub(super) fn sort_rows(rows: &mut [Row], sort: &StructureSearchQueryFilesSort) 
 /// Group a window's rows (cut from `sort`ed rows) as the page lists them.
 /// Path order groups by directory: the listed path's own entries first,
 /// then each directory once, in walk order (the sort is stable). Other sorts
-/// keep their rank order exactly; each page groups its own adjacent rows
-/// ([`dir_groups`]).
+/// keep their global rank order exactly; each page groups only its runs of
+/// adjacent rows ([`dir_groups`]).
 pub(super) fn group(rows: &mut Vec<Row>, sort: &StructureSearchQueryFilesSort) {
     if super::files::is_traversal(sort) {
         rows.sort_by(|a, b| std::path::Path::new(&a.dir).cmp(std::path::Path::new(&b.dir)));
@@ -271,9 +271,10 @@ fn drop_grouped_dirs(rows: &mut Vec<Row>) {
 /// adjacent entries of one directory becomes one `{dir, files}` group, `dir`
 /// workspace-relative (the listed path's own entries included, `prefix`
 /// being its spelling), so `dir + "/" + name` is a path a local tool takes.
-/// A path-ordered page holds each directory in one run, so it names each
-/// once; a ranked page (`sort` by size, lines, name or time) keeps its rank
-/// order exactly, and a directory it returns to opens a new group.
+/// A path-ordered page holds each directory in one run ([`group`]), so it
+/// names each once; a ranked page (`sort` by size, lines, name or time)
+/// keeps its global rank order exactly, and a directory it returns to opens
+/// a new group. [`costs`] prices the same runs.
 pub(super) fn dir_groups(rows: &[(String, String)], prefix: &str) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
     for (dir, entry) in rows {

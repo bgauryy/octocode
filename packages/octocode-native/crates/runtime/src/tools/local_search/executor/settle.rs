@@ -2,9 +2,9 @@
 //! the limits it ends at.
 use crate::tools::local_search::local_search_query::View;
 
-use super::super::coverage::{Coverage, uncollected_warning};
+use super::super::coverage::Coverage;
 use super::super::layout::Layout;
-use super::super::leads::{Found, scope_directories, scope_listing};
+use super::super::leads::{Found, scope_listing};
 use super::super::types::{
     FileErrors, FilePagination, LocalSearchResult, SearchStats, SearchStatus,
 };
@@ -74,9 +74,14 @@ pub(super) fn settle_row(
         coverage.gap(),
         next.is_none(),
     );
-    let ceilings = cursor_ceilings(query, layout, page.leftover_matches);
-    stats.partial_reasons.extend(ceilings.partial_reasons);
     let mut hints = coverage.empty_hints(empty);
+    if empty
+        && stats.files_searched > 0
+        && let Some(hint) =
+            super::super::probes::case_hint(query, paths, page.search_options, cancel)
+    {
+        hints.push(hint);
+    }
     // Leads go in after the status is settled: they are optional follow-ups
     // and never stand in for a page.
     let disclosed = Found {
@@ -108,15 +113,7 @@ pub(super) fn settle_row(
     // files: the tree of the scope is the way to narrow it.
     let lists_scope =
         (coverage.scope_miss || (empty && coverage.binary_cut)).then_some(!coverage.scope_miss);
-    route_beyond_pages(
-        query,
-        &stats,
-        total_files,
-        lists_scope,
-        &mut next,
-        &mut warnings,
-    );
-    warnings.extend(ceilings.warnings);
+    route_beyond_pages(query, lists_scope, &mut next);
     Ok(LocalSearchResult {
         status,
         stats,
@@ -124,10 +121,10 @@ pub(super) fn settle_row(
         pagination: file_paging(query, layout, total_files, page.leftover_matches),
         hints,
         next,
-        is_partial: coverage.gap() || capped || ceilings.terminal || disclosed.unchecked,
+        is_partial: coverage.gap() || capped || disclosed.unchecked,
         // A retry over the skipped paths reaches the match, so no limit ends
         // this answer.
-        terminal_limit: (settled_terminal || ceilings.terminal) && !disclosed.skipped_match,
+        terminal_limit: settled_terminal && !disclosed.skipped_match,
         warnings,
         skipped_paths: disclosed.skipped_paths,
         source_snapshot: None,
@@ -135,76 +132,25 @@ pub(super) fn settle_row(
     })
 }
 
-/// What lies past every page the row can continue to: files past the
-/// collection cap are on no page (every page says so), and the row leads
-/// to the scope's top directories to split the search by (`narrowScope`).
-/// A scope miss or an unproven empty result (`lists_scope`) leads to the
-/// scope's listing: with the search's globs when they matched files
-/// (`Some(true)`), without them when they matched none, so the listing
-/// shows what names exist. File pages past the last page a continuation
-/// names are [`cursor_ceilings`].
+/// The lead past the pages: a scope miss or an unproven empty result
+/// (`lists_scope`) leads to the scope's listing, with the search's globs
+/// when they matched files (`Some(true)`), without them when they matched
+/// none, so the listing shows what names exist.
 fn route_beyond_pages(
     query: &LocalSearchQuery,
-    stats: &SearchStats,
-    total_files: u32,
     lists_scope: Option<bool>,
     next: &mut Option<Value>,
-    warnings: &mut Vec<String>,
 ) {
-    let uncollected = uncollected_warning(stats, total_files);
-    if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
-        if let Some(keep_globs) = lists_scope {
-            map.insert("viewTree".into(), scope_listing(query, keep_globs));
-        }
-        if uncollected.is_some() {
-            map.insert("narrowScope".into(), scope_directories(query));
-        }
+    if let Some(keep_globs) = lists_scope
+        && let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut()
+    {
+        map.insert("viewTree".into(), scope_listing(query, keep_globs));
     }
     if next
         .as_ref()
         .is_some_and(|next| next.as_object().is_some_and(serde_json::Map::is_empty))
     {
         *next = None;
-    }
-    warnings.extend(uncollected);
-}
-
-/// What a row reports for the cursors its rest is past.
-struct Ceilings {
-    warnings: Vec<String>,
-    partial_reasons: Vec<String>,
-    terminal: bool,
-}
-
-/// Later file pages, and hits left in the shown files, past the contract
-/// maximum of their cursor (`page`, `matchPage`): the row ends at a terminal
-/// limit, written by the one cursor owner ([`crate::response::paging::next_cursor`]).
-fn cursor_ceilings(query: &LocalSearchQuery, layout: &Layout, leftover_matches: bool) -> Ceilings {
-    let page = local_search_query::page(query).max(1);
-    let warnings: Vec<String> = [
-        (page < layout.total_pages).then(|| ("page", page as usize + 1)),
-        leftover_matches.then(|| {
-            (
-                "matchPage",
-                local_search_query::match_page(query).max(1) as usize + 1,
-            )
-        }),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(|(field, next)| {
-        crate::response::paging::cursor_value(crate::id::ToolId::LocalSearch, None, field, next)
-            .err()
-    })
-    .collect();
-    let terminal = !warnings.is_empty();
-    Ceilings {
-        warnings,
-        partial_reasons: terminal
-            .then(|| crate::response::paging::CURSOR_MAXIMUM.to_owned())
-            .into_iter()
-            .collect(),
-        terminal,
     }
 }
 
@@ -242,8 +188,7 @@ fn file_paging(
     )
 }
 
-/// The row's status, and whether it ends at a limit nothing continues
-/// (a cursor past its maximum is [`cursor_ceilings`]).
+/// The row's status, and whether it ends at a limit nothing continues.
 fn settle(
     query: &LocalSearchQuery,
     layout: &Layout,
@@ -293,7 +238,8 @@ pub(crate) fn search_stats(
         partial_reasons: scanned
             .cap_reasons
             .iter()
-            .map(|reason| reason.name().to_owned())
+            .copied()
+            .map(super::super::types::cap_partial_reason)
             .collect(),
         error_count: scanned.error_count.filter(|n| *n > 0),
         first_error: scanned.first_error.clone(),
@@ -305,6 +251,13 @@ pub(crate) fn search_stats(
                 first: scanned.first_error.clone(),
             }),
         binary_skipped: None,
+        test_code_excluded: scanned.test_code_excluded.and_then(|excluded| {
+            crate::tools::test_code::Excluded {
+                files: excluded.files,
+                lines: excluded.lines,
+            }
+            .stated()
+        }),
     }
 }
 
@@ -329,7 +282,7 @@ pub(crate) fn classify_search(
         SearchStatus::Success
     };
     // Later file pages may already be offered by the branch's first page.
-    // Their absence here is not a cap; cursor ceilings are settled separately.
+    // Their absence here is not a cap.
     let terminal = (capped || leftover_matches || coverage_gap) && next_missing;
     (status, terminal)
 }

@@ -3,10 +3,10 @@
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `ci.yml` | Pull requests and pushes to `main` | Lint, typecheck and test; Rust checks; Windows process containment; native script tests; end-to-end tool health and native Node tests |
+| `release.yml` | Manual dispatch (optional `ref`) | Builds every platform binary, runs each on its own OS and CPU (`smoke-binary.cjs`; musl in Alpine, gnu also at glibc 2.28), packs the npm tarballs into `release-packages` with `SHA256SUMS`, and runs the upgrade-path check on Linux, macOS and Windows |
 | `nightly.yml` | Daily schedule and manual dispatch | The full union, pager and read_share matrices (`*_full_matrix`), which the default run only samples |
 
-CI publishes nothing: no release builds, platform packages, or uploaded
-binaries. Only the `e2e` job builds the packages, a throwaway debug build
+No workflow publishes. `ci.yml` builds no release artifacts: its `e2e` job builds the packages, a throwaway debug build
 (`build:dev`) that `test:tools` drives through the CLI and MCP server and the
 native package's Node tests load. It runs on Linux, macOS and Windows after the
 `native` job passes. The
@@ -20,8 +20,8 @@ regenerates the tool and config contracts (pinned
 `cargo-typify`) and fails when a checked-in copy differs. Every Rust dev tool a job installs
 (nextest, deny, shear, typify, zigbuild, xwin) takes its version from
 `packages/octocode-native/dev-tools.json` through `rust-quality.mjs pins`; a test in
-`rust-quality.test.mjs` fails on any workflow install that bypasses it. Release builds stay local (`build:target <platform>`, `build:all`,
-or `dev.mjs build:publish`).
+`rust-quality.test.mjs` fails on any workflow install that bypasses it. Release builds run in `release.yml` (locally: `build:target <platform>`, `build:all`,
+or `dev.mjs build:publish`); its tarballs are what the owner publishes.
 
 Run the same checks locally:
 
@@ -40,5 +40,5 @@ cargo nextest run --locked -p octocode-native --run-ignored only -E 'test(/full_
 
 `test:ci` starts with the skill linter over `skills/` and the skill script tests; the shared skill workspace (`skills/common`) runs in the workspace lint and test runs. After editing a skill, run `dev.mjs skills:check`, which adds the shared workspace's lint and test.
 
-npm publishing, Homebrew tap updates, and binary uploads are manual; see the
+npm publishing (from the `release-packages` tarballs) and Homebrew tap updates are manual; see the
 [release guide](../../skills-dev/octocode-dev/docs/RELEASE.md).

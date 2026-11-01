@@ -83,13 +83,15 @@ impl HistorySearch {
     }
 }
 
-/// A failed history search: the provider error and, when one call repairs
-/// it, that lead (keyed by name).
+/// A failed history search: the provider error, when one call repairs it
+/// that lead (keyed by name), and the hints that label its leads (empty:
+/// the row takes the history hint for its error).
 #[derive(Debug)]
 pub struct HistoryFailure {
     /// Boxed, as in `GhFailure`: it is most of the failure's size.
     pub error: Box<ProviderError>,
     pub calls: Option<Value>,
+    pub hints: Vec<String>,
 }
 
 impl From<ProviderError> for HistoryFailure {
@@ -97,6 +99,7 @@ impl From<ProviderError> for HistoryFailure {
         Self {
             error: Box::new(error),
             calls: None,
+            hints: Vec::new(),
         }
     }
 }
@@ -113,7 +116,7 @@ pub async fn execute(
     let mut query = HistorySearch::new(query)?;
     crate::tools::gh_shared::reject_boolean_keywords(&gh_search_history_query::keywords(&query))?;
     let page = gh_search_history_query::page(&query).unwrap_or(1);
-    let per = crate::id::gh_search_history_policy::PAGE_SIZE;
+    let per = gh_search_history_query::limit(&query);
     let searching = query::uses_search(&query);
     if searching
         && let Err(error) = crate::tools::gh_shared::SearchWindow::PageStart.reject(page, per)
@@ -175,7 +178,7 @@ pub async fn execute(
     for notice in rename_warnings {
         crate::response::paging::push_notice(&mut shaped, notice);
     }
-    crate::tools::gh_shared::finish_calls(&mut shaped);
+    crate::response::result::finish_calls(&mut shaped);
     Ok(shaped)
 }
 
@@ -219,7 +222,3 @@ async fn confirm_commit_users(
     }
     Ok(warnings)
 }
-
-/// Output facts the shared response stages ask about.
-pub(crate) struct Output;
-impl crate::response::output::ToolOutput for Output {}

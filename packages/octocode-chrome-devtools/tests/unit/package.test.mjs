@@ -181,6 +181,8 @@ test('npm archive runs CLI and MCP alone and serves complete package guidance', 
       join('references', 'report-widgets.md'),
       'scripts',
       join('scripts', 'lib'),
+      // references/configuration.md links the shared config loader, so staging bundles it.
+      join('scripts', 'lib', 'config-env.mjs'),
       join('scripts', 'lib', 'entrypoint.mjs'),
       join('scripts', 'lib', 'report'),
       ...readdirSync(join(root, '../../skills/common/scripts/lib/report'))

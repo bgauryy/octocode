@@ -40,6 +40,8 @@ pub(crate) trait SourceReader: Sync {
     fn handle(&self) -> &tokio::runtime::Handle;
     fn availability(&self) -> &ToolAvailability;
     fn evaluator(&self) -> &Evaluator;
+    /// The output facts (recovery hints) of the reader `tool`.
+    fn output(&self, tool: ToolId) -> &'static dyn crate::response::output::ToolOutput;
     /// One row of `tool` through the same domain path as a direct call.
     fn execute(
         &self,
@@ -73,10 +75,6 @@ pub(crate) trait SourceReader: Sync {
         max_bytes: usize,
     ) -> Result<octocode_github::ContentResponse, ClassificationError>;
 }
-
-/// Pages one selection may take; a reader that keeps paging past this is
-/// treated as a failed capture, not judged in part.
-const MAX_PAGES: usize = 64;
 
 /// A captured selection.
 pub(crate) struct Captured {
@@ -140,13 +138,45 @@ pub(crate) fn capture(
     }
     // A captured state is the exact text: the source query admits no
     // `minify`, and an omitted one reads the file as is.
-    let mut row = source["query"].clone();
+    let (text, pin) = collect_pages(
+        source["query"].clone(),
+        |row| read_page(id, row, dispatcher, context),
+        max_chars,
+        id == ToolId::GhGetFileContent,
+    )?;
+    Ok(Captured {
+        state: json!({ "source": identity(id, &source["query"], pin.as_deref()), "text": text }),
+        read: read_lead(id, &source["query"], pin.as_deref()),
+        source: None,
+    })
+}
+
+/// Every reader page of a selection, from `row` through the last, as one
+/// text and the pin the first page resolved. No page count bounds it: each
+/// page holds text (an empty one fails the read), so `max_chars` ends any
+/// selection, and a reader that offers a page it already served fails as
+/// the defect it is instead of looping. `pin_ref` pins later pages to the
+/// first page's commit (`ref`).
+fn collect_pages(
+    mut row: Value,
+    mut read: impl FnMut(&Value) -> Result<page::Page, ClassificationError>,
+    max_chars: usize,
+    pin_ref: bool,
+) -> Result<(String, Option<String>), ClassificationError> {
     let mut text = String::new();
     // Characters captured so far, counted once per page.
     let mut chars = 0;
     let mut pin: Option<String> = None;
-    for _ in 0..MAX_PAGES {
-        let page = read_page(id, &row, dispatcher, context)?;
+    let mut served = std::collections::HashSet::new();
+    loop {
+        if !served.insert(row.to_string()) {
+            return Err(ClassificationError::new(
+                ErrorCode::ClassificationContextFailed,
+                "The source reader offered a page it already served; nothing was judged.",
+                page::RERUN_HINT,
+            ));
+        }
+        let page = read(&row)?;
         if pin.is_none() {
             pin = page.pin.clone();
         }
@@ -156,21 +186,14 @@ pub(crate) fn capture(
             return Err(too_large(max_chars, "The selected source", IN_PARTS_HINT));
         }
         let Some(mut next) = page.next else {
-            return Ok(Captured {
-                state: json!({ "source": identity(id, &source["query"], pin.as_deref()), "text": text }),
-                read: read_lead(id, &source["query"], pin.as_deref()),
-                source: None,
-            });
+            return Ok((text, pin));
         };
         // Every later page reads the commit the first page resolved.
-        if id == ToolId::GhGetFileContent
-            && let Some(sha) = &pin
-        {
+        if pin_ref && let Some(sha) = &pin {
             next["ref"] = json!(sha);
         }
         row = next;
     }
-    Err(too_large(max_chars, "The selected source", IN_PARTS_HINT))
 }
 
 pub(super) fn prepare_source(

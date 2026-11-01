@@ -138,7 +138,7 @@ pub(in super::super) fn validate_lookup(
     if r.count()? != t.nodes.len() {
         return Err("graph lookup differs from node population".into());
     }
-    for (id, expected) in t.nodes.iter().enumerate() {
+    for (id, expected) in t.node_ids().zip(&t.nodes) {
         let (node, degrees) = read_entry(&mut r, t)?;
         if (node.kind, node.key, node.name) != (expected.kind, expected.key, expected.name) {
             return Err("graph lookup differs from node records".into());
@@ -147,10 +147,10 @@ pub(in super::super) fn validate_lookup(
             incoming: [0; 6],
             outgoing: [0; 6],
         };
-        for edge in t.out(id as u32) {
+        for edge in t.out(id) {
             actual.outgoing[edge.kind as usize] += 1;
         }
-        for edge in t.incoming(id as u32) {
+        for edge in t.incoming(id) {
             actual.incoming[edge.kind as usize] += 1;
         }
         if actual != degrees {

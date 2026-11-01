@@ -6,7 +6,7 @@ Markdown, task content only. `skill-review.mjs --json` returns `errorCount`, `wa
 
 ## Response
 
-- Review: BLUF readiness verdict; findings as review comments (Conventional Comments): label (issue, suggestion, question, nitpick, praise), blocking or not, file anchor, why (impact, kind); unchecked areas.
+- Review: BLUF readiness verdict; findings as review comments (Conventional Comments): label (issue, suggestion, question, nitpick, praise), blocking or not, file anchor, evidence, why (impact, kind), repair and its check; unchecked areas.
 - Edits: changed skills, support-file changes, checks run.
 - Install: destination, reload step.
 

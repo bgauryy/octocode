@@ -120,7 +120,7 @@ pub(super) fn searched_symbol(search_text: &str) -> Option<&str> {
     let mut chars = name.chars();
     let first = chars.next()?;
     ((first.is_alphabetic() || first == '_' || first == '$')
-        && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$'))
+        && chars.all(octocode_engine::text::is_ident_char))
     .then_some(name)
 }
 

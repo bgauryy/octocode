@@ -169,7 +169,7 @@ mod tests {
         let mut value = json!({
             "content": "token ghp_secretvalue12",
             "next": {
-                "continueWindow": {
+                "nextPage": {
                     "tool": "localFetch",
                     "query": {"queries":[{"path": "/repo/ghp_secretvalue12.rs", "offset": 2}]},
                     "confidence": "exact"
@@ -179,7 +179,7 @@ mod tests {
         });
         value = seal(value, false);
         assert_eq!(
-            value.pointer("/next/continueWindow/query/queries/0/path"),
+            value.pointer("/next/nextPage/query/queries/0/path"),
             Some(&json!("/repo/ghp_secretvalue12.rs"))
         );
         assert_eq!(
@@ -188,7 +188,7 @@ mod tests {
         );
         // The executable tool identifier survives verbatim.
         assert_eq!(
-            value.pointer("/next/continueWindow/query/queries/0/offset"),
+            value.pointer("/next/nextPage/query/queries/0/offset"),
             Some(&json!(2))
         );
     }
@@ -270,7 +270,7 @@ mod tests {
         let token = format!("ghp_{}", "a".repeat(37));
         let mut value = json!({
             "next": {
-                "continueWindow": {
+                "nextPage": {
                     "tool": "localFetch",
                     "query": {"queries":[{"path": format!("/repo/{token}.rs")}]}
                 }
@@ -280,11 +280,11 @@ mod tests {
         value = seal(value, false);
         // Tool preserved so the call is still routable.
         assert_eq!(
-            value.pointer("/next/continueWindow/tool"),
+            value.pointer("/next/nextPage/tool"),
             Some(&json!("localFetch"))
         );
         let query_path = value
-            .pointer("/next/continueWindow/query/queries/0/path")
+            .pointer("/next/nextPage/query/queries/0/path")
             .and_then(Value::as_str)
             .expect("query path");
         assert!(!query_path.contains("ghp_"), "token leaked in query path");

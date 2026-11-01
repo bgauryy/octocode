@@ -164,10 +164,12 @@ pub(crate) fn page_out_of_range(query: &ArtifactSearchQuery) -> Option<TerminalL
     )))
 }
 
-/// Registries cap deep paging well below these bounds; a page beyond them
-/// fails loudly rather than serving a wrong page labeled as final data.
+/// The deepest result a registry without its own entry in [`reach`] serves:
+/// rubygems.org's search window (its search API errors from the page that
+/// crosses row 10,000: page 334 of 30 rows, measured 2026-10-31). A page
+/// past it fails loudly rather than serving a wrong page labeled as final
+/// data. A page number is bounded only by the row it starts at.
 const MAX_CURSOR_OFFSET: u64 = 10_000;
-const MAX_CURSOR_PAGE: u64 = 1_000;
 /// npm search serves `from` up to 5,000; a deeper `from` answers with the
 /// first rows again (registry.npmjs.org, measured 2026-10-15).
 const NPM_MAX_FROM: u64 = 5_000;
@@ -242,9 +244,8 @@ fn validate_cursor_state(
     state: &ArtifactProviderState,
     page_size: usize,
 ) -> Result<(), ArtifactError> {
-    let out_of_range = page_start(state, page_size) > max_start_offset(artifact_type)
-        || state.page.unwrap_or(1) > MAX_CURSOR_PAGE
-        || state.page == Some(0);
+    let out_of_range =
+        page_start(state, page_size) > max_start_offset(artifact_type) || state.page == Some(0);
     if out_of_range {
         return Err(ArtifactError::new(
             ErrorCode::InvalidInput,

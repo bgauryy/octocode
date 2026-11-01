@@ -44,8 +44,10 @@ fn stale_and_unpinned_pages_cannot_silently_reacquire() {
     }
 }
 
+/// A page past the former 1,000-page schema ceiling still continues: the
+/// cursor has no maximum, so the row keeps its evidence and its next page.
 #[test]
-fn terminal_cursor_limit_preserves_evidence_and_declares_the_gap() {
+fn a_page_past_the_former_ceiling_continues() {
     let q = query(json!({"operation":"references","path":"a.ts","symbolName":"run","line":1}));
     let mut row =
         json!({"matches":[{"path":"a.ts","line":1}],"pagination":{"page":1000,"hasMore":true}});
@@ -57,13 +59,10 @@ fn terminal_cursor_limit_preserves_evidence_and_declares_the_gap() {
             snapshot: "lsp-v3:captured".into(),
         }),
     );
-    assert!(row.get("next").is_none());
-    assert_eq!(row["matches"].as_array().expect("evidence").len(), 1);
-    assert_eq!(row["terminalLimit"], true);
-    assert!(
-        row["partialReasons"]
-            .as_array()
-            .expect("disclosure")
-            .contains(&json!(crate::response::paging::CURSOR_MAXIMUM))
+    assert_eq!(
+        row["next"]["nextPage"]["input"]["queries"][0]["page"], 1001,
+        "{row}"
     );
+    assert_eq!(row["matches"].as_array().expect("evidence").len(), 1);
+    assert!(row.get("terminalLimit").is_none(), "{row}");
 }

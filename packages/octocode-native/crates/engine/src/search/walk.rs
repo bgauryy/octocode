@@ -10,6 +10,7 @@
 //! [`IgnoreRules`] answers the same question for one path, and says which
 //! rule decided it.
 
+use crate::types::IgnorePolicy;
 use std::collections::{BTreeSet, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -20,34 +21,6 @@ use ignore::WalkBuilder;
 mod ignore_rules;
 
 pub use ignore_rules::{IGNORE_FILES, IgnoreReason, IgnoreRules, external_ignore_inputs};
-
-/// Which paths a walk leaves out, derived once from a request's
-/// `includeIgnored` and `includeHidden` flags.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct IgnorePolicy {
-    /// `includeIgnored`: walk what ignore files exclude. Lifts every source:
-    /// `.gitignore`, `.ignore`, the global gitignore, `.git/info/exclude`,
-    /// and the ignore files above the root.
-    pub include_ignored: bool,
-    /// `includeHidden`: walk dot files and dot directories.
-    pub include_hidden: bool,
-}
-
-impl IgnorePolicy {
-    /// The policy of a request's optional flags (both default off).
-    pub fn new(include_ignored: Option<bool>, include_hidden: Option<bool>) -> Self {
-        Self {
-            include_ignored: include_ignored == Some(true),
-            include_hidden: include_hidden == Some(true),
-        }
-    }
-
-    /// Everything walked: no ignore rule and no dot entry left out.
-    pub const ALL: Self = Self {
-        include_ignored: true,
-        include_hidden: true,
-    };
-}
 
 /// A walk's cancellation: polled between entries; `true` ends the walk.
 pub type Stop<'a> = dyn Fn() -> bool + Sync + 'a;
@@ -68,6 +41,12 @@ pub fn walk_builder(root: &Path, policy: IgnorePolicy, max_depth: Option<usize>)
         .require_git(true)
         .follow_links(false)
         .max_depth(max_depth);
+    // A parallel walk takes this call's share of the process CPU budget
+    // while other calls compute; alone, the walker's own default.
+    let share = super::cpu::host().share();
+    if share < super::cpu::host().cores() {
+        builder.threads(share);
+    }
     builder
 }
 

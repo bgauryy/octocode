@@ -14,7 +14,7 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
     let q = query(serde_json::json!({
         "operation": "callers", "path": "file:///repo/a.ts",
         "symbolName": "foo", "line": 1,
-        "graphDepth": 3
+        "depth": 3
     }));
     let (items, failures) = expansion_outcome(
         vec![serde_json::json!({"from": {"symbolName": "caller"}})],
@@ -208,8 +208,9 @@ async fn repeated_parent_node_pairs_merge_into_one_edge_with_all_sites() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn hierarchy_depth_is_clamped_in_code() {
-    // A 30-long chain walked with an out-of-schema depth stops at 20 levels.
+async fn hierarchy_depth_follows_the_request_past_any_fixed_level() {
+    // The contract sets no depth maximum: a 30-long chain walked with depth
+    // 1,000 ends where the chain does, every level listed.
     let names = (0..30).map(|index| format!("n{index}")).collect::<Vec<_>>();
     let mut graph = graph(&[]);
     graph.callers.insert("root".into(), vec![names[0].clone()]);
@@ -217,10 +218,10 @@ async fn hierarchy_depth_is_clamped_in_code() {
         graph.callers.insert(pair[0].clone(), vec![pair[1].clone()]);
     }
     let walk = walk(&graph, 1_000).await;
-    assert_eq!(walk.edges.len(), MAX_HIERARCHY_DEPTH as usize);
+    assert_eq!(walk.edges.len(), names.len());
     assert_eq!(
         walk.edges.last().map(|edge| edge.level),
-        Some(MAX_HIERARCHY_DEPTH)
+        Some(u32::try_from(names.len()).expect("levels"))
     );
 }
 

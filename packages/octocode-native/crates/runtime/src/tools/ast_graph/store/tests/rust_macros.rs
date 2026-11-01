@@ -28,7 +28,7 @@ fn a_ready_argument_links_its_module_path_callee() {
         Some("src/task/coop.rs#poll_proceed"),
         |_| {},
     );
-    let rows = out.value["results"].as_array().expect("rows");
+    let rows = out.value["rows"].as_array().expect("rows");
     assert!(
         rows.iter().any(|row| row["id"] == "src/a.rs#x"
             && row["via"] == "module-path"
@@ -85,7 +85,7 @@ fn a_repo_macro_sharing_a_std_name_leaves_the_argument_unlinked() {
         callers.value
     );
     let unresolved = ask(root, "unresolved", Some("src/a.rs#x"), |_| {});
-    let rows = unresolved.value["results"].as_array().expect("rows");
+    let rows = unresolved.value["rows"].as_array().expect("rows");
     assert!(
         rows.iter()
             .any(|row| row["targetName"] == "helper" && row["reason"] == "ambiguous"),
@@ -191,7 +191,7 @@ fn a_macro_argument_in_a_recovered_declaration_stays_recovered() {
     });
     assert_eq!(ids(&callers), Vec::<String>::new(), "{}", callers.value);
     let unresolved = ask(root, "unresolved", Some("src/lib.rs"), |_| {});
-    let rows = unresolved.value["results"].as_array().expect("rows");
+    let rows = unresolved.value["rows"].as_array().expect("rows");
     assert!(
         rows.iter()
             .any(|row| row["targetName"] == "target" && row["reason"] == "recovered-declaration"),
@@ -228,7 +228,7 @@ fn a_repo_macro_aliased_to_a_std_name_leaves_the_argument_unlinked() {
         assert_eq!(ids(&callers), Vec::<String>::new(), "{}", callers.value);
     }
     let unresolved = ask(root, "unresolved", Some("src/c.rs#uses_glob"), |_| {});
-    let rows = unresolved.value["results"].as_array().expect("rows");
+    let rows = unresolved.value["rows"].as_array().expect("rows");
     assert!(
         rows.iter()
             .any(|row| row["targetName"] == "globbed" && row["reason"] == "ambiguous"),

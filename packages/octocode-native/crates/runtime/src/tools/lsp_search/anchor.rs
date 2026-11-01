@@ -138,7 +138,7 @@ fn qualified_at(line: &str, column: u32, name: &str) -> Option<String> {
         .char_indices()
         .scan(0_u32, |units, (byte, ch)| {
             let start = *units;
-            *units += ch.len_utf16() as u32;
+            *units += crate::num::u32_of_usize(ch.len_utf16());
             Some((byte, start))
         })
         .find(|(_, start)| *start == column)
@@ -149,11 +149,10 @@ fn qualified_at(line: &str, column: u32, name: &str) -> Option<String> {
             .strip_suffix(separator)
             .map(|rest| (*separator, rest))
     })?;
-    let is_word = |ch: char| ch == '_' || ch == '$' || ch.is_alphanumeric();
     let start = rest
         .char_indices()
         .rev()
-        .take_while(|(_, ch)| is_word(*ch))
+        .take_while(|(_, ch)| octocode_engine::text::is_ident_char(*ch))
         .last()
         .map(|(byte, _)| byte)?;
     Some(format!("{}{separator}{name}", &rest[start..]))
@@ -279,10 +278,8 @@ fn last_member_start(name: &str) -> Option<usize> {
         .max()?;
     let member = &name[start..];
     let identifier = member.strip_prefix('#').unwrap_or(member);
-    let is_identifier = !identifier.is_empty()
-        && identifier
-            .chars()
-            .all(|ch| ch == '_' || ch == '$' || ch.is_alphanumeric());
+    let is_identifier =
+        !identifier.is_empty() && identifier.chars().all(octocode_engine::text::is_ident_char);
     let qualifier = name[..start].trim_end_matches(['.', ':', '-', '>']);
     (is_identifier && !qualifier.is_empty()).then_some(start)
 }
@@ -295,7 +292,7 @@ fn qualifier_width(resolved: &LspResolvedSymbol, name: &str, member_start: usize
     let spelled: Vec<u16> = name.encode_utf16().collect();
     line.get(column..)?
         .starts_with(&spelled)
-        .then(|| name[..member_start].encode_utf16().count() as u32)
+        .then(|| crate::num::u32_of_usize(name[..member_start].encode_utf16().count()))
 }
 
 #[cfg(test)]

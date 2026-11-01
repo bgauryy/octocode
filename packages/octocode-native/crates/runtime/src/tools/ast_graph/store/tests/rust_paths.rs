@@ -23,8 +23,8 @@ fn rust_bare_calls_do_not_resolve_same_named_methods() {
         o.confidence = Some("high".into());
     });
     assert_eq!(ids(&bare), vec!["src/helpers.rs#route"], "{}", bare.value);
-    assert_eq!(bare.value["results"][0]["via"], "import");
-    assert_eq!(bare.value["results"][0]["edgeLine"], 5);
+    assert_eq!(bare.value["rows"][0]["via"], "import");
+    assert_eq!(bare.value["rows"][0]["edgeLine"], 5);
     for caller in [
         "src/lib.rs#Query.receiver",
         "src/lib.rs#Query.qualified",
@@ -53,7 +53,7 @@ fn rust_bare_calls_do_not_resolve_same_named_methods() {
         o.edges = vec!["calls".into()];
         o.confidence = Some("high".into());
     });
-    assert_eq!(cycles.value["total"], 0, "{}", cycles.value);
+    assert_eq!(cycles.value["pagination"]["totalItems"], 0, "{}", cycles.value);
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn plan_3_rust_module_path_calls_link() {
     );
     for caller in ["src/api.rs#handle", "src/api.rs#nested"] {
         let out = ask(dir.0.as_path(), "callees", Some(caller), |_| {});
-        let rows = out.value["results"].as_array().expect("rows");
+        let rows = out.value["rows"].as_array().expect("rows");
         assert!(
             rows.iter()
                 .any(|r| r["id"] == "src/portable.rs#sanitize" && r["via"] == "module-path"),
@@ -139,7 +139,7 @@ fn rust_module_path_calls_follow_pub_use_reexports() {
         ExitClass::Success
     );
     let out = ask(dir.0.as_path(), "callees", Some("src/api.rs#g"), |_| {});
-    let rows = out.value["results"].as_array().expect("rows");
+    let rows = out.value["rows"].as_array().expect("rows");
     assert!(
         rows.iter()
             .any(|r| r["id"] == "src/a/b.rs#f" && r["via"] == "module-path"),
@@ -172,7 +172,7 @@ fn path_qualified_rust_edges_keep_their_evidence_line() {
         ExitClass::Success
     );
     let deps = ask(dir.0.as_path(), "deps", Some("src/api.rs"), |_| {});
-    let rows = deps.value["results"].as_array().expect("rows");
+    let rows = deps.value["rows"].as_array().expect("rows");
     let row = rows
         .iter()
         .find(|r| r["id"] == "src/portable.rs")
@@ -189,7 +189,7 @@ fn path_qualified_rust_edges_keep_their_evidence_line() {
         ExitClass::Success
     );
     let deps = ask(dir.0.as_path(), "deps", Some("src/api.rs"), |_| {});
-    let rows = deps.value["results"].as_array().expect("rows");
+    let rows = deps.value["rows"].as_array().expect("rows");
     let row = rows
         .iter()
         .find(|r| r["id"] == "src/portable.rs")
@@ -264,7 +264,7 @@ fn rust_member_calls_on_a_local_named_like_a_module_do_not_link_by_namespace() {
     });
     assert_eq!(ids(&start), vec!["src/io.rs#moduled"], "{}", start.value);
     assert_eq!(
-        start.value["results"][0]["via"], "namespace",
+        start.value["rows"][0]["via"], "namespace",
         "{}",
         start.value
     );

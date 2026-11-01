@@ -26,9 +26,9 @@ pub(super) fn project(
 
 fn slice_index(index: i64, length: usize) -> usize {
     if index < 0 {
-        length.saturating_sub(index.unsigned_abs() as usize)
+        length.saturating_sub(crate::num::usize_of(index.unsigned_abs()))
     } else {
-        (index as usize).min(length)
+        usize::try_from(index).map_or(length, |index| index.min(length))
     }
 }
 

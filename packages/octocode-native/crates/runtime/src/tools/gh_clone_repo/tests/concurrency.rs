@@ -2,13 +2,13 @@
 use super::*;
 
 #[test]
-fn concurrent_requests_publish_once_and_validation_fails_closed() {
+fn concurrent_requests_replace_serially_and_validation_fails_closed() {
     let fixture = Fixture::shared();
-    let (root, cache_home) = home_root();
+    let (root, home) = home_root();
     let policy = Arc::new(test_support::workspace_policy(&root.0));
     let endpoint = Arc::new(api_github_endpoint());
     let runner = Arc::new(fixture_runner(&fixture));
-    let config = Arc::new(CloneConfig::persistent(&cache_home));
+    let config = Arc::new(CloneConfig::persistent(&home));
     let barrier = Arc::new(Barrier::new(2));
     let pinned = Arc::new(fixture.pin(&query()));
     let mut workers = vec![];
@@ -40,9 +40,16 @@ fn concurrent_requests_publish_once_and_validation_fails_closed() {
         .into_iter()
         .map(|worker| worker.join().expect("worker"))
         .collect::<Vec<_>>();
+    let fetches = runner
+        .seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|call| call.contains("fetch requested commit"))
+        .count();
     assert_eq!(
-        values.iter().filter(|value| value.location.cached).count(),
-        1
+        fetches, 2,
+        "concurrent invocations serialize fresh replacements"
     );
     assert_eq!(values[0].location.commit_sha, values[1].location.commit_sha);
 
@@ -59,19 +66,17 @@ fn concurrent_requests_publish_once_and_validation_fails_closed() {
     );
 }
 
-/// A published entry records its whole size (checkout and `.git`), which
-/// eviction weighs it by instead of walking it; a file beside the entries
-/// (a retired layout's default-branch memo) is swept by the next eviction
-/// pass; rows for two entries run at once and both publish.
+/// Each clone reports its checked-out file size. Neighboring files are
+/// preserved, and distinct clone outputs can publish concurrently.
 #[test]
-fn entries_record_their_size_orphans_are_swept_and_distinct_rows_run_at_once() {
+fn distinct_outputs_report_sizes_and_preserve_neighboring_files() {
     let fixture = Fixture::shared();
-    let (root, cache_home) = home_root();
+    let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&cache_home);
-    let repo_dir = cache::clones_root(&cache_home)
+    let config = CloneConfig::persistent(&home);
+    let repo_dir = storage::clones_root(&home)
         .join("fixture-owner")
         .join("fixture-repo");
     fs::create_dir_all(&repo_dir).expect("repo dir");
@@ -80,16 +85,11 @@ fn entries_record_their_size_orphans_are_swept_and_distinct_rows_run_at_once() {
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
     let local = Path::new(&fresh.location.local_path);
-    let meta: cache::CacheMeta =
-        serde_json::from_slice(&fs::read(local.join(cache::META_FILE)).expect("meta"))
-            .expect("meta json");
-    let checkout = meta.checkout_bytes;
-    assert_eq!(checkout, fresh.bytes);
+    assert_eq!(storage::checked_out_size(local), fresh.bytes);
     assert!(
-        meta.size_bytes > checkout,
-        "the entry's size counts .git too: {meta:?}"
+        orphan.exists(),
+        "neighboring files are not tool-owned output"
     );
-    assert!(!orphan.exists(), "an orphaned file is swept");
     assert!(repo_dir.is_dir(), "entry directories stay");
 
     let rows = std::thread::scope(|scope| {
@@ -112,7 +112,6 @@ fn entries_record_their_size_orphans_are_swept_and_distinct_rows_run_at_once() {
     });
     for row in rows {
         let row = row.expect("concurrent distinct clone");
-        assert!(!row.location.cached);
         assert!(Path::new(&row.location.local_path).is_dir());
     }
 }
@@ -172,7 +171,7 @@ fn large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_syml
         "fixture must exceed collected output cap"
     );
 
-    let (root, cache_home) = home_root();
+    let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = RewriteRunner::with_git(
@@ -180,8 +179,7 @@ fn large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_syml
         &fixture.bare_url,
         SystemGit::default().with_max_output(cap),
     );
-    let mut config = CloneConfig::persistent(&cache_home);
-    config.cache_ttl = Duration::from_secs(120);
+    let config = CloneConfig::persistent(&home);
     let mut context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     context.deadline = Instant::now() + Duration::from_secs(120);
     for scope in [None, Some("README.md"), Some("src")] {
@@ -218,8 +216,7 @@ fn large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_syml
             assert_eq!(fs::read_to_string(&link).expect("target text"), target);
             assert_eq!(cloned.location.symlinks, Some(vec!["escape".into()]));
         }
-        let cached = clone_pinned(&fixture, &query, &context).expect("large-index cache hit");
-        assert!(cached.location.cached);
-        assert_eq!(cached.location.symlinks, cloned.location.symlinks);
+        let replaced = clone_pinned(&fixture, &query, &context).expect("large-index replacement");
+        assert_eq!(replaced.location.symlinks, cloned.location.symlinks);
     }
 }

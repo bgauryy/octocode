@@ -245,30 +245,30 @@ async fn an_invalid_cached_entry_is_a_miss_and_is_replaced() {
 }
 
 /// Immutable release facts are remembered by key while the cache is on.
-#[test]
-fn release_facts_are_remembered_only_with_the_cache_on() {
+#[tokio::test]
+async fn release_facts_are_remembered_only_with_the_cache_on() {
     let budget = test_budget();
     let key = "crates:fact-test@1.0.0";
     let fact = serde_json::json!({"sha": "abc"});
     let off = RegistryClient::uncached(&NoHttp, &budget);
-    off.remember_fact(key, &fact);
-    assert_eq!(off.fact(key), None);
+    off.remember_fact(key, &fact).await;
+    assert_eq!(off.fact(key).await, None);
     let cache = ArtifactCache::new(None);
     let on = RegistryClient {
         cache: Some(&cache),
         tags: None,
         ..off
     };
-    assert_eq!(on.fact(key), None);
-    on.remember_fact(key, &fact);
-    assert_eq!(on.fact(key), Some(fact));
+    assert_eq!(on.fact(key).await, None);
+    on.remember_fact(key, &fact).await;
+    assert_eq!(on.fact(key).await, Some(fact));
 }
 
 /// Each runtime owns its cache: a fact remembered under one home is not
 /// seen under another, while a later runtime on the same home reads it
 /// from disk.
-#[test]
-fn runtimes_with_different_homes_do_not_share_registry_answers() {
+#[tokio::test]
+async fn runtimes_with_different_homes_do_not_share_registry_answers() {
     let budget = test_budget();
     let (first, second) = (Fixture::new(), Fixture::new());
     let fact = serde_json::json!({"sha": "abc"});
@@ -279,12 +279,19 @@ fn runtimes_with_different_homes_do_not_share_registry_answers() {
         }
     }
     let one = ArtifactCache::new(Some(first.0.clone()));
-    client(&one, &budget).remember_fact("crates:isolated@1.0.0", &fact);
+    client(&one, &budget)
+        .remember_fact("crates:isolated@1.0.0", &fact)
+        .await;
     let other = ArtifactCache::new(Some(second.0.clone()));
-    assert_eq!(client(&other, &budget).fact("crates:isolated@1.0.0"), None);
+    assert_eq!(
+        client(&other, &budget).fact("crates:isolated@1.0.0").await,
+        None
+    );
     let reopened = ArtifactCache::new(Some(first.0.clone()));
     assert_eq!(
-        client(&reopened, &budget).fact("crates:isolated@1.0.0"),
+        client(&reopened, &budget)
+            .fact("crates:isolated@1.0.0")
+            .await,
         Some(fact)
     );
 }

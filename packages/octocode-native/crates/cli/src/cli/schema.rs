@@ -44,7 +44,7 @@ fn enabled(machine: &Value, name: &str) -> bool {
 }
 
 /// The CLI's own notes, after the shared instructions in the full catalog.
-const CLI_INSTRUCTIONS: &str = "<cli>CLI only: ghCloneRepo. Graph tools also use MCP when OCTOCODE_BETA=true. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
+const CLI_INSTRUCTIONS: &str = "<cli>All tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE, clasify needs OCTOCODE_CLASSIFICATION_API. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
 
 /// Core's one instruction string (embedded through config), served by MCP
 /// `initialize` and, with the CLI's own notes, by the full catalog.
@@ -92,7 +92,7 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
                 "auth": "octocode auth status (login: octocode auth login)",
                 "mcp": "octocode install --ide <id> (ids: octocode install --list)",
                 "skills": "octocode skill install --all --platform <claude|codex|cursor|...> --global",
-                "graph": "octocode graph --help",
+                "graph": "octocode graphBuild --help, then octocode graphQuery --help",
             },
         },
         "instructions": format!("{}\n{CLI_INSTRUCTIONS}", instructions(presentation)),
@@ -148,6 +148,17 @@ pub(super) fn tool_view(
         return Err(usage("A tool's views: query (default) or variants."));
     }
     let mut value = match select {
+        // The query view states the input contract once: its query fields.
+        // The call envelope around them (`{"queries":[…]}` or
+        // `{"cursor":"…"}`) is the same for every tool and `--help` states
+        // it, so the envelope's copy of the fields is not repeated.
+        None if view == "query" => {
+            let mut query = configured["views"][view].clone();
+            if let Some(fields) = query.as_object_mut() {
+                fields.remove("inputSchema");
+            }
+            query
+        }
         None => configured["views"][view].clone(),
         Some(_) if view != "query" => {
             return Err(usage("--select requires the query view and a tool name"));

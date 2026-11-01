@@ -145,7 +145,8 @@ async fn empty_code_search_hints_are_cause_specific() {
         &crate::tools::test_support::checks::related_call(&path_mode.data, "ghSearchCode", |_| {
             true
         })["input"]["queries"][0];
-    assert_eq!(content["matchIn"], json!(["content"]), "{}", path_mode.data);
+    let opened = crate::tools::test_support::opened(crate::id::ToolId::GhSearchCode, content);
+    assert_eq!(opened["matchIn"], json!(["content"]), "{}", path_mode.data);
     assert_eq!(content["keywords"], json!(["fn spawn_blocking"]));
 }
 

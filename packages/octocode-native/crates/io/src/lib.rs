@@ -8,6 +8,16 @@
 //! GitHub, runtime and CLI all use them, so they live in this leaf below
 //! all three. The engine is a leaf too and keeps its own two moka caches
 //! (graph facts, LSP responses).
+// Numeric conversions are explicit (`try_from` with a stated outcome): a
+// lossy `as` cast fails CI (`-D warnings`). Tests may cast fixture values.
+#![cfg_attr(
+    not(test),
+    warn(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap
+    )
+)]
 
 pub mod atomic;
 pub mod budget;

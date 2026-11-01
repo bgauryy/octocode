@@ -196,9 +196,10 @@ fn a_truncated_scan_claims_no_count() {
         )
         .expect("source");
     }
+    let _window = crate::tools::ast_search::scan_window::test_window(1);
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"rule":{"pattern":"Mutex::new($X)"},"maxFiles":1}),
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"Mutex::new($X)"}}),
     )
     .expect("capped");
     assert!(qualified_notes(&out).is_empty(), "{out}");

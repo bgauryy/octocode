@@ -2,7 +2,7 @@
 //! scanned, names where it stopped, and leads to narrower scopes, never an
 //! empty or whole-looking page.
 use super::super::{StructureSearchQuery, execute_structure_within};
-use super::{related, run};
+use super::{WINDOW, related, run, with_window};
 use crate::execution::cancel::{CancellationCheck, NeverCancel};
 use crate::id::ToolId;
 use crate::tools::test_support::{Fixture, assert_row_contract, simple_policy, skipped_count};
@@ -39,7 +39,7 @@ fn within_checked(
 /// fractions of whole steps, so they cut a fixture walk after a few entries.
 const STEP: Duration = Duration::from_millis(3);
 
-/// A budget no fixture walk spends: its windows are cut by `maxEntries` alone.
+/// A budget no fixture walk spends: its windows are cut by the walk window alone.
 const UNSPENT: Duration = Duration::from_secs(3600);
 
 /// Spends [`STEP`] of the walk clock at every entry the walk reaches, so a
@@ -92,6 +92,7 @@ fn a_listing_out_of_time_is_partial_names_where_it_stopped_and_leads_narrower() 
         );
         let narrow = &related(&out, "structureSearch")["input"]["queries"][0];
         assert_eq!(narrow["operation"], "tree", "{out}");
+        let narrow = crate::tools::test_support::opened(ToolId::StructureSearch, narrow);
         assert_eq!(narrow["maxDepth"], 1, "{out}");
         assert!(out["next"].get("continueWalk").is_none(), "{out}");
     }
@@ -129,7 +130,7 @@ fn listed_entries(out: &Value) -> Vec<String> {
 }
 
 /// Runs a listing through every window its `continueWalk` offers (resuming
-/// after a time cut, widening after a `maxEntries` cut), each under the next
+/// after a time cut, widening after a `limit` cut), each under the next
 /// budget of `budgets` (the last repeats): timing that cuts one window early
 /// and another late. Returns the rows each window listed, and how many
 /// windows the time budget cut.
@@ -156,7 +157,7 @@ fn flat_listing(operation: &str, root: &Fixture, extra: Value) -> Value {
 }
 /// [`follow_windows`], keeping each window's whole response, and for each
 /// window whether its `continueWalk` resumes a time cut: a resume moves
-/// `walkOffset`, a widened `maxEntries` keeps the window's own.
+/// `walkOffset`, a widened `limit` keeps the window's own.
 fn follow_outputs(
     root: &std::path::Path,
     start: Value,

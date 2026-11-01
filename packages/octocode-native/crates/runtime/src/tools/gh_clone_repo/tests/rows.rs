@@ -1,4 +1,4 @@
-//! Clone rows: a missing repository, continuations and cache age, recorded size, history depth and runtime limits.
+//! Clone rows: missing repositories, local exploration, checkout sizes and history depth.
 use super::bench::*;
 use super::*;
 
@@ -6,28 +6,31 @@ use super::*;
 fn missing_repository_names_the_repository_with_a_recovery_hint() {
     let error = repository_not_found(&query());
     assert_eq!(error.code, ErrorCode::NotFound);
+    // The message names the repository and the token's access, as on every
+    // GitHub read.
     assert_eq!(
         error.message,
-        "Repository not found: fixture-owner/fixture-repo"
+        crate::tools::gh_shared::repository_not_found_message("fixture-owner", "fixture-repo")
     );
-    assert_eq!(error.hints.len(), 1);
-    // The hint fits the 120-char guidance cap whole (the message names
-    // the repository), so the response stage never cuts it mid-sentence.
-    let long = repository_not_found(&parse_query(serde_json::json!({
-        "owner": "o".repeat(39), "repo": "r".repeat(100)
-    })));
-    for hint in [&error.hints[0], &long.hints[0]] {
-        assert!(hint.chars().count() <= 120, "{hint}");
-        assert!(hint.ends_with('.'), "{hint}");
-        assert!(hint.contains("token"), "{hint}");
-    }
-    // Beside the hint, a runnable search for the name finds who holds it.
-    let find = &error.calls.as_ref().expect("search lead")["findRepository"];
-    assert_eq!(find["tool"], "ghSearchRepo", "{find}");
+    assert!(error.message.contains("token"), "{}", error.message);
+    // The shared leads: a search for the name and the owner's listing,
+    // with the shared hint that labels the name search's rows.
     assert_eq!(
-        find["input"]["queries"][0]["keywords"],
+        error.hints,
+        [crate::tools::gh_shared::repository_search_hint(
+            Some("fixture-owner"),
+            "fixture-repo"
+        )]
+    );
+    let calls = error.calls.as_deref().expect("recovery leads");
+    assert_eq!(
+        calls,
+        &crate::tools::gh_shared::repository_recovery(Some("fixture-owner"), "fixture-repo")
+    );
+    assert_eq!(
+        calls["findRepository"]["input"]["queries"][0]["keywords"],
         serde_json::json!(["fixture-repo"]),
-        "{find}"
+        "{calls}"
     );
     // Errors without recovery serialize exactly as before.
     let plain = CloneError::new(ErrorCode::GitFailed, "failed");
@@ -38,15 +41,15 @@ fn missing_repository_names_the_repository_with_a_recovery_hint() {
 }
 
 /// A clone row continues into the local tools on its checkout (the
-/// sparse subtree when one was requested), and a cache hit names its age.
+/// sparse subtree when one was requested), and every fetch reports its completion time.
 #[test]
-fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
+fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
     let fixture = Fixture::shared();
-    let (root, cache_home) = home_root();
+    let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&cache_home);
+    let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let row = |result: &CloneResult| {
         let data = serde_json::to_value(result).expect("serialize");
@@ -65,24 +68,24 @@ fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
         explore["input"]["queries"][0]["path"],
         fresh["location"]["localPath"]
     );
-    // A fresh clone states its age like a hit, and drops what the caller
-    // already knows (owner/repo) or what is constant (source, true flags).
     assert!(fresh["location"]["clonedAt"].is_string(), "{fresh}");
-    assert!(fresh["location"]["expiresAt"].is_string(), "{fresh}");
     for absent in ["owner", "repo"] {
         assert!(fresh.get(absent).is_none(), "{fresh}");
     }
-    for absent in ["source", "verified", "complete"] {
+    for absent in ["source", "verified", "complete", "cached", "expiresAt"] {
         assert!(fresh["location"].get(absent).is_none(), "{fresh}");
     }
 
-    let cached = row(&clone_pinned(&fixture, &query(), &context).expect("cached clone"));
-    assert_eq!(cached["location"]["cached"], true);
-    let cloned_at = cached["location"]["clonedAt"].as_str().expect("clonedAt");
-    let expires_at = cached["location"]["expiresAt"].as_str().expect("expiresAt");
+    let replaced = row(&clone_pinned(&fixture, &query(), &context).expect("fresh replacement"));
     assert!(
-        cloned_at.ends_with('Z') && expires_at > cloned_at,
-        "{cached}"
+        replaced["location"]["clonedAt"]
+            .as_str()
+            .unwrap()
+            .ends_with('Z')
+    );
+    assert_eq!(
+        replaced["location"]["localPath"],
+        fresh["location"]["localPath"]
     );
 
     let sparse = row(&clone_pinned(
@@ -130,17 +133,15 @@ fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
     assert!(Path::new(path).is_file(), "{file}");
 }
 
-/// A cache hit costs no git availability probe and no checkout walk: a
-/// failing `rev-parse` already diagnoses a missing git, and the size was
-/// recorded when the checkout was published.
+/// Replacing a checkout probes Git and reports the freshly checked-out size.
 #[test]
-fn cache_hits_skip_the_git_probe_and_report_the_recorded_size() {
+fn replacements_probe_git_and_report_the_checked_out_size() {
     let fixture = Fixture::shared();
-    let (root, cache_home) = home_root();
+    let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&cache_home);
+    let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
     runner
@@ -148,20 +149,22 @@ fn cache_hits_skip_the_git_probe_and_report_the_recorded_size() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clear();
-    let cached = clone_pinned(&fixture, &query(), &context).expect("cached clone");
-    assert!(cached.location.cached);
-    assert_eq!(cached.bytes, fresh.bytes);
+    let replaced = clone_pinned(&fixture, &query(), &context).expect("replacement clone");
+    assert_eq!(replaced.bytes, fresh.bytes);
     assert!(fresh.bytes > 0);
     let seen = runner
         .seen
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone();
-    // A cache hit never probes git.
-    test_support::checks::assert_absent(&serde_json::json!(seen), "--version");
+    assert!(seen.iter().any(|request| request.contains("--version")));
+    assert!(
+        seen.iter()
+            .any(|request| request.contains("fetch requested commit"))
+    );
 }
 
-/// `depth` fetches that many commits and keys its own cache entry.
+/// `depth` fetches that many commits and keys its own destination.
 #[test]
 fn history_depth_fetches_that_many_commits() {
     let bench = Bench::committing(api_github_endpoint());
@@ -189,21 +192,16 @@ fn history_depth_fetches_that_many_commits() {
     assert_eq!(count(&deep.location.local_path), "2");
 }
 
-/// A persistent cache runs under the runtime's constant limits; a test
-/// runtime's limits replace them field for field.
 #[test]
-fn persistent_defaults_are_the_runtime_constants_and_limits_apply() {
-    let base = CloneConfig::persistent("/h");
-    assert_eq!(base.cache_ttl, Duration::from_secs(24 * 60 * 60));
-    assert_eq!(base.max_cache_size_bytes, 2 * 1024 * 1024 * 1024);
-    assert_eq!(base.max_clone_count, 50);
-    assert_eq!(base.network_timeout, Duration::from_secs(30));
-    let config = CloneConfig::persistent("/h").with_limits(&crate::execution::CloneLimits {
-        ttl: Duration::from_secs(120),
-        max_bytes: 1024 * 1024,
-        max_clones: 7,
-    });
-    assert_eq!(config.cache_ttl, Duration::from_secs(120));
-    assert_eq!(config.max_clone_count, 7);
-    assert_eq!(config.max_cache_size_bytes, 1024 * 1024);
+fn clone_timeout_defaults_to_the_runtime_network_limit() {
+    assert_eq!(
+        CloneConfig::persistent("/h").network_timeout,
+        crate::execution::RuntimeLimits::DEFAULT.network_timeout
+    );
+    assert_eq!(
+        CloneConfig::persistent("/h")
+            .with_network_timeout(Duration::from_secs(9))
+            .network_timeout,
+        Duration::from_secs(9)
+    );
 }

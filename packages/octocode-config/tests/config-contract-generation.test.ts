@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   CONFIG_FIELDS,
+  ENV_CREDENTIAL_VARS,
   ENV_TOKEN_VARS,
   PROTECTED_KEY_NAMES,
 } from '../src/config/contract.generated.js';
@@ -55,5 +56,23 @@ describe('generated config contract', () => {
     expect(
       ENV_TOKEN_VARS.every(name => !new Set<string>(PROTECTED_KEY_NAMES).has(name))
     ).toBe(true);
+  });
+
+  it('generates credential-name metadata for every contract-declared credential', () => {
+    const contract = loadJson(contractPath) as {
+      environment: Record<string, { credential?: boolean }>;
+      sections: Record<string, { fields: Record<string, { credential?: boolean; env?: { name: string } }> }>;
+    };
+    const declared = [
+      ...Object.entries(contract.environment)
+        .filter(([, definition]) => definition.credential === true)
+        .map(([name]) => name),
+      ...Object.values(contract.sections).flatMap(section =>
+        Object.values(section.fields).flatMap(field =>
+          field.credential === true && field.env ? [field.env.name] : []
+        )
+      ),
+    ].toSorted();
+    expect(ENV_CREDENTIAL_VARS).toEqual(declared);
   });
 });

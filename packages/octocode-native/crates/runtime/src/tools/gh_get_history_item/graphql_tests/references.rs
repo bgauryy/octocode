@@ -109,3 +109,58 @@ async fn review_comments_load_beside_the_graphql_read() {
         inline_at[0].duration_since(graphql_at[0])
     );
 }
+
+/// Every closing reference is read, page by page from its cursor: the
+/// issue lists all of them and reports no bound.
+#[tokio::test]
+async fn every_closing_reference_is_read_on_from_its_cursor() {
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/issues/42",
+        200,
+        json!({"number": 42, "title": "t", "state": "closed", "body": "b",
+            "user": {"login": "amy"}, "labels": [], "comments": 0,
+            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-02T00:00:00Z"}),
+    )
+    .await;
+    let nodes = |range: std::ops::Range<u64>| {
+        range
+            .map(|number| json!({"number": number, "state": "CLOSED", "mergedAt": null}))
+            .collect::<Vec<_>>()
+    };
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .and(body_string_contains("\"after\":\"r1\""))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+            "repository": {"issue": {"closedByPullRequestsReferences": {
+                "totalCount": 130, "pageInfo": {"hasNextPage": false, "endCursor": "r2"},
+                "nodes": nodes(100..130)}}}
+        }})))
+        .expect(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+            "repository": {"issue": {"closedByPullRequestsReferences": {
+                "totalCount": 130, "pageInfo": {"hasNextPage": true, "endCursor": "r1"},
+                "nodes": nodes(0..100)}}}
+        }})))
+        .expect(1)
+        .with_priority(2)
+        .mount(&server)
+        .await;
+    let out = read(
+        &server,
+        json!({"operation":"issue","owner":"a","repo":"b","number":42}),
+    )
+    .await;
+    let closed_by = out
+        .data
+        .pointer("/issues/0/closedBy")
+        .and_then(Value::as_array);
+    assert_eq!(closed_by.map(Vec::len), Some(130), "{}", out.data);
+    assert!(out.data.get("terminalLimit").is_none(), "{}", out.data);
+}

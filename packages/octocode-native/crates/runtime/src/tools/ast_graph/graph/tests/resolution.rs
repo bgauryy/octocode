@@ -124,7 +124,7 @@ fn alias_looking_bare_specifiers_are_internal_gaps_not_external() {
     assert!(record(&mut b, "react", false), "third-party stays external");
     assert!(!record(&mut b, "@/missing", true));
     assert!(!record(&mut b, "@acme/core/package.json", true));
-    assert_eq!(b.imports, [0, 1, 1, 0, 1]);
+    assert_eq!(b.imports, [0, 1, 1, 0, 1, 0]);
     assert!(
         b.diagnostics.iter().any(
             |d| d.code == DiagnosticCode::UnresolvedInternal && d.message.contains("@/missing")

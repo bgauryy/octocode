@@ -13,6 +13,7 @@ pub fn execute_local_fetch(
     cancel: &impl CancellationCheck,
     window: Option<usize>,
     selection: Option<&crate::tools::selection::Runtime>,
+    views: &std::sync::Arc<ViewCache>,
 ) -> LocalFetchResult {
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(
@@ -59,7 +60,6 @@ pub fn execute_local_fetch(
                 meta.len()
             ),
         );
-        result.source_bytes = Some(meta.len() as usize);
         result.terminal_limit(PartialReason::SourceSizeLimit);
         result.hints = vec!["Convert a copy to UTF-8 or split the source into smaller text files; line ranges do not lift this decoding limit.".into()];
         return result;
@@ -99,6 +99,7 @@ pub fn execute_local_fetch(
         path,
         display_path,
         &SourceFacts {
+            views: views.clone(),
             modified: meta.modified().ok().and_then(system_time_iso),
             window,
             beside: 0,

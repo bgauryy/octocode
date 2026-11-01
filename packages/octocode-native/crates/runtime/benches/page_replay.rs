@@ -76,7 +76,7 @@ fn row(fields: Value) -> Value {
 fn workloads(root: &str, wide: &str) -> Vec<Workload> {
     vec![
         // A single read fits its share of the page (its own
-        // `continueWindow` pages the file), so a read never pages alone.
+        // `nextPage` pages the file), so a read never pages alone.
         Workload {
             name: "localFetch 5 rows",
             tool: "localFetch",

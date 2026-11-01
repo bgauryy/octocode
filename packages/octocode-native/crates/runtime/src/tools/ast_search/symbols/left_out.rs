@@ -164,7 +164,7 @@ mod tests {
         let query: AstSearchQuerySymbols = serde_json::from_value(json!({
             "operation":"symbols","path":"src","page":3,"snapshot":"previous","scanOffset":17,
             "symbolFilter":{"terms":["Widget"],"mode":"exact"},"symbolKinds":["function"],
-            "includeHidden":true,"exclude":["vendor/**"],"maxFiles":3
+            "includeHidden":true,"exclude":["vendor/**"]
         }))
         .expect("saved symbols query");
         let kinds = KindsLeftOut {
@@ -184,7 +184,6 @@ mod tests {
             assert_eq!(row["path"], "src");
             assert_eq!(row["exclude"], json!(["vendor/**"]));
             assert_eq!(row["includeHidden"], true);
-            assert_eq!(row["maxFiles"], 3);
             assert_eq!(row["symbolFilter"]["terms"], json!(["Widget"]));
         }
         assert_eq!(

@@ -197,3 +197,30 @@ fn graph_fact_metadata_preserves_json_and_export_order_across_producers() {
         assert!(json.get(producer_field).is_some());
     }
 }
+
+/// Each extraction hashes its source once: the facts' source digest, its
+/// templates' root digest and the digest in its argument occurrence ids are
+/// the one SHA-256 of the parsed text.
+#[test]
+fn extracted_facts_name_their_source_by_one_digest() {
+    for (path, content) in [
+        ("digest.ts", "export function f(a) { return g(a); }\n"),
+        ("digest.rs", "fn f(a: u8) { g(a); }\n"),
+        ("digest.py", "def f(a):\n    g(a)\n"),
+    ] {
+        let facts = extract_graph_facts_with_metadata_inner(content, path)
+            .expect(path)
+            .facts;
+        let digest = crate::digest::sha256(content.as_bytes());
+        assert_eq!(facts.source_digest, digest, "{path}");
+        assert_eq!(
+            facts.source_templates.root_digest(),
+            Some(digest.as_str()),
+            "{path}"
+        );
+        assert!(!facts.argument_sites.is_empty(), "{path}");
+        for site in &facts.argument_sites {
+            assert!(site.id.contains(&digest), "{path}: {}", site.id);
+        }
+    }
+}

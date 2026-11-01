@@ -52,7 +52,15 @@ fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
         &mut query,
         serde_json::json!({"classification":serde_json::json!({"predicates":["Does this explain ownership?"]})}),
     );
-    let first = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, None);
+    let first = execute_local_fetch(
+        &query,
+        &paths,
+        &Safe,
+        &NeverCancel,
+        None,
+        None,
+        &Default::default(),
+    );
     assert!(first.content.as_deref().unwrap_or_default().is_empty());
     let captured = first.source_sha256.expect("captured source identity");
     let recovery = first
@@ -63,11 +71,27 @@ fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
         .query;
     assert!(!local_fetch_query::has_classification(&recovery));
     assert!(local_fetch_query::selection(&recovery).is_none());
-    let recovered = execute_local_fetch(&recovery, &paths, &Safe, &NeverCancel, None, None);
+    let recovered = execute_local_fetch(
+        &recovery,
+        &paths,
+        &Safe,
+        &NeverCancel,
+        None,
+        None,
+        &Default::default(),
+    );
     assert_eq!(recovered.error_code, None);
     assert_eq!(recovered.content.as_deref(), Some("original evidence\n"));
     fs::write(&path, "changed evidence\n").expect("change source");
-    let changed = execute_local_fetch(&recovery, &paths, &Safe, &NeverCancel, None, None);
+    let changed = execute_local_fetch(
+        &recovery,
+        &paths,
+        &Safe,
+        &NeverCancel,
+        None,
+        None,
+        &Default::default(),
+    );
     assert_eq!(changed.error_code, Some(ErrorCode::StaleSnapshot));
     assert_eq!(
         local_fetch_query::snapshot(&recovery),
@@ -93,7 +117,15 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let mut runtime = selection_runtime(executor.handle().clone());
     runtime.limits.max_candidates = 1;
-    let first = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, Some(&runtime));
+    let first = execute_local_fetch(
+        &query,
+        &paths,
+        &Safe,
+        &NeverCancel,
+        None,
+        Some(&runtime),
+        &Default::default(),
+    );
     let receipt = first.selection.expect("selection receipt");
     assert_eq!((receipt.selected_items, receipt.unknown_items), (1, 2));
     let captured = first.source_sha256.expect("captured source");
@@ -204,6 +236,7 @@ fn context_full_content_bounded_continuation_replays_its_selection() {
         &NeverCancel,
         Some(10_000),
         Some(&runtime),
+        &Default::default(),
     );
     assert_eq!(first.error_code, None);
     let next = first
@@ -220,6 +253,7 @@ fn context_full_content_bounded_continuation_replays_its_selection() {
         &NeverCancel,
         Some(10_000),
         Some(&runtime),
+        &Default::default(),
     );
     assert_eq!(second.error_code, None);
     assert_eq!(

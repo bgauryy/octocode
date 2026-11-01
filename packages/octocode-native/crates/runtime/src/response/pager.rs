@@ -3,6 +3,7 @@
 //! Every surface (CLI JSON, CLI views, MCP) reads the same pages.
 
 mod cut;
+mod handles;
 mod telemetry;
 mod window;
 pub(crate) use cut::measure_page;
@@ -18,7 +19,7 @@ use super::row_pages::RowSource;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResponseInput {
-    pub tool: String,
+    pub tool: crate::id::ToolId,
     pub structured: Value,
     pub options: ResponsePageOptions,
     /// Each result row's remaining-page notes (by position), so a split
@@ -116,20 +117,44 @@ fn row_source(
     // Row pages re-attach per-call provider facts to the row they came
     // from; the snapshot and page plan never see them.
     let volatile = take_volatile_fields(&mut structured);
-    // One streaming pass over the envelope: its length and snapshot digest,
-    // with no rendering built. Every page is bounded by its budget, so any
-    // envelope size pages.
-    let envelope = octocode_engine::digest::fingerprint_json(&structured)
-        .ok_or(ResponseError::Unserializable)?;
+    let envelope = fingerprint(&mut structured).ok_or(ResponseError::Unserializable)?;
     RowSource::new(
         structured,
         &envelope,
         &input.options,
         volatile,
-        crate::id::ToolId::from_name(&input.tool),
+        input.tool,
         &|pagination| pagination_block_chars(input, pagination),
         cancelled,
     )
+}
+
+/// One streaming pass over the envelope: its length and snapshot digest,
+/// with no rendering built (every page is bounded by its budget, so any
+/// envelope size pages), and issued handles read as their placeholder
+/// ([`handles`]).
+fn fingerprint(
+    structured: &mut Map<String, Value>,
+) -> Option<octocode_engine::digest::JsonFingerprint> {
+    handles::masked(structured, |structured| {
+        octocode_engine::digest::fingerprint_json(structured)
+    })
+}
+
+/// The content snapshot the pages of `structured` at `budget` chars per
+/// page carry: what a re-execution must reproduce to serve a page of an
+/// earlier response ([`super::cursor::Cursor::content_snapshot`]).
+pub(crate) fn content_snapshot(structured: &Value, budget: usize) -> Option<String> {
+    let Value::Object(structured) = structured else {
+        return None;
+    };
+    let mut structured = structured.clone();
+    take_volatile_fields(&mut structured);
+    let envelope = fingerprint(&mut structured)?;
+    Some(super::cursor::rows_snapshot(
+        budget.max(1),
+        &envelope.digest,
+    ))
 }
 
 /// What a saved read's pages cut from, built from a copy of the saved

@@ -199,6 +199,7 @@ fn paged_regex_read_past_the_match_limit_keeps_its_search_lead() {
         &NeverCancel,
         None,
         None,
+        &Default::default(),
     );
     assert!(
         result.warnings.iter().any(|w| w.contains("match limit")),

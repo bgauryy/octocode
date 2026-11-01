@@ -19,8 +19,8 @@ pub struct RuntimeLimits {
     /// Characters of the automatic response page when a call names no
     /// `responseChars`.
     pub auto_page_chars: usize,
-    /// The ghCloneRepo cache.
-    pub clone: CloneLimits,
+    /// Retention of captured URL evidence.
+    pub capture_ttl: Duration,
     /// Process-wide in-flight classification provider requests per endpoint.
     pub classification_concurrency: usize,
     /// One context selection operation.
@@ -28,18 +28,6 @@ pub struct RuntimeLimits {
     /// Client-side GitHub request spacing: octokit's in production; tests
     /// that do not exercise throttling run unpaced.
     pub github_pacing: octocode_github::GitHubPacing,
-}
-
-/// The on-disk ghCloneRepo cache.
-#[derive(Clone, Copy, Debug)]
-pub struct CloneLimits {
-    /// How long a checkout stays fresh before it is re-fetched; also how
-    /// long a clasify URL capture is kept.
-    pub ttl: Duration,
-    /// Byte cap; least-recently-used checkouts are evicted above it.
-    pub(crate) max_bytes: u64,
-    /// Repositories the cache keeps.
-    pub(crate) max_clones: usize,
 }
 
 /// One context selection operation.
@@ -60,15 +48,11 @@ impl RuntimeLimits {
         network_timeout: Duration::from_secs(30),
         max_retries: 3,
         max_rate_limit_wait: Duration::from_secs(45),
-        auto_page_chars: 20_000,
-        clone: CloneLimits {
-            ttl: Duration::from_secs(24 * 60 * 60),
-            max_bytes: 2 * 1024 * 1024 * 1024,
-            max_clones: 50,
-        },
+        auto_page_chars: crate::id::DEFAULT_RESPONSE_CHARS,
+        capture_ttl: Duration::from_secs(24 * 60 * 60),
         classification_concurrency: 10,
         selection: SelectionLimits {
-            max_candidates: 64,
+            max_candidates: crate::id::CLASSIFICATION_UNITS_PER_PAGE,
             max_chars: 131_072,
             timeout: Duration::from_secs(10),
         },
@@ -79,5 +63,33 @@ impl RuntimeLimits {
 impl Default for RuntimeLimits {
     fn default() -> Self {
         Self::DEFAULT
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RuntimeLimits;
+
+    /// The automatic page size and the units one classified page judges are
+    /// core's `limits`, read from the embedded contract: a change in core
+    /// changes native behavior, with no native copy of either value.
+    #[test]
+    fn page_and_classification_defaults_are_the_contract_limits() {
+        let contract: serde_json::Value =
+            serde_json::from_str(crate::contracts::contract_json()).expect("embedded contract");
+        let limit = |name: &str| {
+            contract["limits"][name]
+                .as_u64()
+                .and_then(|value| usize::try_from(value).ok())
+                .unwrap_or_else(|| panic!("contract limits.{name}"))
+        };
+        assert_eq!(
+            RuntimeLimits::DEFAULT.auto_page_chars,
+            limit("defaultResponseChars")
+        );
+        assert_eq!(
+            RuntimeLimits::DEFAULT.selection.max_candidates,
+            limit("classificationUnitsPerPage")
+        );
     }
 }

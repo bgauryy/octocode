@@ -102,10 +102,10 @@ fn local_search() -> Tool {
         run: |root, query| {
             let (paths, security) = simple_policy(root);
             let query: LocalSearchQuery = serde_json::from_value(query.clone()).expect("query");
-            let result =
-                execute_local_search(&query, &paths, &security, &NeverCancel, None, None, None)
-                    .expect("search");
-            serde_json::to_value(result).expect("result")
+            let result = execute_local_search(&query, &paths, &security, &NeverCancel, None, None)
+                .expect("search");
+            // The row as published: its partial reasons are written by `to_row`.
+            result.to_row().expect("result")
         },
         found: |out| non_empty(out, "files"),
         lifts: by_flag,

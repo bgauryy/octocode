@@ -49,3 +49,35 @@ fn files_are_searched_across_chunk_boundaries() {
     );
     assert_eq!(file_spells(dir.path(), b"target"), None);
 }
+
+/// The ignored-file scan (`file_spells`) and the tracked scan's pattern
+/// (`word_pattern`) agree on every text, `$foo` included.
+#[test]
+fn ignored_and_tracked_scans_agree_on_whole_words() {
+    let tracked = regex::Regex::new(&format!(
+        "(?m){}",
+        octocode_engine::text::word_pattern("foo")
+    ))
+    .expect("pattern");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("a.ts");
+    for text in [
+        "foo",
+        "$foo",
+        "foo$",
+        "a $foo b",
+        "xfoo",
+        "éfoo",
+        "—foo—",
+        "a.foo()",
+        "x\n$foo\n",
+    ] {
+        write(&file, text);
+        assert_eq!(
+            file_spells(&file, b"foo"),
+            Some(tracked.is_match(text)),
+            "{text:?}"
+        );
+    }
+    assert_eq!(file_spells(&file, b"$foo"), Some(true));
+}

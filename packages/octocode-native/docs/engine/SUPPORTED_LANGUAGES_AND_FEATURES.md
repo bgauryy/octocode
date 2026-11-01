@@ -31,7 +31,7 @@ Languages with no native grammar (Kotlin, PHP, CSS, HTML, JSON, TOML, YAML, Ruby
 
 ### C++ headers
 
-`.h` selects C. `astSearch` with `operation:"match"` and `parser:"cpp"` parses selected `.h` files as C++; `syntaxTree` and `symbols` accept that override for a single file. For directory `symbols` or `graphBuild`, pass `parserGlobs:{"cpp":["include/**/*.h"]}`: globs are relative to the scan root, win over the extension, carry into continuations, and report conflicting parser matches as skipped files. The direct `octocode graph ingest` command takes `--language-glob 'cpp=include/**/*.h'` (repeatable). The override does not change clangd: for C++ header LSP, provide `compile_commands.json` or a `.clangd` fragment such as `If: { PathMatch: include/.*\.h }` with `CompileFlags: { Add: [-xc++] }` (`PathMatch` is a regular expression, not a glob).
+`.h` selects C. `astSearch` with `operation:"match"` and `parser:"cpp"` parses selected `.h` files as C++; `syntaxTree` and `symbols` accept that override for a single file. For directory `symbols` or `graphBuild`, pass `parserGlobs:{"cpp":["include/**/*.h"]}`: globs are relative to the scan root, win over the extension, carry into continuations, and report conflicting parser matches as skipped files. The override does not change clangd: for C++ header LSP, provide `compile_commands.json` or a `.clangd` fragment such as `If: { PathMatch: include/.*\.h }` with `CompileFlags: { Add: [-xc++] }` (`PathMatch` is a regular expression, not a glob).
 
 ### Grammar features
 

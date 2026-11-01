@@ -1,3 +1,4 @@
+use crate::num::saturating_u32;
 use std::time::Instant;
 
 use tree_sitter::{Language, Node};
@@ -29,9 +30,29 @@ pub(in crate::structural) struct ExecutionError {
     pub(in crate::structural) stage: &'static str,
     pub(in crate::structural) message: String,
 }
+/// When matching stops. Production matching runs each file to completion
+/// ([`Deadline::UNBOUNDED`]) and reads no clock; a bound one is checked at
+/// every step.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::structural) struct Deadline(Option<Instant>);
+
+impl Deadline {
+    pub(in crate::structural) const UNBOUNDED: Self = Self(None);
+    #[cfg(test)]
+    pub(in crate::structural) fn at(instant: Instant) -> Self {
+        Self(Some(instant))
+    }
+    /// The deadline of a parse this match runs: an unbounded match parses
+    /// the whole file.
+    pub(in crate::structural) fn parse_by(self) -> Instant {
+        self.0
+            .unwrap_or_else(crate::signatures::extractor::whole_file_deadline)
+    }
+}
+
 impl ExecutionError {
-    pub(in crate::structural) fn check(deadline: Instant) -> Result<(), Self> {
-        if Instant::now() >= deadline {
+    pub(in crate::structural) fn check(deadline: Deadline) -> Result<(), Self> {
+        if deadline.0.is_some_and(|at| Instant::now() >= at) {
             Err(Self::limit(
                 MATCH_DEADLINE,
                 "match",
@@ -96,6 +117,8 @@ pub(in crate::structural) struct Found<'a> {
     source_error: Option<crate::text::analysis::SourceError>,
     kept: Kept<'a>,
     recovered: bool,
+    /// Which 1-based start lines a scope keeps; `None` keeps every match.
+    keep_line: Option<&'a (dyn Fn(u32) -> bool + Sync)>,
 }
 
 enum Kept<'a> {
@@ -119,7 +142,13 @@ impl<'a> Found<'a> {
             source: None,
             source_error: None,
             recovered: false,
+            keep_line: None,
         }
+    }
+
+    /// Keep only the matches whose 1-based start line `keep` admits.
+    pub(in crate::structural) fn keep_lines(&mut self, keep: &'a (dyn Fn(u32) -> bool + Sync)) {
+        self.keep_line = Some(keep);
     }
 
     pub(in crate::structural) fn bind_source(
@@ -139,6 +168,12 @@ impl<'a> Found<'a> {
     pub(super) fn push(&mut self, node: Node<'_>, build: impl FnOnce() -> StructuralMatch) {
         if self.source_error.is_some() {
             return;
+        }
+        if let Some(keep) = self.keep_line {
+            let line = saturating_u32(node.start_position().row).saturating_add(1);
+            if !keep(line) {
+                return;
+            }
         }
         let build = || {
             let mut matched = build();
@@ -289,12 +324,12 @@ pub(super) fn raw_range(node: Node<'_>) -> RawRange {
     let start = node.start_position();
     let end = node.end_position();
     (
-        start.row as u32,
-        start.column as u32,
-        end.row as u32,
-        end.column as u32,
-        node.start_byte() as u32,
-        node.end_byte() as u32,
+        saturating_u32(start.row),
+        saturating_u32(start.column),
+        saturating_u32(end.row),
+        saturating_u32(end.column),
+        saturating_u32(node.start_byte()),
+        saturating_u32(node.end_byte()),
         super::source_context::tree_id(node),
     )
 }

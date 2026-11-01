@@ -126,10 +126,11 @@ impl Selected {
 
     /// The provider's error when it failed this page, the hit rows kept
     /// (those that pass the classifiers) of the pre-selection totals when
-    /// selection removed hits (when it kept none, why: every chunk judged and none
-    /// passed, which is the answer, or some could not be judged), and the
-    /// groups the candidate budget left unjudged. That counts describe kept hits is the tool
-    /// description's, not repeated here.
+    /// selection removed hits, and, when it kept none, why (every chunk
+    /// judged and none passed, or some could not be judged) and that an
+    /// empty classified result is no absence: the unfiltered search matched
+    /// those rows and `next.unfiltered` lists them. That counts describe
+    /// kept hits is the tool description's, not repeated here.
     pub(in crate::tools::local_search) fn disclosure(&self) -> Vec<String> {
         let mut notes = Vec::new();
         if let Some(error) = &self.provider {
@@ -146,14 +147,10 @@ impl Selected {
             } else {
                 format!("no chunk passed the questions and {unknown} could not be judged")
             };
-            let answer = if unknown == 0 {
-                "; that is the answer"
-            } else {
-                ""
-            };
             notes.push(format!(
-                "classification: {why}, so none of the {} hit rows ({} files) is listed{answer}.",
-                self.rows_before, self.files_before,
+                "classification: {why}, so none of the {rows} hit rows ({} files) is listed. An empty classified result is not absence: the unfiltered search matched those {rows} rows, and `next.unfiltered` lists them.",
+                self.files_before,
+                rows = self.rows_before,
             ));
         } else if self.rows_kept < self.rows_before {
             notes.push(format!(

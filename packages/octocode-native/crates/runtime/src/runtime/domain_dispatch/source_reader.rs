@@ -54,6 +54,10 @@ impl SourceReader for DomainDispatcher {
         &self.evaluator
     }
 
+    fn output(&self, tool: ToolId) -> &'static dyn crate::response::output::ToolOutput {
+        tool.output()
+    }
+
     fn execute(
         &self,
         tool: ToolId,
@@ -103,7 +107,7 @@ impl SourceReader for DomainDispatcher {
     }
 
     fn text_capture_limit(&self) -> usize {
-        crate::tools::local_fetch::MAX_SOURCE_BYTES as usize
+        crate::num::usize_of(crate::tools::local_fetch::MAX_SOURCE_BYTES)
     }
 
     fn capture_local_text(

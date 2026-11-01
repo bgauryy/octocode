@@ -53,9 +53,12 @@ function stageFile(source, destination, { executable = false } = {}) {
   }
 }
 
-/** Run `binaryPath --version`; it must exit 0 and print exactly `octocode <version>`. */
-function verifyBinaryRuns(binaryPath, version) {
-  const ran = spawnSync(binaryPath, ['--version'], { encoding: 'utf8', timeout: SMOKE_TIMEOUT_MS });
+/**
+ * Run `binaryPath --version`; it must exit 0 and print exactly `octocode <version>`.
+ * `run(args)` returns a spawnSync result; the smoke passes one that runs in a container.
+ */
+function verifyBinaryRuns(binaryPath, version, run = args => spawnSync(binaryPath, args, { encoding: 'utf8', timeout: SMOKE_TIMEOUT_MS })) {
+  const ran = run(['--version']);
   if (ran.status !== 0) {
     throw new Error(
       `Binary smoke failed for ${binaryPath} (status ${ran.status}, signal ${ran.signal ?? 'none'}): ${ran.stderr || ran.stdout || ran.error?.message}`,
@@ -67,4 +70,4 @@ function verifyBinaryRuns(binaryPath, version) {
   }
 }
 
-module.exports = { stageFile, verifyBinaryRuns };
+module.exports = { SMOKE_TIMEOUT_MS, stageFile, verifyBinaryRuns };

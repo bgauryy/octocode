@@ -142,9 +142,9 @@ fn outgoing_documents_validate_against_the_github_schema() {
         "{without_body}"
     );
     assert_eq!(undefined_selections(&document), Vec::<String>::new());
-    assert_eq!(variables.len(), 4, "{document}");
+    assert_eq!(variables.len(), 5, "{document}");
     // Each connection's continuation reads on from its end cursor.
-    for connection in [&FILES, &DISCUSSION, &REVIEWS, &COMMITS] {
+    for connection in [&LABELS, &FILES, &DISCUSSION, &REVIEWS, &COMMITS] {
         let next = connection.continuation_document();
         assert!(next.contains("after:$after"), "{next}");
         assert_eq!(undefined_selections(&next), Vec::<String>::new());

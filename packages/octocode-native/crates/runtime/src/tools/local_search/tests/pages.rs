@@ -108,7 +108,7 @@ fn overlapping_context_windows_reconstruct_every_requested_source_line_once() {
 }
 
 #[test]
-fn truncated_search_values_have_reads_that_recover_the_full_source() {
+fn complete_unicode_values_are_retained_even_when_larger_than_the_page_budget() {
     let root = tempfile::tempdir().expect("fixture");
     let source = format!("needle {} END_OF_EVIDENCE\n", "λ🦀text ".repeat(3000));
     fs::write(root.path().join("a.txt"), &source).expect("source");
@@ -123,18 +123,43 @@ fn truncated_search_values_have_reads_that_recover_the_full_source() {
         "localSearch",
         &serde_json::json!({"results": [{"index": 0, "data": {"files": serialized["files"]}}]}),
     )
-    .expect("clipped match evidence satisfies the core contract");
+    .expect("complete match evidence satisfies the core contract");
     let shown = &serialized["files"][0]["matches"][0];
-    if shown.get("originalChars").is_some() {
-        let (reads, content) = follow_expansions(&found, &policy);
-        assert!(reads > 0, "{serialized}");
-        assert!(
-            content.contains("END_OF_EVIDENCE"),
-            "full source must remain reachable"
-        );
-    } else {
-        assert_eq!(shown["value"], source.trim_end());
-    }
+    assert_eq!(shown["value"], source.trim_end());
+    assert!(shown.get("clipped").is_none());
+    assert!(serialized["next"].get("expandValues").is_none());
+}
+
+#[test]
+fn long_match_only_spans_page_once_with_complete_values_and_distinct_columns() {
+    let root = tempfile::tempdir().expect("fixture");
+    let first = "λ".repeat(3_000);
+    let second = "🦀".repeat(1_000);
+    fs::write(
+        root.path().join("spans.txt"),
+        format!("{first} gap {second}\n"),
+    )
+    .expect("source");
+    let (walk, pages) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["[λ🦀]+"],"regexEngine":"rust","view":"matchOnly"}),
+        Some(2500),
+    );
+    assert_eq!(walk.rows.len(), 2);
+    assert!(pages.len() > 1);
+    let mut spans = pages
+        .iter()
+        .flat_map(|page| page["files"].as_array().expect("files"))
+        .flat_map(|file| file["matches"].as_array().expect("matches"))
+        .map(|row| {
+            (
+                row["column"].as_u64().expect("column"),
+                row["value"].as_str().expect("value").to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    spans.sort_by_key(|(column, _)| *column);
+    assert_eq!(spans, vec![(1, first), (3006, second)]);
 }
 
 #[test]
@@ -197,4 +222,53 @@ fn match_only_uniqueness_counts_complete_values_per_file() {
         .collect();
     assert_eq!(counts["alpha"], 3);
     assert_eq!(counts["beta"], 1);
+}
+
+/// A search matching more files than any one collection can hold in a
+/// page chain's scan still pages every matched file exactly once, and the
+/// first page counts them all (`totalItems` is files matched, not a cap).
+#[test]
+fn every_matched_file_of_a_large_scan_is_paged_exactly_once() {
+    let root = tempfile::tempdir().expect("fixture");
+    let (dirs, per_dir) = (120, 100);
+    for dir in 0..dirs {
+        let parent = root.path().join(format!("d{dir:03}"));
+        fs::create_dir(&parent).expect("dir");
+        for file in 0..per_dir {
+            fs::write(parent.join(format!("{file:03}.txt")), "needle\n").expect("file");
+        }
+    }
+    let (walk, pages) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["needle"],"view":"files"}),
+        None,
+    );
+    let expected = (0..dirs)
+        .flat_map(|dir| (0..per_dir).map(move |file| format!("d{dir:03}/{file:03}.txt")))
+        .collect::<std::collections::BTreeSet<_>>();
+    let delivered = walk
+        .rows
+        .iter()
+        .map(|row| {
+            std::path::Path::new(row)
+                .strip_prefix(root.path())
+                .map_or_else(|_| row.clone(), |rel| rel.to_string_lossy().into_owned())
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(walk.rows.len(), expected.len(), "each file once");
+    assert_eq!(delivered, expected);
+    assert_eq!(
+        pages[0]["pagination"]["totalItems"],
+        expected.len(),
+        "{}",
+        pages[0]["pagination"]
+    );
+    assert!(
+        pages.iter().all(
+            |page| page["warnings"].as_array().is_none_or(|warnings| warnings
+                .iter()
+                .all(|warning| !warning.as_str().unwrap_or("").contains("no page reaches")))
+        ),
+        "no page discloses unreachable files"
+    );
 }

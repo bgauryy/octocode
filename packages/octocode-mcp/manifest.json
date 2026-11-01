@@ -74,6 +74,10 @@
       "description": "Package Search"
     },
     {
+      "name": "ghCloneRepo",
+      "description": "Clone / Fetch GitHub Repository Locally"
+    },
+    {
       "name": "localSearch",
       "description": "Local Search"
     },

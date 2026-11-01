@@ -203,7 +203,11 @@ pub(super) fn attach_unsearched_read(
     path: &str,
     sha: Option<&str>,
 ) {
-    mark_partial(out, "patchUnavailable", &[]);
+    mark_partial(
+        out,
+        crate::response::paging::PartialReason::PatchUnavailable,
+        &[],
+    );
     let (Some(needle), Some(sha)) = (gh_get_history_item_query::match_strings(query), sha) else {
         return;
     };
@@ -239,7 +243,7 @@ fn attach_context_reads(
     }
     mark_partial(
         out,
-        "contextClipped",
+        crate::response::paging::PartialReason::ContextClipped,
         &[format!(
             "contextLines {:?} reaches past the diff hunks of {} file(s) (contextClipped).",
             match_context(query),

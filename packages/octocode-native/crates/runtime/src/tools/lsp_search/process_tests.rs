@@ -19,7 +19,10 @@ use octocode_engine::lsp::types::LspLanguageServerConfig;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+mod aliases;
+mod definition_hops;
 mod definitions;
+mod document_sync;
 mod fallback_graph;
 mod heritage_fallback;
 mod importers;

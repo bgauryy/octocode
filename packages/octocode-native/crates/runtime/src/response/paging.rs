@@ -1,106 +1,32 @@
 //! The one owner of numeric continuation cursors (`page`, `matchPage`,
-//! `importerPage`, `scanOffset`, …): a continuation names a cursor value only
-//! when the tool's query schema admits it. Past the schema `maximum` the row
-//! ends at a terminal limit instead, written by [`terminal_limit`], the one
-//! writer of `terminalLimit`, so the rest is stated as unreachable rather
-//! than offered by a lead the tool would reject.
+//! `importerPage`, `scanOffset`, …) and of the partial marks a row ends
+//! with. A cursor is a private position with no schema ceiling: every
+//! continuation names the next one, however far the result runs. A real
+//! provider stop (GitHub's search window, a registry's paging range) is
+//! disclosed by the tool that knows the provider's rule, never here.
+pub(crate) use octocode_contract_types::PartialReason;
 use serde_json::{Map, Value, json};
 
 use crate::id::ToolId;
 
-/// The `partialReasons` entry of a row whose next cursor is past the
-/// contract maximum of its field.
-pub(crate) const CURSOR_MAXIMUM: &str = "cursorMaximum";
-
-/// `next` when `tool`'s query schema (the variant admitting `operation`)
-/// admits it as the value of the cursor `field`: at most its `maximum`.
-pub(crate) fn admitted(
+/// The continuation call that reads cursor `field` at `next`: `query` (the
+/// complete query row the continuation repeats) with `field` set and each
+/// of `set` written after it (`snapshot`, an outer cursor's reset), built
+/// as an exact replay of `tool`. The one next-page builder; `None` only
+/// when `query` is not an object.
+pub(crate) fn next_page_call(
     tool: ToolId,
-    operation: Option<&str>,
+    mut query: Value,
     field: &str,
     next: usize,
-) -> Option<usize> {
-    (next <= crate::contracts::query_schema_max(tool, operation, field)).then_some(next)
-}
-
-/// `query` with cursor `field` set to `next` and each `(field, value)` of
-/// `set` written after it; `None` when `query` is not an object.
-fn with_cursor(mut query: Value, field: &str, next: usize, set: &[(&str, Value)]) -> Option<Value> {
+    set: &[(&str, Value)],
+) -> Option<Value> {
     let row = query.as_object_mut()?;
     row.insert(field.into(), json!(next));
     for (field, value) in set {
         row.insert((*field).into(), value.clone());
     }
-    Some(query)
-}
-
-/// Clone a continuation query with one admitted cursor advance and any
-/// numeric cursors that must restart when that outer axis advances.
-pub(crate) fn admitted_query(
-    tool: ToolId,
-    operation: Option<&str>,
-    base: &Value,
-    field: &str,
-    current: u32,
-    resets: &[(&str, u64)],
-) -> Option<Value> {
-    let next = admitted(tool, operation, field, current.checked_add(1)? as usize)?;
-    let resets = resets
-        .iter()
-        .map(|(field, value)| (*field, json!(value)))
-        .collect::<Vec<_>>();
-    with_cursor(base.clone(), field, next, &resets)
-}
-
-/// The continuation call that reads cursor `field` at `next`: `query` (the
-/// complete query row the continuation repeats) with `field` advanced and
-/// each of `set` written (`snapshot`, an outer cursor's reset), built as an
-/// exact replay of `tool`. The one next-page builder: the cursor is
-/// admitted by the contract maximum ([`next_cursor`]), so a cursor past it
-/// ends `row` at a terminal limit and returns `None`.
-pub(crate) fn next_page_call(
-    row: &mut Value,
-    tool: ToolId,
-    operation: Option<&str>,
-    query: Value,
-    field: &str,
-    next: usize,
-    set: &[(&str, Value)],
-) -> Option<Value> {
-    let next = next_cursor(row, tool, operation, field, next)?;
-    let query = with_cursor(query, field, next, set)?;
     Some(crate::response::result::Continuation::continued(tool, query).build())
-}
-
-/// The cursor value `next` of `field` when [`admitted`]; otherwise the
-/// warning that names the field and its maximum, a [`CURSOR_MAXIMUM`]
-/// terminal limit: the caller offers no continuation.
-pub(crate) fn cursor_value(
-    tool: ToolId,
-    operation: Option<&str>,
-    field: &str,
-    next: usize,
-) -> Result<usize, String> {
-    admitted(tool, operation, field, next).ok_or_else(|| {
-        let maximum = crate::contracts::query_schema_max(tool, operation, field);
-        format!(
-            "terminalLimit: {field}:{maximum} is the last a continuation may request; the rest is on no page."
-        )
-    })
-}
-
-/// [`cursor_value`], marking `row` as ending at the terminal limit when the
-/// cursor is past its maximum.
-pub(crate) fn next_cursor(
-    row: &mut Value,
-    tool: ToolId,
-    operation: Option<&str>,
-    field: &str,
-    next: usize,
-) -> Option<usize> {
-    cursor_value(tool, operation, field, next)
-        .map_err(|warning| terminal_limit(row, CURSOR_MAXIMUM, &[warning]))
-        .ok()
 }
 
 /// A row the partial owners write: a JSON row, or its object a tool is
@@ -151,14 +77,15 @@ fn append_once<'a>(
     }
 }
 
-/// Marks `row` partial for `reason`: `isPartial`, the reason once after the
-/// row's own `partialReasons`, and each warning once in `warnings`.
-pub(crate) fn mark_partial(row: &mut impl RowFields, reason: &str, warnings: &[String]) {
+/// Marks `row` partial for `reason`, a declared contract value: `isPartial`,
+/// the reason once after the row's own `partialReasons`, and each warning
+/// once in `warnings`.
+pub(crate) fn mark_partial(row: &mut impl RowFields, reason: PartialReason, warnings: &[String]) {
     let Some(object) = row.fields() else {
         return;
     };
     object.insert("isPartial".into(), json!(true));
-    append_once(object, "partialReasons", [reason]);
+    append_once(object, "partialReasons", [reason.to_string().as_str()]);
     append_once(object, "warnings", warnings.iter().map(String::as_str));
 }
 
@@ -174,7 +101,7 @@ pub(crate) fn push_warnings(row: &mut impl RowFields, warnings: impl IntoIterato
 
 /// Marks `row` as ending at a limit no continuation lifts: [`mark_partial`]
 /// plus `terminalLimit:true`.
-pub(crate) fn terminal_limit(row: &mut impl RowFields, reason: &str, warnings: &[String]) {
+pub(crate) fn terminal_limit(row: &mut impl RowFields, reason: PartialReason, warnings: &[String]) {
     mark_partial(row, reason, warnings);
     if let Some(object) = row.fields() {
         object.insert("terminalLimit".into(), json!(true));

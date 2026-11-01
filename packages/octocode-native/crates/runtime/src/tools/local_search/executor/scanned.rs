@@ -11,7 +11,7 @@ use super::super::cursor::{fingerprint, malformed_snapshot, query_key, stale_sna
 use super::super::pattern::check_pattern;
 use super::super::verify::Redaction;
 
-use super::super::local_search_query::{self, MAX_COLLECTED_FILES, effective_match_content_length};
+use super::super::local_search_query;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
@@ -49,19 +49,31 @@ pub(crate) struct Scanned {
 }
 
 /// Plan and run the walk (or reuse its stored scan) and prove a cursor
-/// still answers this query.
+/// still answers this query. `terms` are the `matchString` entries a
+/// normalized query joined (see [`local_search_query::term_patterns`]):
+/// a count view counts each.
 pub(crate) fn scan_query(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
     cancel: &impl CancellationCheck,
-    walk_threads: Option<u32>,
-    response_window: Option<usize>,
+    (response_window, terms): (Option<usize>, Option<Vec<String>>),
 ) -> Result<Scanned, ToolError> {
     if let Some(error) = malformed_snapshot(query) {
         return Err(error);
     }
     let validated = search_root(query, paths)?;
-    let options = search_options(query, &validated.canonical, walk_threads);
+    let options = TextSearchOptions {
+        terms,
+        test_code: crate::tools::test_code::Keep::of(local_search_query::test_code(query)).map(
+            |keep| {
+                crate::tools::test_code::text_scope(
+                    keep,
+                    Arc::new(crate::tools::test_code::TestCodeIndex::new(paths)),
+                )
+            },
+        ),
+        ..search_options(query, &validated.canonical)
+    };
     check_pattern(query)?;
     let search_options = options.clone();
     let policy_key = paths.identity();
@@ -76,8 +88,7 @@ pub(crate) fn scan_query(
     // the row around it, fits one response window. The budget charges the
     // root's spelling a fixed size (`page_windows`), so a continuation that
     // names the same root relative to the workspace cuts the same pages.
-    let sized = crate::response::result::query_value(query);
-    let page_budget = crate::response::page_windows::page_budget(response_window, &sized);
+    let page_budget = crate::response::page_windows::page_budget(response_window);
     // A stored scan was stored under the snapshot derived from its query
     // key and its unchanged collected result: a query with the same key
     // derives that snapshot again, so only another key needs the digest.
@@ -132,7 +143,6 @@ pub(crate) fn search_root(
 pub(crate) fn search_options(
     query: &LocalSearchQuery,
     root: &std::path::Path,
-    walk_threads: Option<u32>,
 ) -> TextSearchOptions {
     let view = local_search_query::view(query);
     let path_list = matches!(view, View::Files | View::FilesWithout);
@@ -140,6 +150,8 @@ pub(crate) fn search_options(
     TextSearchOptions {
         path: root.to_string_lossy().into_owned(),
         pattern: local_search_query::pattern(query).to_owned(),
+        terms: None,
+        test_code: None,
         syntax: match local_search_query::regex_mode(query) {
             RegexEngine::Literal => PatternSyntax::Literal,
             RegexEngine::Rust => PatternSyntax::Regex,
@@ -192,7 +204,7 @@ pub(crate) fn search_options(
         exclude_dir: None,
         // Each flag lifts its own cause, as in every local walk; the dot
         // entries left out are recorded by the walk's path filter.
-        ignore: octocode_engine::search::walk::IgnorePolicy::new(
+        ignore: octocode_engine::types::IgnorePolicy::new(
             local_search_query::include_ignored(query),
             local_search_query::include_hidden(query),
         ),
@@ -208,18 +220,11 @@ pub(crate) fn search_options(
             local_search_query::sort(query)
         },
         sort_reverse: local_search_query::reverse(query),
-        max_snippet_chars: Some(effective_match_content_length(query)),
-        // The engine keeps the first 10k matched files in the engine sort order
-        // above (by match count for relevance/matchCount), chosen across every
-        // searched file; stats totals still count all matched files and the
-        // cap surfaces as capReason "maxCollectedFiles".
-        max_collected_files: Some(MAX_COLLECTED_FILES),
+        // Every matched file is collected, in the engine sort order above:
+        // pages are cut from the whole sorted list, so each one is reachable.
         // Use the engine default per-file byte ceiling (skips pathological
         // multi-GB files, surfaced as a maxFileSize diagnostic).
         max_file_bytes: None,
-        // The batch's share of the cores (see `BatchBudget`); `None` walks
-        // on every core.
-        walk_threads,
         // A scan small enough to store for later pages keeps the digest of
         // each matched file from the read that searched it (see `manifest`).
         values: SourceValues::Deferred,

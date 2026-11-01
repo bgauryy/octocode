@@ -39,7 +39,7 @@ fn parts_before_the_last_fill_the_room_the_continuations_leave_them() {
         .unwrap_or(0);
     let next_chars = octocode_engine::json_size::utf16_units(&row["data"]["next"]).unwrap_or(0);
     let budget = 3_000;
-    let plan = PreparedRows::new(vec![row], &[None], Some(crate::id::ToolId::GhSearchCode))
+    let plan = PreparedRows::new(vec![row], &[None], crate::id::ToolId::GhSearchCode)
         .plan(budget, &CancellationToken::new())
         .expect("valid plan");
     // Every part repeats a small skeleton; only the last carries `next`.

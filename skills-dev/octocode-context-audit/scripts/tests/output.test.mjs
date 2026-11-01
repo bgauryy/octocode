@@ -59,3 +59,20 @@ test('saved report values remain escaped text, including severity and numeric-lo
   assert.match(page, /class="sev unknown"/);
   assert.ok(page.includes('&lt;script&gt;'));
 });
+
+test('default audits stay in the selected workspace and preserve earlier snapshots', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'context-default-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const invoke = () => {
+    const result = spawnSync(process.execPath, [cli, '--workspace', dir, '--no-probe', '--days', '0'], { encoding: 'utf8', timeout: 20_000 });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.match(/report: (.+)/)[1].trim();
+  };
+  const first = invoke();
+  const original = readFileSync(first, 'utf8');
+  const second = invoke();
+  assert.notEqual(first, second);
+  assert.ok(first.startsWith(join(dir, '.octocode', 'octocode-context-audit')));
+  assert.equal(readFileSync(first, 'utf8'), original);
+  assert.equal(existsSync(second), true);
+});

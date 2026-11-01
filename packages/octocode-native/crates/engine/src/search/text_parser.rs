@@ -1,6 +1,5 @@
 //! Assembles match and context lines into per-file snippets.
-use crate::text::clip::{MATCH_TAIL_CHARS, truncate_unicode};
-use crate::text::clip_around;
+use crate::num::saturating_u32;
 use crate::types::SearchContext;
 use std::collections::HashMap;
 
@@ -69,41 +68,34 @@ fn line_rank_at(line: &str, column: u32) -> u32 {
     super::relevance::line_rank(line.as_bytes(), byte)
 }
 
-/// [`clip_around`] of a match at UTF-16 `column` of `line`.
-fn clip_around_match(line: &str, column: u32, max_chars: usize) -> String {
-    clip_around(line, utf16_to_char_index(line, column), max_chars)
-}
-
-/// Assembles a single file's matches into the final `TextSearchFile`, joining each
-/// match line with its surrounding `context` and truncating the resulting
-/// snippet to `max_snippet` chars.
+/// Assemble each match with every requested contiguous context line.
 pub(crate) fn assemble_file(
     path: String,
     entry: FileEntry,
     context: SearchContext,
-    max_snippet: usize,
 ) -> TextSearchFile {
     if !entry.prepared.is_empty() {
         return TextSearchFile {
             path,
-            match_count: entry.prepared.len() as u32,
+            match_count: saturating_u32(entry.prepared.len()),
             matches: entry.prepared,
             source: None,
+            term_counts: Vec::new(),
         };
     }
     if context.is_empty() {
-        // One row per hit line: a line that needs no clip becomes the value
-        // itself instead of a copy.
+        // One complete value per hit line.
         let matches = entry
             .raw_matches
             .into_iter()
-            .map(|m| line_match(&m.line_text, m.line_number, m.column, max_snippet))
+            .map(|m| line_match(&m.line_text, m.line_number, m.column))
             .collect::<Vec<_>>();
         return TextSearchFile {
             path,
-            match_count: matches.len() as u32,
+            match_count: saturating_u32(matches.len()),
             matches,
             source: None,
+            term_counts: Vec::new(),
         };
     }
     // Neighbouring match lines are context too; without this
@@ -115,7 +107,9 @@ pub(crate) fn assemble_file(
             m.line_text
                 .split('\n')
                 .enumerate()
-                .map(move |(index, text)| (m.line_number.saturating_add(index as u32), text))
+                .map(move |(index, text)| {
+                    (m.line_number.saturating_add(saturating_u32(index)), text)
+                })
         })
         .collect();
     let neighbour = |line: u32| {
@@ -130,58 +124,20 @@ pub(crate) fn assemble_file(
         .iter()
         .map(|m| {
             let last_line = last_line(&m.line_text, m.line_number);
-            let (value, value_digest, original_chars, original_bytes) = {
-                // Contiguous context only: stop at the first line that is absent.
-                // Join by line slot (not by buffer emptiness) so a blank
-                // leading line keeps its place and line numbers stay aligned.
-                let mut before: Vec<&str> = (1..=context.before)
-                    .map_while(|i| m.line_number.checked_sub(i).and_then(neighbour))
-                    .collect();
-                before.reverse();
-                let end = last_line.unwrap_or(m.line_number);
-                let after: Vec<&str> = (1..=context.after)
-                    .map_while(|i| end.checked_add(i).and_then(neighbour))
-                    .collect();
-                let join = |lead: &[&str]| {
-                    let mut window = lead.to_vec();
-                    window.push(&m.line_text);
-                    window.extend(&after);
-                    window.join("\n")
-                };
-                let joined = join(&before);
-                let (chars, joined_bytes) = (joined.chars().count(), joined.len());
-                let value_digest = TextSearchMatch::digest_of(&joined);
-                let value = if chars <= max_snippet {
-                    joined
-                } else {
-                    // Drop leading context (farthest first) until the match
-                    // line fits, then spend the rest on trailing context.
-                    let column = utf16_to_char_index(&m.line_text, m.column);
-                    let budget = max_snippet.saturating_sub(MATCH_TAIL_CHARS);
-                    let mut lead = &before[..];
-                    let prefix = |lead: &[&str]| {
-                        lead.iter()
-                            .map(|line| line.chars().count() + 1)
-                            .sum::<usize>()
-                    };
-                    while !lead.is_empty() && prefix(lead) + column >= budget {
-                        lead = &lead[1..];
-                    }
-                    if prefix(lead) + column < budget {
-                        truncate_unicode(&join(lead), max_snippet)
-                    } else {
-                        // Even the match line alone would push the match out.
-                        clip_around_match(&m.line_text, m.column, max_snippet)
-                    }
-                };
-                let clipped = chars > max_snippet;
-                (
-                    value,
-                    value_digest,
-                    clipped.then(|| u32::try_from(chars).unwrap_or(u32::MAX)),
-                    clipped.then(|| u32::try_from(joined_bytes).unwrap_or(u32::MAX)),
-                )
-            };
+            // Stop at an absent context line; blank lines retain their slots.
+            let mut before: Vec<&str> = (1..=context.before)
+                .map_while(|i| m.line_number.checked_sub(i).and_then(neighbour))
+                .collect();
+            before.reverse();
+            let end = last_line.unwrap_or(m.line_number);
+            let after = (1..=context.after).map_while(|i| end.checked_add(i).and_then(neighbour));
+            let value = before
+                .into_iter()
+                .chain(std::iter::once(m.line_text.as_str()))
+                .chain(after)
+                .collect::<Vec<_>>()
+                .join("\n");
+            let value_digest = TextSearchMatch::digest_of(&value);
 
             TextSearchMatch {
                 deferred: None,
@@ -193,56 +149,41 @@ pub(crate) fn assemble_file(
                 value_digest,
                 count: None,
                 rank: Some(line_rank_at(&m.line_text, m.column)),
-                original_chars,
-                original_bytes,
             }
         })
         .collect();
 
-    let match_count = matches.len() as u32;
+    let match_count = saturating_u32(matches.len());
     TextSearchFile {
         path,
         match_count,
         matches,
         source: None,
+        term_counts: Vec::new(),
     }
 }
 
 /// Recreate the exact context-free snippet, rank and full-value identity.
-pub fn line_match(
-    line_text: &str,
-    line_number: u32,
-    column: u32,
-    max_snippet: usize,
-) -> TextSearchMatch {
-    let chars = line_text.chars().count();
-    let (clipped, bytes) = (chars > max_snippet, line_text.len());
+pub fn line_match(line_text: &str, line_number: u32, column: u32) -> TextSearchMatch {
     let rank = line_rank_at(line_text, column);
     let byte_offset = utf16_to_byte_offset(line_text, column);
     let value_digest = TextSearchMatch::digest_of(line_text);
-    let value = if !clipped {
-        line_text.to_owned()
-    } else {
-        clip_around_match(line_text, column, max_snippet)
-    };
     TextSearchMatch {
         deferred: None,
         line: line_number,
         last_line: last_line(line_text, line_number),
         column,
         byte_offset,
-        value,
+        value: line_text.to_owned(),
         value_digest,
         count: None,
         rank: Some(rank),
-        original_chars: clipped.then(|| u32::try_from(chars).unwrap_or(u32::MAX)),
-        original_bytes: clipped.then(|| u32::try_from(bytes).unwrap_or(u32::MAX)),
     }
 }
 
 /// The last line of a match whose text spans several lines.
 fn last_line(match_text: &str, line_number: u32) -> Option<u32> {
-    let breaks = match_text.bytes().filter(|&byte| byte == b'\n').count() as u32;
+    let breaks = saturating_u32(match_text.bytes().filter(|&byte| byte == b'\n').count());
     (breaks > 0).then(|| line_number.saturating_add(breaks))
 }
 
@@ -252,11 +193,11 @@ fn utf16_to_byte_offset(line: &str, column: u32) -> u32 {
     let mut units = 0usize;
     for (offset, ch) in line.char_indices() {
         if units >= column as usize {
-            return offset as u32;
+            return saturating_u32(offset);
         }
         units += ch.len_utf16();
     }
-    line.len() as u32
+    saturating_u32(line.len())
 }
 
 #[cfg(test)]

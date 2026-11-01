@@ -34,7 +34,7 @@ async fn tree_pins_its_pages_to_the_resolved_commit() {
     assert_eq!(out.data["resolvedRef"], "main", "{}", out.data);
     assert_eq!(out.data["commitSha"], TREE_SHA, "{}", out.data);
     assert_eq!(
-        out.data["next"]["expandDates"]["input"]["queries"][0]["ref"],
+        out.data["next"]["nextPage"]["input"]["queries"][0]["ref"],
         TREE_SHA
     );
 }
@@ -115,8 +115,12 @@ async fn tree_reports_omitted_entries_and_next_page_drops_completed_metadata() {
     assert!(out.data.get("pagination").is_none());
 }
 
+/// The Contents fallback walk reads every directory the listing reaches:
+/// no fetch count ends it (GitHub sets no such rule; its rate limits and the
+/// request deadline are the bounds, each a typed failure, never a silent
+/// cut), and the walk lists every directory once.
 #[tokio::test]
-async fn tree_fallback_walk_stops_at_the_directory_fetch_cap() {
+async fn tree_fallback_walk_reads_every_directory() {
     let server = MockServer::builder().start().await;
     mount_ref(&server, "main").await;
     Mock::given(method("GET"))
@@ -139,14 +143,15 @@ async fn tree_fallback_walk_stops_at_the_directory_fetch_cap() {
     )
     .await
     .expect("tree");
-    assert_eq!(out.data["terminalLimit"], true, "{}", out.data);
-    assert_eq!(out.data["providerLimit"]["reason"], "treeFetchLimit");
+    assert!(out.data.get("terminalLimit").is_none(), "{}", out.data);
+    assert!(out.data.get("providerLimit").is_none(), "{}", out.data);
+    assert_eq!(out.data["summary"]["dirs"], 250, "{}", out.data);
     let requests = server.received_requests().await.unwrap_or_default();
     let contents = requests
         .iter()
         .filter(|request| request.url.path().contains("/contents"))
         .count();
-    assert_eq!(contents, gh_structure::MAX_DIRECTORY_FETCHES);
+    assert_eq!(contents, 1 + 250, "the root and each directory once");
 }
 
 /// A listing without a ref names its default branch from one

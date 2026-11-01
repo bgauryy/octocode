@@ -1,22 +1,21 @@
-//! One clone request's resolved plan: its cache entry, a served cache hit, and the row it answers with.
-use super::checkout::{dirty_checkout, fresh_clone};
+//! One fresh clone: resolve its destination, hold its lock and publish a verified checkout.
+use super::checkout::fresh_clone;
 use super::validate::{repository_url, validate_query, web_root};
 use super::{
-    CloneContext, CloneError, CloneLocation, CloneResult, GhCloneRepoQuery, Sparse, cache,
-    check_control, git, history_depth, policy_denied,
+    CloneContext, CloneError, CloneLocation, CloneResult, GhCloneRepoQuery, Sparse, check_control,
+    history_depth, policy_denied, storage,
 };
 use crate::policy::PolicyErrorCode;
 use octocode_contract_types::ErrorCode;
 use std::path::{Path, PathBuf};
 
-/// One clone request's resolved inputs: what its cache entries are named
-/// by, checked out from, and recorded as.
+/// One clone request's resolved checkout identity and destination.
 pub(super) struct Plan<'a> {
     pub(super) query: &'a GhCloneRepoQuery,
     pub(super) context: &'a CloneContext<'a>,
     pub(super) repository_url: String,
     /// The web root checkouts are cloned from ([`web_root`]): it keys the
-    /// cache entry beside the commit, not the URL, whose owner/repo casing
+    /// destination beside the commit, not the URL, whose owner/repo casing
     /// would split one repository into several checkouts.
     host: String,
     pub(super) sparse: Option<Sparse>,
@@ -25,10 +24,10 @@ pub(super) struct Plan<'a> {
 }
 
 impl Plan<'_> {
-    /// The cache entry of `commit`, once the path policy admits it.
+    /// The destination of `commit`, once the path policy admits it.
     fn target(&self, commit: &str) -> Result<PathBuf, CloneError> {
-        let clone_dir = cache::clone_dir(
-            &self.context.config.cache_home,
+        let clone_dir = storage::clone_dir(
+            &self.context.config.home,
             &self.query.owner,
             &self.query.repo,
             commit,
@@ -43,29 +42,8 @@ impl Plan<'_> {
         Ok(clone_dir)
     }
 
-    /// The identity a checkout of `commit` records and a hit must match.
-    pub(super) fn identity<'b>(&'b self, commit: &'b str) -> cache::Identity<'b> {
-        cache::Identity {
-            owner: &self.query.owner,
-            repo: &self.query.repo,
-            commit,
-            sparse_key: self.sparse_key.as_deref(),
-            depth: self.depth,
-        }
-    }
-
-    fn force_refresh(&self) -> bool {
-        self.query.force_refresh.unwrap_or(false)
-    }
-
-    /// The row of a checkout of `commit` at `clone_dir`: a served cache hit
-    /// (`cached`); a fresh checkout clears the flag. `run` names the ref
-    /// that was asked for.
-    pub(super) fn result(&self, commit: &str, clone_dir: &Path, hit: CacheHit) -> CloneResult {
-        let bytes = hit.size;
-        let (cloned_at, expires_at) = hit.age.map_or((None, None), |age| {
-            (Some(age.cloned_at), Some(age.expires_at))
-        });
+    pub(super) fn result(&self, commit: &str, clone_dir: &Path, checkout: Checkout) -> CloneResult {
+        let bytes = checkout.size;
         let paths = self.sparse.as_ref().map(Sparse::paths);
         CloneResult {
             bytes,
@@ -74,14 +52,14 @@ impl Plan<'_> {
             location: CloneLocation {
                 kind: if paths.is_some() { "tree" } else { "repo" },
                 local_path: clone_dir.to_string_lossy().into_owned(),
-                cached: true,
-                commit_sha: hit.commit_sha,
+                commit_sha: checkout.commit_sha,
                 resolved_ref: commit.to_owned(),
                 requested_paths: paths.map(<[String]>::to_vec),
-                symlinks: (!hit.symlinks.is_empty()).then_some(hit.symlinks),
+                symlinks: (!checkout.symlinks.is_empty()).then_some(checkout.symlinks),
                 history_depth: (self.depth > 1).then_some(self.depth),
-                cloned_at,
-                expires_at,
+                cloned_at: Some(crate::civil_date::iso8601_millis(
+                    crate::civil_date::unix_millis(),
+                )),
             },
         }
     }
@@ -92,12 +70,7 @@ pub(super) fn execute_clone(
     context: &CloneContext<'_>,
 ) -> Result<CloneResult, CloneError> {
     check_control(context)?;
-    if !context.config.persistent {
-        return Err(CloneError::new(
-            ErrorCode::PersistentStorageDisabled,
-            "Clone requires persistent local storage. Set storage.mode=\"persistent\" or OCTOCODE_STORAGE_MODE=persistent to use ghCloneRepo.",
-        ));
-    }
+    super::require_persistent_storage(context.config.persistent)?;
     validate_query(query)?;
     let sparse = Sparse::of(query);
     let root = web_root(context.endpoint)?;
@@ -123,24 +96,19 @@ pub(super) fn execute_clone(
         ));
     };
     let clone_dir = plan.target(reference)?;
-    let _lock = cache::CloneLock::acquire(&clone_dir, context)?;
-    if !plan.force_refresh()
-        && let Some(hit) = cache_hit(context, &clone_dir, &plan.identity(reference))?
-    {
-        return Ok(plan.result(reference, &clone_dir, hit));
-    }
+    let _lock = storage::CloneLock::acquire(&clone_dir, context)?;
     fresh_clone(&plan, reference, &clone_dir)
 }
 
-/// The clones root under the cache home passes the path policy, then exists.
+/// The clones root under the home passes the path policy, then exists.
 /// The runtime allows only the checkout trees under the Octocode home, never
 /// the home itself, so the clones root is what must be authorized.
 fn authorize_home(context: &CloneContext<'_>) -> Result<(), CloneError> {
-    let clones_root = cache::clones_root(&context.config.cache_home);
+    let clones_root = storage::clones_root(&context.config.home);
     // Existing roots and roots below an allowed workspace must pass the
     // ordinary policy check. The one exception is an explicitly configured
     // root that does not exist yet and holds the clones root: its parent lies
-    // outside that root until creation. Do not create a cache directory for
+    // outside that root until creation. Do not create a output directory for
     // any other denied path.
     match context.path_policy.validate_output(&clones_root) {
         Ok(_) => {}
@@ -158,56 +126,18 @@ fn authorize_home(context: &CloneContext<'_>) -> Result<(), CloneError> {
     // roots to canonicalize.
     std::fs::create_dir_all(&clones_root).map_err(|error| {
         CloneError::new(
-            ErrorCode::CacheUnavailable,
-            format!("Could not initialize the configured clone cache home: {error}"),
+            ErrorCode::FileAccessFailed,
+            format!("Could not initialize the configured clone output directory: {error}"),
         )
     })?;
     Ok(())
 }
 
-/// A served cache hit: commit and age of a clean checkout that still matches
-/// the requested identity.
-pub(super) struct CacheHit {
+/// Facts read from a newly verified checkout.
+pub(super) struct Checkout {
     pub(super) commit_sha: String,
-    pub(super) age: Option<cache::CacheAge>,
-    /// Checked-out bytes recorded at publication.
     pub(super) size: u64,
-    /// Repository symlinks the checkout holds as plain files.
     pub(super) symlinks: Vec<String>,
-}
-
-fn cache_hit(
-    context: &CloneContext<'_>,
-    clone_dir: &Path,
-    identity: &cache::Identity<'_>,
-) -> Result<Option<CacheHit>, CloneError> {
-    let Some(meta) = cache::valid_clone(clone_dir, context.config.cache_ttl) else {
-        return Ok(None);
-    };
-    if meta.source != "clone" || !meta.matches(identity) {
-        return Ok(None);
-    }
-    let Ok(commit_sha) = git::read_head(context, clone_dir) else {
-        return Ok(None);
-    };
-    if commit_sha != identity.commit.to_ascii_lowercase() {
-        return Ok(None);
-    }
-    // A modified cache no longer holds the fetched revision. Do not replace
-    // the caller's bytes or report them as a verified cache hit.
-    if !git::is_clean(context, clone_dir)? {
-        return Err(dirty_checkout(clone_dir));
-    }
-    context
-        .path_policy
-        .validate(clone_dir)
-        .map_err(policy_denied)?;
-    Ok(Some(CacheHit {
-        commit_sha,
-        age: cache::CacheAge::of(&meta, context.config.cache_ttl),
-        size: meta.checkout_bytes,
-        symlinks: meta.symlinks,
-    }))
 }
 
 /// `next.exploreClone`: list the checkout (the sparse subtree when one was

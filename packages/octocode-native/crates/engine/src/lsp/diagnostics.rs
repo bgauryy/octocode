@@ -19,6 +19,9 @@ pub enum Phase {
     OpenReadiness,
     Request,
     WriteQueue,
+    /// The walk that fingerprints a request's lexical scope; a failed one
+    /// left the request without response reuse or watched-file events.
+    ScopeFingerprint,
 }
 
 #[derive(Clone, Default)]
@@ -117,6 +120,7 @@ impl Phase {
             Self::OpenReadiness => "openReadiness",
             Self::Request => "request",
             Self::WriteQueue => "writeQueue",
+            Self::ScopeFingerprint => "scopeFingerprint",
         }
     }
 

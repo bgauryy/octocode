@@ -27,7 +27,7 @@ pub(super) fn salted_snapshot(
     // different order than the caller did, and the digest must not care.
     let mut identity = json!({
         "query": scope,
-        "kind": kind,
+        "operation": kind,
         "items": items,
     });
     if let Some(salt) = salt {
@@ -99,10 +99,10 @@ pub(in super::super) fn salted_items_payload(
     let (page, pagination, next_page) = paginate(
         &raw_items,
         lsp_search_query::page(query).unwrap_or(1),
-        &Pages::of(budget, &sizes, &snapshot),
+        &Pages::of(query, budget, &sizes, &snapshot),
     );
     let mut row = json!({
-        "kind": kind,
+        "operation": kind,
         "matches": page,
         "lsp": { "serverAvailable": true },
         "pagination": pagination
@@ -146,7 +146,7 @@ pub(super) fn document_symbols_payload(
         .collect::<Vec<_>>();
     let (window, pagination, next_page) = page_window(
         lsp_search_query::page(query).unwrap_or(1),
-        &Pages::of(budget, &sizes, &snapshot),
+        &Pages::of(query, budget, &sizes, &snapshot),
     );
     let page = if window.is_empty() {
         Vec::new()
@@ -154,7 +154,7 @@ pub(super) fn document_symbols_payload(
         symbols[spans[window.start].start..spans[window.end - 1].end].to_vec()
     };
     let mut row = json!({
-        "kind": "documentSymbols",
+        "operation": "documentSymbols",
         "symbols": document_symbol_rows(&page, &symbols),
         "lsp": {
             "serverAvailable": true,

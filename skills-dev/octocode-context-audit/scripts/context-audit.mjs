@@ -45,7 +45,10 @@ if (flag("--render")) {
 const WORKSPACE = path.resolve(option("--workspace", process.cwd()));
 const DAYS = Number(option("--days", "30"));
 if (!Number.isInteger(DAYS) || DAYS < 0) throw new Error("--days requires a non-negative integer");
-const OUT = path.resolve(option("--out", path.join(WORKSPACE, ".octocode", "context-audit")));
+const selectedOut = option("--out", null);
+const outputRoot = path.join(WORKSPACE, ".octocode", "octocode-context-audit");
+if (!selectedOut) fs.mkdirSync(outputRoot, { recursive: true });
+const OUT = selectedOut ? path.resolve(selectedOut) : fs.mkdtempSync(path.join(outputRoot, `${new Date().toISOString().slice(0, 10)}-audit-`));
 const PROBE = !flag("--no-probe");
 
 const instructions = collectInstructions(WORKSPACE);

@@ -110,7 +110,7 @@ pub(super) fn detect_cycles(c: &mut Ctx) {
                 ],
             )
         };
-        // The groups are `graph query cycles`' over production files: a loop
+        // The groups are the `cycles` operation's over production files: a loop
         // that only test or config files close is not a production finding.
         controls.push("test and config files left out");
         if rust {
@@ -132,10 +132,9 @@ pub(super) fn detect_cycles(c: &mut Ctx) {
             impact,
             evidence,
             controls,
-            vec![format!(
-                "octocode graph query path {} {}",
-                quote(second),
-                quote(first)
+            vec![step(
+                ToolId::GraphQuery,
+                json!({"operation": "path", "target": second, "to": first}),
             )],
         ));
     }
@@ -158,26 +157,68 @@ pub(super) fn detect_cycles(c: &mut Ctx) {
     }
 }
 
+/// Each production file's directory unit: its directory, except a module
+/// root file `d/x.ext` beside a folder `d/x/` of production files
+/// (`live.ts` and `live/`, Rust `response.rs` and `response/`), which
+/// belongs to `d/x`: the facade and the files below it are one module.
+pub(super) fn dir_units<'a>(v: &View<'a>) -> BTreeMap<u32, &'a str> {
+    let production = v
+        .files
+        .iter()
+        .copied()
+        .filter(|f| v.production(*f))
+        .collect::<Vec<_>>();
+    let mut dirs = BTreeSet::new();
+    for file in &production {
+        let mut dir = dirname(v.key(*file));
+        // Every ancestor too: `d/x/` exists when only `d/x/y/z.ts` does.
+        while dirs.insert(dir) {
+            match dir.rsplit_once('/') {
+                Some((parent, _)) => dir = parent,
+                None => break,
+            }
+        }
+    }
+    production
+        .into_iter()
+        .map(|file| {
+            let key = v.key(file);
+            let name = key.rsplit('/').next().unwrap_or(key);
+            let stem = name.split('.').next().unwrap_or(name);
+            let module = &key[..key.len() - name.len() + stem.len()];
+            let unit = if !stem.is_empty() && dirs.contains(module) {
+                module
+            } else {
+                dirname(key)
+            };
+            (file, unit)
+        })
+        .collect()
+}
+
 pub(super) fn detect_dir_cycles(c: &mut Ctx) {
     let v = &c.v;
+    let units = dir_units(v);
+    let unit_of = |file: u32| units.get(&file).copied();
     let mut dirs = BTreeMap::<&str, u32>::new();
     let mut names = Vec::new();
     for file in &v.files {
-        if v.production(*file) && v.language(*file) != "go" {
-            let dir = dirname(v.key(*file));
+        if let Some(dir) = unit_of(*file)
+            && v.language(*file) != "go"
+        {
             if !dirs.contains_key(dir) {
-                dirs.insert(dir, names.len() as u32);
+                dirs.insert(dir, crate::num::u32_of_usize(names.len()));
                 names.push(dir);
             }
         }
     }
     let mut adj = vec![BTreeMap::<u32, (u32, u32)>::new(); names.len()];
     for file in &v.files {
-        let Some(&from) = dirs.get(dirname(v.key(*file))) else {
+        let Some(&from) = unit_of(*file).and_then(|dir| dirs.get(dir)) else {
             continue;
         };
         for target in &v.out[*file as usize] {
-            if let Some(&to) = dirs.get(dirname(v.key(*target)))
+            if let Some(&to) = unit_of(*target).and_then(|dir| dirs.get(dir))
                 && from != to
                 && !rust_lineage(v.t, *file, *target)
             {
@@ -185,7 +226,7 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
             }
         }
     }
-    let nodes = (0..names.len() as u32).collect::<Vec<_>>();
+    let nodes = (0..=u32::MAX).take(names.len()).collect::<Vec<_>>();
     let succ = |id: u32| adj[id as usize].keys().copied().collect::<Vec<_>>();
     let components = strongly_connected(&nodes, &succ, names.len());
     let mut found = Vec::new();

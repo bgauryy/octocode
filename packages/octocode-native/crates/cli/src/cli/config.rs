@@ -228,7 +228,7 @@ pub async fn check(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
         .env_value(key)
         .is_some_and(|value| !value.is_empty());
     let github_auth = if !set && octocode_native::config::ENV_TOKEN_VARS.contains(&key) {
-        super::system::active_token_source(runtime).await
+        runtime.active_token_source().await
     } else {
         None
     };

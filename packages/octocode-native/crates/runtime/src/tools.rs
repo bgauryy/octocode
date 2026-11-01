@@ -4,6 +4,8 @@ pub(crate) mod ast_rule;
 pub(crate) mod ast_search;
 pub(crate) mod bounded_process;
 pub(crate) mod clasify;
+#[cfg(test)]
+mod contract_bounds_tests;
 pub(crate) mod declarations_cache;
 pub(crate) mod empty_walk;
 pub(crate) mod gh_clone_repo;
@@ -14,6 +16,8 @@ pub(crate) mod gh_search_history;
 pub(crate) mod gh_search_repo;
 pub(crate) mod gh_shared;
 pub(crate) mod gh_structure;
+#[cfg(test)]
+mod hints_tests;
 pub(crate) mod judgment;
 pub(crate) mod leads;
 pub(crate) mod line_spans;
@@ -32,6 +36,7 @@ pub(crate) mod source_capture;
 pub(crate) mod source_sections;
 pub(crate) mod source_view;
 pub(crate) mod structure_search;
+pub(crate) mod test_code;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub(crate) mod variant_field;
@@ -69,11 +74,7 @@ pub(crate) fn pruned_walk(
     root: &std::path::Path,
     extra: impl IntoIterator<Item = String>,
 ) -> ignore::WalkBuilder {
-    pruned_walk_with(
-        root,
-        extra,
-        octocode_engine::search::walk::IgnorePolicy::default(),
-    )
+    pruned_walk_with(root, extra, octocode_engine::types::IgnorePolicy::default())
 }
 
 /// [`pruned_walk`] under an explicit ignore `policy`; the default prunes
@@ -82,7 +83,7 @@ pub(crate) fn pruned_walk(
 pub(crate) fn pruned_walk_with(
     root: &std::path::Path,
     extra: impl IntoIterator<Item = String>,
-    policy: octocode_engine::search::walk::IgnorePolicy,
+    policy: octocode_engine::types::IgnorePolicy,
 ) -> ignore::WalkBuilder {
     let prune = crate::policy::prune::OwnWalk::new(root, extra);
     let mut walk = octocode_engine::search::walk::walk_builder(root, policy, None);

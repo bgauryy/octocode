@@ -27,6 +27,8 @@ fn sample(field: &str) -> Value {
         "nameRegex" => json!("^b"),
         "permissions" => json!("600"),
         "sizeBytes" => json!({"min":1024}),
+        // The fixture holds no test code.
+        "testCode" => json!("only"),
         "modifiedAt" | "accessedAt" => json!({"to":"2020-01-01T00:00:00Z"}),
         other => {
             panic!("core gave {other} a listing role: apply it to the walk, then name a value here")
@@ -142,7 +144,7 @@ fn the_walk_identity_is_the_listing_fields_and_no_window_field() {
         ("snapshot", json!("a".repeat(64))),
         ("scanOffset", json!(3)),
         ("walkOffset", json!(4)),
-        ("maxEntries", json!(7)),
+        ("limit", json!(7)),
     ] {
         for operation in ["tree", "files"] {
             assert_eq!(

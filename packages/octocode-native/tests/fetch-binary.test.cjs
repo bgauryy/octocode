@@ -1,10 +1,10 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { test } = require('node:test');
+const { after, test } = require('node:test');
 const { createHash } = require('node:crypto');
 const { execFileSync } = require('node:child_process');
-const { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } = require('node:fs');
+const { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require('node:fs');
 const nodePath = require('node:path');
 const { tmpdir } = require('node:os');
 const { extractTarFile, fetchNativeBinary, registryFor } = require('../bin/fetch-binary.cjs');
@@ -12,10 +12,21 @@ const { extractTarFile, fetchNativeBinary, registryFor } = require('../bin/fetch
 const SUFFIX = 'linux-x64-gnu';
 const VERSION = '1.2.3';
 const BINARY = Buffer.from('#!/bin/sh\necho "octocode 1.2.3"\n');
+const tempDirs = [];
+
+function tempDir(prefix) {
+  const dir = mkdtempSync(nodePath.join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+after(() => {
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 /** A real npm-style tarball: `package/octocode` and `package/package.json`, gzipped. */
 function tarball() {
-  const root = mkdtempSync(nodePath.join(tmpdir(), 'octocode-pack-'));
+  const root = tempDir('octocode-pack-');
   mkdirSync(nodePath.join(root, 'package'));
   writeFileSync(nodePath.join(root, 'package', 'package.json'), '{}');
   writeFileSync(nodePath.join(root, 'package', 'octocode'), BINARY, { mode: 0o755 });
@@ -74,7 +85,7 @@ test('registryFor follows the scope registry, then the default registry, like np
 });
 
 test('downloads, verifies and caches the platform binary once', async () => {
-  const home = mkdtempSync(nodePath.join(tmpdir(), 'octocode-home-'));
+  const home = tempDir('octocode-home-');
   const { calls, fetch } = registry(tarball());
   const path = await fetchNativeBinary(options(home, fetch));
 
@@ -92,14 +103,14 @@ test('downloads, verifies and caches the platform binary once', async () => {
 });
 
 test('refuses a tarball whose sha512 does not match the registry', async () => {
-  const home = mkdtempSync(nodePath.join(tmpdir(), 'octocode-home-'));
+  const home = tempDir('octocode-home-');
   const { fetch } = registry(tarball(), { integrity: `sha512-${Buffer.alloc(64).toString('base64')}` });
   await assert.rejects(fetchNativeBinary(options(home, fetch)), /integrity mismatch/);
   assert.equal(existsSync(nodePath.join(home, 'native', VERSION, SUFFIX, 'octocode')), false);
 });
 
 test('refuses a binary that reports another version and leaves no file behind', async () => {
-  const home = mkdtempSync(nodePath.join(tmpdir(), 'octocode-home-'));
+  const home = tempDir('octocode-home-');
   const { fetch } = registry(tarball());
   await assert.rejects(
     fetchNativeBinary(options(home, fetch, () => 'octocode 9.9.9')),
@@ -109,7 +120,7 @@ test('refuses a binary that reports another version and leaves no file behind', 
 });
 
 test('names the HTTP failure', async () => {
-  const home = mkdtempSync(nodePath.join(tmpdir(), 'octocode-home-'));
+  const home = tempDir('octocode-home-');
   await assert.rejects(fetchNativeBinary(options(home, notFound)), /answered HTTP 404/);
 });
 

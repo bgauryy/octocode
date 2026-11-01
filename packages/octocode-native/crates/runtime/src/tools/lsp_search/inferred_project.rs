@@ -17,12 +17,15 @@ use super::importers::{SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
 use super::scope::Scope;
 use crate::tools::lsp_search::lsp_search_query;
 use octocode_contract_types::LspSearchQuery;
+use octocode_engine::lsp::workspace::{clangd_config_sources, typescript_project_dir};
 use serde_json::{Value, json};
 use std::path::Path;
 
-pub(super) const REASON: &str = "inferredProject";
+pub(super) const REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::InferredProject;
 /// The lexical importer scan failed, so no importer was verified.
-pub(super) const FAILED_REASON: &str = "importerScanFailed";
+pub(super) const FAILED_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::ImporterScanFailed;
 const INFERRED_WARNING: &str = "No tsconfig.json or jsconfig.json covers this file, so the TypeScript server used an inferred project that sees only opened files and their imports; results from other files are missing. Add a tsconfig.json/jsconfig.json at the workspace root, or confirm with a localSearch of the name.";
 
 /// Operations whose answer depends on files the server has not opened.
@@ -33,19 +36,14 @@ pub(super) fn is_incoming(operation: &str) -> bool {
     )
 }
 
-/// True when no `tsconfig.json`/`jsconfig.json` exists in `start` or any
-/// ancestor (tsserver's own config lookup walks every ancestor).
-pub(super) fn lacks_project_config(start: &Path) -> bool {
-    let dir = if start.is_dir() {
-        Some(start)
+/// The directory whose ancestors a server searches for the project of
+/// `anchor`: the anchor itself when it is a directory, else its parent.
+fn anchor_dir(anchor: &Path) -> &Path {
+    if anchor.is_dir() {
+        anchor
     } else {
-        start.parent()
-    };
-    !dir.into_iter().flat_map(Path::ancestors).any(|dir| {
-        ["tsconfig.json", "jsconfig.json"]
-            .iter()
-            .any(|name| dir.join(name).is_file())
-    })
+        anchor.parent().unwrap_or(anchor)
+    }
 }
 
 /// Flag an incoming-direction TS/JS row answered by an inferred project.
@@ -76,7 +74,9 @@ pub(super) fn annotate(
             FAILED_REASON,
             "Importer recovery could not read, open, or resolve every candidate, or its scan failed. Some importers remain unverified; confirm with a localSearch of the name.".to_owned(),
         ),
-        _ if lacks_project_config(Path::new(anchor_path)) => (REASON, INFERRED_WARNING.to_owned()),
+        _ if typescript_project_dir(anchor_dir(Path::new(anchor_path))).is_none() => {
+            (REASON, INFERRED_WARNING.to_owned())
+        }
         _ => return,
     };
     flag_partial(row, query, reason, Some(&warning), scope);
@@ -84,31 +84,9 @@ pub(super) fn annotate(
 
 const COMPILE_DATABASE_HINT: &str = "Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.";
 /// Coverage reason of a C/C++ row answered without a compilation database.
-pub(super) const NO_COMPILE_DATABASE_REASON: &str = "noCompileDatabase";
+pub(super) const NO_COMPILE_DATABASE_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::NoCompileDatabase;
 const NO_COMPILE_DATABASE_WARNING: &str = "No compile_commands.json, compile_flags.txt, or .clangd was found in the checked ancestor locations. The effective compilation command and indexed scope are unverified; confirm project setup and diagnostics before interpreting missing results.";
-
-/// Configuration candidates in ancestor directories and their build folders.
-/// This inventory does not establish which configuration clangd selected.
-fn compile_configuration_sources(start: &Path) -> Vec<String> {
-    let dir = if start.is_dir() {
-        Some(start)
-    } else {
-        start.parent()
-    };
-    let mut sources = Vec::new();
-    for dir in dir.into_iter().flat_map(Path::ancestors) {
-        for name in ["compile_commands.json", "compile_flags.txt", ".clangd"] {
-            for path in [dir.join(name), dir.join("build").join(name)] {
-                if path.is_file() {
-                    sources.push(path.to_string_lossy().into_owned());
-                }
-            }
-        }
-    }
-    sources.sort();
-    sources.dedup();
-    sources
-}
 
 /// Record discovered configuration separately from the effective command.
 /// File presence cannot establish command validity or indexed coverage.
@@ -125,7 +103,10 @@ pub(super) fn annotate_compile_database(
     {
         return;
     }
-    let sources = compile_configuration_sources(Path::new(anchor_path));
+    let sources: Vec<String> = clangd_config_sources(anchor_dir(Path::new(anchor_path)))
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
     let found = !sources.is_empty();
     super::analysis_context::context(row)["compilation"] = json!({
         "configuration": if found { "found" } else { "notFound" },
@@ -136,7 +117,7 @@ pub(super) fn annotate_compile_database(
         return;
     }
     let empty = row.get("status").and_then(Value::as_str) == Some("empty")
-        || row.pointer("/kind").and_then(Value::as_str) == Some("empty");
+        || row.pointer("/status").and_then(Value::as_str) == Some("empty");
     if empty {
         row["hints"] = json!([COMPILE_DATABASE_HINT]);
     }
@@ -164,7 +145,7 @@ mod tests {
     }
 
     fn refs_row() -> Value {
-        json!({"kind":"references","matches":[],"coverage":{}})
+        json!({"operation":"references","matches":[],"coverage":{}})
     }
 
     #[test]
@@ -175,7 +156,7 @@ mod tests {
         let file = src.join("util.ts");
         std::fs::write(&file, "export function greet() {}\n").expect("write");
         // A tsconfig above the temp dir would legitimately suppress the flag.
-        if !lacks_project_config(dir.path()) {
+        if typescript_project_dir(dir.path()).is_some() {
             return;
         }
         let query = refs_query(&format!("file://{}", file.display()));
@@ -208,7 +189,7 @@ mod tests {
         assert_eq!(next["input"]["queries"][0]["path"], root.as_str());
         assert_eq!(
             next["input"]["queries"][0]["matchString"],
-            json!(["\\bgreet\\b"])
+            json!([octocode_engine::text::word_pattern("greet")])
         );
         crate::contracts::validate("localSearch", next["input"].clone())
             .expect("complete fallback");
@@ -264,13 +245,13 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let file = dir.path().join("a.hpp");
         std::fs::write(&file, "int f();\n").expect("write");
-        if !compile_configuration_sources(dir.path()).is_empty() {
+        if !clangd_config_sources(dir.path()).is_empty() {
             return; // an ancestor of the temp dir has one
         }
         let query = refs_query(&format!("file://{}", file.display()));
         let root = Scope::new(dir.path().to_string_lossy().into_owned(), Vec::new());
         let path = file.to_string_lossy();
-        let mut row = json!({"status":"empty","kind":"empty","hints":["generic"]});
+        let mut row = json!({"status":"empty","hints":["generic"]});
         annotate_compile_database(&mut row, &query, Some("cpp"), &path, &root);
         assert_eq!(row["hints"][0], COMPILE_DATABASE_HINT);
         // References found only in the opened file look complete: flag them.
@@ -302,7 +283,7 @@ mod tests {
             "{cuda}"
         );
         std::fs::write(dir.path().join("compile_commands.json"), "[]").expect("db");
-        let mut row = json!({"status":"empty","kind":"empty","hints":["generic"]});
+        let mut row = json!({"status":"empty","hints":["generic"]});
         annotate_compile_database(&mut row, &query, Some("cpp"), &path, &root);
         assert_eq!(row["hints"][0], "generic");
         assert_eq!(
@@ -313,7 +294,7 @@ mod tests {
             row["lsp"]["analysisContext"]["compilation"]["command"],
             "unverified"
         );
-        let mut rust = json!({"status":"empty","kind":"empty","hints":["generic"]});
+        let mut rust = json!({"status":"empty","hints":["generic"]});
         annotate_compile_database(&mut rust, &query, Some("rust"), &path, &root);
         assert_eq!(rust["hints"][0], "generic");
     }
@@ -348,9 +329,30 @@ mod tests {
     }
 
     #[test]
-    fn word_pattern_bounds_only_word_edges() {
-        use super::super::render::word_pattern;
-        assert_eq!(word_pattern("greet"), "\\bgreet\\b");
-        assert_eq!(word_pattern("$store"), "\\$store\\b");
+    fn build_dir_clangd_config_is_not_a_configuration() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("a.cpp");
+        std::fs::write(&file, "int f();").expect("source");
+        if !clangd_config_sources(dir.path()).is_empty() {
+            return; // an ancestor of the temp dir has one
+        }
+        // clangd reads `.clangd` and `compile_flags.txt` only beside the file
+        // and in its ancestors, never under `build/`.
+        std::fs::create_dir(dir.path().join("build")).expect("build");
+        std::fs::write(dir.path().join("build/.clangd"), "").expect("config");
+        std::fs::write(dir.path().join("build/compile_flags.txt"), "").expect("flags");
+        let query = refs_query(&format!("file://{}", file.display()));
+        let scope = Scope::new(dir.path().to_string_lossy().into_owned(), Vec::new());
+        let mut row = refs_row();
+        annotate_compile_database(
+            &mut row,
+            &query,
+            Some("cpp"),
+            &file.to_string_lossy(),
+            &scope,
+        );
+        let assessment = &row["lsp"]["analysisContext"]["compilation"];
+        assert_eq!(assessment["configuration"], "notFound", "{row}");
+        assert_eq!(assessment["sources"], json!([]), "{row}");
     }
 }

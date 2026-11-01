@@ -30,8 +30,6 @@ pub(super) fn past_end_row(
         source_sha256: Some(streamed.digest.clone()),
         content: Some(String::new()),
         total_lines: Some(streamed.total_lines),
-        source_bytes: usize::try_from(len).ok(),
-        returned_chars: Some(0),
         returned_bytes: Some(0),
         returned_lines: Some(0),
         pagination: Some(Pagination {
@@ -52,7 +50,7 @@ pub(super) fn past_end_row(
 }
 
 /// Map a window's positions, totals and digest back to the whole file.
-pub(super) fn map_to_file(result: &mut LocalFetchResult, streamed: &Streamed, len: u64) {
+pub(super) fn map_to_file(result: &mut LocalFetchResult, streamed: &Streamed) {
     let shift = streamed.first - 1;
     for range in &mut result.source_line_ranges {
         range.start += shift;
@@ -62,8 +60,6 @@ pub(super) fn map_to_file(result: &mut LocalFetchResult, streamed: &Streamed, le
     result.end_line = result.source_line_ranges.last().map(|range| range.end);
     let total = streamed.total_lines;
     result.total_lines = Some(total);
-    result.source_bytes = usize::try_from(len).ok();
-    result.source_chars = None;
     result.source_sha256 = Some(streamed.digest.clone());
     if streamed.key_lines > 0 {
         result.warnings.push(format!(

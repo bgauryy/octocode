@@ -43,6 +43,7 @@ export type Contract = {
       dotenv?: 'all' | 'home' | 'never';
       tokenPriority?: number;
       configSource?: boolean;
+      credential?: boolean;
       documentation?: boolean;
       description?: string;
     }
@@ -99,38 +100,43 @@ export function setPath(root: JsonObject, path: string, value: unknown): void {
       current = child;
     }
   }
-  current[parts.at(-1)!] = value;
+  const last = parts.at(-1);
+  if (last !== undefined) current[last] = value;
 }
 
 export function ownDefault(field: FlatField): unknown {
-  return field.type === 'enum' ? field.values![0] : structuredClone(field.default);
+  return field.type === 'enum' ? field.values?.[0] : structuredClone(field.default);
 }
 
 export function orderedEnvironment(fields: FlatField[], contract: Contract) {
   const fieldBindings = fields.flatMap(field =>
-    field.env ? [{ field: field.path, ...field.env }] : []
+    field.env ? [{ field: field.path, credential: field.credential === true, ...field.env }] : []
   );
   const protectedNames: string[] = [];
   const homeTrusted: string[] = [];
+  const credentialNames = new Set<string>();
   const workspaceNarrowOnly: Record<string, string> = {};
   for (const [name, definition] of Object.entries(contract.environment)) {
     if ((definition.dotenv ?? 'all') !== 'all') protectedNames.push(name);
     if (definition.dotenv === 'home') homeTrusted.push(name);
+    if (definition.credential === true) credentialNames.add(name);
   }
   for (const binding of fieldBindings) {
     if ((binding.dotenv ?? 'all') !== 'all') protectedNames.push(binding.name);
     if (binding.dotenv === 'home') homeTrusted.push(binding.name);
+    if (binding.credential) credentialNames.add(binding.name);
     if (binding.workspaceNarrowsTo) workspaceNarrowOnly[binding.name] = binding.workspaceNarrowsTo;
   }
   const tokens = Object.entries(contract.environment).filter(
     ([, definition]) => definition.tokenPriority !== undefined
   );
-  tokens.sort(([, left], [, right]) => left.tokenPriority! - right.tokenPriority!);
+  tokens.sort(([, left], [, right]) => (left.tokenPriority ?? 0) - (right.tokenPriority ?? 0));
   const tokenNames = tokens.map(([name]) => name);
   return {
     fieldBindings,
     protectedNames: [...new Set(protectedNames)],
     homeTrusted: [...new Set(homeTrusted)],
+    credentialNames: [...credentialNames].toSorted(),
     tokenNames,
     workspaceNarrowOnly,
   };

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { afterAll, describe, it, expect } from 'vitest';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -8,8 +8,15 @@ import {
   NativeLaunchError,
 } from '../../src/cli/native-delegate.js';
 
+const tempDirs: string[] = [];
+
+afterAll(() => {
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
+});
+
 function makeFakeBin(body: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'native-bin-'));
+  tempDirs.push(dir);
   const bin = join(dir, 'octocode');
   writeFileSync(bin, `#!/usr/bin/env node\n${body}\n`);
   chmodSync(bin, 0o755);

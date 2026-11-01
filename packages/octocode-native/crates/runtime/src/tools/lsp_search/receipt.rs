@@ -127,7 +127,7 @@ impl RustAnalysis {
 
 /// Overlay an explicit `rustContext` onto the resolved rust-analyzer options.
 /// The engine already merged its headless defaults (`cargo.buildScripts`,
-/// `procMacro`, `checkOnSave`, `cachePriming`, `cargo.targetDir`) into the
+/// `procMacro`, `checkOnSave`, `cargo.targetDir`) into the
 /// config. A context overrides only the fields it names, and only where the
 /// named value differs from the effective one (the configured value, else
 /// rust-analyzer's default): everything else, `cfg(test)` code included,

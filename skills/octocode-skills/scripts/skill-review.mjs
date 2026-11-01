@@ -333,11 +333,15 @@ function selfTestCollections(dir, skill) {
   const empty = join(dir, 'empty');
   mkdirSync(empty);
   if (!review(skillDirs(empty)[0]).findings.some((item) => item.code === 'skill-missing')) throw new Error('empty collection passed');
+  if (skillDirs(empty, true).length) throw new Error('explicit empty collection must have no skills');
+  if (skillDirs(collection, true).length !== 2) throw new Error('explicit collection skipped an incomplete skill or included private assets');
+  if (skillDirs(join(dir, 'absent'), true)[0] !== join(dir, 'absent')) throw new Error('missing collection root was silently skipped');
   const single = join(dir, 'single-skill');
   mkdirSync(single);
   writeFileSync(join(single, 'SKILL.md'), '---\nname: single-skill\ndescription: "Use when one file is enough."\n---\n\n# Single\n\nAnswer inline.\n');
   if (review(single).findings.length) throw new Error('a single-file skill was rejected: ' + JSON.stringify(review(single).findings));
   writeFileSync(join(single, 'notes.md'), '# Notes\n');
+  if (skillDirs(join(single, 'notes.md'), true)[0] !== join(single, 'notes.md')) throw new Error('non-directory collection root was silently skipped');
   if (!['readme-missing', 'output-missing'].every((code) => review(single).findings.some((item) => item.code === code))) throw new Error('a multi-file skill without README.md and output.md passed');
 }
 
@@ -354,17 +358,18 @@ function selfTest() {
 }
 
 const args = process.argv.slice(2);
-if (args.includes('--help')) {
-  console.log('Usage: node scripts/skill-review.mjs [skill-dir | collection-dir ...] [--json] [--self-test]');
+if (args.includes('--help') || args.includes('-h')) {
+  console.log('Usage: node scripts/skill-review.mjs [skill-dir | collection-dir ...] [--collections] [--json] [--self-test]');
+  console.log('--collections allows existing empty collection directories; missing roots and incomplete child skills still fail.');
   process.exit(0);
 }
 if (args.includes('--self-test')) { selfTest(); process.exit(0); }
-const unknown = args.find((arg) => arg.startsWith('-') && arg !== '--json');
+const unknown = args.find((arg) => arg.startsWith('-') && !['--json', '--collections', '-h'].includes(arg));
 if (unknown) { console.error(`Unknown option: ${unknown}`); process.exit(1); }
 const json = args.includes('--json');
 const targets = args.filter((arg) => !arg.startsWith('--')).map((arg) => resolve(arg));
 if (!targets.length) targets.push(resolve('skills'));
-function skillDirs(target) {
+function skillDirs(target, collection = false) {
   if (existsSync(join(target, 'SKILL.md'))) return [target];
   if (!existsSync(target) || !statSync(target).isDirectory()) return [target];
   const children = readdirSync(target, { withFileTypes: true })
@@ -372,9 +377,9 @@ function skillDirs(target) {
     .map((entry) => join(target, entry.name))
     .filter(dir => existsSync(join(dir, 'SKILL.md')) || !existsSync(join(dir, 'package.json')) ||
       JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).private !== true);
-  return children.length ? children : [target];
+  return collection || children.length ? children : [target];
 }
-const dirs = [...new Set(targets.flatMap(skillDirs))];
+const dirs = [...new Set(targets.flatMap(target => skillDirs(target, args.includes('--collections'))))];
 const results = dirs.map((dir) => {
   try { return review(dir); }
   catch (error) { return { skill: basename(dir), path: dir, findings: [{ level: 'ERROR', code: 'read-failed', message: error.message }] }; }

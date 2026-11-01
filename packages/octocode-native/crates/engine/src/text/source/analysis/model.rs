@@ -155,21 +155,9 @@ pub struct OriginProjection {
 }
 
 pub(super) fn identity<T: Serialize>(value: &T) -> Result<String, super::SourceError> {
-    use sha2::{Digest, Sha256};
-    struct HashWriter(Sha256);
-    impl std::io::Write for HashWriter {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.update(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut writer = HashWriter(Sha256::new());
-    serde_json::to_writer(&mut writer, value)
-        .map_err(|_| super::SourceError::InvalidMap("identity encoding"))?;
-    Ok(hex::encode(writer.0.finalize()))
+    crate::digest::json_sha256(value)
+        .map(hex::encode)
+        .ok_or(super::SourceError::InvalidMap("identity encoding"))
 }
 
 impl OriginProjection {

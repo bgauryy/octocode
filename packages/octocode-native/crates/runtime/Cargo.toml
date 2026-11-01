@@ -69,7 +69,7 @@ futures-util = { workspace = true }
 secrecy = { workspace = true }
 keyring-core = "1"
 hex = { workspace = true }
-# `.gitignore` matching for graph ingest scans (already in the tree via the engine).
+# `.gitignore` matching for graphBuild scans (already in the tree via the engine).
 ignore = { workspace = true }
 # PR changed-file `include` globs (already in the tree via `ignore`).
 globset = { workspace = true }

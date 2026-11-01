@@ -73,6 +73,62 @@ fn yaml_block_and_quoted_scalars_are_text() {
 }
 
 #[test]
+fn yaml_block_scalar_spans_preserve_trailing_blank_lines_before_the_next_key() {
+    assert_yaml_scalar_spans("  first line\n  second line\n\n\n", "next: value\n");
+}
+
+#[test]
+fn yaml_block_scalar_spans_preserve_trailing_blank_lines_at_eof() {
+    assert_yaml_scalar_spans("  first line\n  second line\n\n\n", "");
+}
+
+#[test]
+fn yaml_block_scalar_spans_preserve_empty_and_blank_only_bodies() {
+    for body in ["", "\n\n", "  \n\n"] {
+        for suffix in ["", "next: value\n"] {
+            assert_yaml_scalar_spans(body, suffix);
+        }
+    }
+}
+
+fn assert_yaml_scalar_spans(body: &str, suffix: &str) {
+    for header in ["|+", ">+", "|", ">", "|-", ">-", "|2+", ">2-"] {
+        for newline in ["\n", "\r\n"] {
+            let scalar = format!("script: {header}\n{body}").replace('\n', newline);
+            let source = format!("{scalar}{}", suffix.replace('\n', newline));
+            let expected_end = scalar.lines().count();
+            let outline = key_outline(&source, "scalar.yaml").expect("outline");
+            let gutter = outline.text.split_once('\t').expect("gutter").0;
+            let (start, end) = gutter.split_once('-').unwrap_or((gutter, gutter));
+            let start = start.parse::<usize>().expect("start");
+            let end = end.parse::<usize>().expect("end");
+            assert_eq!(
+                (start, end),
+                (1, expected_end),
+                "{source:?}: {}",
+                outline.text
+            );
+            let recovered = source
+                .split_inclusive('\n')
+                .skip(start - 1)
+                .take(end - start + 1)
+                .collect::<String>();
+            assert_eq!(
+                recovered, scalar,
+                "{header} scalar payload must remain complete"
+            );
+            if !suffix.is_empty() {
+                assert!(
+                    outline.text.contains(&format!("{}\tnext: value", end + 1)),
+                    "{source:?}: {}",
+                    outline.text
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn toml_outlines_tables_and_top_level_keys() {
     let toml = "name = \"x\"\n\n[package]\nversion = \"1\"\n\n[[bin]]\nname = \"b\"\n";
     assert_eq!(
@@ -112,4 +168,40 @@ fn toml_resumes_after_a_line_it_cannot_parse() {
 fn other_files_have_no_key_outline() {
     assert!(key_outline("a: 1\n", "notes.txt").is_none());
     assert!(key_outline("[1, 2]\n", "a.json").is_none());
+}
+
+/// A data outline lists every multi-line container, however deep, as a code
+/// outline lists nested declarations: no fixed nesting level hides a
+/// section from the outline (the response pages a long outline).
+#[test]
+fn outlines_list_containers_at_every_depth() {
+    let depth = 7;
+    let mut json = String::from("{\n");
+    for level in 1..=depth {
+        json.push_str(&format!("{}\"k{level}\": {{\n", "  ".repeat(level)));
+    }
+    json.push_str(&format!("{}\"leaf\": 1\n", "  ".repeat(depth + 1)));
+    for level in (1..=depth).rev() {
+        json.push_str(&format!("{}}}\n", "  ".repeat(level)));
+    }
+    json.push_str("}\n");
+    let outline = key_outline(&json, "deep.json").expect("outline").text;
+    for level in 1..=depth {
+        assert!(
+            outline.contains(&format!("\"k{level}\"")),
+            "k{level}: {outline}"
+        );
+    }
+    let mut yaml = String::new();
+    for level in 0..depth {
+        yaml.push_str(&format!("{}y{level}:\n", "  ".repeat(level)));
+    }
+    yaml.push_str(&format!("{}leaf: 1\n", "  ".repeat(depth)));
+    let outline = key_outline(&yaml, "deep.yaml").expect("outline").text;
+    for level in 0..depth {
+        assert!(
+            outline.contains(&format!("y{level}:")),
+            "y{level}: {outline}"
+        );
+    }
 }

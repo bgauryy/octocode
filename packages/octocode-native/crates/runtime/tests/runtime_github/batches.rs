@@ -49,7 +49,7 @@ async fn three_github_bulk_queries_are_concurrent_and_preserve_order() {
             "repo": "b",
             "path": name,
             "ref": sha,
-            "forceRefresh": true
+            "refresh": true
         })
     });
     let outcome = runtime
@@ -127,7 +127,7 @@ async fn three_sequential_queries_each_hit_the_server() {
             &runtime,
             "ghGetFileContent",
             json!({"owner": "a", "repo": "b", "path": name,
-                   "ref": "main", "forceRefresh": true}),
+                   "ref": "main", "refresh": true}),
         )
         .await
         .unwrap_or_else(|e| panic!("{name}: {e:?}"));

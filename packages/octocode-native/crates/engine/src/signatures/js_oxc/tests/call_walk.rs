@@ -31,7 +31,8 @@ top: { topLabeled(); }
 "#;
     let pairs = call_pairs(&graph(src, "dropped.ts"));
     for (caller, callee) in [
-        ("run", "nestedDecl"),
+        // A nested function declaration owns its calls.
+        ("inSwitch", "nestedDecl"),
         ("run", "labeledCall"),
         ("run", "staticBlock"),
         ("run", "fieldInit"),
@@ -42,8 +43,10 @@ top: { topLabeled(); }
         ("run", "seq1"),
         ("run", "cond1"),
         ("run", "cond2"),
-        ("prop", "objArrow"),
-        ("deep", "deepArrow"),
+        // Members of a nested object literal are no declarations: their
+        // calls belong to the innermost declaration holding them.
+        ("run", "objArrow"),
+        ("run", "deepArrow"),
         ("run", "tryCall"),
         ("run", "catchDefault"),
         ("run", "destructDefault"),

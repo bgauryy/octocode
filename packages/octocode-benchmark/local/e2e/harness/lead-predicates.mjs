@@ -44,9 +44,9 @@ const SAME_TOOL_PAGE_KEYS = /^(next[A-Za-z]*Page|continue[A-Za-z]*|expandScan|re
 // Fields a same-tool lead may change (besides CONTINUATION_FIELDS), per key family.
 const MUTABLE = [
   [/^include(Skipped|Hidden|Archived|BuildScripts)$/, new Set(['includeIgnored', 'includeHidden', 'includeArchived', 'defaultExcludes', 'rustContext'])],
-  [/^expandScan$/, new Set(['maxEntries', 'maxFiles', 'maxDepth'])],
-  // structureSearch widens a maxEntries cut through continueWalk.
-  [/^continueWalk$/, new Set(['fullContent', 'maxEntries'])],
+  [/^expandScan$/, new Set(['limit', 'maxDepth'])],
+  // structureSearch widens a limit cut through continueWalk.
+  [/^continueWalk$/, new Set(['fullContent', 'limit'])],
   [/^continue[A-Za-z]*$/, new Set(['fullContent'])],
 ];
 // Enrichment and clipped-read leads add the option that widens the same read.
@@ -73,7 +73,7 @@ const KEY_TOOLS = [
   [/^read(Block|Hits|Declaration|Files)?$/, { tools: ['localFetch', 'ghGetFileContent', 'ghGetHistoryItem'] }],
 ];
 const BUILD_OUTPUT = /(^|\/)(dist|build|out|target|lib|coverage|\.next|node_modules)(\/|$)|\.min\.(js|css)$|\.map$/;
-const SCOPE_FIELDS = new Set(['path', 'include', 'exclude', 'extensions', 'maxDepth', 'minDepth', 'maxEntries', 'maxFiles', 'fileHas', 'fileLacks', 'kinds', 'language', 'filename', 'entryType', 'nameRegex', 'pageSize', 'resultView', 'owner', 'repo']);
+const SCOPE_FIELDS = new Set(['path', 'include', 'exclude', 'extensions', 'maxDepth', 'minDepth', 'limit', 'fileHas', 'fileLacks', 'kinds', 'language', 'filename', 'entryType', 'nameRegex', 'pageSize', 'resultView', 'owner', 'repo']);
 const PATH_FIELDS = new Set(['path', 'baseline', 'workspaceRoot']);
 
 // Helpers.
@@ -233,7 +233,7 @@ export function sourceScopeForPage(source, lead, sq, lq) {
   // `minify` (the exact view) stays omitted, a named one stays named. The
   // window may add fields the read lacked, so an omitted view is compared
   // explicitly.
-  if (lead.tool === source.tool && lead.key === 'continueWindow' && sq.fullContent === true &&
+  if (lead.tool === source.tool && lead.key === 'nextPage' && sq.fullContent === true &&
       !Object.hasOwn(sq, 'minify')) return { ...sq, minify: null };
   if (source.tool !== 'localSearch' || lead.tool !== source.tool || lead.key !== 'nextPage' ||
       Object.hasOwn(sq, 'pageSize') || sq.resultView !== lq.resultView) return sq;

@@ -81,21 +81,32 @@ pub(super) fn missing_literal(issue: &ValidationIssue, depth: usize) -> bool {
             .is_some_and(|schema| schema.get("const").is_some() || schema.get("enum").is_some())
 }
 
+/// A literal issue on one of the union's `selectors` (fields that choose
+/// between its branches, [`super::branches::selector_fields`]).
+fn selector_mismatch(item: &ValidationIssue, depth: usize, selectors: &[String]) -> bool {
+    matches!(item.rule_id.as_str(), "schema.const" | "schema.enum")
+        && item.path.len() == depth + 1
+        && item
+            .path
+            .last()
+            .is_some_and(|field| selectors.contains(field))
+}
+
 /// The failed branches whose selector fields (`operation`, `ecosystem`, …) all
 /// accept the value: their enum issues are the value's own. When no branch's
 /// selectors match, every branch competes and all of them count.
 pub(super) fn selected_failures<'a>(
     failures: &'a [Vec<ValidationIssue>],
     path: &[String],
+    selectors: &[String],
 ) -> Vec<&'a [ValidationIssue]> {
-    let selector_mismatch = |item: &ValidationIssue| {
-        matches!(item.rule_id.as_str(), "schema.const" | "schema.enum")
-            && item.path.len() == path.len() + 1
-            && item.path.starts_with(path)
-    };
     let matched = failures
         .iter()
-        .filter(|issues| !issues.iter().any(selector_mismatch))
+        .filter(|issues| {
+            !issues.iter().any(|item| {
+                item.path.starts_with(path) && selector_mismatch(item, path.len(), selectors)
+            })
+        })
         .map(Vec::as_slice)
         .collect::<Vec<_>>();
     if matched.is_empty() {
@@ -172,17 +183,8 @@ pub(super) fn widen_literal_issues(
         if literals.len() < 2 {
             continue;
         }
-        let rendered = literals
-            .iter()
-            .map(|literal| {
-                literal
-                    .as_str()
-                    .map_or_else(|| literal.to_string(), str::to_owned)
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
         item.rule_id = "schema.enum".into();
-        item.message = format!("Value is outside the allowed enum; allowed: {rendered}");
+        item.message = super::super::literals::enum_message(item.received.as_ref(), literals);
         item.schema = Some(serde_json::json!({ "enum": literals }));
     }
 }
@@ -238,14 +240,21 @@ pub(super) fn mixed_forms(
     None
 }
 
-/// Honor explicit selectors before comparing the fields of failed branches.
-pub(super) fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 5] {
+/// Honor explicit selectors before comparing the fields of failed branches;
+/// among those, the branch that declares more of the value's fields
+/// (`undeclared`, [`super::branches::undeclared_fields`]) describes it more
+/// specifically than one that only lacks fewer.
+pub(super) fn score(
+    issues: &[ValidationIssue],
+    depth: usize,
+    selectors: &[String],
+    undeclared: usize,
+) -> [usize; 6] {
     let at_field = |issue: &&ValidationIssue| issue.path.len() == depth + 1;
     [
         issues
             .iter()
-            .filter(at_field)
-            .filter(|issue| matches!(issue.rule_id.as_str(), "schema.const" | "schema.enum"))
+            .filter(|issue| selector_mismatch(issue, depth, selectors))
             .count(),
         issues
             .iter()
@@ -261,6 +270,7 @@ pub(super) fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 5] {
             .filter(at_field)
             .filter(|issue| issue.rule_id == "schema.not")
             .count(),
+        undeclared,
         grouped_issue_count(issues),
     ]
 }

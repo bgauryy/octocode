@@ -17,8 +17,12 @@ impl BoundSource<'_> {
                 self.units
                     .iter()
                     .position(|u| u.id == projection.analysis_unit_id)
-                    .map(|i| UnitHandle(i as u32))
                     .ok_or(SourceError::InvalidMap("unknown projection unit"))
+                    .and_then(|i| {
+                        u32::try_from(i)
+                            .map(UnitHandle)
+                            .map_err(|_| SourceError::LimitExceeded("analysis units"))
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
         self.descriptors_for_units(&handles, budget)

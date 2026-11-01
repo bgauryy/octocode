@@ -13,7 +13,7 @@ use std::path::Path;
 
 mod entries;
 mod manifests;
-use crate::tools::ast_graph::graph::parent;
+use crate::tools::ast_graph::paths::parent;
 use manifests::*;
 
 /// One build unit: an npm package, Cargo crate, Go module, or Python project.

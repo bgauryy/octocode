@@ -5,10 +5,12 @@
 //! a TS annotation on the binding or parameter, a `new T(..)` initializer or
 //! receiver (`new T().m()`), or the class field `f` (annotated property,
 //! `constructor(private f: T)`, or `this.f = new T(..)` / a typed
-//! constructor parameter). Bindings are
+//! constructor parameter), or the property a destructuring pattern takes
+//! from an annotated parameter or from the object the file's own function
+//! returns (`const { s } = make()`). Bindings are
 //! lexically scoped (functions, arrows, blocks, loops, catch clauses); an
-//! unannotated binding reassigned to anything else, a destructured name, or a
-//! field assigned two different ways is unknown and emits nothing.
+//! unannotated binding reassigned to anything else, any other destructured
+//! name, or a field assigned two different ways is unknown and emits nothing.
 
 use std::collections::HashMap;
 
@@ -19,10 +21,12 @@ use super::js_oxc_shared::property_key_name;
 
 mod class_fields;
 mod object_types;
+mod return_shapes;
 
 use crate::signatures::receiver_fields::Fields;
 use class_fields::class_fields;
 use object_types::ObjectTypes;
+use return_shapes::ReturnShapes;
 
 struct Binding {
     ty: Option<String>,
@@ -39,6 +43,8 @@ pub(super) struct ReceiverScopes {
     method_pending: bool,
     /// The file's object types, for destructured parameters.
     object_types: ObjectTypes,
+    /// The objects the file's own functions return, for destructured calls.
+    return_shapes: ReturnShapes,
 }
 
 impl Default for ReceiverScopes {
@@ -48,6 +54,7 @@ impl Default for ReceiverScopes {
             this_fields: vec![None],
             method_pending: false,
             object_types: ObjectTypes::default(),
+            return_shapes: ReturnShapes::default(),
         }
     }
 }
@@ -56,6 +63,7 @@ impl ReceiverScopes {
     pub(super) fn for_program(program: &Program) -> Self {
         Self {
             object_types: ObjectTypes::of_program(program),
+            return_shapes: ReturnShapes::of_program(program),
             ..Self::default()
         }
     }
@@ -99,6 +107,12 @@ impl ReceiverScopes {
     }
 
     pub(super) fn bind_declarator(&mut self, it: &VariableDeclarator) {
+        if let (BindingPattern::ObjectPattern(object), None) = (&it.id, &it.type_annotation)
+            && let Some(fields) = self.returned_shape(it.init.as_ref())
+        {
+            self.bind_object_pattern(object, &fields);
+            return;
+        }
         let declared = it
             .type_annotation
             .as_ref()
@@ -181,6 +195,27 @@ impl ReceiverScopes {
             }
             _ => None,
         }
+    }
+
+    /// The returned object shape of `f(..)` when `f` is the file's own
+    /// module function: no inner scope rebinds the name.
+    fn returned_shape(&self, init: Option<&Expression>) -> Option<Fields> {
+        let Expression::CallExpression(call) = unwrap_expr(init?) else {
+            return None;
+        };
+        let Expression::Identifier(callee) = unwrap_expr(&call.callee) else {
+            return None;
+        };
+        let name = callee.name.as_str();
+        if self
+            .scopes
+            .iter()
+            .skip(1)
+            .any(|scope| scope.contains_key(name))
+        {
+            return None;
+        }
+        self.return_shapes.of(name).cloned()
     }
 
     fn lookup(&self, name: &str) -> Option<String> {

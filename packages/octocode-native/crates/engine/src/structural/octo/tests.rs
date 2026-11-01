@@ -1,6 +1,7 @@
 use super::*;
 use crate::signatures::languages;
 use serde_json::{Value, json};
+use std::time::Instant;
 
 fn run_pattern(src: &str, ext: &str, pattern: &str) -> Vec<StructuralMatch> {
     let matcher = compile_matcher(

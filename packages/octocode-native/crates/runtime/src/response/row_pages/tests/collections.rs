@@ -31,7 +31,7 @@ fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() 
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":row})],
         &[None],
-        Some(crate::id::ToolId::Clasify),
+        crate::id::ToolId::Clasify,
     )
     .plan(1_800, &CancellationToken::new())
     .expect("valid plan");
@@ -91,7 +91,7 @@ fn declared_collections_leave_a_single_oversized_answer_whole() {
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":row})],
         &[None],
-        Some(crate::id::ToolId::Clasify),
+        crate::id::ToolId::Clasify,
     )
     .plan(500, &CancellationToken::new())
     .expect("valid plan");
@@ -123,7 +123,7 @@ fn large_resource_identity_does_not_force_one_page_per_small_answer() {
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":row})],
         &[None],
-        Some(crate::id::ToolId::Clasify),
+        crate::id::ToolId::Clasify,
     )
     .plan(500, &CancellationToken::new())
     .expect("valid plan");
@@ -154,7 +154,7 @@ fn answer_fragments_continue_their_only_section() {
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":row})],
         &[None],
-        Some(crate::id::ToolId::Clasify),
+        crate::id::ToolId::Clasify,
     )
     .plan(600, &CancellationToken::new())
     .expect("valid plan");

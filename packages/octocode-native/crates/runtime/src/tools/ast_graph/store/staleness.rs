@@ -31,28 +31,32 @@ pub(crate) fn source_matches(
     Some(octocode_engine::digest::sha256(&content) == digest)
 }
 
-/// The latest snapshot of `root` when nothing it covers changed: same scan
-/// options, same octocode and format version, and no [`snapshot_changes`].
+/// The newest published snapshot of `root`, with its manifest.
+pub(super) fn newest_of_root(home: &Path, root: &Path) -> Option<(String, Value)> {
+    let root_text = root.to_string_lossy();
+    list_snapshots(home).into_iter().rev().find_map(|id| {
+        let manifest = read_manifest(&home.join(&id))?;
+        (manifest["root"] == root_text.as_ref()).then_some((id, manifest))
+    })
+}
+
+/// The receipt of the latest snapshot of `root` when nothing it covers
+/// changed: same scan options, same octocode and format version, and no
+/// [`snapshot_changes`]. Read-only: the caller points `latest` at it under
+/// the build lock.
 pub(super) fn reuse_current(
     home: &Path,
     root: &Path,
     options: &IngestOptions,
-    max_files: u32,
     paths: &PathPolicy,
     registry_identity: &str,
 ) -> Option<Value> {
-    let root_text = root.to_string_lossy();
-    let (id, manifest) = list_snapshots(home).into_iter().rev().find_map(|id| {
-        let manifest = read_manifest(&home.join(&id))?;
-        (manifest["root"] == root_text.as_ref()).then_some((id, manifest))
-    })?;
+    let (id, manifest) = newest_of_root(home, root)?;
     let same_options = manifest["formatVersion"] == format::FORMAT_VERSION
         && analysis_current(&manifest)
         && manifest["registryIdentity"] == registry_identity
-        && manifest["scan"]["maxFiles"] == max_files
         && manifest["scan"]["excludeDir"] == json!(options.exclude_dir)
-        && manifest["scan"]["languageGlobs"] == language_globs_json(&options.language_globs)
-        && manifest["scan"]["truncated"] == false;
+        && manifest["scan"]["languageGlobs"] == language_globs_json(&options.language_globs);
     if !same_options {
         return None;
     }
@@ -63,10 +67,9 @@ pub(super) fn reuse_current(
         return None;
     }
     let freshness = snapshot_changes(paths, root, &tables, &manifest, true);
-    if !freshness.changes.is_empty() || !freshness.added_checked {
+    if !freshness.changes.is_empty() {
         return None;
     }
-    write_atomic(&home.join(LATEST_FILE), id.as_bytes(), false).ok()?;
     Some(json!({
         "id": id,
         "dir": dir.to_string_lossy(),
@@ -82,7 +85,6 @@ pub(super) fn reuse_current(
         "extraction": {"parsedFiles":0,"reusedFiles":manifest["scan"]["filesScanned"],"resumedFiles":0},
         "linkage": manifest["linkage"],
         "scan": manifest["scan"],
-        "next": format!("octocode graph query stats --graph {id} --workspace {}", octocode_io::shell::quote(&home.parent()?.parent()?.to_string_lossy())),
     }))
 }
 
@@ -164,9 +166,6 @@ pub(crate) struct Change {
 
 pub(crate) struct Freshness {
     pub changes: Vec<Change>,
-    /// Files added since ingest were looked for; a truncated scan cannot
-    /// tell an added file from one past `maxFiles`.
-    pub added_checked: bool,
 }
 
 /// Every way the tree under `root` differs from the snapshot `tables`
@@ -184,7 +183,6 @@ pub(crate) fn snapshot_changes(
 ) -> Freshness {
     let mut changes = Vec::new();
     let done = |changes: &Vec<Change>| first_only && !changes.is_empty();
-    let added_checked = manifest["scan"]["truncated"] == false;
     let stamps = tables.stamps_by_node();
     for (node, digest) in &tables.digests {
         let file = tables.str(tables.nodes[*node as usize].key);
@@ -199,71 +197,17 @@ pub(crate) fn snapshot_changes(
             config: false,
         });
         if done(&changes) {
-            return Freshness {
-                changes,
-                added_checked,
-            };
+            return Freshness { changes };
         }
     }
-    if added_checked {
-        let recorded = tables
-            .nodes
-            .iter()
-            .filter(|node| node.kind == format::NodeKind::File)
-            .map(|node| tables.str(node.key))
-            .collect::<BTreeSet<_>>();
-        let excludes = manifest["scan"]["excludeDir"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        let globs = serde_json::from_value::<BTreeMap<String, Vec<String>>>(
-            manifest["scan"]["languageGlobs"].clone(),
-        )
-        .unwrap_or_default();
-        let extensions = manifest["registryExtensions"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        let current = scope_files(root, &excludes, &globs, &extensions);
-        let reported = changes
-            .iter()
-            .map(|change| change.file.clone())
-            .collect::<BTreeSet<_>>();
-        // Recorded files a re-ingest would no longer scan: gone, or now
-        // ignored or excluded.
-        let excluded = recorded
-            .iter()
-            .filter(|file| !current.contains(**file) && !reported.contains(**file))
-            .map(|file| {
-                let status = if root.join(file).exists() {
-                    "excluded"
-                } else {
-                    "missing"
-                };
-                ((*file).to_owned(), status)
-            });
-        let added = current
-            .iter()
-            .filter(|file| !recorded.contains(file.as_str()))
-            .map(|file| (file.clone(), "added"));
-        for (file, status) in added.chain(excluded).collect::<Vec<_>>() {
-            changes.push(Change {
-                file,
-                status,
-                config: false,
-            });
-            if done(&changes) {
-                return Freshness {
-                    changes,
-                    added_checked,
-                };
-            }
+    for (file, status) in scope_changes(root, tables, manifest, &changes) {
+        changes.push(Change {
+            file,
+            status,
+            config: false,
+        });
+        if done(&changes) {
+            return Freshness { changes };
         }
     }
     let recorded = manifest["inputs"]
@@ -283,8 +227,62 @@ pub(crate) fn snapshot_changes(
             break;
         }
     }
-    Freshness {
-        changes,
-        added_checked,
-    }
+    Freshness { changes }
+}
+
+/// Sources a re-ingest would scan differently: files added under the
+/// snapshot's scope (a rescan with the ingest's exclusions), and recorded
+/// files it would no longer scan (gone, or now ignored or excluded) that
+/// `changes` does not already report.
+fn scope_changes(
+    root: &Path,
+    tables: &format::GraphTables,
+    manifest: &Value,
+    changes: &[Change],
+) -> Vec<(String, &'static str)> {
+    let recorded = tables
+        .nodes
+        .iter()
+        .filter(|node| node.kind == format::NodeKind::File)
+        .map(|node| tables.str(node.key))
+        .collect::<BTreeSet<_>>();
+    let strings = |value: &Value| {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let globs = serde_json::from_value::<BTreeMap<String, Vec<String>>>(
+        manifest["scan"]["languageGlobs"].clone(),
+    )
+    .unwrap_or_default();
+    let current = scope_files(
+        root,
+        &strings(&manifest["scan"]["excludeDir"]),
+        &globs,
+        &strings(&manifest["registryExtensions"]),
+    );
+    let reported = changes
+        .iter()
+        .map(|change| change.file.as_str())
+        .collect::<BTreeSet<_>>();
+    let excluded = recorded
+        .iter()
+        .filter(|file| !current.contains(**file) && !reported.contains(**file))
+        .map(|file| {
+            let status = if root.join(file).exists() {
+                "excluded"
+            } else {
+                "missing"
+            };
+            ((*file).to_owned(), status)
+        });
+    let added = current
+        .iter()
+        .filter(|file| !recorded.contains(file.as_str()))
+        .map(|file| (file.clone(), "added"));
+    added.chain(excluded).collect()
 }

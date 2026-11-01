@@ -1,3 +1,4 @@
+use crate::num::saturating_u32;
 use std::collections::HashMap;
 
 use tree_sitter::Node;
@@ -86,7 +87,9 @@ pub(super) fn to_structural_match_with_context(
             unit: source_span.unit,
             range: crate::text::analysis::ByteRange::new(
                 source_span.start_byte,
-                source_span.start_byte + header.len() as u32,
+                source_span
+                    .start_byte
+                    .saturating_add(saturating_u32(header.len())),
             ),
         });
     StructuralMatch {
@@ -96,14 +99,18 @@ pub(super) fn to_structural_match_with_context(
         source_origin: None,
         header_origin: None,
         source_descriptors: None,
-        start_line: (start.row as u32) + 1,
-        end_line: (end.row as u32) + 1,
+        start_line: saturating_u32(start.row).saturating_add(1),
+        end_line: saturating_u32(end.row).saturating_add(1),
         start_col: line_index.row_col_to_utf16_column(
             content,
-            start.row as u32,
-            start.column as u32,
+            saturating_u32(start.row),
+            saturating_u32(start.column),
         ),
-        end_col: line_index.row_col_to_utf16_column(content, end.row as u32, end.column as u32),
+        end_col: line_index.row_col_to_utf16_column(
+            content,
+            saturating_u32(end.row),
+            saturating_u32(end.column),
+        ),
         text: node_text(node, content).to_owned(),
         metavars,
         metavar_ranges,

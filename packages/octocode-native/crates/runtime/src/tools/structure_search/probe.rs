@@ -310,7 +310,7 @@ where
     }
     let cut = found.meta.was_capped || bound.cut();
     let hint = format!(
-        "No entry matches {}; {}{count} {} without {}: the lead lists {}.",
+        "No entry matches {}; {}{count} {} without {}: the related[] structureSearch request lists {}.",
         dropped.join("/"),
         if cut { "at least " } else { "" },
         if count == 1 {

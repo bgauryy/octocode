@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 fn exact_tail_boundary_includes_row_part_without_losing_closure_or_rows() {
     let data = fixture(100, 100);
     let catalog = data["sourceEvidence"].clone();
-    let expected = data["results"].as_array().unwrap().clone();
+    let expected = data["rows"].as_array().unwrap().clone();
     assert_row_contract(ToolId::GraphQuery, &data);
     let token = CancellationToken::new();
     // Two adjacent results plus their exact closure serialize to 8,472 chars.
@@ -20,7 +20,7 @@ fn exact_tail_boundary_includes_row_part_without_losing_closure_or_rows() {
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":data})],
         &[None],
-        Some(ToolId::GraphQuery),
+        ToolId::GraphQuery,
     )
     .plan(budget, &token)
     .expect("valid plan");
@@ -36,7 +36,7 @@ fn exact_tail_boundary_includes_row_part_without_losing_closure_or_rows() {
         for row in rows {
             assert_row_contract(ToolId::GraphQuery, &row["data"]);
             exact_closure(&row["data"], &catalog);
-            seen.extend(row["data"]["results"].as_array().unwrap().iter().cloned());
+            seen.extend(row["data"]["rows"].as_array().unwrap().iter().cloned());
         }
     }
     assert_eq!(
@@ -52,9 +52,9 @@ fn first_only_oversized_context_does_not_enlarge_later_nested_pages() {
         .map(|index| json!({"id":index.to_string(),"value":"x".repeat(62)}))
         .collect::<Vec<_>>();
     let data = json!({
-        "op":"diagnostics",
+        "operation":"diagnostics",
         "graph":{"id":"g","root":"/fixture","createdAt":"now"},
-        "results":[{"id":"finding","description":description,
+        "rows":[{"id":"finding","description":description,
             "evidence":{"members":expected}}]
     });
     assert_row_contract(ToolId::GraphQuery, &data);
@@ -63,7 +63,7 @@ fn first_only_oversized_context_does_not_enlarge_later_nested_pages() {
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":data})],
         &[None],
-        Some(ToolId::GraphQuery),
+        ToolId::GraphQuery,
     )
     .plan(budget, &token)
     .expect("valid plan");
@@ -86,7 +86,7 @@ fn first_only_oversized_context_does_not_enlarge_later_nested_pages() {
         }
         for row in rows {
             assert_row_contract(ToolId::GraphQuery, &row["data"]);
-            for finding in row["data"]["results"].as_array().unwrap() {
+            for finding in row["data"]["rows"].as_array().unwrap() {
                 assert_eq!(finding["id"], "finding");
                 if let Some(actual) = finding.get("description") {
                     assert_eq!(actual, &json!(description));

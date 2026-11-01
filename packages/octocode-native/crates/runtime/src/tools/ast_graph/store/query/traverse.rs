@@ -13,6 +13,26 @@ impl Query<'_> {
         self.resolve(reference, self.flags.kind)
     }
 
+    /// The roots of `symbols`: each source reference, else every file in
+    /// key order, so no target lists every symbol of the snapshot.
+    pub(super) fn symbol_roots(&self) -> Result<Vec<u32>, GraphOutput> {
+        let sources = self.options.sources().collect::<Vec<_>>();
+        if sources.is_empty() {
+            let mut files = self
+                .g
+                .t
+                .node_ids()
+                .filter(|id| self.g.t.nodes[*id as usize].kind == NodeKind::File)
+                .collect::<Vec<_>>();
+            files.sort_by(|a, b| self.g.key(*a).cmp(self.g.key(*b)));
+            return Ok(files);
+        }
+        sources
+            .into_iter()
+            .map(|reference| self.resolve(reference, self.flags.kind))
+            .collect()
+    }
+
     pub(super) fn filter(&self, default: &[EdgeKind]) -> EdgeFilter {
         EdgeFilter {
             kinds: if self.flags.edge_kinds.is_empty() {
@@ -50,12 +70,19 @@ impl Query<'_> {
         };
         let filter = self.filter(&default_edges);
         // A file's default dependents include the files that use its exports
-        // through a re-exporting module; an explicit --edge walks only those
+        // through a re-exporting module; explicit edges walk only those
         // edges.
         let reexports =
             op == "dependents" && node_kind == NodeKind::File && self.flags.edge_kinds.is_empty();
+        let grouped = self.options.view.as_deref() == Some("files");
         let offset = self.options.offset.unwrap_or(0);
-        let limit = self.options.limit.unwrap_or(DEFAULT_LIMIT);
+        let limit = self.options.limit.unwrap_or_else(default_limit);
+        // Grouping counts every edge before paging; the grouped rows page.
+        let window = if grouped {
+            0..usize::MAX
+        } else {
+            offset..offset.saturating_add(limit)
+        };
         let page = walk(
             g,
             &seeds,
@@ -66,10 +93,11 @@ impl Query<'_> {
                 kind: self.flags.kind,
                 include_seeds: matches!(op, "callers" | "callees"),
                 reexports,
-                window: offset..offset.saturating_add(limit),
+                window,
             },
             self.cancel,
         )?;
+        let page = if grouped { per_file(page) } else { page };
         let mut extra = Map::new();
         extra.insert(
             "target".into(),
@@ -137,5 +165,26 @@ impl Query<'_> {
             }),
         );
         Ok(run_page(self.options, self.g, extra, page))
+    }
+}
+
+/// `view:"files"`: one row per file with the number of traversal rows
+/// (edges) it holds, in key order; the counts sum to the edge total. A
+/// symbol's key is `<file>#<name>`.
+fn per_file(page: Page) -> Page {
+    let mut files = BTreeMap::<String, u64>::new();
+    for row in &page.rows {
+        let key = row["id"].as_str().unwrap_or_default();
+        let file = key.split_once('#').map_or(key, |(file, _)| file);
+        *files.entry(file.to_owned()).or_default() += 1;
+    }
+    let rows = files
+        .into_iter()
+        .map(|(file, edges)| json!({"file": file, "edges": edges}))
+        .collect::<Vec<_>>();
+    Page {
+        total: rows.len(),
+        rows,
+        start: 0,
     }
 }

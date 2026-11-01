@@ -1,5 +1,5 @@
 use super::*;
-use octocode_contract_types::{LocalFetchQuery, LocalSearchQuery, StructureSearchQuery};
+use octocode_contract_types::{LocalSearchQuery, StructureSearchQuery};
 
 /// Test query from wire JSON over a base query (or a minimal valid one);
 /// `null` removes a field so its contract default applies.
@@ -61,11 +61,11 @@ fn stored_page_after(
     response_window: Option<usize>,
     between: impl FnOnce(),
 ) -> Result<LocalSearchResult, crate::response::result::ToolError> {
-    let scan = super::executor::scan_query(request, policy, &NeverCancel, None, response_window)
+    let scan = super::executor::scan_query(request, policy, &NeverCancel, (response_window, None))
         .expect("scan");
     assert!(scan.digests.is_some(), "the page took the stored scan");
     between();
-    super::executor::page_of(request, policy, security, &NeverCancel, None, scan, None)
+    super::executor::page_of(request, policy, security, &NeverCancel, scan, None)
 }
 
 fn values(result: &LocalSearchResult) -> String {
@@ -87,7 +87,7 @@ fn search_fixture(files: &[(&str, &str)], request: LocalSearchQuery) -> serde_js
         Some(&request),
     );
     let result = search_in(&request, &policy, &security, None).expect("search");
-    serde_json::to_value(&result).expect("serialize")
+    result.to_row().expect("serialize")
 }
 
 fn owner_of(file: &serde_json::Value, index: usize) -> Option<serde_json::Value> {
@@ -101,7 +101,7 @@ fn search_in(
     security: &ContentSecurity,
     window: Option<usize>,
 ) -> Result<LocalSearchResult, crate::response::result::ToolError> {
-    execute_local_search(request, policy, security, &NeverCancel, None, window, None)
+    execute_local_search(request, policy, security, &NeverCancel, window, None)
 }
 
 /// Search `root` with `fields` (path set to `root`), default security and
@@ -131,53 +131,6 @@ fn policy_for(root: &std::path::Path) -> (PathPolicy, ContentSecurity) {
     (policy, ContentSecurity::new())
 }
 
-/// Run every row of the `expandValues` read of a search result and return
-/// how many rows ran and the concatenated content they fetched.
-fn follow_expansions(result: &LocalSearchResult, policy: &PathPolicy) -> (usize, String) {
-    let mut pending = std::collections::VecDeque::new();
-    for (name, call) in result
-        .next
-        .as_ref()
-        .and_then(serde_json::Value::as_object)
-        .into_iter()
-        .flatten()
-    {
-        if name.starts_with("expandValues") {
-            assert_eq!(
-                call["kind"], "continue",
-                "recovering clipped evidence must be required work"
-            );
-            pending.push_back(call["input"].clone());
-        }
-    }
-    let mut reads = 0;
-    let mut content = String::new();
-    while let Some(input) = pending.pop_front() {
-        reads += 1;
-        assert!(reads < 200, "read continuation must terminate");
-        for row in input["queries"].as_array().expect("read rows") {
-            let query: LocalFetchQuery = serde_json::from_value(row.clone()).expect("typed read");
-            let fetched = crate::tools::local_fetch::execute_local_fetch(
-                &query,
-                policy,
-                &ContentSecurity::new(),
-                &NeverCancel,
-                None,
-                None,
-            );
-            assert_eq!(fetched.error, None, "{input}");
-            content.push_str(fetched.content.as_deref().unwrap_or(""));
-            let output = serde_json::to_value(&fetched).expect("read result");
-            for call in crate::tools::test_support::checks::leads(&output) {
-                if call.kind == "continue" && call.tool == "localFetch" {
-                    pending.push_back(call.query);
-                }
-            }
-        }
-    }
-    (reads, content)
-}
-
 /// Runs `start` (a localSearch query row) in the workspace `root`, and every
 /// page lead its pages offer, under `checks::walk`: each call once, each row
 /// once, every page and its leads within the contract. Rows are `path:line`
@@ -204,7 +157,7 @@ fn walk_search(
                 serde_json::from_value(row.clone()).expect("localSearch row");
             let result = search_in(&query, &policy, &security, window)
                 .unwrap_or_else(|error| panic!("{row}: {error:?}"));
-            let body = serde_json::to_value(&result).expect("result");
+            let body = result.to_row().expect("result");
             let page = crate::tools::test_support::checks::Page {
                 output: crate::tools::test_support::published(
                     crate::id::ToolId::LocalSearch,
@@ -238,6 +191,7 @@ fn row_ids(body: &serde_json::Value) -> Vec<String> {
 
 mod binaries;
 mod empty_pages;
+mod limit;
 mod match_list;
 mod pages;
 mod scope;
@@ -245,6 +199,7 @@ mod secrets;
 #[cfg(unix)]
 mod special_files;
 mod stored;
+mod test_code;
 
 /// A generated Rust file of `functions` functions with five `let ` lines
 /// each: an engine-like hot file whose hits all sit inside declarations.

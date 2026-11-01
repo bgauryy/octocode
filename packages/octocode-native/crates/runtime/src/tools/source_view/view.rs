@@ -1,6 +1,6 @@
 //! The view pipeline: one fetched source, one localFetch query, one result.
-//! `process_fetched_content` performs no filesystem access, so local reads and
-//! remote reads (ghGetFileContent) render through the same code.
+//! Local and remote reads render through the same code and the caller's
+//! rendered-view cache; source acquisition stays with the caller.
 use super::extraction::extract;
 use super::types::*;
 use super::{no_match::*, outline::*, prepare::*};
@@ -18,8 +18,8 @@ use page::{cut_page, page_result};
 
 pub(crate) use classified::unsupported_selection;
 
-/// Shared post-acquisition content processing. Performs no filesystem access;
-/// callers own source authorization, binary/transport limits and provenance.
+/// Shared post-acquisition content processing. Callers own source authorization,
+/// binary/transport limits, provenance and the view cache's persistence policy.
 pub fn process_fetched_content(
     q: &LocalFetchQuery,
     bytes: &[u8],
@@ -95,6 +95,7 @@ pub(crate) fn process_fetched_content_selected(
         source_path,
         security,
         &source.text,
+        &facts.views,
     );
     let selection_outcome = match select_view_chunks(
         &selection_input,
@@ -179,6 +180,7 @@ fn select_view(
     source_path: &std::path::Path,
     security: &impl ContentScan,
     full_source: &str,
+    views: &super::ViewCache,
 ) -> View {
     let requested = local_fetch_query::view(q);
     let selected = std::mem::take(&mut ext.text);
@@ -214,7 +216,7 @@ fn select_view(
         ReadView::Compact => view(standard_view(&selected), Some(ReadView::Compact)),
         ReadView::Symbols => {
             match symbols_view(
-                crate::tools::declarations_cache::symbols_store(),
+                &views.symbols,
                 &selected,
                 local_fetch_query::path(q),
                 source_path,

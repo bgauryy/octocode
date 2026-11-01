@@ -12,8 +12,8 @@
 //! heritage clause naming a same-package class links to its file. Go
 //! same-package references produce no edge.
 
-use super::graph::dirname;
 use super::linking::Linker;
+use super::paths::dirname;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 

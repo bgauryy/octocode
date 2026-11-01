@@ -47,7 +47,7 @@ impl<'a> NodePositions<'a> {
     pub(super) fn position(&self, byte_offset: usize) -> GraphPosition {
         let (line, character) = self
             .index
-            .byte_to_position(self.content, byte_offset as u32);
+            .byte_to_position(self.content, crate::num::saturating_u32(byte_offset));
         GraphPosition { line, character }
     }
 }

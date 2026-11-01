@@ -130,7 +130,7 @@ impl ContentScan for super::ContentSecurity {
 }
 
 /// Remembers the secret-scanner output for recently read views so paging one
-/// large file does not rescan the whole blob on every `next.continueWindow`.
+/// large file does not rescan the whole blob on every `next.nextPage`.
 ///
 /// A line/byte page is cut from the sanitized full view, so each page
 /// otherwise re-runs `sanitize` over the entire file (~1.6 ms release for a

@@ -31,9 +31,6 @@ const REVIEW_LINE_CHARS: usize = 45;
 
 const REVIEW_FILE_CHARS: usize = 80;
 
-/// Files one review read names at most: one provider-sized patch page.
-const MAX_REVIEW_FILES: usize = 30;
-
 /// Optional patch selection: the files whose patches answer "what changed" —
 /// source files first (then other non-test, non-doc files), most changed
 /// lines first — packed into one call's patch budget. Tests, docs,
@@ -75,6 +72,8 @@ pub(in crate::tools::gh_get_history_item) fn review_selection(
         }
     }
     packed.extend(rest);
-    packed.truncate(MAX_REVIEW_FILES);
+    // The pick rides one lead's `include`: as many files as it admits. The
+    // rest of the diff stays one `readPatches` away.
+    packed.truncate(crate::contracts::query_limits::gh_get_history_item::INCLUDE_MAX_ITEMS);
     packed
 }

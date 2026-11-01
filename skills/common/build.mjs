@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync, chmodS
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMainModule } from './scripts/lib/entrypoint.mjs';
+import { buildSync } from 'esbuild';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundles = [
@@ -32,6 +33,10 @@ const bundles = [
     trigger: 'scripts/lib/entrypoint.mjs',
     files: ['scripts/lib/entrypoint.mjs'],
   },
+  {
+    trigger: 'scripts/lib/config-env.mjs',
+    files: [{ source: 'scripts/config-env.entry.mjs', target: 'scripts/lib/config-env.mjs', bundle: true }],
+  },
 ];
 
 const bundled = new Set(bundles.flatMap(bundle => bundle.files.map(file => typeof file === 'string' ? file : file.target)));
@@ -55,12 +60,15 @@ function referencedPaths(text, file, root) {
     .map(([, target]) => relative(root, resolve(dirname(file), target)).replaceAll('\\', '/'));
 }
 
-const fileEntry = (file) => typeof file === 'string' ? { source: file, target: file } : file;
+const fileEntry = (file) => typeof file === 'string' ? { source: file, target: file, bundle: false } : { bundle: false, ...file };
+
+/** The skill collections at the repository root: the one list every skill gate walks. */
+export const COLLECTIONS = ['skills', 'skills-dev'];
 
 /** Skill folders (those with a SKILL.md) in every collection under root. */
 function skillDirs(root) {
   const dirs = [];
-  for (const collection of ['skills', 'skills-beta', 'skills-dev']) {
+  for (const collection of COLLECTIONS) {
     const folder = join(root, collection);
     if (!existsSync(folder)) continue;
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
@@ -98,17 +106,16 @@ function selectBundles(dir) {
 function bundleOutputs(selected) {
   const outputs = new Map();
   for (const bundle of selected) {
-    for (const { source, target } of bundle.files.map(fileEntry)) {
-      if (outputs.has(target) && outputs.get(target) !== source) throw new Error(`Conflicting shared sources for ${target}`);
-      outputs.set(target, source);
+    for (const { source, target, bundle: usesBundle } of bundle.files.map(fileEntry)) {
+      if (outputs.has(target) && (outputs.get(target).source !== source || outputs.get(target).bundle !== usesBundle)) throw new Error(`Conflicting shared sources for ${target}`);
+      outputs.set(target, { source, bundle: usesBundle });
     }
   }
   return outputs;
 }
 
 /** Copies one shared file unless it is current; returns whether it was stale. */
-function syncCopy(destination, source, target, check) {
-  const content = readFileSync(join(here, source));
+function syncCopy(destination, content, target, check) {
   if (existsSync(destination) && readFileSync(destination).equals(content)) return false;
   if (check) return true;
   mkdirSync(dirname(destination), { recursive: true });
@@ -121,11 +128,23 @@ export function build({ root = resolve(here, '../..'), check = false } = {}) {
   const stale = [];
   let copies = 0;
   const dirs = skillDirs(root);
+  const bundledResources = new Map();
   for (const dir of dirs) {
-    for (const [target, source] of bundleOutputs(selectBundles(dir))) {
+    for (const [target, { source, bundle }] of bundleOutputs(selectBundles(dir))) {
       const destination = join(dir, target);
       copies++;
-      if (syncCopy(destination, source, target, check)) stale.push(relative(root, destination));
+      let content;
+      if (bundle) {
+        if (!bundledResources.has(source)) {
+          // This is generated distribution code; keep the bundle compact while the authored entry stays readable.
+          const result = buildSync({ absWorkingDir: here, entryPoints: [source], bundle: true, platform: 'node', format: 'esm', target: 'node24', minify: true, write: false });
+          bundledResources.set(source, result.outputFiles[0].contents);
+        }
+        content = bundledResources.get(source);
+      } else {
+        content = readFileSync(join(here, source));
+      }
+      if (syncCopy(destination, content, target, check)) stale.push(relative(root, destination));
     }
   }
   return { skills: dirs.length, copies, stale };
@@ -133,7 +152,10 @@ export function build({ root = resolve(here, '../..'), check = false } = {}) {
 
 if (isMainModule(import.meta.url)) {
   const args = process.argv.slice(2);
-  if (args.some(arg => arg !== '--check')) throw new Error('Usage: node skills/common/build.mjs [--check]');
+  if (args.some(arg => arg !== '--check')) {
+    console.error('Usage: node skills/common/build.mjs [--check]');
+    process.exit(args.includes('--help') ? 0 : 1);
+  }
   const check = args.includes('--check');
   const result = build({ check });
   for (const file of result.stale) console.log(`${check ? 'STALE' : 'UPDATED'} ${file}`);

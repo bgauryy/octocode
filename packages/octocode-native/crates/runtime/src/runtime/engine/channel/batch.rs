@@ -1,14 +1,13 @@
 use crate::execution::{ExecutionContext, ExecutionError};
-use crate::id::ToolId;
-use crate::num::u32_of_usize;
+use crate::id::{ToolFamily, ToolId};
 use crate::response::read_share;
 use crate::security::CheckedQuery;
 
-/// The batch parallelism budget: how many threads one batch runs its
-/// queries on, and how many cores each query's parallel directory walk may
-/// use. Read-only rows fan out one thread per query; mutating and
-/// self-scheduled tools stay ordered. Each localSearch text walk also runs
-/// its own worker pool, which defaults to every core, so concurrent walks
+/// How many queries of one batch run at once: read-only rows fan out one
+/// thread per query; mutating and self-scheduled tools stay ordered. Each
+/// row's own parallel work (its walk, its reads) sizes itself from the
+/// process CPU budget ([`octocode_engine::search::cpu`]), which every local
+/// row counts toward while it runs, so concurrent rows and concurrent calls
 /// split the cores instead of stacking full pools. Measured on a 5-query
 /// localSearch batch over the native crates (12 cores, optimized build): one
 /// thread per query with full pools 114 ms and 86 peak threads, three workers
@@ -16,31 +15,11 @@ use crate::security::CheckedQuery;
 /// stay concurrent and only the per-walk pools shrink. Splitting the cores
 /// (2 walkers each) against the same build with full pools: 708 vs 710 ms
 /// median, 22 vs 72 peak threads; rounding the share up changed nothing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct BatchBudget {
-    /// Queries run at once.
-    pub(super) width: usize,
-    /// Walk workers per query; `None` keeps the engine default (all cores).
-    pub(super) walk_threads: Option<u32>,
-}
-
-impl BatchBudget {
-    pub(super) fn new(id: ToolId, queries: usize, cores: usize) -> Self {
-        let width = if id.supports_concurrent_queries() {
-            queries.max(1)
-        } else {
-            1
-        };
-        let walk_threads = (width > 1).then(|| u32_of_usize((cores / width).max(1)));
-        Self {
-            width,
-            walk_threads,
-        }
-    }
-
-    fn for_host(id: ToolId, queries: usize) -> Self {
-        let cores = std::thread::available_parallelism().map_or(1, usize::from);
-        Self::new(id, queries, cores)
+pub(super) fn batch_width(id: ToolId, queries: usize) -> usize {
+    if id.supports_concurrent_queries() {
+        queries.max(1)
+    } else {
+        1
     }
 }
 
@@ -58,30 +37,56 @@ pub(super) fn execute_ordinary_queries(
             .map(|page| read_share::row_window(tool, page, queries.len())),
         ..context.clone()
     };
-    let budget = BatchBudget::for_host(tool, queries.len());
-    if budget.width <= 1 {
-        return queries
-            .iter()
-            .map(|query| dispatcher.execute(tool, query, context))
-            .collect();
-    }
-
-    let context = &ExecutionContext {
-        walk_threads: budget.walk_threads,
-        ..context.clone()
+    // Each local row running at once computes on this host: it counts toward
+    // the process budget before any fan-out (here or in the row) is sized.
+    let width = batch_width(tool, queries.len());
+    let computing = if tool.family() == ToolFamily::Local {
+        width
+    } else {
+        0
     };
-    std::thread::scope(|scope| {
-        let tasks = queries
-            .iter()
-            .map(|query| {
-                scope.spawn(octocode_io::notice::carried(move || {
-                    dispatcher.execute(tool, query, context)
-                }))
-            })
-            .collect::<Vec<_>>();
-        tasks
-            .into_iter()
-            .map(|task| task.join().map_err(|_| ExecutionError::WorkerFailed)?)
-            .collect()
-    })
+    let _rows = (0..computing)
+        .map(|_| octocode_engine::search::cpu::host().enter())
+        .collect::<Vec<_>>();
+    run_batch(
+        width,
+        queries,
+        |query| dispatcher.execute(tool, query, context),
+        |rows| dispatcher.finalize_batch(tool, rows, context),
+    )
 }
+
+/// Runs every query of a batch, `width` at once, then `finalize` once over
+/// all the rows' results in query order, before the response stage shapes
+/// them: the GH-G1 seam where a tool family fills fields it deferred across
+/// rows. A failed row fails the batch before `finalize` runs.
+fn run_batch<Q: Sync, R: Send>(
+    width: usize,
+    queries: &[Q],
+    execute: impl Fn(&Q) -> Result<R, ExecutionError> + Sync,
+    finalize: impl FnOnce(&mut [R]) -> Result<(), ExecutionError>,
+) -> Result<Vec<R>, ExecutionError> {
+    let mut rows = if width <= 1 {
+        queries
+            .iter()
+            .map(&execute)
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        let execute = &execute;
+        std::thread::scope(|scope| {
+            let tasks = queries
+                .iter()
+                .map(|query| scope.spawn(octocode_io::notice::carried(move || execute(query))))
+                .collect::<Vec<_>>();
+            tasks
+                .into_iter()
+                .map(|task| task.join().map_err(|_| ExecutionError::WorkerFailed)?)
+                .collect::<Result<Vec<_>, _>>()
+        })?
+    };
+    finalize(&mut rows)?;
+    Ok(rows)
+}
+
+#[cfg(test)]
+mod finalize_tests;

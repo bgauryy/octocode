@@ -16,7 +16,6 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
     let context = ExecutionContext {
         cancellation: CancellationToken::new(),
         deadline: Instant::now() + Duration::from_secs(30),
-        walk_threads: None,
         response_window: None,
         github_credential: None,
     };
@@ -41,35 +40,36 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
     };
     for (index, policy) in [legacy, previous, current.clone()].into_iter().enumerate() {
         let writer = make(policy.clone());
-        let mut pending = Pending::new(access, None).unwrap();
+        let mut pending = Pending::new(access, None);
         for work in [
             SavedWork::ToolResume { index: Some(0) },
-            SavedWork::ResponsePage(Cursor {
-                key: [1; 32],
-                digest: [2; 32],
-                length: 600,
-                offset: 2,
-            }),
+            SavedWork::ResponsePage {
+                cursor: Cursor {
+                    key: [1; 32],
+                    digest: [2; 32],
+                    length: 600,
+                    offset: 2,
+                },
+                index: None,
+            },
         ] {
-            let token = pending
-                .insert(
-                    ToolId::LocalFetch,
-                    json!({"queries":[{"path":"must-not-be-read"}]}),
-                    work,
-                )
-                .unwrap();
+            let token = pending.insert(
+                ToolId::LocalFetch,
+                json!({"queries":[{"path":"must-not-be-read"}]}),
+                work,
+            );
             writer.retain(pending, &context).unwrap();
             writer.clear_memory();
-            let reopened = make(policy.clone())
+            make(policy.clone())
                 .open(ToolId::LocalFetch, &token, access)
                 .expect("same version reopens from disk");
-            pending = reopened.pending();
+            pending = Pending::new(access, None);
             if policy == current {
                 assert!(
                     runtime
                         .cursors
                         .open(ToolId::LocalFetch, &token, access)
-                        .is_some()
+                        .is_ok()
                 );
             } else {
                 let result = runtime
@@ -89,4 +89,54 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
         }
     }
     runtime.close().await;
+}
+#[test]
+fn expired_response_guidance_uses_the_retained_page_lifetime() {
+    let lifetime = format!("{} seconds", super::RETENTION_IDLE.as_secs());
+    for persistent in [true, false] {
+        for mcp in [true, false] {
+            let scope = RefusalScope { persistent, mcp };
+            let expired = super::snapshot_expired(Refusal::NotRetained, scope);
+            assert!(
+                expired.message.contains(&lifetime),
+                "Recovery guidance must agree with saved-page retention: {}",
+                expired.message
+            );
+            for refusal in [
+                Refusal::Malformed,
+                Refusal::NotRetained,
+                Refusal::OtherTool,
+                Refusal::OtherAccess,
+                Refusal::OtherSurface,
+                Refusal::IdentityChanged,
+                Refusal::RequestChanged,
+            ] {
+                let error = super::snapshot_expired(refusal, scope);
+                assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
+                assert!(error.message.contains("No source or provider was called"));
+                assert!(error.message.contains("original request without cursor"));
+            }
+        }
+    }
+}
+
+/// Retention is bounded by bytes, not by a count: a burst of small saved
+/// responses or handles (one per call that pages or continues) never evicts
+/// the walk an agent is still reading.
+#[test]
+fn a_burst_of_small_saved_work_never_evicts_an_active_walk() {
+    let store = crate::cache::Store::<usize>::new(PageReplayMemo::cache_config(), None);
+    let key = |index: usize| crate::cache::CacheKey {
+        namespace: "burst".into(),
+        scope: "policy".into(),
+        resource: index.to_string(),
+    };
+    store.put(key(0), 0, 1024, RETENTION);
+    for index in 1..=1024 {
+        store.put(key(index), index, 1024, RETENTION);
+    }
+    assert!(
+        store.get(&key(0)).is_some(),
+        "the active walk survives the burst"
+    );
 }

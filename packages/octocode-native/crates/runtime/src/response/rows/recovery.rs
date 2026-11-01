@@ -1,5 +1,4 @@
-use crate::id::ToolId;
-use crate::response::output::SANDBOX_HINT;
+use crate::response::output::{SANDBOX_HINT, ToolOutput};
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
@@ -10,9 +9,8 @@ pub(crate) fn attach_diagnostics(
     let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
         return;
     };
-    if diagnostics.partial {
-        data.insert("isPartial".into(), json!(true));
-        append(data, "partialReasons", diagnostics.codes);
+    for reason in diagnostics.partial_reasons {
+        crate::response::paging::mark_partial(data, reason, &[]);
     }
     append(data, "hints", diagnostics.hints);
 }
@@ -43,28 +41,41 @@ const TRANSIENT_HINT: &str = "Retry once only if retryable is true; if it persis
 /// Fill missing guidance without replacing producer-specific recovery or
 /// repeating it. Call before the output security gate so query-derived facts
 /// and future tool-owned guidance share the normal redaction boundary.
-pub(crate) fn attach_error_hint(tool: ToolId, data: &mut Value, query: &Value) {
+pub(crate) fn attach_error_hint(tool: &dyn ToolOutput, data: &mut Value, query: &Value) {
+    if let Some(hint) = missing_error_hint(tool, data, query) {
+        data["hints"] = json!([hint]);
+    }
+}
+
+/// [`attach_error_hint`] for a row of a batch: the shared recovery rides
+/// `notices`, so the stage states it once per response, on the first error
+/// row that needs it, instead of on every failed row
+/// ([`crate::response::notices::place`]).
+pub(crate) fn attach_error_notice(tool: &dyn ToolOutput, data: &mut Value, query: &Value) {
+    if let Some(hint) = missing_error_hint(tool, data, query) {
+        crate::response::paging::push_notice(data, hint);
+    }
+}
+
+/// The shared recovery an error row without its own hints needs.
+fn missing_error_hint(tool: &dyn ToolOutput, data: &Value, query: &Value) -> Option<&'static str> {
     if data
         .get("hints")
         .and_then(Value::as_array)
         .is_some_and(|hints| !hints.is_empty())
     {
-        return;
+        return None;
     }
-    let Some(code) = crate::id::error_code_of(data) else {
-        return;
-    };
-    if let Some(hint) = error_code_hint(tool, code, query).filter(|hint| !hint.is_empty()) {
-        data["hints"] = json!([hint]);
-    }
+    let code = crate::id::error_code_of(data)?;
+    error_code_hint(tool, code, query).filter(|hint| !hint.is_empty())
 }
 
 /// The one recovery table for the `errorCode` values every tool shares
 /// (provider kinds, policy, locks, input). A tool answers only for the codes
-/// it alone emits, or its own timeout (`ToolOutput::error_hint`); any other
+/// it alone emits, or its own timeout ([`ToolOutput::error_hint`]); any other
 /// code gets the tool's fallback hint.
 pub(crate) fn error_code_hint(
-    tool: ToolId,
+    tool: &dyn ToolOutput,
     code: ErrorCode,
     query: &Value,
 ) -> Option<&'static str> {
@@ -79,7 +90,6 @@ pub(crate) fn error_code_hint(
         }
         // A tool that knows why its own calls time out says so.
         ErrorCode::Timeout => tool
-            .output()
             .error_hint(code, query)
             .unwrap_or("Retry once with a smaller scope or fewer independent queries; if it times out again, report unavailable coverage."),
         ErrorCode::Transport | ErrorCode::Server => TRANSIENT_HINT,
@@ -108,14 +118,14 @@ pub(crate) fn error_code_hint(
         ErrorCode::PathPolicyDenied => crate::policy::discovery::WITHHELD_HINT,
         ErrorCode::InvalidGlob => "Correct the glob named in the error; globs select paths, while regexEngine selects text-pattern syntax. Do not change the intended scope.",
         code => {
-            if let Some(hint) = tool.output().error_hint(code, query) {
+            if let Some(hint) = tool.error_hint(code, query) {
                 hint
             } else if let Some(hint) = shared_execution_hint(code) {
                 hint
             } else if crate::id::error_codes::class(code)
                 == crate::id::error_codes::ErrorClass::InvalidInput
             {
-                "Correct the rejected field named in the error; broadening will not help."
+                "Input rejected: fix only the field the error names, as its message shows; broadening will not help."
             } else {
                 return None;
             }
@@ -148,9 +158,7 @@ fn source_hint(code: ErrorCode) -> Option<&'static str> {
         | ErrorCode::SourceMismatch => {
             "Use an emitted restart call, or restart the original request. Discard stale coordinates and never invent or edit a cursor."
         }
-        ErrorCode::InvalidPagination
-        | ErrorCode::ResponsePageMismatch
-        | ErrorCode::UnsupportedResponsePagination => {
+        ErrorCode::InvalidPagination | ErrorCode::UnsupportedResponsePagination => {
             "Copy the emitted continuation input unchanged. If it is no longer valid, restart the original request."
         }
         _ => return None,
@@ -171,7 +179,7 @@ fn execution_hint(code: ErrorCode) -> Option<&'static str> {
             "Use localFetch for exact text or document outlines and localSearch for text candidates; these do not verify semantic identity."
         }
         ErrorCode::NotFound => {
-            "Verify the exact identifier, repository and revision, and access rights; a missing resource is not proof its contents do not exist elsewhere."
+            "Not found: verify the exact name, its repository or registry, the revision or version, and access rights; a miss here is not proof it exists nowhere else."
         }
         ErrorCode::VersionNotFound => {
             "Check the package name, registry and manifest/lockfile version; discover published versions before choosing another version."
@@ -254,7 +262,7 @@ fn provider_hint(code: ErrorCode) -> Option<&'static str> {
             "Read the current source and locate the exact symbol and line before retrying; do not guess a different identity."
         }
         ErrorCode::InvalidGraphQuery => {
-            "Inspect the graph query schema and correct the rejected operation or fields; do not retry the same query unchanged."
+            "Inspect the graphQuery schema and correct the rejected operation or fields; do not retry the same query unchanged."
         }
         _ => return None,
     })

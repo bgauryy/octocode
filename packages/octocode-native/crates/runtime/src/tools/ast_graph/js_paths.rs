@@ -1,5 +1,5 @@
 //! Build-output mapping and declaration suffixes shared by graph resolution and roots.
-use super::graph::{join, join_within_root, normalize};
+use super::paths::{join, join_within_root, normalize};
 use std::collections::{BTreeSet, HashMap};
 
 /// Package-relative build-output roots mapped back to sources.

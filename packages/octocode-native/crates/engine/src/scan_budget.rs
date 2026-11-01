@@ -72,46 +72,15 @@ fn chunk_files(
         return FIRST_CHUNK_FILES;
     }
     let target = (budget / CHUNK_BUDGET_SHARE).min(budget.saturating_sub(elapsed));
-    let per_file = elapsed.as_secs_f64() / evaluated as f64;
-    if per_file <= 0.0 {
+    let elapsed = elapsed.as_nanos();
+    if elapsed == 0 {
         return MAX_CHUNK_FILES;
     }
-    // Saturating float-to-int cast; the clamp keeps it in range.
-    ((target.as_secs_f64() / per_file) as usize).clamp(MIN_CHUNK_FILES, MAX_CHUNK_FILES)
-}
-
-/// The most candidates one unbounded scan walks.
-pub const SCAN_WALK_FILES: usize = 100_000;
-
-#[cfg(any(test, feature = "test-hooks"))]
-thread_local! {
-    static LOWERED_CEILING: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
-}
-
-/// The walk ceiling this thread scans under: [`SCAN_WALK_FILES`], or the
-/// lowered one of a test.
-#[must_use]
-pub fn walk_ceiling() -> usize {
-    #[cfg(any(test, feature = "test-hooks"))]
-    if let Some(lowered) = LOWERED_CEILING.with(std::cell::Cell::get) {
-        return lowered;
-    }
-    SCAN_WALK_FILES
-}
-
-/// Lowers this thread's walk ceiling until the guard drops, so a test
-/// reaches the ceiling without a 100,000-file tree.
-#[cfg(any(test, feature = "test-hooks"))]
-#[must_use]
-pub fn lower_walk_ceiling(ceiling: usize) -> impl Drop {
-    struct Restore;
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            LOWERED_CEILING.with(|cell| cell.set(None));
-        }
-    }
-    LOWERED_CEILING.with(|cell| cell.set(Some(ceiling)));
-    Restore
+    // Files that fit `target` at the observed per-file cost, in integer
+    // nanoseconds; the clamp keeps it in range.
+    let evaluated = u128::try_from(evaluated).unwrap_or(u128::MAX);
+    crate::num::saturating_usize(target.as_nanos().saturating_mul(evaluated) / elapsed)
+        .clamp(MIN_CHUNK_FILES, MAX_CHUNK_FILES)
 }
 
 #[cfg(any(test, feature = "test-hooks"))]
@@ -136,16 +105,6 @@ pub fn walk_now() -> std::time::Instant {
 #[cfg(any(test, feature = "test-hooks"))]
 pub fn advance_walk_clock(by: std::time::Duration) {
     CLOCK_AHEAD.with(|ahead| ahead.set(ahead.get() + by));
-}
-
-/// The walk-order index a cut scan resumes from, `None` when the cut is the
-/// walk ceiling itself: a resumed scan walks the same first
-/// [`walk_ceiling`] candidates and skips the evaluated ones, so a resume
-/// at the ceiling skips the whole walk and reaches nothing new. Files past
-/// the ceiling are reachable only by narrowing the scope.
-#[must_use]
-pub fn resume_offset(resume: u32) -> Option<u32> {
-    ((resume as usize) < walk_ceiling()).then_some(resume)
 }
 
 #[cfg(test)]
@@ -175,26 +134,5 @@ mod tests {
             chunk_files(budget, 128, Duration::from_micros(10)),
             MAX_CHUNK_FILES
         );
-    }
-
-    #[test]
-    fn a_resume_at_the_walk_ceiling_is_terminal() {
-        assert_eq!(resume_offset(1), Some(1));
-        assert_eq!(
-            resume_offset(SCAN_WALK_FILES as u32 - 1),
-            Some(SCAN_WALK_FILES as u32 - 1)
-        );
-        assert_eq!(resume_offset(SCAN_WALK_FILES as u32), None);
-        assert_eq!(resume_offset(u32::MAX), None);
-    }
-
-    #[test]
-    fn a_lowered_ceiling_applies_to_its_thread_until_dropped() {
-        let guard = lower_walk_ceiling(10);
-        assert_eq!(walk_ceiling(), 10);
-        assert_eq!(resume_offset(9), Some(9));
-        assert_eq!(resume_offset(10), None);
-        drop(guard);
-        assert_eq!(walk_ceiling(), SCAN_WALK_FILES);
     }
 }

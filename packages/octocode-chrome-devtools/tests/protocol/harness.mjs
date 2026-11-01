@@ -27,11 +27,26 @@ export const results = [],
 const camel = flag =>
   flag.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
 
+/** dev-check flags as its typed fields, on the suite port. */
+function devCheckInput(argv) {
+  const input = { port: Number(suite.port) };
+  for (let i = 1; i < argv.length; i++) {
+    const field = camel(argv[i]);
+    if (['visible', 'fullPage', 'keepTab'].includes(field)) input[field] = true;
+    else if (['url', 'waitUntil'].includes(field)) input[field] = argv[++i];
+    else if (['timeoutMs', 'idleMs'].includes(field))
+      input[field] = Number(argv[++i]);
+    else throw Error('Unmapped dev-check argument ' + argv[i]);
+  }
+  return input;
+}
+
 /** Maps engine CLI arguments onto the tool input the MCP and typed CLI transports take. */
 function toolInput(argv) {
   const name = argv[0],
     input = {},
     connection = { port: Number(suite.port) };
+  if (name === 'dev-check') return { name, input: devCheckInput(argv) };
   if (['open', 'cleanup', 'artifact'].includes(name)) {
     input.args = [
       ...argv.slice(1),

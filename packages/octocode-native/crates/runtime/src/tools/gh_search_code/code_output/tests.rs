@@ -28,14 +28,12 @@ fn shaped_files_retain_repository_and_commit_identity() {
                             sha.clone(),
                             FileHits::Lines {
                                 lines: vec!["1\tneedle".into()],
-                                clipped: false,
                                 first: 1,
                                 last: 1,
                                 best: 1,
                                 total: 1,
                                 line_count: 1,
                                 declaration: None,
-                                resume_after: None,
                             },
                         )
                     })
@@ -66,9 +64,16 @@ fn unsearched_ref_guidance_distinguishes_named_files_and_scopes() {
     // The empty row's one fact is the ref the index did not cover; a
     // named file at that ref is read there.
     assert_eq!(
-        empty_hints(&query),
+        empty_hints(&query, None),
         ["Code search indexes only the default branch; `dev` was not searched."]
     );
+    // Known, the default branch is named; a ref naming it was searched.
+    assert_eq!(
+        empty_hints(&query, Some("main")),
+        ["Code search indexes only the default branch `main`; `dev` was not searched."]
+    );
+    assert!(empty_hints(&query, Some("dev")).is_empty());
+    assert_eq!(unsearched_ref(&query, Some("dev")), None);
     assert!(unsearched_ref_read(&query).is_none());
     let mut named = query.clone();
     named.name_contains = Some("Cargo.toml".parse().expect("filename"));
@@ -84,18 +89,21 @@ fn unsearched_ref_guidance_distinguishes_named_files_and_scopes() {
         "owner":"o","keywords":["x"]
     }))
     .expect("query");
-    assert!(empty_hints(&plain).is_empty());
+    assert!(empty_hints(&plain, None).is_empty());
     // A requested ref plus a path scope are two hints, never one composed
     // sentence.
     let mut both = query.clone();
     both.path_prefix = Some("crates/x".parse().expect("path"));
-    let hints = empty_hints(&both);
+    let hints = empty_hints(&both, None);
     assert_eq!(hints.len(), 2, "{hints:?}");
     assert!(
         hints[0].starts_with("Code search indexes only"),
         "{hints:?}"
     );
-    assert!(hints[1].starts_with("No indexed match under"), "{hints:?}");
+    assert!(
+        hints[1].starts_with("`pathPrefix:\"crates/x\"` is a directory scope"),
+        "{hints:?}"
+    );
 }
 
 /// Files whose listed evidence is identical are listed once, naming

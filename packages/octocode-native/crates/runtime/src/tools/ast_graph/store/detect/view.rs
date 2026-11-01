@@ -28,7 +28,8 @@ impl<'a> View<'a> {
     /// entrypoints.
     pub(super) fn new(t: &'a GraphTables, entries: Option<&[String]>) -> Self {
         let n = t.nodes.len();
-        let files = (0..n as u32)
+        let files = t
+            .node_ids()
             .filter(|id| t.nodes[*id as usize].kind == NodeKind::File)
             .collect::<Vec<_>>();
         let file_of = t.nodes.iter().map(|node| node.file).collect::<Vec<_>>();
@@ -221,19 +222,29 @@ impl<'a> View<'a> {
     /// followed only with `tests`: production code is not kept alive by
     /// the test code beside it.
     pub(super) fn reach(&self, seeds: &[u32], tests: bool) -> Vec<bool> {
-        let mut seen = vec![false; self.t.nodes.len()];
+        self.origins(seeds, tests)
+            .into_iter()
+            .map(|origin| origin != NONE)
+            .collect()
+    }
+
+    /// [`Self::reach`] that keeps, per node, the seed whose breadth-first
+    /// walk reached it first (`NONE`: unreached).
+    pub(super) fn origins(&self, seeds: &[u32], tests: bool) -> Vec<u32> {
+        let mut origin = vec![NONE; self.t.nodes.len()];
         let mut queue = VecDeque::new();
         for seed in seeds {
-            if !seen[*seed as usize] {
-                seen[*seed as usize] = true;
+            if origin[*seed as usize] == NONE {
+                origin[*seed as usize] = *seed;
                 queue.push_back(*seed);
             }
         }
         while let Some(id) = queue.pop_front() {
+            let from = origin[id as usize];
             let file = self.file_of[id as usize];
             let mut visit = |next: u32, queue: &mut VecDeque<u32>| {
-                if next != NONE && !seen[next as usize] {
-                    seen[next as usize] = true;
+                if next != NONE && origin[next as usize] == NONE {
+                    origin[next as usize] = from;
                     queue.push_back(next);
                 }
             };
@@ -242,7 +253,7 @@ impl<'a> View<'a> {
                 visit(edge.dst, &mut queue);
             }
         }
-        seen
+        origin
     }
 }
 

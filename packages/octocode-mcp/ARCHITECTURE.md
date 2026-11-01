@@ -60,8 +60,8 @@ packages before `octocode-mcp`.
 - `yarn test:boundary`: the shared hermetic `transport.mjs` suite checks CLI
   and MCP admission, complete Unicode source walks, opaque cursors and replay
   authority through the built launchers;
-- `yarn test:acceptance`: runs that boundary suite and the shared `tool-health.mjs`
-  suite, which executes all 14 tools through CLI and MCP with loopback providers,
+- `node skills-dev/octocode-dev/scripts/dev.mjs test:tools` (repo root): the shared
+  `tool-health.mjs` suite, which executes all 14 tools through CLI and MCP with loopback providers,
   output validation, typed continuations and evidence parity;
 - `yarn test:contracts:classification`: classification capability publication,
   selection, provider failure and complete unfiltered recovery against a loopback scorer;

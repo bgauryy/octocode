@@ -19,7 +19,7 @@ mod projection;
 mod tests;
 
 use document::{
-    COMMITS, CONNECTION_PAGE, Connection, DISCUSSION, FILES, REVIEWS, pull_request_document,
+    COMMITS, CONNECTION_PAGE, Connection, DISCUSSION, FILES, LABELS, REVIEWS, pull_request_document,
 };
 pub(super) use projection::{
     GraphqlCollection, map_graphql_comments, map_graphql_commits, map_graphql_files,
@@ -158,6 +158,18 @@ pub(super) async fn graphql_pull_request(
     if pr.is_null() {
         return Ok(GraphqlOutcome::Failed(graphql_failure(&page.errors)));
     }
+    // Every label, page by page within the request's deadline: a label the
+    // read could not reach stays disclosed (`labelsClipped`).
+    read_on(
+        transport,
+        context,
+        &variables,
+        &mut pr,
+        &LABELS,
+        usize::MAX,
+        usize::MAX,
+    )
+    .await?;
     let collection_page = gh_get_history_item_query::collection_page_size(query);
     let file_page = super::inventory::file_page_size(query, false);
     // Each wanted connection, the nodes its first page needs, and the

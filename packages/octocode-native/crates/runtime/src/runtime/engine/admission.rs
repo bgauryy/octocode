@@ -66,10 +66,9 @@ impl ToolRuntime {
     /// actionable reason it may not.
     pub(super) fn admit_tool(&self, tool: &str, mcp: bool) -> Result<ToolId, RuntimeError> {
         // MCP policy also applies when an embedder invokes run_mcp on a CLI host.
-        // A parked tool keeps its all-surface disabled reason.
         let requested = ToolId::from_name(tool);
         if mcp
-            && let Some(id) = requested.filter(|id| !id.is_disabled())
+            && let Some(id) = requested
             && let Some(restriction) =
                 crate::execution::availability::mcp_restriction(&self.config, id)
         {
@@ -91,29 +90,27 @@ impl ToolRuntime {
             ));
         };
         if availability.is_available() {
-            return Ok(id);
-        }
-        let reason = availability.reason_text();
-        if let crate::execution::availability::Availability::ProviderUnavailable { code, .. } =
-            availability
-        {
-            return Err(RuntimeError::new(
-                *code,
-                format!("Tool {tool} is not available: {reason}"),
-            ));
-        }
-        if !mcp && availability.needs_opt_in() {
-            let mut message = format!("Tool {tool} is not available: {reason}");
+            if id == ToolId::GhCloneRepo {
+                crate::tools::gh_clone_repo::require_persistent_storage(
+                    crate::config::is_persistent_storage_enabled(&self.config.resolved),
+                )
+                .map_err(|error| RuntimeError::new(error.code, error.message))?;
+            }
             if id == ToolId::Clasify
                 && crate::execution::availability::classification_key(&self.config).is_none()
             {
-                message.push_str(&format!(
-                    " Provider setup: {}",
-                    self.classification.defaults().docs_url
+                return Err(RuntimeError::new(
+                    ErrorCode::MissingConfiguration,
+                    format!(
+                        "Tool {tool} needs {}. Provider setup: {}",
+                        crate::config::field::CLASSIFICATION_API.display_name(),
+                        self.classification.defaults().docs_url,
+                    ),
                 ));
             }
-            return Err(RuntimeError::new(ErrorCode::MissingConfiguration, message));
+            return Ok(id);
         }
+        let reason = availability.reason_text();
         Err(RuntimeError::new(
             ErrorCode::ToolUnavailable,
             format!("Tool {tool} is not available in this native runtime: {reason}"),
@@ -128,12 +125,20 @@ impl ToolRuntime {
         id: ToolId,
         input: &Value,
         saved: bool,
+        mcp: bool,
     ) -> Result<AdmittedRows, RuntimeError> {
         let tool = id.as_str();
         let PreparedRows {
             valid: prepared,
             mut invalid,
         } = prepare_queries(tool, input, saved)?;
+        let mcp_availability = (mcp && id.is_clasify()).then(|| {
+            crate::execution::availability::ToolAvailability::resolve(
+                &self.config,
+                crate::config::RuntimeSurface::Mcp,
+            )
+        });
+        let reader_availability = mcp_availability.as_ref().unwrap_or(&self.availability);
         let mut queries = Vec::with_capacity(prepared.len());
         for (index, query) in prepared {
             let prefix = vec!["queries".to_owned(), index.to_string()];
@@ -159,7 +164,7 @@ impl ToolRuntime {
                 later.extend(crate::tools::clasify::unavailable_source_issues(
                     &query,
                     &prefix,
-                    &self.availability,
+                    reader_availability,
                 ));
             }
             let policy = if id.is_clasify() {

@@ -44,7 +44,9 @@ impl Interner {
         if let Some(id) = self.ids.get(value) {
             return *id;
         }
-        let id = self.strings.len() as u32;
+        // Ids are `u32` columns: a table past its `u32` ids saturates here and the publication preflight
+        // (`validate_counts`) refuses it, so no wrapped id is ever published.
+        let id = crate::num::u32_of_usize(self.strings.len());
         self.strings.push(value.to_owned());
         self.ids.insert(value.to_owned(), id);
         id

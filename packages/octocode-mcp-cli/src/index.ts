@@ -1,31 +1,8 @@
-export {
-  commandToken,
-  defineCli,
-  defineCommand,
-  parseCommandInput,
-  withCommands,
-} from './spec.js';
-export type {
-  CliCommand,
-  CliSpec,
-  DefineCommandInput,
-  Flag,
-  FlagKind,
-  ItemKind,
-  JsonSchema,
-  ToolAnnotations,
-} from './spec.js';
+export { commandToken, defineCli, defineCommand, parseCommandInput } from './spec.js';
+export type { CliCommand, CliSpec, JsonSchema } from './spec.js';
+// commandHelp: agents-communication's interface test asserts its CLI's rendered help.
 export { commandHelp } from './help.js';
 export { cliView, runCli } from './run.js';
-export type { CliIo, CliView } from './run.js';
-export {
-  cliFromMcp,
-  connectClient,
-  connectStdio,
-  connectStreamableHttp,
-  createStdioTransport,
-} from './from-mcp.js';
-export type { McpClientLike, McpContentBlock, McpToolInfo, McpToolResult } from './from-mcp.js';
-export { cliToMcp, mcpServerOptions, registerOn } from './to-mcp.js';
-export type { McpExport, McpToolDefinition, ToolRegistrar } from './to-mcp.js';
-export { emitTypeScript } from './emit.js';
+export type { CliIo } from './run.js';
+export { cliFromMcp, connectStdio } from './from-mcp.js';
+export { mcpServerOptions, registerOn } from './to-mcp.js';

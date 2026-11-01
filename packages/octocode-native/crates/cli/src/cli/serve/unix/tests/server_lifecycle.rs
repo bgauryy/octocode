@@ -26,7 +26,7 @@ async fn notices_reach_the_client_as_an_in_process_call_says_them() {
     std::fs::write(fixture.home.path().join("tmp/ratelimit"), "").expect("blocker");
     let cwd = fixture.dir("a");
     // Two rows: they run on threads of their own.
-    let row = json!({"owner": "o", "repo": "r", "path": "README", "forceRefresh": true});
+    let row = json!({"owner": "o", "repo": "r", "path": "README", "refresh": true});
     let input = json!({"queries": [row, row]});
     // A call in flight the whole time, such as a localSearch, that
     // raises nothing itself.
@@ -242,4 +242,26 @@ async fn a_stopped_server_finishes_the_calls_it_took() {
         })
         .await;
     shut_down(&daemon).await;
+}
+
+#[tokio::test]
+async fn drain_acknowledgement_is_sent_only_after_shutdown() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (mut client, server) = tokio::net::UnixStream::pair().unwrap();
+    let daemon = Daemon::new(std::path::PathBuf::new());
+    client
+        .write_all(b"{\"stop\":true,\"drain\":true}\n")
+        .await
+        .unwrap();
+    super::super::daemon::handle(&daemon, server, "stop-test".into()).await;
+    let mut byte = [0];
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), client.read(&mut byte))
+            .await
+            .is_err()
+    );
+    shut_down(&daemon).await;
+    let mut reply = String::new();
+    client.read_to_string(&mut reply).await.unwrap();
+    assert_eq!(reply, "{\"stopped\":true}\n");
 }

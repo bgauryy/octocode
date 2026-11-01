@@ -14,7 +14,7 @@ pub(super) use tool_query_limits::render_query_limits;
 use tool_query_limits::{query_variants, resolve_schema_ref};
 
 /// `ToolId` identity and policy, generated from the contract's `tools[]`
-/// (`name`, `family`, `cliOnly`, `beta`, `disabled` are authored once in core
+/// (`name`, `family`, `beta` are authored once in core
 /// `TOOL_POLICIES`). Nothing in native re-spells a tool list.
 pub(super) fn render_tool_ids(contract: &Value) -> Result<String, Box<dyn Error>> {
     let tools = contract
@@ -39,9 +39,7 @@ struct ToolArms {
     names: String,
     families: String,
     titles: String,
-    cli_only: Vec<String>,
     beta: Vec<String>,
-    disabled: Vec<String>,
     github: Vec<String>,
 }
 
@@ -67,15 +65,8 @@ impl ToolArms {
             .and_then(Value::as_str)
             .unwrap_or_default();
         self.titles.push_str(&arm(&format!("{title:?}")));
-        for (field, set) in [
-            ("cliOnly", &mut self.cli_only),
-            ("beta", &mut self.beta),
-            // Absent until a contract declares it: no tool is disabled.
-            ("disabled", &mut self.disabled),
-        ] {
-            if bool_value(tool.get(field), false, &format!("{path}.{field}"))? {
-                set.push(format!("Self::{variant}"));
-            }
+        if bool_value(tool.get("beta"), false, &format!("{path}.beta"))? {
+            self.beta.push(format!("Self::{variant}"));
         }
         self.variants.push(variant);
         Ok(())
@@ -121,17 +112,9 @@ impl ToolArms {
              \x20   /// Cursor-scope / policy family (contract `family`).\n\
              \x20   #[must_use]\n\
              \x20   pub const fn family(self) -> ToolFamily {{\n        match self {{\n{families}        }}\n    }}\n\n\
-             \x20   /// Mutating tools the CLI runs on the user's machine; MCP never lists or\n\
-             \x20   /// executes them (contract `cliOnly`).\n\
-             \x20   #[must_use]\n\
-             \x20   pub const fn is_cli_only(self) -> bool {{\n        {cli_only}\n    }}\n\n\
              \x20   /// Tools requiring the shared beta gate on MCP; CLI access remains available (contract `beta`).\n\
              \x20   #[must_use]\n\
              \x20   pub const fn is_beta(self) -> bool {{\n        {beta}\n    }}\n\n\
-             \x20   /// Tools parked in this build: unavailable on every surface, whatever\n\
-             \x20   /// the configuration (contract `disabled`).\n\
-             \x20   #[must_use]\n\
-             \x20   pub const fn is_disabled(self) -> bool {{\n        {disabled}\n    }}\n\n\
              \x20   /// The GitHub-family identity, so GitHub routing matches only its own tools.\n\
              \x20   #[must_use]\n\
              \x20   pub const fn github(self) -> Option<GitHubTool> {{\n        match self {{\n{github_arms}            _ => None,\n        }}\n    }}\n\
@@ -158,9 +141,7 @@ impl ToolArms {
                 .map(|v| format!("Self::{v}"))
                 .collect::<Vec<_>>()
                 .join(", "),
-            cli_only = set(&self.cli_only),
             beta = set(&self.beta),
-            disabled = set(&self.disabled),
             github_arms = github
                 .iter()
                 .map(|v| format!("            Self::{v} => Some(GitHubTool::{v}),\n"))
@@ -200,6 +181,8 @@ fn render_limits(contract: &Value) -> Result<String, Box<dyn Error>> {
     let max_items = limit("maxInputArrayItems")?;
     let read_context = limit("defaultReadContextLines")?;
     let clasify_context = limit("clasifyContextLines")?;
+    let response_chars = limit("defaultResponseChars")?;
+    let classification_units = limit("classificationUnitsPerPage")?;
     Ok(format!(
         "/// Contract `limits.maxInputArrayItems`: native input-security array ceiling.\n\
          pub const MAX_INPUT_ARRAY_ITEMS: usize = {max_items};\n\n\
@@ -208,7 +191,13 @@ fn render_limits(contract: &Value) -> Result<String, Box<dyn Error>> {
          pub const DEFAULT_READ_CONTEXT_LINES: usize = {read_context};\n\n\
          /// Contract `limits.clasifyContextLines`: lines each side of a\n\
          /// localSearch hit clasifyContext judges when no context field is set.\n\
-         pub const CLASIFY_CONTEXT_LINES: u32 = {clasify_context};\n\n"
+         pub const CLASIFY_CONTEXT_LINES: u32 = {clasify_context};\n\n\
+         /// Contract `limits.defaultResponseChars`: characters per response\n\
+         /// page when a call sets no `responseChars`.\n\
+         pub const DEFAULT_RESPONSE_CHARS: usize = {response_chars};\n\n\
+         /// Contract `limits.classificationUnitsPerPage`: units one classified\n\
+         /// page judges, one model call each.\n\
+         pub const CLASSIFICATION_UNITS_PER_PAGE: usize = {classification_units};\n\n"
     ))
 }
 

@@ -52,7 +52,7 @@ pub(super) struct ScanMemo<T> {
     store: PageMemo<Stored<T>>,
 }
 
-impl<T> ScanMemo<T> {
+impl<T: Send + Sync + 'static> ScanMemo<T> {
     pub(super) const fn new() -> Self {
         Self {
             store: PageMemo::new(TTL, MAX_ENTRIES, MAX_TOTAL_BYTES),

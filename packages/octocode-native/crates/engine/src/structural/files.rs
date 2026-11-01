@@ -7,7 +7,7 @@ use super::language::AgLanguage;
 use super::octo::{CompileError, OctoCompiledMatcher, compile_matcher};
 use super::query::{StructuralQuery, invalid_query_diagnostic, invalid_query_explanation};
 use super::types::{
-    StructuralDemand, StructuralDiagnostic, StructuralSearchFilesDetailedResult,
+    KeepLine, StructuralDemand, StructuralDiagnostic, StructuralSearchFilesDetailedResult,
     StructuralSearchFilesOptions, WalkErrors,
 };
 use crate::error::{Error, Result};
@@ -39,6 +39,7 @@ pub(crate) fn search_files_detailed(
         &|_| true,
         &|path| extension_for_path(path).unwrap_or_default(),
         &|| false,
+        None,
     )
 }
 
@@ -56,19 +57,22 @@ pub(crate) fn search_files_detailed(
 /// candidates in chunks and stops at the first chunk boundary past
 /// [`crate::scan_budget::SCAN_TIME_BUDGET`], reporting where it resumes
 /// ([`StructuralSearchFilesDetailedResult::scan_resume`]). An explicit
-/// `max_files` is the caller's window and is never cut by time.
+/// `max_files` is the caller's window: never cut by time, and resumed after
+/// it like any cut. `keep_line` keeps only the matches whose file and
+/// 1-based start line it admits (the caller counts what it refuses).
 pub fn search_files(
     options: StructuralSearchFilesOptions,
     demand: StructuralDemand<'_>,
     admit: &(dyn Fn(&Path) -> bool + Sync),
     select_extension: &(dyn Fn(&Path) -> String + Sync),
     stop: &Stop<'_>,
+    keep_line: Option<&KeepLine>,
 ) -> Result<StructuralSearchFilesDetailedResult> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         search_files_with_budget(
             options,
             demand,
-            admit,
+            (admit, keep_line),
             select_extension,
             stop,
             Some(crate::scan_budget::SCAN_TIME_BUDGET),
@@ -81,11 +85,14 @@ pub fn search_files(
     })
 }
 
+/// Which walked entries a search reads.
+type Admit<'a> = dyn Fn(&Path) -> bool + Sync + 'a;
+
 /// [`search_files`] with its time budget (`None` evaluates every candidate).
 pub(crate) fn search_files_with_budget(
     options: StructuralSearchFilesOptions,
     demand: StructuralDemand<'_>,
-    admit: &(dyn Fn(&Path) -> bool + Sync),
+    (admit, keep_line): (&Admit<'_>, Option<&KeepLine>),
     select_extension: &(dyn Fn(&Path) -> String + Sync),
     stop: &Stop<'_>,
     budget: Option<std::time::Duration>,
@@ -119,7 +126,7 @@ pub(crate) fn search_files_with_budget(
     }
     check_root_exists(&root)?;
     let timed = max_files.is_none();
-    let max_files = max_files.map_or(crate::scan_budget::walk_ceiling(), |n| n as usize);
+    let max_files = max_files.map_or(usize::MAX, |n| n as usize);
     let max_file_bytes = max_file_bytes
         .map(|n| n as u64)
         .unwrap_or(crate::signatures::MAX_PARSE_SIZE as u64);
@@ -145,8 +152,6 @@ pub(crate) fn search_files_with_budget(
         stop,
     )?;
     let scan_truncated = candidate_files.len() > max_files;
-    // The over-read candidate is the first the walk cap left out.
-    let scan_frontier = candidate_files.get(max_files).cloned();
     candidate_files.truncate(max_files);
     // Walk order is stable, so the leading candidates an earlier window
     // evaluated are exactly these.
@@ -165,6 +170,7 @@ pub(crate) fn search_files_with_budget(
         matchers: compile_matchers(&candidate_files, select_extension, &query),
         max_file_bytes,
         demand,
+        keep_line,
     };
     let mut pacer = crate::scan_budget::ScanPacer::new(budget.filter(|_| timed));
     let mut outcomes = Vec::with_capacity(candidate_files.len());
@@ -186,8 +192,9 @@ pub(crate) fn search_files_with_budget(
         pacer.record(chunk.len());
     }
     let scan_truncated = scan_truncated || scan_resume.is_some();
-    // The walk cap of an unset `max_files` resumes where the walk stopped.
-    if timed && scan_resume.is_none() && scan_truncated {
+    // Every cut resumes where it stopped: the walk cap of an unset
+    // `max_files`, and a caller's file window.
+    if scan_resume.is_none() && scan_truncated {
         scan_resume = Some(u32::try_from(skip + candidate_files.len()).unwrap_or(u32::MAX));
     }
 
@@ -210,7 +217,6 @@ pub(crate) fn search_files_with_budget(
     Ok(StructuralSearchFilesDetailedResult {
         scan_truncated,
         scan_resume,
-        scan_frontier,
         files,
         total_matches: counts.total_matches,
         parsed_files: counts.parsed_files,
@@ -238,7 +244,6 @@ fn invalid_query_result(
     StructuralSearchFilesDetailedResult {
         scan_truncated: false,
         scan_resume: None,
-        scan_frontier: None,
         files: Vec::new(),
         total_matches: 0,
         parsed_files: 0,

@@ -4,11 +4,12 @@
 //! registry. It does not retain a parser or source snapshot between pages; the
 //! caller supplies the same content and asks for the next preorder offset.
 
+use crate::num::saturating_u32;
 use std::time::Instant;
 
 use tree_sitter::Node;
 
-use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
+use crate::signatures::extractor::whole_file_deadline;
 use crate::text::LineIndex;
 use crate::text::extension_of;
 
@@ -20,7 +21,6 @@ mod line_root;
 
 use line_root::{LineRoot, line_node};
 
-const MAX_SYNTAX_TREE_NODES: usize = 1_000_000;
 const DEFAULT_NODE_LIMIT: usize = 1_000;
 const MAX_NODE_LIMIT: usize = 100_000;
 
@@ -137,8 +137,8 @@ fn page_node(
     content: &str,
     line_index: &LineIndex,
 ) -> SyntaxTreeNode {
-    let start = line_index.byte_to_position(content, node.start_byte() as u32);
-    let end = line_index.byte_to_position(content, node.end_byte() as u32);
+    let start = line_index.byte_to_position(content, saturating_u32(node.start_byte()));
+    let end = line_index.byte_to_position(content, saturating_u32(node.end_byte()));
     SyntaxTreeNode {
         id,
         parent_id,
@@ -150,8 +150,8 @@ fn page_node(
         end_line: end.0 + 1,
         end_column: end.1,
         source_span: crate::text::analysis::ObservedSpan::root(
-            node.start_byte() as u32,
-            node.end_byte() as u32,
+            saturating_u32(node.start_byte()),
+            saturating_u32(node.end_byte()),
         ),
     }
 }
@@ -166,27 +166,12 @@ pub fn inspect_with_extension(
     extension: Option<&str>,
     options: Option<SyntaxTreeInspectOptions>,
 ) -> SyntaxTreeInspectResult {
-    inspect_bounded(
-        content,
-        file_path,
-        extension,
-        options,
-        MAX_SYNTAX_TREE_NODES,
-    )
-}
-
-/// [`inspect_with_extension`] with the walk's node budget as a parameter.
-fn inspect_bounded(
-    content: &str,
-    file_path: &str,
-    extension: Option<&str>,
-    options: Option<SyntaxTreeInspectOptions>,
-    max_nodes: usize,
-) -> SyntaxTreeInspectResult {
     let options = options.unwrap_or_default();
     let named_only = options.named_only.unwrap_or(false);
     let offset = options.node_offset.unwrap_or(0) as usize;
-    let requested_limit = options.node_limit.unwrap_or(DEFAULT_NODE_LIMIT as u32) as usize;
+    let requested_limit = options
+        .node_limit
+        .map_or(DEFAULT_NODE_LIMIT, |limit| limit as usize);
     if requested_limit == 0 {
         return failed(
             "syntaxTree.options.invalidLimit",
@@ -223,7 +208,7 @@ fn inspect_bounded(
         );
     };
 
-    let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
+    let deadline = whole_file_deadline();
     let tree = match parse_tree_with_deadline(&entry.language, content, deadline) {
         Ok(tree) => tree,
         Err(error) => return failed(error.code, error.stage, error.message, file_path),
@@ -284,18 +269,7 @@ fn inspect_bounded(
         }
         let included = !named_only || node.is_named();
         let next_parent = if included {
-            if next_id >= max_nodes {
-                status = "partial".to_owned();
-                diagnostics.push(diagnostic(
-                    "syntaxTree.budget.nodeLimit",
-                    "warning",
-                    "walk",
-                    format!("Syntax-tree traversal reached the {max_nodes} node limit"),
-                    file_path,
-                ));
-                break;
-            }
-            let id = next_id as u32;
+            let id = saturating_u32(next_id);
             if (window_start..window_end).contains(&next_id) {
                 page_nodes.push(page_node(
                     node,
@@ -331,12 +305,12 @@ fn inspect_bounded(
         }));
     }
 
-    let total_nodes = next_id.min(u32::MAX as usize) as u32;
+    let total_nodes = saturating_u32(next_id);
     let end = window_end.min(next_id);
     // Every numbered node pages, whether the walk finished, recovered from
-    // syntax errors, or stopped at its deadline or node budget; only nodes
-    // past a budget stop are unknown.
-    let next_offset = (end < next_id).then_some(end as u32);
+    // syntax errors, or stopped at its deadline; only nodes past a deadline
+    // stop are unknown.
+    let next_offset = (end < next_id).then_some(saturating_u32(end));
     SyntaxTreeInspectResult {
         source_templates: source_templates(content, entry.name),
         nodes: page_nodes,

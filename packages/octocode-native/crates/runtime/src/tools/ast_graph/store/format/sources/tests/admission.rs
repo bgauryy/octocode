@@ -38,7 +38,7 @@ fn index_items_are_admitted_before_publication_at_tiny_boundary() {
     let (descriptors, origins) = fixture();
     let mut pool = pool::OriginPool::default();
     let mut old_writer = budget::Budget::new(&NeverCancel, &bounded(usize::MAX, 6));
-    pool.push(&origins[1], &descriptors, &mut old_writer)
+    pool.extend(&[&origins[1]], &descriptors, &mut old_writer)
         .unwrap();
     assert_eq!(old_writer.items, 6);
     let mut encoded = Vec::new();

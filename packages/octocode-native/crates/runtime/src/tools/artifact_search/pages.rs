@@ -5,7 +5,7 @@ use crate::num::usize_of;
 use crate::providers::artifact::{ArtifactProviderState, page_out_of_range, reachable_end};
 use crate::response::paging;
 use crate::response::result::Continuation;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 /// A discovery page's facts, from the shared page facts: the page, its size,
 /// whether a reachable page follows and the registry's matched total when
@@ -40,8 +40,8 @@ pub(super) fn discovery_page(
         .saturating_mul(artifact_search_query::page_size(query) as u64)
         .min(reachable_end(artifact_type).unwrap_or(u64::MAX));
     // `totalItems` is the registry's matched total, whatever the page
-    // size; the rows paging reaches (the contract's page maximum × the page
-    // size, or the registry's own window) are the warning's.
+    // size; the rows paging reaches (the registry's paging range) are the
+    // warning's.
     let facts = match total.and_then(|total| usize::try_from(total).ok()) {
         Some(total) => facts.with_items(total),
         None => facts,
@@ -60,18 +60,16 @@ pub(super) fn discovery_page(
     if !more {
         return;
     }
-    let next = usize_of(artifact_search_query::page(&next_query));
-    // The contract's last page: the row ends at that terminal limit.
-    if paging::next_cursor(data, ToolId::ArtifactSearch, None, "page", next).is_none() {
-        data["pagination"]["hasMore"] = json!(false);
-        return;
-    }
     if let Ok(next_query) = serde_json::to_value(next_query) {
         data["calls"]["nextPage"] =
             Continuation::continued(ToolId::ArtifactSearch, next_query).build();
     }
     if let Some(total) = capped_total {
-        paging::mark_partial(data, "providerResultCap", &[]);
+        paging::mark_partial(
+            data,
+            crate::response::paging::PartialReason::ProviderResultCap,
+            &[],
+        );
         paging::push_notice(
             data,
             format!(
@@ -81,18 +79,25 @@ pub(super) fn discovery_page(
     }
 }
 
-/// The deepest discovery page `query`'s page size reaches: the last the
-/// contract's `page` maximum admits whose registry position is in the
-/// paging range.
+/// The deepest discovery page `query`'s page size reaches: the last whose
+/// registry position is in the registry's paging range
+/// ([`page_out_of_range`], the provider's own rule).
 pub(crate) fn last_reachable_page(query: &ArtifactSearchQuery) -> u64 {
     let reaches = |page: u64| {
         let mut probe = query.clone();
         artifact_search_query::set_page(&mut probe, page);
         page_out_of_range(&probe).is_none()
     };
-    let maximum = crate::contracts::query_limits::artifact_search::PAGE_MAXIMUM as u64;
-    // Reach is monotone in the page: `low` reaches, `high` bounds the search.
-    let (mut low, mut high) = (1, maximum);
+    // Reach is monotone in the page: double past the last reachable page,
+    // then bisect; `low` reaches, `high` bounds the search.
+    let mut high = 1u64;
+    while reaches(high) {
+        match high.checked_mul(2) {
+            Some(next) => high = next,
+            None => return high,
+        }
+    }
+    let mut low = 1;
     while low < high {
         let middle = low + (high - low).div_ceil(2);
         if reaches(middle) {

@@ -67,10 +67,14 @@ fn numbering_follows_the_query_and_matched_lines() {
             .out,
         "a\n1-x\n2:foo\n3:foo"
     );
-    // A clipped snippet that is not numbered keeps the rendered text.
+    // A clipped snippet that is not numbered prints as `key: value` text.
     let clipped = json!({"results":[{"index":0,"data":{"files":[{"path":"a","matches":[
             {"line":6,"value":"xxx…","clipped":true}]}]}}]});
-    assert!(render(ToolId::LocalSearch, &clipped, &context(), None).is_none());
+    let lines = render(ToolId::LocalSearch, &clipped, &context(), None).expect("text");
+    assert_eq!(
+        lines.out,
+        "files:\n  - path: a\n    matches:\n      - line 6 value xxx… clipped"
+    );
 }
 
 #[test]
@@ -167,14 +171,23 @@ fn declarations_and_listings_print_one_line_each() {
         lines.out,
         "report (123)\nreport (draft)\nreport (draft).md\ndir (x)/"
     );
+    // A listing without its operation (a continuation) prints as text.
+    let lines = render(
+        ToolId::StructureSearch,
+        &listed,
+        &json!({"path":"src"}),
+        None,
+    )
+    .expect("text");
     assert!(
-        render(
-            ToolId::StructureSearch,
-            &listed,
-            &json!({"path":"src"}),
-            None
-        )
-        .is_none()
+        lines.out.contains("\nfiles:\n  - dir: src\n"),
+        "{}",
+        lines.out
+    );
+    assert!(
+        lines.out.contains("      - b.rs (34, symlink)\n"),
+        "{}",
+        lines.out
     );
 }
 
@@ -246,10 +259,15 @@ fn lsp_results_print_as_lines() {
             {"symbolName":"walk","kind":"function","path":"m.rs","displayRange":{"startLine":79,"startCharacter":15,"endLine":79}}]}}]});
     let lines = render(ToolId::LspSearch, &symbols, &json!({}), None).expect("lines");
     assert_eq!(lines.out, "m.rs:79: function walk  [column 15]");
-    // Content the line format cannot place keeps the rendered text.
+    // Content the line format cannot place prints as `key: value` text.
     let unavailable = json!({"results":[{"index":0,"data":{"matches":[
             {"path":"w.rs","displayRange":{"startLine":3,"startCharacter":1,"endLine":3},"content":"[content unavailable: binary]"}]}}]});
-    assert!(render(ToolId::LspSearch, &unavailable, &json!({}), None).is_none());
+    let lines = render(ToolId::LspSearch, &unavailable, &json!({}), None).expect("text");
+    assert!(
+        lines.out.contains("content: [content unavailable: binary]"),
+        "{}",
+        lines.out
+    );
 }
 
 #[test]
@@ -316,23 +334,33 @@ fn captured_resource_reads_are_commands_but_their_sources_are_evidence() {
 }
 
 #[test]
-fn opaque_search_resumes_keep_json_when_the_original_context_mode_is_unavailable() {
-    assert!(
-        render(
-            ToolId::LocalSearch,
-            &sample(),
-            &json!({"cursor":"issued"}),
-            None
-        )
-        .is_none()
-    );
+fn opaque_search_resumes_print_every_field_when_the_context_mode_is_unknown() {
+    let lines = render(
+        ToolId::LocalSearch,
+        &sample(),
+        &json!({"cursor":"issued"}),
+        None,
+    )
+    .expect("text");
+    for evidence in ["25\tuse a;", "26\tuse SearcherBuilder;", "997\t  let sb"] {
+        assert!(lines.out.contains(evidence), "{}", lines.out);
+    }
+    for token in ["issued-tool-page", "issued-response-page"] {
+        assert_eq!(lines.notes.matches(token).count(), 1, "{}", lines.notes);
+    }
 }
 
 #[test]
-fn batches_errors_and_other_tools_print_their_json() {
+fn batches_and_other_tools_print_text() {
     let two = json!({"results":[{"index":0,"data":{"files":[]}},{"index":1,"data":{"files":[]}}]});
-    assert!(render(ToolId::LocalSearch, &two, &json!({}), None).is_none());
-    assert!(render(ToolId::LocalFetch, &sample(), &json!({}), None).is_none());
+    let lines = render(ToolId::LocalSearch, &two, &json!({}), None).expect("text");
+    assert_eq!(lines.out, "## results[0]\n## results[1]");
+    let lines = render(ToolId::LocalFetch, &sample(), &json!({}), None).expect("text");
+    assert!(
+        lines.out.contains("26\tuse SearcherBuilder;"),
+        "{}",
+        lines.out
+    );
     assert!(all_rows_failed(&json!({"results":[{"status":"error"}]})));
     assert!(!all_rows_failed(
         &json!({"results":[{"status":"error"},{"data":{}}]})

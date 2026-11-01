@@ -1,4 +1,4 @@
-/** Key-based clasify and reader-selection availability in built CLI and fresh MCP hosts. */
+/** CLI inventory is unconditional; MCP gates are configuration-only, never provider health. */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -8,29 +8,59 @@ import path from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { createAjv } from '../../../octocode-benchmark/local/e2e/harness/query-defaults.mjs';
-const ajv = createAjv();
+import {
+  cases,
+  mcpTools,
+  selectionTools,
+  selection,
+  queryFor,
+  checkAdmission,
+} from './clasify-availability.fixtures.mjs';
 
+const ajv = createAjv();
 const root = process.cwd();
 const base = path.join(root, '.octocode/octocode-dev/clasify-availability');
 const cliPath = path.join(root, 'packages/octocode/out/octocode.js');
 const mcpPath = path.join(root, 'packages/octocode-mcp/dist/index.js');
-const selectionTools = new Set([
-  'localFetch',
-  'localSearch',
-  'ghGetFileContent',
-  'ghSearchCode',
-]);
+const contract = JSON.parse(
+  await fs.readFile(
+    path.join(root, 'packages/octocode-config/contract/tool-contract.json'),
+    'utf8'
+  )
+);
+const allTools = contract.tools.map(tool => tool.name).toSorted();
+assert.equal(allTools.length, 16, 'current full tool inventory');
+const outputValidators = new Map(
+  contract.tools.map(tool => [tool.name, ajv.compile(tool.outputSchema)])
+);
 await fs.mkdir(base, { recursive: true });
 const fixture = await fs.mkdtemp(path.join(base, 'fixture-'));
-
 const exec = promisify(execFile);
+const timeoutMs = 15000;
+async function bounded(promise, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label}: timed out after ${timeoutMs}ms`)),
+          timeoutMs
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function cli(project, env, args) {
   try {
     return {
       ...(await exec(process.execPath, [cliPath, ...args], {
         env,
         cwd: project,
-        timeout: 15000,
+        timeout: timeoutMs,
+        maxBuffer: 8 << 20,
       })),
       status: 0,
     };
@@ -42,170 +72,92 @@ async function cli(project, env, args) {
     };
   }
 }
-
 async function schema(project, env, args) {
   const result = await cli(project, env, ['schema', ...args]);
   assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
   return JSON.parse(result.stdout);
 }
-
-const selection = { predicates: ['Does this contain selected evidence?'] };
-const queryFor = name =>
-  ({
-    localFetch: { path: 'evidence.txt' },
-    localSearch: { path: '.', matchString: ['SELECTED'] },
-    ghGetFileContent: { owner: 'octo', repo: 'demo', path: 'evidence.txt' },
-    ghSearchCode: { owner: 'octo', repo: 'demo', keywords: ['selected'] },
-  })[name];
-
-function checkAdmission(schema, row, { enabled, envelope, label }) {
-  const validate = ajv.compile(schema);
-  const input = query => (envelope ? { queries: [query] } : query);
-  assert.equal(validate(input(row)), true, `${label}: ordinary read admitted`);
+function output(tool, value, label) {
+  const validate = outputValidators.get(tool);
   assert.equal(
-    validate(input({ ...row, classification: selection })),
-    enabled,
-    `${label}: classification capability`
+    validate(value),
+    true,
+    `${label}: output schema ${JSON.stringify(validate.errors)}`
   );
-  assert.equal(
-    validate(input({ ...row, selection: 'caller-state' })),
-    false,
-    `${label}: private state rejected`
-  );
+  return value;
 }
-
-const cases = [
-  {
-    name: 'process-key-beta-unset',
-    env: { OCTOCODE_CLASSIFICATION_API: 'fixture-key' },
-    context: true,
-    clasify: true,
-  },
-  {
-    name: 'provider-rejects-key',
-    env: { OCTOCODE_CLASSIFICATION_API: 'fixture-key' },
-    providerStatus: 401,
-    context: true,
-    clasify: false,
-  },
-  {
-    name: 'provider-down',
-    env: { OCTOCODE_CLASSIFICATION_API: 'fixture-key' },
-    providerStatus: 503,
-    context: true,
-    clasify: false,
-  },
-  {
-    name: 'provider-unreachable',
-    env: {
-      OCTOCODE_CLASSIFICATION_API: 'fixture-key',
-      OCTOCODE_CLASSIFICATION_API_HOST: 'http://127.0.0.1:9',
-    },
-    context: true,
-    clasify: false,
-  },
-  { name: 'absent', context: false, clasify: false },
-  {
-    name: 'empty',
-    env: { OCTOCODE_CLASSIFICATION_API: '' },
-    context: false,
-    clasify: false,
-  },
-  {
-    name: 'whitespace',
-    env: { OCTOCODE_CLASSIFICATION_API: '   ' },
-    context: false,
-    clasify: false,
-  },
-  {
-    name: 'process-key-beta-off',
-    env: { OCTOCODE_CLASSIFICATION_API: 'fixture-key', OCTOCODE_BETA: 'false' },
-    context: true,
-    clasify: true,
-  },
-  {
-    name: 'process-key-beta-on',
-    env: { OCTOCODE_CLASSIFICATION_API: 'fixture-key', OCTOCODE_BETA: 'true' },
-    context: true,
-    clasify: true,
-  },
-  {
-    name: 'hidden-public-clasify-keeps-context',
-    env: {
-      OCTOCODE_CLASSIFICATION_API: 'fixture-key',
-      DISABLE_TOOLS: 'clasify',
-    },
-    context: true,
-    clasify: false,
-  },
-  {
-    name: 'home-env-key',
-    homeEnv: 'OCTOCODE_CLASSIFICATION_API=fixture-key\n',
-    context: true,
-    clasify: true,
-  },
-  {
-    name: 'project-env-key',
-    projectEnv: 'OCTOCODE_CLASSIFICATION_API=fixture-key\n',
-    context: true,
-    clasify: true,
-  },
-  {
-    name: 'config-key',
-    config: { classification: { api: 'fixture-key' } },
-    context: true,
-    clasify: true,
-  },
-  {
-    name: 'process-empty-overrides-home-and-config',
-    env: { OCTOCODE_CLASSIFICATION_API: '' },
-    homeEnv: 'OCTOCODE_CLASSIFICATION_API=fixture-home\n',
-    config: { classification: { api: 'fixture-config' } },
-    context: false,
-    clasify: false,
-  },
-  {
-    name: 'key-with-no-classification-route',
-    env: {
-      OCTOCODE_CLASSIFICATION_API: 'fixture-key',
-      TOOLS_TO_RUN: 'ghSearchHistory',
-    },
-    context: false,
-    clasify: false,
-    readers: false,
-  },
-  {
-    name: 'standalone-only',
-    env: {
-      OCTOCODE_CLASSIFICATION_API: 'fixture-key',
-      TOOLS_TO_RUN: 'clasify',
-    },
-    context: false,
-    clasify: true,
-    readers: false,
-  },
-  {
-    name: 'retired-jev-key-is-not-a-capability',
-    homeEnv: 'OCTOCODE_JEV_KEY=fixture-key\n',
-    context: false,
-    clasify: false,
-  },
-];
-
-let providerStatus = 200;
+function mcpOutput(tool, response, label) {
+  assert.ok(response.structuredContent, `${label}: MCP structured output`);
+  return output(tool, response.structuredContent, label);
+}
+function checkInvocation(value, failed, row, label) {
+  const equal = (actual, expected, why) =>
+    assert.deepEqual(actual, expected, `${label}: ${why}`);
+  const error = value.results?.[0]?.data ?? value;
+  const expectedFailure = !row.key || !!(row.providerStatus || row.disconnect);
+  equal(failed, expectedFailure, 'invocation outcome');
+  if (!row.key) {
+    equal(error.errorCode, 'missingConfiguration', 'missing key');
+    assert.match(error.error, /classification|OCTOCODE_CLASSIFICATION_API/i);
+  } else if (expectedFailure) {
+    const code =
+      row.providerStatus === 401
+        ? 'classificationProviderError'
+        : 'classificationProviderUnavailable';
+    equal(error.errorCode, code, 'provider failure code');
+    const reason = row.providerStatus
+      ? new RegExp(String(row.providerStatus))
+      : /provider|connect|network|transport/i;
+    assert.match(error.error, reason, label);
+    assert.ok(error.hints?.length, `${label}: actionable provider recovery`);
+  } else equal(Array.isArray(value.results?.[0]?.data?.models), true, 'models');
+}
+let currentCase;
+let providerRequests = 0;
+let providerConnections = 0;
+const providerErrors = [];
 const provider = http.createServer((req, res) => {
-  assert.equal(req.method, 'GET');
-  assert.equal(req.url, '/v1/models');
-  assert.equal(req.headers.authorization, 'Bearer fixture-key');
-  res.writeHead(providerStatus, { 'content-type': 'application/json' });
+  providerRequests++;
+  if (
+    req.method !== 'GET' ||
+    req.url !== '/v1/models' ||
+    req.headers.authorization !== 'Bearer fixture-key'
+  ) {
+    providerErrors.push({
+      method: req.method,
+      url: req.url,
+      authorizationMatches: req.headers.authorization === 'Bearer fixture-key',
+    });
+    res.writeHead(400);
+    res.end();
+    return;
+  }
+  res.writeHead(currentCase.providerStatus ?? 200, {
+    'content-type': 'application/json',
+  });
   res.end(JSON.stringify({ models: [] }));
+});
+// A closed connection simulates transport unavailability without a fixed port,
+// DNS dependence or unobservable requests to another host.
+provider.on('connection', socket => {
+  providerConnections++;
+  if (currentCase.disconnect) socket.destroy();
 });
 await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve));
 const providerUrl = `http://127.0.0.1:${provider.address().port}`;
 const results = [];
 try {
   for (const row of cases) {
-    providerStatus = row.providerStatus ?? 200;
+    currentCase = row;
+    const before = [providerRequests, providerConnections];
+    const equal = (actual, expected, why) =>
+      assert.deepEqual(actual, expected, `${row.name}: ${why}`);
+    const noProviderWork = label =>
+      equal(
+        [providerRequests, providerConnections],
+        before,
+        `${label}: zero provider requests/connections`
+      );
     const home = path.join(fixture, row.name, 'home');
     const project = path.join(fixture, row.name, 'project');
     await fs.mkdir(home, { recursive: true });
@@ -232,117 +184,208 @@ try {
       OCTOCODE_CLASSIFICATION_API_HOST: providerUrl,
       DISABLE_TOOLS: '',
       TOOLS_TO_RUN: '',
+      ...(process.env.OCTOCODE_NATIVE_BIN && {
+        NODE_ENV: 'test',
+        OCTOCODE_NATIVE_BIN: process.env.OCTOCODE_NATIVE_BIN,
+      }),
       ...row.env,
     };
-    const client = new Client({ name: 'clasify-availability', version: '1' });
+    const client = new Client({ name: 'clasify-availability', version: '2' });
     let stderr = '';
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [mcpPath],
+      cwd: project,
+      env,
+      stderr: 'pipe',
+    });
+    transport.stderr?.on('data', chunk => {
+      stderr += chunk;
+    });
     try {
-      const transport = new StdioClientTransport({
-        command: process.execPath,
-        args: [mcpPath],
-        cwd: project,
-        env,
-        stderr: 'pipe',
-      });
-      transport.stderr?.on('data', chunk => {
-        stderr += chunk;
-      });
-      await client.connect(transport);
-      const catalog = await client.listTools();
-      assert.equal(
-        catalog.tools.some(tool => tool.name === 'clasify'),
-        row.clasify,
-        `${row.name}: MCP clasify`
-      );
-      const cliCatalog = await schema(project, env, ['--view', 'full']);
-      assert.equal(
-        cliCatalog.tools.some(tool => tool.name === 'clasify'),
-        row.clasify,
-        `${row.name}: CLI clasify`
-      );
-      if (row.clasify) {
-        const input = { queries: [{ operation: 'models' }] };
-        const called = await cli(project, env, [
-          'clasify',
-          JSON.stringify(input),
-          '--json',
-        ]);
-        assert.equal(called.status, 0, called.stdout + called.stderr);
-        const mcpCalled = await client.callTool({
-          name: 'clasify',
-          arguments: input,
+      const expectedNames = mcpTools(row, allTools);
+      const connecting = bounded(client.connect(transport), 'MCP initialize');
+      if (expectedNames.length) await connecting;
+      else
+        await assert.rejects(connecting, {
+          code: -32603,
+          message:
+            'Server initialization failed: No native tools are available',
         });
-        assert.notEqual(mcpCalled.isError, true);
-      }
-      for (const name of selectionTools) {
-        const mcpTool = catalog.tools.find(tool => tool.name === name);
-        if (row.readers === false) {
-          assert.equal(mcpTool, undefined, `${row.name}: ${name} unavailable`);
-          continue;
-        }
-        assert.ok(mcpTool, `${row.name}: MCP ${name}`);
-        checkAdmission(mcpTool.inputSchema, queryFor(name), {
-          enabled: row.context,
-          envelope: true,
-          label: `${row.name}: MCP ${name}`,
-        });
-        checkAdmission(
-          (await schema(project, env, [name])).querySchema,
-          queryFor(name),
-          {
-            enabled: row.context,
-            envelope: false,
-            label: `${row.name}: CLI ${name}`,
-          }
+      noProviderWork('MCP initialize');
+      const catalog = expectedNames.length
+        ? await bounded(client.listTools(), 'MCP tools/list')
+        : { tools: [] };
+      noProviderWork('MCP tools/list or rejected initialization');
+      const actualNames = catalog.tools.map(tool => tool.name).toSorted();
+      equal(actualNames, expectedNames, 'complete MCP visibility matrix');
+      const clone = catalog.tools.find(tool => tool.name === 'ghCloneRepo');
+      if (clone) {
+        equal(
+          clone.annotations?.readOnlyHint,
+          false,
+          'clone writes local cache'
+        );
+        equal(
+          clone.annotations?.openWorldHint,
+          true,
+          'clone uses remote source'
         );
       }
-
-      if (!row.context && row.readers !== false) {
-        const query = {
-          path: 'evidence.txt',
-          classification: {
-            predicates: ['Does this contain selected evidence?'],
-          },
+      const cliCatalog = await schema(project, env, ['--view', 'full']);
+      equal(
+        cliCatalog.tools.map(tool => tool.name).toSorted(),
+        allTools,
+        'CLI full inventory'
+      );
+      noProviderWork('CLI full schema');
+      for (const args of [['--help'], ['clasify', '--help']]) {
+        const help = await cli(project, env, args);
+        equal(help.status, 0, `help ${help.stderr}`);
+        assert.match(
+          help.stdout,
+          /clasify/i,
+          `${row.name}: help exposes clasify`
+        );
+        noProviderWork(`CLI ${args.join(' ')}`);
+      }
+      const standalone = await schema(project, env, ['clasify']);
+      equal(
+        ajv.compile(standalone.querySchema)({ operation: 'models' }),
+        true,
+        'CLI clasify schema'
+      );
+      noProviderWork('CLI clasify schema');
+      for (const name of selectionTools) {
+        const mcpTool = catalog.tools.find(tool => tool.name === name);
+        if (mcpTools(row, allTools).includes(name)) {
+          assert.ok(mcpTool, `${row.name}: MCP ${name}`);
+          checkAdmission(ajv, mcpTool.inputSchema, queryFor(name), {
+            enabled: row.key,
+            envelope: true,
+            label: `${row.name}: MCP ${name}`,
+          });
+        } else equal(mcpTool, undefined, `MCP ${name} filtered`);
+        const querySchema = (await schema(project, env, [name])).querySchema;
+        checkAdmission(ajv, querySchema, queryFor(name), {
+          enabled: row.key,
+          envelope: false,
+          label: `${row.name}: CLI ${name}`,
+        });
+        noProviderWork(`CLI/MCP ${name} schema`);
+      }
+      // Missing inline credentials fail before acquisition on both surfaces.
+      if (!row.key) {
+        const input = {
+          queries: [{ path: 'evidence.txt', classification: selection }],
         };
         const rejected = await cli(project, env, [
           'localFetch',
-          JSON.stringify({ queries: [query] }),
+          JSON.stringify(input),
           '--json',
         ]);
-        assert.notEqual(
-          rejected.status,
-          0,
-          `${row.name}: CLI rejects unavailable context`
-        );
+        equal(rejected.status === 0, false, 'CLI rejects unavailable context');
         assert.match(
           rejected.stdout + rejected.stderr,
           /classification|invalidInput/i
         );
-        const mcpRejected = await client.callTool({
-          name: 'localFetch',
-          arguments: { queries: [query] },
-        });
-        assert.equal(
-          mcpRejected.isError,
+        output(
+          'localFetch',
+          JSON.parse(rejected.stdout),
+          `${row.name}: CLI inline rejection`
+        );
+        if (actualNames.includes('localFetch')) {
+          const rejectedMcp = await bounded(
+            client.callTool({ name: 'localFetch', arguments: input }),
+            'inline rejection'
+          );
+          equal(rejectedMcp.isError, true, 'MCP rejects unavailable context');
+          mcpOutput('localFetch', rejectedMcp, `${row.name}: inline rejection`);
+        }
+        noProviderWork('unavailable inline classification');
+      }
+      const input = { queries: [{ operation: 'models' }] };
+      const called = await cli(project, env, [
+        'clasify',
+        JSON.stringify(input),
+        '--json',
+      ]);
+      const cliValue = output(
+        'clasify',
+        JSON.parse(called.stdout),
+        `${row.name}: CLI invocation`
+      );
+      checkInvocation(cliValue, called.status !== 0, row, `${row.name}: CLI`);
+      if (expectedNames.length) {
+        const beforeMcp = [providerRequests, providerConnections];
+        const invoked = bounded(
+          client.callTool({ name: 'clasify', arguments: input }),
+          'clasify invocation'
+        );
+        if (actualNames.includes('clasify')) {
+          const response = await invoked;
+          const value = mcpOutput(
+            'clasify',
+            response,
+            `${row.name}: MCP invocation`
+          );
+          checkInvocation(
+            value,
+            response.isError === true,
+            row,
+            `${row.name}: MCP`
+          );
+        } else {
+          await assert.rejects(invoked, {
+            code: -32602,
+            message: 'Tool clasify not found',
+          });
+          equal(
+            [providerRequests, providerConnections],
+            beforeMcp,
+            'hidden MCP call: zero provider work'
+          );
+        }
+      }
+      if (row.key)
+        equal(
+          providerConnections > before[1],
           true,
-          `${row.name}: MCP rejects unavailable context`
+          'invocation reaches provider'
+        );
+      else noProviderWork('missing-key standalone invocation');
+      if (row.key && !row.disconnect && row.providerStatus !== 503) {
+        const expected = actualNames.includes('clasify') ? 2 : 1;
+        equal(
+          providerRequests - before[0],
+          expected,
+          'one request per invocation, no startup ping'
         );
       }
+      equal(providerErrors, [], 'provider request contract');
       results.push({
         name: row.name,
-        context: row.context,
-        clasify: row.clasify,
+        key: row.key,
+        mcpTools: actualNames,
+        mcpInitialized: expectedNames.length > 0,
+        cliTools: allTools.length,
+        discoveryProviderRequests: 0,
+        discoveryProviderConnections: 0,
+        invocationProviderRequests: providerRequests - before[0],
+        invocationProviderConnections: providerConnections - before[1],
         passed: true,
       });
     } catch (error) {
+      results.push({ name: row.name, passed: false, error: error.message });
       throw new Error(`${row.name}: ${error.message}\n${stderr}`, {
         cause: error,
       });
     } finally {
-      await client.close();
+      await bounded(client.close(), 'MCP close').catch(() => transport.close());
     }
   }
 } finally {
+  provider.closeAllConnections();
   await new Promise(resolve => provider.close(resolve));
   await fs.writeFile(
     path.join(base, 'results.json'),
@@ -350,5 +393,6 @@ try {
   );
   await fs.rm(fixture, { recursive: true, force: true });
 }
-
-console.log(`PASS ${results.length} key-based CLI/MCP availability scenarios`);
+console.log(
+  `PASS ${results.length} configuration-only MCP / unconditional CLI scenarios`
+);

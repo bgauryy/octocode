@@ -138,6 +138,71 @@ async fn match_context_past_the_hunk_reads_the_head_text() {
     );
 }
 
+/// Every file on the page whose hits need head text gets it, however many
+/// there are: none is left clipped behind a per-call count.
+#[tokio::test]
+async fn every_file_on_the_page_reads_its_head_text() {
+    use base64::Engine as _;
+    let server = MockServer::builder().start().await;
+    let count = 12;
+    mount_pr(&server, count).await;
+    let (patch, head) = hunk_at_53();
+    let names = (0..count)
+        .map(|n| format!("src/f{n:02}.rs"))
+        .collect::<Vec<_>>();
+    // Distinct patches, so no file is shown as another's duplicate.
+    let own = |text: &str, name: &str| text.replace("needle 53", &format!("needle 53 {name}"));
+    mount_file_batches(
+        &server,
+        vec![
+            names
+                .iter()
+                .map(|name| rest_file(name, Some(&own(&patch, name)), 1, 1))
+                .collect(),
+        ],
+        Duration::ZERO,
+    )
+    .await;
+    for name in &names {
+        let head = own(&head, name);
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/api/v3/repos/a/b/contents/{}",
+                name.replace('/', "%2F")
+            )))
+            .and(query_param("ref", SHA))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "type":"file","encoding":"base64","path":name,
+                "content": base64::engine::general_purpose::STANDARD.encode(&head)
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    let data = run(
+        &server,
+        json!({"sections":["patches"], "matchString": ["needle"], "contextLines": {"before":10,"after":10}}),
+    )
+    .await;
+    let files = data["pullRequests"][0]["files"].as_array().expect("files");
+    assert_eq!(files.len(), count, "{data}");
+    for file in files {
+        assert!(file.get("contextClipped").is_none(), "{file}");
+        assert!(
+            file["patch"]
+                .as_str()
+                .is_some_and(|text| text.ends_with("63\t line 63\n")),
+            "{file}"
+        );
+    }
+    assert!(
+        data.get("next")
+            .is_none_or(|next| next.get("expandContext").is_none()),
+        "{data}"
+    );
+    server.verify().await;
+}
+
 /// A head file past the Contents API's 1 MB body (`encoding:"none"`, no
 /// content) is read through its blob, as ghGetFileContent reads it: the
 /// widened context is not silently lost to an empty body.

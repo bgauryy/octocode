@@ -13,6 +13,10 @@
 //! URL capture needs persistent storage, an available `localFetch`, and a
 //! capture directory the local path policy lets `localFetch` read; without
 //! them it fails before any network work.
+
+/// A page capture that ran out of time, while fetching or after.
+const PAGE_DEADLINE_HINT: &str = "Retry with more time, or supply the page text as content.";
+
 mod decode;
 mod extract;
 mod fetch;
@@ -194,7 +198,7 @@ fn stopped(stop: crate::execution::ExecutionError) -> ClassificationError {
         _ => ClassificationError::new(
             ErrorCode::Timeout,
             "The page was not captured before the call's deadline.",
-            "Retry with more time, or supply the page text as content.",
+            PAGE_DEADLINE_HINT,
         ),
     }
 }

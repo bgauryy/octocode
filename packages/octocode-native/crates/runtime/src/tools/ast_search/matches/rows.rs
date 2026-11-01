@@ -10,33 +10,24 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// One match row, an object: `line`, `column` (1-based), `endLine` for a
-/// multi-line match, and `value` (source text or a marked, bounded prefix). With
-/// `captureText` the row also carries `endColumn` for a multi-line span, and each capture once in `metavarRanges` (text plus
+/// multi-line match, and `value` (source text or a structural header). With
+/// `includeCaptures` the row also carries `endColumn` for a multi-line span, and each capture once in `metavarRanges` (text plus
 /// 1-based position; the engine `metavars` map is a fallback for a capture
 /// without a range).
 pub(super) struct MatchRow {
     pub(super) value: Value,
     pub(super) source_descriptors: Option<Arc<SourceDescriptors>>,
-    /// The lean row withheld something `captureText:true` returns: a
+    /// The lean row withheld something `includeCaptures:true` returns: a
     /// multi-line match cut to its header (signature) followed by `…`, or
     /// capture text the value does not show.
     pub(super) withheld: bool,
-    /// The shown text was cut at the core match-text budget.
-    pub(super) shown_cut: bool,
-    /// The match's 1-based start and end lines.
-    pub(super) lines: (u64, u64),
 }
 
-fn display_value(
-    m: &StructuralDetailedMatch,
-    capture_text: bool,
-    content_length: usize,
-) -> MatchRow {
-    let lines = (u64::from(m.start_line), u64::from(m.end_line));
+fn display_value(m: &StructuralDetailedMatch, capture_text: bool) -> MatchRow {
     let header = m.header.as_deref().filter(|_| !capture_text);
-    let (text, shown_cut) = match header {
-        Some(header) => bounded_match(&format!("{header} …"), content_length),
-        None => bounded_match(&m.text, content_length),
+    let text = match header {
+        Some(header) => format!("{header} …"),
+        None => m.text.clone(),
     };
     if !capture_text {
         let hidden = |capture: &str| !capture.is_empty() && !text.contains(capture);
@@ -56,23 +47,18 @@ fn display_value(
             value["endLine"] = json!(m.end_line);
         }
         value["value"] = json!(text);
-        if header.is_some() || shown_cut {
+        if header.is_some() {
             value["clipped"] = json!(true);
         }
         return MatchRow {
             source_descriptors: None,
             value,
             withheld,
-            shown_cut,
-            lines,
         };
     }
     use crate::num::one_based_column;
     let mut value =
         json!({"line":m.start_line,"value":text,"column":one_based_column(m.start_col)});
-    if shown_cut {
-        value["clipped"] = json!(true);
-    }
     if m.end_line != m.start_line {
         value["endLine"] = json!(m.end_line);
         value["endColumn"] = json!(one_based_column(m.end_col));
@@ -117,8 +103,6 @@ fn display_value(
         source_descriptors: None,
         value,
         withheld: false,
-        shown_cut,
-        lines,
     }
 }
 
@@ -127,19 +111,18 @@ fn display_value(
 pub(super) fn match_value(
     matched: &StructuralDetailedMatch,
     capture_text: bool,
-    content_length: usize,
     provenance: bool,
     cancel: &dyn CancellationCheck,
 ) -> Result<MatchRow, ToolError> {
     if !provenance {
-        return Ok(display_value(matched, capture_text, content_length));
+        return Ok(display_value(matched, capture_text));
     }
     let descriptors = matched
         .source_descriptors
         .as_ref()
         .ok_or_else(missing_origin)?;
     let mut budget = ProjectionBudget::new(ProjectionLimits::default());
-    let mut row = display_value(matched, capture_text, content_length);
+    let mut row = display_value(matched, capture_text);
     put_span(
         &mut row.value,
         matched.source_span,
@@ -218,22 +201,6 @@ fn put_span(
         )?);
     }
     Ok(())
-}
-
-/// Exact source text bounded to `limit` Unicode scalars
-/// (the core match-text budget), including the trailing ellipsis when cut, and
-/// whether it was cut.
-pub(super) fn bounded_match(text: &str, limit: usize) -> (String, bool) {
-    if text.chars().count() > limit {
-        let mut output = text
-            .chars()
-            .take(limit.saturating_sub(1))
-            .collect::<String>();
-        output.push('…');
-        (output, true)
-    } else {
-        (text.to_owned(), false)
-    }
 }
 
 pub(super) fn match_display_path(root: &std::path::Path, path: &str) -> String {

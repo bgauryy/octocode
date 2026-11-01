@@ -39,7 +39,7 @@ async fn builtin_lib_callees_are_listed_not_counted() {
         "operation": "callees", "path": "file:///repo/a.ts",
         "symbolName": "foo", "line": 1
     }));
-    let mut row = serde_json::json!({"status": "hasResults", "kind": "callees", "items": []});
+    let mut row = serde_json::json!({"status": "hasResults", "operation": "callees", "items": []});
     mark_truncation(&mut row, &q, &[(Expansion::OutgoingCalls, &walk)]);
     assert!(row.get("warnings").is_none(), "{row}");
     assert_eq!(row["builtinLib"], serde_json::json!(walk.builtin_lib));
@@ -66,14 +66,14 @@ fn file_level_partial_clears_when_text_files_match() {
         "operation": "references", "path": root.join("a.ts").to_string_lossy(),
         "symbolName": "foo", "line": 1
     }));
-    let row = || serde_json::json!({"kind": "references"});
+    let row = || serde_json::json!({"operation": "references"});
     // One file only the text scan sees: flagged, and the lead lists it.
     scope.answer([root.join("a.ts").to_string_lossy()]);
     let mut partial = row();
     flag_partial(
         &mut partial,
         &q,
-        "importerScanCapped",
+        crate::response::paging::PartialReason::ImporterScanCapped,
         Some("capped"),
         &scope,
     );
@@ -96,7 +96,7 @@ fn file_level_partial_clears_when_text_files_match() {
     flag_partial(
         &mut agreed,
         &q,
-        "importerScanCapped",
+        crate::response::paging::PartialReason::ImporterScanCapped,
         Some("capped"),
         &scope,
     );
@@ -123,8 +123,14 @@ fn site_level_partial_survives_matching_counts() {
         "operation": "references", "path": root.join("a.py").to_string_lossy(),
         "symbolName": "get", "line": 1
     }));
-    let mut row = serde_json::json!({"kind": "references"});
-    flag_partial(&mut row, &q, "cfgGatedFiles", Some("gated"), &scope);
+    let mut row = serde_json::json!({"operation": "references"});
+    flag_partial(
+        &mut row,
+        &q,
+        crate::response::paging::PartialReason::CfgGatedFiles,
+        Some("gated"),
+        &scope,
+    );
     assert_eq!(row["isPartial"], true, "{row}");
     assert_eq!(row["coverage"]["textOnlyFiles"], 0, "{row}");
     assert_eq!(
@@ -134,8 +140,14 @@ fn site_level_partial_survives_matching_counts() {
     );
     // Dynamic dispatch is judged by files: every file that spells the name
     // is answered, so the Python row is complete.
-    let mut python = serde_json::json!({"kind": "references"});
-    flag_partial(&mut python, &q, "dynamicDispatch", Some("dynamic"), &scope);
+    let mut python = serde_json::json!({"operation": "references"});
+    flag_partial(
+        &mut python,
+        &q,
+        crate::response::paging::PartialReason::DynamicDispatch,
+        Some("dynamic"),
+        &scope,
+    );
     assert!(python.get("isPartial").is_none(), "{python}");
     assert!(row["coverage"].get("reason").is_none(), "{row}");
     // No file to list: the lead searches the whole scope.
@@ -151,7 +163,7 @@ fn builtin_lib_and_text_only_counts_satisfy_the_output_contract() {
     let mut row = serde_json::json!({
         "lsp": {"serverAvailable": true},
 
-            "kind": "callees",
+            "operation": "callees",
             "files": [{"path": "/repo/a.ts", "matches": [{"symbolName": "f", "kind": "function", "line": 10, "endLine": 12, "sites": [{"line": 2, "column": 3}]}]}],
             "builtinLib": ["String.toUpperCase", "map"],
             "coverage": {"textOnlyFiles": 3, "reason": "importerScanCapped"}
@@ -193,7 +205,7 @@ fn only_a_spelled_rename_is_parsed_for_aliases() {
 /// windows, at most the batch limit of rows.
 #[test]
 fn site_rows_offer_one_read_of_the_sites_in_context() {
-    let mut row = serde_json::json!({"kind": "callers", "files": [
+    let mut row = serde_json::json!({"operation": "callers", "files": [
         {"path": "/repo/a.ts", "matches": [{"symbolName": "render", "kind": "function", "line": 97,
             "endLine": 848, "sites": [{"line": 359, "column": 38}, {"line": 362, "column": 5}]}]},
         {"path": "/repo/b.ts", "matches": [
@@ -215,7 +227,7 @@ fn site_rows_offer_one_read_of_the_sites_in_context() {
     let files = (0..7)
         .map(|n| serde_json::json!({"path": format!("/repo/{n}.ts"), "matches": [{"line": n + 10, "column": 1, "value": "x"}]}))
         .collect::<Vec<_>>();
-    let mut wide = serde_json::json!({"kind": "references", "files": files});
+    let mut wide = serde_json::json!({"operation": "references", "files": files});
     attach_read_lead(&mut wide);
     let reads = wide["related"]
         .as_array()
@@ -230,7 +242,7 @@ fn site_rows_offer_one_read_of_the_sites_in_context() {
             .map(|index| format!("/repo/{index}.ts"))
             .collect::<Vec<_>>()
     );
-    let mut empty = serde_json::json!({"status": "empty", "kind": "empty"});
+    let mut empty = serde_json::json!({"status": "empty", "status":"empty"});
     attach_read_lead(&mut empty);
     assert!(empty.get("next").is_none());
 }

@@ -8,18 +8,44 @@ impl Query<'_> {
             .transpose()
     }
 
-    fn within_evidence_scope(&self, node: u32, scope: Option<u32>) -> bool {
-        scope.is_none_or(|scope| {
-            node == scope
-                || (self.g.t.nodes[scope as usize].kind == NodeKind::File
-                    && self.g.t.nodes[node as usize].file == scope)
-        })
+    /// Whether `node` is, or sits in a file among, `scopes`; no scopes admit all.
+    fn within_evidence_scope(&self, node: u32, scopes: &[u32]) -> bool {
+        scopes.is_empty()
+            || scopes.iter().any(|&scope| {
+                node == scope
+                    || (self.g.t.nodes[scope as usize].kind == NodeKind::File
+                        && self.g.t.nodes[node as usize].file == scope)
+            })
+    }
+
+    /// Whether unresolved reason string `id` passes `reasons`, memoized per id.
+    fn admits_reason(
+        &self,
+        id: u32,
+        seen: &mut std::collections::HashMap<u32, bool>,
+    ) -> Result<bool, GraphOutput> {
+        if self.options.reasons.is_empty() {
+            return Ok(true);
+        }
+        if let Some(&admitted) = seen.get(&id) {
+            return Ok(admitted);
+        }
+        let reason = self.g.text(id, self.cancel)?;
+        let admitted = self.options.reasons.iter().any(|wanted| *wanted == reason);
+        seen.insert(id, admitted);
+        Ok(admitted)
     }
 
     pub(super) fn evidence(&self) -> Result<GraphOutput, GraphOutput> {
-        let source = self.evidence_scope(self.options.target.as_deref())?;
+        let mut sources = Vec::new();
+        for reference in self.options.sources() {
+            sources.extend(self.evidence_scope(Some(reference))?);
+        }
+        let source = sources.as_slice();
         let destination = self.evidence_scope(self.options.to.as_deref())?;
-        let mut window = Window::new(self.window());
+        let destination = destination.as_slice();
+        let mut reasons = std::collections::HashMap::new();
+        let mut window = Window::budgeted(self.window(), self.g.page_budget);
         let mut keep = |row: &dyn Fn() -> Result<Value, GraphOutput>| -> Result<(), GraphOutput> {
             window.try_push(row)
         };
@@ -68,8 +94,9 @@ impl Query<'_> {
                         "file": file,
                         "line": (edge.line != NONE).then_some(edge.line), "confidence": edge.confidence.as_str(), "test": edge.test,
                         "sourceDigest": source_digest, "evidence": "syntax",
-                        "sourceRange": range, "sourceOrigin": origin.value, "derivation": {"rule":rule,"version":version},
+                        "sourceRange": range, "sourceOrigin": origin.value,
                     });
+                    self.derivation(&mut row, rule, &version);
                     argument_fields(self.g, witness.argument, &mut row, self.cancel)?;
                     Ok(row)
                 })?;
@@ -82,6 +109,7 @@ impl Query<'_> {
                     .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
                 if !self.within_evidence_scope(site.src, source)
                     || !filter.kinds.contains(&site.relation)
+                    || !self.admits_reason(site.reason, &mut reasons)?
                 {
                     continue;
                 }
@@ -118,8 +146,9 @@ impl Query<'_> {
                         "file": file,
                         "line": site.line, "reason": reason,
                         "sourceDigest": source_digest, "evidence": "syntax",
-                        "sourceRange": range, "sourceOrigin": origin.value, "derivation": {"rule":rule,"version":version},
+                        "sourceRange": range, "sourceOrigin": origin.value,
                     });
+                    self.derivation(&mut row, rule, &version);
                     argument_fields(self.g, site.argument, &mut row, self.cancel)?;
                     Ok(row)
                 })?;
@@ -127,12 +156,27 @@ impl Query<'_> {
         }
         let mut extra = Map::new();
         extra.insert("evidence".into(), json!("syntax"));
-        extra.insert("coverage".into(), self.g.evidence_coverage(source));
+        // One source scopes coverage to its language; several, or none, the snapshot.
+        let scope = match source {
+            [only] => Some(*only),
+            _ => None,
+        };
+        extra.insert("coverage".into(), self.g.evidence_coverage(scope));
         extra.insert(
             "argumentCoverage".into(),
             self.g.manifest["argumentCoverage"].clone(),
         );
         Ok(run_page(self.options, self.g, extra, window.finish()))
+    }
+}
+
+impl Query<'_> {
+    /// `derivation` on full rows; lean rows omit it (`edge` and `detail` or
+    /// `reason` name the rule; `includeProvenance` returns it).
+    fn derivation(&self, row: &mut Value, rule: String, version: &str) {
+        if !self.g.compact_provenance {
+            row["derivation"] = json!({"rule": rule, "version": version});
+        }
     }
 }
 

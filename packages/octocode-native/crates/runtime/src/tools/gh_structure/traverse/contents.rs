@@ -1,10 +1,11 @@
 //! The Contents API walk: one directory read per folder, memoized per commit.
 use super::*;
 
-/// The Contents API walk, one directory read per folder up to
-/// [`MAX_DIRECTORY_FETCHES`], level by level with up to
-/// [`READ_CONCURRENCY`] reads in flight; a complete walk is kept under its
-/// commit ([`WalkMemo`]). After a truncated recursive tree (`split`), a folder with more
+/// The Contents API walk, one directory read per folder the listing
+/// reaches, level by level with up to [`READ_CONCURRENCY`] reads in flight;
+/// a complete walk is kept under its commit ([`WalkMemo`]). No read count
+/// ends it: GitHub sets no such rule, and its rate limits and the request
+/// deadline are typed failures, never a silent cut. After a truncated recursive tree (`split`), a folder with more
 /// than one level left to list is read whole from its own recursive subtree,
 /// so a large repository costs one read per subtree instead of per folder.
 pub(in crate::tools::gh_structure) async fn walk_contents(
@@ -25,16 +26,9 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
     // parent listing named it. The first level is the requested root.
     let mut level = vec![(at.root.to_owned(), None::<String>)];
     let mut visited = HashSet::new();
-    let mut fetches = 0usize;
     let mut depth = 1usize;
     while !level.is_empty() {
         level.retain(|(path, _)| visited.insert(path.clone()));
-        let budget = MAX_DIRECTORY_FETCHES.saturating_sub(fetches);
-        if level.len() > budget {
-            traversal.fetch_limit = true;
-            level.truncate(budget);
-        }
-        fetches += level.len();
         let required = depth == 1;
         let listings = futures_util::stream::iter(level.iter().map(|(path, _)| {
             provider.repository_contents(at.owner, at.repo, path, at.branch, context)
@@ -66,13 +60,7 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
             // The Contents API lists 1,000 entries of a directory at most; its
             // git tree lists them all.
             if listing.raw_entry_count >= CONTENTS_LIMIT {
-                let whole = if fetches < MAX_DIRECTORY_FETCHES {
-                    fetches += 1;
-                    whole_directory(provider, &at, path, sha.as_deref(), context).await?
-                } else {
-                    None
-                };
-                match whole {
+                match whole_directory(provider, &at, path, sha.as_deref(), context).await? {
                     Some(entries) => listing.entries = entries,
                     None => traversal.contents_limit = true,
                 }
@@ -99,12 +87,8 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
             }
         }
         // Folders with two or more levels left read whole from their own
-        // recursive subtree, as many as the fetch budget allows; a subtree
-        // that is truncated too (or unreadable) is walked like any folder.
-        let budget = MAX_DIRECTORY_FETCHES.saturating_sub(fetches);
-        let walked = subtrees.split_off(subtrees.len().min(budget));
-        below.extend(walked.into_iter().map(|(path, sha)| (path, Some(sha))));
-        fetches += subtrees.len();
+        // recursive subtree; a subtree that is truncated too (or
+        // unreadable) is walked like any folder.
         let trees = futures_util::stream::iter(
             subtrees
                 .iter()
@@ -134,7 +118,8 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
 
 /// Where a complete Contents walk of one listing is kept: by repository,
 /// commit, root and depth, under the cache partition of the request. The
-/// key's version names the walk's shape (omitted entries as a path list).
+/// key's version names the walk's shape (omitted entries as a path list;
+/// v4: no walk is cut at a fetch count, so no stored walk is a cut one).
 struct WalkMemo {
     partition: Option<octocode_github::Partition>,
     key: String,
@@ -154,7 +139,7 @@ impl WalkMemo {
             partition: provider.transport.cache_partition(context, None).ok(),
             key: format!(
                 "{}:{branch}:{root}:{max_depth}",
-                repo_key("git-tree-walk-v3", owner, repo),
+                repo_key("git-tree-walk-v4", owner, repo),
             ),
             commit: branch.to_owned(),
         }

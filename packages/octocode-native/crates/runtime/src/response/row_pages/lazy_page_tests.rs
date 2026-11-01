@@ -6,6 +6,10 @@ mod delivery;
 mod split_pages;
 mod split_parts;
 
+/// The tool whose declared collections (`/data/files`,
+/// `/data/files/*/matches`) the [`envelope`] rows split on.
+const TOOL: crate::id::ToolId = crate::id::ToolId::LocalSearch;
+
 fn envelope() -> Map<String, Value> {
     envelope_of(400)
 }
@@ -48,12 +52,12 @@ fn walk(
         &options(length, 0, None),
         Vec::new(),
         &[],
-        None,
+        TOOL,
     );
     (0..first.total_pages)
         .map(|offset| {
             let request = options(length, offset, Some(first.snapshot.clone()));
-            paginate_rows(structured.clone(), &request, Vec::new(), &[], None)
+            paginate_rows(structured.clone(), &request, Vec::new(), &[], TOOL)
         })
         .collect()
 }

@@ -95,6 +95,7 @@ fn first_page_reuses_responses_when_generation_matches() {
         let reuse = |generation: &str| ResponseScope {
             reuse: true,
             generation: generation.to_owned(),
+            call: None,
         };
         let first = line(reuse("g1")).await;
         // Same generation: served from the cache, no second request.
@@ -106,6 +107,7 @@ fn first_page_reuses_responses_when_generation_matches() {
         let fresh = line(ResponseScope {
             reuse: false,
             generation: "g1".into(),
+            call: None,
         })
         .await;
         assert_ne!(fresh, edited);
@@ -216,6 +218,7 @@ fn open_documents_follow_their_files_and_never_replay_older_answers() {
             let scope = ResponseScope {
                 reuse: true,
                 generation: "g".into(),
+                call: None,
             };
             RESPONSE_SCOPE.scope(std::cell::RefCell::new(scope), async move {
                 let found = client
@@ -296,6 +299,7 @@ async fn settled_requests_wait_only_when_they_reach_the_server() {
         let scope = ResponseScope {
             reuse: true,
             generation: "g1".to_owned(),
+            call: None,
         };
         RESPONSE_SCOPE.scope(std::cell::RefCell::new(scope), async move {
             let started = tokio::time::Instant::now();
@@ -349,7 +353,10 @@ async fn settled_requests_wait_only_when_they_reach_the_server() {
 #[test]
 fn cached_response_weight_is_the_json_length() {
     let value = json!({"uri": "file:///a.rs", "range": [1, 2, 3], "text": "q\"uote\u{e9}"});
-    let entry = CachedResponse::new(Arc::new(value.clone()));
+    let entry = CachedResponse::new(Arc::new(value.clone()), None);
     assert_eq!(entry.json_bytes, value.to_string().len());
-    assert_eq!(CachedResponse::new(Arc::new(Value::Null)).json_bytes, 4);
+    assert_eq!(
+        CachedResponse::new(Arc::new(Value::Null), None).json_bytes,
+        4
+    );
 }

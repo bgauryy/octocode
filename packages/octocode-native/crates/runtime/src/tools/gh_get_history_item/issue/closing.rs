@@ -12,12 +12,9 @@ use serde_json::{Value, json};
 #[cfg(test)]
 mod tests;
 
-/// Closing references one issue read lists. Past it the set is bounded and
-/// the response says so.
-const MAX_CLOSING_REFERENCES: usize = 25;
-
-/// The closing-reference lookup; `first` is [`MAX_CLOSING_REFERENCES`].
-pub(in crate::tools::gh_get_history_item) const CLOSING_REFERENCES_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!,$first:Int!){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:$first,includeClosedPrs:true){ totalCount pageInfo{ hasNextPage } nodes{ number state mergedAt additions deletions changedFiles } } } } }";
+/// One page of the closing-reference lookup: `first` is GitHub's page
+/// maximum, `after` the previous page's end cursor (null on the first).
+pub(in crate::tools::gh_get_history_item) const CLOSING_REFERENCES_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!,$first:Int!,$after:String){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:$first,after:$after,includeClosedPrs:true){ totalCount pageInfo{ hasNextPage endCursor } nodes{ number state mergedAt additions deletions changedFiles } } } } }";
 
 /// One linked pull request: its public `closedBy` row and whether its whole
 /// diff fits one patch read.
@@ -61,9 +58,10 @@ pub(super) async fn closing_pull_requests(
     })
 }
 
-/// The issue's first [`MAX_CLOSING_REFERENCES`]
-/// `closedByPullRequestsReferences`. `None` when GraphQL is unavailable or
-/// failed.
+/// The issue's `closedByPullRequestsReferences`, every page read on from
+/// its cursor within the request's deadline. A page that fails keeps the
+/// pages before it, with `hasNextPage` still true (the bound is disclosed).
+/// `None` when GraphQL is unavailable or its first page failed.
 async fn closed_by_references(
     transport: &GitHubTransport,
     query: &HistoryItemRequest,
@@ -72,19 +70,47 @@ async fn closed_by_references(
     if !transport.graphql_enabled || !transport.graphql_available(context) {
         return None;
     }
-    let variables = json!({
+    let mut variables = json!({
         "owner": gh_get_history_item_query::owner(query),
         "repo": gh_get_history_item_query::repo(query),
         "number": gh_get_history_item_query::number(query)?,
-        "first": MAX_CLOSING_REFERENCES});
+        "first": octocode_github::MAX_PER_PAGE,
+        "after": null});
+    let mut held = page_of(transport, &variables, context).await?;
+    while held.pointer("/pageInfo/hasNextPage") == Some(&Value::Bool(true)) {
+        let Some(cursor) = held.pointer("/pageInfo/endCursor").cloned() else {
+            break;
+        };
+        variables["after"] = cursor;
+        let Some(mut next) = page_of(transport, &variables, context).await else {
+            break;
+        };
+        let nodes = next.get_mut("nodes").map(Value::take);
+        if let (Some(list), Some(Value::Array(nodes))) =
+            (held.get_mut("nodes").and_then(Value::as_array_mut), nodes)
+        {
+            list.extend(nodes);
+        }
+        held["pageInfo"] = next["pageInfo"].take();
+    }
+    Some(held)
+}
+
+/// One page of the issue's closing references; `None` when it failed.
+async fn page_of(
+    transport: &GitHubTransport,
+    variables: &Value,
+    context: &RequestContext,
+) -> Option<Value> {
     let mut page = transport
-        .execute_graphql(CLOSING_REFERENCES_DOCUMENT, variables, context)
+        .execute_graphql(CLOSING_REFERENCES_DOCUMENT, variables.clone(), context)
         .await
         .ok()?;
     page.data
         .as_mut()?
         .pointer_mut("/repository/issue/closedByPullRequestsReferences")
         .map(Value::take)
+        .filter(Value::is_object)
 }
 
 fn map_closing_pull_requests(nodes: &[Value]) -> Vec<ClosingPr> {

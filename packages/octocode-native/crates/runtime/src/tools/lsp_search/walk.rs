@@ -7,9 +7,10 @@
 //! carries its `level` and, below level 1, the parent (`via`) it connects
 //! to; repeated `(parent, node)` pairs merge into one edge with the union of
 //! their call sites. A node reached again (cycle or diamond) keeps its edge
-//! but is not expanded twice. Depth, total nodes, and per-node fan-out are
-//! capped in code; each level's requests run concurrently under a small
-//! bound; per-node failures are collected as data.
+//! but is not expanded twice. The request sets the depth; total nodes and
+//! per-node fan-out page the walk, each overflow resumable; each level's
+//! requests run concurrently under a small bound; per-node failures are
+//! collected as data.
 
 use super::failure::LspFailure;
 use octocode_engine::lsp::client::NativeLspClient;
@@ -40,16 +41,16 @@ pub(super) use {
     request::class_uses_warning,
 };
 
-/// Hard ceiling on `depth` (the schema maximum), enforced here too.
-pub(super) const MAX_HIERARCHY_DEPTH: u32 = 20;
-/// Distinct nodes one walk expands toward (roots included). Past the cap,
-/// edges to new nodes below the anchor are dropped and the anchor's own
-/// results stay listed but unexpanded; each such parent carries a resumable
-/// continuation.
+/// Distinct nodes one walk call expands toward (roots included): a page of
+/// the walk, not a limit on it (`depth` has no maximum; the request sets
+/// it). Past it, edges to new nodes below the anchor wait for the next page
+/// and the anchor's own results stay listed but unexpanded; each such
+/// parent carries a resumable continuation that walks its remaining levels,
+/// so every node stays reachable.
 pub(super) const MAX_HIERARCHY_NODES: usize = 200;
-/// Results kept per expanded node below the anchor; a wider node resumes as
-/// the anchor of its own continuation, where every result is kept (the
-/// anchor's results are paged, never cut).
+/// Results kept per expanded node below the anchor on one page; a wider node
+/// resumes as the anchor of its own continuation, where every result is kept
+/// (the anchor's results are paged, never cut).
 pub(super) const MAX_HIERARCHY_FAN_OUT: usize = 50;
 
 /// One hierarchy expansion request kind.
@@ -127,6 +128,10 @@ pub(super) struct HierarchyWalk {
     /// Names of nodes whose results were cut to [`MAX_HIERARCHY_FAN_OUT`];
     /// each is also a resume point.
     pub(super) fan_out_capped: Vec<String>,
+    /// Names of types below the anchor whose implementation candidates
+    /// past the first [`MAX_HIERARCHY_NODES`] were not checked here; each is
+    /// also a resume point.
+    pub(super) candidate_capped: Vec<String>,
     /// Anchor results listed past the node cap without being expanded; each
     /// is also a resume point.
     pub(super) unexpanded_nodes: usize,

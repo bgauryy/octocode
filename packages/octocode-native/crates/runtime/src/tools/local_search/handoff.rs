@@ -39,32 +39,6 @@ pub(super) fn declaration_read(
     .build()
 }
 
-/// A hit whose value was clipped out of a line longer than one read page:
-/// a line-range read of it shows the line's start, not the hit.
-pub(super) fn is_long_line_hit(hit: &SearchMatch) -> bool {
-    hit.clipped && hit.original_bytes.is_some_and(passes_line_page)
-}
-
-/// Whether a value of `bytes` UTF-8 bytes passes one localFetch line page
-/// ([`LINE_PAGE_BYTES`], also counted in bytes).
-///
-/// [`LINE_PAGE_BYTES`]: crate::tools::source_view::pagination::LINE_PAGE_BYTES
-pub(super) fn passes_line_page(bytes: usize) -> bool {
-    bytes > crate::tools::source_view::pagination::LINE_PAGE_BYTES
-}
-
-/// A byte window of the hit's line, starting at the hit.
-pub(super) fn long_line_read(path: &str, hit: &SearchMatch) -> Value {
-    Continuation::continued(
-        ToolId::LocalFetch,
-        json!({
-            "path": path,
-            "ranges": [{"startLine":hit.line,"endLine":hit.line}],
-        }),
-    )
-    .build()
-}
-
 /// A shown file's path joined to the caller's own `path`, so a read
 /// resolves wherever the search did.
 pub(super) fn joined_path(
@@ -90,23 +64,22 @@ pub(super) fn joined_path(
 /// Hits a handed-off read may cover (each opens a ±6-line window).
 pub(super) const READ_HANDOFF_MAX_HITS: usize = 20;
 
-/// A range end past any file: localFetch clamps it to the last line, so the
-/// read runs from its start to the end of the file, paged.
-pub(super) const READ_TO_END_LINE: usize = u32::MAX as usize;
-
 /// Lines a handed-off read shows on each side of a hit.
 pub(super) const READ_HANDOFF_CONTEXT: u32 = 6;
 
 /// `(start, end)` windows of `context` lines around each line, merged where
-/// they overlap or touch, in line order.
+/// they overlap or touch, in line order; none ends past `last`, the file's
+/// last line when known.
 pub(super) fn hit_windows(
     lines: impl IntoIterator<Item = u32>,
     context: SearchContext,
+    last: Option<u32>,
 ) -> Vec<(u32, u32)> {
     crate::tools::line_spans::merge_spans(lines.into_iter().map(|line| {
+        let end = line.saturating_add(context.after);
         (
             line.saturating_sub(context.before).max(1),
-            line.saturating_add(context.after),
+            last.map_or(end, |last| end.min(last.max(line))),
         )
     }))
 }
@@ -126,17 +99,15 @@ pub(super) fn read_handoff(
         return None;
     }
     let path = joined_path(query, root, top);
-    // A line longer than a read page is read from the hit, not from its
-    // start: that hit alone, when no other hit is a plain line.
-    let (long, plain): (Vec<_>, Vec<_>) = hits.iter().partition(|hit| is_long_line_hit(hit));
-    if plain.is_empty()
-        && let Some(hit) = long.first()
-    {
-        return Some(long_line_read(&path, hit));
-    }
+    let source = if root.is_file() {
+        root.to_path_buf()
+    } else {
+        root.join(&top.path)
+    };
     let windows = hit_windows(
-        plain.into_iter().flat_map(row_lines),
+        hits.iter().flat_map(row_lines),
         SearchContext::symmetric(READ_HANDOFF_CONTEXT),
+        crate::tools::line_spans::file_lines(&source),
     );
     if windows.len() <= RANGES_MAX_ITEMS {
         let ranges = windows

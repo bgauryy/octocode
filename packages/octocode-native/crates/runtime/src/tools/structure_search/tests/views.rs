@@ -132,11 +132,11 @@ fn changing_view_invalidates_a_continuation_even_with_identical_page_cuts() {
             next["view"] = json!(new);
             let stale = run_budget(&root.0, next, 1).expect("changed view");
             assert_eq!(stale["errorCode"], "staleSnapshot", "{stale}");
-            assert_eq!(
-                related(&stale, "structureSearch")["input"]["queries"][0]["view"],
-                new,
-                "{stale}"
+            let restart = crate::tools::test_support::opened(
+                crate::id::ToolId::StructureSearch,
+                &related(&stale, "structureSearch")["input"]["queries"][0],
             );
+            assert_eq!(restart["view"], new, "{stale}");
         }
     }
 }

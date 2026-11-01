@@ -2,11 +2,11 @@ use super::defaults::apply_server_default_options;
 use super::invocation::config_from_spec;
 use super::probe::server_command_resolves;
 use super::types::{LspDiscoveryOptions, ServerSpec};
+use super::user_config::user_server_for_extension;
 use crate::lsp::grammar::grammar_for_file;
 use crate::lsp::module_path::install_anchor;
 use crate::lsp::types::LspLanguageServerConfig;
 use crate::text::extension_of;
-use super::user_config::user_server_for_extension;
 use std::path::Path;
 
 pub fn detect_language_id(file_path: &str) -> Option<String> {
@@ -292,4 +292,3 @@ pub fn install_hint(command: &str) -> Option<String> {
         .find(|(name, _)| *name == command)
         .map(|(_, hint)| (*hint).to_owned())
 }
-

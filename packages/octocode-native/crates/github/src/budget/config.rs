@@ -96,7 +96,7 @@ impl ExecutorConfig {
     pub(crate) fn reset_until_ms(&self, reset: u64) -> u64 {
         reset
             .saturating_mul(1000)
-            .saturating_add(self.reset_grace.as_millis() as u64)
+            .saturating_add(super::millis(self.reset_grace))
     }
 
     /// How long from now until [`Self::reset_until_ms`].

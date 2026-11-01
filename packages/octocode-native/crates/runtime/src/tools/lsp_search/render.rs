@@ -4,10 +4,11 @@
 //! pagination, and URI/path coercion. All functions are pure over
 //! `serde_json::Value`; no request state, path policy, or client lives here.
 
-use octocode_engine::lsp::symbol_kind;
+use octocode_engine::symbol_kind;
 use serde_json::{Value, json};
 
 use crate::response::page_windows::{Paging, select};
+use octocode_contract_types::LspSearchQuery;
 
 /// One flattened document symbol: `name`, `kind`, one-based `line` (the
 /// name line, a usable `line`) and `endLine` (the full extent), the
@@ -139,7 +140,7 @@ fn declares_type_alias(line: &str, name: &str) -> bool {
             after
                 .chars()
                 .next()
-                .is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '$'))
+                .is_none_or(|c| !octocode_engine::text::is_ident_char(c))
         })
 }
 
@@ -161,10 +162,16 @@ pub(super) struct Pages<'a> {
 }
 
 impl<'a> Pages<'a> {
-    /// Fit complete rows within the character budget.
-    pub(super) fn of(budget: usize, sizes: &'a [usize], snapshot: &'a str) -> Self {
+    /// Fit complete rows within the character budget, at most the query's
+    /// `limit` rows.
+    pub(super) fn of(
+        query: &LspSearchQuery,
+        budget: usize,
+        sizes: &'a [usize],
+        snapshot: &'a str,
+    ) -> Self {
         Self {
-            paging: Paging::of(None, budget),
+            paging: Paging::of(super::lsp_search_query::limit(query), budget),
             sizes,
             snapshot,
         }
@@ -246,17 +253,4 @@ pub(super) fn decode_uri_path(uri: &str) -> Result<String, String> {
 
 pub(super) fn uri_to_path(uri: &str) -> String {
     decode_uri_path(uri).unwrap_or_else(|_| uri.to_owned())
-}
-
-/// A word-bounded literal regex for `name` in the default (`rust`) engine.
-pub(super) fn word_pattern(name: &str) -> String {
-    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
-    let mut pattern = regex::escape(name);
-    if word(name.chars().next()) {
-        pattern.insert_str(0, "\\b");
-    }
-    if word(name.chars().last()) {
-        pattern.push_str("\\b");
-    }
-    pattern
 }

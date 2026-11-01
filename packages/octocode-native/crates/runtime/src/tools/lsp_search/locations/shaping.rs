@@ -10,7 +10,7 @@ pub(super) fn location_payload(
     locations: &[Value],
     pagination: Value,
 ) -> Value {
-    let mut row = json!({"kind":kind});
+    let mut row = json!({"operation":kind});
     row[key] = rows;
     if kind == "references" {
         reference_totals(&mut row, locations);
@@ -84,11 +84,11 @@ pub(in super::super) async fn apply_context_lines(
     let start_line = location
         .pointer("/range/start/line")
         .and_then(Value::as_u64)
-        .unwrap_or(0) as usize;
+        .map_or(0, crate::num::usize_of);
     let range_end = location
         .pointer("/range/end/line")
         .and_then(Value::as_u64)
-        .unwrap_or(start_line as u64) as usize;
+        .map_or(start_line, crate::num::usize_of);
     let end_character = location
         .pointer("/range/end/character")
         .and_then(Value::as_u64)
@@ -115,7 +115,8 @@ pub(in super::super) async fn apply_context_lines(
 
 /// Partial reason of a row whose declaration body was clipped at
 /// [`MAX_DECLARATION_CONTENT_LINES`].
-pub(super) const DECLARATION_CLIPPED: &str = "declarationClipped";
+pub(super) const DECLARATION_CLIPPED: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::DeclarationClipped;
 
 /// Most lines of an enclosing declaration a location carries by default.
 /// `contextLines` replaces the body with an explicit window instead.
@@ -135,7 +136,7 @@ pub(in super::super) fn cap_declaration_content(location: &mut Value) -> Option<
     let start = location
         .pointer("/displayRange/startLine")
         .and_then(Value::as_u64)
-        .map(|start| start as usize);
+        .map(crate::num::usize_of);
     let path = location.get("uri").and_then(Value::as_str).map(uri_to_path);
     let rest = start.map(|start| {
         (
@@ -200,8 +201,10 @@ pub(in super::super) fn compact_location(value: Value) -> Value {
     if is_definition {
         compact.insert("isDefinition".into(), json!(true));
     }
-    if let Some(source) = value.get("source").and_then(Value::as_str) {
-        compact.insert("source".into(), json!(source));
+    for key in ["source", "role"] {
+        if let Some(label) = value.get(key).and_then(Value::as_str) {
+            compact.insert(key.into(), json!(label));
+        }
     }
     Value::Object(compact)
 }

@@ -20,6 +20,31 @@ fn missing_paths_echo_the_requested_path_not_its_basename() {
 }
 
 #[test]
+fn a_file_used_as_a_directory_is_a_missing_path_that_names_the_cause() {
+    let root = fixture();
+    std::fs::write(root.join("package.json"), "{}").expect("fixture file");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let error = policy
+        .validate("package.json/child")
+        .expect_err("not a directory");
+    assert_eq!(error.code, PolicyErrorCode::NotFound);
+    assert_eq!(
+        error.message,
+        "Path does not exist: package.json/child (a parent of it is a file, not a directory)"
+    );
+    assert_eq!(
+        policy.nearest_existing_dir("package.json/child").as_deref(),
+        Some("."),
+        "the recovery tree opens the directory that holds the file"
+    );
+    std::fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
 fn rejects_sensitive_paths_and_directories_as_reads() {
     let root = fixture();
     let secret = root.join(".env");
@@ -80,11 +105,12 @@ fn rejects_symlink_escape_and_output_under_symlinked_parent() {
         .validate_read(root.join("escape.txt"))
         .expect_err("path policy should reject the test input");
     assert_eq!(escape.code, PolicyErrorCode::SymlinkEscape);
-    // The link and where it resolves (outside paths stay redacted).
+    // The link and where it resolves: outside directories stay withheld,
+    // and the message says so instead of a bare name.
     assert!(
-        escape
-            .message
-            .starts_with("Symlink 'escape.txt' resolves to 'secret.txt', outside"),
+        escape.message.starts_with(
+            "Symlink 'escape.txt' resolves to '…/secret.txt' (its outside directories withheld), outside"
+        ),
         "{}",
         escape.message
     );

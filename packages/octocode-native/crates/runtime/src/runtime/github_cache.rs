@@ -108,7 +108,7 @@ impl ConditionalCache for GitHubContentCache {
         key: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<CachedContent>> + Send + 'a>> {
         Box::pin(async move {
-            let cached = self.store.get(&Self::key(partition, key))?;
+            let cached = self.store.get_async(Self::key(partition, key)).await?;
             let mut value = (*cached.value).clone();
             if cached.fresh {
                 value.etag = None;
@@ -128,7 +128,7 @@ impl ConditionalCache for GitHubContentCache {
             let class = class(retention, &value);
             let key = Self::key(partition, &key);
             let bytes = entry_bytes(&key, &value);
-            self.store.put(key, value, bytes, class);
+            self.store.put_async(key, value, bytes, class).await;
         })
     }
 }

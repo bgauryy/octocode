@@ -1,11 +1,9 @@
 //! Typed artifact registry discovery and exact metadata lookup.
 mod leads;
-mod output;
 mod pages;
 
 use crate::providers::artifact::query::artifact_search_query;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
-pub(crate) use output::Output;
 use pages::discovery_page;
 pub(crate) use pages::last_reachable_page;
 
@@ -174,9 +172,7 @@ fn respond(
         data["status"] = json!("empty");
         leads::broaden_empty(&mut data, query);
     }
-    if let Some(calls) = data.as_object_mut().and_then(|row| row.remove("calls")) {
-        crate::response::result::attach_calls(&mut data, calls);
-    }
+    crate::response::result::finish_calls(&mut data);
     Ok(data)
 }
 
@@ -289,3 +285,6 @@ mod npm_auth_tests;
 
 #[cfg(test)]
 mod npm_window_tests;
+
+#[cfg(test)]
+mod limit_tests;

@@ -95,10 +95,10 @@ fn partial_provider_failures_survive_replay_without_losing_successful_evidence()
         !stored.contains("ghp_abcdefghijklmnopqrstuvwxyz0123456789"),
         "opaque replay tokens must not retain provider secrets"
     );
+    // The token fits whatever bound the published `selection` field declares.
     let max =
-        crate::contracts::query_schema_number(ToolId::LocalFetch, None, "selection", "maxLength")
-            .unwrap() as usize;
-    assert!(fresh.token.len() <= max);
+        crate::contracts::query_schema_number(ToolId::LocalFetch, None, "selection", "maxLength");
+    assert!(max.is_none_or(|max| fresh.token.len() as u64 <= max));
     let replay = run(Some(&fresh.token));
     assert_eq!(
         serde_json::to_value(&replay.receipt.failures).unwrap(),

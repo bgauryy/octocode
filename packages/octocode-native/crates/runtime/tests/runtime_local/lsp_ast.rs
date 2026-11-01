@@ -117,11 +117,9 @@ process.stdin.on('data', chunk => {
     assert_eq!(row_status(&failed), "error");
     assert_eq!(row_data(&failed)["path"], "src/lib.ts");
     let read = crate::support::checks::related_call(row_data(&failed), "localFetch", |_| true);
-    assert_eq!(
-        read["input"]["queries"][0]["path"],
-        json!(path),
-        "executable input keeps canonical identity"
-    );
+    // A related call's visible input names workspace paths relative to
+    // the workspace, as every other output path; it still executes.
+    assert_eq!(read["input"]["queries"][0]["path"], "src/lib.ts");
     let recovered = call(&runtime, "localFetch", read["input"].clone())
         .await
         .expect("source recovery");
@@ -219,7 +217,7 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
     );
     let read =
         crate::support::checks::related_call(row_data(&symbol_failure), "localFetch", |input| {
-            input["queries"][0]["path"] == json!(path)
+            input["queries"][0]["path"] == "notes.md"
         });
     let recovered = call(&runtime, "localFetch", read["input"].clone())
         .await
@@ -271,7 +269,7 @@ async fn unsupported_ast_batch_keeps_indices_hints_and_executable_document_recov
     let recovered = call(&runtime, "localFetch", read["input"].clone())
         .await
         .expect("outline read");
-    assert_eq!(row_data(&recovered)["view"], "symbols");
+    assert!(row_data(&recovered).get("view").is_none());
     let content = row_data(&recovered)["content"].as_str().expect("headings");
     assert!(
         content.contains("# Instructions") && content.contains("## Details"),

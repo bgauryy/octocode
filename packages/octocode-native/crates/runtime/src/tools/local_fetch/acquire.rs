@@ -38,7 +38,6 @@ pub(super) fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> 
         ),
     };
     let mut result = LocalFetchResult::error(path.to_owned(), ErrorCode::FileTooLarge, message);
-    result.source_bytes = Some(len as usize);
     result.terminal_limit(PartialReason::SourceSizeLimit);
     result.hints = vec![hint.into()];
     result

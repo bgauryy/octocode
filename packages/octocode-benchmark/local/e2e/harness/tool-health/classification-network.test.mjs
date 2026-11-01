@@ -26,6 +26,6 @@ test('a policy refusal cannot hide an attempted connection or provider work', as
         return { json: { error: 'Refused.', errorCode: 'securityValidationFailed' } };
       },
     }, 'cli', provider);
-    assert.equal(checks.find(([label]) => label === 'urlPolicy.source.loopback')?.[1], effect === 'none' || effect === 'readiness', effect);
+    assert.equal(checks.find(([label]) => label === 'urlPolicy.source.loopback')?.[1], effect === 'none', effect);
   }
 });

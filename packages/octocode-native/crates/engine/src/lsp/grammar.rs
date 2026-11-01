@@ -120,10 +120,9 @@ mod tests {
                 panic!("missing grammar for {file_name}");
             };
             assert_eq!(spec.language_id, language_id);
-            let Some(tree) = spec.parse_before(
-                source,
-                std::time::Instant::now() + crate::signatures::extractor::AST_EXECUTION_TIMEOUT,
-            ) else {
+            let Some(tree) =
+                spec.parse_before(source, crate::signatures::extractor::whole_file_deadline())
+            else {
                 panic!("failed to parse {file_name}");
             };
             assert!(

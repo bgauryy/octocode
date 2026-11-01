@@ -2,6 +2,8 @@
 use super::*;
 
 mod health;
+mod liveness;
+mod module_roots;
 mod scope_notes;
 
 /// One fixture per edge class a cycle can run through: a runtime import
@@ -71,7 +73,7 @@ fn cycle_classes_app() -> Fixture {
 /// (module-load) cycle.
 type Groups = std::collections::BTreeSet<(Vec<String>, bool)>;
 
-/// `graph query cycles` and the `cycle` detector of `graph query issues`
+/// The `cycles` operation and the `cycle` detector of `issues`
 /// read one cycle engine: the same groups, the same runtime verdicts.
 #[test]
 fn every_cycle_surface_reports_the_same_groups() {
@@ -92,7 +94,7 @@ fn every_cycle_surface_reports_the_same_groups() {
         group(&["web/t1.ts", "web/t2.ts"], false),
     ]);
     let listed = ask(root, "cycles", None, |_| {});
-    let listed = listed.value["results"]
+    let listed = listed.value["rows"]
         .as_array()
         .into_iter()
         .flatten()
@@ -106,12 +108,12 @@ fn every_cycle_surface_reports_the_same_groups() {
             (files, row["runtime"] == true)
         })
         .collect::<Groups>();
-    assert_eq!(listed, expected, "graph query cycles");
+    assert_eq!(listed, expected, "cycles");
     let issues = ask(root, "issues", None, |o| {
         o.detectors = vec!["cycle".into()];
         o.limit = Some(50);
     });
-    let found = issues.value["results"]
+    let found = issues.value["rows"]
         .as_array()
         .into_iter()
         .flatten()
@@ -126,7 +128,7 @@ fn every_cycle_surface_reports_the_same_groups() {
             (files, row["evidence"]["runtime"] == true)
         })
         .collect::<Groups>();
-    assert_eq!(found, expected, "graph query issues: {}", issues.value);
+    assert_eq!(found, expected, "issues: {}", issues.value);
     assert!(
         issues.value["summary"]["detectorMs"]["health"].is_number(),
         "{}",
@@ -191,7 +193,7 @@ fn dead_code_detectors_judge_one_fixture() {
         o.limit = Some(200);
         o.min_tier = Some(0);
     });
-    let rows = issues.value["results"]
+    let rows = issues.value["rows"]
         .as_array()
         .cloned()
         .unwrap_or_default();
@@ -259,7 +261,7 @@ fn short_export_names_are_text_checked() {
         o.min_tier = Some(0);
         o.limit = Some(500);
     });
-    let row = all.value["results"]
+    let row = all.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
@@ -314,7 +316,7 @@ fn prose_mentions_never_hide_an_unused_export() {
         o.limit = Some(500);
     });
     let row = |subject: &str| {
-        all.value["results"]
+        all.value["rows"]
             .as_array()
             .expect("rows")
             .iter()
@@ -341,47 +343,4 @@ fn prose_mentions_never_hide_an_unused_export() {
         "{tool}"
     );
     assert_eq!(tool["evidence"]["textMentions"]["go"], prose, "{tool}");
-}
-
-/// A file's own imports decide where it belongs, not its importers: a
-/// shared utility imported by many files of another directory stays put,
-/// while a file whose imports all live elsewhere is still flagged.
-#[test]
-fn misplaced_file_follows_imports_not_importers() {
-    let mut files = vec![
-        ("core/base.ts", "export const base = 1;\n".to_owned()),
-        ("core/util.ts", "import { base } from './base';\nexport const util = () => base;\n".to_owned()),
-        (
-            "core/stray.ts",
-            "import { l1 } from '../locales/l1';\nimport { l2 } from '../locales/l2';\nimport { l3 } from '../locales/l3';\nexport const stray = () => l1 + l2 + l3;\n".to_owned(),
-        ),
-    ];
-    for n in 1..=5 {
-        files.push((
-            Box::leak(format!("locales/l{n}.ts").into_boxed_str()),
-            format!("import {{ util }} from '../core/util';\nexport const l{n} = util();\n"),
-        ));
-    }
-    let borrowed = files
-        .iter()
-        .map(|(a, b)| (*a, b.as_str()))
-        .collect::<Vec<_>>();
-    let dir = git_app(&borrowed);
-    let root = dir.0.as_path();
-    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
-    let issues = ask(root, "issues", None, |o| {
-        o.detectors = vec!["misplaced-file".into()];
-        o.min_tier = Some(0);
-    });
-    let flagged = findings(&issues, "misplaced-file");
-    assert!(
-        !flagged.iter().any(|s| s.ends_with("core/util.ts")),
-        "importers must not pull a shared utility: {}",
-        issues.value
-    );
-    assert!(
-        flagged.iter().any(|s| s.ends_with("core/stray.ts")),
-        "a file whose imports all live elsewhere is still flagged: {}",
-        issues.value
-    );
 }

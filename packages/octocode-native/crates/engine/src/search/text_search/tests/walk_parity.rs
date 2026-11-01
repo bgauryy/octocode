@@ -12,7 +12,7 @@ use super::*;
 /// entry is one the walker left out, and nothing under it was searched.
 #[test]
 fn the_search_walks_exactly_what_the_ignore_walker_walks() {
-    use crate::search::walk::IgnorePolicy;
+    use crate::types::IgnorePolicy;
     struct Reported(Mutex<Vec<String>>);
     impl TextSearchPathFilter for Reported {
         fn allows(&self, _: &Path, _: bool) -> bool {

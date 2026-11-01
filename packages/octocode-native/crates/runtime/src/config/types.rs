@@ -218,9 +218,7 @@ pub fn is_secret_key(key: &str) -> bool {
         "credentials",
     ];
     ENV_TOKEN_VARS.contains(&key)
-        || CONFIG_FIELDS
-            .iter()
-            .any(|field| field.credential && field.env_name() == Some(key))
+        || ENV_CREDENTIAL_VARS.contains(&key)
         || key
             .split(['_', '.', '-'])
             .any(|part| CREDENTIAL_WORDS.contains(&part.to_ascii_lowercase().as_str()))

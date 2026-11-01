@@ -1,6 +1,6 @@
 ---
 name: octocode-clean-agentic-code
-description: "Load this skill first whenever the user wants dead code, unused exports, duplicate helpers, debug logs or other AI leftovers removed, or suspects weakened tests; good for proving each removal safe."
+description: "Remove proven dead code, unused exports, duplicate helpers, debug logs and agent leftovers; investigate weakened tests while preserving behavior and useful contracts."
 ---
 
 # Octocode clean agentic code
@@ -13,7 +13,8 @@ flowchart LR
     P --> T{Proven redundant?}
     T -- yes --> E[Remove batch] --> V[Verify]
     T -- "evidence missing" --> I[Investigate or report gap]
-    T -- "behavior must change" --> D[Report, keep out of batch]
+    T -- "behavior must change" --> D[Report; change only within authorized scope]
+    V -- passes --> R[Report removed, deferred, checks]
     V -- fails --> F{Changed diagnosis?}
     F -- yes --> E
     F -- no --> U[Revert, report blocker]

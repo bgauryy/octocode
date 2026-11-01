@@ -1,7 +1,7 @@
 //! A special file swapped in where a searched file was (a FIFO that would
 //! block an open, or a symlink) is refused by every re-read of a search's
 //! sources: the digest of a stored page, the stored page's source hash, the
-//! key-block scan, the clipped-value secret check, and the reads that
+//! key-block scan, the source-value secret check, and the reads that
 //! outline a shown or priced file.
 
 use super::*;
@@ -30,6 +30,7 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
     let verified = within_deadline(move || {
         let value = "…token = ghp_abcdefghijklmnop";
         let mut file = octocode_engine::types::TextSearchFile {
+            term_counts: Vec::new(),
             path: "swapped.txt".into(),
             match_count: 1,
             matches: vec![octocode_engine::types::TextSearchMatch {
@@ -42,12 +43,10 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
                 value_digest: <sha2::Sha256 as sha2::Digest>::digest(value.as_bytes()).into(),
                 count: None,
                 rank: None,
-                original_chars: Some(400),
-                original_bytes: Some(400),
             }],
             source: None,
         };
-        let verified = verify::guard_clipped_secrets(
+        let verified = verify::guard_source_secrets(
             &mut file,
             &source,
             crate::tools::local_search::sources::Expected::Fresh,
@@ -114,7 +113,7 @@ fn a_non_utf8_match_reads_as_localfetch_decodes_it_and_says_so() {
     fs::write(root.path().join("latin1.txt"), b"caf\xe9 needle\n").expect("latin-1");
     fs::write(root.path().join("plain.txt"), "needle\n").expect("utf-8");
     let result = search_root(root.path(), serde_json::json!({"matchString":["needle"]}));
-    let body = serde_json::to_value(&result).expect("serialize");
+    let body = result.to_row().expect("serialize");
     let latin = body["files"]
         .as_array()
         .expect("files")

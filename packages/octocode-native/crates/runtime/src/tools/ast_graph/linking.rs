@@ -64,6 +64,7 @@ impl Linker {
     pub(super) fn import_edge(self, kind: &str) -> &'static str {
         match (self, kind) {
             (Self::Rust, "module") => edges::RUST_MODULE,
+            (Self::Rust, "include") => edges::RUST_INCLUDE,
             (Self::Rust, "include-data") => edges::RUST_INCLUDE_DATA,
             (Self::Rust, _) => "rust-use",
             (_, "type") => "type-import",

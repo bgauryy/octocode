@@ -43,8 +43,13 @@ pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned
     fn scan_offset(&self) -> usize;
     /// Walk entries (walk order) an earlier, time-cut walk inspected.
     fn walk_offset(&self) -> u32;
-    /// Rows the walk lists: `maxEntries`, at most the walk ceiling.
-    fn requested(&self) -> usize;
+    /// Rows one window lists after the earlier windows' (`scanOffset`):
+    /// the internal walk window.
+    fn requested(&self) -> usize {
+        super::max_entries()
+    }
+    /// Rows per page (`limit`); `None` cuts pages by the budget alone.
+    fn page_rows(&self) -> Option<usize>;
     fn show_hidden(&self) -> bool;
     /// The default prune applies (`defaultExcludes`).
     fn default_excludes(&self) -> bool;
@@ -61,7 +66,7 @@ pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned
     }
     /// The order rows are listed in.
     fn sort(&self) -> StructureSearchQueryFilesSort;
-    /// The walk stops at the first match past `maxEntries`: in walk order
+    /// The walk stops at the first match past `limit`: in walk order
     /// the first matches are final once found.
     fn early_exit(&self) -> bool;
     /// Whether a filtered listing could list a path the policy withheld.
@@ -85,6 +90,10 @@ pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned
     /// This query with every default a broadened listing must keep (the
     /// depth it walked).
     fn broadening(&self) -> Self;
+    /// Which side of the test-code line the listing keeps; `None` both.
+    fn test_code(&self) -> Option<octocode_contract_types::TestCode> {
+        None
+    }
     /// A root this operation cannot list fails the call.
     fn check_root(&self, root: &std::path::Path, paths: &PathPolicy) -> Result<(), ToolError>;
 }
@@ -134,11 +143,8 @@ macro_rules! listing_fields {
                 self.walk_offset
                     .map_or(0, |offset| crate::num::u32_of(offset.get()))
             }
-            fn requested(&self) -> usize {
-                let ceiling = super::max_walk() as usize;
-                self.max_entries
-                    .map_or(ceiling, |limit| crate::num::usize_of(limit.get()))
-                    .min(ceiling)
+            fn page_rows(&self) -> Option<usize> {
+                self.limit.map(|limit| crate::num::usize_of(limit.get()))
             }
             fn show_hidden(&self) -> bool {
                 self.include_hidden == Some(true)
@@ -179,6 +185,7 @@ pub(super) fn execute_listing<Q: Listing>(
         q.view(),
         q.sort(),
         requested,
+        q.page_rows(),
         q.scan_offset(),
         q.walk_offset(),
     ]);
@@ -198,7 +205,7 @@ pub(super) fn execute_listing<Q: Listing>(
     // The page cut and the row layout are part of the snapshot: a
     // continuation under a different response window restarts instead of
     // skipping entries.
-    let budget = crate::response::page_windows::page_budget(response_window, &identity);
+    let budget = crate::response::page_windows::page_budget(response_window);
     let snapshot =
         crate::digest::json_sha256(&json!([identity, budget, Q::LAYOUT, walk.rows_digest()]));
     if let Some(restart) = restart_if_stale(q, page, q.snapshot(), &snapshot) {
@@ -211,6 +218,7 @@ pub(super) fn execute_listing<Q: Listing>(
     let pages = page_ranges(
         &rows::costs(&walk.rows, &prefix, q.view(), deferred_detail),
         budget,
+        q.page_rows(),
     );
     if !stored && pages.len() > 1 {
         memo::put(snapshot.clone(), policy, paths, root, &walk);
@@ -266,10 +274,20 @@ fn listing_page<Q: Listing>(
     });
     // Every page states its block; the response stage keeps it where it
     // routes (`response::rows::walks_on`).
-    let facts =
-        crate::response::pages::PageFacts::sized(page, cut.total_pages, total, cut.has_more())
-            .out_of_range(cut.out_of_range());
+    // A window `next.continueWalk` continues is not the listing's end: its
+    // rows are what this window loaded, not the listing's total.
+    let continues = cut.walk_lead().is_some();
+    let facts = crate::response::pages::PageFacts::sized(
+        page,
+        cut.total_pages,
+        total,
+        cut.has_more() || continues,
+    )
+    .out_of_range(cut.out_of_range());
     out["pagination"] = facts.to_value();
+    if continues {
+        out["pagination"]["countScope"] = json!("loaded");
+    }
     // A walk cut by time proved nothing about what it did not scan, and a
     // resumed window past every entry of its filters is no empty listing.
     if total == 0 && walk.meta.time_cut.is_none() && q.walk_offset() == 0 {

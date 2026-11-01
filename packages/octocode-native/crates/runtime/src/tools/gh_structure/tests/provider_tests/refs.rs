@@ -36,6 +36,15 @@ async fn a_missing_repository_leads_to_a_repository_search() {
         json!({"operation":"list","owner":"a"}),
         "{owner}"
     );
+    // The name search lists repositories named like it under any owner:
+    // the shared hint labels both leads.
+    assert_eq!(
+        failure.hints,
+        [crate::tools::gh_shared::repository_search_hint(
+            Some("a"),
+            "typo"
+        )]
+    );
 }
 
 /// A `refs` read of one `ref` says what the name resolved to

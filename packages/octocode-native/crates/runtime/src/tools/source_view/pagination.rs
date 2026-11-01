@@ -116,7 +116,7 @@ fn raw_line_page(
     source: &SourceLines,
 ) -> Page {
     let offset = local_fetch_query::offset(q).unwrap_or(0);
-    let window = DEFAULT_LINE_CHUNK;
+    let window = local_fetch_query::line_limit(q);
     let lines = &source.lines;
     // View lines with source line <= raw offset are before the page.
     let first = lines.partition_point(|line| *line <= offset);
@@ -163,7 +163,7 @@ fn raw_line_page(
 
 /// A window of the view itself, in view lines or bytes.
 fn view_page(content: &str, q: &LocalFetchQuery, budget: LineBudget) -> Page {
-    view_page_limited(content, q, budget, DEFAULT_LINE_CHUNK)
+    view_page_limited(content, q, budget, local_fetch_query::line_limit(q))
 }
 
 fn view_page_limited(content: &str, q: &LocalFetchQuery, budget: LineBudget, limit: usize) -> Page {
@@ -270,7 +270,7 @@ fn whole_line_page(mut page: Page, offset: usize) -> Page {
         unit: ReadProgressUnit::Lines,
         offset,
         length: next - offset,
-        window: DEFAULT_LINE_CHUNK,
+        window: next - offset,
         total_lines: total,
         total_bytes: pagination.total_bytes,
         has_more: next < total,

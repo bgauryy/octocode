@@ -125,6 +125,8 @@ pub(super) struct SourceCache<'a> {
     paths: &'a PathPolicy,
     sources: HashMap<String, Option<Arc<Source>>>,
     authorized: HashMap<String, bool>,
+    /// Files read from disk, for tests of the once-per-request read.
+    #[cfg(test)]
     reads: usize,
 }
 
@@ -134,6 +136,7 @@ impl<'a> SourceCache<'a> {
             paths,
             sources: HashMap::new(),
             authorized: HashMap::new(),
+            #[cfg(test)]
             reads: 0,
         }
     }
@@ -165,7 +168,10 @@ impl<'a> SourceCache<'a> {
             .or_insert(validated.is_some());
         let source = match validated {
             Some(validated) => {
-                self.reads += 1;
+                #[cfg(test)]
+                {
+                    self.reads += 1;
+                }
                 read_bounded_source_async(validated.canonical)
                     .await
                     .ok()
@@ -179,6 +185,7 @@ impl<'a> SourceCache<'a> {
 
     /// Files actually read from disk by this cache (cache hits and policy
     /// refusals are not reads).
+    #[cfg(test)]
     pub(super) fn reads(&self) -> usize {
         self.reads
     }

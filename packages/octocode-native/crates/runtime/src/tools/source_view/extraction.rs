@@ -13,6 +13,18 @@ pub(crate) fn match_spans(
     spans::match_spans(q, content, &local_fetch_query::match_strings(q))
 }
 
+/// The 1-based lines of `content` a match of `q`'s patterns touches, as a
+/// whole-file match read selects them, and whether a regex scan stopped at
+/// its match limit.
+pub(crate) fn match_lines(
+    q: &LocalFetchQuery,
+    content: &str,
+) -> Result<(Vec<usize>, bool), ExtractionError> {
+    let found = match_spans(q, content)?;
+    let lines = content.split_inclusive('\n').collect::<Vec<_>>();
+    Ok((spans::hit_lines(&lines, &found.spans), found.truncated))
+}
+
 #[cfg(test)]
 mod canonical_tests;
 

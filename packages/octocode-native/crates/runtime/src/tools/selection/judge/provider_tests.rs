@@ -25,7 +25,6 @@ fn context(timeout: Duration) -> ExecutionContext {
     ExecutionContext {
         cancellation: tokio_util::sync::CancellationToken::new(),
         deadline: Instant::now() + timeout,
-        walk_threads: None,
         response_window: None,
         github_credential: None,
     }

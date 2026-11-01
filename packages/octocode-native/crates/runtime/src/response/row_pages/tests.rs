@@ -5,6 +5,7 @@ mod clasify_contract;
 mod collections;
 mod declared_families;
 mod declared_graph;
+mod nested_continuation;
 mod recursive_symbols;
 mod scope;
 mod selection;

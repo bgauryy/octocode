@@ -230,12 +230,9 @@ async fn a_client_that_leaves_cancels_its_call() {
 }
 
 #[test]
-fn tool_transport_keeps_graph_requests_in_the_invoking_process() {
+fn tool_transport_keeps_writing_tools_in_the_invoking_process() {
     for tool in ToolId::ALL {
-        let process_local = matches!(
-            tool,
-            ToolId::GhCloneRepo | ToolId::GraphBuild | ToolId::GraphQuery
-        );
+        let process_local = matches!(tool, ToolId::GhCloneRepo | ToolId::GraphBuild);
         assert_eq!(runs_on_server(tool), !process_local, "{tool}");
     }
 }

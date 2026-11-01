@@ -6,7 +6,7 @@ use super::rows::{EntryKind, Row};
 use super::walk_policy::WalkLeft;
 use serde_json::{Value, json};
 
-/// One listing walk: its rows in listing order (cut to `maxEntries`) and
+/// One listing walk: its rows in listing order (cut to `limit`) and
 /// what the walk saw beside them.
 pub(super) struct Walked {
     pub(super) rows: Vec<Row>,
@@ -36,10 +36,8 @@ pub(super) struct WalkMeta {
     pub(super) dirs: usize,
     pub(super) bytes: u64,
     pub(super) uncovered: Uncovered,
-    /// The listing is ranked by something other than walk order (`files`
-    /// sorted by size, lines, name or time): a walk cut at its ceiling ranks
-    /// only the entries it walked first.
-    pub(super) ranked: bool,
+    /// Entries a `testCode` scope left out of the window (`None` unscoped).
+    pub(super) test_code_excluded: Option<crate::tools::test_code::Excluded>,
 }
 
 impl memo::Listed for Walked {
@@ -49,9 +47,10 @@ impl memo::Listed for Walked {
 }
 
 impl Walked {
-    /// The walk's `rows` (listing order) cut to `requested`, less the
-    /// `scan_offset` rows earlier windows listed (listing order is stable,
-    /// so those are the ones they showed), with what the walk left out.
+    /// The walk's `rows` (listing order) past the `scan_offset` rows earlier
+    /// windows listed (listing order is stable, so those are the ones they
+    /// showed), cut to this window's `requested`, with what the walk left
+    /// out.
     pub(super) fn finish(
         native: octocode_engine::types::FileSystemQueryResult,
         mut rows: Vec<Row>,
@@ -61,7 +60,7 @@ impl Walked {
         security: &crate::security::ContentSecurity,
     ) -> Self {
         let available = rows.len();
-        rows.truncate(requested);
+        rows.truncate(scan_offset.saturating_add(requested));
         let offset = scan_offset.min(rows.len());
         rows.drain(..offset);
         // A non-directory row is a file; bytes are regular files' (a
@@ -95,7 +94,7 @@ impl Walked {
                 native.walk_position,
                 (native.skipped, native.permission_denied),
             ),
-            ranked: false,
+            test_code_excluded: None,
         };
         Self {
             rows,
@@ -124,10 +123,10 @@ impl Walked {
         snapshot: String,
     ) -> Cut {
         let meta = &self.meta;
-        let (limit_cut, scan_cut) = if early_exit {
-            (meta.was_capped, false)
+        let limit_cut = if early_exit {
+            meta.was_capped
         } else {
-            (meta.available > requested, meta.was_capped)
+            meta.available > scan_offset.saturating_add(requested)
         };
         Cut {
             page,
@@ -136,7 +135,6 @@ impl Walked {
             requested,
             available: meta.available,
             limit_cut,
-            scan_cut,
             time_cut: meta.time_cut.clone(),
             time_window: meta.time_window,
             walk_position: meta.walk_position,
@@ -145,7 +143,6 @@ impl Walked {
             total_discovered: meta.total_discovered,
             scan_offset,
             covered: meta.covered,
-            ranked: meta.ranked,
             snapshot,
         }
     }

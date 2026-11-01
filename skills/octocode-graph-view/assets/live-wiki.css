@@ -1,0 +1,67 @@
+/* Wiki drawer: a floating glass panel on the left (the chat drawer sits on the right); at 900px and below it becomes a
+   sheet, stacked above the chat sheet when both are open. Built on the live.css tokens. */
+.wiki-toggle{display:inline-flex;align-items:center;gap:7px;font-weight:600}
+.wiki-ic{width:12px;height:14px;border-radius:2px 4px 4px 2px;background:var(--grad);box-shadow:inset 3px 0 0 rgba(0,0,0,.18);flex:none}
+.wiki-toggle.on .wiki-ic{background:#fff}
+.wiki{position:fixed;left:20px;bottom:20px;z-index:30;width:min(520px,calc(100vw - 460px));min-width:340px;height:min(720px,calc(100vh - 120px));display:flex;flex-direction:column;
+  background:var(--glass);backdrop-filter:blur(20px) saturate(1.15);-webkit-backdrop-filter:blur(20px) saturate(1.15);border:1px solid var(--line-2);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;animation:wiki-in .18s ease-out}
+.wiki[hidden]{display:none}
+@keyframes wiki-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+.wiki-head{display:flex;flex-direction:column;gap:10px;padding:12px 12px 10px 14px;border-bottom:1px solid var(--line)}
+.wiki-title{display:flex;align-items:center;gap:10px;min-width:0}
+.wiki-logo{width:26px;height:26px;border-radius:9px;background:var(--grad);box-shadow:0 6px 18px var(--glow-a);flex:none}
+.wiki-name{min-width:0;flex:1}
+.wiki-name b{display:block;font-weight:650;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wiki-name small{display:block;color:var(--mute);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wiki-state{flex:none;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;border:1px solid var(--line-2);color:var(--mute);background:var(--glass-2)}
+.wiki-state.fresh{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+.wiki-state.stale{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.wiki-state.orphaned{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 50%,transparent)}
+.wiki-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.wiki-actions button{height:28px;padding:0 10px;border-radius:9px;font-size:12px}
+.wiki-hl{background:var(--grad);border-color:transparent;color:#fff;font-weight:600}
+.wiki-hl:hover{box-shadow:0 4px 14px var(--glow-a)}
+.wiki-back{width:28px;padding:0!important;font-size:16px!important}
+.wiki-back:disabled{opacity:.4;cursor:default}
+.wiki-close{margin-left:auto;width:28px;padding:0!important;font-size:18px!important;background:transparent;border-color:transparent;color:var(--mute)}
+.wiki-close:hover{color:var(--ink);border-color:var(--line-2)}
+.wiki-body{flex:1;min-height:0;overflow:auto;padding:4px 16px 16px;line-height:1.55;font-size:13px;overscroll-behavior:contain}
+.wiki-body:focus{outline:none}
+.wiki-body p{margin:8px 0}
+.wiki-body ul,.wiki-body ol{margin:6px 0;padding-left:20px}
+.wiki-body li{margin:3px 0}
+.wiki-body blockquote{margin:10px 0;padding:6px 10px;border-left:3px solid var(--acc);background:var(--glass-2);border-radius:0 8px 8px 0;color:var(--ink-2)}
+.wiki-h2{margin:18px 0 6px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.wiki-body details{margin:8px 0;border:1px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--glass-2) 60%,transparent);padding:0 12px}
+.wiki-body summary{cursor:pointer;padding:8px 0;font-weight:600;list-style-position:inside}
+.wiki-body details[open] summary{border-bottom:1px solid var(--line);margin-bottom:6px}
+.wiki-body code{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;padding:1px 5px;border-radius:5px;background:color-mix(in srgb,var(--ink) 9%,transparent);overflow-wrap:anywhere}
+.wiki-body pre{margin:8px 0;padding:8px 10px;border-radius:10px;background:color-mix(in srgb,var(--bg) 72%,transparent);border:1px solid var(--line);overflow:auto}
+.wiki-body pre code{padding:0;background:none}
+.wiki-table{overflow-x:auto;margin:6px 0}
+.wiki-body table{border-collapse:collapse;width:100%;font-size:12px}
+.wiki-body th{position:sticky;top:0;text-align:left;font-weight:600;color:var(--mute);background:var(--glass-2);white-space:nowrap}
+.wiki-body th,.wiki-body td{padding:4px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.wiki-body td code,.wiki-body td .wiki-node{white-space:nowrap;overflow-wrap:normal}
+.wiki-body tbody tr:hover td{background:color-mix(in srgb,var(--acc) 7%,transparent)}
+.wiki-showall{margin:4px 0 8px;height:26px;font-size:12px;border-radius:8px}
+.wiki-link,.wiki-node{color:var(--acc);text-decoration:none;border-bottom:1px dashed currentColor}
+.wiki-link:hover,.wiki-node:hover{border-bottom-style:solid}
+.wiki-link{font-weight:600}
+.wiki-empty{margin:40px 8px;color:var(--mute);text-align:center}
+.wiki-wait{margin:10px 0;padding:6px 10px;border-radius:9px;font-size:12px;color:var(--mute);background:var(--glass-2);border:1px dashed var(--line-2)}
+@media (max-width:1100px){
+  .wiki{width:min(480px,calc(100vw - 40px))}
+}
+@media (max-width:900px){
+  .wiki{left:12px;right:12px;bottom:12px;width:auto;min-width:0;height:min(70vh,600px)}
+  /* Both drawers open: the wiki takes the top of the screen, the chat sheet keeps the bottom. */
+  body:has(#chat:not([hidden])) .wiki{top:12px;bottom:auto;height:calc(46vh - 18px)}
+  body:has(#wiki:not([hidden])) #chat:not([hidden]){height:calc(54vh - 18px)}
+}
+@media (max-width:560px){
+  .wiki{left:0;right:0;bottom:0;height:80vh;border-radius:18px 18px 0 0;border-bottom:0}
+  body:has(#chat:not([hidden])) .wiki{top:0;border-radius:0 0 18px 18px;border-top:0;border-bottom:1px solid var(--line-2)}
+  .wiki-toggle .wiki-label{display:none}
+  .wiki-actions button{height:30px}
+}

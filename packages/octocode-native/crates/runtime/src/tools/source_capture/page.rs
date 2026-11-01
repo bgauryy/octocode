@@ -69,7 +69,7 @@ pub(super) fn read_page(
         })?;
     let data = &state["results"][0]["data"];
     if state["results"][0]["status"] == "error" || data.get("errorCode").is_some() {
-        return Err(reader_failure(id, data));
+        return Err(reader_failure(dispatcher.output(id), data));
     }
     let content = data["content"].as_str().unwrap_or_default();
     if content.is_empty() {
@@ -90,7 +90,7 @@ pub(super) fn read_page(
             .map(str::to_owned),
         _ => source_digest,
     };
-    let next = data["next"]["continueWindow"]["input"]["queries"][0]
+    let next = data["next"]["nextPage"]["input"]["queries"][0]
         .as_object()
         .map(|next| Value::Object(next.clone()));
     Ok(Page {
@@ -102,7 +102,7 @@ pub(super) fn read_page(
 
 /// Re-running a read that failed for a reason repeating it cannot change
 /// (the reader's own hints and leads are the recovery then).
-const RERUN_HINT: &str = "Run the same read directly to inspect it.";
+pub(super) const RERUN_HINT: &str = "Run the same read directly to inspect it.";
 
 /// The reader's error row as the capture's failure: its code (when
 /// declared), its message, and its own recovery. The reader's leads
@@ -110,7 +110,10 @@ const RERUN_HINT: &str = "Run the same read directly to inspect it.";
 /// a refusal or an invalid input fails the same way on a re-run, so its own
 /// hints say what to do (else the code's shared recovery); any other failure
 /// also offers the re-run.
-fn reader_failure(tool: ToolId, data: &Value) -> ClassificationError {
+fn reader_failure(
+    reader: &dyn crate::response::output::ToolOutput,
+    data: &Value,
+) -> ClassificationError {
     use crate::id::error_codes::{ErrorClass, class};
     let declared = crate::id::error_code_of(data).map(|code| (code, class(code)));
     let leads: Vec<(String, Value)> = data["next"]
@@ -145,7 +148,7 @@ fn reader_failure(tool: ToolId, data: &Value) -> ClassificationError {
     } else if hints.is_empty() && leads.is_empty() {
         // Re-running a final failure fails the same way: say the code's fix.
         let hint = declared
-            .and_then(|(code, _)| crate::response::rows::error_code_hint(tool, code, &Value::Null))
+            .and_then(|(code, _)| rows::error_code_hint(reader, code, &Value::Null))
             .unwrap_or(RERUN_HINT);
         hints.push(hint.into());
     }

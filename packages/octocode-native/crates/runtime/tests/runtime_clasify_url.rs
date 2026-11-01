@@ -82,21 +82,21 @@ async fn a_url_source_needs_local_fetch_to_read_its_capture_back() {
         ],
     );
     let error = runtime
-        .run(
+        .run_mcp(
             "clasify-no-reader".into(),
             "clasify".into(),
             json!({"queries": [url_row("https://docs.example.org/guide")]}),
         )
         .await
-        .expect_err("rejected at validation");
-    assert_eq!(error.code, ErrorCode::InvalidInput, "{error:?}");
-    let issues = error.validation_issues.expect("field issues");
-    assert_eq!(issues[0].rule_id, "clasify.source-reader-available");
-    assert_eq!(issues[0].path, ["queries", "0", "source"]);
+        .expect("MCP refusal response");
+    assert_eq!(error["structuredContent"]["errorCode"], "invalidInput");
     assert!(
-        issues[0].message.contains("localFetch"),
-        "{}",
-        issues[0].message
+        error["structuredContent"]["error"]
+            .as_str()
+            .is_some_and(|message| message.contains("queries.0.source")
+                && message.contains("localFetch")
+                && message.contains("DISABLE_TOOLS")),
+        "{error}"
     );
     assert_eq!(sent(&server).await.len(), 0);
     runtime.close().await;

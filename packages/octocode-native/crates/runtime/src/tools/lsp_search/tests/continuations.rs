@@ -16,7 +16,7 @@ fn every_operation_retains_its_canonical_controls_and_saved_progress() {
     ] {
         let mut row = json!({"operation":operation,"path":"/repo/a.ts","symbolName":"run","line":7,"occurrence":2,"workspaceRoot":"/repo"});
         if matches!(operation, "callers" | "callees" | "supertypes" | "subtypes") {
-            row["graphDepth"] = json!(3);
+            row["depth"] = json!(3);
         }
         if operation == "references" {
             row["includeDeclaration"] = json!(false);
@@ -51,14 +51,7 @@ fn every_operation_retains_its_canonical_controls_and_saved_progress() {
         assert_eq!(lsp_search_query::occurrence(&built), Some(2));
         assert_eq!(lsp_search_query::page(&built), Some(3));
         assert_eq!(lsp_search_query::snapshot(&built), Some("lsp-v3:saved"));
-        for alias in [
-            "orderHint",
-            "pageSize",
-            "extras",
-            "mainGoal",
-            "reasoning",
-            "groupByFile",
-        ] {
+        for alias in ["orderHint", "pageSize", "extras", "groupByFile"] {
             let mut bad = row.clone();
             bad[alias] = json!(1);
             assert!(

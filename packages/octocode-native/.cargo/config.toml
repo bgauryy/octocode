@@ -18,6 +18,7 @@
 # copies are not created, and reset the dev profile when it grows:
 #   yarn clean:cache          # cargo clean --workspace --profile dev: drops every
 #                             # copy of our crates (88% of debug/ here), keeps deps warm
+# `dev.mjs build:dev` and `test:rust` run it first when target/debug is over 50 GiB.
 
 # ── One test selection, one build ─────────────────────────────────────────────
 # `cargo dev-test` is the first Rust test selection (scripts/rust-tests.cjs) under

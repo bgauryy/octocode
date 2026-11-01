@@ -7,11 +7,10 @@ use super::*;
 /// that spells the name is in the answer (`textOnlyFiles == 0`), such a
 /// reason is moot and is not flagged. Cfg-gated code can hide sites inside
 /// listed files, so file agreement never clears it.
-pub(in super::super) const FILE_LEVEL_REASONS: [&str; 10] = [
+pub(in super::super) const FILE_LEVEL_REASONS: [crate::response::paging::PartialReason; 9] = [
     super::super::inferred_project::REASON,
     super::super::importers::CAPPED_REASON,
     super::super::inferred_project::FAILED_REASON,
-    super::super::recovery::ALIAS_SCAN_CAPPED_REASON,
     super::super::inferred_project::NO_COMPILE_DATABASE_REASON,
     super::super::server_coverage::BUILD_SCRIPTS_REASON,
     super::super::server_coverage::OUTSIDE_INCLUDE_REASON,
@@ -19,11 +18,6 @@ pub(in super::super) const FILE_LEVEL_REASONS: [&str; 10] = [
     super::super::server_coverage::DYNAMIC_REASON,
     super::super::server_coverage::UNRESOLVED_IMPORT_REASON,
 ];
-
-/// File-level reasons that are fixed per-request caps (a terminal limit).
-/// The importer cap is not one: `next.nextImporterPage` verifies the next
-/// window of candidates.
-pub(super) const CAPPED_REASONS: [&str; 1] = [super::super::recovery::ALIAS_SCAN_CAPPED_REASON];
 
 /// At most this many text-only files are listed as one bulk lead.
 pub(in super::super) const LISTED_TEXT_FILES: usize = 5;
@@ -35,7 +29,7 @@ pub(in super::super) const LISTED_TEXT_FILES: usize = 5;
 pub(in super::super) fn flag_partial(
     row: &mut Value,
     query: &LspSearchQuery,
-    reason: &str,
+    reason: crate::response::paging::PartialReason,
     warning: Option<&str>,
     scope: &super::super::scope::Scope,
 ) {
@@ -52,11 +46,10 @@ pub(in super::super) fn flag_partial(
         }
         files
     });
+    if let (Some(name), Some(files)) = (name, &text_only) {
+        record_text_only(row, scope, name, files.len());
+    }
     if let Some(payload) = row.as_object_mut() {
-        if let Some(files) = &text_only {
-            payload.entry("coverage").or_insert_with(|| json!({}))["textOnlyFiles"] =
-                json!(files.len());
-        }
         if agrees && FILE_LEVEL_REASONS.contains(&reason) {
             return;
         }
@@ -71,13 +64,7 @@ pub(in super::super) fn flag_partial(
     match name {
         // Partial only with an executable recovery.
         Some(name) => {
-            // A fixed per-request cap: no page or retry reaches the
-            // unchecked files, only the lexical lead below.
-            if CAPPED_REASONS.contains(&reason) {
-                crate::response::paging::terminal_limit(row, reason, &warnings);
-            } else {
-                crate::response::paging::mark_partial(row, reason, &warnings);
-            }
+            crate::response::paging::mark_partial(row, reason, &warnings);
             crate::response::result::attach_related(
                 row,
                 text_search_lead(name, &scope.root, &scope.include, lead_files.as_deref()).build(),
@@ -89,9 +76,41 @@ pub(in super::super) fn flag_partial(
     }
 }
 
+/// Stamp the text check of `name` on `row`: `coverage.textOnlyFiles`
+/// (`files`, those that could still hold a missed site) and, when the
+/// anchor's declaration bounds which files could reference it,
+/// `coverage.outOfReachFiles` with that bound, said once as a notice: those
+/// files are checked, not unverified.
+pub(in super::super) fn record_text_only(
+    row: &mut Value,
+    scope: &super::super::scope::Scope,
+    name: &str,
+    files: usize,
+) {
+    let out = scope.out_of_reach(name);
+    let Some(payload) = row.as_object_mut() else {
+        return;
+    };
+    let coverage = payload.entry("coverage").or_insert_with(|| json!({}));
+    coverage["textOnlyFiles"] = json!(files);
+    if let Some(out) = out {
+        coverage["outOfReachFiles"] = json!(out.files);
+        crate::response::paging::push_notice(
+            row,
+            format!(
+                "coverage.outOfReachFiles counts files that spell `{name}` outside its reach ({}): they cannot reference it, so they are neither missed sites nor leads.",
+                out.bound
+            ),
+        );
+    }
+}
+
 /// Whether [`flag_partial`] already flagged `row` with `reasons`' reason:
 /// the coverage reason of an unnamed row, or a `partialReasons` entry.
-pub(in super::super) fn flagged_with(row: &Value, reasons: &[&str]) -> bool {
+pub(in super::super) fn flagged_with(
+    row: &Value,
+    reasons: &[crate::response::paging::PartialReason],
+) -> bool {
     row.pointer("/coverage/reason").is_some()
         || row
             .get("partialReasons")
@@ -99,7 +118,7 @@ pub(in super::super) fn flagged_with(row: &Value, reasons: &[&str]) -> bool {
             .is_some_and(|listed| {
                 listed
                     .iter()
-                    .filter_map(Value::as_str)
+                    .filter_map(|reason| reason.as_str()?.parse().ok())
                     .any(|reason| reasons.contains(&reason))
             })
 }
@@ -156,7 +175,7 @@ pub(in super::super) fn ignored_text_lead(
 pub(super) fn text_search_row(name: &str, path: &str) -> Value {
     json!({
         "path": path,
-        "matchString": [super::super::render::word_pattern(name)],
+        "matchString": [octocode_engine::text::word_pattern(name)],
         "regexEngine": "rust",
         "caseMode": "sensitive",
     })

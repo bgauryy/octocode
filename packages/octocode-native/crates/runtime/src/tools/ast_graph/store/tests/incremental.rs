@@ -62,7 +62,7 @@ fn incremental_extraction_relinks_add_edit_delete_rename_and_negative_dependenci
         added.value
     );
     assert_eq!(
-        ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["total"],
+        ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["pagination"]["totalItems"],
         1
     );
     assert_clean_equivalent(&dir.0);
@@ -77,7 +77,7 @@ fn incremental_extraction_relinks_add_edit_delete_rename_and_negative_dependenci
     std::fs::remove_file(root.join("renamed.ts")).unwrap();
     assert_clean_equivalent(&dir.0);
     assert_eq!(
-        ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["total"],
+        ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["pagination"]["totalItems"],
         0
     );
 }
@@ -106,7 +106,7 @@ fn unchanged_extraction_is_rebound_when_resolution_configuration_changes() {
     assert_clean_equivalent(&dir.0);
     let out = ask(&dir.0, "callees", Some("main.ts#run"), |_| {});
     assert_eq!(
-        out.value["results"][0]["id"], "right.ts#work",
+        out.value["rows"][0]["id"], "right.ts#work",
         "{}",
         out.value
     );

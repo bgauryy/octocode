@@ -149,6 +149,10 @@ impl<W: Write> Writer<W> {
     ) -> Option<()> {
         self.text(&file.path)?;
         self.number(u64::from(file.match_count))?;
+        self.number(file.term_counts.len() as u64)?;
+        for count in &file.term_counts {
+            self.number(u64::from(*count))?;
+        }
         match &file.source {
             None => self.number(0)?,
             Some(source) => {
@@ -178,13 +182,7 @@ impl<W: Write> Writer<W> {
             } else {
                 self.bytes(&hit.value_digest)?;
             }
-            for value in [
-                hit.last_line,
-                hit.count,
-                hit.rank,
-                hit.original_chars,
-                hit.original_bytes,
-            ] {
+            for value in [hit.last_line, hit.count, hit.rank] {
                 self.optional(value)?;
             }
         }
@@ -207,28 +205,17 @@ impl<W: Write> Writer<W> {
     }
 }
 
+use octocode_engine::digest::HashWriter;
+
 /// SHA-256 over a scan written in the packed encoding (every value is
 /// length-prefixed, so distinct inputs write distinct bytes), streamed into
 /// the hasher: hashing a scan of any size keeps no copy of it.
-pub struct Identity(Writer<Hashing>);
-
-struct Hashing(sha2::Sha256);
-
-impl Write for Hashing {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        sha2::Digest::update(&mut self.0, bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
+pub struct Identity(Writer<HashWriter>);
 
 impl Default for Identity {
     fn default() -> Self {
         Self(Writer {
-            sink: Hashing(<sha2::Sha256 as sha2::Digest>::new()),
+            sink: HashWriter::default(),
             written: 0,
             max: usize::MAX,
         })
@@ -269,7 +256,7 @@ impl Identity {
 
     /// Lowercase-hex SHA-256 of everything written.
     pub fn finish(self) -> String {
-        hex::encode(sha2::Digest::finalize(self.0.sink.0))
+        hex::encode(self.0.sink.finalize())
     }
 }
 
@@ -322,6 +309,10 @@ impl Reader<'_> {
     fn file(&mut self, cancelled: &dyn Fn() -> bool) -> Option<TextSearchFile> {
         let path = self.text()?;
         let match_count = self.small()?;
+        let terms = usize::try_from(self.number()?).ok()?;
+        let term_counts = (0..terms)
+            .map(|_| self.small())
+            .collect::<Option<Vec<_>>>()?;
         let source = match self.number()? {
             0 => None,
             1 => Some(SearchedSource {
@@ -359,11 +350,10 @@ impl Reader<'_> {
                 value_digest,
                 count: self.optional()?,
                 rank: self.optional()?,
-                original_chars: self.optional()?,
-                original_bytes: self.optional()?,
             });
         }
         Some(TextSearchFile {
+            term_counts,
             path,
             match_count,
             matches,

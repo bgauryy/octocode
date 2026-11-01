@@ -49,7 +49,7 @@ fn executable_calls_require_explicit_kind_and_the_correct_request_form() {
         json!({"kind":"continue","tool":"localFetch","input":{"cursor":"issued-handle"}});
     let related =
         json!({"kind":"related","tool":"localFetch","input":{"queries":[{"path":"src/lib.rs"}]}});
-    let data = json!({"path":"src/lib.rs","content":"fn main() {}","next":{"continueWindow":continued},"related":[related]});
+    let data = json!({"path":"src/lib.rs","content":"fn main() {}","next":{"nextPage":continued},"related":[related]});
     let output = |data| json!({"results":[{"index":0,"data":data}]});
     validate_output("localFetch", &output(data.clone())).expect("explicit channels");
     for call in [
@@ -58,7 +58,7 @@ fn executable_calls_require_explicit_kind_and_the_correct_request_form() {
         json!({"tool":"localFetch","query":{"queries":[{"path":"src/lib.rs"}]}}),
     ] {
         let mut malformed = data.clone();
-        malformed["next"]["continueWindow"] = call;
+        malformed["next"]["nextPage"] = call;
         validate_output("localFetch", &output(malformed))
             .expect_err("never infer or repair executable calls");
     }
@@ -71,7 +71,7 @@ fn heritage_scan_rows_keep_their_label_under_the_lsp_contract() {
     // label is contract vocabulary, so the whole answer is never withheld
     // as a violation because of it.
     let data = json!({
-        "kind": "implementation",
+        "operation": "implementation",
         "lsp": {"serverAvailable": true, "provider": "implementationProvider"},
         "matches": [
             {"path": "src/calls.ts", "displayRange": {"startLine": 3, "startCharacter": 14, "endLine": 3},

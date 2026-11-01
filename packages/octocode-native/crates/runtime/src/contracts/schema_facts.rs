@@ -14,15 +14,24 @@ use crate::id::ToolId;
 struct Variant {
     /// `operation` values the branch admits; `None` when it has no discriminant.
     operations: Option<Vec<&'static str>>,
-    /// Top-level properties, `$ref`s resolved against `$defs`.
-    fields: HashMap<&'static str, &'static Value>,
+    /// Top-level properties, each with its `$ref` chain against `$defs`:
+    /// the property schema first, the final definition last.
+    fields: HashMap<&'static str, Vec<&'static Value>>,
 }
 
 /// The schema a local `$ref` (`#/$defs/<name>`) names, followed through
 /// chained references, else `schema` itself. A result that still carries
 /// `$ref` names no definition in `defs`. The one `$ref` resolver for
 /// contract schemas (every contract reference is a `$defs` entry).
-pub(crate) fn resolve_ref<'a>(mut schema: &'a Value, defs: &'a Value) -> &'a Value {
+pub(crate) fn resolve_ref<'a>(schema: &'a Value, defs: &'a Value) -> &'a Value {
+    ref_chain(schema, defs).last().copied().unwrap_or(schema)
+}
+
+/// `schema` and every definition its `$ref` chain reaches, in order. A
+/// keyword declared beside a `$ref` (a `default` on a shared bounded type)
+/// stays readable on the schema that declares it.
+fn ref_chain<'a>(mut schema: &'a Value, defs: &'a Value) -> Vec<&'a Value> {
+    let mut chain = vec![schema];
     // A cycle of pure references cannot describe a value; the bound stops it.
     for _ in 0..32 {
         let Some(target) = schema
@@ -34,8 +43,9 @@ pub(crate) fn resolve_ref<'a>(mut schema: &'a Value, defs: &'a Value) -> &'a Val
             break;
         };
         schema = target;
+        chain.push(schema);
     }
-    schema
+    chain
 }
 
 /// Find a property's declared schemas through local references and composition
@@ -125,21 +135,25 @@ fn variants(tool: ToolId) -> Option<&'static [Variant]> {
                     .as_object()
                     .into_iter()
                     .flatten()
-                    .map(|(field, schema)| (field.as_str(), resolve_ref(schema, defs)))
+                    .map(|(field, schema)| (field.as_str(), ref_chain(schema, defs)))
                     .collect::<HashMap<_, _>>();
-                let operations = fields.get("operation").map(|operation| {
-                    operation["const"].as_str().map_or_else(
-                        || {
-                            operation["enum"]
-                                .as_array()
-                                .into_iter()
-                                .flatten()
-                                .filter_map(Value::as_str)
-                                .collect()
-                        },
-                        |single| vec![single],
-                    )
-                });
+                let operations =
+                    fields
+                        .get("operation")
+                        .and_then(|chain| chain.last())
+                        .map(|operation| {
+                            operation["const"].as_str().map_or_else(
+                                || {
+                                    operation["enum"]
+                                        .as_array()
+                                        .into_iter()
+                                        .flatten()
+                                        .filter_map(Value::as_str)
+                                        .collect()
+                                },
+                                |single| vec![single],
+                            )
+                        });
                 Variant { operations, fields }
             })
             .collect()
@@ -149,7 +163,7 @@ fn variants(tool: ToolId) -> Option<&'static [Variant]> {
 
 /// `keyword` (`"default"`, `"maximum"`, …) that `tool`'s query schema declares
 /// for the top-level `field`, over the variants admitting `operation` (every
-/// variant when `None`). Each such variant that has `field` must declare the
+/// variant when `None`). Along a `$ref` chain the outermost declaration wins. Each such variant that has `field` must declare the
 /// same value; a missing or disagreeing declaration yields `None`.
 #[must_use]
 pub(crate) fn query_schema_value(
@@ -165,10 +179,10 @@ pub(crate) fn query_schema_value(
         {
             continue;
         }
-        let Some(schema) = variant.fields.get(field) else {
+        let Some(chain) = variant.fields.get(field) else {
             continue;
         };
-        let value = schema.get(keyword)?;
+        let value = chain.iter().find_map(|schema| schema.get(keyword))?;
         match found {
             Some(previous) if previous != value => return None,
             _ => found = Some(value),
@@ -196,16 +210,17 @@ pub(crate) fn query_schema_number(
     query_schema_value(tool, operation, field, keyword)?.as_u64()
 }
 
-/// Missing limits are contract defects; never silently substitute a different bound.
+/// The `maximum` core declares for a query field; `None` when it declares
+/// none, so the field has no upper bound. A missing bound never panics a
+/// call (`tools::contract_bounds_tests` checks every read is declared).
 #[must_use]
-#[expect(
-    clippy::panic,
-    reason = "a missing bound is a contract defect caught by contract tests"
-)]
-pub(crate) fn query_schema_max(tool: ToolId, operation: Option<&str>, field: &str) -> usize {
+pub(crate) fn query_schema_max(
+    tool: ToolId,
+    operation: Option<&str>,
+    field: &str,
+) -> Option<usize> {
     query_schema_number(tool, operation, field, "maximum")
-        .and_then(|maximum| usize::try_from(maximum).ok())
-        .unwrap_or_else(|| panic!("contract declares no maximum for {tool} {operation:?} {field}"))
+        .map(|maximum| usize::try_from(maximum).unwrap_or(usize::MAX))
 }
 
 #[cfg(test)]
@@ -241,9 +256,25 @@ mod tests {
         assert!(property_schemas(&root, defs, "missing").is_empty());
     }
 
+    /// The graphQuery page bounds are the contract's: a `default` declared
+    /// beside the `$ref` to the bounded page type is read, not lost.
     #[test]
-    #[should_panic(expected = "contract declares no maximum")]
-    fn an_undeclared_clamp_bound_fails_loudly() {
-        let _ = query_schema_max(ToolId::GhSearchRepo, None, "nope");
+    fn keywords_beside_a_ref_are_read_along_the_chain() {
+        assert_eq!(
+            query_schema_number(ToolId::GraphQuery, None, "limit", "default"),
+            Some(50)
+        );
+        assert_eq!(
+            query_schema_number(ToolId::GraphQuery, None, "limit", "minimum"),
+            Some(1)
+        );
+    }
+
+    /// A field core bounds by nothing reads as unbounded, never a panic.
+    #[test]
+    fn an_undeclared_bound_reads_as_none() {
+        assert_eq!(query_schema_max(ToolId::GhSearchRepo, None, "nope"), None);
+        assert_eq!(query_schema_max(ToolId::GraphQuery, None, "depth"), None);
+        assert_eq!(query_schema_max(ToolId::GraphQuery, None, "limit"), None);
     }
 }

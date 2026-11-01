@@ -34,7 +34,18 @@ fn varints_and_zigzag_round_trip() {
         put(&mut out, value);
         assert_eq!(Reader::new(&out, "t").var().unwrap(), value);
     }
-    for value in [0i64, 1, -1, 1_000_000, -1_000_000] {
+    for value in [0i64, 1, -1, 1_000_000, -1_000_000, i64::MAX, i64::MIN] {
         assert_eq!(unzigzag(zigzag(value)), value);
+    }
+    for (value, encoded) in [
+        (0, 0),
+        (-1, 1),
+        (1, 2),
+        (-2, 3),
+        (i64::MAX, u64::MAX - 1),
+        (i64::MIN, u64::MAX),
+    ] {
+        assert_eq!(zigzag(value), encoded);
+        assert_eq!(unzigzag(encoded), value);
     }
 }

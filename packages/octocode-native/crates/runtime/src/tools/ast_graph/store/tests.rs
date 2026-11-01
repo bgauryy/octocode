@@ -7,6 +7,7 @@ use crate::tools::ast_graph::test_support::write_under;
 mod argument_controls;
 mod arguments;
 mod call_recall;
+mod cargo_workspaces;
 mod detectors;
 mod evidence;
 mod evidence_coverage;
@@ -18,6 +19,7 @@ mod ingest;
 mod issues;
 mod limits;
 mod linking;
+mod nested_calls;
 mod pagination;
 mod queries;
 mod recursive_calls;
@@ -56,11 +58,12 @@ fn fixture() -> Fixture {
 }
 
 fn ingest_fixture(dir: &Path, keep: Option<usize>) -> GraphOutput {
+    let defaults = IngestOptions::default();
     let options = IngestOptions {
         path: dir.join("app"),
         workspace: Some(dir.to_path_buf()),
-        keep,
-        ..Default::default()
+        keep: keep.unwrap_or(defaults.keep),
+        ..defaults
     };
     ingest(
         &options,
@@ -88,7 +91,7 @@ fn ask(
 }
 
 fn ids(out: &GraphOutput) -> Vec<String> {
-    out.value["results"]
+    out.value["rows"]
         .as_array()
         .into_iter()
         .flatten()
@@ -127,7 +130,7 @@ fn issues_fixture() -> Fixture {
 }
 
 fn findings(out: &GraphOutput, detector: &str) -> Vec<String> {
-    out.value["results"]
+    out.value["rows"]
         .as_array()
         .into_iter()
         .flatten()
@@ -146,14 +149,17 @@ fn git_app(files: &[(&str, &str)]) -> Fixture {
     dir
 }
 
-fn ingest_root(dir: &Path, root: &Path, keep: Option<usize>, force: bool) -> GraphOutput {
+fn ingest_root(dir: &Path, root: &Path, keep: Option<usize>, refresh: bool) -> GraphOutput {
     ingest(
-        &IngestOptions {
-            path: root.to_path_buf(),
-            workspace: Some(dir.to_path_buf()),
-            keep,
-            force,
-            ..Default::default()
+        &{
+            let defaults = IngestOptions::default();
+            IngestOptions {
+                path: root.to_path_buf(),
+                workspace: Some(dir.to_path_buf()),
+                keep: keep.unwrap_or(defaults.keep),
+                refresh,
+                ..defaults
+            }
         },
         &workspace_policy(dir),
         &ContentSecurity::new(),
@@ -163,7 +169,7 @@ fn ingest_root(dir: &Path, root: &Path, keep: Option<usize>, force: bool) -> Gra
 }
 
 fn impacted(out: &GraphOutput) -> Vec<(String, u64)> {
-    out.value["results"]
+    out.value["rows"]
         .as_array()
         .into_iter()
         .flatten()

@@ -20,7 +20,7 @@ mod verification_tests;
 
 pub(super) use guard::{
     MAX_PROBE_LINE_BYTES, MAX_VERIFY_RETAINED_BYTES, VERIFY_CANCEL_EVERY, VERIFY_CHUNK_BYTES,
-    ValueCheck, Verification, guard_clipped_secrets, guard_read,
+    ValueCheck, Verification, guard_read, guard_source_secrets,
 };
 #[cfg(test)]
 pub(super) use guard::{OVERSIZED_PLACEHOLDER, UNVERIFIED_PLACEHOLDER};
@@ -51,9 +51,6 @@ pub(super) struct PageScope<'a, C> {
     pub(super) expected_digest: &'a ExpectedDigest<'a>,
     pub(super) security: &'a ContentSecurity,
     pub(super) cancel: &'a C,
-    /// This query's share of the cores for the page's parallel reads (see
-    /// [`crate::tools::workers::workers`]).
-    pub(super) walk_threads: Option<u32>,
 }
 
 /// (path, line, column) of every match whose value secret redaction
@@ -118,7 +115,7 @@ pub(super) fn verify_candidate(
         .map(|matched| matched.value.clone())
         .collect::<Vec<_>>();
     let rows = 0..file.matches.len();
-    let verification = guard_clipped_secrets(
+    let verification = guard_source_secrets(
         file,
         &source,
         (scope.expected_digest)(&source),
@@ -220,7 +217,7 @@ pub(super) fn verify_shown(
                 rows.clone(),
                 &check,
             ),
-            None => guard_clipped_secrets(file, &source, expected, rows.clone(), &check),
+            None => guard_source_secrets(file, &source, expected, rows.clone(), &check),
         };
         match verification.map_err(ToolError::cancelled)? {
             Verification::Verified => {}
@@ -259,7 +256,7 @@ fn parallel_outlines(
             })
             .collect();
     }
-    let workers = crate::tools::workers::workers(scope.walk_threads, files.len(), None);
+    let workers = crate::tools::workers::workers(files.len(), None);
     let per_worker = files.len().div_ceil(workers);
     let mut files = files;
     std::thread::scope(|scope| {

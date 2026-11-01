@@ -2,11 +2,18 @@
 // package, and topologically sorts them by internal dependencies plus BUILD_INPUTS edges.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
+// The skill collections, owned by skills/common/build.mjs; none in a checkout without it.
+const skillsBuild = path.join(ROOT, 'skills', 'common', 'build.mjs');
+export const SKILL_COLLECTIONS = fs.existsSync(skillsBuild) ? (await import(pathToFileURL(skillsBuild).href)).COLLECTIONS : [];
+
 const PACKAGE_SCRIPT_POLICY = ['build', 'lint', 'test', 'typecheck', 'verify'];
+// Python and scripts run from source: nothing to build or typecheck, so no stub scripts.
+const SOURCE_ONLY_PACKAGES = new Set(['packages/octocode-benchmark']);
+const SOURCE_ONLY_SCRIPT_POLICY = ['lint', 'test', 'verify'];
 export const SKILL_SCRIPT_POLICY = ['build', 'lint', 'test'];
 // Build-order edges that are not package dependencies: the consumer's build
 // reads or rewrites files another workspace's build generates, so they must
@@ -84,7 +91,7 @@ export function discoverWorkspaces() {
       const requiredScripts = isNativePlatformPackage
         ? []
         : kind === 'package'
-          ? PACKAGE_SCRIPT_POLICY
+          ? SOURCE_ONLY_PACKAGES.has(relativePath) ? SOURCE_ONLY_SCRIPT_POLICY : PACKAGE_SCRIPT_POLICY
           : SKILL_SCRIPT_POLICY;
 
       return {

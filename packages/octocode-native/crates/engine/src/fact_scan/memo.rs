@@ -12,7 +12,7 @@ use crate::graph::{
 /// Graph facts of one parsed file.
 pub(super) struct ParsedFacts {
     pub(super) facts: GraphFactsDocument,
-    pub(super) reference_counts: Vec<crate::types::GraphReferenceCount>,
+    pub(super) reference_counts: Vec<crate::graph::GraphReferenceCount>,
     /// Estimated heap bytes of the facts, the cache weight.
     pub(super) weight: u32,
 }
@@ -23,7 +23,7 @@ pub(super) struct ParsedFacts {
 /// than its capacity names.
 pub(super) fn facts_heap_bytes(
     facts: &GraphFactsDocument,
-    reference_counts: &[crate::types::GraphReferenceCount],
+    reference_counts: &[crate::graph::GraphReferenceCount],
 ) -> usize {
     use std::mem::size_of;
     let text = |value: &str| value.len();
@@ -157,7 +157,7 @@ pub(super) fn facts_heap_bytes(
     bytes += (facts.error_lines.len() + facts.test_lines.len()) * size_of::<[u32; 2]>();
     bytes += reference_counts
         .iter()
-        .map(|r| size_of::<crate::types::GraphReferenceCount>() + text(&r.declaration_id))
+        .map(|r| size_of::<crate::graph::GraphReferenceCount>() + text(&r.declaration_id))
         .sum::<usize>();
     bytes
 }

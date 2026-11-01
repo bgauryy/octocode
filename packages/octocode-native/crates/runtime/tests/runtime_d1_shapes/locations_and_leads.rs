@@ -85,10 +85,6 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
         compact.data()["files"][0]["symbols"][0],
         json!({
             "symbolName":"run","kind":"function","line":1,"endLine":4,"exported":true,
-            "parseAssessment":{
-                "status":"parsed","scope":"declaration",
-                "range":{"start":{"line":0,"character":0},"end":{"line":3,"character":1}}
-            }
         }),
         "{}",
         compact.structured_content

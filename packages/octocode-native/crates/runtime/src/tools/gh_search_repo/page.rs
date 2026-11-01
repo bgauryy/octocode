@@ -23,7 +23,8 @@ pub(super) struct RepoPage {
     pub(super) incomplete: bool,
     /// An owner listing's REST pages read by this call.
     pub(super) provider_pages: Option<usize>,
-    pub(super) archived_skipped: usize,
+    /// Rows an owner listing's archive filter left out ([`OwnerListing`]).
+    pub(super) archive_filtered: usize,
     /// No rows though the search (or the listing's earlier pages) has some:
     /// the shared response stage restarts it.
     pub(super) past_end: bool,
@@ -48,8 +49,8 @@ impl RepoPage {
                 reachable: reach.total,
                 incomplete: data.incomplete_results,
                 provider_pages: Some(listing.pages_read),
-                archived_skipped: listing.archived,
-                past_end: empty && listing.archived == 0,
+                archive_filtered: listing.filtered_out,
+                past_end: empty && listing.filtered_out == 0,
             },
             None => Self {
                 current,
@@ -60,7 +61,7 @@ impl RepoPage {
                 reachable: reach.total,
                 incomplete: data.incomplete_results,
                 provider_pages: None,
-                archived_skipped: 0,
+                archive_filtered: 0,
                 past_end: empty && reach.past_last(current),
             },
         }
@@ -87,8 +88,9 @@ impl RepoPage {
         json!({"repositories": repositories, "pagination": pagination})
     }
 
-    /// The provider's partial facts and the page's warnings: archived
-    /// repositories a listing skipped, a language filter GitHub ignored.
+    /// The provider's partial facts and the page's warnings: the rows a
+    /// listing's archive filter left out (a filter, never a gap), a language
+    /// filter GitHub ignored.
     pub(super) fn disclose(
         &self,
         value: &mut Value,
@@ -108,15 +110,29 @@ impl RepoPage {
                 subject: "repository",
             },
         );
-        if self.archived_skipped > 0 {
+        if self.archive_filtered > 0 {
+            use octocode_contract_types::GitHubArchive;
+            let archive = super::access::archive(query);
+            let (mode, one, many) = match archive {
+                GitHubArchive::Only => (
+                    "only",
+                    "non-archived repository",
+                    "non-archived repositories",
+                ),
+                GitHubArchive::Exclude => {
+                    ("exclude", "archived repository", "archived repositories")
+                }
+                // Nothing is filtered when archived rows are included.
+                GitHubArchive::Include => ("include", "repository", "repositories"),
+            };
             push_warnings(
                 value,
                 [format!(
-                    "{} skipped",
+                    "filters.archive \"{mode}\" left out {} (a filter, not a gap)",
                     crate::response::pages::counted(
-                        u64::try_from(self.archived_skipped).unwrap_or(u64::MAX),
-                        "archived repository",
-                        "archived repositories"
+                        u64::try_from(self.archive_filtered).unwrap_or(u64::MAX),
+                        one,
+                        many
                     )
                 )],
             );

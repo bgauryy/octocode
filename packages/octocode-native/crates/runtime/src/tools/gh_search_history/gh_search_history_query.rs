@@ -58,6 +58,10 @@ pub(crate) fn fields(query: &GhSearchHistoryQuery) -> Vec<String> {
 pub(crate) fn page(query: &GhSearchHistoryQuery) -> Option<usize> {
     each_query!(query, row => Some(usize_of(row.page)))
 }
+/// Rows per page: the query's `limit`, its contract default when omitted.
+pub(crate) fn limit(query: &GhSearchHistoryQuery) -> usize {
+    each_query!(query, row => usize_of(row.limit))
+}
 pub(crate) fn path(query: &GhSearchHistoryQuery) -> Option<&str> {
     match query {
         GhSearchHistoryQuery::Commit3(query) => query.path_prefix.as_deref().map(String::as_str),

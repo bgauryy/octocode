@@ -22,12 +22,12 @@ pub(super) fn name_node(node: Node<'_>) -> Option<Node<'_>> {
             if is_name_like(child.kind()) {
                 return Some(child);
             }
-            if let Some(descendant) = first_name_descendant(child, 2) {
+            if let Some(descendant) = first_descendant(child, 2, is_name_like) {
                 return Some(descendant);
             }
         }
     }
-    first_name_descendant(node, 4)
+    first_descendant(node, 4, is_name_like)
 }
 
 /// The declaration's source name, or an explicit label for an unnamed syntax
@@ -45,16 +45,18 @@ pub(super) fn declaration_name(node: Node<'_>, content: &str) -> Option<String> 
     compact_identifier(name)
 }
 
-fn first_name_descendant(node: Node<'_>, depth: u8) -> Option<Node<'_>> {
+/// The first named descendant, at most `depth` levels down in pre-order,
+/// whose kind `matches`.
+fn first_descendant(node: Node<'_>, depth: u8, matches: fn(&str) -> bool) -> Option<Node<'_>> {
     if depth == 0 {
         return None;
     }
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        if is_name_like(child.kind()) {
+        if matches(child.kind()) {
             return Some(child);
         }
-        if let Some(found) = first_name_descendant(child, depth - 1) {
+        if let Some(found) = first_descendant(child, depth - 1, matches) {
             return Some(found);
         }
     }
@@ -99,26 +101,10 @@ pub(super) fn is_import_node(kind: &str) -> bool {
 }
 
 pub(super) fn import_specifier(node: Node<'_>, content: &str) -> Option<String> {
-    if let Some(string_node) = first_string_descendant(node, 4) {
+    if let Some(string_node) = first_descendant(node, 4, is_string_like) {
         return node_text(string_node, content).and_then(clean_specifier);
     }
     node_text(node, content).and_then(clean_specifier)
-}
-
-fn first_string_descendant(node: Node<'_>, depth: u8) -> Option<Node<'_>> {
-    if depth == 0 {
-        return None;
-    }
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        if is_string_like(child.kind()) {
-            return Some(child);
-        }
-        if let Some(found) = first_string_descendant(child, depth - 1) {
-            return Some(found);
-        }
-    }
-    None
 }
 
 fn is_string_like(kind: &str) -> bool {

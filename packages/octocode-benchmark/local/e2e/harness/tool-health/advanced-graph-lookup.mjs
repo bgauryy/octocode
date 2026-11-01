@@ -17,7 +17,7 @@ export function prepareGraphLookup(cwd) {
 
 const queryRows = report => report.responses.filter(entry => entry.tool === 'graphQuery')
   .flatMap(entry => entry.result.json?.results ?? []).map(row => row.data);
-const candidateIds = report => queryRows(report).flatMap(row => row.candidates ?? (row.op === 'candidates' ? row.results ?? [] : []))
+const candidateIds = report => queryRows(report).flatMap(row => row.candidates ?? (row.operation === 'candidates' ? row.rows ?? [] : []))
   .map(row => row.id);
 
 async function candidates(ctx, graph, checks, { target, label }) {
@@ -25,7 +25,7 @@ async function candidates(ctx, graph, checks, { target, label }) {
     label: `graph.lookup.${label}`, checks, responseChars: 700,
     query: { operation: 'candidates', graph, target, limit: 7 },
   });
-  return result.data.flatMap(row => row.results ?? []).map(row => row.id);
+  return result.data.flatMap(row => row.rows ?? []).map(row => row.id);
 }
 
 async function ambiguity(ctx, graph, checks, { query, label }) {
@@ -36,12 +36,17 @@ async function ambiguity(ctx, graph, checks, { query, label }) {
     && report.failures.length === 0, detail]);
   equal(checks, `graph.lookup.${label}.complete-once`, actual, ids);
   const rows = queryRows(report);
-  const continued = rows.filter(row => row.op === 'candidates');
-  checks.push([`graph.lookup.${label}.pinned-continuation`, continued.some(row => row.results?.length)
-    && rows.every(row => row.graph?.id === graph && row.total === ids.length)
-    && continued.every(row => row.offset === 20), JSON.stringify(continued)]);
+  const continued = rows.filter(row => row.operation === 'candidates');
+  // The candidates continuation starts after the 20 the error previews; each
+  // page is sized to fit its window, so its number advances and the last page
+  // says nothing is left. The tail check below proves the rows are contiguous.
+  const pagesAdvance = continued.every((row, index) => row.pagination?.page === index + 2);
+  checks.push([`graph.lookup.${label}.pinned-continuation`, continued.some(row => row.rows?.length)
+    && rows.every(row => row.graph?.id === graph && row.pagination?.totalItems === ids.length)
+    && pagesAdvance && continued.at(-1)?.pagination?.hasMore === false,
+  JSON.stringify(continued.map(row => ({ graph: row.graph?.id, pagination: row.pagination, rows: row.rows?.length })))]);
   orderedEqual(checks, `graph.lookup.${label}.preview`, rows.flatMap(row => row.candidates ?? []).map(row => row.id), ids.slice(0, 20));
-  orderedEqual(checks, `graph.lookup.${label}.tail`, continued.flatMap(row => row.results ?? []).map(row => row.id), ids.slice(20));
+  orderedEqual(checks, `graph.lookup.${label}.tail`, continued.flatMap(row => row.rows ?? []).map(row => row.id), ids.slice(20));
   const emitted = new Set(report.responses.flatMap(entry => nextHints(entry.result.json))
     .filter(lead => lead.tool === 'graphQuery' && lead.kind === 'continue').map(lead => JSON.stringify(lead.input)));
   const resumed = report.responses.filter(entry => entry.tool === 'graphQuery').slice(1);
@@ -58,7 +63,7 @@ async function checkFindWindows(ctx, graph, checks) {
       label: `graph.lookup.find.${limit}`, checks, responseChars,
       query: { operation: 'find', graph, target: NAME, kind: 'symbol', limit },
     });
-    rows.push(result.data.flatMap(row => row.results ?? []).map(row => row.id));
+    rows.push(result.data.flatMap(row => row.rows ?? []).map(row => row.id));
   }
   const expected = [...ids, ...nearNames.map(name => `${nearFile}#${name}`)];
   equal(checks, 'graph.lookup.find.exact-population', rows[0], expected);

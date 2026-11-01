@@ -179,7 +179,7 @@ fn a_scan_past_its_time_budget_resumes_exactly_once() {
         let result = files::search_files_with_budget(
             scan_options(&root, skip),
             StructuralDemand::Matches,
-            &|_| true,
+            (&|_| true, None),
             &|_| "ts".to_owned(),
             &|| false,
             Some(std::time::Duration::ZERO),
@@ -204,11 +204,10 @@ fn a_scan_past_its_time_budget_resumes_exactly_once() {
     assert!(calls > 1, "a zero budget must cut the scan");
 }
 
-/// A walk cut at its cap names the first candidate it left out: it and every
-/// later candidate are unread. The cap is an explicit `max_files` or the
-/// walk ceiling of an unbounded scan.
+/// Only an explicit `max_files` caps the walk: an unbounded scan has no
+/// walk ceiling and reads every candidate.
 #[test]
-fn a_capped_file_walk_names_the_first_candidate_it_left_out() {
+fn only_an_explicit_max_files_caps_the_file_walk() {
     let root = TmpDir::new();
     for index in 0..6 {
         fs::write(root.join(format!("f{index}.rs")), "fn a() {}\n").expect("write");
@@ -221,27 +220,20 @@ fn a_capped_file_walk_names_the_first_candidate_it_left_out() {
         exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
-        ignore: crate::search::walk::IgnorePolicy::default(),
+        ignore: crate::types::IgnorePolicy::default(),
         max_depth: None,
         max_files,
         skip_files: None,
         max_file_bytes: None,
     };
-    let name = |path: &Option<std::path::PathBuf>| {
-        path.as_ref()
-            .and_then(|path| path.file_name())
-            .map(|name| name.to_string_lossy().into_owned())
-    };
     let capped = search_files_detailed(options(Some(4))).expect("search");
     assert!(capped.scan_truncated);
     assert_eq!(capped.files.len(), 4);
-    assert_eq!(name(&capped.scan_frontier).as_deref(), Some("f4.rs"));
     let whole = search_files_detailed(options(Some(6))).expect("search");
-    assert!(!whole.scan_truncated && whole.scan_frontier.is_none());
-    let _ceiling = crate::scan_budget::lower_walk_ceiling(3);
+    assert!(!whole.scan_truncated);
     let unbounded = search_files_detailed(options(None)).expect("search");
-    assert_eq!(unbounded.scan_resume, Some(3));
-    assert_eq!(name(&unbounded.scan_frontier).as_deref(), Some("f3.rs"));
+    assert!(!unbounded.scan_truncated && unbounded.scan_resume.is_none());
+    assert_eq!(unbounded.files.len(), 6);
 }
 
 /// Default-excluded names are pruned like the text search prunes them: in a

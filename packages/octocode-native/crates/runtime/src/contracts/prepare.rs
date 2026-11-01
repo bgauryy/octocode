@@ -17,6 +17,52 @@ pub(crate) const ENVELOPE_NESTED: &str = "envelope.nested";
 /// Rule of any other shape the envelope does not take (no repair).
 const ENVELOPE_SHAPE: &str = "envelope.shape";
 
+/// The repair for an object that is neither envelope: its row fields name a
+/// bare query row to wrap; any other field is not a request field.
+fn shape_repair(tool_name: &str, object: &serde_json::Map<String, Value>) -> Option<String> {
+    let tool = crate::id::ToolId::from_name(tool_name)?;
+    let (rows, others): (Vec<&str>, Vec<&str>) = object
+        .keys()
+        .map(String::as_str)
+        .partition(|field| super::query_declares(tool, field));
+    if let Some(field) = others.first() {
+        return Some(format!(
+            "Unknown request field '{field}': fresh calls send {{\"queries\":[...]}}; continuations send {{\"cursor\":\"...\"}} alone."
+        ));
+    }
+    let mut rows = rows;
+    rows.sort_unstable();
+    let verb = if rows.len() == 1 {
+        "is a query field"
+    } else {
+        "are query fields"
+    };
+    (!rows.is_empty()).then(|| {
+        format!(
+            "{} {verb}: send {{\"queries\":[{{…}}]}}, one object per query.",
+            rows.join(", ")
+        )
+    })
+}
+
+/// A batch over the tool's `queries` limit: the rest go in another call.
+fn oversized_batch(tool_name: &str, rows: usize) -> Option<ValidationIssue> {
+    let contract = super::tool_contract_named(tool_name)?.ok()?;
+    let input = &contract["inputSchema"];
+    let maximum = super::schema_facts::property_schemas(input, &input["$defs"], "queries")
+        .into_iter()
+        .find_map(|queries| queries.get("maxItems")?.as_u64())?;
+    (rows as u64 > maximum).then(|| ValidationIssue {
+        rule_id: "schema.size".into(),
+        path: vec!["queries".to_owned()],
+        message: format!(
+            "Value length {rows} exceeds the maximum of {maximum}; send the other rows in another call"
+        ),
+        schema: None,
+        received: None,
+    })
+}
+
 /// The shape issues of `input` for `tool_name`; empty when it is the
 /// envelope of object rows or a saved-response read for canonical validation.
 pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationIssue> {
@@ -40,13 +86,20 @@ pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationI
         } else {
             ENVELOPE_SHAPE
         };
-        return vec![issue(rule, Vec::new(), ENVELOPE_REQUIRED.to_owned(), None)];
+        let message = input
+            .as_object()
+            .and_then(|object| shape_repair(tool_name, object))
+            .unwrap_or_else(|| ENVELOPE_REQUIRED.to_owned());
+        return vec![issue(rule, Vec::new(), message, None)];
     };
     let Some(rows) = rows.as_array() else {
         return vec![ValidationIssue {
             rule_id: "schema.type".into(),
             path: vec!["queries".to_owned()],
-            message: "queries must be an array of query objects.".into(),
+            message: format!(
+                "queries must be an array of query objects; {}",
+                super::validate::repair_queries(rows)
+            ),
             schema: super::tool_contract_named(tool_name)
                 .and_then(Result::ok)
                 .and_then(|contract| {
@@ -59,6 +112,9 @@ pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationI
             received: Some(rows.clone()),
         }];
     };
+    if let Some(issue) = oversized_batch(tool_name, rows.len()) {
+        return vec![issue];
+    }
     let envelope_fields = || {
         let fields = super::tool_contract_named(tool_name)
             .and_then(Result::ok)

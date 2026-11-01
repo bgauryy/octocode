@@ -9,8 +9,8 @@
 //! (parsed) file set, so a configured alias can never fabricate an edge to a
 //! file the scan did not read.
 
-use super::graph::{climb, dirname, join, join_within_root, normalize};
 use super::js_paths::{BUILD_DIRS, is_declaration, probe_js, source_equivalent};
+use super::paths::{climb, dirname, join, join_within_root, normalize};
 use crate::{policy::path::PathPolicy, security::ContentSecurity};
 use octocode_engine::text::lexical;
 use serde_json::Value;

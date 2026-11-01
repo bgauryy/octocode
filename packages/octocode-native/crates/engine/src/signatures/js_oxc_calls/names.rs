@@ -38,6 +38,7 @@ pub(super) fn push_call(
         term_binding: false,
         self_template: None,
         macros: Vec::new(),
+        receiver_call: None,
     });
 }
 
@@ -65,6 +66,12 @@ pub(super) fn callee_name(expr: &Expression) -> Option<String> {
             "{}.{}",
             receiver_label(&member.object),
             computed_key(&member.expression)?
+        )),
+        // `this.#m()`; an optional `this?.#m()` reaches here as the chain's inner call.
+        Expression::PrivateFieldExpression(member) => Some(format!(
+            "{}.#{}",
+            receiver_label(&member.object),
+            member.field.name.as_str()
         )),
         Expression::ParenthesizedExpression(paren) => callee_name(&paren.expression),
         Expression::TSAsExpression(ts) => callee_name(&ts.expression),

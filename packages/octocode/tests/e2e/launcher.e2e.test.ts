@@ -53,6 +53,50 @@ function declarationLine(file: string, text: string): number {
   );
 }
 
+function expectUnfilteredCatalog(beta: string, key: string) {
+  const env = {
+    OCTOCODE_BETA: beta,
+    OCTOCODE_CLASSIFICATION_API: key,
+    OCTOCODE_CLASSIFICATION_API_HOST: 'http://127.0.0.1:9',
+    OCTOCODE_ENABLE_LOCAL: 'false',
+    OCTOCODE_ENABLE_CLONE: 'false',
+    TOOLS_TO_RUN: 'ghSearchHistory',
+    DISABLE_TOOLS: 'clasify,ghCloneRepo,graphBuild,graphQuery',
+  };
+  const main = runLauncher([], env);
+  const schema = runLauncher(['schema'], env);
+  expect(main.status).toBe(0);
+  expect(schema.status).toBe(0);
+  expect(JSON.parse(main.stdout)).toEqual(JSON.parse(schema.stdout));
+  expect(JSON.parse(schema.stdout).instructions).toBeUndefined();
+  expect(JSON.parse(schema.stdout).commands.full).toBe(
+    'octocode schema --view full'
+  );
+  const full = runLauncher(['schema', '--view', 'full'], env);
+  expect(full.status).toBe(0);
+  const instructions = JSON.parse(full.stdout).instructions as string;
+  expect(instructions.length).toBeGreaterThan(0);
+  expect(
+    JSON.parse(full.stdout).tools.map((tool: { name: string }) => tool.name)
+  ).toEqual(
+    JSON.parse(schema.stdout).tools.map((tool: { name: string }) => tool.name)
+  );
+  expect(instructions).not.toContain('clasifyContext');
+  const names = JSON.parse(schema.stdout).tools.map(
+    (tool: { name: string }) => tool.name
+  );
+  expect(names).toHaveLength(16);
+  expect(names).toEqual(
+    expect.arrayContaining([
+      'clasify',
+      'ghCloneRepo',
+      'graphBuild',
+      'graphQuery',
+      'localFetch',
+    ])
+  );
+}
+
 describe.skipIf(!ready)('launcher → native binary e2e', () => {
   it.each([
     [],
@@ -97,40 +141,8 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
     ['beta off, key present', '0', 'discovery-only-test-key'],
     ['beta on, no key', '1', ''],
   ])(
-    'serves the schema catalog with %s and omits gated clasify',
-    (_case, beta, key) => {
-      const env = {
-        OCTOCODE_BETA: beta,
-        OCTOCODE_CLASSIFICATION_API: key,
-        OCTOCODE_CLASSIFICATION_API_HOST: 'http://127.0.0.1:9',
-      };
-      const main = runLauncher([], env);
-      const schema = runLauncher(['schema'], env);
-      expect(main.status).toBe(0);
-      expect(schema.status).toBe(0);
-      expect(JSON.parse(main.stdout)).toEqual(JSON.parse(schema.stdout));
-      expect(JSON.parse(schema.stdout).instructions).toBeUndefined();
-      expect(JSON.parse(schema.stdout).commands.full).toBe(
-        'octocode schema --view full'
-      );
-      const full = runLauncher(['schema', '--view', 'full'], env);
-      expect(full.status).toBe(0);
-      const instructions = JSON.parse(full.stdout).instructions as string;
-      expect(instructions.length).toBeGreaterThan(0);
-      expect(
-        JSON.parse(full.stdout).tools.map((tool: { name: string }) => tool.name)
-      ).toEqual(
-        JSON.parse(schema.stdout).tools.map(
-          (tool: { name: string }) => tool.name
-        )
-      );
-      expect(instructions).not.toContain('clasifyContext');
-      expect(
-        JSON.parse(schema.stdout).tools.map(
-          (tool: { name: string }) => tool.name
-        )
-      ).not.toContain('clasify');
-    }
+    'serves all CLI tools with %s despite MCP exposure restrictions',
+    (_case, beta, key) => expectUnfilteredCatalog(beta, key)
   );
 
   it('prints native root help without agent instructions', () => {

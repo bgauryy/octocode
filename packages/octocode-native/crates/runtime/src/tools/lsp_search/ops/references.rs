@@ -11,6 +11,7 @@ impl Operation<'_, '_> {
     pub(super) async fn references(mut self) -> Result<Value, LspFailure> {
         let query = self.query;
         let include_declaration = lsp_search_query::include_declaration(query).unwrap_or(true);
+        let later_window = lsp_search_query::importer_page(query) > 1;
         let (mut found, respelled, withheld) = get_spelled_locations(
             self.client,
             self.snippet_policy,
@@ -34,7 +35,6 @@ impl Operation<'_, '_> {
             },
         )
         .await?;
-        let alias_scan_capped = recovered.capped;
         let alias_failures = recovered.failures;
         let mut recovered = recovered.snippets;
         // Files the answer names, its declaration's included: answered
@@ -65,7 +65,6 @@ impl Operation<'_, '_> {
             .chain(&recovered)
             .map(snippet_identity)
             .collect::<HashSet<_>>();
-        let later_window = lsp_search_query::importer_page(query) > 1;
         let mut importer_failures = RequestFailures::default();
         let from_importers = match &importers {
             Some(importers) => {
@@ -122,12 +121,13 @@ impl Operation<'_, '_> {
             found.clear();
         }
         let recovered = if later_window { Vec::new() } else { recovered };
-        let found = found
+        let mut found = found
             .drain(..)
             .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
             .chain(recovered.into_iter().map(labelled(RECOVERED_ALIAS)))
             .chain(from_importers.into_iter().map(labelled(RECOVERED_IMPORTER)))
             .collect::<Vec<_>>();
+        super::super::roles::assign_roles(&mut found, self.sources, self.cancel).await?;
         let mut row = salted_locations(
             self.query,
             self.sources,
@@ -142,6 +142,7 @@ impl Operation<'_, '_> {
         if !later_window {
             disclose_withheld(&mut row, withheld);
         }
+        self.check_code_uses().await?;
         if let Some(importers) = &importers {
             importers.annotate(&mut row, query, self.scope);
         }
@@ -155,14 +156,6 @@ impl Operation<'_, '_> {
         if !later_window {
             alias_failures.disclose(&mut row, query, ALIAS_RECOVERY_FAILED, "Alias recovery");
         }
-        if !later_window && alias_scan_capped && row.pointer("/coverage").is_some() {
-            if let Some(name) = lsp_search_query::symbol_name(query) {
-                self.scope
-                    .text_files(name, self.sources.policy(), self.cancel)
-                    .await?;
-            }
-            super::super::recovery::disclose_alias_cap(&mut row, query, self.scope);
-        }
         Ok(row)
     }
 
@@ -171,7 +164,8 @@ impl Operation<'_, '_> {
     /// An importer whose request fails is recorded in `failures`;
     /// cancellation ends the request. A listed site whose name binds another
     /// declaration (a candidate's own same-named binding, which the server
-    /// may list as a contextually typed property) is left out.
+    /// may list as a contextually typed property) is left out. A server
+    /// that pipelines requests is asked for several importers at once.
     ///
     /// Each importer is asked with its declarations included: from an
     /// importer, `includeDeclaration` would drop its own import binding (a
@@ -185,21 +179,43 @@ impl Operation<'_, '_> {
         seen: &mut HashSet<String>,
         failures: &mut RequestFailures,
     ) -> Result<Vec<octocode_engine::lsp::types::LspCodeSnippet>, LspFailure> {
-        let mut found = Vec::new();
-        for anchor in importers.per_file() {
-            let extra = match get_locations(
-                self.client,
-                self.snippet_policy,
-                self.cancel,
-                LocationRequest::References {
-                    include_declaration: true,
-                },
-                &anchor.path,
-                anchor.line,
-                anchor.character,
+        let request = |anchor: &importers::Anchor| {
+            let (path, line, character) = (anchor.path.clone(), anchor.line, anchor.character);
+            async move {
+                Ok(get_locations(
+                    self.client,
+                    self.snippet_policy,
+                    self.cancel,
+                    LocationRequest::References {
+                        include_declaration: true,
+                    },
+                    &path,
+                    line,
+                    character,
+                )
+                .await)
+            }
+        };
+        let anchors = importers.per_file().collect::<Vec<_>>();
+        // A server that pipelines requests is asked for several importers
+        // at once; the answers keep importer order.
+        let answers = if self.client.serves_requests_concurrently() {
+            importers::ordered_concurrently(
+                anchors,
+                importers::CONCURRENT_FILE_VERIFICATIONS,
+                request,
             )
-            .await
-            {
+            .await?
+        } else {
+            let mut answers = Vec::with_capacity(anchors.len());
+            for anchor in anchors {
+                answers.push(request(anchor).await?);
+            }
+            answers
+        };
+        let mut found = Vec::new();
+        for answer in answers {
+            let extra = match answer {
                 Ok(extra) => extra,
                 Err(failure) => {
                     failures.record(failure)?;
@@ -280,7 +296,7 @@ fn disclose_withheld(row: &mut Value, withheld: usize) {
     row["coverage"]["withheldLocations"] = json!(withheld);
     crate::response::paging::mark_partial(
         row,
-        "locationsWithheld",
+        crate::response::paging::PartialReason::LocationsWithheld,
         &[format!(
             "{withheld} reference(s) outside the allowed read roots were omitted; add the path to ALLOWED_PATHS to read them."
         )],

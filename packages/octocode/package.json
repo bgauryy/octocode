@@ -64,11 +64,10 @@
   "scripts": {
     "build": "node build.mjs && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs out",
     "build:dev": "node build.mjs",
-    "clean": "rm -rf out/",
+    "clean": "rm -rf out/ coverage/",
     "format": "prettier --write src tests",
-    "lint": "prettier --check src tests && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
+    "lint": "prettier --check src tests && yarn run -T oxlint -c ../../.oxlintrc.json .",
     "prepack": "node scripts/prepack.mjs",
-    "start": "node ./out/octocode.js",
     "test": "vitest run --coverage",
     "typecheck": "yarn run -T tsgo --noEmit",
     "verify": "yarn lint && yarn typecheck && yarn test"

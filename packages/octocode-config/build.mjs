@@ -40,13 +40,13 @@ await esbuild.build({
 });
 
 // Contract hub entries: thin re-exports of @octocodeai/octocode-core so every
-// surface imports contracts from "@octocodeai/config/{schema,mcp}". Core (and
+// surface imports contracts from "@octocodeai/config/{schema,chrome}". Core (and
 // its Zod dependency) are marked external — never bundled here — so the source
 // of truth stays in octocode-core and the zero-dep dist/index.js is untouched.
 await esbuild.build({
   ...shared,
   external: [...shared.external, '@octocodeai/octocode-core', '@octocodeai/octocode-core/*', 'zod'],
-  entryPoints: ['src/contracts/schema.ts', 'src/contracts/mcp.ts'],
+  entryPoints: ['src/contracts/schema.ts', 'src/contracts/chrome.ts'],
   outdir: 'dist/contracts',
 });
 

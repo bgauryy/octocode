@@ -15,8 +15,6 @@
 //!   that is no code (a lone brace, a type, a token paste) yields nothing
 //!   that [`MacroBodies::is_candidate`] accepts.
 
-use std::time::Instant;
-
 use tree_sitter::{Language, Node, Tree};
 
 use super::ExecutionError;
@@ -110,7 +108,7 @@ impl MacroBodies {
         content: &str,
         language: &Language,
         range: tree_sitter::Range,
-        deadline: Instant,
+        deadline: super::Deadline,
     ) -> Result<Option<Tree>, ExecutionError> {
         let tail = self.terminator();
         let mut included = range;
@@ -121,7 +119,7 @@ impl MacroBodies {
             tail,
             language,
             &[included],
-            deadline,
+            deadline.parse_by(),
         );
         if tree.is_none() {
             ExecutionError::check(deadline)?;
@@ -159,7 +157,7 @@ pub(crate) fn string_literals(root: Node<'_>) -> Vec<std::ops::Range<usize>> {
     let mut found = Vec::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if crate::structural::kinds::is_string_kind(node.kind()) {
+        if crate::signatures::node_kinds::is_string_kind(node.kind()) {
             found.push(node.byte_range());
             continue;
         }

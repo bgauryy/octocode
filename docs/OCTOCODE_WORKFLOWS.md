@@ -1,6 +1,6 @@
 # Octocode workflows
 
-Choose a tool from the evidence needed, then narrow with observed identities. Keep the research question in the agent's working context; tool requests carry only fields with execution semantics.
+Choose a tool from the evidence needed, then narrow with observed identities. Each request row takes `mainGoal` (the task) and `reasoning` (why this query, what it should establish); these two state intent and change no result, and every other request field has execution semantics.
 
 ## Research flow graph
 
@@ -13,7 +13,7 @@ flowchart LR
   history[ghSearchHistory] --> item[ghGetHistoryItem]
   item --> read
   package[artifactSearch] --> repo
-  repo --> clone[ghCloneRepo CLI]
+  repo --> clone["ghCloneRepo (MCP opt-in)"]
   clone --> local[localSearch / structureSearch]
   local --> fetch[localFetch]
   local --> ast[astSearch]
@@ -25,7 +25,7 @@ flowchart LR
 
 | Need | Start with |
 |---|---|
-| Known local path or source span | localFetch |
+| Known local path or source span | localFetch; `view:"symbols"` to orient within a file |
 | Text spelling in a local scope | localSearch |
 | File names or directory shape | structureSearch with `view:"paths"` |
 | Syntax pattern or declarations | astSearch |
@@ -37,7 +37,7 @@ flowchart LR
 | Find a historical change | ghSearchHistory |
 | Read a known PR, issue, commit or compare | ghGetHistoryItem |
 | Package/version or package discovery | artifactSearch |
-| Remote source requiring local analysis | ghCloneRepo through CLI |
+| Remote source requiring local analysis | ghCloneRepo: always in the CLI; in MCP with [`tools.enableClone`](CONFIGURATION.md#tool-availability-cli-and-mcp) |
 | Typed judgments over unread evidence | clasify, or inline classification on a reader/search |
 
 ## Make a call
@@ -50,15 +50,24 @@ Search a narrow directory with an explicit string array, read the relevant sourc
 
 ```bash
 octocode localSearch '{"queries":[{"path":"src","matchString":["registerHandler"],"wholeWord":true}]}'
-octocode localFetch '{"queries":[{"path":"src/registry.ts","ranges":[{"startLine":20,"endLine":60}]}]}'
+octocode localFetch '{"queries":[{"path":"src/registry.ts","matchString":["registerHandler"],"wholeWord":true,"contextLines":{"before":3,"after":6}}]}'
 octocode lspSearch '{"queries":[{"operation":"references","path":"src/registry.ts","symbolName":"registerHandler","line":27}]}'
 ```
 
-The latter path and line are illustrative; replace them with evidence from the preceding call. Read skipped-scope and indexing disclosures before making absence claims.
+The latter path and line are illustrative; replace them with evidence from the preceding call. Preserve the search's matching options when reusing its terms. A known declaration span can be read directly with `ranges`; an outline's `start-end` gutter supplies those inclusive bounds. Read skipped-scope and indexing disclosures before making absence claims.
 
 Choose the smallest representation that answers the question. Request `localSearch` with `view:"files"` for matching paths, `countLines` or `countMatches` for counts, and content when the matching source matters. Use `structureSearch` with `view:"paths"` for discovery and its default `details` view when file metadata matters. Read known ranges directly; widen context or request an enclosing block when the evidence is incomplete.
 
-Use AST for syntax and LSP for resolved identity. A graph snapshot is useful for repeated relationship or impact queries over one scope; a single known caller or declaration lookup usually starts with LSP or AST. Verify graph candidates against source and LSP before treating them as resolved relationships. Graph query `includeProvenance:false` can compact proven identity source mappings; transformed mappings retain their provenance.
+Use AST to investigate code connections expressed in syntax: call expressions, imports, inheritance, or a call contained in a method. For example, combine a call pattern with `inside` to restrict its enclosing declaration, or `has` to find a declaration containing that pattern. LSP resolves which declaration a call or reference names. A graph snapshot is useful for repeated relationship or impact queries over one scope; a single known caller or declaration lookup usually starts with LSP or AST. Verify graph candidates against source and LSP before treating them as resolved relationships. graphQuery rows place evidence by file and line by default; set `includeProvenance:true` for claims about exact source bytes ([provenance](TOOL_DATA_CONTRACT.md#minimal-by-default)).
+
+| Evidence available | Next useful read |
+|---|---|
+| `structureSearch` found a relevant file | `localFetch view:"symbols"`, then content ranges for the relevant declaration or section |
+| `localSearch` found relevant text | `localFetch matchString` with the same matching options and enough context, or the returned declaration range |
+| `astSearch` found a declaration or structural match | `localFetch ranges` at its source span; use LSP if identity matters |
+| `lspSearch` resolved a definition or reference | `localFetch ranges` at the returned file and lines; `block:true` can expand a declaration range |
+| `graphQuery` found a candidate node | Resolve its file against the graph root, read its source span, then confirm the relationship with LSP |
+| `clasify` assessed an unread source | Follow its saved read continuation for the exact judged evidence before making source claims |
 
 Measure token cost across every continuation required by the claim, with equal evidence scope and a named tokenizer. Output bytes, tokens and elapsed time are separate measurements. A small `responseChars` target increases repeated page overhead; narrow the source scope or choose a suitable view before shrinking pages. A targeted `rg` result can cost fewer tokens than structured output for a literal lookup. Syntax, resolved identity, coverage and executable continuations provide additional capabilities that a text-only comparison does not measure.
 
@@ -101,7 +110,11 @@ A fallback starts a different evidence operation. Text matches do not prove call
 
 ## Compact and symbol views
 
-Read source content for exact quotations. `view:"compact"` preserves useful source coordinates while transforming text; `view:"symbols"` outlines declarations. The live schema defines which selectors combine with each view. Matchers, ranges and context have the same typed forms on local and GitHub readers.
+Use `view:"symbols"` to orient within a known file: code declarations, Markdown `#` headings, or data keys and containers. Gutters identify source lines or `start-end` spans; choose inclusive `ranges` for the content read. Use `astSearch operation:"symbols"` for declaration filters across files and `lspSearch documentSymbols` for a server-backed outline.
+
+For Markdown, discover files with `structureSearch`, then fetch an outline. Read a section from its heading line through the line before the next heading of the same or higher level; that includes its nested headings. Use the file's end for the last section. Outlines recognize ATX (`#`) headings; underline-style Setext headings require content reads. `block` expands code declarations, not Markdown sections. Markdown LSP needs a configured server; heading outlines do not.
+
+Read content for exact quotations. `view:"compact"` transforms text while retaining source coordinates; YAML stays verbatim to preserve scalar values. Inspect `viewFallback` before assuming a symbols read produced an outline. Symbols accepts no match or range selectors; compact accepts ranges; `matchString` and `contextLines` belong to content. Local and GitHub readers share these forms.
 
 ## clasify gate
 

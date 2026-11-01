@@ -307,7 +307,7 @@ fn implementation_on_a_type_falls_back_to_the_labelled_heritage_scan() {
     let row = implementation_failing_row("implementation", ("b.ts", "Base", 0, 17))
         .unwrap_or_else(|error| panic!("a type anchor falls back: {error:?}"));
     assert_eq!(row["lsp"]["source"], "native-graph-facts", "{row}");
-    assert_eq!(row["kind"], "implementation", "{row}");
+    assert_eq!(row["operation"], "implementation", "{row}");
     let files = row["matches"]
         .as_array()
         .expect("matches")
@@ -351,7 +351,7 @@ fn implementation_on_a_member_keeps_the_server_failure() {
         .expect_err("no scan can answer a member");
     assert_eq!(failure.code, ErrorCode::RequestFailed);
     let tip = crate::response::rows::error_code_hint(
-        ToolId::LspSearch,
+        ToolId::LspSearch.output(),
         failure.code,
         &serde_json::json!({"operation": "implementation", "path": "b.ts", "symbolName": "run", "line": 1}),
     )

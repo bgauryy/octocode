@@ -1,66 +1,4 @@
 use super::*;
-use crate::execution::Cost;
-
-/// Reads of small single files and stored provider pages admit as
-/// light; a directory, a large file, a missing path, lspSearch and a
-/// fresh provider call admit as walks.
-#[test]
-fn small_single_file_reads_and_stored_provider_pages_admit_as_light() {
-    let home = tempfile::tempdir().expect("home");
-    let root = home.path().canonicalize().expect("root");
-    std::fs::write(root.join("small.rs"), "fn main() {}\n").expect("small");
-    std::fs::write(
-        root.join("large.txt"),
-        vec![b'x'; usize::try_from(LIGHT_FILE_BYTES).unwrap() + 1],
-    )
-    .expect("large");
-    std::fs::create_dir(root.join("src")).expect("dir");
-    let runtime = runtime(&root, &[]);
-    let cost = |id, rows: &[Value], replayed| {
-        let rows: Vec<_> = rows
-            .iter()
-            .cloned()
-            .map(crate::security::CheckedQuery::checked)
-            .collect();
-        runtime.request_cost(id, &rows, replayed)
-    };
-    let file = |path: &str| json!({"path": path});
-    assert_eq!(
-        cost(ToolId::LocalSearch, &[file("small.rs")], false),
-        Cost::Light
-    );
-    assert_eq!(
-        cost(ToolId::LocalFetch, &[file("small.rs"), file("src")], false),
-        Cost::Walk
-    );
-    for row in [file("large.txt"), file("missing.rs"), json!({})] {
-        assert_eq!(cost(ToolId::LocalFetch, &[row], false), Cost::Walk);
-    }
-    assert_eq!(
-        cost(ToolId::LspSearch, &[file("small.rs")], false),
-        Cost::Walk
-    );
-    // A judged row waits on the classification provider, so it walks
-    // even on a small file.
-    let judged = json!({"path": "small.rs", "classification": {"predicates": ["Relevant?"]}});
-    let continued = json!({"path": "small.rs", "selection": "token"});
-    for id in [ToolId::LocalFetch, ToolId::LocalSearch] {
-        for row in [&judged, &continued] {
-            assert_eq!(
-                cost(id, std::slice::from_ref(row), false),
-                Cost::Walk,
-                "{id:?}"
-            );
-        }
-        assert_eq!(
-            cost(id, &[file("small.rs"), judged.clone()], false),
-            Cost::Walk,
-            "{id:?}"
-        );
-    }
-    assert_eq!(cost(ToolId::GhSearchCode, &[json!({})], false), Cost::Walk);
-    assert_eq!(cost(ToolId::GhSearchCode, &[json!({})], true), Cost::Light);
-}
 
 /// A runtime given a pool runs its servers there and leaves them to the
 /// pool's owner on close; one built alone owns and stops its own.
@@ -228,15 +166,6 @@ async fn hidden_public_clasify_without_goal_surface_has_no_semantic_route() {
     assert!(!runtime.dispatcher().selection_available);
 }
 
-#[test]
-fn only_persistent_storage_keeps_a_registry_cache() {
-    let home = tempfile::tempdir().expect("home");
-    let memory = runtime(home.path(), &[("OCTOCODE_STORAGE_MODE", "memory")]);
-    assert!(memory.artifact_cache.is_none());
-    let persistent = runtime(home.path(), &[("OCTOCODE_STORAGE_MODE", "persistent")]);
-    assert!(persistent.artifact_cache.is_some());
-}
-
 /// A file-sourced language-server setting reaches the engine exactly as
 /// its environment spelling does (`lsp.cacheDir`).
 #[test]
@@ -282,7 +211,7 @@ fn cache_home_exposes_only_checkout_trees() {
     let home = os_home.path().join(".octocode");
     let credentials = home.join("credentials.json");
     let log = home.join("logs").join("x.log");
-    let clone = crate::tools::gh_clone_repo::cache::clones_root(&home).join("o/r/main/f.rs");
+    let clone = crate::tools::gh_clone_repo::storage::clones_root(&home).join("o/r/main/f.rs");
     let tree =
         crate::tools::gh_structure::materialize::materialize_root(&home).join("o/r/sha/f.rs");
     let capture = crate::tools::source_capture::url::capture_root(&home).join("sha/source.txt");

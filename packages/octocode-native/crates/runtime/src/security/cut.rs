@@ -1,25 +1,6 @@
-//! Cuts of source text a result shows (a long line's window around its hit,
-//! a value's span) that never show part of a secret. A cut taken from the
-//! raw text can split a secret so that no pattern matches the part shown (a
-//! token without its prefix, a value without its key), and a later scan of
-//! the shown text cannot redact it. So a cut is taken from its source
-//! sanitized whole ([`sanitize_then_cut`]); a cut made before sanitizing (the
-//! engine's value spans) is checked against the sanitized source instead
-//! ([`exposes`]).
-
-/// The cut `cut` takes of `text` sanitized whole by `sanitize`. `cut` gets
-/// the sanitized text and whether sanitizing changed it: its positions then
-/// differ from the raw text's, so a window anchored on a raw offset must be
-/// placed again.
-pub(crate) fn sanitize_then_cut<E>(
-    text: &str,
-    sanitize: impl FnOnce(&str) -> Result<String, E>,
-    cut: impl FnOnce(&str, bool) -> String,
-) -> Result<String, E> {
-    let clean = sanitize(text)?;
-    let changed = clean != text;
-    Ok(cut(&clean, changed))
-}
+//! Check cuts of source text against the fully sanitized source. A cut taken
+//! before sanitizing can split a secret so its prefix or key no longer matches
+//! a redaction pattern. [`exposes`] detects those partial disclosures.
 
 /// A shown line without the clip markers at its ends: a leading `…`, a
 /// trailing `…` or `...` truncation suffix.
@@ -44,38 +25,6 @@ mod tests {
     use super::*;
 
     const SECRET: &str = "ghp_Zq7Zq7Zq7Zq7Zq7Zq7Zq7Zq7Zq7Zq7Zq7Zq7";
-
-    /// A window cut after sanitizing shows the redaction, never the part of
-    /// the token the window holds; a cut made first would show it bare.
-    #[test]
-    fn a_cut_after_sanitizing_never_shows_part_of_a_secret() {
-        let line = format!("let token = \"{SECRET}\"; needle");
-        let tail = |text: &str, _changed: bool| text.chars().skip(16).collect::<String>();
-        let raw_cut = tail(&line, false);
-        assert!(raw_cut.contains(&SECRET[8..28]), "the raw cut splits it");
-        let shown = sanitize_then_cut(
-            &line,
-            |raw| {
-                octocode_engine::security::sanitizer::sanitize_content(raw, None)
-                    .map(|result| result.content)
-            },
-            tail,
-        )
-        .expect("sanitized");
-        assert!(!shown.contains(&SECRET[8..28]), "{shown}");
-        assert!(shown.contains("needle"), "{shown}");
-        // A line with nothing to redact is cut unchanged.
-        let plain = sanitize_then_cut(
-            "plain needle line",
-            |raw| Ok::<_, ()>(raw.to_owned()),
-            |text, changed| {
-                assert!(!changed);
-                text.to_owned()
-            },
-        )
-        .expect("sanitized");
-        assert_eq!(plain, "plain needle line");
-    }
 
     /// A pre-sanitizing cut that holds part of a redacted secret is
     /// exposed; one holding only text the sanitized source keeps is not.

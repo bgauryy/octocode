@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Json } from './bundle.ts';
+import { isObject, type Json } from './json.ts';
 import { keepReachable, nativeIdentifiers } from './rust-reach.ts';
 
 export const TYPIFY_VERSION = '0.8.0';
@@ -45,7 +45,7 @@ function requireTypify(): void {
  *   intersection merger rejects them; canonical definitions keep their names.
  */
 export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Json } {
-  const defs = (bundle.$defs ?? {}) as { [key: string]: Json };
+  const defs: { [key: string]: Json } = isObject(bundle.$defs) ? bundle.$defs : {};
   const closed = (branch: Json, seen = new Set<string>()): boolean => {
     if (branch === null || typeof branch !== 'object' || Array.isArray(branch)) return false;
     const ref = branch.$ref;

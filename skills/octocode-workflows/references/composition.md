@@ -1,4 +1,4 @@
-Load when assigning workflow roles or Octocode tools, sequencing work, merging evidence, handing off, or resuming.
+Load when assigning workflow roles or Octocode tools, sequencing work, running parallel write lanes, merging evidence, handing off, or resuming.
 
 # Composition
 
@@ -22,6 +22,22 @@ Use `octocode-agents-communication` for identity, leases, requests, completion, 
 For an independent check, give the checking actor the requirement, owner contract, and raw inputs before the producer's conclusion when feasible. It derives its own acceptance or distinguishing check and returns primary anchors. Two summaries of the same shared observation do not corroborate each other; the orchestrator records overlapping evidence rather than counting it twice.
 
 Keep the acceptance oracle stable. A builder cannot weaken an assertion or redefine success to pass. An oracle correction needs owner-contract evidence, a versioned comparison, preservation of the old result, and invalidation of affected rows/comparisons; the orchestrator records the change without forcing acceptance.
+
+## Parallel write lanes
+
+When several actors change one repository at once, partition the writing before launch.
+
+| Concern | Rule |
+|---|---|
+| Ownership | Each Task contract names the paths the actor owns and the owner of each neighboring path. A fix needed outside the actor's paths goes back as a request in its return, never as an edit. Where two lanes must share a file, each makes small exact edits and re-reads the file on conflict. |
+| Shared mutable resources | Generated artifacts get one locked regenerate command. The orchestrator owns the build and the lockfile. Lanes share one build cache, never a private target or cache directory each. |
+| Contract-breaking change | The orchestrator lands the upstream contract change and regenerates before lanes adapt to it. Otherwise one lane owns the change and every consumer it breaks. |
+| Half-finished neighbors | A compile or test failure in another lane's files is re-run before it is blamed. If it persists, report it with the file and line. |
+| Redirect | When evidence contradicts a lane's direction, send it the measured evidence, the new target, and what to remove. Stopping early costs less than merging the wrong design. |
+| User hold | "Plan first" or a design question pauses every edit the plan would change. Lanes continue only the work the plan leaves unchanged. |
+| Foreign effects | When something outside the lanes changes shared state (index staging, background jobs), report it. Never stash, reset, or overwrite to hide it. |
+
+Size a lane by its files and checks, not by item count. Once its return is in, re-read the deciding anchors before accepting, as in [Diagnose and replan](verification.md#diagnose-and-replan-from-evidence).
 
 ## Octocode tools for every role
 

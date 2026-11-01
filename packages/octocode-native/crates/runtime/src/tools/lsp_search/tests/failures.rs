@@ -7,8 +7,12 @@ use super::*;
 /// the one hint hook, keyed by the failure's code (shared codes first, then
 /// lspSearch's own), never a tip the failure carries.
 fn tip(failure: &LspFailure, query: &serde_json::Value) -> &'static str {
-    crate::response::rows::error_code_hint(crate::id::ToolId::LspSearch, failure.code, query)
-        .unwrap_or_else(|| panic!("no tip for {:?}", failure.code))
+    crate::response::rows::error_code_hint(
+        crate::id::ToolId::LspSearch.output(),
+        failure.code,
+        query,
+    )
+    .unwrap_or_else(|| panic!("no tip for {:?}", failure.code))
 }
 
 /// An empty answer on a line the server itself failed to analyze is not
@@ -95,7 +99,8 @@ fn an_empty_row_names_the_server_error_on_its_anchor_line() {
         serde_json::json!(["documentAnalysisErrors"])
     );
     // Returned evidence remains available with its degraded coverage.
-    let mut found = serde_json::json!({"kind": "definition", "matches": [{"path": "/repo/k.cu"}]});
+    let mut found =
+        serde_json::json!({"operation": "definition", "matches": [{"path": "/repo/k.cu"}]});
     let before = found["matches"].clone();
     super::super::analysis_context::annotate_diagnostics(
         &mut found,
@@ -133,16 +138,32 @@ fn path_policy_denials_are_file_access_failures_not_missing_servers() {
     for code in [
         crate::policy::PolicyErrorCode::NotFound,
         crate::policy::PolicyErrorCode::NotRegular,
-        crate::policy::PolicyErrorCode::BinaryContent,
         crate::policy::PolicyErrorCode::Io,
     ] {
         let refused = LspFailure::path_denied(crate::policy::PolicyError::new(code, "refused"));
         let text = tip(&refused, &serde_json::Value::Null);
         assert!(
-            text.contains("structureSearch") && text.contains("retry the exact path"),
+            text.contains("structureSearch")
+                && text.contains("retry with")
+                && text.contains("exact listed"),
             "{code:?}: {text}"
         );
     }
+    // A binary file exists: verifying its path cannot help, so it gets the
+    // one binary recovery every tool gives.
+    let binary = LspFailure::path_denied(crate::policy::PolicyError::new(
+        crate::policy::PolicyErrorCode::BinaryContent,
+        "refused",
+    ));
+    assert_eq!(
+        tip(&binary, &serde_json::Value::Null),
+        crate::response::rows::error_code_hint(
+            crate::id::ToolId::LocalFetch.output(),
+            ErrorCode::BinaryFileUnsupported,
+            &serde_json::Value::Null,
+        )
+        .expect("shared binary tip")
+    );
 }
 
 #[test]
@@ -302,7 +323,7 @@ fn each_failure_code_gets_its_own_tip_naming_retry_and_the_fallback() {
         }))))
     };
     let generic = crate::response::rows::error_code_hint(
-        crate::id::ToolId::LspSearch,
+        crate::id::ToolId::LspSearch.output(),
         ErrorCode::ExecutionFailed,
         &serde_json::Value::Null,
     )
@@ -335,7 +356,15 @@ fn each_failure_code_gets_its_own_tip_naming_retry_and_the_fallback() {
         }
     }
     let invalid = tip(&failures[0], &serde_json::Value::Null);
-    assert!(invalid.contains("octocode schema lspSearch"), "{invalid}");
+    // A rejected input reads the same on every tool (and every surface:
+    // no CLI-only command).
+    let shared = crate::response::rows::error_code_hint(
+        crate::id::ToolId::LocalSearch.output(),
+        ErrorCode::InvalidInput,
+        &serde_json::Value::Null,
+    )
+    .expect("shared invalid-input tip");
+    assert_eq!(invalid, shared, "{invalid}");
     assert!(!invalid.contains("Retry once"), "{invalid}");
 }
 
@@ -346,7 +375,7 @@ fn a_memory_exhausted_server_is_final_with_explicit_acquisition_leads() {
     assert_eq!(failure.code, ErrorCode::ServerCrashed);
     assert!(!failure.retryable);
     let q = query(
-        serde_json::json!({"operation":"callers","path":"/repo/a.ts","symbolName":"run","line":3,"graphDepth":3,"importerPage":2,"page":2,"snapshot":"saved","workspaceRoot":"/repo","occurrence":1}),
+        serde_json::json!({"operation":"callers","path":"/repo/a.ts","symbolName":"run","line":3,"depth":3,"importerPage":2,"page":2,"snapshot":"saved","workspaceRoot":"/repo","occurrence":1}),
     );
     let row = failure.row(&q, "file:///repo/a.ts");
     assert!(row.get("next").is_none());

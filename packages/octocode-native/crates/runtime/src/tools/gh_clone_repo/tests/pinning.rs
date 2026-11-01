@@ -27,7 +27,6 @@ async fn checkouts_are_keyed_by_the_commit_the_ref_names_now() {
     )
     .await
     .unwrap_or_else(|_| panic!("clone by SHA"));
-    assert!(by_sha.location.cached, "{by_sha:?}");
     assert_eq!(by_sha.location.local_path, before.location.local_path);
     assert_eq!(by_sha.location.resolved_ref, first);
 
@@ -37,10 +36,6 @@ async fn checkouts_are_keyed_by_the_commit_the_ref_names_now() {
     let after = clone_as(&bench, &provider, &query(), ALICE)
         .await
         .unwrap_or_else(|_| panic!("moved branch"));
-    assert!(
-        !after.location.cached,
-        "a moved branch is re-cloned: {after:?}"
-    );
     assert_eq!(after.location.commit_sha, second);
     assert_ne!(after.location.local_path, before.location.local_path);
 }
@@ -133,7 +128,6 @@ async fn owner_and_repo_case_variants_share_one_checkout() {
     )
     .await
     .unwrap_or_else(|failure| panic!("case variant: {failure:?}"));
-    assert!(upper.location.cached, "{upper:?}");
     assert_eq!(upper.location.local_path, lower.location.local_path);
     assert!(upper.warnings.is_empty(), "{upper:?}");
 }

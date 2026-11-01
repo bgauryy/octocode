@@ -70,6 +70,15 @@ pub(crate) fn include_declaration(q: &LspSearchQuery) -> Option<bool> {
         _ => None,
     }
 }
+/// The `testCode` scope of `references` and `callers`; `None` elsewhere.
+pub(crate) fn test_code(q: &LspSearchQuery) -> Option<octocode_contract_types::TestCode> {
+    match q {
+        LspSearchQuery::Variant2(query) => query.test_code,
+        LspSearchQuery::Variant3(query) => query.test_code,
+        LspSearchQuery::Variant4(query) => query.test_code,
+        _ => None,
+    }
+}
 pub(crate) fn view(q: &LspSearchQuery) -> &'static str {
     if matches!(q, LspSearchQuery::Variant1(_) | LspSearchQuery::Variant3(_)) {
         "files"
@@ -77,13 +86,17 @@ pub(crate) fn view(q: &LspSearchQuery) -> &'static str {
         "content"
     }
 }
-pub(crate) fn graph_depth(q: &LspSearchQuery) -> Option<u32> {
+pub(crate) fn depth(q: &LspSearchQuery) -> Option<u32> {
     match q {
-        LspSearchQuery::Variant4(query) => Some(u32_of(query.graph_depth.get())),
-        LspSearchQuery::Variant5(query) => Some(u32_of(query.graph_depth.get())),
-        LspSearchQuery::Variant6(query) => Some(u32_of(query.graph_depth.get())),
+        LspSearchQuery::Variant4(query) => Some(u32_of(query.depth.get())),
+        LspSearchQuery::Variant5(query) => Some(u32_of(query.depth.get())),
+        LspSearchQuery::Variant6(query) => Some(u32_of(query.depth.get())),
         _ => None,
     }
+}
+/// Rows per page (`limit`); `None` cuts pages by the budget alone.
+pub(crate) fn limit(q: &LspSearchQuery) -> Option<usize> {
+    each_shape!(q,limit=>limit.map(|limit| crate::num::usize_of(limit.get())))
 }
 pub(crate) fn page(q: &LspSearchQuery) -> Option<u32> {
     each_shape!(q,page=>Some(u32_of(page.get())))
@@ -144,7 +157,7 @@ pub(crate) fn to_row(q: &LspSearchQuery) -> Value {
             ("view", json!("content")),
             ("contextLines", json!({"before": 0, "after": 0})),
             ("includeDeclaration", json!(true)),
-            ("graphDepth", json!(1)),
+            ("depth", json!(1)),
         ] {
             if fields.get(key) == Some(&default) {
                 fields.remove(key);

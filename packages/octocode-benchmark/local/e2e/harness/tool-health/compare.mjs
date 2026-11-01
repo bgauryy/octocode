@@ -3,7 +3,6 @@
 import { contract } from '../contract.mjs';
 import { canon, leadsIn, mapDeclared } from './calls.mjs';
 import { dataOf, rowsOf } from './driver.mjs';
-const CLI_ONLY = new Set(contract.tools.filter(tool => tool.cliOnly).map(tool => tool.name));
 const EXIT = { invalidInput: 2, notFound: 3, authentication: 4, permission: 4, execution: 5, rateLimited: 7 };
 
 export function transportPagesProblem(surface, responses) {
@@ -50,19 +49,21 @@ export function firstError(json) {
   return error ? `${error.errorCode}: ${String(error.error ?? '').slice(0, 140)}` : '';
 }
 
+const isCloneCompletion = (value, path, tool) => tool === 'ghCloneRepo' && path.length === 5
+  && path[0] === 'results' && path[2] === 'data' && path[3] === 'location' && path[4] === 'clonedAt'
+  && typeof value === 'string' && Number.isFinite(Date.parse(value));
+
 export function parityView(json, tool) {
   const schema = contract.tools.find(entry => entry.name === tool)?.outputSchema;
   const calls = new Map(leadsIn(json, schema).map(call => [JSON.stringify(call.segments), call]));
   return mapDeclared(json, schema, (value, path) => {
     const call = calls.get(JSON.stringify(path));
     if (call) {
-      if (CLI_ONLY.has(call.tool)) return undefined;
       return call.kind === 'continue' ? { kind: call.kind, tool: call.tool, input: { cursor: '<issued>' } } : value;
     }
     if (path.at(-1) === 'hints') return undefined;
     if (path.at(-1) === 'expiresAt') return '<retention deadline>';
-    if (tool === 'graphBuild' && path.length === 4 && path[0] === 'results'
-      && path[2] === 'data' && path[3] === 'totalMs' && Number.isFinite(value)) return '<per-call elapsed>';
+    if (isCloneCompletion(value, path, tool)) return '<per-call completion>';
     return value;
   });
 }

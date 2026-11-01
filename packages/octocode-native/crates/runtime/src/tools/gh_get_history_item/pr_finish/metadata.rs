@@ -50,8 +50,8 @@ pub(in crate::tools::gh_get_history_item) fn pr_metadata(
         "draft": raw.get("draft").and_then(Value::as_bool).filter(|v|*v),
         "author": str_at(raw,"/user/login").unwrap_or(""),
         "labels": (!labels.is_empty()).then_some(labels),
-        // GraphQL reads the first 20 labels; say when more exist.
-        "labelsTruncated": raw.get("labels_truncated").and_then(Value::as_bool).filter(|v| *v),
+        // GraphQL reads every label page; a page it could not reach is said.
+        "labelsClipped": raw.get("labels_truncated").and_then(Value::as_bool).filter(|v| *v),
         "baseBranch": str_at(raw,"/base/ref").filter(|v|!v.is_empty()),
         "headBranch": str_at(raw,"/head/ref").filter(|v|!v.is_empty()),
         "headSha": str_at(raw,"/head/sha").filter(|v|!v.is_empty()),

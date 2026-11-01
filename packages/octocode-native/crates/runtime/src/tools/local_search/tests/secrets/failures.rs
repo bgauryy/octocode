@@ -81,7 +81,6 @@ fn a_bad_include_glob_is_invalid_glob() {
         &NeverCancel,
         None,
         None,
-        None,
     )
     .expect_err("bad glob");
     assert_eq!(error.code, ErrorCode::InvalidGlob, "{error:?}");
@@ -99,8 +98,7 @@ fn a_scope_where_every_path_is_unreadable_is_an_access_error_not_empty() {
         serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["needle-only-here".to_string()], "regexEngine": "literal", "includeIgnored": true}),
         None,
     );
-    let outcome =
-        execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None);
+    let outcome = execute_local_search(&request, &policy, &security, &NeverCancel, None, None);
     unlock_dir(&hidden);
     let error = outcome.expect_err("every candidate failed");
     assert_eq!(error.code, ErrorCode::FileAccessFailed);
@@ -126,12 +124,11 @@ fn unreadable_paths_beside_readable_misses_make_the_result_partial() {
         serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["needle-only-here".to_string()], "regexEngine": "literal", "includeIgnored": true}),
         None,
     );
-    let outcome =
-        execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None);
+    let outcome = execute_local_search(&request, &policy, &security, &NeverCancel, None, None);
     unlock_dir(&hidden);
     let result = outcome.expect("readable file searched");
     assert_eq!(result.status, SearchStatus::Partial);
-    let body = serde_json::to_value(&result).expect("serialize");
+    let body = result.to_row().expect("serialize");
     assert_eq!(body["isPartial"], true, "{body}");
     assert_eq!(body["terminalLimit"], true, "{body}");
     assert_eq!(body["fileErrors"]["count"], 1, "{body}");
@@ -156,7 +153,7 @@ fn a_nul_keeps_the_matches_before_it_and_warns() {
         serde_json::json!({"matchString": ["alpha".to_string()], "regexEngine": "literal"}),
     );
     assert_ne!(result.status, SearchStatus::Empty);
-    let body = serde_json::to_value(&result).expect("serialize");
+    let body = result.to_row().expect("serialize");
     assert_eq!(body["files"][0]["matches"][0]["line"], 1, "{body}");
     assert_eq!(body["matchCount"], 1, "{body}");
     // The warning names the file it could not search past the NUL.
@@ -228,7 +225,7 @@ fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
         None,
     );
     let (policy, security) = policy_for(root.path());
-    let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
+    let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
         .expect("search");
     let warning = result
         .warnings
@@ -236,7 +233,7 @@ fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
         .find(|w| w.starts_with("binaryFileSkipped:"))
         .expect("binary warning");
     assert!(
-        warning.starts_with("binaryFileSkipped: 300 files (.rlib 300) were"),
+        warning.starts_with("binaryFileSkipped: 300 files (all .rlib) were"),
         "{warning}"
     );
     assert!(!warning.contains("libcrate"), "{warning}");
@@ -279,9 +276,9 @@ fn leading_nul_binaries_are_counted_with_a_listing_continuation() {
         serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["alpha".to_string()], "regexEngine": "literal"}),
         None,
     );
-    let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
+    let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
         .expect("search");
-    let body = serde_json::to_value(&result).expect("serialize");
+    let body = result.to_row().expect("serialize");
     assert!(!result.is_partial, "{body}");
     assert!(!result.terminal_limit, "{body}");
     assert_eq!(result.status, SearchStatus::Success, "{body}");

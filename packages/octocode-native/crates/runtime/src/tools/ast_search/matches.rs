@@ -19,15 +19,6 @@ fn file_list(q: MatchQuery<'_>) -> bool {
     matches!(q.result_view().as_deref(), Some("files" | "countMatches"))
 }
 
-/// The shown length of a match value (the core match-text budget).
-fn content_length(q: MatchQuery<'_>) -> usize {
-    if q.capture_text().unwrap_or(false) {
-        crate::id::ast_search_policy::MAX_MATCH_CONTENT_LENGTH
-    } else {
-        crate::id::ast_search_policy::MATCH_CONTENT_LENGTH
-    }
-}
-
 /// The size a match's row adds to its match page.
 fn row_chars(row: &MatchRow) -> usize {
     octocode_engine::json_size::utf16_units(&row.value).unwrap_or(0) + 1
@@ -39,13 +30,7 @@ fn match_row(
     m: &StructuralDetailedMatch,
     cancel: &dyn CancellationCheck,
 ) -> Result<MatchRow, ToolError> {
-    match_value(
-        m,
-        q.capture_text().unwrap_or(false),
-        content_length(q),
-        q.provenance(),
-        cancel,
-    )
+    match_value(m, q.capture_text().unwrap_or(false), q.provenance(), cancel)
 }
 
 /// The row price of a match under `q`'s row shape.
@@ -124,7 +109,7 @@ fn run_match(
             crate::response::result::restart_query(ToolId::AstSearch, &q.to_value()),
         ));
     }
-    let budget = crate::response::page_windows::page_budget(response_window, &q.to_value());
+    let budget = crate::response::page_windows::page_budget(response_window);
     let row_paths = super::RowPaths::new(paths, &scope.canonical, scope.is_file);
     let mut grouped = group_files(q, &scan.files, budget, row_paths, &inapplicable, cancel)?;
     grouped.skipped_grammars = inapplicable.counts();
@@ -145,7 +130,9 @@ fn run_match(
     ) {
         Ok(incomplete) => {
             // Counted and disclosed as the scan counts a file its limit cut.
-            grouped.unevaluated_files += incomplete.len() as u32;
+            grouped.unevaluated_files = grouped
+                .unevaluated_files
+                .saturating_add(crate::num::u32_of_usize(incomplete.len()));
             grouped
                 .diagnostics
                 .extend(incomplete.iter().flatten().map(diag));
@@ -243,7 +230,6 @@ fn run_match(
     Ok(out)
 }
 
-mod clipped;
 mod continuations;
 mod exact_miss;
 mod gaps;
@@ -251,6 +237,7 @@ mod groups;
 mod memo;
 mod qualified;
 mod query;
+mod reads;
 mod render;
 mod rows;
 mod scan;
@@ -259,8 +246,6 @@ mod snapshot;
 mod types;
 pub use query::MatchQuery;
 
-#[cfg(test)]
-mod bounded_text_tests;
 #[cfg(test)]
 mod interrupted_rescan_tests;
 #[cfg(test)]

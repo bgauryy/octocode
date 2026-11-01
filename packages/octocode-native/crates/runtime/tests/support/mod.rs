@@ -94,6 +94,7 @@ impl Run for ToolRuntime {
             Err(error) => Err(error),
         };
         octocode_native::runtime::error::mcp_result(&tool, result)
+            .map(octocode_native::runtime::error::McpResult::into_value)
     }
 }
 

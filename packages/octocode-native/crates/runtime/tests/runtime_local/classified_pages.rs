@@ -61,10 +61,10 @@ async fn walk(
             if let Some(content) = data["content"].as_str() {
                 lines.extend(content.lines().map(str::to_owned));
             }
-            for name in ["continueWindow", "nextCandidatePage"] {
+            for name in ["nextPage", "nextCandidatePage"] {
                 if let Some(call) = data["next"].get(name) {
                     assert_eq!(call["tool"], tool);
-                    if name == "continueWindow" {
+                    if name == "nextPage" {
                         display_pages += 1;
                     } else {
                         candidate_pages += 1;
@@ -191,7 +191,7 @@ async fn display_paging_preserves_raw_recovery_replay_and_source_snapshot() {
         assert_eq!(actual, expected, "{name} preserves exact original evidence");
         saved.push(input);
     }
-    let display = next["continueWindow"]["input"].clone();
+    let display = next["nextPage"]["input"].clone();
     support::assert_cursor_only(&display);
     let second = support::call(&runtime, "localFetch", display.clone())
         .await
@@ -220,8 +220,23 @@ async fn display_paging_preserves_raw_recovery_replay_and_source_snapshot() {
         let stale = support::call(&runtime, "localFetch", input)
             .await
             .expect("stale row");
-        assert_eq!(support::row_data(&stale)["errorCode"], "staleSnapshot");
-        assert!(support::row_data(&stale).get("content").is_none());
+        let data = support::row_data(&stale);
+        assert_eq!(data["errorCode"], "staleSnapshot");
+        assert!(data.get("content").is_none());
+        // The restart is required work, never an optional related call.
+        assert!(data.get("related").is_none(), "{data}");
+        let restart = data["next"]["restart"]["input"].clone();
+        support::assert_cursor_only(&restart);
+        let fresh = support::call(&runtime, "localFetch", restart)
+            .await
+            .expect("restart");
+        // It reads the changed source afresh (here the old range is past
+        // its new end), never the stale snapshot again.
+        assert_ne!(
+            support::row_data(&fresh)["errorCode"],
+            "staleSnapshot",
+            "{fresh:?}"
+        );
     }
     runtime.close().await;
 }
@@ -235,7 +250,7 @@ async fn empty_selected_display_still_advances_pending_candidates() {
     let data = support::row_data(&first);
     assert_eq!(data["content"], "");
     assert_eq!(data["selection"]["excludedItems"], 1);
-    assert!(data["next"].get("continueWindow").is_none());
+    assert!(data["next"].get("nextPage").is_none());
     let next = data["next"]["nextCandidatePage"]["input"].clone();
     support::assert_cursor_only(&next);
     let actual = walk(&runtime, "localFetch", next, true).await;

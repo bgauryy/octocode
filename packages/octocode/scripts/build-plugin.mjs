@@ -25,8 +25,7 @@ export const writeJson = (path, value) =>
  */
 
 /**
- * The build every host plugin (Claude Code, Codex) shares: the public skills staged with `stageSkills`, the plugin's own
- * `src/skills` laid over them, the onboarding skill filled with the CLI's version and Node range, and the license. The host
+ * The build every host plugin (Claude Code, Codex) shares: the public skills, including onboarding, staged with `stageSkills`, and the license. The host
  * writes only what differs (its manifest and MCP file) in `writeHostFiles({ pkg, manifest, mcpServer })`, where `mcpServer` is
  * the `octocode-mcp` server entry pinned to the current version.
  */
@@ -40,7 +39,6 @@ export function buildPlugin({ packageRoot, label, writeHostFiles }) {
   const repoRoot = resolve(packageRoot, '../..');
   const pkg = readJson(join(packageRoot, 'package.json'));
   const mcp = readJson(join(repoRoot, 'packages/octocode-mcp/package.json'));
-  const cli = readJson(join(repoRoot, 'packages/octocode/package.json'));
   const manifest = readJson(join(packageRoot, 'src/plugin.json'));
   const skills = join(packageRoot, 'skills');
   stageSkills(join(repoRoot, 'skills'), skills);
@@ -53,14 +51,6 @@ export function buildPlugin({ packageRoot, label, writeHostFiles }) {
       rmSync(join(skills, entry.name), { recursive: true, force: true });
     }
   }
-  cpSync(join(packageRoot, 'src/skills'), skills, { recursive: true });
-  const onboarding = join(skills, 'octocode-get-started/SKILL.md');
-  writeFileSync(
-    onboarding,
-    readFileSync(onboarding, 'utf8')
-      .replaceAll('{{CLI_VERSION}}', cli.version)
-      .replaceAll('{{NODE_RANGE}}', cli.engines.node)
-  );
   writeHostFiles({
     pkg,
     manifest,

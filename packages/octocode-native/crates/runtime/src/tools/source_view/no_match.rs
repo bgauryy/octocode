@@ -88,9 +88,6 @@ pub(super) fn no_match(q: &LocalFetchQuery, source: &Source) -> LocalFetchResult
             .collect(),
         total_lines: Some(source.total_lines),
         selected_match_count: Some(0),
-        source_chars: Some(source.chars),
-        source_bytes: Some(source.bytes),
-        returned_chars: Some(0),
         returned_bytes: Some(0),
         returned_lines: Some(0),
         ..LocalFetchResult::blank(ReadStatus::Empty)

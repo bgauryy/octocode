@@ -55,6 +55,30 @@
       "tokenPriority": 1,
       "description": "GitHub Actions token"
     },
+    "TAVILY_API_KEY": {
+      "dotenv": "all",
+      "credential": true,
+      "documentation": true,
+      "description": "Tavily search API credential used by the octocode-brainstorming skill."
+    },
+    "EXA_API_KEY": {
+      "dotenv": "all",
+      "credential": true,
+      "documentation": true,
+      "description": "Exa search API credential used by the octocode-brainstorming skill."
+    },
+    "SERPER_API_KEY": {
+      "dotenv": "all",
+      "credential": true,
+      "documentation": true,
+      "description": "Serper search API credential used by the octocode-brainstorming skill."
+    },
+    "SCRAPING_ANT": {
+      "dotenv": "all",
+      "credential": true,
+      "documentation": true,
+      "description": "ScrapingAnt API credential used by the octocode-scraping skill."
+    },
     "OCTOCODE_GITHUB_CLIENT_ID": {
       "dotenv": "home",
       "configSource": true,
@@ -112,7 +136,7 @@
         "enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable local filesystem tools on every runtime surface.",
+          "description": "Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces.",
           "env": {
             "name": "OCTOCODE_ENABLE_LOCAL",
             "dotenv": "home",
@@ -122,7 +146,7 @@
         "beta": {
           "type": "boolean",
           "default": false,
-          "description": "Expose beta tools through MCP; off by default. CLI tools remain available without this opt-in. Restart MCP after changing this setting.",
+          "description": "Expose graphBuild and graphQuery through MCP. CLI tools remain available without this opt-in. Restart MCP after changing this setting.",
           "env": {
             "name": "OCTOCODE_BETA",
             "dotenv": "home"
@@ -160,7 +184,7 @@
         "enabled": {
           "type": "stringArray",
           "default": null,
-          "description": "Strict tool allowlist replacing the default tool set.",
+          "description": "Strict MCP tool allowlist; other MCP prerequisites still apply. CLI exposes every tool in the build.",
           "env": {
             "name": "TOOLS_TO_RUN"
           }
@@ -168,9 +192,19 @@
         "disabled": {
           "type": "stringArray",
           "default": null,
-          "description": "Tools removed from the default tool set.",
+          "description": "Tools removed from MCP discovery and admission. CLI exposes every tool in the build.",
           "env": {
             "name": "DISABLE_TOOLS"
+          }
+        },
+        "enableClone": {
+          "type": "boolean",
+          "default": false,
+          "description": "Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.",
+          "env": {
+            "name": "OCTOCODE_ENABLE_CLONE",
+            "dotenv": "home",
+            "workspaceNarrowsTo": "false"
           }
         }
       }
@@ -293,7 +327,7 @@
             "persistent",
             "memory"
           ],
-          "description": "Whether caches and runtime state may persist on disk.",
+          "description": "Persistent saves reusable tool results and continuation state to disk; memory keeps them in RAM. Explicit graph snapshots are outputs, while extraction checkpoints follow this setting.",
           "env": {
             "name": "OCTOCODE_STORAGE_MODE",
             "dotenv": "home",
@@ -320,7 +354,7 @@
           "type": "string",
           "default": null,
           "credential": true,
-          "description": "Classification provider API key, required for read-tool classifiers and clasify. Clasify also requires a successful provider ping.",
+          "description": "Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP; CLI always exposes clasify and checks the key when invoked. Discovery makes no provider request.",
           "env": {
             "name": "OCTOCODE_CLASSIFICATION_API",
             "dotenv": "all",

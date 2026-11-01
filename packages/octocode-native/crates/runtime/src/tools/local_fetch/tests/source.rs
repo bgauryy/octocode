@@ -52,6 +52,7 @@ fn cancellation_is_checked_around_io() {
         &Cancel(AtomicUsize::new(0)),
         None,
         None,
+        &Default::default(),
     );
     assert_eq!(r.error_code, Some(ErrorCode::Cancelled));
 }
@@ -124,7 +125,6 @@ fn a_leading_bom_is_not_text_of_line_one() {
         Some("alpha\nbeta alpha\n"),
         "{plain:?}"
     );
-    assert_eq!(plain.source_bytes, Some(20), "{plain:?}");
     let r = fetch(
         &qj(
             &p,
@@ -175,7 +175,15 @@ fn a_large_source_is_prepared_once_per_version() {
     fs::write(&p, line.repeat(4_000)).expect("fixture");
     let scan = CountingKeys(AtomicUsize::new(0));
     let read = |req: &LocalFetchQuery| {
-        execute_local_fetch(req, &Paths(t.0.clone()), &scan, &NeverCancel, None, None)
+        execute_local_fetch(
+            req,
+            &Paths(t.0.clone()),
+            &scan,
+            &NeverCancel,
+            None,
+            None,
+            &Default::default(),
+        )
     };
     let first = read(&q(&p));
     let next = first
@@ -245,7 +253,15 @@ fn concurrent_rows_share_one_preparation() {
                 let (scan, start, paths) = (&scan, &start, Paths(t.0.clone()));
                 scope.spawn(move || {
                     start.wait();
-                    execute_local_fetch(row, &paths, scan, &NeverCancel, None, None)
+                    execute_local_fetch(
+                        row,
+                        &paths,
+                        scan,
+                        &NeverCancel,
+                        None,
+                        None,
+                        &Default::default(),
+                    )
                 })
             })
             .collect::<Vec<_>>();

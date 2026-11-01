@@ -7,6 +7,21 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use octocode_engine::signatures::languages;
 
+/// A contract `parserGlobs` map as parser id → root-relative globs.
+pub(crate) fn parser_globs(
+    globs: &octocode_contract_types::AstParserGlobs,
+) -> std::collections::BTreeMap<String, Vec<String>> {
+    globs
+        .iter()
+        .map(|(parser, patterns)| {
+            (
+                parser.to_string(),
+                patterns.iter().map(ToString::to_string).collect(),
+            )
+        })
+        .collect()
+}
+
 /// `languageGlobs` (language → globs) as the engine scan's flat glob list.
 pub(crate) fn language_globs(
     map: &BTreeMap<String, Vec<String>>,
@@ -37,15 +52,6 @@ impl GlobParsers {
     ) -> Result<Self, octocode_engine::fact_scan::GraphScanError> {
         let rules = map.map(language_globs);
         octocode_engine::fact_scan::parser_overrides(root, rules.as_deref()).map(Self)
-    }
-
-    /// Whether any rule names `path`: a file only `languageGlobs` map to a
-    /// grammar is a candidate of a graph-facts walk, even when two rules of
-    /// different parsers name it (the scan then skips it as ambiguous).
-    pub(crate) fn names(&self, path: &std::path::Path) -> bool {
-        self.0
-            .iter()
-            .any(|(_, matcher)| octocode_engine::search::glob::matches(matcher, path, false))
     }
 
     /// The parser extension the rules select for `path`; none when no rule
@@ -90,7 +96,7 @@ pub(crate) fn diagnostic_recovery(code: &str, engine: Option<&str>) -> Option<St
         "structural.content.tooLarge" => {
             "Target a smaller file; for this one, read bounded ranges with localFetch or search text with localSearch."
         }
-        "syntaxTree.budget.deadline" | "syntaxTree.budget.nodeLimit" => {
+        "syntaxTree.budget.deadline" => {
             "Nodes past this stop are not listed on any page; query them with a match pattern or read their lines with localFetch."
         }
         _ => return engine.map(str::to_owned),

@@ -82,16 +82,17 @@ pub(super) fn stays_on_import(
 }
 
 /// Zero-based start of every import's local binding in `content`, with its
-/// module specifier; `None` when the file's imports cannot be read.
+/// module specifier; `None` when the file's imports cannot be read. The
+/// imports come from the digest-cached declarations parse.
 fn import_bindings(content: &str, file: &str) -> Option<HashMap<Spot, String>> {
-    let facts = octocode_engine::signatures::extract_graph_facts(content, file)?;
+    let facts = crate::tools::declarations_cache::file_document(content, file)?;
     Some(
         facts
             .imports
-            .into_iter()
+            .iter()
             .filter_map(|import| {
-                let start = import.local_range?.start;
-                Some(((start.line, start.character), import.specifier))
+                let start = import.local_range.as_ref()?.start.clone();
+                Some(((start.line, start.character), import.specifier.clone()))
             })
             .collect(),
     )

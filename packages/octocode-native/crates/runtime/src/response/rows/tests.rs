@@ -13,15 +13,18 @@ fn every_tool_keeps_complete_row_data_without_hoisting_or_pruning() {
 
 #[test]
 fn partial_diagnostics_keep_their_reasons_and_full_guidance() {
-    let mut row = json!({"data":{"hints":["existing"],"partialReasons":["old"]}});
+    let mut row = json!({"data":{"hints":["existing"],"partialReasons":["filesSkipped"]}});
     let diagnostics = crate::response::result::ToolDiagnostics {
-        partial: true,
-        codes: vec!["scanFailed".into()],
+        partial_reasons: vec![crate::response::paging::PartialReason::ProviderResultCap],
         hints: vec!["complete guidance ".repeat(100)],
     };
     attach_diagnostics(&mut row, diagnostics);
     let data = &row["data"];
-    assert_eq!(data["partialReasons"], json!(["old", "scanFailed"]));
+    assert_eq!(data["isPartial"], true);
+    assert_eq!(
+        data["partialReasons"],
+        json!(["filesSkipped", "providerResultCap"])
+    );
     assert_eq!(data["hints"].as_array().expect("hints").len(), 2);
     assert_eq!(data["hints"][1], "complete guidance ".repeat(100));
 }

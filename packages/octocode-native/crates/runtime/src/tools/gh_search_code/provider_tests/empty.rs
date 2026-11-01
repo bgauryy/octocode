@@ -217,13 +217,20 @@ async fn a_path_mode_search_of_code_leads_to_the_content_search_alone() {
             .await;
     let next =
         crate::tools::test_support::checks::related_call(&out.data, "ghSearchCode", |input| {
-            input["queries"][0]["matchIn"] == json!(["content"])
+            crate::tools::test_support::opened(
+                crate::id::ToolId::GhSearchCode,
+                &input["queries"][0],
+            )["matchIn"]
+                == json!(["content"])
         });
     crate::contracts::validate("ghSearchCode", next["input"].clone())
         .expect("a related content search must accept an authored input");
     assert_eq!(next["tool"], "ghSearchCode", "{}", out.data);
     assert_eq!(
-        next["input"]["queries"][0]["matchIn"],
+        crate::tools::test_support::opened(
+            crate::id::ToolId::GhSearchCode,
+            &next["input"]["queries"][0]
+        )["matchIn"],
         json!(["content"]),
         "{}",
         out.data
@@ -243,9 +250,11 @@ async fn an_empty_search_of_an_or_phrase_splits_it_into_rows() {
     .await;
     let data = &out.data;
     assert!(
-        data["hints"].as_array().is_some_and(|hints| hints
-            .iter()
-            .any(|hint| hint == "keywords take no OR; send one row per alternative.")),
+        data["hints"]
+            .as_array()
+            .is_some_and(|hints| hints.iter().any(|hint| hint
+                .as_str()
+                .is_some_and(|hint| hint.starts_with("keywords hold OR")))),
         "{data}"
     );
     let split = crate::tools::test_support::checks::related_call(data, "ghSearchCode", |input| {
@@ -300,5 +309,74 @@ async fn an_empty_search_of_a_missing_repository_reads_it_once() {
     assert_eq!(
         error.reason,
         Some(octocode_github::ProviderErrorReason::RepositoryNotFound)
+    );
+}
+
+/// A missing repository's name search returns repositories named like it
+/// under any owner: the hint labels it so, and the owner's own listing sits
+/// beside it.
+#[tokio::test]
+async fn a_missing_repository_labels_its_name_search_and_lists_the_owner() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"total_count":0,"incomplete_results":false,"items":[]})),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/missing"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .mount(&server)
+        .await;
+    let provider = one_shot_provider(&server);
+    let query: GhSearchCodeQuery =
+        serde_json::from_value(json!({"owner":"a","repo":"missing","keywords":["x"]}))
+            .expect("query");
+    let context = default_context();
+    let failure = crate::tools::gh_search_code::run(&provider, &query, Ok(&context), &Passthrough)
+        .await
+        .expect_err("a missing repository");
+    let calls = failure.calls.as_deref().expect("recovery calls");
+    assert_eq!(
+        calls["findRepository"]["input"]["queries"][0],
+        json!({"operation":"search","keywords":["missing"]}),
+        "{calls}"
+    );
+    assert_eq!(
+        calls["findRepository2"]["input"]["queries"][0],
+        json!({"operation":"list","owner":"a"}),
+        "{calls}"
+    );
+    let hints = failure.hints.join(" ");
+    assert!(
+        hints.contains("named like `missing`") && hints.contains("confirm the owner"),
+        "{hints}"
+    );
+}
+
+/// A scoped empty search says "unproven absence" once: the row's hints and
+/// the diagnostics the response stage appends to them are one list.
+#[tokio::test]
+async fn a_scoped_empty_search_states_unproven_absence_once() {
+    let out =
+        run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"pathPrefix":"src"})).await;
+    let mut hints = out.data["hints"]
+        .as_array()
+        .map(|hints| {
+            hints
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    hints.extend(out.diagnostics.hints.iter().map(String::as_str));
+    let absence = hints.iter().filter(|hint| hint.contains("absence")).count();
+    assert_eq!(absence, 1, "{hints:?}");
+    assert!(
+        hints.iter().any(|hint| hint.contains("related[]")),
+        "{hints:?}"
     );
 }

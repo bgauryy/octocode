@@ -75,7 +75,9 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
     assert!(message.contains("credential"), "{}", rows[1]);
     assert_eq!(
         rows[1]["data"]["hints"],
-        json!(["Correct the rejected field named in the error; broadening will not help."]),
+        json!([
+            "Input rejected: fix only the field the error names, as its message shows; broadening will not help."
+        ]),
         "{}",
         rows[1]
     );
@@ -108,7 +110,9 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
     );
     assert_eq!(
         rows[1]["data"]["hints"],
-        json!(["Correct the rejected field named in the error; broadening will not help."]),
+        json!([
+            "Input rejected: fix only the field the error names, as its message shows; broadening will not help."
+        ]),
         "{}",
         rows[1]
     );

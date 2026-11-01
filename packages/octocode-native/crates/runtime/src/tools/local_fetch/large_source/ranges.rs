@@ -18,7 +18,7 @@ const OMISSION_MARKER_CHARS: usize = 48;
 /// non-adjacent spans, as a whole-file read joins them. The page ends at the
 /// first span that does not fit one window page: it holds every span before
 /// it and that span's first page, continued by that span's own pages
-/// (`continueWindow`) and one read of every requested range after it
+/// (`nextPage`) and one read of every requested range after it
 /// (`readOtherRanges`), so each requested line is on exactly one page.
 pub(super) fn fetch_ranges(
     q: &LocalFetchQuery,
@@ -197,7 +197,6 @@ fn join_parts(result: &mut LocalFetchResult, parts: impl Iterator<Item = LocalFe
             (Some(a), Some(b)) => Some(a + b),
             (a, b) => a.or(b),
         };
-        result.returned_chars = add(result.returned_chars, part.returned_chars);
         result.returned_bytes = add(result.returned_bytes, part.returned_bytes);
         result.returned_lines = add(result.returned_lines, part.returned_lines);
     }

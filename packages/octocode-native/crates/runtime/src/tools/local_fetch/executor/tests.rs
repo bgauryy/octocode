@@ -14,6 +14,7 @@ mod open;
 mod secrets;
 mod size_limits;
 mod streamed;
+mod streamed_matches;
 
 /// Read `req` under `dir` with a passthrough scan.
 fn fetch(req: &LocalFetchQuery, paths: &Paths) -> LocalFetchResult {

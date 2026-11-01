@@ -1,6 +1,8 @@
 //! Snapshot health: diagnostics, unlinked imports, staleness and the
-//! re-ingest command.
+//! re-ingest call.
 use super::*;
+use crate::id::ToolId;
+use crate::response::result::Continuation;
 
 pub(super) fn diagnostics(g: &Graph, filter: Option<&str>) -> Page {
     let rows =
@@ -49,46 +51,40 @@ pub(super) fn unlinked_path_imports(g: &Graph, file: u32) -> Vec<Value> {
         .collect()
 }
 
-/// The ingest that rebuilds the snapshot of `manifest` with its own scan
-/// options; a scan cut at maxFiles re-ingests with twice the bound, the only
-/// limit a re-ingest can lift.
-pub(super) fn reingest_command(manifest: &Value) -> String {
+/// The related graphBuild call that rebuilds the snapshot of `manifest`
+/// with its own scan options: its root (workspace-relative), excluded
+/// directories and parser globs.
+pub(super) fn reingest_call(manifest: &Value) -> Value {
     let scan = &manifest["scan"];
     let root = manifest["root"].as_str().unwrap_or_default();
-    let mut command = format!("octocode graph ingest {}", quote(root));
-    let max_files = match scan["maxFiles"].as_u64() {
-        Some(max) if scan["truncated"] == true => {
-            Some(max.saturating_mul(2).min(u64::from(u32::MAX)))
-        }
-        max => {
-            max.filter(|max| *max != u64::from(crate::tools::ast_graph::limits::LIMITS.max_files))
-        }
-    };
-    if let Some(max) = max_files {
-        command.push_str(&format!(" --max-files {max}"));
-    }
-    for dir in scan["excludeDir"]
+    let path = manifest["workspace"]
+        .as_str()
+        .and_then(|workspace| Path::new(root).strip_prefix(workspace).ok())
+        .map(|relative| relative.to_string_lossy().into_owned())
+        .map_or_else(
+            || root.to_owned(),
+            |relative| {
+                if relative.is_empty() {
+                    ".".to_owned()
+                } else {
+                    relative
+                }
+            },
+        );
+    let mut row = Map::from_iter([("path".to_owned(), json!(path))]);
+    if let Some(exclude) = scan["excludeDir"]
         .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
+        .filter(|dirs| !dirs.is_empty())
     {
-        command.push_str(&format!(" --exclude {}", quote(dir)));
+        row.insert("exclude".into(), json!(exclude));
     }
-    for (language, globs) in scan["languageGlobs"].as_object().into_iter().flatten() {
-        for glob in globs
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-        {
-            command.push_str(&format!(
-                " --language-glob {}",
-                quote(&format!("{language}={glob}"))
-            ));
-        }
+    if let Some(globs) = scan["languageGlobs"]
+        .as_object()
+        .filter(|globs| !globs.is_empty())
+    {
+        row.insert("parserGlobs".into(), json!(globs));
     }
-    command
+    Continuation::related(ToolId::GraphBuild, Value::Object(row)).build()
 }
 
 /// What changed under the snapshot's root since ingest: sources edited,
@@ -112,24 +108,10 @@ pub(super) fn stale(g: &Graph, paths: &PathPolicy) -> (Map<String, Value>, Page)
     let analysis_current = super::super::analysis_current(&g.manifest);
     extra.insert("analysisCurrent".into(), json!(analysis_current));
     extra.insert("checked".into(), json!(g.t.digests.len()));
-    extra.insert(
-        "fresh".into(),
-        json!(rows.is_empty() && freshness.added_checked && analysis_current),
-    );
-    let scan = &g.manifest["scan"];
-    let max_files = scan["maxFiles"].as_u64();
-    if !freshness.added_checked {
-        extra.insert(
-            "unchecked".into(),
-            json!(format!(
-                "files added since ingest: the snapshot's scan stopped at maxFiles ({})",
-                max_files.map_or_else(|| "?".to_owned(), |max| max.to_string())
-            )),
-        );
-    }
-    // A scan cut at maxFiles names its widened re-ingest in the graph block.
-    if (!rows.is_empty() || !analysis_current) && freshness.added_checked {
-        extra.insert("reingest".into(), json!(reingest_command(&g.manifest)));
+    let fresh = rows.is_empty() && analysis_current;
+    extra.insert("fresh".into(), json!(fresh));
+    if !fresh {
+        extra.insert("reingest".into(), reingest_call(&g.manifest));
     }
     (
         extra,

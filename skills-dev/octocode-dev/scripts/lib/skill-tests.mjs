@@ -1,8 +1,7 @@
 // Find tests owned by standalone skills. Workspace-owned tests have their own gates.
 import fs from 'node:fs';
 import path from 'node:path';
-
-const ROOTS = ['skills', 'skills-beta', 'skills-dev'];
+import { SKILL_COLLECTIONS as ROOTS } from './workspaces.mjs';
 const WORKSPACE_TEST_OWNERS = new Map([
   ['skills', new Set(['common'])],
   ['skills-dev', new Set(['octocode-dev'])],

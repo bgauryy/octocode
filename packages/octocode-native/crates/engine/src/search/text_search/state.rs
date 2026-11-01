@@ -1,6 +1,7 @@
 //! Search-wide accumulation: per-file records, the shared counters walk workers write, and their
 //! snapshot.
 
+use crate::num::saturating_u32;
 use crate::search::text_parser::FileEntry;
 use crate::text::extension_of;
 use crate::types::{BinaryExtensionCount, SearchedSource, TextSearchMatch};
@@ -39,6 +40,9 @@ pub(super) struct FileRec {
     pub(super) source: Option<SearchedSource>,
     /// A returned line was not UTF-8: the values are decoded text.
     pub(super) not_utf8: bool,
+    /// Per searched term: its matches or matched lines (see
+    /// [`crate::types::TextSearchFile::term_counts`]).
+    pub(super) term_counts: Vec<u32>,
 }
 
 /// Everything one search accumulated. Totals (`files_matched`, `submatches`,
@@ -74,6 +78,7 @@ pub(super) struct CollectResult {
     pub(super) error_count: u32,
     pub(super) first_error: Option<String>,
     pub(super) pattern_error_count: u32,
+    pub(super) test_code_excluded: crate::types::TestCodeExcluded,
 }
 
 /// Shared accumulation state for one search. Walk workers write finished files
@@ -106,6 +111,10 @@ pub(super) struct CollectState {
     /// Errors raised by the matcher on a readable file (see
     /// [`TextSearchStats::pattern_error_count`](crate::types::TextSearchStats::pattern_error_count)).
     pub(super) pattern_error_count: AtomicU64,
+    /// Files a test-code scope left out by path, and matched lines it left
+    /// out inside searched files.
+    pub(super) test_files_excluded: AtomicU32,
+    pub(super) test_lines_excluded: AtomicU64,
 }
 
 impl CollectState {
@@ -133,6 +142,8 @@ impl CollectState {
             error_count: AtomicU64::new(0),
             first_error: Mutex::new(None),
             pattern_error_count: AtomicU64::new(0),
+            test_files_excluded: AtomicU32::new(0),
+            test_lines_excluded: AtomicU64::new(0),
         }
     }
 
@@ -247,7 +258,7 @@ impl CollectState {
                 files.sort();
                 files
             },
-            binary_file_count: saturate_u32(self.binary_file_count.load(Ordering::Relaxed)),
+            binary_file_count: saturating_u32(self.binary_file_count.load(Ordering::Relaxed)),
             skipped_binary_count: self.skipped_binary_count.load(Ordering::Relaxed),
             file_terms_dropped: self.file_terms_dropped.load(Ordering::Relaxed),
             depth_cut_dirs: self.depth_cut_dirs.load(Ordering::Relaxed),
@@ -281,14 +292,13 @@ impl CollectState {
                 groups
             },
             cancelled: self.cancelled.load(Ordering::Relaxed),
-            error_count: saturate_u32(self.error_count.load(Ordering::Relaxed)),
+            error_count: saturating_u32(self.error_count.load(Ordering::Relaxed)),
             first_error,
-            pattern_error_count: saturate_u32(self.pattern_error_count.load(Ordering::Relaxed)),
+            pattern_error_count: saturating_u32(self.pattern_error_count.load(Ordering::Relaxed)),
+            test_code_excluded: crate::types::TestCodeExcluded {
+                files: self.test_files_excluded.load(Ordering::Relaxed),
+                lines: saturating_u32(self.test_lines_excluded.load(Ordering::Relaxed)),
+            },
         }
     }
-}
-
-/// Saturating `u64` → `u32` for the public `u32` stats.
-pub(super) fn saturate_u32(value: u64) -> u32 {
-    u32::try_from(value).unwrap_or(u32::MAX)
 }

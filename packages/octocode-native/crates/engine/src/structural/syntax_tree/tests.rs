@@ -196,47 +196,30 @@ fn pages_cover_the_same_fixture() {
     assert_eq!(ids, (0..all.total_nodes).collect::<Vec<_>>());
 }
 
+/// A tree of more than a million nodes is walked whole: its last nodes
+/// page like its first, and no node budget ends the listing.
 #[test]
-fn a_node_budget_stop_still_pages_every_walked_node() {
-    // Nodes the walk numbered before the budget stop stay reachable page
-    // by page; only nodes past the budget are a terminal limit.
-    let source = "const a = 1; const b = 2; const c = 3; const d = 4;";
-    let budget = 10;
-    let page = |offset| {
-        inspect_bounded(
-            source,
-            "x.ts",
-            None,
-            Some(SyntaxTreeInspectOptions {
-                named_only: Some(false),
-                node_offset: Some(offset),
-                line: None,
-                node_limit: Some(3),
-            }),
-            budget,
-        )
-    };
-    let mut ids = Vec::new();
-    let mut offset = 0;
-    let last = loop {
-        let result = page(offset);
-        assert_eq!(result.status, "partial");
-        assert_eq!(result.total_nodes as usize, budget);
-        ids.extend(result.nodes.iter().map(|node| node.id));
-        match result.next_offset {
-            Some(next) => offset = next,
-            None => break result,
-        }
-    };
-    assert_eq!(ids, (0..budget as u32).collect::<Vec<_>>());
-    let stop = last
-        .diagnostics
-        .iter()
-        .find(|d| d.code == "syntaxTree.budget.nodeLimit")
-        .expect("budget diagnostic");
-    // The engine names no tool or contract field: the runtime words
-    // the recovery by code.
-    assert_eq!(stop.recovery, None);
+fn a_tree_past_a_million_nodes_pages_to_its_last_node() {
+    let source = format!("[{}0]", "0,".repeat(600_000));
+    let tail = inspect_source(
+        &source,
+        "big.js",
+        Some(SyntaxTreeInspectOptions {
+            named_only: Some(false),
+            node_offset: Some(1_100_000),
+            line: None,
+            node_limit: Some(10),
+        }),
+    );
+    assert_eq!(tail.status, "ok");
+    assert!(tail.total_nodes > 1_100_010, "{}", tail.total_nodes);
+    assert_eq!(tail.nodes.len(), 10);
+    assert_eq!(tail.nodes[0].id, 1_100_000);
+    assert!(
+        tail.diagnostics
+            .iter()
+            .all(|d| !d.code.starts_with("syntaxTree.budget."))
+    );
 }
 
 /// A diagnostic names a recovery only when it has one that fits it: a

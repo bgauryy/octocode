@@ -184,7 +184,6 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                                 group.out_of_range,
                                 group.more_matches,
                                 group.truncated_captures,
-                                group.clipped.clone(),
                             )
                         })
                         .collect::<Vec<_>>()

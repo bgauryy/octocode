@@ -14,7 +14,7 @@
 //! every entry once as it did before.
 use super::super::page_memo::{PageMemo, Proof};
 use super::memo::{self, Seen};
-use octocode_engine::search::fs_resume::WalkCursor;
+use octocode_engine::types::WalkCursor;
 use serde_json::{Value, json};
 use std::time::Duration;
 

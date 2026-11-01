@@ -14,7 +14,7 @@ impl From<std::io::Error> for VerifyReadError {
     }
 }
 
-/// One streamed pass over a source prefix for the clipped-secret check.
+/// One streamed pass over a source prefix for the source-secret check.
 pub(in crate::tools::local_search) struct VerificationLines {
     /// Private-key block ranges over every line read.
     pub(in crate::tools::local_search) key_ranges: Vec<(u32, u32)>,
@@ -239,15 +239,8 @@ pub(super) fn visit_values(
                 .map(|s| s.strip_suffix('\r').unwrap_or(s))
                 .unwrap_or(&text);
             let hit = &mut file.matches[index];
-            hit.value = octocode_engine::search::text_parser::line_match(
-                text,
-                line,
-                hit.column,
-                crate::tools::local_search::local_search_query::effective_match_content_length(
-                    scope.query,
-                ) as usize,
-            )
-            .value;
+            hit.value =
+                octocode_engine::search::text_parser::line_match(text, line, hit.column).value;
             visit(index, hit)?;
             at += 1;
         }

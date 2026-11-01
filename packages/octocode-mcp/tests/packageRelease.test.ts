@@ -47,13 +47,12 @@ describe('published package release contract', () => {
   });
 
   it('advertises canonical MCP tool names without client prefixes', async () => {
-    const { DIRECT_TOOL_DEFINITIONS, isCliOnlyTool } =
+    const { DIRECT_TOOL_DEFINITIONS } =
       await import('@octocodeai/config/schema');
-    // CLI-only tools mutate the machine and are never registered by MCP.
+    // The manifest lists every tool MCP can register, opt-in tools included:
+    // ghCloneRepo stays here and is hidden at runtime unless tools.enableClone is on.
     expect(dxtManifest.tools.map(tool => tool.name).sort()).toEqual(
-      DIRECT_TOOL_DEFINITIONS.map(tool => tool.name)
-        .filter(name => !isCliOnlyTool(name))
-        .sort()
+      DIRECT_TOOL_DEFINITIONS.map(tool => tool.name).sort()
     );
   });
 
@@ -76,7 +75,6 @@ describe('published package release contract', () => {
     for (const tool of getPublicToolCatalog().tools) {
       if (
         !tool.beta ||
-        tool.cliOnly ||
         typeof tool.name !== 'string' ||
         tool.name === TOOL_NAMES.CLASIFY
       )

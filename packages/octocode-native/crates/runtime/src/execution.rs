@@ -8,8 +8,8 @@ pub(crate) mod cancel;
 mod lifecycle;
 mod limits;
 
-pub(crate) use lifecycle::{Cost, ExecutionContext, MAX_TIMEOUT};
+pub(crate) use lifecycle::ExecutionContext;
 pub use lifecycle::{
-    DEFAULT_TIMEOUT, ExecutionError, RequestAdmission, RequestLimits, RequestRuntime,
+    DEFAULT_TIMEOUT, ExecutionError, MAX_TIMEOUT, RequestAdmission, RequestLimits, RequestRuntime,
 };
-pub use limits::{CloneLimits, RuntimeLimits, SelectionLimits};
+pub use limits::{RuntimeLimits, SelectionLimits};

@@ -72,7 +72,7 @@ pub mod error {
 `;
 
 const declared = (rust: string): string[] =>
-  [...rust.matchAll(/^pub (?:struct|enum|type) (\w+)/gm)].map(([, name]) => name as string);
+  [...rust.matchAll(/^pub (?:struct|enum|type) (\w+)/gm)].flatMap(([, name]) => (name ? [name] : []));
 
 describe('generated Rust reachability', () => {
   it('keeps the root types, what they name and their impls; drops the rest', () => {

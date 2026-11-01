@@ -193,7 +193,7 @@ fn parse_expiry(value: &str) -> Option<SystemTime> {
     let trimmed = value.trim();
     let secs = match trimmed.parse::<u64>() {
         Ok(secs) => secs,
-        Err(_) => crate::civil_date::parse_rfc3339(trimmed)?.0.max(0) as u64,
+        Err(_) => u64::try_from(crate::civil_date::parse_rfc3339(trimmed)?.0).unwrap_or(0),
     };
     Some(UNIX_EPOCH + Duration::from_secs(secs))
 }

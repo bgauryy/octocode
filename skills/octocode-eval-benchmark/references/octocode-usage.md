@@ -2,7 +2,7 @@ Load when using Octocode research tools through MCP or CLI. Source: `skills/comm
 
 ## Choose the surface
 
-Use the connected Octocode MCP tools when available. For CLI-only capabilities or unavailable MCP, prefer the built local CLI from a known Octocode checkout; otherwise use an installed `octocode` or `npx -y octocode`. In the checkout, the local command is `node packages/octocode/out/octocode.js`. From another workspace, use its absolute path and keep the task’s working directory so relative inputs still target that project. Examples use the portable `npx` prefix; substitute the selected CLI. Do not switch versions to hide a failing call.
+Use the connected Octocode MCP tools when available, and call only the tools your MCP host lists. The CLI is a separate surface: it serves every public tool and ignores MCP exposure gates, while path and content security still apply. When Octocode MCP is not connected, or does not list a tool the task needs, prefer the built local CLI from a known Octocode checkout; otherwise use an installed `octocode` or `npx -y octocode`. In the checkout, the local command is `node packages/octocode/out/octocode.js`. From another workspace, use its absolute path and keep the task’s working directory so relative inputs still target that project. Examples use the portable `npx` prefix; substitute the selected CLI. Do not switch versions to hide a failing call.
 
 Research, Chrome DevTools and agents-communication are different executables. Their skills own their command envelopes and mutation rules.
 
@@ -22,28 +22,30 @@ Use observed paths, lines, refs and identifiers. Shared fields have one form: `m
 
 ## Availability
 
-Inspect schema availability, auth status and `lsp-server status <file>` as needed. Unavailable is a coverage gap, not an empty answer. `ghCloneRepo` is CLI-only and needs persistent storage; local analysis also needs local tools enabled.
+Inspect schema availability, auth status and `lsp-server status <file>` as needed. Unavailable is a coverage gap, not an empty answer. `ghCloneRepo` requires persistent storage when invoked.
 
-Follow [configuration](configuration.md) for credentials/settings. Inline `classification:{predicates:[...],context?,longContext?}` requires `OCTOCODE_CLASSIFICATION_API` or classification.api. Public clasify also requires a successful provider ping; beta is not required. No setting change is implied by a missing capability.
+Follow [configuration](configuration.md) for credentials/settings. Inline `classification:{predicates:[...],context?,longContext?}` requires `OCTOCODE_CLASSIFICATION_API` or classification.api. CLI always exposes clasify and checks credentials/provider readiness when invoked. Discovery makes no provider request. No setting change is implied by a missing capability.
 
 ## 16 public tools
 
-The default catalog contains 12 tools over MCP and 15 in the CLI; the full inventory includes clasify when its provider is configured and its ping succeeds. Discovery is authoritative for the configured environment.
+The default catalog contains 12 tools over MCP and 16 in the CLI. MCP independently adds graph tools with beta, clone with `OCTOCODE_ENABLE_CLONE=true`, and clasify with a nonblank classification key (beta and provider health do not gate it); tool lists and the local switch can restrict MCP further. Discovery is authoritative for the configured surface.
 
-- Graph: use graphBuild/graphQuery when MCP exposes them (`OCTOCODE_BETA=true`), otherwise the selected CLI. graphBuild writes and prunes workspace snapshots; graphQuery explores them with freshness and pinned continuations. Verify candidates with LSP and source reads.
+- Graph: graphBuild writes and prunes workspace snapshots; graphQuery explores them. Candidates need LSP and source verification.
 - GitHub: ghSearchRepo, ghSearchCode, ghStructure, ghGetFileContent, ghSearchHistory, ghGetHistoryItem, ghCloneRepo.
 - Local: localSearch, structureSearch, astSearch, localFetch, lspSearch.
 - Other: artifactSearch, clasify.
 
 ## Read results and recover
 
-Inspect every `results[]` row's index, data, status and coverage facts. Success of the envelope does not mean all rows succeeded. Each row owns its evidence; there is no shared/root inheritance protocol.
+Inspect every `results[]` row's index (its position in the request's `queries`), data, status and coverage facts. Success of the envelope does not mean all rows succeeded: a failed row has `status:"error"` with `errorCode` (and `httpStatus` for provider failures), and the exit code is not per row. Each row owns its evidence; there is no shared/root inheritance protocol.
 
-Execute `responsePagination.next` before advancing tool-level `next.*`. A continue call is `{kind:"continue",tool,input:{cursor}}`; copy input unchanged. Finish every continuation needed for the claim or name the unread scope. Independent file, patch, source and diagnostic collections can each remain incomplete.
+Pagings use literal keys: `responsePagination{hasMore,next}` splits the response; `rowPart{part,of}` marks one row split across pages, so read every part first; a row's `pagination{hasMore}` continues in `next.<name>` (such as `next.nextPage`); `contentPagination.<collection>` pages one `ghGetHistoryItem` list. Execute `responsePagination.next` before advancing a row's `next.<name>`. A continue call is `{kind:"continue",tool,input:{cursor}}`; send its input whole to its tool. A claim about what a `next.<name>` covers needs that call. Complete for a claim: no `hasMore:true` and no `next` covering it, with or without a paging object. `isPartial`, `warnings` or `totalItemsCapped` (then `totalItems` is the reachable count) means incomplete: name the gap or narrow the scope. On `staleSnapshot`, discard pages read from the old snapshot and run `next.restart`. Finish every continuation needed for the claim or name the unread scope. Independent file, patch, source and diagnostic collections can each remain incomplete.
 
-`related[]` contains `{kind:"related",tool,input:{queries:[...]}}` for optional fresh work. `hints[]` is prose only. Input errors name fields to correct; no repair call silently changes scope. Terminal limits require a narrower or different query, never an invented cursor.
+`related[]` contains `{kind:"related",tool,input:{queries:[...]}}` for optional fresh work; its calls may widen scope (hidden or ignored paths). `hints[]` is prose only. Input errors name fields to correct; no repair call silently changes scope. Terminal limits require a narrower or different query, never an invented cursor.
 
-Classification receipts describe candidate decisions, not corpus completeness. Selected, related, excluded and unknown evidence have different meanings. Read selected pages or emitted unfiltered/source continuations according to the question.
+Absence needs unfiltered pages: `includeHidden:true`, `includeIgnored:true`, `defaultExcludes:false` and no `classification`. `status:"empty"` with skipped paths or `unknownItems>0` is not absence.
+
+Classification receipts describe candidate decisions, not corpus completeness. Selected, related, excluded and unknown evidence have different meanings. `next.nextCandidatePage` completes a selected list; `next.unfiltered` or `next.unfilteredUnknown` is needed before an absence or count claim, including after an empty classified result; `next.read` is the read needed to cite clasify lines.
 
 Cursor handles are bound to tool, access context and saved state. Memory-mode handles die with the runtime; persistent state may resume across processes. Expired or foreign handles fail without contacting the provider. Restart explicitly from the original request when required.
 

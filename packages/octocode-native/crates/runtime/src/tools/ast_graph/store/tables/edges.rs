@@ -5,10 +5,8 @@ use super::*;
 impl<'a> Projector<'a> {
     /// contains: file → top-level symbol, symbol → member.
     pub(super) fn contains_edges(&mut self) {
-        let owned = self
-            .nodes
-            .iter()
-            .enumerate()
+        let owned = (0..=u32::MAX)
+            .zip(&self.nodes)
             .filter(|(_, node)| node.kind == NodeKind::Symbol)
             .map(|(id, node)| {
                 let owner = if node.parent == NONE {
@@ -16,7 +14,7 @@ impl<'a> Projector<'a> {
                 } else {
                     node.parent
                 };
-                (owner, id as u32, node.line)
+                (owner, id, node.line)
             })
             .collect::<Vec<_>>();
         for (owner, id, line) in owned {
@@ -199,6 +197,26 @@ impl<'a> Projector<'a> {
 
     /// calls and inherits: syntax call sites and base-type clauses linked to
     /// declarations.
+    /// Each Rust function's declared return types by declaration node (see
+    /// [`Linker::return_types`]).
+    fn return_types<'s>(&'s self, symbols: &Symbols) -> HashMap<u32, ReturnTypes<'s>> {
+        let mut return_types = HashMap::new();
+        for (file, facts) in &self.built.facts {
+            let Some(index) = symbols.indexes.get(file.as_str()) else {
+                continue;
+            };
+            for decl in &facts.declarations {
+                if let Some(&id) = index.decl_nodes.get(decl.id.as_str())
+                    && (decl.return_type.is_some() || decl.try_type.is_some())
+                {
+                    return_types
+                        .insert(id, (decl.return_type.as_deref(), decl.try_type.as_deref()));
+                }
+            }
+        }
+        return_types
+    }
+
     pub(super) fn call_edges(&mut self, resolver: &ExportResolver, symbols: &Symbols) -> CallStats {
         let mut file_paths = vec![""; self.nodes.len()];
         let mut families = vec![""; self.nodes.len()];
@@ -222,6 +240,7 @@ impl<'a> Projector<'a> {
         let recovered = accepts(RECOVERED_TARGET);
         let empty_bases = BaseIndex::default();
         let rust_macros = self.rust_macro_names();
+        let return_types = self.return_types(symbols);
         let linker = Linker {
             resolver,
             nodes: &self.nodes,
@@ -233,6 +252,7 @@ impl<'a> Projector<'a> {
             is_type: &is_type,
             recovered: &recovered,
             rust_macros: &rust_macros,
+            return_types: &return_types,
         };
         let mut calls = CallStats::default();
         for file in self.built.facts.keys() {
@@ -317,6 +337,13 @@ impl<'a> Projector<'a> {
         for (src, dst, kind, confidence, detail, line) in linked {
             self.push(src, dst, kind, confidence, &detail, line);
         }
+        self.push_calls(symbols, call_output);
+        self.push_arguments(arguments);
+        calls
+    }
+
+    /// Writes linked call edges (with their witnesses) and unresolved call sites.
+    fn push_calls(&mut self, symbols: &Symbols, call_output: CallOutput) {
         let mut redirected = HashSet::new();
         for call in call_output.edges {
             let (src, dst, kind, confidence, detail, line) = call.edge;
@@ -349,7 +376,5 @@ impl<'a> Projector<'a> {
                 reason: self.strings.id(call.reason),
             });
         }
-        self.push_arguments(arguments);
-        calls
     }
 }

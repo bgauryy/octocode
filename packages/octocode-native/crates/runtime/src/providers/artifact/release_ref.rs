@@ -67,7 +67,7 @@ async fn github_release_tag(
         repo.to_ascii_lowercase(),
         directory.unwrap_or_default()
     );
-    if let Some(fact) = client.fact(&resource) {
+    if let Some(fact) = client.fact(&resource).await {
         return string(fact.get("tag"));
     }
     let candidates = tag_candidates(&repo, package, directory, version);
@@ -82,12 +82,16 @@ async fn github_release_tag(
         for (tag, exists) in round.iter().zip(answers) {
             // A failed check is no answer: nothing is remembered.
             if exists? {
-                client.remember_fact(&resource, &serde_json::json!({ "tag": tag }));
+                client
+                    .remember_fact(&resource, &serde_json::json!({ "tag": tag }))
+                    .await;
                 return Some(tag.clone());
             }
         }
     }
-    client.remember_answer(&resource, &serde_json::json!({ "tag": null }));
+    client
+        .remember_answer(&resource, &serde_json::json!({ "tag": null }))
+        .await;
     None
 }
 

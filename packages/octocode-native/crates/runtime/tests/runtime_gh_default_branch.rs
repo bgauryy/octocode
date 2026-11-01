@@ -32,7 +32,7 @@ fn calls(missing: &str) -> Vec<(&'static str, Value)> {
     vec![
         (
             "ghGetFileContent",
-            json!({"owner":"a","repo":"b","path":"README.md","ref":missing,"forceRefresh":true}),
+            json!({"owner":"a","repo":"b","path":"README.md","ref":missing,"refresh":true}),
         ),
         (
             "ghStructure",

@@ -18,8 +18,13 @@ async fn ast_search_error_rows_name_workspace_relative_paths() {
     .await;
     let row = &outcome.structured_content["results"][0];
     assert_eq!(row["status"], "error", "{row}");
-    // A basename (`Cargo.toml`) cannot be pasted into localFetch.
-    assert_eq!(row["data"]["path"], "sub/dir/Cargo.toml", "{row}");
+    // The row repeats no unchanged request field; its recovery names the
+    // whole path, since a basename (`Cargo.toml`) cannot be pasted into localFetch.
+    assert!(row["data"].get("path").is_none(), "{row}");
+    assert_eq!(
+        row["data"]["related"][0]["input"]["queries"][0]["path"], "sub/dir/Cargo.toml",
+        "{row}"
+    );
     runtime.close().await;
 }
 

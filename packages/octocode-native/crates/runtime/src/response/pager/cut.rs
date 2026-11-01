@@ -20,17 +20,37 @@ pub(super) fn cut_rows(
     )?;
     pagination.next = continuation(input, &pagination);
     if pagination.should_emit() || is_saved_replay(&input.options) {
-        envelope.insert(
-            "responsePagination".into(),
-            pagination_value(&pagination, &input.options)?,
-        );
+        // The page is measured once ([`RowSource::page`]): the rendered
+        // page is those chars plus the block's entry, so the oversized flag
+        // ([`measure_page`]'s rule) follows without serializing the page again.
+        pagination.oversized = None;
+        let mut block = pagination_value(&pagination, &input.options)?;
+        let rendered = pagination.returned_chars + entry_chars(&envelope, &block)?;
+        if input
+            .options
+            .response_chars
+            .is_some_and(|budget| rendered > budget)
+        {
+            block["oversized"] = json!(true);
+        }
+        envelope.insert("responsePagination".into(), block);
     }
-    let mut output = Value::Object(envelope);
-    measure_page(&mut output, input.options.response_chars)?;
     Ok(PreparedPage {
-        value: output,
+        value: Value::Object(envelope),
         next: page_cursor(&input.options, &pagination),
     })
+}
+
+/// Chars `,"responsePagination":<block>` adds to `envelope` (no comma when
+/// it is the envelope's only entry).
+fn entry_chars(
+    envelope: &serde_json::Map<String, Value>,
+    block: &Value,
+) -> Result<usize, ResponseError> {
+    let value =
+        octocode_engine::json_size::utf16_units(block).ok_or(ResponseError::Unserializable)?;
+    // `"responsePagination":` and the separating comma.
+    Ok(value + "responsePagination".len() + 3 + usize::from(!envelope.is_empty()))
 }
 
 /// Chars the `responsePagination` entry adds to a page of `pagination`
@@ -48,7 +68,7 @@ pub(super) fn pagination_block_chars(
         saved.replayed = true;
     }
     let mut page = pagination.clone();
-    page.next = build_continuation(&input.tool, &options, &page);
+    page.next = build_continuation(input.tool.as_str(), &options, &page);
     if !(page.should_emit() || is_saved_replay(&options)) {
         return 0;
     }
@@ -62,7 +82,7 @@ pub(super) fn pagination_block_chars(
 
 /// The executable next-page call of `input` for `pagination`.
 fn continuation(input: &ResponseInput, pagination: &ResponsePagination) -> Option<Value> {
-    build_continuation(&input.tool, &input.options, pagination)
+    build_continuation(input.tool.as_str(), &input.options, pagination)
 }
 
 fn pagination_value(

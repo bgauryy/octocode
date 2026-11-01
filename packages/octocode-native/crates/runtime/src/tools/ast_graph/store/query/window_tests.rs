@@ -109,7 +109,7 @@ fn symbol_windows_keep_preorder_depth_and_same_line_ties() {
         edge(1, 3, EdgeKind::Contains),
     ];
     g.t.index();
-    let (_, full) = symbols(&g, 0, 0..100, &NeverCancel).unwrap();
+    let (_, full) = symbols(&g, &[0], 0..100, &NeverCancel).unwrap();
     assert_eq!(
         ids(&full),
         ["a.ts#early", "a.ts#tie", "a.ts#late", "a.ts#child"]
@@ -123,7 +123,7 @@ fn symbol_windows_keep_preorder_depth_and_same_line_ties() {
     );
     let mut union = Vec::new();
     for start in 0..6 {
-        let (_, page) = symbols(&g, 0, start..start + 1, &NeverCancel).unwrap();
+        let (_, page) = symbols(&g, &[0], start..start + 1, &NeverCancel).unwrap();
         assert_eq!(page.total, 4);
         assert!(page.rows.len() <= 1);
         union.extend(page.rows);
@@ -327,7 +327,7 @@ fn symbol_scan_cancellation_never_returns_a_partial_total() {
     g.t.edges = (1..101).map(|id| edge(0, id, EdgeKind::Contains)).collect();
     g.t.index();
     assert_eq!(
-        symbols(&g, 0, 0..1, &CancelAfter(AtomicUsize::new(5)))
+        symbols(&g, &[0], 0..1, &CancelAfter(AtomicUsize::new(5)))
             .err()
             .unwrap()
             .value["errorCode"],

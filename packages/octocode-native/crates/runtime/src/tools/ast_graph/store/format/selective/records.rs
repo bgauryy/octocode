@@ -72,8 +72,7 @@ impl SnapshotReader {
             // Declarations are validated against the source origins they cite.
             let bytes = self.record_block(*b"DECL", block_index, cancel)?;
             let mut r = Reader::new(&bytes, "DECL block");
-            let declarations =
-                evidence::read_declaration_records(&mut r, t, t.strings.len() as u32)?;
+            let declarations = evidence::read_declaration_records(&mut r, t, t.string_bound()?)?;
             for decl in &declarations {
                 for origin in evidence::declaration_origins(decl) {
                     if origin != NONE {

@@ -8,7 +8,7 @@ import {
   type ExitStatus,
   type CapturedOutput,
 } from './engine/capture-result.mjs';
-import type { ChromeInvocation } from '@octocodeai/config/schema';
+import type { ChromeInvocation } from '@octocodeai/config/chrome';
 const scripts = join(dirname(fileURLToPath(import.meta.url)), 'engine');
 const flags = (input?: Record<string, string | number | boolean | undefined>) =>
   Object.entries(input ?? {})
@@ -21,6 +21,18 @@ const flags = (input?: Record<string, string | number | boolean | undefined>) =>
             ...(value === true ? [] : [String(value)]),
           ]
     );
+const typedFlagCommands = [
+  'artifact',
+  'query',
+  'open',
+  'cleanup',
+  'session',
+  'dev-check',
+];
+/** The whole engine deadline, covering a dev-check wait ceiling. */
+const engineDeadline = (input: ChromeInvocation) =>
+  (input.connection?.scriptTimeout ??
+    Math.max(300000, (input.timeoutMs ?? 0) + 60000)) + 10000;
 const children = new Map<ChildProcessWithoutNullStreams, () => void>();
 let shuttingDown = false;
 
@@ -63,7 +75,7 @@ async function invokeEngine(
     args = [input.command, input.recipe ?? input.operation].filter(
       value => value !== undefined
     );
-  if (['artifact', 'query', 'open', 'cleanup', 'session'].includes(command)) {
+  if (typedFlagCommands.includes(command)) {
     const { args: _args, ...typed } = input;
     const entries = Object.entries(typed).filter(
       ([, value]) => value !== undefined && value !== false
@@ -130,13 +142,10 @@ async function invokeEngine(
       };
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) abort();
-      timer = setTimeout(
-        () => {
-          timedOut = true;
-          terminate();
-        },
-        (input.connection?.scriptTimeout ?? 300000) + 10000
-      );
+      timer = setTimeout(() => {
+        timedOut = true;
+        terminate();
+      }, engineDeadline(input));
       child.stdout.on('data', chunk => write('stdout', chunk));
       child.stderr.on('data', chunk => write('stderr', chunk));
       child.stdin.on('error', () => {});

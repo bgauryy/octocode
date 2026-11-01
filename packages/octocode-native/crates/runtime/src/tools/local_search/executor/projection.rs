@@ -1,5 +1,6 @@
 //! The page's rows: files ordered, shown rows projected, and each hit
 //! annotated with its match keys and enclosing declaration.
+use crate::num::u32_of_usize;
 use crate::tools::local_search::local_search_query::View;
 use octocode_contract_types::CaseMode;
 use octocode_contract_types::RegexEngine;
@@ -12,7 +13,7 @@ use super::super::rows::{merge_context_windows, project_match};
 use super::super::types::SearchFile;
 use super::super::verify::{Outlines, PageScope, Redacted};
 
-use super::super::local_search_query::{self, effective_match_content_length};
+use super::super::local_search_query;
 use crate::execution::cancel::CancellationCheck;
 use octocode_contract_types::LocalSearchQuery;
 
@@ -156,7 +157,7 @@ fn project_files(
         .map(|(f, rows)| {
             // One key per file, its line and column set per row.
             let mut key = (f.path.clone(), 0, 0);
-            let total = f.matches.len() as u32;
+            let total = u32_of_usize(f.matches.len());
             let end = rows.end.min(f.matches.len());
             let start = rows.start.min(end);
             let mut page_rows = f.matches[start..end].iter().collect::<Vec<_>>();
@@ -169,7 +170,7 @@ fn project_files(
                         shown_redacted += 1;
                     }
                 })
-                .map(|m| project_match(m, layout.display_cap))
+                .map(project_match)
                 .map(|mut row| {
                     if !match_only {
                         row.column = None;
@@ -187,12 +188,7 @@ fn project_files(
                     let mut hits = f.matches.iter().map(|m| m.line).collect::<Vec<_>>();
                     hits.sort_unstable();
                     hits.dedup();
-                    merge_context_windows(
-                        shown,
-                        context,
-                        effective_match_content_length(query) as usize,
-                        &hits,
-                    )
+                    merge_context_windows(shown, context, &hits)
                 }
                 None => shown,
             };
@@ -203,6 +199,8 @@ fn project_files(
                     .then_some(f.match_count),
                 total_matched_lines: (local_search_query::view(query) == View::CountLines)
                     .then_some(f.match_count),
+                term_counts: (is_count_view(query) && !f.term_counts.is_empty())
+                    .then_some(f.term_counts),
                 pagination: file_pagination(layout, total, span, &later, match_page),
                 path: f.path,
                 match_keys: Vec::new(),

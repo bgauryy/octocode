@@ -8,7 +8,7 @@ use octocode_contract_types::LocalSearchQuery;
 use serde_json::{Value, json};
 
 /// `binarySkipped` warning: how many files were skipped as binary from
-/// their leading bytes, grouped by extension (`.woff2 54, .png 2`).
+/// their leading bytes, grouped by extension (`54 .woff2, 2 .png`).
 pub(super) fn leading_binary_warning(
     groups: &[octocode_engine::types::BinaryExtensionCount],
 ) -> String {
@@ -156,15 +156,31 @@ pub(super) fn merge_binary_groups(
     merged
 }
 
-/// `.woff2 54, .png 2, no extension 1`.
+/// The extensions of counted files: `54 .woff2, 2 .png, 1 with no
+/// extension`. One group needs no count, its total is said beside it:
+/// `.png`, `all .rlib`, `no extension`.
 pub(super) fn binary_counts(groups: &[octocode_engine::types::BinaryExtensionCount]) -> String {
+    let label = |group: &octocode_engine::types::BinaryExtensionCount| {
+        if group.extension.is_empty() {
+            "no extension".to_owned()
+        } else {
+            format!(".{}", group.extension)
+        }
+    };
+    if let [group] = groups {
+        return if group.count > 1 && !group.extension.is_empty() {
+            format!("all {}", label(group))
+        } else {
+            label(group)
+        };
+    }
     groups
         .iter()
         .map(|group| {
             if group.extension.is_empty() {
-                format!("no extension {}", group.count)
+                format!("{} with no extension", group.count)
             } else {
-                format!(".{} {}", group.extension, group.count)
+                format!("{} {}", group.count, label(group))
             }
         })
         .collect::<Vec<_>>()

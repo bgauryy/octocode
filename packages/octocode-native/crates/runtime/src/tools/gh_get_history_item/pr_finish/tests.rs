@@ -94,3 +94,18 @@ fn every_pr_view_keeps_source_target_and_merge_commits() {
     assert!(open.get("reviewThreadsCount").is_none(), "{open}");
     assert_eq!(open["baseSha"], "b1", "{open}");
 }
+
+/// More labels than the GraphQL read holds: the row says so in the field
+/// core declares, so the published row validates.
+#[test]
+fn a_clipped_label_list_is_disclosed_as_the_contract_field() {
+    let row = summary(
+        json!({"number":1,"title":"t","user":{"login":"a"},"state":"open",
+        "labels":["bug"],"labels_truncated":true,"created_at":"2026-01-01T00:00:00Z"}),
+    );
+    assert_eq!(row["labelsClipped"], true, "{row}");
+    crate::tools::test_support::assert_row_contract(
+        crate::id::ToolId::GhGetHistoryItem,
+        &json!({"pullRequests": [row]}),
+    );
+}

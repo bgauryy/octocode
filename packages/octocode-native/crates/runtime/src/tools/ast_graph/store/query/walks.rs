@@ -112,9 +112,9 @@ pub(super) fn path(
     let edges = json!(filter.kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>());
     if !seen[to as usize] {
         return Ok(GraphOutput::empty(json!({
-            "graph": g.summary(), "op": "path", "found": false, "edges": edges,
+            "graph": g.summary(), "operation": "path", "found": false, "edges": edges,
             "from": g.key(from), "to": g.key(to),
-            "hint": "No directed path over these edges; try --direction both or --edge imports,calls",
+            "hint": "No directed path over these edges; try direction both or edges [\"imports\",\"calls\"]",
         })));
     }
     let mut hops = Vec::new();
@@ -131,26 +131,21 @@ pub(super) fn path(
     hops.push(Value::Object(g.node_json(from, cancel)?));
     hops.reverse();
     Ok(GraphOutput::ok(json!({
-        "graph": g.summary(), "op": "path", "found": true, "edges": edges,
+        "graph": g.summary(), "operation": "path", "found": true, "edges": edges,
         "length": hops.len() - 1, "path": hops,
     })))
 }
 
 /// Iterative Tarjan over the filtered subgraph. Components are returned
 /// largest first, then by their smallest key.
-pub(super) fn cycle_preview_row(options: &QueryOptions, id: &str, keys: &[String]) -> Value {
+pub(super) fn cycle_preview_row(keys: &[String]) -> Value {
     let mut row = json!({
         "size": keys.len(),
         "nodes": keys.iter().take(MAX_CYCLE_MEMBERS).collect::<Vec<_>>(),
     });
     if keys.len() > MAX_CYCLE_MEMBERS {
-        let mut detail = options.clone();
-        detail.target = keys.first().cloned();
-        detail.to = None;
-        detail.list = Some("cycleNodes".into());
+        // `settle` states the channel that lists the members past the preview.
         row["nodesTruncated"] = json!(true);
-        // The preview shows the first members: the listing reads on after them.
-        row["nextNodes"] = json!(next_command(&detail, id, MAX_CYCLE_MEMBERS));
     }
     row
 }
@@ -186,7 +181,7 @@ pub(super) fn cycle_groups(g: &Graph, filter: &EdgeFilter) -> Vec<(Vec<String>, 
             .map(|edge| edge.dst)
             .collect::<Vec<_>>()
     };
-    let nodes = (0..n as u32).collect::<Vec<_>>();
+    let nodes = g.t.node_ids().collect::<Vec<_>>();
     super::super::detect::tarjan(&nodes, &successors, n, &|component| {
         component.len() > 1 || successors(component[0]).contains(&component[0])
     })
@@ -234,7 +229,7 @@ pub(super) fn cycles(
     let rows = components
         .iter()
         .map(|(keys, runtime)| {
-            let mut row = cycle_preview_row(options, &g.id, keys);
+            let mut row = cycle_preview_row(keys);
             if let Some(runtime) = runtime {
                 row["runtime"] = json!(runtime);
             }
@@ -269,7 +264,7 @@ pub(super) fn hubs(
         edges.len()
     };
     let mut ranked = Vec::new();
-    for id in 0..g.t.nodes.len() as u32 {
+    for id in g.t.node_ids() {
         check(cancel)?;
         if kind.is_some_and(|kind| g.t.nodes[id as usize].kind != kind) {
             continue;

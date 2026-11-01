@@ -1,11 +1,11 @@
-use super::graph::normalize;
-use crate::execution::cancel::CancellationCheck;
-use crate::tools::bounded_process::run_bounded;
+use super::paths::normalize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
-    time::Duration,
 };
+
+mod workspaces;
+pub(super) use workspaces::{enclosing_manifests, load_cargo_crates};
 
 /// Cargo names belong to the importing package, not the whole workspace.
 #[derive(Default)]
@@ -79,49 +79,7 @@ fn enclosing_module(root: &Path) -> Option<Vec<String>> {
     (!modules.is_empty()).then_some(modules)
 }
 
-// Refresh metadata on every graph build. A root manifest/lock stamp cannot
-// account for member manifests, glob membership, Cargo config, or environment.
-// Keep the bounded offline process; do not cache an incomplete input fingerprint.
-/// `cargo` is the configured `OCTOCODE_CARGO` path; `None` runs `cargo`
-/// from PATH.
-pub(super) fn load_cargo_crates(
-    root: &Path,
-    cargo: Option<&str>,
-    cancel: &dyn CancellationCheck,
-) -> Result<CargoCrates, String> {
-    load_cargo_crates_within(root, cargo, cancel, Duration::from_secs(5))
-}
-
-/// [`load_cargo_crates`] with `cargo metadata` bounded at `limit`.
-fn load_cargo_crates_within(
-    root: &Path,
-    cargo: Option<&str>,
-    cancel: &dyn CancellationCheck,
-    limit: Duration,
-) -> Result<CargoCrates, String> {
-    const MAX_METADATA_BYTES: usize = 32 * 1024 * 1024;
-    // `--no-deps` keeps metadata to the workspace's own crates, cutting work
-    // and attack surface.
-    let mut command = std::process::Command::new(cargo.unwrap_or("cargo"));
-    command
-        .args([
-            "metadata",
-            "--format-version",
-            "1",
-            "--no-deps",
-            "--offline",
-        ])
-        .current_dir(root);
-    let output = run_bounded(command, "cargo metadata", limit, MAX_METADATA_BYTES, cancel)?;
-    if !output.status.success() {
-        return Err("cargo metadata exited unsuccessfully".into());
-    }
-    let value: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
-    Ok(parse_cargo_crates(root, &value))
-}
-
-fn parse_cargo_crates(root: &Path, value: &serde_json::Value) -> CargoCrates {
+pub(super) fn parse_cargo_crates(root: &Path, value: &serde_json::Value) -> CargoCrates {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let packages = value
         .get("packages")
@@ -269,81 +227,8 @@ fn package_dependencies(
         })
         .collect()
 }
-
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn cargo_metadata_runs_the_configured_cargo_only() {
-        let root = tempfile::tempdir().expect("fixture");
-        std::fs::write(
-            root.path().join("Cargo.toml"),
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
-        )
-        .expect("manifest");
-        // The configured path is used as-is: no ambient `CARGO` fallback.
-        let missing = root.path().join("no-such-cargo");
-        let result = super::load_cargo_crates(
-            root.path(),
-            missing.to_str(),
-            &crate::execution::cancel::NeverCancel,
-        );
-        assert!(result.is_err(), "a missing configured cargo cannot run");
-    }
-
-    /// A cancelled build stops `cargo metadata` as cancelled (not at its
-    /// time limit), and its process group dies with it. The limit is a
-    /// minute: the first exec of a new script can wait seconds on a busy
-    /// macOS host (executable scans run one at a time), so only the
-    /// cancellation may end this run.
-    #[cfg(unix)]
-    #[test]
-    fn cancellation_stops_cargo_metadata_and_its_children() {
-        use std::os::unix::fs::PermissionsExt;
-        use std::time::Duration;
-        /// Cancels once the fake cargo has started its child.
-        struct CancelOnceStarted(std::path::PathBuf);
-        impl crate::execution::cancel::CancellationCheck for CancelOnceStarted {
-            fn check(&self) -> Result<(), String> {
-                let started = std::fs::read_to_string(&self.0).is_ok_and(|pid| pid.ends_with('\n'));
-                if started {
-                    Err("cancelled".into())
-                } else {
-                    Ok(())
-                }
-            }
-        }
-        let root = tempfile::tempdir().expect("fixture");
-        let pidfile = root.path().join("child.pid");
-        let cargo = root.path().join("fake-cargo");
-        std::fs::write(
-            &cargo,
-            format!(
-                "#!/bin/sh\nsleep 30 & echo $! > '{}'\nwait\n",
-                pidfile.display()
-            ),
-        )
-        .expect("fake cargo");
-        std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-        let cancel = CancelOnceStarted(pidfile.clone());
-        let result = super::load_cargo_crates_within(
-            root.path(),
-            cargo.to_str(),
-            &cancel,
-            Duration::from_secs(60),
-        );
-        assert_eq!(result.err().as_deref(), Some("cancelled"));
-        let pid: u32 = std::fs::read_to_string(&pidfile)
-            .expect("pid")
-            .trim()
-            .parse()
-            .expect("pid number");
-        std::thread::sleep(Duration::from_millis(100));
-        assert!(
-            !crate::process_status::is_alive(pid),
-            "child {pid} survived"
-        );
-    }
-
     #[test]
     fn conflicting_conditional_aliases_and_registry_names_do_not_fabricate_edges() {
         let root = tempfile::tempdir().unwrap();

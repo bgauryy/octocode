@@ -8,7 +8,7 @@ Markdown, task content only. BLUF: the supported finding first, each claim besid
 
 ## Saved result
 
-Captures keep their returned formats (JSON, images) in the runtime folder (normally `<workspace>/.octocode/octocode-chrome-devtools/tmp/`); link large ones, never paste. Reports go to `<workspace>/.octocode/octocode-chrome-devtools/<YYYY-MM-DD>-<slug>.md`; `<workspace>` is the repository root, else cwd, never inside an existing `.octocode/`. A user-named path wins; harness or subagent scratch (`.octocode/tmp/`) does not: save here, link from scratch.
+Captures keep their returned formats (JSON, images) in the runtime folder (normally `<workspace>/.octocode/octocode-chrome-devtools/tmp/`); link large ones, never paste. Durable `session` captures persist under `<workspace>/.octocode/chromedevtools/<id>/`, the package's session store. Reports go to `<workspace>/.octocode/octocode-chrome-devtools/<YYYY-MM-DD>-<slug>.md`; `<workspace>` is the repository root, else cwd, never inside an existing `.octocode/`. A user-named path wins; harness or subagent scratch (`.octocode/tmp/`) does not: save here, link from scratch.
 
 ## Presentation choices
 

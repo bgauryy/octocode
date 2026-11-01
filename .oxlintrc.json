@@ -1,10 +1,15 @@
 // The one oxlint config for every workspace; each lint script runs
-// `oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .`.
+// `oxlint -c ../../.oxlintrc.json .`; `options` below holds the shared lint flags.
 // Violations that predate a rule live in .oxlintrc.baseline.json, which may only shrink
 // (skills-dev/octocode-dev/scripts/oxlint-baseline.mjs).
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "extends": ["./.oxlintrc.baseline.json"],
+  "options": {
+    "typeAware": true,
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "warn"
+  },
   "plugins": ["typescript", "unicorn", "oxc", "import"],
   "categories": {
     "correctness": "error",
@@ -24,6 +29,9 @@
     "**/*.d.ts",
     "**/*.d.mts",
     "**/*.generated.*",
+    // Minified esbuild output of skills/common/build.mjs, copied into each skill and staged plugin;
+    // its source, skills/common/scripts/config-env.entry.mjs, is linted.
+    "**/scripts/lib/config-env.mjs",
     "**/fixtures/**",
     "**/examples/**",
     "packages/octocode-benchmark/local/repos/**",

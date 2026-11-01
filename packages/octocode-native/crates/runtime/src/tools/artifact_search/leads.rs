@@ -134,21 +134,24 @@ fn copied(query: &ArtifactSearchQuery) -> Map<String, Value> {
 }
 
 /// A failure's one repair lead, when a call fixes it: a discovery page past
-/// the paging range reads the last reachable page (`repair`); an unknown exact
+/// the paging range resumes the walk at the last reachable page (`repair`,
+/// continued work: `page` is private walk state, so only its cursor keeps
+/// it; a related call would restart at page 1); an unknown exact
 /// package, or a name that is no exact coordinate of the registry, searches
 /// its name as keywords (`broadenSearch`; PyPI has no search); a missing
 /// version reads the nearest published ones, else the latest (`repair`); a
 /// version the ecosystem cannot select reads the latest (`repair`).
 pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery) -> ArtifactError {
     // A discovery page past the paging range: the error names the bound and
-    // its one repair reads the last page this page size reaches.
+    // its one repair continues the walk at the last page this page size
+    // reaches.
     if error.code == ErrorCode::InvalidInput
         && let Some(limit) = page_out_of_range(query)
     {
         let mut last = copied(query);
         last.insert("page".into(), json!(super::last_reachable_page(query)));
         error.message = limit.warning;
-        let lead = Continuation::related(ToolId::ArtifactSearch, Value::Object(last)).build();
+        let lead = Continuation::continued(ToolId::ArtifactSearch, Value::Object(last)).build();
         error.calls = Some(Box::new(json!({ "repair": lead })));
         return error;
     }

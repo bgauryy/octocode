@@ -20,10 +20,14 @@ fn unique<'a, T>(
     Ok(output)
 }
 
-fn validation_budget(stop: &(dyn Fn() -> bool + Sync)) -> domain::MapBudget<'_> {
+/// A catalog check that ends with `cancel`'s request.
+fn validation_budget<'a>(
+    cancel: &dyn CancellationCheck,
+    stop: &'a (dyn Fn() -> bool + Sync),
+) -> domain::MapBudget<'a> {
     domain::MapBudget::new(
         domain::MapLimits::default(),
-        std::time::Instant::now() + std::time::Duration::from_secs(30),
+        crate::execution::cancel::deadline_of(cancel),
         stop,
     )
 }
@@ -33,7 +37,7 @@ pub(crate) fn validate_catalog(
     cancel: &dyn CancellationCheck,
 ) -> Result<(), ToolError> {
     let stop = || cancel.check().is_err();
-    domain::SourceCatalog::new(value, &mut validation_budget(&stop))
+    domain::SourceCatalog::new(value, &mut validation_budget(cancel, &stop))
         .map(|_| ())
         .map_err(ToolError::source)
 }
@@ -46,7 +50,7 @@ pub(super) fn validate_origin(
     cancel: &dyn CancellationCheck,
 ) -> Result<(), ToolError> {
     let stop = || cancel.check().is_err();
-    let mut budget = validation_budget(&stop);
+    let mut budget = validation_budget(cancel, &stop);
     domain::SourceCatalog::new(descriptors, &mut budget)
         .and_then(|catalog| catalog.validate_projection(origin, range, &mut budget))
         .map_err(ToolError::source)

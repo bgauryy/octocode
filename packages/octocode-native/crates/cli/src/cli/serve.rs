@@ -39,14 +39,17 @@ mod unix;
 
 use octocode_native::id::ToolId;
 #[cfg(unix)]
-pub(super) use unix::{call, run, stop_all};
+pub(super) use unix::{call, run, stop_all, stop_all_and_wait};
 
-/// Whether `tool` runs on the warm server: every read-only tool. A tool
-/// that writes the clone cache or the user's files runs in process.
+/// Whether `tool` runs on the warm server: every read-only tool, so a
+/// graphQuery reuses the snapshot an earlier call decoded. A tool that
+/// writes a clone checkout or a graph snapshot runs in process, which also
+/// prints a build's progress on this process's stderr.
 pub(super) const fn runs_on_server(tool: ToolId) -> bool {
     match tool {
-        ToolId::GhCloneRepo | ToolId::GraphBuild | ToolId::GraphQuery => false,
-        ToolId::Clasify
+        ToolId::GhCloneRepo | ToolId::GraphBuild => false,
+        ToolId::GraphQuery
+        | ToolId::Clasify
         | ToolId::GhSearchRepo
         | ToolId::GhSearchCode
         | ToolId::GhStructure
@@ -82,4 +85,9 @@ pub(super) async fn run(_socket: &std::path::Path) -> u8 {
         false,
     );
     2
+}
+
+#[cfg(not(unix))]
+pub(super) async fn stop_all_and_wait() -> Result<(), String> {
+    Ok(())
 }

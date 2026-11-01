@@ -15,8 +15,8 @@
 //!
 //! Candidates are verified [`MAX_CANDIDATE_FILES`] per request. The sorted
 //! candidate list is cut into windows of that size; `importerPage` picks the
-//! window, and `next.nextImporterPage` (on the window's last location page)
-//! carries the candidate digest as its `snapshot`, so every candidate is
+//! window, and `next.nextImporterPage` (on each of the window's location
+//! pages) carries the candidate digest as its `snapshot`, so every candidate is
 //! verified in exactly one window and a changed list restarts the walk.
 //! Before the list is cut, candidates whose imports name only other modules
 //! are set aside as checked (`reach`): only files that may import the
@@ -24,12 +24,12 @@
 
 use super::anchor::Position;
 use super::failure::{LspFailure, flag_partial, ignored_text_lead};
+use super::file_windows::FileWindows;
 use super::import_stop::{proven_missing, stays_on_import};
 use super::recovery::{resolve_definition_chain, snippet_identity};
-use super::scope::{CODE_CHECK_MAX_BYTES, CODE_CHECK_MAX_FILES, IgnoredMentions, Scope, canonical};
+use super::scope::{IgnoredMentions, Scope, canonical};
 use super::source::SourceCache;
 use crate::execution::cancel::CancellationCheck;
-use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
 use crate::tools::lsp_search::lsp_search_query;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
@@ -40,11 +40,14 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
+mod binding;
 mod coverage;
 mod occurrences;
 mod reach;
 mod search;
+pub(super) use binding::{Binding, binding, identities};
 use occurrences::*;
+pub(super) use occurrences::{CONCURRENT_FILE_VERIFICATIONS, ordered_concurrently};
 use reach::{AnchorModule, read_checked, split_reachable};
 #[cfg(test)]
 use search::check_imports;
@@ -66,10 +69,12 @@ const SKIP_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
 /// `next.nextImporterPage`).
 const DIGEST_PREFIX: &str = "lsp-imp:";
 /// Partial reason of a window that leaves later windows unverified.
-pub(super) const CAPPED_REASON: &str = "importerScanCapped";
+pub(super) const CAPPED_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::ImporterScanCapped;
 /// Partial reason of a scan whose ignore rules hid files that import the
 /// name, or that spell it and could not be checked for an import.
-pub(super) const IGNORED_REASON: &str = "importerScanIgnored";
+pub(super) const IGNORED_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::ImporterScanIgnored;
 /// The note of an ignored-file scan that did not finish before reaching any
 /// evidence (its index not ready or incomplete): it reads the same on every
 /// row of the scope, and says how to read those files.
@@ -87,7 +92,8 @@ pub(super) struct Anchor {
     pub(super) path: String,
     pub(super) line: u32,
     pub(super) character: u32,
-    /// The occurrence is a call (`name(`), the anchor call hierarchy wants.
+    /// The occurrence is a call site (TypeScript's call-hierarchy rule; see
+    /// `classify_occurrences`), the anchor call hierarchy wants.
     pub(super) is_call: bool,
 }
 
@@ -145,18 +151,13 @@ impl<'a> WindowRequest<'a> {
 #[derive(Debug)]
 pub(super) struct Window {
     /// One-based index of the first window the request verified (its
-    /// `importerPage`), of the last one it verified, and the window count.
-    /// The two differ when windows without a verified importer were skipped.
+    /// `importerPage`) and of the last one it verified. The two differ when
+    /// windows without a verified importer were skipped.
     pub(super) first: u32,
     pub(super) page: u32,
-    pub(super) pages: u32,
-    /// Digest of the whole candidate list.
-    pub(super) digest: String,
-    /// Candidates in the whole list.
-    pub(super) total: usize,
-    /// Every candidate, sorted; window `n` is the `n`th run of
-    /// [`MAX_CANDIDATE_FILES`].
-    candidates: Vec<String>,
+    /// Every candidate, sorted, in windows of [`MAX_CANDIDATE_FILES`],
+    /// pinned to the list's digest.
+    list: FileWindows<String>,
     /// Candidates no window verifies: files the server's own answer already
     /// covers, and files whose imports cannot reach the anchor's module.
     /// They keep their place in the list, so the windows and the digest
@@ -179,24 +180,33 @@ impl Window {
             "{DIGEST_PREFIX}{}",
             octocode_engine::digest::sha256(candidates.join("\u{0}").as_bytes())
         );
-        let total = candidates.len();
-        let pages = u32_of_usize(crate::response::page_windows::count_pages(
-            total,
-            MAX_CANDIDATE_FILES,
-        ));
+        let list = FileWindows::new(candidates, MAX_CANDIDATE_FILES, digest);
         let page = request.page.max(1);
-        if page > pages || request.expected.is_some_and(|expected| expected != digest) {
+        if !list.admits(page, request.expected) {
             return Cut::Stale;
         }
         Cut::Window(Self {
             first: page,
             page,
-            pages,
-            digest,
-            total,
-            candidates,
+            list,
             excluded: HashSet::new(),
         })
+    }
+
+    /// Digest of the whole candidate list.
+    pub(super) fn digest(&self) -> &str {
+        self.list.digest()
+    }
+
+    /// Candidates in the whole list.
+    pub(super) fn total(&self) -> usize {
+        self.list.len()
+    }
+
+    /// The window count.
+    #[cfg(test)]
+    pub(super) fn pages(&self) -> u32 {
+        self.list.pages()
     }
 
     /// Leave `excluded` out of every window's verification (see the field).
@@ -204,14 +214,13 @@ impl Window {
         self.excluded = excluded;
     }
 
-    fn range(&self, page: u32) -> std::ops::Range<usize> {
-        let start = (page as usize - 1) * MAX_CANDIDATE_FILES;
-        start.min(self.total)..(start + MAX_CANDIDATE_FILES).min(self.total)
+    pub(super) fn range(&self, page: u32) -> std::ops::Range<usize> {
+        self.list.range(page)
     }
 
     /// The candidates of the window verified last, less the excluded ones.
     pub(super) fn files(&self) -> Vec<String> {
-        self.candidates[self.range(self.page)]
+        self.list.items()[self.range(self.page)]
             .iter()
             .filter(|file| !self.excluded.contains(*file))
             .cloned()
@@ -236,15 +245,14 @@ impl Window {
     /// Candidates of this window and every earlier one: the files the walk
     /// has verified once this page is read.
     pub(super) fn covered(&self) -> &[String] {
-        &self.candidates[..self.range(self.page).end]
+        &self.list.items()[..self.range(self.page).end]
     }
 
     /// Candidates of every window this request did not verify.
     pub(super) fn foreign(&self) -> impl Iterator<Item = &String> {
         let (start, end) = (self.range(self.first).start, self.range(self.page).end);
-        self.candidates[..start]
-            .iter()
-            .chain(&self.candidates[end..])
+        let items = self.list.items();
+        items[..start].iter().chain(&items[end..])
     }
 
     /// Whether a file (canonical path) belongs to a window this request
@@ -257,16 +265,15 @@ impl Window {
     /// The window that owns a file (canonical path): its candidate window,
     /// or this one for a file outside the list.
     pub(super) fn owner(&self, file: &str) -> u32 {
-        self.candidates
+        self.list
+            .items()
             .binary_search_by(|candidate| candidate.as_str().cmp(file))
-            .map_or(self.page, |index| {
-                u32_of_usize(index / MAX_CANDIDATE_FILES + 1)
-            })
+            .map_or(self.page, |index| self.list.page_of(index))
     }
 
     /// Whether a later window remains.
     pub(super) fn more(&self) -> bool {
-        self.page < self.pages
+        self.list.more_after(self.page)
     }
 }
 
@@ -277,9 +284,9 @@ pub(super) fn applies(language_id: Option<&str>, operation: &str) -> bool {
 }
 
 /// Zero-based (line, UTF-16 character, is-call) of word-bounded `symbol`
-/// occurrences; is-call means the name is followed by `(`.
-fn occurrences(content: &str, symbol: &str) -> Vec<(u32, u32, bool)> {
-    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+/// occurrences; is-call is the text rule (`(` follows the name), which
+/// `classify_occurrences` replaces wherever oxc parses the file.
+pub(super) fn occurrences(content: &str, symbol: &str) -> Vec<(u32, u32, bool)> {
     let mut found = Vec::new();
     for (line_index, line) in content.lines().enumerate() {
         let mut from = 0;
@@ -287,9 +294,7 @@ fn occurrences(content: &str, symbol: &str) -> Vec<(u32, u32, bool)> {
             let start = from + offset;
             let end = start + symbol.len();
             from = end;
-            let before = line[..start].chars().next_back();
-            let after = line[end..].chars().next();
-            if before.is_some_and(is_word) || after.is_some_and(is_word) {
+            if !octocode_engine::text::is_whole_word(line.as_bytes(), start, end) {
                 continue;
             }
             let (Ok(line_number), Ok(character)) = (

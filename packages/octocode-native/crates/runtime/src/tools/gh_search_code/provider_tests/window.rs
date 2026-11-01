@@ -101,7 +101,7 @@ async fn a_multi_extension_window_is_each_searchs_own() {
     };
     assert_eq!(
         failure.message,
-        "Page 59 is past GitHub's search window: at pageSize 50, page 58 is the last, reaching the first 2958 results."
+        "Page 59 is past GitHub's search window: at limit 50, page 58 is the last, reaching the first 2958 results."
     );
     let next = failure.calls.expect("repair");
     assert_eq!(next["repair"]["input"]["queries"][0]["page"], 58, "{next}");

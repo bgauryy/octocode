@@ -6,8 +6,16 @@ use serde_json::Value;
 /// Branches chosen by a literal selector (e.g. `operation`) need no missing
 /// field: name the selector values of every branch declaring the field, so
 /// `review` on a commit query points at `operation:"pullRequest"` and
-/// `keywords` on a pypi query at every `type` that accepts it.
-pub(super) fn sibling_selector_values(declaring: &[&Value], value: &Value) -> Option<Vec<Value>> {
+/// `keywords` on a pypi query at every `type` that accepts it. The field's
+/// own value is what the caller sends, never what admits it: a branch that
+/// also pins `field` (`view:"content"` beside an `operation`) is named by
+/// its other selectors, so `view` on a callers query points at the
+/// operations that take a view, once.
+pub(super) fn sibling_selector_values(
+    declaring: &[&Value],
+    value: &Value,
+    field: &str,
+) -> Option<Vec<Value>> {
     // One mismatched selector per branch merges by name across branches;
     // a branch needing several selectors stays its own alternative.
     let mut merged: Vec<(String, Vec<Value>)> = Vec::new();
@@ -18,6 +26,7 @@ pub(super) fn sibling_selector_values(declaring: &[&Value], value: &Value) -> Op
         };
         let selectors = properties
             .iter()
+            .filter(|(name, _)| name.as_str() != field)
             .filter_map(|(name, schema)| {
                 let literals = selector_literals(schema)?;
                 let actual = value.get(name)?;
@@ -134,6 +143,9 @@ fn render_literal(value: &Value) -> String {
 /// A literal rejected by the selected branch but accepted by a sibling is a
 /// cross-field rule (e.g. `unique:"list"` needs `view:"matchOnly"`).
 /// Name the sibling's selector values instead of only the local constant.
+/// A sibling whose selector rejects a value the row sent (a
+/// `direction:"both"` form whose `operation` lacks `hubs`) is another form
+/// of query, not a companion field this one is missing: it is skipped.
 pub(super) fn annotate_sibling_selectors(
     issues: &mut [ValidationIssue],
     root: &Value,
@@ -162,11 +174,10 @@ pub(super) fn annotate_sibling_selectors(
                 let selectors = properties
                     .iter()
                     .filter(|(name, _)| *name != field)
-                    .filter_map(|(name, schema)| {
-                        let literal = single_literal(schema)?;
-                        (value.get(name) != Some(literal))
-                            .then(|| format!("{name}:{}", render_literal(literal)))
-                    })
+                    .map(|(name, schema)| sibling_requirement(name, schema, value))
+                    .collect::<Option<Vec<_>>>()?
+                    .into_iter()
+                    .flatten()
                     .collect::<Vec<_>>();
                 (!selectors.is_empty()).then(|| selectors.join(" and "))
             });
@@ -177,6 +188,21 @@ pub(super) fn annotate_sibling_selectors(
                 render_literal(received)
             );
         }
+    }
+}
+
+/// What a sibling's property `name` asks of the row: `None` when it is a
+/// selector that rejects the value the row sent, which rules the sibling
+/// out; `Some(Some("name:literal"))` when the row omits a field the sibling
+/// pins to one literal; `Some(None)` otherwise.
+fn sibling_requirement(name: &str, schema: &Value, value: &Value) -> Option<Option<String>> {
+    match value.get(name) {
+        Some(actual) => {
+            (selector_literals(schema).is_none() || literal_accepts(schema, actual)).then_some(None)
+        }
+        None => Some(
+            single_literal(schema).map(|literal| format!("{name}:{}", render_literal(literal))),
+        ),
     }
 }
 
@@ -226,6 +252,80 @@ pub(super) fn annotate_forbidden_fields(
                 .map(|name| format!("`{name}`"))
                 .collect::<Vec<_>>()
                 .join(", ")
+        );
+    }
+}
+
+/// A missing selector (`operation`) when the fields the caller sent fit
+/// only some of its values: name the fields that rule the others out and
+/// the selector values that accept them all (`nameRegex requires
+/// operation:"files"`), so the repair is one step, not a guess. Read from
+/// the branches alone: a branch admits the row when it declares, and does
+/// not forbid, every field the row carries.
+pub(super) fn annotate_missing_selector(
+    issues: &mut [ValidationIssue],
+    root: &Value,
+    branches: &[Value],
+    value: &Value,
+    path: &[String],
+) {
+    let Some(sent) = value.as_object() else {
+        return;
+    };
+    let declares = |properties: &serde_json::Map<String, Value>, name: &str| {
+        properties.get(name).is_some_and(|schema| {
+            schema.get("not") != Some(&Value::Object(serde_json::Map::default()))
+        })
+    };
+    for item in issues
+        .iter_mut()
+        .filter(|item| super::missing_literal(item, path.len()))
+    {
+        let Some(field) = item.path.last() else {
+            continue;
+        };
+        let mut admitting: Vec<&Value> = Vec::new();
+        let mut ruling_out: Vec<&str> = Vec::new();
+        let mut rejecting = false;
+        for branch in branches.iter().map(|branch| branch_object(root, branch)) {
+            let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
+                continue;
+            };
+            let Some(literals) = properties.get(field).and_then(selector_literals) else {
+                continue;
+            };
+            let undeclared = sent
+                .keys()
+                .filter(|name| !declares(properties, name))
+                .collect::<Vec<_>>();
+            if undeclared.is_empty() {
+                for literal in literals {
+                    if !admitting.iter().any(|known| equivalent(known, literal)) {
+                        admitting.push(literal);
+                    }
+                }
+            } else {
+                rejecting = true;
+                for name in undeclared {
+                    if !ruling_out.contains(&name.as_str()) {
+                        ruling_out.push(name);
+                    }
+                }
+            }
+        }
+        if admitting.is_empty() || !rejecting {
+            continue;
+        }
+        let verb = if ruling_out.len() == 1 {
+            "requires"
+        } else {
+            "require"
+        };
+        item.message = format!(
+            "{} ({} {verb} {})",
+            item.message,
+            ruling_out.join(", "),
+            render_selector(field, &admitting)
         );
     }
 }

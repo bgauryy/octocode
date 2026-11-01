@@ -67,6 +67,7 @@ impl<'a> Job<'a> {
         paths: &'a PathPolicy,
         security: &'a ContentSecurity,
         registry: RegistryView<'_>,
+        cancel: &dyn CancellationCheck,
     ) -> Result<Option<Self>, ToolError> {
         let Some(base) = &scan.checkpoint else {
             return Ok(None);
@@ -80,13 +81,22 @@ impl<'a> Job<'a> {
             .canonical;
         let dir = job_path(&base, root);
         checked_path(paths, &dir, true)?;
+        // Another build of this scope resets, prunes and writes this job:
+        // wait for it before touching the directory.
+        let lock_path = super::lock::job_lock_path(&dir);
+        checked_path(paths, &lock_path, true)?;
+        if let Some(jobs) = dir.parent() {
+            octocode_io::atomic::create_private_dir_all(jobs)
+                .map_err(|error| failure(error.to_string()))?;
+        }
+        let job_lock = super::lock::open(&lock_path)
+            .map_err(|error| failure(format!("cannot lock graph checkpoint: {error}")))?;
+        super::lock::exclusive(&job_lock, cancel).map_err(super::lock::Wait::into_tool_error)?;
         let registry_identity = super::super::registry_identity(registry)?;
         let identity = serde_json::to_vec(&(
             JOB_VERSION,
             cache::namespace(scan, root, registry)?,
             &scan.exclude_dir,
-            scan.max_files,
-            scan.cargo_metadata,
             &scan.cargo,
             super::super::super::ANALYSIS_VERSION,
         ))
@@ -124,14 +134,14 @@ impl<'a> Job<'a> {
         let compatible = previous
             .as_ref()
             .is_some_and(|old| old.version == JOB_VERSION && old.namespace == manifest.namespace);
-        let resumed = !scan.force
+        let resumed = !scan.refresh
             && compatible
             && previous.as_ref().is_some_and(|old| {
                 old.stage != Stage::Complete
                     && old.inventory_digest == manifest.inventory_digest
                     && old.config_digest == manifest.config_digest
             });
-        if dir.exists() && (scan.force || !compatible) {
+        if dir.exists() && (scan.refresh || !compatible) {
             std::fs::remove_dir_all(&dir)
                 .map_err(|error| failure(format!("cannot reset graph checkpoint: {error}")))?;
         }
@@ -173,28 +183,29 @@ impl<'a> Job<'a> {
                 std::fs::remove_file(entry.path()).map_err(|error| failure(error.to_string()))?;
             }
         }
-        if state.bytes > LIMITS.spill_bytes {
-            return Err(limit("checkpoint disk artifacts", LIMITS.spill_bytes));
+        if state.bytes > scan.limits.spill_bytes {
+            return Err(limit("checkpoint disk artifacts", scan.limits.spill_bytes));
         }
         manifest.write(&dir, Stage::Extracting)?;
         Ok(Some(Self {
             dir,
+            _lock: job_lock,
             manifest,
             resumed,
             state: Mutex::new(state),
             paths,
             security,
+            limits: scan.limits,
         }))
     }
 }
 
+/// One durable stage record: the file and then its directory are synced,
+/// which also persists the entries of the artifacts renamed into it before;
+/// their unsynced contents are verified on every read.
 pub(super) fn durable_write(path: &Path, bytes: &[u8]) -> Result<(), ToolError> {
     octocode_io::atomic::write_atomic(path, bytes, true)
-        .map_err(|error| failure(format!("cannot commit graph checkpoint: {error}")))?;
-    if let Some(parent) = path.parent() {
-        sync_dir(parent)?;
-    }
-    Ok(())
+        .map_err(|error| failure(format!("cannot commit graph checkpoint: {error}")))
 }
 
 pub(super) fn sync_dir(path: &Path) -> Result<(), ToolError> {

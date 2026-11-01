@@ -1,4 +1,4 @@
-//! How a hit fits a read: the covering window, goal terms, hit scores and the clipped line text.
+//! How a hit fits a read: the covering window, goal terms, hit scores and the match anchors.
 use super::blob::Hit;
 
 /// Widest span (in lines) of a window that anchors a multi-keyword read.
@@ -122,15 +122,4 @@ fn hit_shape(lower: &str, after: usize, declares: bool) -> usize {
         return if literal { 3 } else { 2 };
     }
     if declares { 2 } else { 1 }
-}
-
-/// The char index of the first of `needles` in `line` (0 when none holds):
-/// where a window over the line is placed.
-pub(super) fn first_hit(line: &str, needles: &[String]) -> usize {
-    let folded = octocode_engine::text::case_fold::Folded::of(line);
-    needles
-        .iter()
-        .filter_map(|needle| folded.ranges(needle).first().map(|span| span.start))
-        .min()
-        .map_or(0, |at| line[..at].chars().count())
 }

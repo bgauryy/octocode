@@ -1,21 +1,7 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import type { ZodType } from 'zod';
 import { isCliView } from './run.js';
-import { commandJsonSchema, type CliCommand, type CliSpec, type JsonSchema, type ToolAnnotations } from './spec.js';
-
-export interface McpToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: JsonSchema;
-  title?: string;
-  outputSchema?: JsonSchema;
-  annotations?: ToolAnnotations;
-}
-
-export interface McpExport {
-  instructions: string;
-  tools: McpToolDefinition[];
-}
+import type { CliSpec, JsonSchema, ToolAnnotations } from './spec.js';
 
 export interface ToolRegistrar {
   registerTool(
@@ -32,28 +18,6 @@ export interface ToolRegistrar {
       structuredContent?: Record<string, unknown>;
     }>,
   ): unknown;
-}
-
-function protocolFields(command: CliCommand): Pick<McpToolDefinition, 'title' | 'outputSchema' | 'annotations'> {
-  return {
-    ...(command.title ? { title: command.title } : {}),
-    ...(command.outputSchema ? { outputSchema: command.outputSchema } : {}),
-    ...(command.annotations ? { annotations: command.annotations } : {}),
-  };
-}
-
-export function cliToMcp(spec: CliSpec): McpExport {
-  return {
-    instructions: spec.instructions,
-    tools: spec.commands.map(command => {
-      return {
-        name: command.mcpName ?? command.name,
-        description: command.description,
-        inputSchema: commandJsonSchema(command),
-        ...protocolFields(command),
-      };
-    }),
-  };
 }
 
 export function jsonSchemaStandard(schema: JsonSchema): { '~standard': Record<string, unknown> } {

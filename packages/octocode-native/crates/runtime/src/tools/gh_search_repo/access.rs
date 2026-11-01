@@ -21,6 +21,15 @@ pub(super) fn page(q: &GhSearchRepoQuery) -> usize {
         GhSearchRepoQuery::Get(_) => 1,
     }
 }
+/// Rows per page: the query's `limit`, its contract default when omitted. A
+/// `get` reads one repository and pages nothing.
+pub(super) fn limit(q: &GhSearchRepoQuery) -> usize {
+    match q {
+        GhSearchRepoQuery::Search(q) => crate::num::usize_of(q.limit),
+        GhSearchRepoQuery::List(q) => crate::num::usize_of(q.limit),
+        GhSearchRepoQuery::Get(_) => crate::contracts::query_limits::gh_search_repo::LIMIT_DEFAULT,
+    }
+}
 pub(super) fn fields(q: &GhSearchRepoQuery) -> Vec<String> {
     match q {
         GhSearchRepoQuery::Search(q) => q.fields.iter().map(ToString::to_string).collect(),

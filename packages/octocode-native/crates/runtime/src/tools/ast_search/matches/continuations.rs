@@ -1,8 +1,8 @@
 //! A match page's continuations: its file, match and scan pages, the value
 //! expansions, the read of its top hits, and the terminal end of a query
 //! some grammar of the scope does not compile.
-use super::clipped::{read_clipped_lines, read_top_hits};
 use super::query::MatchQuery;
+use super::reads::read_top_hits;
 use super::rows::continuation_with;
 use super::types::{Group, ScanCut, Scope};
 use crate::id::ToolId;
@@ -21,7 +21,11 @@ pub(super) fn compile_failed_end(
     out: &mut Value,
     _snapshot: &str,
 ) {
-    crate::response::paging::terminal_limit(out, "compileFailed", &[]);
+    crate::response::paging::terminal_limit(
+        out,
+        crate::response::paging::PartialReason::CompileFailed,
+        &[],
+    );
     if let Some(language) = scope.inferred.as_deref().filter(|_| q.language().is_none()) {
         let row = crate::response::result::with_changes(q.to_value(), &json!({"parser": language}));
         out["calls"]["narrowScope"] =
@@ -29,14 +33,14 @@ pub(super) fn compile_failed_end(
     }
 }
 
-/// `next` pages, the scan and value expansions, and the read of the top
-/// file's hits.
+/// `next` pages and the scan expansion; the related capture expansion and
+/// read of the top file's hits.
 pub(super) fn attach_match_continuations(
     q: MatchQuery<'_>,
     scope: &Scope,
     out: &mut Value,
     page_groups: &[Group],
-    cut: ScanCut<'_>,
+    cut: ScanCut,
     more: bool,
     snapshot: &str,
 ) {
@@ -48,42 +52,13 @@ pub(super) fn attach_match_continuations(
     // The scan continues after the files this window evaluated
     // (`scanOffset`), so the lead is offered once the window's last file page
     // is reached.
-    let expand_scan = super::super::scan_window::expand_scan(
-        truncated,
-        q.max_files(),
-        cut.resume,
-        super::super::scan_window::ScanLimits::MATCH,
-    )
-    .map(|window| {
-        let mut expand =
-            json!({"scanOffset":window.scan_offset,"page":1,"matchPage":1,"snapshot":null});
-        if let Some(bound) = window.max_files {
-            expand["maxFiles"] = json!(bound);
-        }
-        expand
-    });
-    if truncated && !more && expand_scan.is_none() {
-        crate::response::paging::terminal_limit(
-            out,
-            super::super::scan_window::cut_reason(q.max_files()),
-            &[],
-        );
-        if let Some(unwalked) = cut.unwalked {
-            let query = q.to_value();
-            unwalked.attach(out, |reach| super::super::unwalked::narrowed(&query, reach));
-        }
-    }
-    let cursor = |out: &mut Value, field: &str, next: usize| {
-        crate::response::paging::next_cursor(out, ToolId::AstSearch, Some("match"), field, next)
-    };
+    let expand_scan = super::super::scan_window::expand_scan(truncated, cut.resume).map(
+        |window| json!({"scanOffset":window.scan_offset,"page":1,"matchPage":1,"snapshot":null}),
+    );
     // Finish each file page's matches before advancing the file/scan axis.
     // Otherwise every match page reissues the same next file or scan window.
-    let next_page = (more && !has_more_matches)
-        .then(|| cursor(out, "page", page + 1))
-        .flatten();
-    let next_match_page = has_more_matches
-        .then(|| cursor(out, "matchPage", match_page + 1))
-        .flatten();
+    let next_page = (more && !has_more_matches).then_some(page + 1);
+    let next_match_page = has_more_matches.then_some(match_page + 1);
     let with = |changes: Value| continuation_with(q, changes, snapshot);
     if let Some(next_page) = next_page {
         // A new file page restarts per-file match pagination.
@@ -94,15 +69,17 @@ pub(super) fn attach_match_continuations(
     }
     if let Some(expand) = expand_scan.filter(|_| !more && !has_more_matches) {
         out["calls"]["expandScan"] = with(expand);
+        super::super::scan_window::mark_resumed(out);
     }
-    // A clipped value is display clipping of a listed match, not a coverage
-    // gap: expandCaptures re-runs with captures and the whole length when
-    // captures are hidden; otherwise (or past the length maximum) the
-    // clipped rows' lines are read whole.
+    // The lean structural representation may withhold a body or captures.
+    // Expanding that chosen representation returns their complete text:
+    // optional work, so a related lead, never a required continuation.
     if has_truncated_captures && !q.capture_text().unwrap_or(false) {
-        out["calls"]["expandCaptures"] = with(json!({"includeCaptures":true}));
+        out["calls"]["expandCaptures"] = crate::response::result::restart_query(
+            ToolId::AstSearch,
+            &crate::response::result::with_changes(q.to_value(), &json!({"includeCaptures":true})),
+        );
     }
-    read_clipped_lines(scope, out, page_groups);
     if let Some(read) = page_groups
         .first()
         .and_then(|top| read_top_hits(scope, &top.row))
@@ -154,30 +131,31 @@ pub(super) fn anchor_line(q: MatchQuery<'_>, file: &std::path::Path) -> Option<u
     super::super::source::parse_text(file, &source)
         .ok()?
         .lines()
-        .position(|line| anchors.iter().any(|anchor| spells_word(line, anchor)))
+        .position(|line| {
+            anchors.iter().any(|anchor| {
+                octocode_engine::text::whole_word_starts(line, anchor)
+                    .next()
+                    .is_some()
+            })
+        })
         .map(|index| index as u64 + 1)
 }
 
-/// Whether `line` holds `anchor` with no word character joined to either
-/// end (an end that is itself punctuation needs no boundary).
-fn spells_word(line: &str, anchor: &str) -> bool {
-    let word = |c: char| c.is_alphanumeric() || c == '_';
-    let (Some(first), Some(last)) = (anchor.chars().next(), anchor.chars().next_back()) else {
-        return false;
-    };
-    line.match_indices(anchor).any(|(start, _)| {
-        let before = line[..start].chars().next_back();
-        let after = line[start + anchor.len()..].chars().next();
-        (!word(first) || !before.is_some_and(word)) && (!word(last) || !after.is_some_and(word))
-    })
-}
-
+/// The anchor check is the engine's identifier rule: an end that is itself
+/// punctuation needs no boundary, and `$def` is not `def`.
 #[cfg(test)]
 #[test]
 fn an_anchor_is_spelled_as_a_whole_word() {
-    assert!(spells_word("fn failure() {}", "failure"));
-    assert!(!spells_word("export default x;", "def"));
-    assert!(!spells_word("failures.push(x)", "failure"));
-    assert!(spells_word("a => b", "=>"));
-    assert!(spells_word("x=>y", "=>"));
+    let spells = |line: &str, anchor: &str| {
+        octocode_engine::text::whole_word_starts(line, anchor)
+            .next()
+            .is_some()
+    };
+    assert!(spells("fn failure() {}", "failure"));
+    assert!(!spells("export default x;", "def"));
+    assert!(!spells("failures.push(x)", "failure"));
+    assert!(spells("a => b", "=>"));
+    assert!(spells("x=>y", "=>"));
+    assert!(!spells("$def = 1", "def"));
+    assert!(spells("(failure)", "failure"));
 }

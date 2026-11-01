@@ -94,6 +94,25 @@ impl ClassificationProvider for Jev {
     }
 
     fn models(&self, response: &Value) -> Result<Value, ProviderContractError> {
+        // A local System One server (Ollama, or FreeLlama in front of it) lists models in the
+        // OpenAI form, `{"data":[{"id":...}]}`, which names a model and nothing else; what it does
+        // not report stays empty rather than guessed.
+        if response.get("models").is_none()
+            && let Some(data) = response.get("data").and_then(Value::as_array)
+        {
+            let models = data
+                .iter()
+                .map(|model| {
+                    model
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.trim().is_empty())
+                        .map(|id| json!({"name": id, "description": "", "release_date": ""}))
+                        .ok_or_else(|| invalid_response("data[].id must be a non-blank string"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(json!({ "models": models }));
+        }
         let models = response
             .get("models")
             .and_then(Value::as_array)

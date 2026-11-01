@@ -18,8 +18,8 @@ use super::symbols::{
     class_members, class_symbol, collect_variable, container, enum_symbol, external_module_symbol,
     global_symbol, interface_symbol, namespace_symbol, type_alias_symbol,
 };
-use crate::lsp::symbol_kind;
 use crate::signatures::js_oxc_commonjs::DefinedExport;
+use crate::symbol_kind;
 use std::collections::HashSet;
 
 pub(super) fn collect_program(

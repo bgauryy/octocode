@@ -1,6 +1,9 @@
 //! Change assessment: impact (optionally since a git revision), issues,
 //! drift and baselines.
 use super::*;
+use crate::id::ToolId;
+use crate::response::result::Continuation;
+use crate::tools::ast_graph::store::detect::VerifyStep;
 
 /// Root-relative files changed since `rev` (committed, staged, unstaged) plus
 /// untracked files, via git.
@@ -64,7 +67,7 @@ impl Query<'_> {
             for path in changed {
                 if super::super::super::freshness::is_global_config(&path) {
                     global.push((
-                        crate::tools::ast_graph::graph::parent(&path).to_owned(),
+                        crate::tools::ast_graph::paths::parent(&path).to_owned(),
                         path,
                     ));
                 } else if g.t.by_key(&path).is_some() {
@@ -78,7 +81,7 @@ impl Query<'_> {
             let Some(rev) = &options.since else {
                 return Err(GraphOutput::error(
                     ErrorCode::InvalidInput,
-                    "`impact` needs a reference, --changed, or --since <rev>",
+                    "`impact` needs a target, changed, or since",
                 ));
             };
             // A change set with nothing in the graph is an empty answer.
@@ -202,16 +205,9 @@ impl Query<'_> {
                 if let Some(state) = status.get(&finding.id) {
                     row["status"] = json!(state);
                 }
-                // Graph verify commands run against this snapshot.
-                if let Some(verify) = row.get_mut("verify").and_then(Value::as_array_mut) {
-                    for step in verify {
-                        if let Some(command) = step
-                            .as_str()
-                            .filter(|command| command.starts_with("octocode graph query "))
-                        {
-                            *step = json!(format!("{command} {}", snapshot_flags(options, &g.id)));
-                        }
-                    }
+                if !finding.verify.is_empty() {
+                    let calls = finding.verify.iter().map(|step| verify_call(step, options, &g.id));
+                    row["verify"] = Value::Array(calls.collect());
                 }
                 row
             })
@@ -228,12 +224,12 @@ impl Query<'_> {
         ))
     }
 
-    /// The structural drift from the `--baseline` snapshot to this one.
+    /// The structural drift from the `baseline` snapshot to this one.
     pub(super) fn drift(&self, paths: &PathPolicy) -> Result<GraphOutput, GraphOutput> {
         let base = self.options.baseline.as_deref().ok_or_else(|| {
             GraphOutput::error(
                 ErrorCode::InvalidInput,
-                "`drift` needs --baseline <snapshot>",
+                "`drift` needs a baseline snapshot id",
             )
         })?;
         let base_options = QueryOptions {
@@ -359,8 +355,25 @@ fn manifest_above(
     Some(json!({
         "detector": "unreachable-file",
         "skipped": format!(
-            "the snapshot root holds no package manifest, so entrypoints came from file conventions only; {shown} holds {manifest}: run `octocode graph ingest {}` so its entries count",
-            octocode_io::shell::quote(&dir.to_string_lossy())
+            "the snapshot root holds no package manifest, so entrypoints came from file conventions only; {shown} holds {manifest}: build it with {} so its entries count",
+            super::paging::call("graphBuild", Map::from_iter([("path".to_owned(), json!(shown))]))
         ),
     }))
+}
+
+/// A detector's verify step as a related call against this snapshot: a
+/// graphQuery step gains the snapshot pin; a step naming a root-relative
+/// file (lspSearch) gets the workspace-relative path the tool takes.
+fn verify_call(step: &VerifyStep, options: &QueryOptions, id: &str) -> Value {
+    let mut row = step.row.as_object().cloned().unwrap_or_default();
+    if step.tool == ToolId::GraphQuery {
+        super::paging::pin(&mut row, options, id);
+    } else if let (Some(scope), Some(file)) =
+        (&options.path, row.get("path").and_then(Value::as_str))
+        && scope != "."
+    {
+        let joined = format!("{}/{file}", scope.trim_end_matches('/'));
+        row.insert("path".into(), json!(joined));
+    }
+    Continuation::related(step.tool, Value::Object(row)).build()
 }

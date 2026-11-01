@@ -21,9 +21,7 @@ pub(super) async fn materialize_page(
     context: &RequestContext,
     value: &mut Value,
 ) -> Result<Option<MaterializeResume>, ProviderError> {
-    let offset = query
-        .materialize_offset
-        .map_or(0, |offset| usize::try_from(offset).unwrap_or(0));
+    let offset = query.materialize_offset.map_or(0, crate::num::usize_of);
     let snapshot = Snapshot {
         owner: &query.owner,
         repo: &query.repo,
@@ -71,7 +69,11 @@ pub(super) async fn materialize_page(
     location["coverage"] = json!({"state": if finished { "complete" } else { "partial" }});
     value["location"] = location;
     if !unwritten.is_empty() {
-        crate::response::paging::mark_partial(value, "materializeDepth", &[]);
+        crate::response::paging::mark_partial(
+            value,
+            crate::response::paging::PartialReason::MaterializeDepth,
+            &[],
+        );
     }
     crate::response::paging::push_warnings(value, warnings);
     Ok(resume)
@@ -131,7 +133,11 @@ pub(super) fn mark_materialize_partial(value: &mut Value) {
     if value.get("location").is_none() {
         return;
     }
-    crate::response::paging::mark_partial(value, "materializeIncomplete", &[]);
+    crate::response::paging::mark_partial(
+        value,
+        crate::response::paging::PartialReason::MaterializeIncomplete,
+        &[],
+    );
 }
 
 pub(super) const MATERIALIZE_FILE_CAP: usize = 50;

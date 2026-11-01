@@ -243,7 +243,7 @@ fn attach_comments_read(out: &mut Value, query: &HistoryItemRequest, raw: &Value
 fn mark_bounded_closing(out: &mut Value, listed: usize, total: u64) {
     crate::response::paging::terminal_limit(
         out,
-        "closingReferenceLimit",
+        crate::response::paging::PartialReason::ClosingReferenceLimit,
         &[format!(
             "closedBy lists {listed} of {total} linked pull requests; the first is a candidate, not the complete fix set."
         )],

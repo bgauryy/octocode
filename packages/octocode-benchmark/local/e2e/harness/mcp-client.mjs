@@ -37,7 +37,7 @@ export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, en
   server.on('error', error => { clearTimeout(deadline); fail(error); });
   server.on('exit', (code, signal) => { clearTimeout(deadline); process.removeListener('SIGINT', onSignal); process.removeListener('SIGTERM', onSignal); if (!closed && (code !== 0 || signal)) process.exitCode = 1; fail(new Error(`MCP server exited ${code}/${signal}: ${stderr}`)); });
   server.stdin.on('error', fail);
-  server.stdout.on('data', chunk => {
+  server.stdout.setEncoding('utf8').on('data', chunk => {
     buffer += chunk;
     let index;
     while ((index = buffer.indexOf('\n')) >= 0) {
@@ -49,7 +49,7 @@ export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, en
       }
     }
   });
-  server.stderr.on('data', chunk => { stderr += chunk; });
+  server.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
   const rpc = (method, params, timeout = timeoutMs) => new Promise((resolve, reject) => {
     if (closed) { reject(new Error('MCP server unavailable')); return; }
     const n = ++id;
@@ -170,8 +170,8 @@ export function spawnCli(argv, { bin = CLI, cwd = ROOT, env = process.env, timeo
     const started = performance.now();
     const child = spawn(process.execPath, [bin, ...argv], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     let stdout = '', stderr = '';
-    child.stdout.on('data', chunk => { stdout += chunk; });
-    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
+    child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
     const timer = setTimeout(() => {
       if (!child.pid) return;
       if (process.platform === 'win32') {
@@ -187,8 +187,8 @@ export function spawnCli(argv, { bin = CLI, cwd = ROOT, env = process.env, timeo
 }
 
 /**
- * A CLI-only tool (contract `cliOnly`, e.g. ghCloneRepo) called through the
- * built CLI, returned in the `call`/`follow` entry shape. `args` is the
+ * A tool called through the built CLI, returned in the `call`/`follow` entry
+ * shape. `args` is the
  * complete input, so a `next.*` query runs verbatim. A next page is still exit 0.
  */
 export function cliEntry(tool, args, { env = {}, label = '', ...options } = {}) {

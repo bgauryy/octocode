@@ -8,7 +8,7 @@ fn write(package: &Path, path: &str, text: &str) -> PathBuf {
 }
 
 fn declared(file: &Path) -> Vec<PathBuf> {
-    let mut owners = cargo_package_includes(file, 100)
+    let mut owners = cargo_package_includes(file, &|| false)
         .expect("package")
         .declared_by;
     owners.sort();
@@ -247,10 +247,15 @@ fn module_context_cycles_terminate_and_scan_limits_remain_visible() {
         "#[path = \"../feature.rs\"]\nmod cycle;\n",
     );
     assert_eq!(declared(&child), vec![owner]);
-    let limited = cargo_package_includes(&lib, 1).expect("package");
+    let checks = std::cell::Cell::new(0);
+    let limited = cargo_package_includes(&lib, &|| {
+        checks.set(checks.get() + 1);
+        checks.get() > 1
+    })
+    .expect("package");
     assert!(limited.has_more);
     assert!(limited.declared_by.len() <= 1);
-    let zero = cargo_package_includes(&lib, 0).expect("package");
+    let zero = cargo_package_includes(&lib, &|| true).expect("package");
     assert!(zero.has_more);
     assert_eq!(zero.declared_by, Vec::<PathBuf>::new());
 }

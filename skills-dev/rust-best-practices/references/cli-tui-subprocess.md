@@ -17,7 +17,7 @@ Load when working on a Rust command-line tool (args, output, exit codes, config,
 - In Octocode, shrink output by removing duplication, then paginate. Each page keeps all evidence and an executable `next.*`; disclose terminal limits. Do not clip rows, ranges, patches, or warnings.
 - Color only when stdout is a TTY (`std::io::IsTerminal`); honor `NO_COLOR`, `CLICOLOR_FORCE` and `--color auto|always|never`. `anstream`/`anstyle` (used by clap) strip ANSI off-terminal.
 - Hot output: `let mut out = BufWriter::new(io::stdout().lock()); writeln!(out, …)?;` (`println!` re-locks and line-flushes each call).
-- **Broken pipe:** Rust ignores SIGPIPE, so `println!` panics under `app | head`. Use `writeln!` and treat `ErrorKind::BrokenPipe` as success (exit 0), as `crates/cli/src/cli/mod.rs` does.
+- **Broken pipe:** Rust ignores SIGPIPE, so `println!` panics under `app | head`. Use `writeln!` and treat `ErrorKind::BrokenPipe` as success (exit 0), as `crates/cli/src/cli/output.rs` does.
 - Progress: `indicatif` on stderr (auto-hidden off-TTY); prompts (`dialoguer`/`inquire`) only when stdin is a TTY, with a skip flag for CI.
 
 ## CLI: Errors, logs, config, signals

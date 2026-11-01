@@ -15,15 +15,12 @@ use collections::{
     drop_empty_declared_siblings, empty_declared_siblings, lean_declared_skeleton,
 };
 use octocode_engine::digest::JsonFingerprint;
-use plan::{PreparedRows, RowPlan};
+use plan::{Later, PreparedRows, RowPlan};
 #[cfg(test)]
 use serde_json::json;
 use serde_json::{Map, Value};
-pub(crate) use shares::fair_shares;
 use shares::{PartShare, keep_row_next, row_next_chars, row_part_chars};
 use skeleton::{continues_chars, enclosing_element, lean_elements, volatile_reserve};
-#[cfg(test)]
-use skeleton::{drop_emptied_lists, empty_secondary_lists, lean_skeleton, take_largest_array};
 use slicer::{Open, Slicer};
 use tokio_util::sync::CancellationToken;
 
@@ -51,20 +48,44 @@ struct Placed {
     page: usize,
 }
 
-/// The incomplete envelope warning a page with `later` of `rows`
-/// rows left over leads with.
-fn incomplete_banner(later: usize, rows: usize) -> Value {
-    Value::String(format!(
-        "incomplete: {later}/{rows} rows; more response pages"
-    ))
+/// The incomplete envelope warning a page with rows left over leads with:
+/// the query indexes later pages serve first and those they continue.
+fn incomplete_banner(later: &Later) -> Value {
+    let list = |queries: &[usize]| {
+        let noun = if queries.len() == 1 {
+            "query"
+        } else {
+            "queries"
+        };
+        let queries = queries.iter().map(usize::to_string).collect::<Vec<_>>();
+        format!("{noun} {}", queries.join(", "))
+    };
+    let mut banner = String::from("incomplete: later response pages");
+    if !later.unserved.is_empty() {
+        banner.push_str(" serve ");
+        banner.push_str(&list(&later.unserved));
+    }
+    if !later.continued.is_empty() {
+        banner.push_str(if later.unserved.is_empty() {
+            " continue "
+        } else {
+            " and continue "
+        });
+        banner.push_str(&list(&later.continued));
+    }
+    Value::String(banner)
 }
 
 /// The most chars the incomplete banner adds to `skeleton`, an envelope of
-/// `rows` rows: the widest count, plus its `warnings` key when the envelope
-/// has none.
-fn incomplete_banner_chars(skeleton: &Map<String, Value>, rows: usize) -> usize {
-    let banner =
-        octocode_engine::json_size::utf16_units(&incomplete_banner(rows, rows)).unwrap_or(0);
+/// rows with query indexes `queries`: a banner naming every query in both
+/// lists (wider than any page's, where each row is in one at most), plus
+/// its `warnings` key when the envelope has none.
+fn incomplete_banner_chars(skeleton: &Map<String, Value>, queries: &[usize]) -> usize {
+    let widest = Later {
+        unserved: queries.to_vec(),
+        continued: queries.to_vec(),
+    };
+    let banner = octocode_engine::json_size::utf16_units(&incomplete_banner(&widest)).unwrap_or(0);
     match skeleton.get("warnings").and_then(Value::as_array) {
         Some(warnings) if !warnings.is_empty() => banner + 1,
         Some(_) => banner,
@@ -81,7 +102,7 @@ pub(super) fn paginate_rows(
     options: &ResponsePageOptions,
     volatile: Vec<Option<Map<String, Value>>>,
     remaining: &[Vec<Remaining>],
-    tool: Option<crate::id::ToolId>,
+    tool: crate::id::ToolId,
 ) -> (Map<String, Value>, ResponsePagination) {
     let envelope = octocode_engine::digest::fingerprint_json(&structured).expect("envelope");
     let cancelled = CancellationToken::new();
@@ -104,11 +125,12 @@ pub(super) fn paginate_rows(
 /// cut into the zero-based page a cursor addresses. A saved response
 /// keeps it, so a later page neither copies nor re-plans the envelope.
 ///
-/// The first page gives every row a fair share of the budget, so each row
-/// shows its head (with its drill-downs and handoffs) before any row
-/// continues; the rest of each row follows in row order, and a split row's
-/// page continuations ride its last part ([`PartShare`]). Pages are assigned
-/// from fragment sizes; a page materializes only its own fragments.
+/// Pages cut at row boundaries, in row order: a row that fits a page is
+/// never split, and only a row larger than a page is split into parts
+/// (`rowPart`), its first part filling the room its page has left. A split
+/// row's page continuations ride its last part ([`PartShare`]). Pages are
+/// assigned from fragment sizes; a page materializes only its own
+/// fragments, and the page count is the number of calls a reader makes.
 ///
 /// The budget is the whole rendered page, so the plan keeps room for the
 /// `responsePagination` block the caller attaches afterwards: `block` is that
@@ -116,10 +138,12 @@ pub(super) fn paginate_rows(
 /// The room is the block of a page with more behind it, at the widest page
 /// numbers. The final query row may finish its remaining array tail in the
 /// smaller finished envelope; earlier rows retain the ordinary allowance.
+/// The envelope key of every tool's result rows.
+const ROWS_KEY: &str = "results";
+
 pub(super) struct RowSource {
     /// The envelope without its rows.
     skeleton: Map<String, Value>,
-    rows_key: &'static str,
     plan: RowPlan,
     /// Each row's per-call provider facts, regained by its first part.
     volatile: Vec<Option<Map<String, Value>>>,
@@ -136,19 +160,18 @@ impl RowSource {
         envelope: &JsonFingerprint,
         options: &ResponsePageOptions,
         mut volatile: Vec<Option<Map<String, Value>>>,
-        tool: Option<crate::id::ToolId>,
+        tool: crate::id::ToolId,
         block: &dyn Fn(&ResponsePagination) -> usize,
         cancelled: &CancellationToken,
     ) -> Result<Self, super::pager::ResponseError> {
         let budget = options.response_chars.unwrap_or(1).max(1);
-        let rows_key = tool.map_or("results", |tool| tool.output().rows_key());
-        let rows = match structured.remove(rows_key) {
+        let rows = match structured.remove(ROWS_KEY) {
             Some(Value::Array(rows)) => rows,
             _ => Vec::new(),
         };
         volatile.resize(rows.len(), None);
         let overhead =
-            octocode_engine::json_size::utf16_units(&structured).unwrap_or(0) + rows_key.len() + 6;
+            octocode_engine::json_size::utf16_units(&structured).unwrap_or(0) + ROWS_KEY.len() + 6;
         let total = envelope.utf16_units;
         let snapshot = super::cursor::rows_snapshot(budget, &envelope.digest);
         let template = |has_more: bool| ResponsePagination {
@@ -163,11 +186,11 @@ impl RowSource {
         };
         // Room for the envelope warning a page with rows left over leads with,
         // and for the pagination block.
-        let banner = incomplete_banner_chars(&structured, rows.len());
+        let prepared = PreparedRows::new(rows, &volatile, tool);
+        let banner = incomplete_banner_chars(&structured, prepared.queries());
         let row_budget = |reserve: usize| budget.saturating_sub(overhead + banner + reserve).max(1);
         let finished = block(&template(false));
         let widest = block(&template(true));
-        let prepared = PreparedRows::new(rows, &volatile, tool);
         // A response whose rows, added up, fit one page beside the block a
         // finished page carries is one page of that block. Past it some row
         // splits, so ordinary fragments reserve the continued-page block.
@@ -180,7 +203,6 @@ impl RowSource {
         )?;
         Ok(Self {
             skeleton: structured,
-            rows_key,
             plan,
             volatile,
             budget,
@@ -197,8 +219,7 @@ impl RowSource {
         block: &dyn Fn(&ResponsePagination) -> usize,
         cancelled: &CancellationToken,
     ) -> Result<(Map<String, Value>, ResponsePagination), super::pager::ResponseError> {
-        let Self { plan, rows_key, .. } = self;
-        let rows_key = *rows_key;
+        let Self { plan, .. } = self;
         let mut structured = self.skeleton.clone();
         let requested = options.response_offset.unwrap_or(0);
         let changed = options.response_snapshot.as_deref() != Some(&self.snapshot);
@@ -206,10 +227,10 @@ impl RowSource {
             return Err(super::pager::ResponseError::InvalidPage);
         }
         let selected = plan.build_page(requested, &self.volatile, remaining, cancelled)?;
-        let later = plan.rows_after(requested);
-        structured.insert(rows_key.into(), Value::Array(selected));
-        if later > 0 {
-            lead_with_incomplete_banner(&mut structured, later, plan.rows);
+        let later = plan.later(requested);
+        structured.insert(ROWS_KEY.into(), Value::Array(selected));
+        if !later.is_empty() {
+            lead_with_incomplete_banner(&mut structured, &later);
         }
         let has_more = requested + 1 < plan.total_pages;
         let char_length = octocode_engine::json_size::utf16_units(&structured).unwrap_or(0);
@@ -231,10 +252,10 @@ impl RowSource {
     }
 }
 
-/// Lead the envelope with the warning that `later` of `rows` rows continue
-/// on later pages, so a reader meets it before the rows.
-fn lead_with_incomplete_banner(structured: &mut Map<String, Value>, later: usize, rows: usize) {
-    let banner = incomplete_banner(later, rows);
+/// Lead the envelope with the warning naming the queries `later` pages
+/// hold, so a reader meets it before the rows.
+fn lead_with_incomplete_banner(structured: &mut Map<String, Value>, later: &Later) {
+    let banner = incomplete_banner(later);
     let mut warnings = match structured.shift_remove("warnings") {
         Some(Value::Array(warnings)) => warnings,
         _ => Vec::new(),

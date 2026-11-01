@@ -10,8 +10,8 @@ Discover concrete paths first. A directory is not one source. Before inference, 
 
 Use `classification:{predicates:["one observable evidence question"],context?:"task context",longContext?:true}` on localSearch, localFetch, ghSearchCode or ghGetFileContent. Questions stand alone; the provider has no conversation history or sibling answers.
 
-```json
-{"queries":[{"path":"src/http","matchString":["body"],"contextLines":{"before":3,"after":3},"classification":{"predicates":["Does this reject request bodies above the configured size limit?"]}}]}
+```bash
+octocode localSearch '{"queries":[{"path":"src/http","matchString":["body"],"contextLines":{"before":3,"after":3},"classification":{"predicates":["Does this reject request bodies above the configured size limit?"]}}]}'
 ```
 
 Search assesses captured matches and supplied context, not hidden whole-file bodies. Fetch assesses selected source windows. `responseChars` controls output size, not provider context. Keep lexical scope broad enough to retrieve deciding evidence. Use enough before/after context, or explicit ranges, when a condition spans several lines.

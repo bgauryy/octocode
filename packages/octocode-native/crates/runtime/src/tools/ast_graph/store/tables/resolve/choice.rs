@@ -102,6 +102,6 @@ impl Linker<'_> {
     fn dir(&self, file: u32) -> &str {
         self.scope
             .path(file)
-            .map_or("", crate::tools::ast_graph::graph::parent)
+            .map_or("", crate::tools::ast_graph::paths::parent)
     }
 }

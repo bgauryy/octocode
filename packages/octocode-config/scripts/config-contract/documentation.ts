@@ -17,7 +17,7 @@ function markdownDefault(field: FlatField): string {
 }
 
 function markdownType(field: FlatField): string {
-  if (field.type === 'enum') return field.values!.map(value => `\`${value}\``).join(' or ');
+  if (field.type === 'enum') return (field.values ?? []).map(value => `\`${value}\``).join(' or ');
   if (field.type === 'stringArray') return 'string array';
   return field.type;
 }
@@ -45,8 +45,8 @@ function documentationTables(contract: Contract) {
   }
   const environment = orderedEnvironment(fields, contract);
   const tokens = environment.tokenNames.map(name => {
-    const definition = contract.environment[name]!;
-    return `| \`${name}\` | ${definition.tokenPriority! + 1} | ${definition.description ?? ''} |`;
+    const definition = contract.environment[name];
+    return `| \`${name}\` | ${(definition?.tokenPriority ?? 0) + 1} | ${definition?.description ?? ''} |`;
   });
   const additionalEnvironment = Object.entries(contract.environment)
     .filter(([, definition]) =>

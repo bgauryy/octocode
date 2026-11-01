@@ -10,6 +10,8 @@ pub struct AdmittedSource<'a> {
     pub snapshot: Option<SourceSnapshot>,
     // Only UTF-16 needs non-affine scalar correspondence; UTF-8 is one interval.
     boundaries: Vec<(u32, u32)>,
+    /// SHA-256 of `text`, computed at most once ([`Self::text_digest`]).
+    text_digest: std::sync::OnceLock<String>,
 }
 impl<'a> AdmittedSource<'a> {
     pub fn from_bytes(
@@ -37,11 +39,14 @@ impl<'a> AdmittedSource<'a> {
         } else if bytes.starts_with(&[0xfe, 0xff]) {
             (Encoding::Utf16Be, 2)
         } else {
-            (Encoding::Utf8, crate::text::bom_len(bytes) as u32)
+            (
+                Encoding::Utf8,
+                crate::num::saturating_u32(crate::text::bom_len(bytes)),
+            )
         };
         let byte_length =
             u32::try_from(bytes.len()).map_err(|_| SourceError::LimitExceeded("source bytes"))?;
-        u32::try_from(admitted.text.len())
+        let decoded_length = u32::try_from(admitted.text.len())
             .map_err(|_| SourceError::LimitExceeded("decoded bytes"))?;
         if let Cow::Owned(text) = &admitted.text {
             budget.allocate(text.capacity().saturating_sub(reserved_decode))?;
@@ -53,12 +58,13 @@ impl<'a> AdmittedSource<'a> {
                 if index % 256 == 0 {
                     budget.check()?;
                     reserve_boundary(&mut boundaries, budget)?;
-                    boundaries.push((decoded as u32, raw));
+                    // `decoded` < `decoded_length`, which fits a `u32`.
+                    boundaries.push((crate::num::saturating_u32(decoded), raw));
                 }
-                raw += ch.len_utf16() as u32 * 2;
+                raw += utf16_bytes(ch);
             }
             reserve_boundary(&mut boundaries, budget)?;
-            boundaries.push((admitted.text.len() as u32, raw));
+            boundaries.push((decoded_length, raw));
         }
         budget.allocate(source_key.len() + 128)?;
         let digest = crate::digest::sha256(bytes);
@@ -70,9 +76,17 @@ impl<'a> AdmittedSource<'a> {
             encoding,
             bom_bytes,
         ))?;
+        // UTF-8 text borrowed whole is the source bytes: one digest names both.
+        let text_digest = std::sync::OnceLock::new();
+        if encoding == Encoding::Utf8
+            && matches!(admitted.text, Cow::Borrowed(text) if text.len() == bytes.len())
+        {
+            let _ = text_digest.set(digest.clone());
+        }
         Ok(Self {
             text: admitted.text,
             boundaries,
+            text_digest,
             snapshot: Some(SourceSnapshot {
                 id,
                 path: source_key.to_owned(),
@@ -88,6 +102,7 @@ impl<'a> AdmittedSource<'a> {
             text: Cow::Borrowed(text),
             snapshot: None,
             boundaries: Vec::new(),
+            text_digest: std::sync::OnceLock::new(),
         }
     }
     pub fn owned_bytes(&self) -> usize {
@@ -102,6 +117,19 @@ impl<'a> AdmittedSource<'a> {
     }
     pub fn text(&self) -> &str {
         &self.text
+    }
+    /// SHA-256 of [`Self::text`]: the source bytes' digest when the text is
+    /// those bytes, else hashed once on first use.
+    pub fn text_digest(&self) -> &str {
+        self.text_digest
+            .get_or_init(|| crate::digest::sha256(self.text.as_bytes()))
+    }
+    /// SHA-256 of the admitted source bytes; `None` for text admitted
+    /// without them ([`Self::from_text`]).
+    pub fn source_digest(&self) -> Option<&str> {
+        self.snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.digest.as_str())
     }
     pub(super) fn project(&self, range: ByteRange) -> Result<OriginBranch, SourceError> {
         self.validate(range)?;
@@ -122,11 +150,7 @@ impl<'a> AdmittedSource<'a> {
                     .text
                     .get(decoded as usize..at as usize)
                     .ok_or(SourceError::InvalidMap("scalar boundary"))?;
-                Ok(raw
-                    + suffix
-                        .chars()
-                        .map(|ch| ch.len_utf16() as u32 * 2)
-                        .sum::<u32>())
+                Ok(raw + suffix.chars().map(utf16_bytes).sum::<u32>())
             }
         };
         let origin = OriginalRange {
@@ -166,4 +190,9 @@ fn reserve_boundary(
         }
     }
     Ok(())
+}
+
+/// Raw UTF-16 bytes that encode `ch`: a surrogate pair past the BMP.
+fn utf16_bytes(ch: char) -> u32 {
+    if u32::from(ch) > 0xFFFF { 4 } else { 2 }
 }

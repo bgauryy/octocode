@@ -159,11 +159,12 @@ fn parse_http_date(value: &str) -> Option<SystemTime> {
     let mut parts = rest.split_ascii_whitespace();
     let day = parts.next()?.parse::<i64>().ok()?;
     let month_name = parts.next()?;
-    let month = 1 + [
+    let month_index = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ]
     .iter()
-    .position(|name| *name == month_name)? as i64;
+    .position(|name| *name == month_name)?;
+    let month = 1 + i64::try_from(month_index).ok()?;
     let year = parts.next()?.parse::<i64>().ok()?;
     let mut clock = parts.next()?.split(':').map(str::parse::<i64>);
     let (hour, minute, second) = (
@@ -187,10 +188,12 @@ fn parse_http_date(value: &str) -> Option<SystemTime> {
 /// Full-jitter exponential backoff: uniform in `[0, base * 2^attempt]`,
 /// bounded by `cap`.
 fn full_jitter(base: Duration, attempt: u32, cap: Duration) -> Duration {
-    let ceiling = base
-        .saturating_mul(1_u32 << attempt.min(16))
-        .min(cap)
-        .as_millis() as u64;
+    let ceiling = u64::try_from(
+        base.saturating_mul(1_u32 << attempt.min(16))
+            .min(cap)
+            .as_millis(),
+    )
+    .unwrap_or(u64::MAX);
     if ceiling == 0 {
         return Duration::ZERO;
     }

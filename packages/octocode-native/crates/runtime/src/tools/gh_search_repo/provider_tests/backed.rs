@@ -340,7 +340,7 @@ async fn repositories_lead_to_the_tree_and_an_empty_search_broadens() {
     assert_eq!(broader["tool"], "ghSearchRepo", "{}", empty.data);
     assert_eq!(
         broader["input"]["queries"][0],
-        json!({"keywords":["needle"],"operation":"search","sort":{"by":"bestMatch","order":"desc"}}),
+        json!({"keywords":["needle"],"operation":"search"}),
         "{}",
         empty.data
     );

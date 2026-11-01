@@ -1,5 +1,72 @@
 use super::*;
 
+#[test]
+fn clone_exposure_requires_trusted_opt_in_and_workspace_can_only_narrow_it() {
+    for layers in [
+        Layers {
+            project_env: Some("OCTOCODE_ENABLE_CLONE=true"),
+            ..NONE
+        },
+        Layers {
+            project_rc: Some(r#"{"tools":{"enableClone":true}}"#),
+            ..NONE
+        },
+    ] {
+        let out = resolve(layers);
+        assert_eq!(
+            value_of(&out, "tools.enableClone"),
+            serde_json::json!(false)
+        );
+        assert!(
+            out.dotenv
+                .skipped_protected
+                .iter()
+                .any(|key| key == "OCTOCODE_ENABLE_CLONE")
+                || out
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.field_path.as_deref() == Some("tools.enableClone")
+                        || d.message.contains("OCTOCODE_ENABLE_CLONE"))
+        );
+    }
+    for layers in [
+        Layers {
+            env: &[("OCTOCODE_ENABLE_CLONE", "true")],
+            ..NONE
+        },
+        Layers {
+            global_env: Some("OCTOCODE_ENABLE_CLONE=true"),
+            ..NONE
+        },
+        Layers {
+            global_rc: Some(r#"{"tools":{"enableClone":true}}"#),
+            ..NONE
+        },
+    ] {
+        assert_eq!(
+            value_of(&resolve(layers), "tools.enableClone"),
+            serde_json::json!(true)
+        );
+    }
+    for layers in [
+        Layers {
+            global_env: Some("OCTOCODE_ENABLE_CLONE=true"),
+            project_env: Some("OCTOCODE_ENABLE_CLONE=false"),
+            ..NONE
+        },
+        Layers {
+            global_rc: Some(r#"{"tools":{"enableClone":true}}"#),
+            project_rc: Some(r#"{"tools":{"enableClone":false}}"#),
+            ..NONE
+        },
+    ] {
+        assert_eq!(
+            value_of(&resolve(layers), "tools.enableClone"),
+            serde_json::json!(false)
+        );
+    }
+}
+
 /// A tool name no tool has is reported (non-fatal), naming the entry and the
 /// nearest valid name; known names report nothing.
 #[test]

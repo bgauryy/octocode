@@ -13,7 +13,7 @@ fn issues_rank_hypotheses_with_evidence_and_controls() {
     assert_eq!(out.class, ExitClass::Success, "{}", out.value);
 
     assert_eq!(findings(&out, "cycle"), vec!["src/a.ts"], "{}", out.value);
-    let cycle = out.value["results"]
+    let cycle = out.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
@@ -41,10 +41,6 @@ fn issues_rank_hypotheses_with_evidence_and_controls() {
         findings(&out, "undeclared-dependency"),
         vec!["app::left-pad"]
     );
-    assert_eq!(
-        findings(&out, "dev-dependency-in-production"),
-        vec!["app::vitest"]
-    );
 
     let unused = findings(&out, "unused-export");
     assert!(
@@ -52,7 +48,7 @@ fn issues_rank_hypotheses_with_evidence_and_controls() {
         "Box is never imported: {unused:?}"
     );
 
-    let scores = out.value["results"]
+    let scores = out.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
@@ -64,7 +60,7 @@ fn issues_rank_hypotheses_with_evidence_and_controls() {
     );
 
     let only = ask(root, "issues", None, |o| o.detectors = vec!["cycle".into()]);
-    assert_eq!(only.value["total"], 1);
+    assert_eq!(only.value["pagination"]["totalItems"], 1);
     let bad = ask(root, "issues", None, |o| o.detectors = vec!["nope".into()]);
     assert_eq!(bad.class, ExitClass::InvalidInput);
 }
@@ -102,7 +98,7 @@ fn issue_evidence_lists_every_item_it_counts() {
         ExitClass::Success
     );
     let out = ask(dir.0.as_path(), "issues", None, |o| o.limit = Some(500));
-    let rows = out.value["results"].as_array().cloned().unwrap_or_default();
+    let rows = out.value["rows"].as_array().cloned().unwrap_or_default();
     let finding = |detector: &str, subject: &str| {
         rows.iter()
             .find(|row| {
@@ -162,7 +158,7 @@ fn issues_baseline_reports_new_and_resolved_findings() {
             .any(|f| f["detector"] == "cycle"),
         "{baseline}"
     );
-    let new = out.value["results"]
+    let new = out.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
@@ -185,13 +181,13 @@ fn issues_pages_slice_one_listing() {
         o.limit = Some(1);
         o.min_tier = Some(0);
     });
-    assert_eq!(first.value["truncated"], true, "{}", first.value);
+    assert_eq!(first.value["pagination"]["hasMore"], true, "{}", first.value);
     let second = ask(dir.0.as_path(), "issues", None, |o| {
         o.limit = Some(1);
         o.offset = Some(1);
         o.min_tier = Some(0);
     });
-    assert_eq!(second.value["total"], first.value["total"]);
+    assert_eq!(second.value["pagination"]["totalItems"], first.value["pagination"]["totalItems"]);
 }
 
 /// `issues --entry` names the entrypoints in place of the inferred ones:
@@ -232,10 +228,14 @@ fn issues_take_explicit_entrypoints_in_place_of_the_inferred_ones() {
         "{}",
         explicit.value
     );
-    let next = explicit.value.get("next").and_then(Value::as_str);
+    // A continuation resumes this same request, its `entries` included.
     assert!(
-        next.is_none_or(|next| next.contains("--entry src/orphan.ts")),
-        "{next:?}"
+        explicit
+            .next
+            .iter()
+            .all(|(_, resume)| matches!(resume, crate::tools::ast_graph::store::Resume::Row { .. })),
+        "{:?}",
+        explicit.next
     );
     let missing = ask(root, "issues", None, |o| {
         o.entries = vec!["src/nope.ts".into()];
@@ -272,7 +272,7 @@ fn drift_diffs_two_snapshots_by_file_cycle_transition_and_relation() {
         o.limit = Some(500);
     });
     assert_eq!(out.class, ExitClass::Success, "{}", out.value);
-    let rows = out.value["results"].as_array().expect("rows");
+    let rows = out.value["rows"].as_array().expect("rows");
     let has = |row: Value| rows.contains(&row);
     assert!(
         has(json!({"category":"file","change":"added","file":"src/added.ts"})),

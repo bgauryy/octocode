@@ -110,6 +110,7 @@ fn rejected_rows_do_not_misalign_goal_queries() {
     let mut response_query = json!({"queries":[plain.clone(),goal.clone()]});
     apply_sanitized_rows(
         ToolId::GhSearchCode,
+        ToolId::GhSearchCode.output(),
         &mut structured,
         &[plain, goal].map(CheckedQuery::checked),
         &[1, 2],
@@ -134,7 +135,7 @@ fn only_code_search_selects_at_the_response_boundary() {
     // a tool whose output says it ranks one provider page.
     let boundary = ToolId::ALL
         .into_iter()
-        .filter(|tool| tool.output().selects_provider_page())
+        .filter(|tool| tool.selects_provider_page())
         .collect::<Vec<_>>();
     assert_eq!(boundary, [ToolId::GhSearchCode]);
 }

@@ -91,6 +91,7 @@ fn apply_code_rows(
 ) -> Result<(), crate::execution::ExecutionError> {
     apply_sanitized_rows(
         ToolId::GhSearchCode,
+        ToolId::GhSearchCode.output(),
         output,
         &[CheckedQuery::checked(query)],
         &[0],

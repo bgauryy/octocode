@@ -28,8 +28,8 @@ pub(super) fn select(
         mut diagnostics,
         withheld,
         pruned,
-        unwalked,
         walk_errors,
+        test_code_excluded,
     } = outline;
     files.sort_by(|a, b| a.path.cmp(&b.path));
     let mut projection = crate::response::source_evidence::ProjectionBudget::new(
@@ -116,8 +116,8 @@ pub(super) fn select(
         q.symbol_filter,
         ast_search_query_symbols::kinds(q),
         ast_search_query_symbols::exclude(q),
-        ast_search_query_symbols::max_files(q),
         ast_search_query_symbols::scan_offset(q),
+        q.test_code,
         &declarations,
         &diagnostics,
         truncated,
@@ -154,7 +154,7 @@ pub(super) fn select(
         suppressed,
         kinds_left_out,
         directory: per_row_path,
-        unwalked,
+        test_code_excluded,
         walk_errors,
     })
 }
@@ -302,8 +302,7 @@ pub(crate) struct SymbolSet {
     pub(super) files_scanned: usize,
     pub(super) skipped: u32,
     pub(super) truncated: bool,
-    /// Where a scan cut by the time budget resumes (`scanOffset`); `None`
-    /// when the cut is an explicit `maxFiles`.
+    /// Where a scan cut by the time budget resumes (`scanOffset`).
     #[serde(default)]
     pub(super) scan_resume: Option<u32>,
     /// A parser recovered from syntax errors: the declarations are a partial
@@ -322,9 +321,9 @@ pub(crate) struct SymbolSet {
     /// directory (the query's own path) is not restated.
     #[serde(default)]
     pub(super) directory: bool,
-    /// The scopes a walk cut at the ceiling never reached.
+    /// What a `testCode` scope left out.
     #[serde(default)]
-    pub(super) unwalked: Option<crate::tools::ast_search::unwalked::Unwalked>,
+    pub(super) test_code_excluded: crate::tools::test_code::Excluded,
     /// Entries the walk could not read, and how many for want of
     /// permission: absence below them is unproven.
     #[serde(default)]

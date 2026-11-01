@@ -16,6 +16,27 @@ fn failed_importer_verification_never_reports_complete_coverage() {
     assert_eq!(row["coverage"]["importerScan"], SCAN_FAILED);
 }
 
+/// A scope the request's workspaceRoot narrowed says that importers outside
+/// it were not scanned; the default scope says nothing.
+#[test]
+fn a_narrowed_scope_discloses_its_root() {
+    let query = serde_json::from_value(json!({
+        "operation": "references", "path": "/r/p/a.ts", "symbolName": "x", "line": 1
+    }))
+    .expect("query");
+    let mut scope = Scope::new("/r/p".into(), Vec::new());
+    let mut row = json!({"status": "success"});
+    Importers::default().annotate(&mut row, &query, &scope);
+    assert!(row["coverage"].get("importerScanRoot").is_none(), "{row}");
+    scope.narrowed = true;
+    let mut row = json!({"status": "success"});
+    Importers::default().annotate(&mut row, &query, &scope);
+    assert_eq!(
+        row["coverage"]["importerScanRoot"], "workspaceRoot",
+        "{row}"
+    );
+}
+
 /// Unverified candidates stay out of the answer, so `textOnlyFiles` and
 /// the lexical lead disclose them, and the scan is never complete.
 #[test]
@@ -234,8 +255,8 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
 }
 
 /// The import check reads each ignored file through the bounded reader:
-/// a file too large or unparsable, and every file past the check bound,
-/// stays unchecked rather than counting as an importer.
+/// a file too large for the parser or unparsable stays unchecked rather
+/// than counting as an importer, and every other file is checked.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ignored_files_the_check_cannot_decide_stay_unchecked() {
     let dir = tempfile::tempdir().expect("dir");
@@ -247,12 +268,16 @@ async fn ignored_files_the_check_cannot_decide_stay_unchecked() {
     };
     let importer = write("imp.ts", "import { x } from './a';\nx();\n");
     let copy = write("copy.ts", "export function x() {}\n");
-    let large = write("large.js", &"// x\n".repeat(CODE_CHECK_MAX_BYTES / 5 + 1));
+    let large = write(
+        "large.js",
+        &"// x\n".repeat(octocode_engine::signatures::MAX_PARSE_SIZE / 5 + 1),
+    );
     let mut files = vec![importer.clone(), copy, large.clone()];
-    let past = (0..CODE_CHECK_MAX_FILES)
-        .map(|index| write(&format!("p{index}.ts"), "import { x } from './a';\n"))
+    // More files than any fixed bound once held: every one is checked.
+    let many = (0..128)
+        .map(|index| write(&format!("p{index:03}.ts"), "import { x } from './a';\n"))
         .collect::<Vec<_>>();
-    files.extend(past.iter().cloned());
+    files.extend(many.iter().cloned());
     let mut ignored = IgnoredMentions {
         files,
         ..IgnoredMentions::default()
@@ -267,11 +292,15 @@ async fn ignored_files_the_check_cannot_decide_stay_unchecked() {
     )
     .await
     .expect("check");
-    // The first CODE_CHECK_MAX_FILES are read: the importer and all but 3 of
-    // the past files import.
-    assert_eq!(ignored.importing.len(), 1 + CODE_CHECK_MAX_FILES - 3);
-    assert_eq!(ignored.importing[0], importer);
-    let mut unchecked = vec![large];
-    unchecked.extend(past[CODE_CHECK_MAX_FILES - 3..].iter().cloned());
-    assert_eq!(ignored.unchecked, unchecked);
+    let mut importing = vec![importer];
+    importing.extend(many);
+    assert_eq!(
+        ignored.importing, importing,
+        "no file past a bound is skipped"
+    );
+    assert_eq!(
+        ignored.unchecked,
+        vec![large],
+        "only the file the parser refuses"
+    );
 }

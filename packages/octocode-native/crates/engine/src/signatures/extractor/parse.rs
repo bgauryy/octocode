@@ -5,7 +5,14 @@ use std::ops::ControlFlow;
 use std::time::{Duration, Instant};
 use tree_sitter::{Language, ParseOptions, Parser, Tree};
 
-pub(crate) const AST_EXECUTION_TIMEOUT: Duration = Duration::from_secs(2);
+/// The deadline of a whole-file fact extraction: none it can reach. One file
+/// cannot be paged, so it is read to completion (input is bounded by
+/// `MAX_PARSE_SIZE`); a scan pages between files with its pacer, and its
+/// cursor and checkpoints resume the rest. A wall-clock cut would drop a
+/// file's facts depending on machine load.
+pub(crate) fn whole_file_deadline() -> Instant {
+    Instant::now() + Duration::from_secs(u64::from(u32::MAX))
+}
 
 thread_local! {
     /// The one worker-local tree-sitter parser. Repository scans reuse its

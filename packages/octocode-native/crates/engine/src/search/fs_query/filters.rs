@@ -84,6 +84,13 @@ pub(super) fn visit_path(
     if !matches_metadata(path, metadata, query) {
         return Ok(());
     }
+    if query
+        .lists
+        .as_ref()
+        .is_some_and(|lists| !(lists.0)(path, kind.is_dir, state.position))
+    {
+        return Ok(());
+    }
 
     state.total_discovered += 1;
     if state.entries.len() >= query.limit {
@@ -308,7 +315,7 @@ fn to_entry(
         relative_path,
         name,
         entry_type,
-        size: Some(metadata.len() as i64),
+        size: Some(crate::num::saturating_i64(metadata.len())),
         modified_time: metadata.modified().ok(),
         walk_position,
     }

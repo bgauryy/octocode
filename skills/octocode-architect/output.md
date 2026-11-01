@@ -48,6 +48,6 @@ Follow the header with the `#` title and a lead paragraph that states the answer
 | Location | Finding | Boundary | Consequence | Confidence | Change |
 |---|---|---|---|---|---|
 
-Confidence: `high`, `medium`, or `low`; a candidate gets `low` and a Finding starting `Unproven:`.
+Confidence: `high`, `medium`, or `low`; a candidate gets `low` and a Finding starting `Candidate:`.
 
 After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

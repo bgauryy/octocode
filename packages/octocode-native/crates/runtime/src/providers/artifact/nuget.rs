@@ -31,12 +31,12 @@ pub(crate) async fn nuget(
     // below [`REACHABLE_END`] and end the last reachable page.
     let offset = state.offset.unwrap_or(0);
     let base = service_endpoint("SearchQueryService", client).await?;
-    let size =
-        artifact_search_query::page_size(query).min(REACHABLE_END.saturating_sub(offset) as usize);
+    let size = artifact_search_query::page_size(query)
+        .min(crate::num::usize_of(REACHABLE_END.saturating_sub(offset)));
     // NuGet rejects skip > 3000. Past it, fetch one window from skip=3000
     // (take stays <= 1000) and slice the saved page window out locally.
     let (skip, drop) = if offset > MAX_SKIP {
-        (MAX_SKIP, (offset - MAX_SKIP) as usize)
+        (MAX_SKIP, crate::num::usize_of(offset - MAX_SKIP))
     } else {
         (offset, 0)
     };
@@ -288,7 +288,9 @@ async fn latest(
 ) -> Result<Map<String, Value>, ArtifactError> {
     let mut stable: Option<Map<String, Value>> = None;
     let mut prerelease: Option<Map<String, Value>> = None;
-    for page in pages.iter().take(MAX_REGISTRATION_PAGES) {
+    // Every page until the first stable release: the registration index
+    // lists them all, so no page count decides what "latest" is.
+    for page in pages {
         for leaf in page_items(page, client).await? {
             let candidate = catalog(&leaf)?;
             if candidate.get("listed") == Some(&Value::Bool(false)) {
@@ -319,9 +321,6 @@ async fn latest(
         .or(prerelease)
         .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))
 }
-
-/// Registration pages read (newest first) while looking for a stable release.
-const MAX_REGISTRATION_PAGES: usize = 4;
 
 /// `<repository url="…" commit="…">` from the package's nuspec in the flat
 /// container: the source repository and the commit the package was built from.

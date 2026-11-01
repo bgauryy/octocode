@@ -92,11 +92,14 @@ pub(super) fn rate_limited(
         (None, _) => format!("Classification provider {state} ({source})."),
     };
     let hint = seconds.map_or_else(
-        || "Retry later.".to_owned(),
-        |seconds| format!("Retry after about {seconds:.0}s."),
+        || BUSY_HINT.to_owned(),
+        |seconds| format!("Retry after about {seconds:.0}s, or reduce concurrent clasify calls."),
     );
     ClassificationError::new(ErrorCode::ClassificationRateLimited, message, &hint)
 }
+
+/// The provider is out of capacity and named no delay.
+const BUSY_HINT: &str = "Retry later or reduce concurrent clasify calls.";
 
 pub(super) fn denied(reason: GateDenied) -> ClassificationError {
     match reason {
@@ -108,7 +111,7 @@ pub(super) fn denied(reason: GateDenied) -> ClassificationError {
         GateDenied::Deadline => ClassificationError::new(
             ErrorCode::Timeout,
             "Classification request exceeded its total deadline while waiting for provider capacity.",
-            "Retry later or reduce concurrent clasify calls.",
+            BUSY_HINT,
         ),
         GateDenied::RateLimited { retry_after } => rate_limited(None, Some(retry_after), true),
         GateDenied::QuotaExhausted => quota_exhausted(),

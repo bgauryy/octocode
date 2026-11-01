@@ -164,7 +164,7 @@ fn match_reports_files_skipped_without_a_grammar() {
     )
     .expect("match");
     assert_eq!(out["matchCount"], 1, "{out}");
-    let warnings = out["warnings"].as_array().expect("warnings");
+    let warnings = out["notices"].as_array().expect("notices");
     assert_eq!(warnings.len(), 1, "{out}");
     let warning = warnings[0].as_str().expect("warning text");
     assert!(warning.starts_with("3 files skipped"), "{warning}");
@@ -200,7 +200,7 @@ fn match_with_language_does_not_report_files_outside_its_scope() {
     assert!(restricted.get("warnings").is_none(), "{restricted}");
     assert!(restricted.get("isPartial").is_none(), "{restricted}");
     let unrestricted = query(json!({}));
-    let warning = unrestricted["warnings"][0].as_str().expect("warning");
+    let warning = unrestricted["notices"][0].as_str().expect("notice");
     assert!(warning.starts_with("4 files skipped"), "{warning}");
     assert!(warning.contains("CMakeLists.txt"), "{warning}");
 }
@@ -284,7 +284,7 @@ fn symbols_of_a_grammar_without_an_extractor_lead_to_the_fetch_outline() {
     assert_eq!(
         out["hints"],
         json!([
-            "symbols does not outline .json files; the read lead outlines this one, or search it with localSearch."
+            "symbols does not outline .json files; the related[] localFetch request outlines this one, or search it with localSearch."
         ]),
         "{out}"
     );
@@ -353,11 +353,14 @@ fn an_overridden_outline_is_cached_under_the_parser_it_used() {
     let canonical = canonical.to_string_lossy();
     let typescript =
         crate::tools::ast_rule::primary_extension("typescript").expect("typescript extension");
-    let cached =
-        crate::tools::declarations_cache::document(SCRIPT, &canonical, Some(&typescript), || {
-            panic!("the typescript outline is cached")
-        });
-    assert!(cached.is_some(), "the overridden parse is cached");
+    assert!(
+        crate::tools::declarations_cache::parsed_through_cache(
+            SCRIPT,
+            &canonical,
+            Some(&typescript)
+        ),
+        "the overridden parse is cached"
+    );
     let second = run(&root.0, row).expect("second symbols");
     assert_eq!(second["symbols"], first["symbols"], "{second}");
     assert_eq!(second["symbols"][0]["symbolName"], "hello", "{second}");
@@ -369,28 +372,16 @@ fn an_overridden_outline_is_cached_under_the_parser_it_used() {
     assert!(other.is_none(), "another override never reuses the entry");
 }
 
+/// A directory outline takes `parser` as `match` does: each file still
+/// reads by its own extension (or `parserGlobs`), and the call succeeds.
 #[test]
-fn fresh_symbol_parser_repair_preserves_scope_without_saved_progress() {
+fn a_directory_outline_accepts_parser_and_reads_each_file_by_its_extension() {
     let root = Fixture::new();
     root.write("a.ts", "export function item() {}\n");
-    let error = run(
+    let out = run(
         &root.0,
-        json!({
-            "operation":"symbols","path":root.0,"parser":"typescript",
-            "page":2,"snapshot":"old","scanOffset":9,"exclude":["vendor/**"],"includeHidden":true
-        }),
+        json!({"operation":"symbols","path":root.0,"parser":"typescript"}),
     )
-    .expect_err("parser on directory");
-    let calls = error.calls.expect("repair");
-    let lead = &calls["repair"];
-    assert_eq!(lead["kind"], "related");
-    crate::contracts::validate("astSearch", lead["input"].clone()).expect("authored repair");
-    let row = &lead["input"]["queries"][0];
-    for field in crate::contracts::state_fields(crate::id::ToolId::AstSearch) {
-        assert!(row.get(field).is_none(), "{field}: {row}");
-    }
-    assert!(row.get("parser").is_none());
-    assert_eq!(row["path"], json!(root.0));
-    assert_eq!(row["exclude"], json!(["vendor/**"]));
-    assert_eq!(row["includeHidden"], true);
+    .expect("parser on a directory");
+    assert!(out.to_string().contains("item"), "{out}");
 }

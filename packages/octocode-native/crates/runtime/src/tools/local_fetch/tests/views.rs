@@ -80,7 +80,15 @@ fn minified_views_page_in_raw_source_lines() {
         let (mut expected_offset, mut shown, mut pages) = (0, Vec::new(), 0);
         for _ in 0..1_000 {
             pages += 1;
-            let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(budget), None);
+            let page = execute_local_fetch(
+                &query,
+                &paths,
+                &Safe,
+                &NeverCancel,
+                Some(budget),
+                None,
+                &Default::default(),
+            );
             assert_eq!(page.total_lines, Some(raw_total), "{first}");
             let pagination = page.pagination.clone().expect("paged");
             assert_eq!(pagination.unit, ReadProgressUnit::Lines, "{first}");
@@ -170,7 +178,15 @@ fn a_minified_read_of_only_comments_leads_to_the_read_as_is() {
         &p,
         serde_json::json!({"view":"compact","ranges":[{"startLine":1,"endLine":4}]}),
     );
-    let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, None);
+    let page = execute_local_fetch(
+        &query,
+        &paths,
+        &Safe,
+        &NeverCancel,
+        None,
+        None,
+        &Default::default(),
+    );
     assert_eq!(page.status, ReadStatus::Empty, "{page:?}");
     assert_eq!(page.content.as_deref(), Some(""));
     assert!(
@@ -189,7 +205,15 @@ fn a_minified_read_of_only_comments_leads_to_the_read_as_is() {
         local_fetch_query::view(&read.query),
         octocode_contract_types::ReadView::Content
     );
-    let raw = execute_local_fetch(&read.query, &paths, &Safe, &NeverCancel, None, None);
+    let raw = execute_local_fetch(
+        &read.query,
+        &paths,
+        &Safe,
+        &NeverCancel,
+        None,
+        None,
+        &Default::default(),
+    );
     assert!(
         raw.content
             .as_deref()

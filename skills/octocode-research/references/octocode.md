@@ -19,8 +19,8 @@ npx -y octocode artifactSearch '{"queries":[{"operation":"resolve","ecosystem":"
 npx -y octocode ghCloneRepo '{"queries":[{"owner":"bgauryy","repo":"octocode"}]}'
 ```
 
-Clone is CLI-only and requires persistent storage. Use a discovered repository and revision for real work; run local tools at the returned path. Partial materialization limits local coverage.
+Clone is available through CLI and opt-in MCP (`OCTOCODE_ENABLE_CLONE=true`); invocation requires persistent storage. Use a discovered repository and revision for real work; run local tools at the returned path. Partial materialization limits local coverage.
 
 ## Verification
 
-Follow emitted input unchanged. Public schemas contain authored selectors; private offsets and snapshots are encapsulated by cursor handles. Check actual CLI/MCP behavior after rebuilding a changed contract. Run the dev skill for monorepo checks and the [workflow guide](workflows.md) for research/review procedure.
+Follow emitted input unchanged. Public schemas contain authored selectors; private offsets and snapshots are encapsulated by cursor handles. Check actual CLI/MCP behavior after rebuilding a changed contract. In the Octocode monorepo, run `node skills-dev/octocode-dev/scripts/check-research-guidance.mjs` after a contract change and the [workflow guide](workflows.md) for research/review procedure.

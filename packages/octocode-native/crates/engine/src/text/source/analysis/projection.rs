@@ -200,9 +200,11 @@ impl BoundSource<'_> {
                 result.push(OriginBranch::Unmapped(UnmappedReason::Synthetic));
             }
             RepresentationContent::Mapped { text, segments } => {
+                let text_length = u32::try_from(text.len())
+                    .map_err(|_| SourceError::LimitExceeded("representation bytes"))?;
                 let segment = segments
                     .iter()
-                    .find(|segment| contains(segment.range, range, text.len() as u32, left_anchor))
+                    .find(|segment| contains(segment.range, range, text_length, left_anchor))
                     .ok_or(SourceError::InvalidMap("projection gap"))?;
                 for branch in &segment.branches {
                     match branch {

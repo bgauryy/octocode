@@ -195,7 +195,7 @@ fn extract_graph_facts_with_metadata_inner(
         content,
         file_path,
         extension,
-        std::time::Instant::now() + super::extractor::AST_EXECUTION_TIMEOUT,
+        super::extractor::whole_file_deadline(),
     )
 }
 
@@ -277,7 +277,6 @@ fn facts_from_tree(
     acc.call_adapter = entry.call_adapter;
     acc.visibility_adapter = entry.visibility_adapter;
     acc.export_forwarding_node = entry.export_forwarding_node;
-    acc.source_digest = crate::digest::sha256(content.as_bytes());
     acc.source_templates = crate::text::analysis::SourceTemplates::new(
         content,
         crate::text::analysis::Producer::new(format!("tree-sitter-facts:{ext}"), "6"),
@@ -288,6 +287,11 @@ fn facts_from_tree(
         },
     )
     .ok()?;
+    acc.source_digest = acc
+        .source_templates
+        .root_digest()
+        .unwrap_or_default()
+        .to_owned();
     let mut rust_root_unsupported = (ext == "rs").then_some(true);
     let mut reference_counts = Vec::new();
     let mut error_lines = Vec::new();
@@ -324,7 +328,7 @@ fn facts_from_tree(
             reference_counts = acc
                 .declarations
                 .iter()
-                .map(|declaration| crate::types::GraphReferenceCount {
+                .map(|declaration| crate::graph::GraphReferenceCount {
                     declaration_id: declaration.id.clone(),
                     count: counts.get(&declaration.name).copied().unwrap_or(0),
                 })
@@ -341,7 +345,6 @@ fn facts_from_tree(
             super::leading_doc_line(&lines, declaration.range.start.line as usize, &ext);
     }
     let facts = GraphFactsDocument {
-        source_templates: acc.source_templates,
         declarations: acc.declarations,
         imports: acc.imports,
         exports: acc.exports,
@@ -360,7 +363,11 @@ fn facts_from_tree(
         },
         rust_root_unsupported,
         test_lines: acc.test_lines,
-        ..super::native_graph_facts(language_label(&ext, entry.language_id), file_path, content)
+        ..super::graph_facts_document(
+            language_label(&ext, entry.language_id),
+            file_path,
+            acc.source_templates,
+        )
     };
     Some(super::GraphFactsExtraction {
         facts,

@@ -1,5 +1,17 @@
-//! Native execution shared by the CLI and the MCP addon. Every tool runs
+//! Native execution shared by the CLI commands and the stdio MCP server
+//! (`octocode mcp`) of the one `octocode` binary. Every tool runs
 //! here; the interfaces have no execution fallback.
+
+// Numeric conversions are explicit (`try_from` with a stated outcome): a
+// lossy `as` cast fails CI (`-D warnings`). Tests may cast fixture values.
+#![cfg_attr(
+    not(test),
+    warn(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap
+    )
+)]
 
 pub mod cache;
 mod civil_date;

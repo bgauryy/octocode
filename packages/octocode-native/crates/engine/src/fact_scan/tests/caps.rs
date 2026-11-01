@@ -157,3 +157,28 @@ fn graph_read_enforces_limit_when_file_grows_after_discovery() {
     assert_eq!(result.skipped[0].relative_path, "growing.rs");
     assert_eq!(result.skipped[0].code, "graph.scan.fileTooLarge");
 }
+
+/// Every cut resumes: a scan cut at its file window names where the next
+/// window starts, exactly like a cut at its time budget.
+#[test]
+fn a_file_window_cut_resumes_after_the_files_it_read() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path().to_path_buf();
+    create_supported_files(&root, 5);
+    let window = |skip: u32| {
+        scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            max_files: Some(skip + 2),
+            skip_files: Some(skip),
+            ..Default::default()
+        })
+        .expect("window")
+    };
+    let first = window(0);
+    assert_eq!(first.entries.len(), 2);
+    assert_eq!(first.scan_resume, Some(2));
+    let last = window(4);
+    assert_eq!(last.entries.len(), 1);
+    assert_eq!(last.scan_resume, None);
+    assert!(!last.truncated);
+}

@@ -119,7 +119,7 @@ fn a_page_request_builds_only_that_pages_fragments() {
         &options(700, 0, None),
         Vec::new(),
         &[],
-        None,
+        TOOL,
     );
     assert!(first.total_pages > 20, "{}", first.total_pages);
     let last = first.total_pages - 1;
@@ -129,7 +129,7 @@ fn a_page_request_builds_only_that_pages_fragments() {
         &options(700, last, Some(first.snapshot.clone())),
         Vec::new(),
         &[],
-        None,
+        TOOL,
     );
     let returned = page["results"].as_array().map_or(0, Vec::len);
     let built = MATERIALIZED.with(std::cell::Cell::get);

@@ -22,7 +22,7 @@ use crate::tools::lsp_search::scope::Scope;
 use crate::tools::lsp_search::source::{SourceCache, item_uri_is_authorized};
 use crate::tools::lsp_search::{LspSearchQuery, Op, cancellable, lsp_search_query};
 use octocode_engine::lsp::client::NativeLspClient;
-use octocode_engine::lsp::symbol_kind;
+use octocode_engine::symbol_kind;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
@@ -142,7 +142,7 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
     } = request;
     let paths = sources.policy();
     let (roots, expansions) = hierarchy_roots(client, query, paths, anchor, cancel).await?;
-    let depth = lsp_search_query::graph_depth(query).unwrap_or(1);
+    let depth = lsp_search_query::depth(query).unwrap_or(1);
     let mut items = Vec::new();
     let mut failures = Vec::new();
     let mut walks = Vec::new();
@@ -199,7 +199,9 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
         failures.append(&mut walk.failures);
     }
     let (mut items, failures) = expansion_outcome(items, failures)?;
+    let mut excluded = None;
     if lsp_search_query::op(query) == Op::Callers {
+        excluded = crate::tools::lsp_search::test_scope::retain_callers(query, paths, &mut items);
         production_first(&mut items, &scope.root);
     }
     let walks = walks
@@ -212,7 +214,7 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
         json!({
             "path": lsp_search_query::path(query),
             "lsp": {"serverAvailable": true},
-            "kind": lsp_search_query::operation(query),
+            "operation": lsp_search_query::operation(query),
             "files": [],
             "pagination": {"page": 1, "totalPages": 1, "totalItems": 0, "hasMore": false}
         })
@@ -228,6 +230,7 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
     if let Some(note) = class_uses_warning(lsp_search_query::operation(query), &roots) {
         crate::response::paging::push_warnings(&mut row, [note]);
     }
+    crate::tools::lsp_search::test_scope::disclose(&mut row, excluded);
     mark_partial_expansion(&mut row, query, &failures);
     importer_failures.disclose(
         &mut row,

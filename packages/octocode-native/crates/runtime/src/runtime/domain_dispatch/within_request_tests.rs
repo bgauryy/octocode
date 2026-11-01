@@ -4,7 +4,6 @@ fn context(deadline: std::time::Duration) -> ExecutionContext {
     ExecutionContext {
         cancellation: tokio_util::sync::CancellationToken::new(),
         deadline: std::time::Instant::now() + deadline,
-        walk_threads: None,
         response_window: None,
         github_credential: None,
     }

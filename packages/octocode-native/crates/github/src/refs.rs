@@ -21,10 +21,6 @@ impl RefKind {
     }
 }
 
-/// Tag-ref listing pages [`GitHubTransport::repository_tag_names`] follows
-/// at most (GitHub answers the whole listing at once).
-const MAX_TAG_REF_PAGES: usize = 20;
-
 /// What a name resolves to, as far as GitHub's refs say.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RefMatch {
@@ -132,10 +128,9 @@ impl GitHubTransport {
                     .rest(&["repos", owner, repo, "git", "matching-refs", "tags"])?,
             );
         let mut names = Vec::new();
-        for _ in 0..MAX_TAG_REF_PAGES {
-            let Some(at) = url.take() else {
-                return Ok(names);
-            };
+        // GitHub answers the whole listing at once; a linked page is still
+        // read, bounded by the request's deadline.
+        while let Some(at) = url.take() {
             let response = match self.execute(RequestSpec::get(at), context).await {
                 Ok(response) => response,
                 // GitHub answers an empty repository's refs with 409.
@@ -154,13 +149,7 @@ impl GitHubTransport {
             );
             url = response.next;
         }
-        match url {
-            None => Ok(names),
-            Some(_) => Err(ProviderError::new(
-                ProviderErrorKind::Validation,
-                format!("the tag refs run past {MAX_TAG_REF_PAGES} pages"),
-            )),
-        }
+        Ok(names)
     }
 
     /// Whether `reference` names a branch, a tag, or neither (a commit),

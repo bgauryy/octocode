@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 fn pages(tool: ToolId, data: Value) -> Vec<Value> {
     assert_row_contract(tool, &data);
-    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], Some(tool))
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
         .plan(700, &CancellationToken::new())
         .expect("valid plan");
     assert!(plan.total_pages > 1);
@@ -51,7 +51,7 @@ fn clone_symlinks_page_once_with_sparse_scope_on_every_fragment() {
     let symlinks = names("link");
     let requested = json!(["src/a", "src/b"]);
     let data = json!({"bytes":123,"location":{"kind":"tree","localPath":"/workspace",
-        "cached":true,"commitSha":"fixed","resolvedRef":"main","requestedPaths":requested,"symlinks":symlinks}});
+        "commitSha":"fixed","resolvedRef":"main","requestedPaths":requested,"symlinks":symlinks}});
     let mut seen = Vec::new();
     for row in pages(ToolId::GhCloneRepo, data) {
         assert_eq!(row["location"]["requestedPaths"], requested);

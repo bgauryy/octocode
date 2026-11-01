@@ -7,4 +7,6 @@ export {
   chromePlanExamples,
   chromeInputExamples,
   chromeSessionStore,
-} from '@octocodeai/config/schema';
+  chromeDomActions,
+  chromeRecipeOptionNames,
+} from '@octocodeai/config/chrome';

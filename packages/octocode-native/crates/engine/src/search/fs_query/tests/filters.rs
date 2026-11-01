@@ -325,3 +325,35 @@ fn a_glob_extension_is_refused() {
         .is_ok()
     );
 }
+
+/// The caller's listing rule lists only what it keeps, yet the walk still
+/// enters a directory it leaves unlisted, so entries under it are found.
+#[test]
+fn a_listing_rule_lists_what_it_keeps_and_walks_into_the_rest() {
+    let root = TmpDir::new();
+    for dir in ["src/tests", "lib"] {
+        fs::create_dir_all(root.join(dir)).expect("dir");
+    }
+    for file in ["src/a.rs", "src/tests/b.rs", "lib/c_test.rs"] {
+        File::create(root.join(file)).expect("file");
+    }
+    let result = query_file_system_inner(FileSystemQueryOptions {
+        path: root.to_string_lossy().to_string(),
+        lists: Some(crate::types::ListsEntry(std::sync::Arc::new(
+            |path, is_dir, _| {
+                let text = path.to_string_lossy();
+                !is_dir && (text.contains("/tests/") || text.ends_with("_test.rs"))
+            },
+        ))),
+        ..Default::default()
+    })
+    .expect("query");
+    let mut listed = result
+        .entries
+        .iter()
+        .map(|entry| entry.relative_path.clone())
+        .collect::<Vec<_>>();
+    listed.sort();
+    assert_eq!(listed, ["lib/c_test.rs", "src/tests/b.rs"]);
+    assert_eq!(result.total_discovered, 2);
+}

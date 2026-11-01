@@ -89,6 +89,14 @@ pub(in crate::signatures::graph_facts) fn clean_type_text(
     name.split(separator).all(is_identifier).then_some(name)
 }
 
+/// The type argument `?` yields from a Rust `Result<T, ..>` or `Option<T>`
+/// (a `Result<T>` alias included), as written.
+pub(in crate::signatures::graph_facts) fn rust_try_argument(text: &str) -> Option<&str> {
+    let (base, arguments) = generic_parts(text.trim(), '<', '>')?;
+    matches!(last_segment(base), "Result" | "Option").then_some(())?;
+    split_top_level(arguments, ',').first().map(|ty| ty.trim())
+}
+
 /// `base` and the argument text of `base<args>`.
 fn generic_parts(text: &str, open: char, close: char) -> Option<(&str, &str)> {
     let start = text.find(open)?;

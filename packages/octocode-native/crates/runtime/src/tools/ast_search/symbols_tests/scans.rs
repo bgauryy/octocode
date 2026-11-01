@@ -21,37 +21,24 @@ fn cut_page(resume: u32) -> serde_json::Value {
     .expect("source evidence")
 }
 
-/// A time-budget cut resumes with `next.expandScan` only while the offset is
-/// a valid `scanOffset` and below the walk ceiling; anywhere else the page
-/// states the terminal limit instead of offering a call the contract rejects
-/// (or one that skips the whole walk again).
+/// A time-budget cut resumes with `next.expandScan` wherever it stopped,
+/// at and far past the former 100,000-file walk ceiling: no cut is
+/// terminal and the resume names the exact offset.
 #[test]
-fn a_scan_cut_past_the_scan_offset_bound_is_terminal() {
-    use crate::contracts::query_limits::ast_search::symbols::SCAN_OFFSET_MAXIMUM;
-    let ceiling = octocode_engine::scan_budget::SCAN_WALK_FILES;
-    for resume in [
-        1_000,
-        SCAN_OFFSET_MAXIMUM,
-        SCAN_OFFSET_MAXIMUM + 1,
-        ceiling - 1,
-        ceiling,
-    ] {
-        let page = cut_page(u32::try_from(resume).expect("offset"));
-        let offered = resume <= SCAN_OFFSET_MAXIMUM && resume < ceiling;
-        assert_eq!(
-            page["calls"].get("expandScan").is_some(),
-            offered,
+fn a_scan_cut_resumes_past_the_former_walk_ceiling() {
+    for resume in [1_000, 99_999, 100_000, 100_001, 2_500_000] {
+        let page = cut_page(resume);
+        let lead = &page["calls"]["expandScan"]["input"]["queries"][0];
+        assert_eq!(lead["scanOffset"], json!(resume), "resume {resume}: {page}");
+        assert!(
+            page.get("terminalLimit").is_none(),
             "resume {resume}: {page}"
         );
-        assert_eq!(
-            page.get("terminalLimit") == Some(&json!(true)),
-            !offered,
+        let row = crate::tools::test_support::opened(crate::id::ToolId::AstSearch, lead);
+        assert!(
+            serde_json::from_value::<octocode_contract_types::AstSearchQuery>(row).is_ok(),
             "resume {resume}: {page}"
         );
-        if !offered {
-            let diagnostics = page["diagnostics"].to_string();
-            assert!(diagnostics.contains("narrow"), "resume {resume}: {page}");
-        }
     }
 }
 
@@ -96,10 +83,11 @@ fn a_directory_outline_parses_through_the_declarations_cache() {
         .expect("symbols");
     assert_eq!(out["filesScanned"], 1, "{out}");
     let file = root.0.join("src/lib.rs").canonicalize().expect("canonical");
-    assert!(
-        crate::tools::declarations_cache::document(source, &file.to_string_lossy(), None, || {
-            panic!("the directory outline's parse is cached")
-        })
-        .is_some()
-    );
+    // Residency in the shared, bounded cache is not stable under parallel
+    // tests; that the parse went through it is.
+    assert!(crate::tools::declarations_cache::parsed_through_cache(
+        source,
+        &file.to_string_lossy(),
+        None
+    ));
 }

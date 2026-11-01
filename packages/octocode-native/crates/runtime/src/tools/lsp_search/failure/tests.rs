@@ -22,7 +22,6 @@ fn run_rows(lead: &Value, root: &std::path::Path) -> Vec<usize> {
                 &NeverCancel,
                 None,
                 None,
-                None,
             )
             .expect("lead runs")
             .files
@@ -127,4 +126,58 @@ fn the_text_lead_finds_the_word_in_a_scope_and_in_listed_files() {
     std::fs::write(&file, "$store = 1\n$stored = 2\n").expect("source");
     let dollar = text_search_lead("$store", &scope.root, &scope.include, None).build();
     assert_eq!(run_rows(&dollar, root.path()), vec![1], "{dollar}");
+}
+
+/// An unresolved anchor's read lead runs only when it finds the name: a
+/// name the file holds only in another case is named at its nearest line
+/// and read case-insensitively; a name the file lacks gets no read.
+#[test]
+fn anchor_read_lead_only_when_it_finds_the_name() {
+    let query: LspSearchQuery = serde_json::from_value(json!({
+        "operation": "definition", "path": "/w/lib.rs", "symbolName": "Runtime", "line": 1
+    }))
+    .expect("query");
+    let message = "Could not find symbol 'Runtime' at or near line 1";
+    let reads = |row: &Value| {
+        row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|call| call["tool"] == "localFetch")
+            .map(|call| call["input"]["queries"][0].clone())
+            .collect::<Vec<_>>()
+    };
+    let workspace_search = |row: &Value| {
+        row["related"].as_array().is_some_and(|calls| {
+            calls.iter().any(|call| {
+                call["tool"] == "lspSearch"
+                    && call["input"]["queries"][0]["operation"] == "workspaceSymbol"
+            })
+        })
+    };
+    let run = |source: &str| {
+        let mut row = failure(&query, "", ErrorCode::AnchorUnresolved, message, true);
+        anchor_recovery(&mut row, &query, Some(source));
+        row
+    };
+
+    let row = run("// x\nstruct Runtime;\n");
+    assert_eq!(reads(&row).len(), 1, "{row}");
+    assert_eq!(reads(&row)[0]["caseMode"], "sensitive", "{row}");
+    assert_eq!(row["error"], message);
+    assert!(workspace_search(&row), "{row}");
+
+    let row = run("mod a;\nfn runtime() {}\nfn b() {}\nlet RUNTIME = 1;\n");
+    assert_eq!(
+        row["error"],
+        format!("{message}; the file has 'Runtime' only in another case, nearest at line 2")
+    );
+    assert_eq!(reads(&row).len(), 1, "{row}");
+    assert_eq!(reads(&row)[0]["caseMode"], "insensitive", "{row}");
+    assert!(workspace_search(&row), "{row}");
+
+    let row = run("fn other() {}\n");
+    assert!(reads(&row).is_empty(), "{row}");
+    assert_eq!(row["error"], message);
+    assert!(workspace_search(&row), "{row}");
 }

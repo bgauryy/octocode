@@ -4,6 +4,8 @@
 //! Execution finishes in [`crate::runtime`]; `stage` turns executed rows
 //! into the envelope a caller receives.
 
+#[cfg(test)]
+pub(crate) mod collection;
 pub mod continuations;
 pub(crate) mod cursor;
 pub mod exit;

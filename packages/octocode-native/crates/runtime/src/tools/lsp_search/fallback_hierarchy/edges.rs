@@ -1,6 +1,7 @@
 //! `Fallback`: resolving definitions, then reading direct bases and
 //! subtypes from syntax.
 use super::*;
+use crate::tools::lsp_search::importers::{CONCURRENT_FILE_VERIFICATIONS, ordered_concurrently};
 
 impl<'a, 'p> Fallback<'a, 'p> {
     pub(super) async fn definitions(
@@ -132,28 +133,36 @@ impl<'a, 'p> Fallback<'a, 'p> {
                 false,
             ),
         };
-        // The anchor already owns a checked CandidateWindow. Deeper types
-        // still have a terminal per-node candidate limit.
+        // The anchor already owns a checked CandidateWindow. A deeper type
+        // checks one window here and resumes as an anchor for the rest.
         if !anchor && candidates.len() > MAX_HIERARCHY_NODES {
-            self.candidate_limit
-                .store(true, std::sync::atomic::Ordering::Relaxed);
+            self.candidate_capped.lock().await.push(parent.clone());
         }
-        let mut direct = Vec::new();
+        // Each candidate resolves to its declaration, then that declaration's
+        // bases are read; both steps keep candidate order, so a server that
+        // pipelines requests (tsgo) takes several candidates at once with the
+        // same answer.
+        let resolved = self
+            .each(
+                candidates.into_iter().take(MAX_HIERARCHY_NODES).collect(),
+                |candidate| async move {
+                    let path = uri_to_path(&candidate.uri);
+                    let (line, character) =
+                        (candidate.range.start.line, candidate.range.start.character);
+                    Ok((
+                        path,
+                        line,
+                        character,
+                        self.resolve_candidate(&candidate).await?,
+                    ))
+                },
+            )
+            .await?;
+        let mut checked = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        for candidate in candidates.into_iter().take(MAX_HIERARCHY_NODES) {
-            self.cancel.check().map_err(LspFailure::cancelled)?;
-            let path = uri_to_path(&candidate.uri);
-            let (line, character) = (candidate.range.start.line, candidate.range.start.character);
-            // A trait implementation is the subtype itself, not the type its
-            // self-type position resolves to (which declares no heritage).
-            let resolved = match self.impl_node(&path, line, character).await {
-                Ok(Some(node)) => Ok(vec![node]),
-                Err(failure) if failure.is_cancelled() => return Err(failure),
-                _ => self.resolved_nodes(&path, line, character).await,
-            };
+        for (path, line, character, resolved) in resolved {
             let resolved = match resolved {
                 Ok(resolved) => resolved,
-                Err(failure) if failure.is_cancelled() => return Err(failure),
                 Err(failure) => {
                     self.fail_from(failure).await;
                     continue;
@@ -183,7 +192,19 @@ impl<'a, 'p> Fallback<'a, 'p> {
             if identity == parent_key || !seen.insert(identity) {
                 continue;
             }
-            match self.bases(&candidate).await {
+            checked.push(candidate);
+        }
+        let based = self
+            .each(checked, |candidate| async move {
+                match self.bases(&candidate).await {
+                    Err(failure) if failure.is_cancelled() => Err(failure),
+                    bases => Ok((candidate, bases)),
+                }
+            })
+            .await?;
+        let mut direct = Vec::new();
+        for (candidate, bases) in based {
+            match bases {
                 Ok(bases) => {
                     let mut keys = self.keys.lock().await;
                     if bases.iter().any(|base| keys.key(base) == parent_key) {
@@ -192,10 +213,54 @@ impl<'a, 'p> Fallback<'a, 'p> {
                         self.fail(format!("No resolved immediate heritage establishes the implementation candidate {}", candidate["name"])).await;
                     }
                 }
-                Err(failure) if failure.is_cancelled() => return Err(failure),
                 Err(failure) => self.fail_from(failure).await,
             }
         }
         Ok(direct)
+    }
+
+    /// The declarations `candidate` (an implementation answer) names: the
+    /// trait implementation located there, else the type it resolves to.
+    /// A failure other than cancellation is the candidate's verdict.
+    async fn resolve_candidate(
+        &self,
+        candidate: &LspCodeSnippet,
+    ) -> Result<Result<Vec<Value>, LspFailure>, LspFailure> {
+        self.cancel.check().map_err(LspFailure::cancelled)?;
+        let path = uri_to_path(&candidate.uri);
+        let (line, character) = (candidate.range.start.line, candidate.range.start.character);
+        // A trait implementation is the subtype itself, not the type its
+        // self-type position resolves to (which declares no heritage).
+        let resolved = match self.impl_node(&path, line, character).await {
+            Ok(Some(node)) => Ok(vec![node]),
+            Err(failure) if failure.is_cancelled() => return Err(failure),
+            _ => self.resolved_nodes(&path, line, character).await,
+        };
+        match resolved {
+            Err(failure) if failure.is_cancelled() => Err(failure),
+            resolved => Ok(resolved),
+        }
+    }
+
+    /// `task` over `items`, results in item order: several at once on a
+    /// server that pipelines requests, one at a time otherwise (tsserver
+    /// works through requests in turn, so queued ones only wait against
+    /// their timeouts). Cancellation ends the run.
+    async fn each<I, T, Fut>(
+        &self,
+        items: Vec<I>,
+        mut task: impl FnMut(I) -> Fut,
+    ) -> Result<Vec<T>, LspFailure>
+    where
+        Fut: std::future::Future<Output = Result<T, LspFailure>>,
+    {
+        if self.client.serves_requests_concurrently() {
+            return ordered_concurrently(items, CONCURRENT_FILE_VERIFICATIONS, task).await;
+        }
+        let mut done = Vec::with_capacity(items.len());
+        for item in items {
+            done.push(task(item).await?);
+        }
+        Ok(done)
     }
 }

@@ -1,16 +1,14 @@
 //! What a walk's row discloses: failed expansions, node and fan-out caps with
 //! resumable continuations, and omitted results.
 
-use super::nodes::anchor_range;
 use super::public::public_via;
-use super::{
-    Expansion, HierarchyWalk, MAX_HIERARCHY_DEPTH, MAX_HIERARCHY_FAN_OUT, MAX_HIERARCHY_NODES,
-    Resume,
-};
+use super::{Expansion, HierarchyWalk, MAX_HIERARCHY_FAN_OUT, MAX_HIERARCHY_NODES};
 use crate::tools::lsp_search::failure::{LspFailure, continuation, partial_with_related_rerun};
-use crate::tools::lsp_search::render::uri_to_path;
 use crate::tools::lsp_search::{LspSearchQuery, Op, lsp_search_query};
+use resume::resume_query;
 use serde_json::{Value, json};
+
+mod resume;
 
 /// Combine what a hierarchy expansion found with the provider failures it hit.
 /// A failure with nothing found is an error (never a silent empty answer); a
@@ -39,9 +37,9 @@ pub(in crate::tools::lsp_search) fn mark_partial_expansion(
         return;
     }
     let reason = if matches!(lsp_search_query::op(query), Op::Supertypes | Op::Subtypes) {
-        "typeHierarchyExpansionFailed"
+        crate::response::paging::PartialReason::TypeHierarchyExpansionFailed
     } else {
-        "callHierarchyExpansionFailed"
+        crate::response::paging::PartialReason::CallHierarchyExpansionFailed
     };
     // Every distinct failure, once, with how many items it hit.
     let mut distinct: Vec<(String, usize)> = Vec::new();
@@ -52,24 +50,22 @@ pub(in crate::tools::lsp_search) fn mark_partial_expansion(
             None => distinct.push((message, 1)),
         }
     }
+    // Most frequent first, then by message: the disclosure does not depend
+    // on the order concurrent expansions failed in.
+    distinct.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     // Keep every distinct provider failure beside the summary count.
     let total = failures.len();
     let items = if total == 1 { "item" } else { "items" };
-    let warning = match distinct.as_slice() {
-        [(message, _)] => {
-            format!("Hierarchy expansion failed for {total} {items}: {message}.")
-        }
-        _ => {
-            let (message, count) =
-                distinct.iter().fold(
-                    &distinct[0],
-                    |top, entry| if entry.1 > top.1 { entry } else { top },
-                );
-            format!(
-                "Hierarchy expansion failed for {total} {items} ({} distinct errors; most frequent, {count}×: {message}).",
-                distinct.len()
-            )
-        }
+    let Some((message, count)) = distinct.first() else {
+        return;
+    };
+    let warning = if distinct.len() == 1 {
+        format!("Hierarchy expansion failed for {total} {items}: {message}.")
+    } else {
+        format!(
+            "Hierarchy expansion failed for {total} {items} ({} distinct errors; most frequent, {count}×: {message}).",
+            distinct.len()
+        )
     };
     if failures.iter().any(|failure| failure.retryable) {
         partial_with_related_rerun(row, query, reason, &[warning]);
@@ -115,17 +111,16 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
         offer_deeper_walk(row, query, walks);
         return;
     }
-    let fan_out_capped = walks
-        .iter()
-        .map(|(_, walk)| walk.fan_out_capped.len())
-        .sum::<usize>();
+
     row["clipped"] = json!(true);
     let last_page = row.pointer("/next/nextPage").is_none();
     // Each parent resumes on its own: one that cannot be re-anchored (no
     // name or range) is a terminal limit for itself alone.
+    // Many resume points share a file: each is read and line-indexed once.
+    let mut sources = std::collections::HashMap::new();
     let queries = resumes
         .iter()
-        .map(|resume| resume_query(query, resume))
+        .map(|resume| resume_query(query, resume, &mut sources))
         .collect::<Vec<Option<Value>>>();
     let unanchored = queries.iter().filter(|query| query.is_none()).count();
     let queries =
@@ -138,13 +133,13 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
     if last_page && unanchored > 0 && queries.is_some() {
         crate::response::paging::terminal_limit(
             row,
-            "hierarchyParentUnanchored",
+            crate::response::paging::PartialReason::HierarchyParentUnanchored,
             &[format!(
                 "{unanchored} unexpanded parent(s) have no name to re-anchor on and cannot be resumed; the rest can."
             )],
         );
     }
-    let limits = limit_warnings(walks, resumes.len(), fan_out_capped, listed);
+    let limits = limit_warnings(walks, resumes.len(), listed);
     if last_page {
         // Every unexpanded or capped parent is listed and resumable.
         row["unexpandedParents"] = json!(
@@ -175,6 +170,12 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
                 };
                 row["next"][key] = continuation(query);
             }
+            // The walk goes on past this page: its pages never say it ended,
+            // and count only what this walk loaded.
+            if let Some(pagination) = row.get_mut("pagination").and_then(Value::as_object_mut) {
+                pagination.insert("hasMore".into(), Value::Bool(true));
+                pagination.insert("countScope".into(), "loaded".into());
+            }
         }
         None => {
             for (reason, warning) in limits {
@@ -184,19 +185,20 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
     }
 }
 
-/// The lead past `graphDepth`: the walk answered every level it was asked
+/// The lead past `depth`: the walk answered every level it was asked
 /// for, but nodes at its last level were never expanded, so whether they
 /// have results of their own (a subclass of a subclass, a caller's callers)
 /// is unknown. `next.walkDeeper` reruns the query one level deeper from its
 /// start (no cursor), on the page that ends the listing: none while a
 /// remaining page (site, candidate or importer window) is offered, since
-/// those list the same walk. None at [`MAX_HIERARCHY_DEPTH`].
+/// those list the same walk. `depth` has no maximum, so a frontier always
+/// leads one level deeper.
 fn offer_deeper_walk(
     row: &mut Value,
     query: &LspSearchQuery,
     walks: &[(Expansion, &HierarchyWalk)],
 ) {
-    let depth = lsp_search_query::graph_depth(query).unwrap_or(1);
+    let depth = lsp_search_query::depth(query).unwrap_or(1);
     let frontier = walks
         .iter()
         .flat_map(|(_, walk)| &walk.edges)
@@ -209,7 +211,7 @@ fn offer_deeper_walk(
             next.values()
                 .any(|call| call.get("kind").and_then(Value::as_str) == Some("continue"))
         });
-    if frontier == 0 || depth >= MAX_HIERARCHY_DEPTH || pages_remain {
+    if frontier == 0 || pages_remain {
         return;
     }
     let mut next = lsp_search_query::to_row(query);
@@ -219,7 +221,7 @@ fn offer_deeper_walk(
     for field in crate::contracts::state_fields(crate::id::ToolId::LspSearch) {
         object.remove(field);
     }
-    object.insert("graphDepth".into(), json!(depth + 1));
+    object.insert("depth".into(), json!(depth + 1));
     crate::response::result::attach_related(
         row,
         crate::response::result::Continuation::related(crate::id::ToolId::LspSearch, next).build(),
@@ -268,17 +270,15 @@ fn note_omitted(row: &mut Value, walks: &[(Expansion, &HierarchyWalk)]) {
 fn limit_warnings(
     walks: &[(Expansion, &HierarchyWalk)],
     parents: usize,
-    fan_out_capped: usize,
     listed: &str,
-) -> Vec<(&'static str, String)> {
-    let dropped_edges = walks
-        .iter()
-        .map(|(_, walk)| walk.dropped_edges)
-        .sum::<usize>();
-    let unexpanded_nodes = walks
-        .iter()
-        .map(|(_, walk)| walk.unexpanded_nodes)
-        .sum::<usize>();
+) -> Vec<(crate::response::paging::PartialReason, String)> {
+    let total = |count: fn(&HierarchyWalk) -> usize| -> usize {
+        walks.iter().map(|(_, walk)| count(walk)).sum()
+    };
+    let dropped_edges = total(|walk| walk.dropped_edges);
+    let unexpanded_nodes = total(|walk| walk.unexpanded_nodes);
+    let fan_out_capped = total(|walk| walk.fan_out_capped.len());
+    let candidate_capped = total(|walk| walk.candidate_capped.len());
     let mut limits = Vec::new();
     let mut cut = Vec::new();
     if dropped_edges > 0 {
@@ -293,7 +293,7 @@ fn limit_warnings(
     }
     if !cut.is_empty() {
         limits.push((
-            "hierarchyNodeLimit",
+            crate::response::paging::PartialReason::HierarchyNodeLimit,
             format!(
                 "Stopped at {MAX_HIERARCHY_NODES} hierarchy nodes: {}; {parents} parents were left unexpanded {listed}.",
                 cut.join(" and ")
@@ -304,67 +304,19 @@ fn limit_warnings(
     // the count.
     if fan_out_capped > 0 {
         limits.push((
-            "hierarchyFanOutLimit",
+            crate::response::paging::PartialReason::HierarchyFanOutLimit,
             format!(
                 "Kept the first {MAX_HIERARCHY_FAN_OUT} results of {fan_out_capped} node(s) below the anchor {listed}; each resumes as the anchor of its continuation, which lists every result."
             ),
         ));
     }
+    if candidate_capped > 0 {
+        limits.push((
+            crate::response::paging::PartialReason::HierarchyCandidateLimit,
+            format!(
+                "Checked the first {MAX_HIERARCHY_NODES} implementation candidates of {candidate_capped} type(s) below the anchor {listed}; each resumes as the anchor of its continuation, whose candidates page by window."
+            ),
+        ));
+    }
     limits
-}
-
-/// An executable query that walks `resume.depth` levels from `resume.node`:
-/// the same operation re-anchored on the node by its name and 1-based selection line, with
-/// `occurrence` when the name repeats on that line before the node (no
-/// 0-based coordinate reaches an input).
-fn resume_query(query: &LspSearchQuery, resume: &Resume) -> Option<Value> {
-    let uri = resume.node.get("uri").and_then(Value::as_str)?;
-    let name = resume.node.get("name").and_then(Value::as_str)?;
-    let anchor = anchor_range(&resume.node)?;
-    let line = u32::try_from(anchor.pointer("/start/line")?.as_u64()?).ok()?;
-    let character = u32::try_from(anchor.pointer("/start/character")?.as_u64()?).ok()?;
-    let path = uri_to_path(uri);
-    let mut next = lsp_search_query::to_row(query);
-    let object = next.as_object_mut()?;
-    object.insert("path".into(), json!(path));
-    for field in ["occurrence", "page", "snapshot", "importerPage"] {
-        object.remove(field);
-    }
-    object.insert("symbolName".into(), json!(name));
-    object.insert("line".into(), json!(line.saturating_add(1)));
-    if let Some(order) = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| order_on_line(&text, line, name, character))
-        .filter(|order| *order > 0)
-    {
-        object.insert("occurrence".into(), json!(order));
-    }
-    object.insert("graphDepth".into(), json!(resume.depth));
-    Some(next)
-}
-
-/// How many whole-word occurrences of `name` start before the UTF-16
-/// `character` on 0-based `line` of `text`: the `occurrence` that re-anchors
-/// the node. `None` when the line is absent.
-fn order_on_line(text: &str, line: u32, name: &str, character: u32) -> Option<u32> {
-    let row = text.lines().nth(usize::try_from(line).ok()?)?;
-    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
-    let mut order = 0u32;
-    let mut units = 0u32;
-    for (index, c) in row.char_indices() {
-        if units >= character {
-            break;
-        }
-        if row[index..].starts_with(name)
-            && !row[..index].chars().next_back().is_some_and(is_word)
-            && !row[index + name.len()..]
-                .chars()
-                .next()
-                .is_some_and(is_word)
-        {
-            order += 1;
-        }
-        units += u32::try_from(c.len_utf16()).ok()?;
-    }
-    Some(order)
 }

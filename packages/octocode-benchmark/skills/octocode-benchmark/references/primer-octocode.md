@@ -19,7 +19,7 @@ is **not** counted; use it instead of paying for schema discovery.
 | `ghSearchHistory` | Find PRs / issues / commits: `operation` = `pullRequest` · `issue` · `commit` (`pathPrefix` scopes commits to a directory). |
 | `ghGetHistoryItem` | Read one known PR / issue / commit / comparison: `operation` = `pullRequest` · `issue` · `commit` · `compare`. `matchString` narrows patches to matching hunks. |
 | `artifactSearch` | Package versions, dependencies, release source repo: `operation:"resolve"` + `ecosystem` (npm, pypi, maven, go, rubygems, crates) + `packageName`. |
-| `ghCloneRepo` | Cache a shallow checkout **only** for repeated reads, AST matching, or LSP. |
+| `ghCloneRepo` | Fetch a fresh shallow checkout **only** for repeated local reads, AST matching, or LSP. |
 | `localSearch` · `structureSearch` · `astSearch` · `localFetch` | On a clone: text/regex search · tree or find-by-name · structural matches and declarations · read a known file or region. |
 | `lspSearch` | Definition, references, callers, callees, types — **after** a search/read gives a real `path` + `symbolName` + `line`. |
 

@@ -1,5 +1,5 @@
-//! Rust coverage: cfg-gated files that mention the symbol, found by a
-//! bounded and cached gate scan.
+//! Rust coverage: cfg-gated files that mention the symbol, checked among
+//! the request's text scan, bounded by its cancellation or deadline.
 use super::*;
 
 pub(super) fn annotate_rust(
@@ -8,15 +8,15 @@ pub(super) fn annotate_rust(
     server_root: &str,
     scope: &Scope,
     all_features: bool,
+    stopped: &dyn Fn() -> bool,
 ) {
-    let context =
-        lsp_search_query::rust_context(query).map_or_else(|| json!({}), |context| json!(context));
     let Some(name) = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
     else {
         return;
     };
     if all_features {
-        let negated = gated_files_mentioning(scope, server_root, name, Gate::NegatedFeature);
+        let negated =
+            gated_files_mentioning(scope, server_root, name, Gate::NegatedFeature, stopped);
         if negated.matches > 0 || negated.incomplete() {
             let warning = format!(
                 "{} Rust files that mention `{name}` carry cfg(not(feature …)) gates; an all-features build compiles that code out. {}Compare with the default-features run, or confirm with {}.",
@@ -28,7 +28,7 @@ pub(super) fn annotate_rust(
         }
         return;
     }
-    let gated = gated_files_mentioning(scope, server_root, name, Gate::Feature);
+    let gated = gated_files_mentioning(scope, server_root, name, Gate::Feature, stopped);
     if gated.matches == 0 && !gated.incomplete() {
         return;
     }
@@ -42,7 +42,12 @@ pub(super) fn annotate_rust(
             gated.incomplete_warning(),
             text_check()
         );
-        flag_partial(row, query, CFG_REASON, Some(&warning), scope);
+        flag_partial(row, query, CFG_REASON, None, scope);
+        // The caveat reads the same on every row of the scan: said once per
+        // response (a notice), beside each row's own reason.
+        if flagged_with(row, &[CFG_REASON]) {
+            crate::response::paging::push_notice(row, warning);
+        }
         return;
     }
     // The rerun repeats the whole walk under every feature: offered once,
@@ -50,17 +55,9 @@ pub(super) fn annotate_rust(
     if continues_a_page(query) {
         return;
     }
-    let mut rerun = lsp_search_query::to_row(query);
-    if let Some(fields) = rerun.as_object_mut() {
-        fields
-            .retain(|key, value| !value.is_null() && !matches!(key.as_str(), "page" | "snapshot"));
-    }
-    let mut context = context;
-    context["features"] = json!("all");
-    rerun["rustContext"] = context;
     crate::response::result::attach_related(
         row,
-        crate::response::result::Continuation::related(ToolId::LspSearch, rerun).build(),
+        super::super::failure::next_action(query, CFG_REASON),
     );
 }
 
@@ -82,8 +79,9 @@ impl Gate {
     }
 }
 
-/// Rust files under the scope that use a name in code (not only in a
-/// comment or string) and carry a gate, and whether the scan was complete.
+/// Rust files under the server root that use a name in code (not only in
+/// a comment or string), carry a gate and are missing from the answer, and
+/// whether the check was complete.
 #[derive(Clone, Debug, Default)]
 pub(super) struct GateScan {
     /// Canonical paths.
@@ -92,18 +90,8 @@ pub(super) struct GateScan {
     pub(super) unreadable: usize,
 }
 
-/// Gate scans by `(root, name, gate, scope fingerprint)`: the fingerprint
-/// covers every Rust file under the root, so an unchanged one proves the
-/// same files. Later pages of a walk reuse their first page's scan.
-pub(super) static GATE_SCANS: octocode_io::memo::Memo<String, GateScan> =
-    octocode_io::memo::Memo::new(octocode_io::memo::MemoLimits {
-        max_entries: 256,
-        max_weight: 256,
-        keep_newest: false,
-    });
-
 /// What a gate check counts: gated files the server's answer did not
-/// cover (an answered file was analyzed), and whether the scan finished.
+/// cover (an answered file was analyzed), and whether the check finished.
 pub(super) struct GateCount {
     pub(super) matches: usize,
     pub(super) scan: GateScan,
@@ -131,90 +119,64 @@ impl GateCount {
     }
 }
 
-/// Gated files under `root` (the server's workspace) that use `name`. The
-/// scope fingerprint covers every Rust file under the scope, which holds
-/// `root`, so it keys the memo.
+/// Gated files under `root` (the server's workspace) that use `name` and
+/// that the server's answer did not cover. The candidates are the request's
+/// own text scan of `name` (`Scope::scanned_files`, a word-bounded search of
+/// the scope, memoized by its fingerprint) within `root`: no second walk,
+/// and only files that spell the name are read. A request without that scan
+/// (it failed) checked nothing, which `has_more` says; `stopped` (the
+/// request's cancellation or deadline) ends the check early the same way.
 pub(super) fn gated_files_mentioning(
     scope: &Scope,
     root: &str,
     name: &str,
     gate: Gate,
+    stopped: &dyn Fn() -> bool,
 ) -> GateCount {
-    let key = scope.fingerprint().map(|fingerprint| {
-        octocode_engine::digest::sha256(
-            format!("{root}\u{0}{name}\u{0}{gate:?}\u{0}{fingerprint}").as_bytes(),
-        )
-    });
-    let scan = match key.as_ref().and_then(|key| GATE_SCANS.get(key)) {
-        Some(hit) => (*hit.value).clone(),
-        None => {
-            let scan = scan_gates(Path::new(root), name, gate, MAX_SCANNED_FILES);
-            if let Some(key) = key {
-                GATE_SCANS.insert(key, scan.clone(), 1, None);
-            }
-            scan
-        }
-    };
-    GateCount {
-        matches: scan
-            .files
-            .iter()
-            .filter(|file| !scope.is_answered(file))
-            .count(),
-        scan,
-    }
-}
-
-pub(super) fn scan_gates(root: &Path, name: &str, gate: Gate, limit: usize) -> GateScan {
-    let walker = crate::tools::pruned_walk(root, []).build();
     let mut scan = GateScan::default();
-    let mut visited = 0;
-    let started = std::time::Instant::now();
-    for entry in walker {
-        if started.elapsed() >= GATE_SCAN_BUDGET {
+    let Some(mentions) = scope.scanned_files(name) else {
+        scan.has_more = true;
+        return GateCount { matches: 0, scan };
+    };
+    let root = super::super::scope::canonical(root);
+    for file in mentions.iter().filter(|file| {
+        Path::new(file).starts_with(&root) && !scope.is_answered(file) && scope.in_reach(name, file)
+    }) {
+        if stopped() {
             scan.has_more = true;
             break;
         }
-        let Ok(entry) = entry else {
-            scan.unreadable += 1;
-            continue;
-        };
-        if !entry.file_type().is_some_and(|kind| kind.is_file())
-            || entry.path().extension().is_none_or(|ext| ext != "rs")
-        {
-            continue;
-        }
-        if visited >= limit {
-            scan.has_more = true;
-            break;
-        }
-        visited += 1;
-        // Only a file past the read cap leaves the scan incomplete.
-        if !entry
+        #[cfg(test)]
+        GATE_READS.with(|reads| reads.set(reads.get() + 1));
+        let path = Path::new(file);
+        // Only a file past the read cap leaves the check incomplete.
+        let text = path
             .metadata()
             .is_ok_and(|meta| meta.len() <= MAX_FILE_BYTES)
-        {
-            scan.unreadable += 1;
-            continue;
-        }
-        match crate::tools::source::read_bounded(entry.path(), MAX_FILE_BYTES as usize)
-            .ok()
-            .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
-        {
-            Some(text)
-                if gate.carried_by(&text)
-                    && mentions_word(&text, name)
-                    && uses_in_code(entry.path(), &text, name) =>
-            {
-                scan.files.push(super::super::scope::canonical(
-                    &entry.path().to_string_lossy(),
-                ));
+            .then(|| {
+                crate::tools::source::read_bounded(path, crate::num::usize_of(MAX_FILE_BYTES))
+                    .ok()
+                    .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
+            })
+            .flatten();
+        match text {
+            Some(text) if gate.carried_by(&text) && uses_in_code(path, &text, name) => {
+                scan.files.push(file.clone());
             }
             Some(_) => {}
             None => scan.unreadable += 1,
         }
     }
-    scan
+    GateCount {
+        matches: scan.files.len(),
+        scan,
+    }
+}
+
+// Files the gate check read on this thread.
+#[cfg(test)]
+thread_local! {
+    pub(super) static GATE_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Whether `text` uses `name` in code, not only in comments or strings; a
@@ -244,13 +206,5 @@ pub(super) fn has_negated_feature_gate(text: &str) -> bool {
                 .split(']')
                 .next()
                 .is_some_and(|gate| gate.replace(' ', "").contains("not(feature"))
-    })
-}
-
-pub(super) fn mentions_word(text: &str, name: &str) -> bool {
-    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
-    text.match_indices(name).any(|(at, _)| {
-        !text[..at].chars().next_back().is_some_and(is_ident)
-            && !text[at + name.len()..].chars().next().is_some_and(is_ident)
     })
 }

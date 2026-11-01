@@ -7,7 +7,7 @@ The native `crates/engine` crate owns the reusable code graph model and algorith
 One graph is queried and stored; the build has one intermediate:
 
 - `BuiltGraph` (`runtime/src/tools/ast_graph/types.rs`): the linker's output for one scan, per-file facts plus the file graph (target file and edge kinds with their first line). Ingest projects it and drops it; nothing stores or queries it.
-- `GraphTables` (`ast_graph/store/format.rs`): file, symbol and package nodes joined by compact relationship edges, with separate occurrence witnesses, unresolved sites, declaration evidence, diagnostics, file digests, components and entries. It is the snapshot `graph.bin` holds and the one model every `graph query` operation, `drift` included, reads. Current extraction emits `contains`, `imports`, `uses`, `calls`, `inherits` and `passes`. A `passes` relation observes a named value supplied as an argument; propagation and invocation remain unsupported.
+- `GraphTables` (`ast_graph/store/format.rs`): file, symbol and package nodes joined by compact relationship edges, with separate occurrence witnesses, unresolved sites, declaration evidence, diagnostics, file digests, components and entries. It is the snapshot `graph.bin` holds and the one model every graphQuery operation, `drift` included, reads. Current extraction emits `contains`, `imports`, `uses`, `calls`, `inherits` and `passes`. A `passes` relation observes a named value supplied as an argument; propagation and invocation remain unsupported.
 
 The graph-facts scan (`engine/src/fact_scan/`) crosses the Rust package boundary as `GraphFactsMappedScan<T>`: `scan_walked_graph_facts` takes a `walk_graph_fact_files` walk, hands each parsed file to the caller's map as a borrowed `GraphFactsView`, and keeps only what the map returns. `FactsSource` picks full graph facts (`Graph`), validated reusable graph facts (`CachedGraph`), or the caller's cached declarations (`Declarations`).
 
@@ -17,16 +17,17 @@ The graph-facts scan (`engine/src/fact_scan/`) crosses the Rust package boundary
 2. `build_graph` (`ast_graph/graph.rs`) scans a `GraphScan` (root, pruned directories, file bound, language globs, Cargo linking) and links each file's imports, re-exports, calls and paths into a `BuiltGraph`.
 3. `tables::project` turns it into `GraphTables`, preserving occurrence witnesses before topology deduplication. After encoding, ingest checks recorded source identities and resolution inputs again before atomic publication. These checks detect observed mutations; they do not make a mutable working tree an atomic repository revision.
 
-The graph is syntax evidence: `astSearch` and `graph` start no language server. Callers confirm identity with explicit `lspSearch` calls, which keeps syntax candidates distinct from semantic claims.
+The graph is syntax evidence: `astSearch`, `graphBuild` and `graphQuery` start no language server. Callers confirm identity with explicit `lspSearch` calls, which keeps syntax candidates distinct from semantic claims. Which of graph, LSP and AST answers which question: [choose the evidence you need](../../../../docs/OCTOCODE_TOOLS.md#text-ast-graph-and-lsp-choose-the-evidence-you-need).
 
 ## Cycle engine
 
-`ast_graph/algorithms.rs` holds the one cycle engine (`Cycles`): the dependency view of a file graph (data and module-tree edges removed), its strongly connected groups, and the groups its eager-load (runtime) edges close. `graph query cycles`, the `cycle` detector, `drift` and the health summary read it. The engine crate supplies the primitives (`engine/src/graph/algorithms.rs`): strongly connected components (iterative Tarjan) and the condensation.
+`ast_graph/algorithms.rs` holds the one cycle engine (`Cycles`): the dependency view of a file graph (data and module-tree edges removed), its strongly connected groups, and the groups its eager-load (runtime) edges close. The `cycles` operation, the `cycle` detector, `drift` and the health summary read it. The engine crate supplies the primitives (`engine/src/graph/algorithms.rs`): strongly connected components (iterative Tarjan) and the condensation.
 
 ## Agent graph tools (CLI and beta MCP)
 
-`graphBuild` and `graphQuery` expose the same Rust store through the standard
-`{queries:[...]}` envelope. Use `--json` for machine callers, including errors:
+`graphBuild` and `graphQuery` are the only graph surface: the CLI runs them as
+generated tool commands with the standard `{queries:[...]}` envelope, exactly as MCP
+does. Use `--json` for machine callers, including errors:
 
 ```sh
 octocode --json graphBuild '{"queries":[{"path":".","keep":10}]}'
@@ -44,7 +45,14 @@ runtime owns execution. Octocode Code registers native tools with these names,
 reads the CLI schemas and invokes the installed binary with JSON on stdin. Its
 `request` wrapper and `reason` field belong to the host, not the Rust CLI input.
 
-`graphBuild` accepts one query per call; `graphQuery` accepts up to five.
+`graphBuild` accepts one query per call; `graphQuery` accepts up to five. On the
+CLI, `graphQuery` runs on the warm `octocode serve` server like every read-only tool,
+so later pages and questions reuse the snapshot it already decoded; `graphBuild`
+writes, so it runs in the calling process and prints its progress (`graphBuild:
+scanning …`, `parsed N/M files`, `linked …`, `encoding snapshot`, `published` or
+`reused`) on stderr while stdout keeps the result. MCP `graphBuild` reports no
+progress. A bulk walk sends `responseChars: 50000` (the contract maximum) so each
+page carries as many rows as fit.
 Inspect `octocode schema graphBuild --view query` or the query schema above for
 the contract embedded in the installed binary. Query alternatives reject
 missing required inputs and options that do not apply to the chosen operation.
@@ -54,8 +62,11 @@ scopes or storage symlinks that escape it. Unchanged inputs and options reuse a
 snapshot. The manifest's `analysisVersion` invalidates reuse after linking rules
 change, independently of the binary format. The manifest also records the installed
 registry identity and discovery extensions; provider, version or capability changes
-invalidate reuse. An OS lock serializes build publication, `latest` and retention across
-processes; cancellation releases the lock. `keep` defaults to three snapshots per
+invalidate reuse. Builds of different scopes run in parallel: an OS lock serializes only
+staging, publication, `latest` and retention across processes, and a per-scope lock lets
+one build at a time write a scope's extraction checkpoint. A build stopped by a deadline
+or cancellation keeps its committed extraction, and the next build of that scope resumes
+from it; cancellation releases both locks. `keep` defaults to three snapshots per
 scope, with a maximum of 100 for retained baselines. Builds redact stored text and
 return location, digest, counts, coverage, diagnostics and elapsed milliseconds.
 
@@ -69,18 +80,19 @@ snapshot ID; a pruned snapshot fails explicitly instead of switching to `latest`
 `responsePagination.next` and `next.*` continue evidence; `related` starts another
 question. Traversal defaults
 to high-confidence calls. Graph absence is not proof of unused code: verify symbol
-identity and consequential callers with `lspSearch` and source reads. The `issues`
-heuristics remain on the legacy graph CLI; the public query tool exposes the other
-18 operations. No language server or LLM is required for snapshot creation.
+identity and consequential callers with `lspSearch` and source reads. `graphQuery`
+exposes 20 operations; `issues` ranks heuristic findings. No language server or LLM
+is required for snapshot creation.
 
 ### Choosing a query
 
 | Operation | Inputs beyond scope | Result and defaults |
 |---|---|---|
 | `stats` | None | Counts, coverage, languages and diagnostic totals |
-| `find` | Required `target` (a name, path or several words); optional `kind` | Ranked name/path search returning node IDs |
+| `find` | Optional `target` (a name, path or several words; omit: every node), optional `kind` | Ranked name/path search returning node IDs; without `target`, every node of `kind`, most connected first |
 | `candidates` | Required `target`; optional `kind` | Exact reference candidates, using the same normalization and precedence as node resolution |
-| `node`, `symbols` | Required `target`; optional `kind` | One node or its nested symbols |
+| `node` | Required `target`; optional `kind` | One node, its edge counts and related queries |
+| `symbols` | Optional source `target` (one or a list), `kind` | Symbols nested under each target in source order, each once; omit `target`: every symbol, file by file |
 | `deps`, `dependents` | Required `target`; optional edge filters, `direction`, `depth`, `kind` | Outgoing/incoming imports for files/packages, calls for symbols; one hop |
 | `callers`, `callees` | Required `target`; same traversal options | Incoming/outgoing calls; one hop; file targets include their symbols and calls within the file. Recursive targets appear once when an edge reaches them. |
 | `walk` | Required `target`; same traversal options | All edge kinds, outgoing, two hops |
@@ -88,10 +100,11 @@ heuristics remain on the legacy graph CLI; the public query tool exposes the oth
 | `cycles` | Optional edge filters | Production cycles; imports by default |
 | `hubs` | Optional edge filters, `kind`, `direction: in/out` | Production nodes ranked by incoming edge count by default |
 | `diagnostics` | Optional `target` code or file prefix | Matching scan/link diagnostics |
-| `witnesses` | Optional source `target`, destination `to`, edge filters | Occurrences supporting linked relations; a file target includes its symbols |
-| `unresolved` | Optional source `target`, edge filters | Unlinked call or argument references and unsupported argument forms; a file target includes its symbols |
+| `witnesses` | Optional source `target` (one or a list), destination `to`, edge filters | Occurrences supporting linked relations; a file target includes its symbols |
+| `unresolved` | Optional source `target` (one or a list), edge filters, `reasons` | Unlinked call or argument references and unsupported argument forms; a file target includes its symbols; `reasons` filters before paging, so `total` counts kept rows |
 | `stale` | None | Source and linking-input changes since the snapshot |
-| `impact` | At least one of `target`, `changed`, `since`; optional `kind`, `depth` | Combined change seeds, three hops by default |
+| `issues` | Optional `detectors`, `entries`, `baseline`, `minScore`, `minTier` (default 90) | Ranked possible problems with `evidence`, `controls` and `verify` tool calls; see [`issues`](#issues-ranked-hypotheses) |
+| `impact` | At least one of `target`, `changed`, `since`; optional `kind`, `depth` | Combined change seeds, three hops by default; see [`impact`](#impact-blast-radius) |
 | `drift` | Required `baseline` snapshot ID | Structural changes from baseline to selected snapshot; use matching scopes |
 
 Edge filters are `edges` and `confidence`; confidence defaults to `high` and
@@ -184,6 +197,74 @@ both ends of the relationships being investigated. Use `localSearch` or
 Future parsers belong to the Rust [grammar registry](SUPPORTED_LANGUAGES_AND_FEATURES.md#language-matrix)
 and core parser contract, so Octocode Code needs no grammar-specific change.
 
+### `issues`: ranked hypotheses
+
+Each finding carries `evidence`, the false-positive `controls` applied, `verify`
+steps, and a `score` (severity × confidence × (0.5 + 0.5 × PageRank percentile)).
+A `verify` step is a tool name and its query row, such as `graphQuery
+{"operation":"path","target":"b.ts","to":"a.ts","path":"app","graph":"<id>"}`;
+graphQuery steps are pinned to the snapshot and scope that produced them, and
+lspSearch steps name workspace-relative paths.
+
+| Group | Detectors |
+|---|---|
+| Structure | `cycle` (runtime imports; witness plus `suggestedCuts`) · `dir-cycle` · `unreachable-file` · `test-only` · `unused-export` (JS/TS/Python) · `export-only-local` (exported but used only in its own file) |
+| Dependencies | `undeclared-dependency` (including hoisted phantoms) · `boundary-violation` (deep imports between npm packages) · `unresolved-import` |
+| Architecture | `critical-file` (PageRank) · `single-point-of-failure` (articulation points) · `unstable-dependency` · `main-sequence` |
+
+- Any edge keeps code alive. Only runtime imports between authored files prove
+  cycles, hubs, or layering; type-only, dynamic, and Python function-level
+  imports never do.
+- Test edges (from test files, or Rust `#[cfg(test)]` items such as `mod
+  tests`) never count toward production detectors, `cycles` or `hubs`;
+  traversals (`deps`, `walk`, `impact`) still follow them. A snapshot from an
+  older format asks for a rebuild.
+- `dir-cycle` ignores a Rust module and its own child directory (`tree.rs` or
+  `tree/mod.rs` with `tree/child.rs`, and a crate root with its modules): one
+  module tree is no directory coupling.
+- `unused-export` and `export-only-local` judge only languages with
+  named-import linking; files in other languages are counted in a `notes`
+  entry by language instead of being reported clean.
+- Go, JVM and .NET files share package scope, so file-level checks skip them.
+  Python libraries skip reachability. Generated, bundled, vendored and unparsed
+  files are never subjects.
+- Each finding has a `tier`: `100` nothing references it; `90` no graph or code
+  reference (bare prose words are listed in `evidence.textMentions`); `60` the
+  file path, or every unused export, is referenced in code or qualified text
+  such as `mod.run` (`evidence.mentionedIn`; some exports alone keep 90), or
+  no mention scan ran. `minTier` defaults to 90; `minTier: 60` shows all, and
+  `summary.hiddenBelowTier` counts the rest.
+- `baseline` (a snapshot ID of the same scope) labels findings `new` or
+  `existing` and lists `baseline.resolvedFindings`. `summary.health` reports
+  Lakos NCCD.
+
+### `impact`: blast radius
+
+- A changed file affects every importer, transitively. A changed symbol affects
+  only the `calls`, `uses` and `inherits` edges bound to it, plus importers that
+  bind no name (`precision: "symbol"`). Barrel files pass changes through by
+  symbol.
+- `depth` defaults to 3. Rows carry `depth`, `risk` (`direct` at depth 1,
+  `likely` at 2, `transitive` at 3+), `packageDistance`, `confidence` and
+  `typesOnly`.
+- The summary (first page only) counts rows `byDepth` and lists
+  `affectedEntrypoints`, `testsToRun`, `components`, and `testFunctions`
+  (including Rust `mod tests` and pytest `test_*` functions).
+- A manifest, lockfile, or tsconfig/pyproject/go.mod change affects everything
+  below its directory; `allAffected` marks a root-level change.
+
+### Recipes
+
+| Goal | graphQuery rows |
+|---|---|
+| Who can reach a dangerous operation? | `impact` with `target` on the function that deletes, spawns or writes. `affectedEntrypoints` is the attack surface. |
+| Unbounded recursion | `cycles` with `edges: ["calls"]`; check each group that walks untrusted input for a depth bound. |
+| Choke points | `issues` with `detectors: ["single-point-of-failure","critical-file"]`. |
+| Is this cycle real? | `path` from `target` to `to` shows the witness; `issues` with `detectors: ["cycle"]` gives `suggestedCuts`. |
+| Dead or orphaned code | `issues` with `detectors: ["unreachable-file","unused-export"]` (add `test-only` for files only tests reach; `entries` names entrypoints), then `dependents` with `edges: ["imports","uses","calls"]` before deleting. |
+| Call gaps of many files | `unresolved` with `target` as a list (up to the schema's maximum) and `reasons`, which filter before paging. |
+| Every witness or symbol, fast | `witnesses` or `symbols` per group of files (`target` lists), walked concurrently; the groups are disjoint, so their totals add up to the unfiltered `total`. |
+
 ## Evidence and reuse
 
 Topology answers deduplicate relationships; `witnesses` retains their individual
@@ -204,7 +285,12 @@ an exact observed span explicitly return `null`. Each occurrence carries a
 `derivation` rule and persisted version
 combining the graph analysis and fact schema versions. Witness rules name the
 edge family and actual resolver/projection detail; unresolved rules name the
-edge family and failed-resolution reason. IDs identify occurrences within source and snapshot context; they
+edge family and failed-resolution reason. Rows are lean by default
+(`includeProvenance: false`): an origin
+proven to be the row's unchanged UTF-8 file bytes is the marker `"identity"`,
+other origins stay explicit, and `derivation` is omitted; file, line, spans,
+digests and IDs are unchanged. The full form returns every origin object and
+`derivation`. IDs identify occurrences within source and snapshot context; they
 are not language-server symbol identities. Recovered declarations remain
 inspectable but are excluded from certain call bindings. Test identities describe
 recognized declarations, not test execution.
@@ -275,9 +361,11 @@ projection resumed. Source digests are checked again before reuse.
 The graph builder writes extraction progress under `.facts/jobs/<root digest>`.
 The job records scan settings, source inventory, linking configuration and
 parser/registry versions. Each artifact binds its source digest and complete
-captured correspondence to the job. Artifact writes become durable before the
-job advances. Extraction uses bounded input batches and restores one spilled
-file at a time for linking. Secret-bearing artifacts stay in memory and must be
+captured correspondence to the job. Artifacts are replaced atomically but not
+synced: a torn or lost artifact fails its header digest or identity check and is
+extracted again. Only the job record is synced, at each stage transition.
+Extraction uses bounded input batches. Linking reads facts kept decoded in memory
+up to 128 MiB of encoded artifacts, then restores one spilled file at a time. Secret-bearing artifacts stay in memory and must be
 parsed again after interruption. `checkpointedFiles`, `spilledBytes` and
 `memoryOnlyFiles` describe this work; `maxSpillBytes` and `maxMemoryOnlyBytes`
 declare its terminal budgets (2 GiB of retained disk artifacts and 64 MiB of
@@ -285,21 +373,21 @@ memory-only artifacts per job). Atomic replacement can temporarily add one
 artifact of at most 64 MiB; retry removes leftover temporary job files before
 writing more. One current job is retained per canonical scope root,
 including after completion for extraction reuse. Removed source artifacts are
-pruned on retry; `force` or a changed extraction policy resets the job. This is
+pruned on retry; `refresh` or a changed extraction policy resets the job. This is
 not a global disk budget across scopes and does not bound linking or projection
 memory. A failed build leaves previously published snapshots available.
 
 Artifact namespaces bind the canonical root, parser overrides, installed
 provider/capability identity, fact schema, runtime version and extraction version.
 Within an admitted job, artifacts that fail content validation are extracted again.
-A retained job over its disk quota fails explicitly. `force` resets the stored
+A retained job over its disk quota fails explicitly. `refresh` resets the stored
 extraction job, while the engine may still reuse matching facts in memory.
 Tests compare reused snapshots with a full binding and projection
 rebuild after source, file-inventory and resolution-configuration changes.
 
-## Persisted graphs (CLI)
+## Persisted graphs
 
-`npx octocode graph ingest <path>` runs the `build_graph` linker. It projects the result into file, symbol, and package nodes with
+`graphBuild` runs the `build_graph` linker. It projects the result into file, symbol, and package nodes with
 `contains`, `imports`, `uses`, `calls`, and `inherits` edges, and publishes an immutable snapshot:
 
 ```text
@@ -320,7 +408,7 @@ those suffixes numerically and never fills a pruned gap. Before any read, hash o
 
 Freshness has one owner (`ast_graph/freshness.rs`). It covers every source and the linking configs that change
 resolution (tsconfig/jsconfig, `package.json`, `Cargo.toml`, `go.mod`, and the
-like). Both ingest reuse and `graph query stale` use it: `stale` rescans the
+like). Both build reuse and the `stale` operation use it: `stale` rescans the
 scoped file list, so it reports `changed`, `missing`, `added` and `excluded`
 sources and changed configs. A snapshot truncated at its file limit is never
 reported fresh.
@@ -369,10 +457,12 @@ line and byte ranges, typed declaration metadata and all stored blocks.
 `node`, `find` and `candidates` select node/declaration blocks while retaining shared
 string, lookup, source-catalog and freshness metadata. These operations avoid
 decoding every node and occurrence, but their memory and I/O are not bounded by
-the result-page size. Query `validation` reports checked blocks, snapshot bytes
-read and decoded record counts. `accessedBlocks` leaves unread bodies unchecked;
-`fullSnapshot` checks every stored block. Neither is a claim about semantic
-analysis completeness. Snapshot read bytes exclude source-freshness reads.
+the result-page size. A query verifies only the blocks it reads and leaves unread
+bodies unchecked; full decode checks every stored block. Neither is a claim about
+semantic analysis completeness. Responses do not report these checks: read and
+decode counts exist only as test evidence (`validation`, `#[cfg(test)]`), and their
+read bytes exclude source-freshness reads. Agents judge coverage from `stats` and
+`coverage`, and currency from `freshness` and the `stale` operation.
 Publication writes encoded sections to a staged file, avoiding an additional
 whole-snapshot output buffer, and syncs the snapshot before publishing `latest`.
 An unknown major version asks the user to re-ingest, and readers ignore unknown
@@ -398,7 +488,14 @@ explicit imports and declarations take precedence. Rust paths walk inline
 `mod` blocks from the module that spells them (`nested::f`, `self::a::f`,
 `super::f`, `crate::file_mod::inline::f`). A Rust method call prefers an
 inherent `impl T` member over a trait impl's; a provided trait method `T` does
-not override links through `impl Trait for T` at medium confidence. A Python
+not override links through `impl Trait for T` at medium confidence.
+Crate names (`use other_crate::f`) resolve through `cargo metadata`, run once
+for each Cargo workspace that encloses a scanned Rust file: the nearest
+`Cargo.toml` at or above the file, inside or above the scan root. A scan of a
+folder of crates, of several independent workspaces, or of a crate's
+subdirectory links them the same way; only the request's cancellation bounds
+the runs. Rust files no manifest encloses still link module paths by syntax,
+and one `unsupported-linking` diagnostic counts them. A Python
 module's attributes are its top-level definitions and the names its imports
 bind, so `from pkg import X` follows `pkg/__init__.py` re-exports; `from m import
 *` binds names without a leading underscore (`__all__` is not read). Python
@@ -477,7 +574,7 @@ over binding admission. No argument becomes an invocation through this process.
 Fact schema 12, analysis version 14 and binary format 14 invalidate earlier extraction,
 binding and storage representations. Rebuild older snapshots with the current binary.
 
-Every call edge keeps its `resolution` and `confidence`. `graph query` then
+Every call edge keeps its `resolution` and `confidence`. `graphQuery` then
 answers bounded, paged questions without rebuilding. The code is in
 `crates/runtime/src/tools/ast_graph/store/`.
 
@@ -489,7 +586,7 @@ Both are optional, so readers treat a missing section as empty. `uses` edges
 link named imports to the exported declaration. `inherits` edges link a class,
 interface, or impl to its base or trait.
 
-`graph query issues` (`store/detect.rs`) runs the detectors on the loaded
+`issues` (`store/detect.rs`) runs the detectors on the loaded
 snapshot. It needs no new dependencies:
 
 - iterative Tarjan SCCs
@@ -501,11 +598,11 @@ snapshot. It needs no new dependencies:
 - Lakos CCD/NCCD over the SCC condensation, using bitset reachability
 
 Finding ids hash the detector, the subject, and the identifying evidence, which
-is what lets `--baseline` diff two snapshots. `--entry a,b` names the
+is what lets `baseline` diff two snapshots. `entries` names the
 entrypoints in place of the inferred ones (rule `explicit`) for every detector
 that reads them.
 
-`graph query drift --baseline <snapshot>` (`store/drift.rs`) diffs the
+`drift` with `baseline` (`store/drift.rs`) diffs the
 selected snapshot against another by root-relative key, so a checkout of the
 base branch and the head compare: files added, removed and changed (content
 digest), cycle groups added and resolved, file import pairs whose load turned
@@ -523,9 +620,10 @@ A bare JS/TS import that names a scanned file by path (`vs/base/common/x` for
 package links is no edge. Ingest records it as an `unlinked-path-import`
 diagnostic naming that file, and `dependents <file>` lists those importers
 under `summary.unlinkedPathImports` (`file`, `line`, `message`).
-Every answer's `graph` block carries `partialReasons` (`maxFiles`,
-`filesSkipped`) when the snapshot's scan was cut, and `reingest`, the widened
-ingest, when `maxFiles` cut it.
+Every answer's `graph` block carries `partialReasons` (`filesSkipped`, or
+`maxFiles` for an older snapshot whose scan stopped at a file cap) when the
+snapshot's scan was cut, and `reingest`, the ingest that walks every file, when a
+file cap cut it.
 
 Large inputs are bounded:
 
@@ -571,8 +669,25 @@ Large inputs are bounded:
   `-I` roots and Kbuild/CMake rules, which ingest does not parse. Without a
   compilation database, C++ overloads are not resolved by argument types and a
   header's dialect is read from its own syntax, not the including unit.
-- Rust call linking is limited by method chains and function return types;
-  receiver facts do not propagate return types.
+- Rust receivers are typed from a written type, a constructor, `self`/`Self`
+  across every `impl` block of the caller's crate, a block or file `static`/
+  `const` type, and the declared return type of the call the receiver comes
+  from. That call must link to targets that all declare one type. `?`, and an
+  unlinked `.unwrap()`/`.expect(..)` on a declared std `Result<T, _>`/
+  `Option<T>`, yield `T`, unless a crate type of that name declares that
+  method. An `async fn` result is not followed (`.await` is not typed). Not
+  typed, so unresolved with their reason: struct field receivers
+  (`self.field.m()`, which needs field-type facts), deref through
+  `Arc`/`Box`/`MutexGuard` beyond a declared `Box`/`Rc`/`Arc` type, generic
+  bounds whose methods come from macro-generated impls, closure and match-arm
+  locals, and any receiver from another workspace crate. An enum variant
+  constructor (`E::V(..)`) is not a call.
+- A snapshot rooted inside a crate (a module directory) holds no crate root.
+  A module file whose parent module is outside the scan finds its `mod`
+  children in its own directory as well; a `super::` path from it uses the
+  directory resolver; and a `super::` chain that climbs above the snapshot
+  root stays unresolved with an out-of-root diagnostic rather than linking a
+  same-named file inside the root.
 
 ### Per-language limits
 
@@ -618,17 +733,18 @@ rather than linked by a name guess.
 
 Symbols carry a test flag: symbols in test files, symbols inside Rust test
 modules (`mod tests`, `mod proptests`, …), and pytest `test_*` functions and
-`Test*` classes. `impact.testFunctions` lists the flagged symbols a change
+`Test*` classes. A Rust file is a test file when only test code mounts it: a
+`mod x;` or a spliced `include!("x.rs")` (edge `rust-include`, a compile-time
+dependency) inside a `#[cfg(test)]` item or in a test file, transitively. `impact.testFunctions` lists the flagged symbols a change
 reaches.
 
-CLI graph queries page affected rows with `--limit` and `--offset`. Large
-`impact` summary arrays and `issues` baseline arrays show 100 entries in the
-initial response and provide one executable `nextLists` command per array.
-For example, `--list summary.testsToRun` returns the complete test list as
-ordinary paged `results`; follow its `next` command until it ends. A cycle
-larger than 50 nodes includes `nextNodes`, which pages every member through
-`--list cycleNodes`. Generated continuations retain an explicit `--workspace`
-and pin the graph snapshot ID.
+graphQuery pages rows with `limit` and `offset`; a page also ends at the response
+budget. Large `impact` summary arrays and `issues` baseline arrays show 100 entries
+in the first response, and `next` holds one continuation per array (for example
+`next["summary.testsToRun"]`), which returns the complete list as ordinary paged
+`rows`; follow its own `next.nextPage` until it ends. A cycle larger than 50 nodes
+gets `next.cycle<i>` (the row's index on its page), which pages every member.
+Continuations repeat the query's `path` and pin the snapshot ID.
 
 Every build and snapshot bound lives in one place
 (`crates/runtime/src/tools/ast_graph/limits.rs`). Snapshot reads are bounded at
@@ -666,34 +782,63 @@ cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-nativ
 
 The language battery ingests one pinned repository per grammar
 (`packages/octocode-benchmark/local/repos`) and compares the files `callers`
-returns for a probe function with the files ripgrep finds calling it. Last run,
-2026-10-29:
+returns for a probe function with the files ripgrep finds calling it
+([graph-bench.mjs](../../../../skills-dev/octocode-graph-dev/scripts/graph-bench.mjs); the
+[octocode-graph-dev skill](../../../../skills-dev/octocode-graph-dev/SKILL.md) owns running and
+comparing it). Since 2026-11-01 the oracle drops the probe's own declaration
+sites, each case's `exclude` globs (vendored copies, amalgamations) and hits
+inside strings and comments, and names the graph's `unresolved` reason for
+every site in a missed file (`missedSites`). Last run, 2026-11-01 (release
+binary; the 2026-10-30 text-oracle figure in brackets where it differs):
 
 | Language | Repository (dir) | Probe | Recall | Precision |
 |---|---|---|---|---|
 | C | redis (`src`) | `createStringObject` | 1.00 | 1.00 |
 | Rust | tokio | `poll_proceed` | 1.00 | 1.00 |
-| C# | Newtonsoft.Json | `ArgumentNotNull` | 0.96 | 1.00 |
-| Java | guava (`guava/src`) | `checkNotNull` | 0.95 | 1.00 |
-| Python | django | `force_str` | 0.95 | 1.00 |
-| CUDA | cutlass (`tools/library`) | `make_gemm_real_canonical_layouts` | 0.95 | 1.00 |
-| Go | prometheus | `FromStrings` | 0.94 | 1.00 |
-| TypeScript | TypeScript (`packages`) | `areTestsFiltered` | 0.91 | 1.00 |
-| Assembly + C | libjpeg-turbo | `jpeg_std_error` | 0.89 | 0.89 |
-| Scala | cats (`core`) | `tailRecM` | 0.69 | 1.00 |
-| C++ | nlohmann/json | `skip_whitespace` | 0.67 | 1.00 |
+| Java | guava (`guava/src`) | `checkNotNull` | 1.00 (0.99) | 1.00 |
+| Python | django | `force_str` | 1.00 (0.95) | 1.00 |
+| CUDA | cutlass (`tools/library`) | `make_gemm_real_canonical_layouts` | 1.00 (0.95) | 1.00 |
+| TypeScript | TypeScript (`packages`) | `areTestsFiltered` | 1.00 (0.91) | 1.00 |
+| C++ | nlohmann/json (excl. `single_include/**`) | `skip_whitespace` | 1.00 (0.67) | 1.00 |
+| Assembly + C | libjpeg-turbo | `jpeg_std_error` | 1.00 (0.89) | 0.89 |
+| C# | Newtonsoft.Json | `ArgumentNotNull` | 0.98 (0.96) | 1.00 |
+| Go | prometheus | `FromStrings` | 0.98 (0.94) | 1.00 |
+| Scala | cats (`core`) | `tailRecM` | 0.94 (0.69) | 1.00 |
 | TSX | excalidraw (`packages`) | `mutateElement` | 0.56 | 1.00 |
-| JavaScript | lodash | `isObject` | 0.25 | 1.00 |
+| JavaScript | lodash (excl. `vendor/**`) | `isObject` | 0.50 (0.25) | 1.00 |
 
-The ripgrep oracle matches text, not bindings:
+The oracle still matches text, not bindings:
 
 - **Assembly + C:** the one "extra" file (`fuzz/decompress_libjpeg.cc`) calls
   the function through an `extern "C"` include, so it is a real caller.
-- **C++:** the miss is an amalgamated header calling its own copy of the function.
-- **JavaScript:** six of the twelve oracle files are vendored libraries with
-  their own `isObject`, or a benchmark string. The rest reach lodash through a
-  UMD export.
-- **TSX:** the misses need receiver types from other files.
+- **C#:** the one miss is a `recovered-declaration` site.
+- **Go:** the two misses are `ambiguous` sites.
+- **Scala:** the two misses are member calls on untyped receivers
+  (`monadInstance.tailRecM`, `fn1.tailRecM`).
+- **JavaScript:** the three misses are `member-unknown-receiver-in-repo`:
+  `lib/common/minify.js` binds `_ = require('lodash')`, which resolves to the
+  `node_modules` package (a correct non-link), and the two test files reach
+  lodash through runtime bindings (`root._ || require(..)`).
+- **TSX:** all 23 misses are `member-unknown-receiver-in-repo` receivers typed
+  in other files (Known limits). One oracle hit is a type position
+  (`typeof h.app.scene.mutateElement<T>`), not a call. Receivers destructured
+  from the file's own function (`const { scene } = make()`, facts v17) are
+  typed but not yet measured on the battery.
+
+Rust receiver typing was also checked against rust-analyzer call hierarchy on
+the octocode native crates (2026-11-01, graph-view LSP cross-check, same-crate
+edges). The receiver rules recovered 26 of the 140 edges only LSP reported, and
+kept every edge both reported whose call still exists (791 of 792; the other
+call was removed from the source). 8 edges LSP did not report were added, each
+checked against the source and correct: `self.m()` calls inside `format!`
+arguments, which rust-analyzer does not list, and functions LSP lists under
+another ID. `type-qualified` name guesses on `T::f(..).m()` were dropped:
+`.unwrap()`/`.expect(..)` now types its value from the declared std
+`Result`/`Option` of the call it follows, which outranks a constructor-name
+guess. 4 calls in function-local `static` initializers moved to their
+function. On the language battery, Rust's link rate rose from 0.21 to 0.233
+with recall and precision at 1.00. The remaining LSP-only edges are the
+untyped forms listed under Known limits; 122 of them cross crates.
 
 Timing is a criterion benchmark, not a CI threshold. It builds and queries the same frozen graph (`OCTOCODE_GRAPH_BENCH_FILES`, default 20,000 files, and `OCTOCODE_GRAPH_BENCH_FANOUT`, default 4):
 

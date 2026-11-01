@@ -13,7 +13,8 @@ use crate::tools::lsp_search::call_sites::callers_from_references;
 use crate::tools::lsp_search::cancellable;
 use crate::tools::lsp_search::failure::{LspFailure, RequestFailures};
 use crate::tools::lsp_search::importers::{
-    ImporterSearch, Importers, WindowRequest, verified_anchors,
+    Anchor, CONCURRENT_FILE_VERIFICATIONS, ImporterSearch, Importers, WindowRequest,
+    ordered_concurrently, verified_anchors,
 };
 use crate::tools::lsp_search::render::into_items;
 use crate::tools::lsp_search::scope::Scope;
@@ -27,7 +28,9 @@ const RECOVERED_FROM_REFERENCES: &str = "recoveredFromReferences";
 
 /// Call-hierarchy items prepared at verified importer call sites (TS/JS
 /// recovery); an item prepared there resolves in the importer's program.
-/// A call site that fails to prepare is recorded in `failures`.
+/// A server that pipelines requests is asked for several at once; the roots
+/// keep call-site order. A call site that fails to prepare is recorded in
+/// `failures`.
 async fn importer_roots(
     client: &NativeLspClient,
     paths: &PathPolicy,
@@ -35,14 +38,24 @@ async fn importer_roots(
     cancel: &dyn CancellationCheck,
     failures: &mut RequestFailures,
 ) -> Result<Vec<Value>, LspFailure> {
+    let prepare = |anchor: &Anchor| {
+        let request =
+            client.prepare_call_hierarchy(anchor.path.clone(), anchor.line, anchor.character);
+        async move { cancellable(cancel, request).await }
+    };
+    let sites = importers.call_sites();
+    let answers = if client.serves_requests_concurrently() {
+        ordered_concurrently(sites, CONCURRENT_FILE_VERIFICATIONS, prepare).await?
+    } else {
+        let mut answers = Vec::with_capacity(sites.len());
+        for anchor in sites {
+            answers.push(prepare(anchor).await?);
+        }
+        answers
+    };
     let mut roots = Vec::new();
-    for anchor in importers.call_sites() {
-        match cancellable(
-            cancel,
-            client.prepare_call_hierarchy(anchor.path.clone(), anchor.line, anchor.character),
-        )
-        .await?
-        {
+    for answer in answers {
+        match answer {
             Ok(more) => roots.extend(
                 into_items(more)
                     .into_iter()

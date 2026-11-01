@@ -50,6 +50,7 @@
         "dotenv": { "$ref": "#/$defs/dotenvPolicy" },
         "tokenPriority": { "type": "integer", "minimum": 0 },
         "configSource": { "type": "boolean" },
+        "credential": { "type": "boolean" },
         "documentation": { "type": "boolean" },
         "description": { "type": "string" }
       }

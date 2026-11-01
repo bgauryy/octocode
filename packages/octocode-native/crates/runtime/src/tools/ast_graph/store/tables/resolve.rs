@@ -14,11 +14,13 @@ mod inherited;
 mod lexical;
 mod linker;
 mod rust;
+mod rust_members;
+mod rust_returns;
 mod scala;
 mod scope;
 pub(super) use exports::{ExportResolver, FileBindings, confidence_for};
 pub(super) use inherited::{BaseIndex, base_index};
-pub(super) use linker::{Linker, Site};
+pub(super) use linker::{Linker, ReturnTypes, Site};
 pub(super) use scala::ScalaBase;
 pub(super) use scope::LinkScope;
 
@@ -139,13 +141,88 @@ pub(super) fn link_calls(
     calls: &mut CallStats,
     out: &mut CallOutput,
 ) {
-    for call in &facts.calls {
+    let received = rust_returns::received_types(linker, unit, facts, callable, method);
+    for (call, received) in facts.calls.iter().zip(received) {
         calls.sites += 1;
+        let receiver_type = call
+            .receiver_type
+            .as_deref()
+            .or(received.as_ref().map(|(ty, _)| ty.as_str()));
+        let (caller, resolved) = resolve_call(linker, unit, call, receiver_type, callable, method);
+        let Ok((targets, resolution, confidence)) = resolved else {
+            let reason = resolved.err().unwrap_or("other");
+            calls.unresolved += 1;
+            *calls.unresolved_by_reason.entry(reason).or_default() += 1;
+            out.unresolved.push(UnlinkedCall {
+                src: caller,
+                occurrence: call.id.clone(),
+                callee: call.callee.clone(),
+                line: call.line,
+                reason,
+                source_range: call.source_range,
+            });
+            let bucket = if INTERNAL_REASONS.contains(&reason) {
+                1
+            } else {
+                2
+            };
+            calls
+                .by_language
+                .entry(unit.language.to_owned())
+                .or_default()[bucket] += 1;
+            continue;
+        };
+        // A receiver typed through another call's result is no surer than
+        // that call's own link.
+        let confidence = received.map_or(confidence, |(_, inner)| confidence.max(inner));
+        calls.linked += 1;
+        calls
+            .by_language
+            .entry(unit.language.to_owned())
+            .or_default()[0] += 1;
+        *calls
+            .by_resolution
+            .entry(resolution.to_owned())
+            .or_default() += 1;
+        // JSX renders, bare decorators and `new` keep their kind visible:
+        // `renders:import`, `constructs:local`.
+        let detail = match call.kind.as_str() {
+            "" | "calls" | "call" => resolution.to_owned(),
+            kind => format!("{kind}:{resolution}"),
+        };
+        for dst in targets {
+            out.edges.push(LinkedCall {
+                edge: (
+                    caller,
+                    dst,
+                    EdgeKind::Calls,
+                    confidence,
+                    detail.clone(),
+                    call.line,
+                ),
+                occurrence: call.id.clone(),
+                source_range: call.source_range,
+            });
+        }
+    }
+}
+
+/// One call site's caller and its link, or the reason it stays unlinked;
+/// `receiver_type` is the written or derived type of its receiver.
+fn resolve_call(
+    linker: &Linker,
+    unit: &FileLinks,
+    call: &crate::tools::ast_graph::types::Call,
+    receiver_type: Option<&str>,
+    callable: &dyn Fn(u32) -> bool,
+    method: &dyn Fn(u32) -> bool,
+) -> (u32, Result<linker::Linked, &'static str>) {
+    {
         let caller = call
             .caller_id
             .as_deref()
             .and_then(|id| unit.index.decl_nodes.get(id).copied())
-            .unwrap_or(unit.file_id);
+            .map_or(unit.file_id, |caller| linker.rust_item_caller(caller));
         let (qualifier, name) = split_callee(&call.callee);
         // Rust needs a receiver or type path for an associated function, and
         // a JS/TS class or object member is never in lexical scope. A bare
@@ -154,7 +231,7 @@ pub(super) fn link_calls(
         let bare_lexical = (matches!(unit.language, "rust" | "go")
             || ecosystem(unit.language) == "npm")
             && qualifier.is_empty()
-            && call.receiver_type.is_none();
+            && receiver_type.is_none();
         let accept = |id| match call.binding {
             GraphCallBinding::ConstructedType => {
                 constructors::admits(linker, caller, id, &call.callee)
@@ -169,7 +246,7 @@ pub(super) fn link_calls(
             qualifier,
             name,
             accept: &accept,
-            receiver_type: call.receiver_type.as_deref(),
+            receiver_type,
             term_binding: call.term_binding,
             self_template: call.self_template.as_deref(),
             value_qualifier: matches!(unit.language, "rust" | "c" | "cpp" | "cuda")
@@ -207,8 +284,7 @@ pub(super) fn link_calls(
                 }
             })
             .flatten();
-        let Some((targets, resolution, confidence)) = resolved else {
-            calls.unresolved += 1;
+        let Some(linked) = resolved else {
             let reason = if recovered {
                 "recovered-declaration"
             } else if let Some(reason) = boundary {
@@ -227,55 +303,9 @@ pub(super) fn link_calls(
                     linker.named(caller, name).filter(|id| accept(*id)).count(),
                 )
             };
-            *calls.unresolved_by_reason.entry(reason).or_default() += 1;
-            out.unresolved.push(UnlinkedCall {
-                src: caller,
-                occurrence: call.id.clone(),
-                callee: call.callee.clone(),
-                line: call.line,
-                reason,
-                source_range: call.source_range,
-            });
-            let bucket = if INTERNAL_REASONS.contains(&reason) {
-                1
-            } else {
-                2
-            };
-            calls
-                .by_language
-                .entry(unit.language.to_owned())
-                .or_default()[bucket] += 1;
-            continue;
+            return (caller, Err(reason));
         };
-        calls.linked += 1;
-        calls
-            .by_language
-            .entry(unit.language.to_owned())
-            .or_default()[0] += 1;
-        *calls
-            .by_resolution
-            .entry(resolution.to_owned())
-            .or_default() += 1;
-        // JSX renders, bare decorators and `new` keep their kind visible:
-        // `renders:import`, `constructs:local`.
-        let detail = match call.kind.as_str() {
-            "" | "calls" | "call" => resolution.to_owned(),
-            kind => format!("{kind}:{resolution}"),
-        };
-        for dst in targets {
-            out.edges.push(LinkedCall {
-                edge: (
-                    caller,
-                    dst,
-                    EdgeKind::Calls,
-                    confidence,
-                    detail.clone(),
-                    call.line,
-                ),
-                occurrence: call.id.clone(),
-                source_range: call.source_range,
-            });
-        }
+        (caller, Ok(linked))
     }
 }
 

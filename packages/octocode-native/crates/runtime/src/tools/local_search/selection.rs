@@ -215,7 +215,7 @@ pub(super) fn select_hits(
         file.matches.retain(|_| flags.next().unwrap_or(false));
         lines_removed += lines_before - distinct_lines(&file);
         if !file.matches.is_empty() {
-            file.match_count = file.matches.len() as u32;
+            file.match_count = u32_of_usize(file.matches.len());
             kept.push(file);
         }
     }

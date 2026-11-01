@@ -57,7 +57,7 @@ impl GitHubTransport {
                     RateLimit {
                         remaining: Some(0),
                         reset_epoch_seconds: Some(reset),
-                        retry_after_seconds: Some(wait.as_millis().div_ceil(1000) as u64),
+                        retry_after_seconds: Some(crate::budget::ceil_secs(wait)),
                         resource: Some(GitHubResource::Graphql.bucket().into()),
                     },
                 ));

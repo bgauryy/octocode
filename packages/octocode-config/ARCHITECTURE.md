@@ -42,15 +42,16 @@ known-key lists.
 - Native management uses the same metadata to validate edits and redact secret values.
 - The CLI transports management requests without adding a second configuration model.
 - `@octocodeai/octocode-core` authors every tool contract, Zod schema,
-  description, and capability-gated schema variants. The `./schema` and `./mcp` subpaths re-export it so
-  interfaces import contracts from one place; the root `.` entry never imports
-  core.
-- This package owns the tool input/output **types** for every language (see
-  below). No surface hand-writes a tool wire type in TypeScript or Rust.
+  description, and capability-gated schema variants. The `./schema` (research
+  tools) and `./chrome` (Chrome DevTools) subpaths re-export it so interfaces
+  import contracts from one place; the root `.` entry never imports core.
+- This package owns the generated Rust tool **types** (see below). No surface
+  hand-writes a tool wire type in TypeScript or Rust; TypeScript uses core's Zod
+  schemas.
 
 ## Tool types
 
-This package is the **only** tool-contract generator. `yarn contracts:regen`
+This package is the **only** tool-contract generator. `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen`
 (repo root: refresh the core copy, then `generate:tool-contract`) is the whole
 change for every consumer:
 
@@ -59,8 +60,6 @@ core Zod schemas ── buildEnforcementContractIr ──▶ contract/tool-contr
       ├── buildNativeParityFixtures ─────────────▶ contract/contract-fixtures.json├─ embedded by
       ├── provenance (core version, fingerprint, sha) ▶ contract/provenance.json ─┤  octocode-native
       └── tool-contract/bundle.ts ──▶ contract/tool-types.schema.json             │  build.rs, in place
-            ├── tool-contract/typescript.ts ──▶ src/contracts/toolTypes.generated.ts│
-            │        (./schema: <Tool>Query/Input/Output, ToolQuery<N>, …)        │
             └── tool-contract/rust.ts (typify) ▶ contract/tool_types.rs ──────────┘
 ```
 
@@ -85,7 +84,7 @@ When branches share a discriminator value, variants are named from it
 (`AstSearchQueryMatchPattern` / `…MatchRule`). Maps are `BTreeMap`
 (deterministic). Boolean `const`s remain a contract-validator check.
 
-Both files carry the core contract fingerprint; the Rust header also pins the bundle's SHA-256,
+The Rust header carries the core contract fingerprint and pins the bundle's SHA-256,
 so `--check` (run by `build` and `lint`) detects staleness without cargo.
 Regenerating needs `cargo install cargo-typify --version 0.8.0 --locked`. Where core's
 output schema is open (`unknown[]` payloads), the generated type is open too:
@@ -100,7 +99,7 @@ tightening a payload shape is a core schema change, never a hand-written type.
 - Credential source priority applies across aliases before alias priority within the same source; token discovery, refresh, and storage remain native responsibilities.
 - Parsing is deterministic and does not execute shell syntax.
 - Consumers receive explicit environment objects where isolation matters.
-- The root entry uses Node builtins only, so public packages and standalone skills can bundle it without importing another policy owner; only `./schema` and `./mcp` import core. Ajv is build/test-only and is absent from `dist`.
+- The root entry uses Node builtins only, so public packages and standalone skills can bundle it without importing another policy owner; only `./schema` and `./chrome` import core. Ajv is build/test-only and is absent from `dist`.
 
 ## Distribution
 

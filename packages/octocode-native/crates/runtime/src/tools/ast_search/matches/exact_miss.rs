@@ -1,9 +1,9 @@
 //! The exact-miss rule: an empty declaration pattern's nearest matches
 //! (declarations of its kind and name that differ in a part it spells), else
 //! the rule listing its kind.
-use super::clipped::row_file;
 use super::continuations::tree_lead;
 use super::query::MatchQuery;
+use super::reads::row_file;
 use super::scan::{scan_directory, scan_file};
 use super::scope::{resolve_scope, scope_extension};
 use super::types::{Scan, Scope};
@@ -122,7 +122,7 @@ pub(super) fn rule_scan(
     let rule_query = MatchQuery::Content(&rule_query);
     let rule_scope = resolve_scope(rule_query, paths, cancel).ok()?;
     if rule_scope.is_file {
-        scan_file(rule_query, &rule_scope, cancel)
+        scan_file(rule_query, &rule_scope, paths, cancel)
     } else {
         scan_directory(rule_query, &rule_scope, paths, cancel)
     }

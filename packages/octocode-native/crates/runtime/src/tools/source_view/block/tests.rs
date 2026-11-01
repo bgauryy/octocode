@@ -359,6 +359,12 @@ fn call_site_hits_keep_window_when_a_declaration_hit_exists() {
     );
     assert_eq!(blocks.len(), 1);
     assert_eq!(
+        warnings,
+        [
+            "block: 1 match(es) are inside declarations away from their heads; those keep their context windows because this read also matched declaration heads."
+        ]
+    );
+    assert_eq!(
         (
             blocks[0].symbol_name.as_str(),
             blocks[0].line,

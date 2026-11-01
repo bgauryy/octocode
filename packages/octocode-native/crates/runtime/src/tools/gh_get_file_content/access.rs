@@ -23,8 +23,8 @@ pub(super) fn path(q: &GhGetFileContentQuery) -> &str {
 pub(super) fn reference(q: &GhGetFileContentQuery) -> Option<&str> {
     each!(q, v, v.ref_.as_ref().map(|r| r.as_str()))
 }
-pub(super) fn force_refresh(q: &GhGetFileContentQuery) -> Option<bool> {
-    each!(q, v, v.force_refresh)
+pub(super) fn refresh(q: &GhGetFileContentQuery) -> Option<bool> {
+    each!(q, v, v.refresh)
 }
 pub(super) fn progress(
     q: &GhGetFileContentQuery,

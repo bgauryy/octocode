@@ -39,13 +39,7 @@ fn symbols_return_provenance_only_on_request() {
     let names = |out: &Value| {
         crate::response::symbol_outline::flatten_members(out["symbols"].as_array().unwrap())
             .iter()
-            .map(|row| {
-                (
-                    row["symbolName"].clone(),
-                    row["line"].clone(),
-                    row["parseAssessment"].clone(),
-                )
-            })
+            .map(|row| (row["symbolName"].clone(), row["line"].clone()))
             .collect::<Vec<_>>()
     };
     assert_eq!(names(&plain), names(&full), "same declarations either way");
@@ -59,6 +53,7 @@ fn symbols_return_provenance_only_on_request() {
             "sourceOrigin",
             "selectionByteRange",
             "selectionOrigin",
+            "parseAssessment",
         ] {
             assert!(row.get(key).is_none(), "{key} only on request: {plain}");
         }
@@ -99,7 +94,10 @@ fn symbols_keep_recovery_on_the_observed_declaration() {
         .iter()
         .find(|row| row["symbolName"] == "Healthy")
         .expect("healthy");
-    assert_eq!(healthy["parseAssessment"]["status"], "parsed");
+    assert!(
+        healthy.get("parseAssessment").is_none(),
+        "a clean parse says nothing"
+    );
 }
 
 #[test]

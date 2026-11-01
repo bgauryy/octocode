@@ -24,14 +24,13 @@ Load when the route or `--provider` is unclear, or before a broad crawl or hoste
 - `provider-usage.mjs --check` reports only `"key":"set"` (exit 1 `missingKey` when unset), offline; without `--check` it reads `/v2/usage` (sanitized plan and credits). Modes map to `/v2/general` (html), `/v2/markdown`, `/v2/extended`, `/v2/extract`.
 
 ```bash
-export SCRAPING_ANT="$(npx -y octocode config get SCRAPING_ANT)"
 node <skill-folder>/scripts/provider-usage.mjs --check
 node <skill-folder>/scripts/fetch.mjs --url https://example.com --provider scrapingant --mode html
 node <skill-folder>/scripts/fetch.mjs --url https://example.com --provider scrapingant --mode extract --extract-properties "title, content"
 node <skill-folder>/scripts/provider-usage.mjs
 ```
 
-- Fresh shell per command: prefix instead of exporting, `SCRAPING_ANT="$(npx -y octocode config get SCRAPING_ANT)" node ...`
+- These scripts load Octocode home and trusted workspace `.env` values through the bundled shared config loader; process environment values take precedence. To save the key, use `npx -y octocode config set SCRAPING_ANT --stdin`.
 - Options: `fetch.mjs --help`; hosted: `--browser --wait-for`, `--proxy-type`, `--proxy-country`, `--block-resource`.
 - Hosted `403`/`423`: stop ([recovery](recovery.md)).
 

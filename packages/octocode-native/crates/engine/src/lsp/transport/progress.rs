@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::{Mutex, watch};
 use tokio::time::{Duration, Instant};
 
@@ -15,7 +15,7 @@ const MAX_ACTIVE_PROGRESS_TOKENS: usize = 512;
 /// `\0` prefix keeps it from colliding with any real `$/progress` token.
 const SERVER_STATUS_TOKEN: &str = "\0octocode/serverStatus";
 
-/// How `wait_until_idle` concluded — a readiness signal the JS layer uses to
+/// How `wait_until_idle` concluded — a readiness signal the LSP tool uses to
 /// tell "server confirmed indexing is done" apart from "server never told us,
 /// we only waited a fixed window" apart from "server is still busy".
 ///
@@ -78,6 +78,8 @@ pub(crate) struct ProgressTracker {
     active: Mutex<HashSet<String>>,
     /// `true` once at least one `begin` notification has been received.
     ever_active: AtomicBool,
+    /// Tokens that began, counted once per start of a token not already open.
+    begins: AtomicU64,
     count_tx: watch::Sender<usize>,
     count_rx: watch::Receiver<usize>,
 }
@@ -88,6 +90,7 @@ impl ProgressTracker {
         Arc::new(Self {
             active: Mutex::new(HashSet::new()),
             ever_active: AtomicBool::new(false),
+            begins: AtomicU64::new(0),
             count_tx,
             count_rx,
         })
@@ -102,7 +105,9 @@ impl ProgressTracker {
         if !active.contains(&token) && active.len() >= MAX_ACTIVE_PROGRESS_TOKENS {
             return;
         }
-        active.insert(token);
+        if active.insert(token) {
+            self.begins.fetch_add(1, Ordering::AcqRel);
+        }
         self.ever_active.store(true, Ordering::Release);
         let _ = self.count_tx.send(active.len());
     }
@@ -111,6 +116,12 @@ impl ProgressTracker {
         let mut active = self.active.lock().await;
         active.remove(token);
         let _ = self.count_tx.send(active.len());
+    }
+
+    /// How many tokens have begun so far: a change between two reads means
+    /// the server started work in between.
+    pub(crate) fn begins(&self) -> u64 {
+        self.begins.load(Ordering::Acquire)
     }
 
     /// `true` while any progress token (or rust-analyzer's non-quiescent

@@ -1,0 +1,65 @@
+/* Chat drawer: a floating glass panel over the viewer (bottom sheet at 900px and below), built on the live.css tokens. */
+.chat-toggle{display:inline-flex;align-items:center;gap:7px;font-weight:600}
+.chat-ic{width:14px;height:12px;border-radius:5px 5px 5px 2px;background:var(--grad);flex:none}
+.chat-toggle.on .chat-ic{background:#fff}
+.chat-unread{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--acc);color:#fff;font-size:11px;font-weight:700;display:inline-grid;place-items:center;line-height:1}
+.chat{position:fixed;right:20px;bottom:20px;z-index:30;width:min(400px,calc(100vw - 32px));height:min(600px,calc(100vh - 120px));display:flex;flex-direction:column;
+  background:var(--glass);backdrop-filter:blur(20px) saturate(1.15);-webkit-backdrop-filter:blur(20px) saturate(1.15);border:1px solid var(--line-2);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;animation:chat-in .18s ease-out}
+@keyframes chat-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+.chat-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 12px 12px 14px;border-bottom:1px solid var(--line)}
+.chat-title{display:flex;align-items:center;gap:10px;min-width:0}
+.chat-title b{font-weight:650;letter-spacing:-.01em}
+.chat-title small{display:block;color:var(--mute);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-logo{width:26px;height:26px;border-radius:9px;background:var(--grad);box-shadow:0 6px 18px var(--glow-a);flex:none}
+.chat-close{width:30px;height:30px;padding:0;border-radius:9px;font-size:18px;line-height:1;background:transparent;border-color:transparent;color:var(--mute)}
+.chat-close:hover{color:var(--ink);border-color:var(--line-2)}
+.chat-list{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px;overscroll-behavior:contain}
+.chat-empty{margin:auto 8px;color:var(--mute);font-size:12.5px;text-align:center;line-height:1.6}
+.chat-empty code,.chat-text code{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;padding:1px 5px;border-radius:5px;background:color-mix(in srgb,var(--ink) 9%,transparent)}
+.chat-msg{display:flex;flex-direction:column;gap:4px;max-width:88%;min-width:0}
+.chat-msg.user{align-self:flex-end;align-items:flex-end}
+.chat-msg.agent{align-self:flex-start}
+.chat-msg.system{align-self:center;max-width:100%;text-align:center}
+.chat-meta{display:flex;gap:8px;align-items:baseline;font-size:11px;color:var(--mute);padding:0 4px}
+.chat-meta b{color:var(--ink-2);font-weight:600}
+.chat-ref{font-size:11px;color:var(--acc);text-decoration:none;padding:0 4px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-ref:hover{text-decoration:underline}
+.chat-text{padding:8px 12px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;max-width:100%}
+.user .chat-text{background:var(--grad);color:#fff;border-bottom-right-radius:5px;box-shadow:0 4px 14px var(--glow-a)}
+.agent .chat-text{background:var(--glass-2);border:1px solid var(--line);border-bottom-left-radius:5px}
+.system .chat-text{padding:2px 10px;color:var(--mute);font-size:12px}
+.user .chat-text code{background:rgba(255,255,255,.2);color:#fff}
+.chat-text pre{margin:6px 0;padding:8px 10px;border-radius:10px;background:color-mix(in srgb,var(--bg) 72%,transparent);border:1px solid var(--line);overflow:auto;white-space:pre}
+.chat-text pre code{padding:0;background:none}
+.chat-link{color:var(--acc);text-decoration:none;border-bottom:1px dashed currentColor}
+.chat-link:hover{border-bottom-style:solid}
+.user .chat-link{color:#fff}
+.chat-state{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--mute);padding:0 4px}
+.chat-state.failed{color:var(--bad)}
+.chat-dots{display:inline-flex;gap:3px}
+.chat-dots i{width:6px;height:6px;border-radius:50%;background:var(--line-2)}
+.chat-dots i.on{background:var(--acc)}
+.chat-state.replied .chat-dots i.on{background:var(--ok)}
+.chat-state.failed .chat-dots i{background:var(--bad)}
+.chat-compose{display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px;border-top:1px solid var(--line)}
+.chat-chip{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:3px 3px 3px 10px;border-radius:999px;background:var(--glass-2);border:1px solid var(--line-2);font-size:12px}
+.chat-chip-path{color:var(--ink);word-break:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.chat-chip-metrics{color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.chat-chip-x{width:22px;height:22px;padding:0;border-radius:50%;flex:none;font-size:13px;line-height:1;background:transparent;border-color:transparent;color:var(--mute)}
+.chat-chip-x:hover{color:var(--ink);border-color:var(--line-2)}
+.chat-row{display:flex;gap:8px;align-items:flex-end}
+.chat textarea{flex:1;min-width:0;min-height:40px;max-height:160px;resize:none;padding:9px 12px;font:inherit;line-height:1.4;color:var(--ink);background:var(--glass-2);border:1px solid var(--line-2);border-radius:12px;transition:border-color .15s,box-shadow .15s}
+.chat textarea:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 20%,transparent)}
+.chat-send{height:40px;padding:0 16px;background:var(--grad);border-color:transparent;color:#fff;font-weight:600;border-radius:12px}
+.chat-send:hover{box-shadow:0 4px 14px var(--glow-a)}
+@media (max-width:900px){
+  .chat{left:12px;right:12px;bottom:12px;width:auto;height:min(70vh,560px)}
+}
+@media (max-width:560px){
+  .chat{left:0;right:0;bottom:0;height:78vh;border-radius:18px 18px 0 0;border-bottom:0}
+  .chat-toggle .chat-label{display:none}
+  .chat-msg{max-width:94%}
+}
+.chat-show{align-self:flex-start;display:inline-flex;align-items:center;gap:7px;margin:2px 4px 0;padding:3px 10px;font-size:11.5px;font-weight:600;border-radius:999px;background:var(--glass-2);border-color:var(--line-2);color:var(--ink)}
+.chat-show:hover{border-color:var(--acc);box-shadow:0 2px 10px var(--glow-a)}
+.chat-show-ic{width:8px;height:8px;border-radius:50%;background:var(--grad);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 22%,transparent)}

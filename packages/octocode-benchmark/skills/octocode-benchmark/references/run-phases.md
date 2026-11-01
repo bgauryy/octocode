@@ -1,3 +1,5 @@
+Load when executing benchmark phases after preflight.
+
 # Phases 1–3 + outputs
 
 Load when spawning runners, judges, and writing the report. Preflight + measurement first:
@@ -19,8 +21,7 @@ headings exactly `Q1..QN` in order. Chars are authoritative from the JSONL. A mi
 Command forms: `octocode`→`compare/bin/octoc <tool> '<json>'` · `rtk`→`rtk
 gh <args>` · `headroom`→`compare/bin/ghc <gh args>` · `gh`→`compare/bin/ghm <gh args>` (bare baseline).
 
-**Scaling:** you MAY batch questions within one arm's agent, never mix arms. One pass of a
-30-question matchup: `octocode:Q1-15`, `octocode:Q16-30`, `baseline:Q1-15`, `baseline:Q16-30`.
+**Scaling:** batch dispatch within an arm, keeping a fresh runner context for every (question, arm, pass). For example, schedule Q1–15 and Q16–30 as separate queues; do not share a runner transcript across those questions. If the host cannot isolate them, report that limitation instead of claiming the isolation gate passed.
 
 ## Phase 2 — blind packet, then 1 judge per question
 
@@ -39,7 +40,7 @@ wins. One reasoning-first verdict per question.
 | Runner answers | `<campaign>/answers/<arm>-p<pass>.md` | `## Q<n>` sections the packet reads |
 | Blind packet | `<campaign>/blind-packet.md` | X/Y, tool-redacted; the judge's only input |
 | Judge verdicts | `<campaign>/judge/Q<n>.md` | reasoning-first scores + ranking |
-| Report / rollup | `results/<name>-<HHMMSS>-<date>.md` · `results/SUMMARY.md` | per [`REPORT_TEMPLATE.md`](REPORT_TEMPLATE.md) |
+| Report / rollup | `<result>/report.md` (published rollup only when requested) | per [`REPORT_TEMPLATE.md`](REPORT_TEMPLATE.md) |
 
 Recompute paired stats from the JSONL via `compare/bin/validate_campaign.py` per
 [`aggregation-and-stats.md`](aggregation-and-stats.md): geo-mean + median char ratio, leaner

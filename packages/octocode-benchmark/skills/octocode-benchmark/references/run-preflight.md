@@ -10,7 +10,7 @@ every check and exits non-zero on any failure. What it verifies (or check by han
 
 | Arm | Confirm | Command |
 |---|---|---|
-| octocode | local build + live tool call | `node packages/octocode/out/octocode.js --version` + probe `compare/bin/octoc ghSearchRepo '{"queries":[{"operation":"get","owner":"sindresorhus","repo":"is"}]}'` (published pin: `npx -y <spec> tools ghSearchRepos …`) |
+| octocode | local build + live tool call | `node ../octocode/out/octocode.js --version` + probe `compare/bin/octoc ghSearchRepo '{"queries":[{"operation":"get","owner":"sindresorhus","repo":"is"}]}'` (published pin: `npx -y <spec> tools ghSearchRepos …`) |
 | rtk | gh authed + rtk | `gh --version` · `gh auth status` · `rtk --version` + probe `rtk gh search repos octocode --limit 1` |
 | headroom | wrapper compresses | `export HR_PY=…; ./compare/bin/preflight.py --warmup` (a `0%` ratio / `router:protected` = compression OFF → invalid) |
 
@@ -33,7 +33,7 @@ comes from `compare/bin/sumlog.py --strict`; the whole campaign is checked by
 `compare/bin/validate_campaign.py`. (These live under `compare/bin/`, shared by every matchup.)
 
 **Which octocode wrapper (all under `compare/bin/`):** use `octoc` for the headline run
-(the local monorepo build — `yarn build` first, record the commit and `octocode --version`),
+(the local monorepo build — `node skills-dev/octocode-dev/scripts/dev.mjs build:dev` at the repo root first, record the commit and `octocode --version`),
 and `octoc-npm` with a pinned `OCTO_SPEC` (default `octocode@18.2.2`) to re-run a published
 baseline in the same campaign. Never leave the published spec unpinned. Record the exact
 wrapper + version in the report.

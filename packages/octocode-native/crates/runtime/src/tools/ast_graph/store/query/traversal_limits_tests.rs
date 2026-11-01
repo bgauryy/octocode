@@ -1,5 +1,6 @@
 use super::*;
 use crate::tools::ast_graph::store::format::NodeRec;
+use crate::tools::ast_graph::test_support::next_offset;
 
 fn wide_graph(leaves: u32) -> Graph {
     let mut tables = GraphTables::default();
@@ -62,19 +63,14 @@ fn traversal_pages_reach_every_node_beyond_the_former_visit_cap() {
         .traversal()
         .unwrap();
         assert_eq!(answer.class, ExitClass::Success, "{}", answer.value);
-        assert_eq!(answer.value["total"], 200_002);
-        assert_eq!(answer.value["results"].as_array().unwrap().len(), 1);
-        assert_eq!(answer.value["results"][0]["id"], expected);
+        assert_eq!(answer.value["pagination"]["totalItems"], 200_002);
+        assert_eq!(answer.value["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(answer.value["rows"][0]["id"], expected);
         if offset < 200_001 {
-            assert!(
-                answer.value["next"]
-                    .as_str()
-                    .unwrap()
-                    .ends_with(&format!("--offset {}", offset + 1))
-            );
+            assert_eq!(next_offset(&answer), Some(offset + 1));
         } else {
-            assert!(answer.value.get("next").is_none());
-            assert!(answer.value.get("truncated").is_none());
+            assert!(answer.next.is_empty());
+            assert_eq!(answer.value["pagination"]["hasMore"], false);
         }
     }
 }
@@ -128,16 +124,11 @@ fn traversal_windows_preserve_order_evidence_cycles_and_absolute_pagination() {
             ..Default::default()
         };
         let answer = run_page(&options, &graph, Map::new(), page);
-        actual.extend(answer.value["results"].as_array().unwrap().iter().cloned());
+        actual.extend(answer.value["rows"].as_array().unwrap().iter().cloned());
         if offset < 4 {
-            assert!(
-                answer.value["next"]
-                    .as_str()
-                    .unwrap()
-                    .ends_with(&format!("--offset {}", offset + 2))
-            );
+            assert_eq!(next_offset(&answer), Some(offset + 2));
         } else {
-            assert!(answer.value.get("next").is_none());
+            assert!(answer.next.is_empty());
         }
     }
     assert_eq!(actual, expected.rows);
@@ -170,4 +161,22 @@ fn filtered_traversal_does_not_hide_matches_after_many_nonmatching_nodes() {
     assert_eq!(page.total, 2);
     assert_eq!(page.rows[0]["id"], "file-200001.ts");
     assert_eq!(page.rows[1]["id"], "file-200002.ts");
+}
+
+#[test]
+fn reingest_is_a_related_build_that_keeps_the_scan_options() {
+    let input = |root: &str, scan: Value| {
+        let call = reingest_call(&json!({"root": root, "workspace": "/w", "scan": scan}));
+        assert_eq!((&call["kind"], &call["tool"]), (&json!("related"), &json!("graphBuild")));
+        call["input"]["queries"][0].clone()
+    };
+    assert_eq!(input("/w/app", json!({})), json!({"path": "app"}));
+    assert_eq!(
+        input(
+            "/w/app",
+            json!({"excludeDir": ["gen"], "languageGlobs": {"cpp": ["include/**/*.h"]}})
+        ),
+        json!({"path": "app", "exclude": ["gen"], "parserGlobs": {"cpp": ["include/**/*.h"]}})
+    );
+    assert_eq!(input("/w", json!({})), json!({"path": "."}));
 }

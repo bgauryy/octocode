@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { inventoryRows, nextHints, sourceLines, sourceView, structureFiles, rawPatch } from '../responses.mjs';
-import { tokenFor, withoutReadinessPings } from './surfaces.mjs';
+import { tokenFor } from './surfaces.mjs';
 import { advancedRegistries } from './advanced-registry.mjs';
 import { advancedHistoryForms } from './advanced-history.mjs';
 import { addedLines, blobSha } from './mock-model.mjs';
@@ -15,7 +15,7 @@ const equal = (actual, expected) => JSON.stringify(actual) === JSON.stringify(ex
 const names = rows => (rows ?? []).map(row => row.repo);
 const paths = rows => (rows ?? []).map(row => row.path).toSorted();
 const numbers = rows => (rows ?? []).map(row => row.number);
-const readerRequests = (ctx, surface) => withoutReadinessPings(ctx.mock.requestsFrom.filter(entry => entry.token === tokenFor('ghGetFileContent', surface)));
+const readerRequests = (ctx, surface) => ctx.mock.requestsFrom.filter(entry => entry.token === tokenFor('ghGetFileContent', surface));
 const sourceEvidence = result => !result?.isError && result?.json?.results?.[0]?.status === undefined
   && !data(result).errorCode && sourceLines(data(result)).length > 0;
 const checks = async (ctx, cases) => {
@@ -85,13 +85,13 @@ async function reader(ctx) {
     ['matcher.wholeWordCase', { ...REPO, path: 'src/greeter.ts', matchString: ['Greeter'], caseMode: 'sensitive', wholeWord: true }, d => equal(sourceLines(d).map(([line]) => line), [11])],
     ['matcher.pcre2', { ...REPO, path: 'src/greeter.ts', matchString: ['(?<=healthMarker )greeter-\\d'], regexEngine: 'pcre2' }, d => equal(sourceLines(d).map(([line]) => line), [7, 15])],
     ['matcher.regex', { ...REPO, path: 'src/greeter.ts', matchString: ['^export (function|class)'], regexEngine: 'rust' }, d => equal(sourceLines(d).map(([line]) => line), [6, 11])],
-    ['view.compact', { ...REPO, path: 'src/greeter.ts', view: 'compact' }, d => d.view === 'compact' && d.content.includes('function greet') && !d.content.includes('healthMarker')],
-    ['view.symbols', { ...REPO, path: 'src/greeter.ts', view: 'symbols' }, d => d.view === 'symbols' && d.content.includes('Greeting') && d.content.includes('say(') && !d.content.includes('return this.prefix')],
+    ['view.compact', { ...REPO, path: 'src/greeter.ts', view: 'compact' }, d => (d.view ?? 'compact') === 'compact' && d.content.includes('function greet') && !d.content.includes('healthMarker')],
+    ['view.symbols', { ...REPO, path: 'src/greeter.ts', view: 'symbols' }, d => (d.view ?? 'symbols') === 'symbols' && d.content.includes('Greeting') && d.content.includes('say(') && !d.content.includes('return this.prefix')],
     ['ref.branch', { ...REPO, path: 'pkg/mod00.ts', ref: 'feature-4' }, d => equal(sourceLines(d), [[1, '// healthMarker bulk-0'], [2, 'export const mod0 = 0;']])],
     ['path.missing', { ...REPO, path: 'src/missing.ts' }, error('notFound')],
   ]);
   for (const surface of ctx.surfaces) {
-    const report = await ctx.explore('ghGetFileContent', { queries: [{ owner: 'octo', repo: 'demo-docs', path: 'guide.txt', forceRefresh: true }], responseChars: 4000 }, surface);
+    const report = await ctx.explore('ghGetFileContent', { queries: [{ owner: 'octo', repo: 'demo-docs', path: 'guide.txt', refresh: true }], responseChars: 4000 }, surface);
     const records = report.responses.filter(row => row.tool === 'ghGetFileContent').flatMap(row => row.result.json?.results?.flatMap(item => sourceLines(item.data)) ?? []);
     const expected = Array.from({ length: 1500 }, (_, i) => [i + 1, `Line ${i + 1}: the greeter guide repeats this sentence to fill a long document.`]);
     out.push([`advanced.cursor.exactEvidence.${surface}`, !report.failures.length && equal(records, expected), `${records.length} lines, ${report.responses.length} calls; ${JSON.stringify(report.failures)}`]);
@@ -130,8 +130,8 @@ async function readerForms(ctx) {
     ['matcher.blockOutsideRange', { ...row, ranges: [{ startLine: 7, endLine: 7 }], matchString: ['greeter-1'], block: true }, lines(6, 7, 8, 9)],
     ['matcher.smartPerTerm', { ...row, matchString: ['GREETER', 'greeting'], wholeWord: true }, lines(2, 6)],
     ['matcher.insensitive', { ...row, matchString: ['HEALTHMARKER'], caseMode: 'insensitive' }, lines(7, 15)],
-    ['view.compactRange', { ...row, view: 'compact', ranges: [{ startLine: 6, endLine: 9 }] }, d => d.view === 'compact' && d.content.includes('`hello ${name}`') && d.content.includes('return') && !d.content.includes('healthMarker') && !d.content.includes('class Greeter')],
-    ['view.compactBlock', { ...row, view: 'compact', ranges: [{ startLine: 7, endLine: 7 }], block: true }, d => d.view === 'compact' && d.content.includes('function greet') && d.content.includes('`hello ${name}`') && !d.content.includes('healthMarker')],
+    ['view.compactRange', { ...row, view: 'compact', ranges: [{ startLine: 6, endLine: 9 }] }, d => (d.view ?? 'compact') === 'compact' && d.content.includes('`hello ${name}`') && d.content.includes('return') && !d.content.includes('healthMarker') && !d.content.includes('class Greeter')],
+    ['view.compactBlock', { ...row, view: 'compact', ranges: [{ startLine: 7, endLine: 7 }], block: true }, d => (d.view ?? 'compact') === 'compact' && d.content.includes('function greet') && d.content.includes('`hello ${name}`') && !d.content.includes('healthMarker')],
   ]);
   for (const surface of ctx.surfaces) for (const extra of [{ minify: true }, { matchString: 'greet' }, { view: 'compact', matchString: ['greet'] }, { view: 'symbols', ranges: [{ startLine: 1, endLine: 2 }] }]) {
     const before = readerRequests(ctx, surface).length;
@@ -229,7 +229,7 @@ async function readerSymbols(ctx, surface, out) {
   const expected = [[2, 4], [3, 3], [6, 9], [11, 18], [12, 12], [14, 17]].map(([start, end]) => `${start === end ? start : `${start}-${end}`}\t${source[start - 1]}`);
   const rows = readRows(report);
   const actual = rows.flatMap(row => (row.data.content ?? '').split('\n').filter(Boolean));
-  out.push([`advanced.flow.symbolPages.${surface}`, !report.failures.length && rows.every(row => !row.status && row.data.view === 'symbols') && equal(actual, expected), `${report.responses.length} calls; ${JSON.stringify(actual)}`]);
+  out.push([`advanced.flow.symbolPages.${surface}`, !report.failures.length && rows.every(row => !row.status && (row.data.view ?? 'symbols') === 'symbols') && equal(actual, expected), `${report.responses.length} calls; ${JSON.stringify(actual)}`]);
 }
 
 async function readerPinned(ctx, surface, out, sources) {
@@ -242,7 +242,7 @@ async function readerPinned(ctx, surface, out, sources) {
     if (request.p === '/repos/octo/demo/commits/reader-moving') return { body: commits[Number(moved)] };
     return readFixtureReply(request, { 'flow-pinned.txt': request.url.searchParams.get('ref') === commits[0] ? original : changed });
   });
-  const query = { ...REPO, path: 'flow-pinned.txt', ref: 'reader-moving', forceRefresh: true };
+  const query = { ...REPO, path: 'flow-pinned.txt', ref: 'reader-moving', refresh: true };
   const first = await ctx.call({ queries: [query], responseChars: 500 }, surface);
   const continuation = nextHints(first.json).find(call => call.kind === 'continue');
   moved = true;
@@ -250,7 +250,7 @@ async function readerPinned(ctx, surface, out, sources) {
   const report = continuation && await ctx.explore(continuation.tool, continuation.input, surface);
   const originalRows = [first.json.results[0], ...(report ? readRows(report) : [])];
   out.push([`advanced.flow.refPinned.${surface}`, !!report && !report.failures.length && data(first).commitSha === commits[0] && readText(originalRows) === original && readerRequests(ctx, surface).length === before, `${originalRows.length} rows; provider calls ${before}→${readerRequests(ctx, surface).length}`]);
-  const fresh = await exactRead(ctx, surface, out, { label: 'forceRefreshMoves', query, expected: changed, responseChars: 500 });
+  const fresh = await exactRead(ctx, surface, out, { label: 'refreshMoves', query, expected: changed, responseChars: 500 });
   out.push([`advanced.flow.newCommit.${surface}`, data(fresh.responses[0]?.result).commitSha === commits[1], JSON.stringify(data(fresh.responses[0]?.result))]);
 }
 
@@ -275,7 +275,7 @@ async function readerFlows(ctx) {
       const compactRows = readRows(compact);
       let compactValue;
       try { compactValue = JSON.parse(readText(compactRows)); } catch { compactValue = null; }
-      out.push([`advanced.flow.compactJson.${surface}`, !compact.failures.length && compactRows.every(row => row.data.view === 'compact') && equal(compactValue, JSON.parse(sources['flow-data.json'])), readText(compactRows)]);
+      out.push([`advanced.flow.compactJson.${surface}`, !compact.failures.length && compactRows.every(row => (row.data.view ?? 'compact') === 'compact') && equal(compactValue, JSON.parse(sources['flow-data.json'])), readText(compactRows)]);
       await readerBatch(ctx, surface, out, sources);
       await readerMatchPages(ctx, surface, out, sources);
       await readerMatchAttribution(ctx, surface, out);
@@ -365,7 +365,7 @@ async function clone(ctx) {
   if (a) {
     const file = path.join(a, 'src/greeter.ts');
     fs.appendFileSync(file, '\n// local edit retained\n');
-    const refreshed = await call({ paths: ['src'], historyDepth: 1, forceRefresh: true });
+    const refreshed = await call({ paths: ['src'], historyDepth: 1 });
     out.push(['advanced.clone.preserveLocalEdits', refreshed.errorCode === 'checkoutDirty' && fs.readFileSync(file, 'utf8').endsWith('// local edit retained\n'), JSON.stringify(refreshed)]);
   }
   return out;

@@ -1,64 +1,52 @@
-//! A fresh checkout: stage the commit, verify it, record its metadata, and publish it as the cache entry.
-use super::plan::{CacheHit, Plan};
-use super::{
-    CloneContext, CloneError, CloneResult, Sparse, cache, control, git, policy_denied, recovery,
-};
+//! A fresh checkout: stage the commit, verify it, publish it as an output.
+use super::plan::{Checkout, Plan};
+use super::{CloneError, CloneResult, Sparse, control, git, policy_denied, recovery, storage};
 use octocode_contract_types::ErrorCode;
 use std::path::Path;
 
 /// Check out `reference` into a stage, verify it, and publish it as the
-/// cache entry `clone_dir`, whose lock the caller holds.
+/// destination `clone_dir`, whose lock the caller holds.
 pub(super) fn fresh_clone(
     plan: &Plan<'_>,
     reference: &str,
     clone_dir: &Path,
 ) -> Result<CloneResult, CloneError> {
     let context = plan.context;
-    // Only a fresh clone probes git: a cache hit's failing `rev-parse`
-    // already falls through to here.
     context.git.assert_available(&control(context))?;
-    cache::cleanup_stale_artifacts(&context.config.cache_home);
-    cache::evict(context, None);
-    let stage = cache::stage_dir(&context.config.cache_home, clone_dir)?;
+    if clone_dir.exists() && !git::safe_to_replace(context, clone_dir, reference)? {
+        return Err(dirty_checkout(clone_dir));
+    }
+    let stage = storage::stage_dir(&context.config.home, clone_dir)?;
     let published = checkout_stage(plan, reference, &stage)
-        .and_then(|commit_sha| publish_stage(plan, &stage, reference, &commit_sha, clone_dir));
-    let meta = published.inspect_err(|_| discard_stage(context, &stage))?;
+        .and_then(|commit_sha| publish_stage(plan, &stage, &commit_sha, clone_dir));
+    let checkout = published.inspect_err(|_| discard_stage(&stage))?;
     context
         .path_policy
         .validate(clone_dir)
         .map_err(policy_denied)?;
-    let mut result = plan.result(
-        reference,
-        clone_dir,
-        CacheHit {
-            commit_sha: meta.commit_sha.clone(),
-            age: cache::CacheAge::of(&meta, context.config.cache_ttl),
-            size: meta.checkout_bytes,
-            symlinks: meta.symlinks,
-        },
-    );
-    result.location.cached = false;
-    cache::evict(context, Some(clone_dir));
-    Ok(result)
+    Ok(plan.result(reference, clone_dir, checkout))
 }
 
-/// Publish a verified stage as the cache entry `clone_dir` of `reference`.
+/// Publish a verified stage as the destination `clone_dir` after verification.
 fn publish_stage(
     plan: &Plan<'_>,
     stage: &Path,
-    reference: &str,
     commit_sha: &str,
     clone_dir: &Path,
-) -> Result<cache::CacheMeta, CloneError> {
+) -> Result<Checkout, CloneError> {
     let context = plan.context;
-    let meta = write_stage_meta(plan, reference, commit_sha, stage)?;
-    // The target lock also covers this final check. forceRefresh bypasses
-    // cache_hit, and user writes may arrive while the stage is fetched.
-    if clone_dir.exists() && !git::checkout_status(context, clone_dir)?.safe_to_replace {
+    let checkout = Checkout {
+        commit_sha: commit_sha.to_owned(),
+        size: storage::checked_out_size(stage),
+        symlinks: git::symlinks(context, stage)?,
+    };
+    // User writes may arrive while the stage is fetched: recheck while
+    // holding the destination lock before replacing anything.
+    if clone_dir.exists() && !git::safe_to_replace(context, clone_dir, commit_sha)? {
         return Err(dirty_checkout(clone_dir));
     }
-    cache::promote(&context.config.cache_home, stage, clone_dir)?;
-    Ok(meta)
+    storage::promote(stage, clone_dir)?;
+    Ok(checkout)
 }
 
 /// Check out the commit `reference` into `stage` and verify it: every
@@ -112,70 +100,20 @@ fn checked_out(stage: &Path, path: &str) -> bool {
         })
 }
 
-/// Record the checkout's identity, commit, size and symlinks in its stage.
-/// Repository evidence is never overwritten by this bookkeeping.
-fn write_stage_meta(
-    plan: &Plan<'_>,
-    resolved: &str,
-    commit_sha: &str,
-    stage: &Path,
-) -> Result<cache::CacheMeta, CloneError> {
-    let identity = plan.identity(resolved);
-    // Repository evidence must never be overwritten by our bookkeeping.
-    // This also rejects a directory or symlink at the reserved filename.
-    match std::fs::symlink_metadata(stage.join(cache::META_FILE)) {
-        Ok(_) => {
-            return Err(cache::metadata_conflict(
-                identity.owner,
-                identity.repo,
-                commit_sha,
-            ));
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(CloneError::new(
-                ErrorCode::CacheUnavailable,
-                format!("Could not inspect clone metadata destination: {error}"),
-            ));
-        }
-    }
-    // The size of a clean checkout cannot change: record it once, the
-    // checked-out files for the row and the whole entry for eviction.
-    let checkout = cache::checked_out_size(stage);
-    let meta = cache::CacheMeta::new(
-        &identity,
-        commit_sha,
-        plan.context.config.cache_ttl,
-        cache::CheckoutFacts {
-            size_bytes: checkout.saturating_add(cache::git_dir_size(stage)),
-            checkout_bytes: checkout,
-            symlinks: git::symlinks(plan.context, stage)?,
-        },
-    );
-    cache::write_meta(stage, &meta)?;
-    Ok(meta)
-}
-
 pub(super) fn dirty_checkout(path: &Path) -> CloneError {
     CloneError {
         hints: vec![
-            "Move your edits out of this managed checkout, restore it to clean, then retry; forceRefresh never discards local files.".into(),
+            "Move your edits out of this managed checkout, restore it to clean, then retry; cloning never discards local files.".into(),
         ],
         ..CloneError::new(
             ErrorCode::CheckoutDirty,
-            format!("Clone checkout '{}' contains local files or changes; it was preserved without replacement.", path.display()),
+            format!("Clone checkout '{}' contains local files, changes, commits or Git refs; it was preserved without replacement.", path.display()),
         )
     }
 }
 
-fn discard_stage(context: &CloneContext<'_>, stage: &Path) {
-    crate::cache::evictions::log_eviction(
-        &context.config.cache_home,
-        "failed-checkout-stage",
-        stage,
-        0,
-    );
-    cache::remove_dir(stage);
+fn discard_stage(stage: &Path) {
+    storage::remove_dir(stage);
 }
 
 /// Requested sparse paths absent at the checked-out revision: a not-found

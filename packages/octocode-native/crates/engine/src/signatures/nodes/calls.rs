@@ -2,7 +2,7 @@
 
 use tree_sitter::Node;
 
-use super::{compact_identifier, first_name_descendant, is_name_like, node_text};
+use super::{compact_identifier, first_descendant, is_name_like, node_text};
 
 pub(in crate::signatures) fn is_call_node(kind: &str) -> bool {
     matches!(
@@ -99,7 +99,7 @@ fn callee_text<'tree>(node: Node<'tree>, content: &str) -> Option<(String, Node<
             return Some(label);
         }
     }
-    let child = first_name_descendant(node, 3)?;
+    let child = first_descendant(node, 3, is_name_like)?;
     Some((
         node_text(child, content).and_then(compact_identifier)?,
         child,
@@ -131,7 +131,7 @@ fn child_label<'tree>(child: Node<'tree>, content: &str) -> Option<(String, Node
     {
         return Some((name, child));
     }
-    let descendant = first_name_descendant(child, 3)?;
+    let descendant = first_descendant(child, 3, is_name_like)?;
     Some((
         node_text(descendant, content).and_then(compact_identifier)?,
         descendant,
@@ -140,6 +140,7 @@ fn child_label<'tree>(child: Node<'tree>, content: &str) -> Option<(String, Node
 
 /// The function a Scala application names: a curried chain
 /// (`f(a)(b)`) and explicit type arguments (`f[A](a)`) are peeled to `f`.
+#[cfg(feature = "tree-sitter-scala")]
 pub(in crate::signatures) fn scala_applied_function(node: Node<'_>) -> Option<Node<'_>> {
     let mut function = node.child_by_field_name("function")?;
     while function.kind() == "call_expression" {
@@ -153,6 +154,7 @@ pub(in crate::signatures) fn scala_applied_function(node: Node<'_>) -> Option<No
 
 /// A Scala call label. A curried chain is one site, at its outermost
 /// application: an inner application has none of its own.
+#[cfg(feature = "tree-sitter-scala")]
 pub(in crate::signatures) fn scala_call_callee<'tree>(
     node: Node<'tree>,
     content: &str,

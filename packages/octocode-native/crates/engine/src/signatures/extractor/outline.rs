@@ -33,7 +33,7 @@ pub(super) fn import_runs(root: tree_sitter::Node<'_>) -> Vec<(usize, usize)> {
                 _ => runs.push((start, end)),
             }
             open = true;
-        } else if !crate::structural::kinds::is_comment_kind(kind) {
+        } else if !crate::signatures::node_kinds::is_comment_kind(kind) {
             open = false;
         }
     }
@@ -107,21 +107,6 @@ pub(super) fn collapse_signature(
     }
 }
 
-/// Grammar nodes that annotate the item after them: Rust attributes,
-/// decorators, Java and Scala annotations, C# and C++ attribute lists.
-pub(crate) fn is_annotation_kind(kind: &str) -> bool {
-    matches!(
-        kind,
-        "attribute_item"
-            | "inner_attribute_item"
-            | "decorator"
-            | "annotation"
-            | "marker_annotation"
-            | "attribute_list"
-            | "attribute_declaration"
-    )
-}
-
 /// Shrink each run of two or more rows that hold only annotations (one
 /// multi-row attribute, or several stacked on one item) to its first row,
 /// marked [`ELIDED`]: an outline lists the item, and the item's line range
@@ -137,7 +122,7 @@ pub(super) fn collapse_annotation_runs(
     'walk: loop {
         let node = cursor.node();
         let mut descend = true;
-        if is_annotation_kind(node.kind()) {
+        if crate::signatures::node_kinds::is_annotation_kind(node.kind()) {
             descend = false;
             let (start, end) = (node.start_position(), node.end_position());
             let alone = lines.get(start.row).is_some_and(|row| {

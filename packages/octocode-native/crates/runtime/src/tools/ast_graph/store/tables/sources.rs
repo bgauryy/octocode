@@ -22,10 +22,18 @@ impl Sources {
         let mut representations = BTreeMap::new();
         let mut units = BTreeMap::new();
         let mut origin_count = 0_usize;
+        // Each file's catalog is checked on its own, so the checks run in
+        // parallel; the first failure in file order is the one reported.
+        let mut files = built.facts.values().collect::<Vec<_>>();
+        let width = crate::tools::workers::workers(files.len(), None);
+        crate::tools::workers::each_parallel(&mut files, width, |facts| {
+            crate::response::source_evidence::validate_catalog(&facts.source.descriptors, cancel)
+        })
+        .into_iter()
+        .collect::<Result<(), _>>()?;
         for (file, facts) in &built.facts {
             cancel.check().map_err(ToolError::cancelled)?;
             let descriptors = &facts.source.descriptors;
-            crate::response::source_evidence::validate_catalog(descriptors, cancel)?;
             for source in &descriptors.snapshots {
                 insert(&mut snapshots, &source.id, source)?;
             }

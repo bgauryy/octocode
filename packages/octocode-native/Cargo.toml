@@ -26,6 +26,7 @@ repository = "https://github.com/bgauryy/octocode.git"
 # `features = [...]` are additive on top of the baseline declared here (see
 # tokio / windows-sys).
 [workspace.dependencies]
+lru = "0.19.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"

@@ -92,7 +92,7 @@ fn walk_options_lift_only_their_own_exclusions() {
         let (policy, security) = policy_for(root.path());
         let result =
             search_in(&ls_query(options, Some(&base)), &policy, &security, None).expect("search");
-        let body = serde_json::to_value(result).expect("result");
+        let body = result.to_row().expect("result");
         assert_eq!(
             paths(&body),
             expected.into_iter().map(str::to_owned).collect(),
@@ -150,7 +150,6 @@ fn cancellation_interrupts_the_walk() {
         &policy,
         &security,
         &CancelAfter(AtomicUsize::new(0)),
-        None,
         None,
         None,
     )

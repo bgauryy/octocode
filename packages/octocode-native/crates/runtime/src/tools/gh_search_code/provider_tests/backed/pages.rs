@@ -39,10 +39,17 @@ async fn a_non_empty_incomplete_page_reports_partial_coverage() {
     );
     assert!(data.pointer("/pagination/hasMore").is_none(), "{data}");
     assert_eq!(
-        data["next"]["retry"]["input"]["queries"][0]["page"], 1,
+        crate::tools::test_support::opened(
+            crate::id::ToolId::GhSearchCode,
+            &data["next"]["retry"]["input"]["queries"][0]
+        )["page"],
+        1,
         "{data}"
     );
-    assert!(out.diagnostics.partial);
+    assert_eq!(
+        out.diagnostics.partial_reasons,
+        [crate::response::paging::PartialReason::ProviderIncompleteResults]
+    );
 }
 
 #[tokio::test]

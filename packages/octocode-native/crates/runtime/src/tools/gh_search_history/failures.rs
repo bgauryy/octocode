@@ -50,10 +50,12 @@ pub(super) fn window_failure(
         &query.query,
         per,
         None,
+        None,
     );
     HistoryFailure {
         error: failure.error,
         calls: failure.calls.map(|next| *next),
+        hints: failure.hints,
     }
 }
 
@@ -72,6 +74,7 @@ pub(super) fn missing_scope_failure(
         return HistoryFailure {
             error: Box::new(error),
             calls: next,
+            hints: Vec::new(),
         };
     }
     // A search scoped to a missing repository fails typed (GitHub's 422);
@@ -92,16 +95,18 @@ pub(super) fn missing_scope_failure(
     let Some(reference) = reference else {
         // The repository itself did not resolve: the message names it, and
         // its recovery is the owner/repo spelling, not a history filter.
-        error.message = format!(
-            "Repository {owner}/{repo} not found, or private and not accessible to this token"
-        )
-        .into_boxed_str();
+        error.message =
+            crate::tools::gh_shared::repository_not_found_message(owner, repo).into_boxed_str();
         return HistoryFailure {
             error: Box::new(error),
-            calls: Some(json!({
-                "findRepository": crate::tools::gh_shared::repository_search(repo),
-                "findRepository2": crate::tools::gh_shared::owner_listing(owner),
-            })),
+            calls: Some(crate::tools::gh_shared::repository_recovery(
+                Some(owner),
+                repo,
+            )),
+            hints: vec![crate::tools::gh_shared::repository_search_hint(
+                Some(owner),
+                repo,
+            )],
         };
     };
     error.message =
@@ -111,6 +116,7 @@ pub(super) fn missing_scope_failure(
         calls: Some(
             serde_json::json!({"viewRefs": crate::tools::gh_shared::ref_recovery(owner, repo)}),
         ),
+        hints: Vec::new(),
     }
 }
 

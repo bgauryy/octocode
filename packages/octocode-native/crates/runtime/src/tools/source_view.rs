@@ -1,10 +1,12 @@
 //! The one view engine over fetched source text: the localFetch query and
 //! result types, extraction, outline, pagination, selection and read limits.
-//! It performs no filesystem access, so `tools/local_fetch` (local files) and
-//! `tools/gh_get_file_content` (remote files) render through the same code,
+//! `tools/local_fetch` acquires local files and `tools/gh_get_file_content`
+//! acquires remote files; both render through this engine,
 //! and `tools/local_search` sizes the reads it leads to by the same limits.
 mod block;
+mod cache;
 pub(crate) use block::BLOCK_MAX_LINES;
+pub use cache::ViewCache;
 pub(crate) mod extraction;
 pub(crate) use extraction::match_spans;
 mod key_outline;

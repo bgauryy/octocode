@@ -260,7 +260,7 @@ async fn compare_unpatched_file_read_survives_the_comparison_pages() {
         assert_eq!(
             out["next"]["searchUnpatchedFile"]["input"]["queries"][0],
             json!({"owner":"o","repo":"r","path":"crates/flags/defs.rs","ref":HEAD,
-                "matchString":["smart_case"],"caseMode":"smart","regexEngine":"literal","wholeWord":false}),
+                "matchString":["smart_case"]}),
             "{sections:?}: {out}"
         );
         assert!(
@@ -304,7 +304,8 @@ async fn a_reversed_compare_leads_with_the_swapped_refs() {
     assert_eq!(swap["tool"], "ghGetHistoryItem", "{out}");
     assert_eq!(
         swap["input"]["queries"][0],
-        json!({"operation":"compare","owner":"o","repo":"r","baseRef":"v1","headRef":"v2","pageSize":3}),
+        // `pageSize` is private page state (`x-cursor`): a fresh lead drops it.
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":"v1","headRef":"v2"}),
         "{out}"
     );
 }

@@ -3,7 +3,7 @@ use super::*;
 use crate::id::ToolId;
 
 fn pages(data: Value, tool: ToolId, ordinary: usize, terminal: Option<usize>) -> Vec<Value> {
-    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], Some(tool))
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
         .plan_with_terminal(ordinary, terminal, &CancellationToken::new())
         .unwrap();
     (0..plan.total_pages)
@@ -22,7 +22,7 @@ fn a_failed_descriptor_union_trial_keeps_the_original_fragments() {
     data["related"] = json!([{"kind":"related","tool":"localFetch","input":{"queries":[{"path":"deep/".repeat(900)}]}}]);
     let mut tail = json!({"index":0,"data":data.clone()});
     tail["data"].as_object_mut().unwrap().remove("related");
-    tail["data"]["results"] = json!(&data["results"].as_array().unwrap()[1..]);
+    tail["data"]["rows"] = json!(&data["rows"].as_array().unwrap()[1..]);
     let full = chars(&tail);
     tail["data"]
         .as_object_mut()
@@ -32,7 +32,7 @@ fn a_failed_descriptor_union_trial_keeps_the_original_fragments() {
     let terminal = (raw + full) / 2;
     let mut one = json!({"index":0,"data":data.clone()});
     one["data"].as_object_mut().unwrap().remove("related");
-    one["data"]["results"] = json!([data["results"][1].clone()]);
+    one["data"]["rows"] = json!([data["rows"][1].clone()]);
     let ordinary = chars(&one) + 64;
     assert!(ordinary < terminal && raw + 64 < terminal && terminal < full);
     assert_eq!(
@@ -46,7 +46,7 @@ fn a_failed_descriptor_union_trial_keeps_the_original_fragments() {
 fn terminal_union_keeps_overlapping_catalogs_and_all_origin_branches() {
     let data = fixture(2, 9);
     let catalog = data["sourceEvidence"].clone();
-    let expected = data["results"].as_array().unwrap();
+    let expected = data["rows"].as_array().unwrap();
     let mut seen = Vec::new();
     let pages = pages(data.clone(), ToolId::GraphQuery, 6_000, Some(9_000));
     assert!(pages.len() > 1);
@@ -61,7 +61,7 @@ fn terminal_union_keeps_overlapping_catalogs_and_all_origin_branches() {
         );
         for row in page.as_array().unwrap() {
             exact_closure(&row["data"], &catalog);
-            seen.extend(row["data"]["results"].as_array().unwrap().iter().cloned());
+            seen.extend(row["data"]["rows"].as_array().unwrap().iter().cloned());
         }
     }
     assert_eq!(&seen, expected);
@@ -75,7 +75,7 @@ fn preliminary_sibling_arrays_and_records_cannot_spend_terminal_room() {
     let names = (0..18)
         .map(|i| format!("path-{i}-{}", "界".repeat(25)))
         .collect::<Vec<_>>();
-    let graph = json!({"op":"impact","results":results,"summary":{"testsToRun":names}});
+    let graph = json!({"operation":"impact","rows":results,"summary":{"testsToRun":names}});
     let branches = (0..18)
         .map(|i| (format!("branch-{i}"), json!("b".repeat(60))))
         .collect::<Map<_, _>>();
@@ -98,14 +98,14 @@ fn preliminary_sibling_arrays_and_records_cannot_spend_terminal_room() {
             let collected = rows
                 .iter()
                 .flat_map(|row| {
-                    row["data"]["results"]
+                    row["data"]["rows"]
                         .as_array()
                         .into_iter()
                         .flatten()
                         .cloned()
                 })
                 .collect::<Vec<_>>();
-            assert_eq!(collected, data["results"].as_array().unwrap().to_vec());
+            assert_eq!(collected, data["rows"].as_array().unwrap().to_vec());
             let collected = rows
                 .iter()
                 .flat_map(|row| {

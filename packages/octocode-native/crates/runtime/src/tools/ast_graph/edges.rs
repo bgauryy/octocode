@@ -4,6 +4,9 @@
 
 /// `mod child;`: module structure, not a dependency.
 pub(super) const RUST_MODULE: &str = "rust-module";
+/// `include!("file.rs")`: the file's items are spliced into the including
+/// module. A compile-time dependency, and part of that module.
+pub(super) const RUST_INCLUDE: &str = "rust-include";
 /// A Python import inside a function body: it runs when the function is
 /// called, not when the module loads.
 pub(super) const PYTHON_LAZY_IMPORT: &str = "python-lazy-import";
@@ -55,8 +58,17 @@ const KINDS: &[(&str, Load)] = &[
     ("java-same-package", Load::CompileTime),
     ("c-include", Load::CompileTime),
     (RUST_MODULE, Load::ModuleTree),
+    (RUST_INCLUDE, Load::CompileTime),
     (RUST_INCLUDE_DATA, Load::Data),
 ];
+
+/// Edge kinds whose target becomes part of the source's module (a declared
+/// `mod`, a spliced `include!`): the target shares the module's test role.
+const MOUNTS: &[&str] = &[RUST_MODULE, RUST_INCLUDE];
+
+pub(super) fn mounts(kind: &str) -> bool {
+    MOUNTS.contains(&kind)
+}
 
 /// The [`Load`] of edge `kind`. A kind outside the table (a store edge
 /// such as `unparsed-target`) has no load order: compile time.
@@ -92,6 +104,8 @@ mod tests {
         assert_eq!(load("static-import"), Load::Eager);
         assert_eq!(load(PYTHON_LAZY_IMPORT), Load::Deferred);
         assert_eq!(load(RUST_INCLUDE_DATA), Load::Data);
+        assert_eq!(load(RUST_INCLUDE), Load::CompileTime);
+        assert!(mounts(RUST_MODULE) && mounts(RUST_INCLUDE) && !mounts("rust-use"));
         assert_eq!(load("unparsed-target"), Load::CompileTime);
     }
 }

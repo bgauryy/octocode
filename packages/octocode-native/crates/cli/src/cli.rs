@@ -2,7 +2,6 @@ mod catalog;
 mod commands;
 mod config;
 mod config_view;
-mod graph;
 mod lines;
 mod lsp_provision;
 mod management;
@@ -53,11 +52,12 @@ Tools: one JSON envelope ({"queries":[…]} or {"cursor":"…"});
 --input FILE|- reads the same JSON from a file or stdin.
 Discovery: schema lists tools; schema <tool> lists query fields.
 Reference: schema --view full; schema <tool> --view variants. Examples: <tool> --help.
-Graph: graph ingest <path>, then graph query <op> [ref]; see graph --help.
+Graph: graphBuild '{"queries":[{"path":"."}]}', then graphQuery with operation stats.
 
 Output: text, on a terminal or a pipe; --json prints JSON (schema always does).
-Text: result lines on stdout ([ … ] after a line lists its other fields); # notes
-and follow-up commands on stderr.
+Text on stdout: search hits, listings and outlines one line each ([ … ] after a
+line lists its other fields); any other result as indented key: value lines; a
+batch heads each row with ## results[N]. # notes and follow-up commands on stderr.
 Errors: the JSON envelope on stdout with --json, text on stderr otherwise.
 Exits: 0 success, 1 empty, 2 invalid input (including batch rows), 3 not found,
 4 auth required, 5 execution error, 7 rate limited, 130 interrupted.
@@ -125,9 +125,6 @@ pub async fn run(args: Args) -> u8 {
         command => command,
     };
     let runtime = match ToolRuntime::from_host(cli_host()) {
-        Ok(runtime) if matches!(command, Command::Schema { .. }) => {
-            runtime.check_clasify_provider().await
-        }
         Ok(runtime) => runtime,
         Err(error) => return start_failed(&error, mode),
     };
@@ -227,7 +224,33 @@ async fn dispatch(command: Command, runtime: &ToolRuntime, mode: OutputMode) -> 
             ),
             AuthCommand::Logout => credential_changed(system::logout(runtime, json_out)),
         },
-        Command::Graph { command } => graph::graph(runtime, command, mode),
+        Command::Cache {
+            command: commands::CacheCommand::Clear,
+        } => {
+            if let Err(message) = serve::stop_all_and_wait().await {
+                emit_error(ErrorCode::ExecutionFailed, &message, mode);
+                return 5;
+            }
+            match runtime.clear_caches().await {
+                Ok(result) => {
+                    if json_out {
+                        match serde_json::to_value(result) {
+                            Ok(value) => write_json(&value),
+                            Err(error) => {
+                                emit_error(ErrorCode::ExecutionFailed, &error.to_string(), mode);
+                                5
+                            }
+                        }
+                    } else {
+                        write_text(&format!(
+                            "Removed {} cache directories. Clone checkouts and graph snapshots were kept. Restart separate MCP processes to discard their in-memory caches.",
+                            result.removed.len()
+                        ))
+                    }
+                }
+                Err(error) => start_failed(&error, mode),
+            }
+        }
         Command::Skill { command } => skill::run(runtime, command, json_out).await,
         Command::Install(args) => mcp_install::run(mcp_install::InstallArgs {
             json: json_out,
@@ -254,8 +277,12 @@ async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u8 {
     {
         return code;
     }
+    if ToolId::from_name(tool.name) == Some(ToolId::GraphBuild) {
+        // Progress goes to stderr; stdout keeps only the result.
+        octocode_native::tools::ast_graph::progress::report_to(|line| eprintln!("{line}"));
+    }
     let runtime = match ToolRuntime::from_host(cli_host()) {
-        Ok(runtime) => runtime.check_clasify_provider().await,
+        Ok(runtime) => runtime,
         Err(error) => return start_failed(&error, mode),
     };
     let code = execute(&runtime, tool.name, input, mode).await;
@@ -345,3 +372,5 @@ async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, mode: OutputMo
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tool_flags_tests;

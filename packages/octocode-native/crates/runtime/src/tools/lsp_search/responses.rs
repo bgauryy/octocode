@@ -15,7 +15,9 @@ pub(super) const REUSED_OPERATIONS: [Op; 3] = [Op::References, Op::Callers, Op::
 /// snapshot check proves they belong to the same result set. A later
 /// importer window is a continuation too: reusing the anchor's answer keeps
 /// its candidate list (and so the window) the one its digest names, even
-/// after earlier windows opened files the server now also searches.
+/// after earlier windows opened files the server now also searches. Every
+/// page is its own call: within it, a repeated request reuses the answer
+/// even without a fingerprint.
 pub(super) fn response_scope(
     query: &LspSearchQuery,
     content_digest: String,
@@ -24,6 +26,7 @@ pub(super) fn response_scope(
     let continuation = (lsp_search_query::page(query).is_some_and(|page| page > 1)
         || lsp_search_query::importer_page(query) > 1)
         && lsp_search_query::snapshot(query).is_some();
+    let call = Some(octocode_engine::lsp::client::CallId::next());
     match fingerprint {
         Some(fingerprint) if REUSED_OPERATIONS.contains(&lsp_search_query::op(query)) => {
             octocode_engine::lsp::client::ResponseScope {
@@ -31,11 +34,13 @@ pub(super) fn response_scope(
                 generation: octocode_engine::digest::sha256(
                     format!("{content_digest}\u{0}{fingerprint}").as_bytes(),
                 ),
+                call,
             }
         }
         _ => octocode_engine::lsp::client::ResponseScope {
             reuse: continuation,
             generation: content_digest,
+            call,
         },
     }
 }
@@ -53,10 +58,9 @@ pub(super) async fn scope_responses(
     };
     let digest = octocode_engine::digest::sha256(document.content.as_bytes());
     let fingerprint = if REUSED_OPERATIONS.contains(&lsp_search_query::op(query)) {
-        let walked = scope.walk_inputs();
-        blocking_cancellable(cancel, move |stopped| walked.fingerprint(stopped))
+        scope
+            .walk_fingerprint(cancel)
             .await?
-            .flatten()
             .map(|(digest, entries)| {
                 scope.set_walk_entries(entries);
                 digest
@@ -74,11 +78,13 @@ pub(super) async fn scope_responses(
 }
 
 /// Responses read while the project was still loading may be incomplete:
-/// key them apart, so no later request reuses them.
+/// key them apart, so no later request (in this call or another) reuses
+/// them.
 pub(super) fn quarantine_responses() {
     let _ = octocode_engine::lsp::client::RESPONSE_SCOPE.try_with(|scope| {
         let mut scope = scope.borrow_mut();
         scope.reuse = false;
+        scope.call = None;
         scope.generation.push_str("\u{0}loading");
     });
 }
@@ -92,6 +98,7 @@ pub(super) fn annotate(
     session: &Session,
     scope: &scope::Scope,
     resolved_symbol: Option<Value>,
+    stopped: &dyn Fn() -> bool,
 ) {
     if session.open_readiness.as_deref() == Some("timeout")
         && result.get("status") != Some(&"error".into())
@@ -99,7 +106,7 @@ pub(super) fn annotate(
         partial_with_related_rerun(
             result,
             query,
-            "languageServerIndexing",
+            crate::response::paging::PartialReason::LanguageServerIndexing,
             &[format!(
                 "The language server was still loading the project after {} ms; results may be incomplete.",
                 octocode_engine::lsp::client::OPEN_READY_TIMEOUT_MS
@@ -118,7 +125,7 @@ pub(super) fn annotate(
     inferred_project::annotate(result, query, language_id, &target.path, scope);
     inferred_project::annotate_compile_database(result, query, language_id, &target.path, scope);
     let rust = receipt::RustAnalysis::of(&session.config);
-    failure::annotate_empty_includes(result, query, rust.build_scripts);
+    failure::annotate_empty_includes(result, query, rust.build_scripts, stopped);
     server_coverage::annotate(
         result,
         query,
@@ -129,6 +136,7 @@ pub(super) fn annotate(
         },
         scope,
         rust,
+        stopped,
     );
     receipt::attach_provider_context(result, query, &target.uri, resolved_symbol, &session.config);
 }
@@ -151,13 +159,9 @@ pub(super) async fn sync_watched_files(
     let entries = match scope.walk_entries() {
         Some(entries) => entries,
         None => {
-            let walked = scope.walk_inputs();
-            let Some((digest, entries)) =
-                blocking_cancellable(cancel, move |stopped| walked.fingerprint(stopped))
-                    .await?
-                    .flatten()
-            else {
-                // Past the walk's bounds: no snapshot, no events.
+            let Some((digest, entries)) = scope.walk_fingerprint(cancel).await? else {
+                // The request stopped the walk or a file could not be
+                // stamped (the trace counts it): no snapshot, no events.
                 return Ok(());
             };
             scope.set_fingerprint(digest);
@@ -181,4 +185,41 @@ pub(super) async fn sync_watched_files(
     // request; this answer is unaffected.
     let _ = client.notify_watched_files(changes).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn callers() -> LspSearchQuery {
+        serde_json::from_value(serde_json::json!({
+            "operation": "callers", "path": "/repo/a.ts", "symbolName": "f", "line": 1
+        }))
+        .expect("lsp query")
+    }
+
+    #[test]
+    fn every_page_is_its_own_call_whatever_its_reuse() {
+        let query = callers();
+        let unbounded = response_scope(&query, "content".into(), None);
+        let fingerprinted = response_scope(&query, "content".into(), Some("fp"));
+        assert!(unbounded.call.is_some(), "a page past the walk bounds");
+        assert!(fingerprinted.call.is_some());
+        assert_ne!(unbounded.call, fingerprinted.call, "pages are not one call");
+    }
+
+    #[tokio::test]
+    async fn a_quarantined_page_reuses_nothing_even_within_its_call() {
+        let scope = response_scope(&callers(), "content".into(), Some("fp"));
+        let generation = scope.generation.clone();
+        let quarantined = octocode_engine::lsp::client::RESPONSE_SCOPE
+            .scope(std::cell::RefCell::new(scope), async {
+                quarantine_responses();
+                octocode_engine::lsp::client::RESPONSE_SCOPE.with(|scope| scope.borrow().clone())
+            })
+            .await;
+        assert!(!quarantined.reuse);
+        assert_eq!(quarantined.call, None);
+        assert_ne!(quarantined.generation, generation);
+    }
 }

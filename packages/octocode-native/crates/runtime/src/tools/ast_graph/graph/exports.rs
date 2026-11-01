@@ -81,7 +81,7 @@ impl FileLink<'_, '_> {
             }
             return;
         }
-        let target = (self.lang == Linker::Rust && !self.inputs.rust_cargo_unavailable)
+        let target = (self.lang == Linker::Rust)
             .then(|| {
                 rust_call_target(
                     &c.callee,
@@ -111,6 +111,7 @@ impl FileLink<'_, '_> {
             term_binding: c.term_binding,
             self_template: c.self_template,
             macros: c.macros,
+            receiver_call: c.receiver_call,
         });
     }
 
@@ -118,10 +119,6 @@ impl FileLink<'_, '_> {
     /// module as a call does. One that names the current crate but does not
     /// resolve is an internal gap, never silently complete coverage.
     pub(super) fn path(&mut self, p: octocode_engine::graph::GraphFactPath) {
-        if self.inputs.rust_cargo_unavailable {
-            // The import pass already reports the missing manifest.
-            return;
-        }
         let target = match rust_inline_path(&p.path, p.inline_depth) {
             None => Some(self.file.clone()),
             Some(path) => rust_call_target(

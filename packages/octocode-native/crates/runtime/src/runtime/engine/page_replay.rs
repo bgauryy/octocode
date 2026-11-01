@@ -15,7 +15,15 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
-const PAGE_REPLAY_TTL: Duration = Duration::from_secs(600);
+/// How long saved work outlives its last use: every read of a saved
+/// response or an issued handle restarts it ([`crate::cache::CacheClass::Idle`]),
+/// so a walk stays alive while its pages are read.
+pub(super) const RETENTION_IDLE: Duration = Duration::from_secs(600);
+
+/// The lifetime class of saved responses and issued handles.
+pub(super) const RETENTION: crate::cache::CacheClass = crate::cache::CacheClass::Idle {
+    ttl: RETENTION_IDLE,
+};
 
 /// Immutable settled output. Page reads never consult its original sources.
 #[derive(Serialize, Deserialize)]
@@ -27,7 +35,6 @@ pub(super) struct PageReplay {
     pub(super) remaining: Vec<Vec<crate::response::result::Remaining>>,
     pub(super) response_query: Value,
     pub(super) failure: Option<FailureKind>,
-    pub(super) expires_at: String,
     /// The text and page source later reads cut from (rebuilt from
     /// `structured` after a reload from disk).
     #[serde(skip)]
@@ -42,8 +49,10 @@ pub(super) struct PageReplayMemo {
 
 impl PageReplayMemo {
     pub(super) fn cache_config() -> crate::cache::CacheConfig {
+        // No entry count: the byte budgets alone bound retention, so a burst
+        // of small saved responses or handles never evicts an active walk.
         crate::cache::CacheConfig {
-            max_entries: 8,
+            max_entries: usize::MAX,
             max_bytes: 32 * 1024 * 1024,
             disk_bytes: 128 * 1024 * 1024,
         }
@@ -55,7 +64,7 @@ impl PageReplayMemo {
         Self {
             store: crate::cache::Store::new(
                 Self::cache_config(),
-                persistent.then(|| config.home.join("tmp").join("response-pages")),
+                persistent.then(|| crate::cache::Directory::ResponsePages.path(&config.home)),
             ),
             policy,
             persistent,
@@ -83,14 +92,8 @@ impl PageReplayMemo {
         // the envelope (its row plan, bytes or text).
         let weight = octocode_engine::json_size::bytes(&replay)
             .map_or(usize::MAX, |bytes| bytes.saturating_mul(2));
-        self.store.put_confirmed(
-            Self::key(cursor, &self.policy),
-            replay,
-            weight,
-            crate::cache::CacheClass::Volatile {
-                ttl: PAGE_REPLAY_TTL,
-            },
-        )
+        self.store
+            .put_confirmed(Self::key(cursor, &self.policy), replay, weight, RETENTION)
     }
 }
 
@@ -109,14 +112,92 @@ fn replay_policy(config: &ConfigOutput, cwd: &std::path::Path, plan_version: u32
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod refusal_tests;
+
 pub(super) fn page_expiry() -> String {
-    crate::civil_date::iso8601_millis_after(PAGE_REPLAY_TTL)
+    crate::civil_date::iso8601_millis_after(RETENTION_IDLE)
 }
 
-pub(super) fn snapshot_expired() -> RuntimeError {
+/// Why saved work does not answer a cursor. Each cause has its own text,
+/// true on both surfaces and under either storage mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Refusal {
+    /// Not the shape of an issued handle: edited, truncated or invented.
+    Malformed,
+    /// No saved work under the handle in this runtime's storage.
+    NotRetained,
+    /// Issued to another tool.
+    OtherTool,
+    /// Issued under another access identity: another request credential.
+    OtherAccess,
+    /// Issued on the other surface (CLI or MCP) under the same credential.
+    OtherSurface,
+    /// The current GitHub identity is not (or cannot be confirmed as) the
+    /// one the handle was issued to.
+    IdentityChanged,
+    /// The saved request no longer admits to the rows its page was cut from.
+    RequestChanged,
+}
+
+/// Where a refused cursor was sent: the storage and surface its text names.
+#[derive(Clone, Copy)]
+pub(super) struct RefusalScope {
+    pub(super) persistent: bool,
+    pub(super) mcp: bool,
+}
+
+/// The `responseSnapshotExpired` error for `refusal`: its cause, then the
+/// recovery every refusal shares.
+pub(super) fn snapshot_expired(refusal: Refusal, scope: RefusalScope) -> RuntimeError {
+    let lifetime = RETENTION_IDLE.as_secs();
+    let cause = match refusal {
+        Refusal::Malformed => {
+            "Malformed cursor: it is not an issued handle (edited, truncated or invented).".into()
+        }
+        Refusal::NotRetained if scope.persistent => format!(
+            "Unknown or expired cursor: no saved work under it for this tool, configuration and workspace. Saved work expires {lifetime} seconds after its last read and may be evicted; an edited cursor, or one issued under another configuration or workspace, names none here."
+        ),
+        Refusal::NotRetained => format!(
+            "Unknown or expired cursor: no saved work under it in this runtime. storage.mode is memory, so saved work ends with the runtime that issued it (each CLI call is its own runtime); set storage.mode persistent to resume across CLI calls. Saved work also expires {lifetime} seconds after its last read and may be evicted; an edited cursor names none."
+        ),
+        Refusal::OtherTool => {
+            "This cursor was issued to another tool; send it to the tool its emitted call names."
+                .into()
+        }
+        Refusal::OtherSurface => format!(
+            "This cursor was {}; a cursor resumes only on the surface that issued it.",
+            if scope.mcp {
+                "issued by the CLI"
+            } else {
+                "issued by an MCP server"
+            }
+        ),
+        Refusal::OtherAccess => {
+            "This cursor was issued under another request credential; saved work answers only the credential it was issued to.".into()
+        }
+        Refusal::IdentityChanged => {
+            "The current GitHub identity is not the one this cursor was issued to (it changed or could not be confirmed); saved work answers only the identity it was issued to.".into()
+        }
+        Refusal::RequestChanged => {
+            "The saved request no longer validates to the rows its page was cut from under this runtime's contract.".into()
+        }
+    };
     RuntimeError::new(
         ErrorCode::ResponseSnapshotExpired,
-        "The saved response is missing, expired or belongs to another tool, session or configuration. No source or provider was called. Pages expire after 120 seconds or earlier eviction; memory storage lasts only in the current runtime. Use persistent storage across CLI calls, or explicitly rerun the original request without cursor.",
+        format!(
+            "{cause} No source or provider was called. Rerun the original request without cursor."
+        ),
+    )
+}
+
+/// A saved page whose response was no longer retained, re-executed, and
+/// whose sources now produce different content: the page it named no longer
+/// exists, so the walk restarts.
+pub(super) fn source_changed() -> RuntimeError {
+    RuntimeError::new(
+        ErrorCode::StaleSnapshot,
+        "The saved response was no longer retained, so its rows were re-executed, and their sources now produce different content than the earlier pages. Rerun the original request without cursor.",
     )
 }
 

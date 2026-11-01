@@ -18,11 +18,11 @@ pub use system::SystemArtifactHttp;
 
 /// One runtime's registry answers and release facts. A disk directory
 /// keeps them across CLI processes; without one they stay in memory.
-pub struct ArtifactCache(Store<serde_json::Value>);
+pub struct ArtifactCache(std::sync::Arc<Store<serde_json::Value>>);
 
 impl ArtifactCache {
     pub fn new(dir: Option<std::path::PathBuf>) -> Self {
-        Self(Store::new(CacheConfig::default(), dir))
+        Self(std::sync::Arc::new(Store::new(CacheConfig::default(), dir)))
     }
 }
 

@@ -14,7 +14,7 @@ use crate::signatures::js_oxc_shared::{SpanPositions, property_key_name};
 
 use super::walk::{collect_statement, function_value_children, nested_in_function, push_opt};
 use super::{DocumentSymbol, TYPE_ALIAS_KIND};
-use crate::lsp::symbol_kind;
+use crate::symbol_kind;
 
 pub(super) fn class_symbol(class: &Class, li: &SpanPositions) -> Option<DocumentSymbol> {
     let id = class.id.as_ref()?;

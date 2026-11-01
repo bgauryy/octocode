@@ -1,6 +1,14 @@
 use super::*;
 
 #[test]
+fn every_contract_declared_credential_name_is_secret() {
+    assert!(!ENV_CREDENTIAL_VARS.is_empty());
+    for name in ENV_CREDENTIAL_VARS {
+        assert!(super::super::types::is_secret_key(name), "{name}");
+    }
+}
+
+#[test]
 fn inspector_exposes_names_and_counts_without_values() {
     let mut i = input(
         BTreeMap::from([("HOST".into(), "private-host-value".into())]),

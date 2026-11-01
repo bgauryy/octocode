@@ -1,6 +1,6 @@
 ---
 name: rust-best-practices
-description: "Load this skill first when writing or reviewing Rust with an open choice about ownership, types, crates, workspace design, builds, testing, performance, memory or safety; also CLI/TUI, subprocess, napi-rs and parsing boundaries."
+description: "Write or review Rust when ownership, types, crates, workspace structure, builds, testing, performance, memory or safety need a decision; includes CLI/TUI, subprocess, napi-rs and parsing boundaries."
 ---
 
 # Rust Best Practices
@@ -9,10 +9,10 @@ Use the [shared Octocode guide](references/octocode-usage.md) for source evidenc
 
 ```mermaid
 flowchart TD
-    F[FRAME: axis and constraint] --> L[LOAD relevant pages] --> I[INSPECT real code and manifests] --> D{Choice unresolved?}
-    D -- yes --> C[COMPARE options and test the unknown] --> A[APPLY smallest change]
+    F[Frame: axis and constraint] --> L[Load relevant pages] --> I[Inspect real code and manifests] --> D{Choice unresolved?}
+    D -- yes --> C[Compare options and test the unknown] --> A[Apply smallest change]
     D -- no --> A
-    A --> V[VERIFY with repo checks]
+    A --> V[Verify with repo checks]
 ```
 
 ## Resources
@@ -36,8 +36,8 @@ Start with the decision area in play. Follow a page's cross-reference when the c
 
 ## Rules
 - Read the real `Cargo.toml`, `src/` layout, and target code before advising; match the crate's edition, MSRV, and conventions.
-- FRAME the requested behavior, owning crate, constraints, and success check. Use a Task contract when delegating. Inside Octocode, load `octocode-dev` first.
-- COMPARE only an unresolved choice. For a consequential design choice, record an ADR: context, the existing approach against a viable alternative, decision, consequences (evidence, cost, a counterexample). Test the smallest unknown that can change the decision; mark unmeasured claims as unknowns. Broader scope exploration routes to `octocode-brainstorming`.
+- Frame the requested behavior, owning crate, constraints, and success check. Use a Task contract when delegating. Inside Octocode, load `octocode-dev` first.
+- Compare only an unresolved choice. For a consequential design choice, record an ADR: context, the existing approach against a viable alternative, decision, consequences (evidence, cost, a counterexample). Test the smallest unknown that can change the decision; mark unmeasured claims as unknowns. Broader scope exploration routes to `octocode-brainstorming`.
 - Prefer std or an already-present dependency. Claim–evidence for a new crate: maintenance, license, and API each beside an upstream source link (`octocode-research`), not registry stars.
 - Claim–evidence for idiom/API claims: cite the official canon (API Guidelines, Reference) by name; crate behavior comes from upstream source.
 - Format on the edit. Run the repository's applicable Clippy gate before handoff (`references/testing-and-tooling.md`); inspect a lint's intent before changing behavior to satisfy it.
@@ -46,10 +46,18 @@ Start with the decision area in play. Follow a page's cross-reference when the c
 - Stay within the requested axis. Check existing authorization before adding dependencies, changing MSRV/edition or updating lockfiles; ask a Decision request only for scope it does not cover ([output.md](output.md)).
 - Public tool types and limits follow the repository's contract generator. Native owns execution and response policy; host adapters convert values.
 - Bound work without losing evidence: return a complete page and executable continuation. Disclose terminal limits; never silently clip results.
-- VERIFY against the Definition of Done: the repository's build and test commands pass. After native changes, rebuild hosts and exercise the actual CLI or fresh MCP.
+- Verify against the Definition of Done: the repository's build and test commands pass. After native changes, rebuild hosts and exercise the actual CLI or fresh MCP.
 
-## Related
-`octocode-dev`: Octocode build and contract pipeline · `octocode-research`: source evidence · `octocode-brainstorming`: unresolved scope and feasibility · `octocode-architect`: boundary decisions · `octocode-clean-agentic-code`: cleanup · `octocode-roast`: smell inventory · `octocode-eval-benchmark`: measure a change · `octocode-skills`: change this folder.
+## Related skills
+
+- Use `octocode-dev` when the change touches Octocode's build or contract pipeline.
+- Use `octocode-research` when a choice needs source evidence.
+- Use `octocode-brainstorming` when scope or feasibility is unresolved.
+- Use `octocode-architect` for boundary decisions.
+- Use `octocode-clean-agentic-code` for cleanup.
+- Use `octocode-roast` for a smell inventory.
+- Use `octocode-eval-benchmark` to measure a change.
+- Use `octocode-skills` to change this folder.
 
 ## Output
 One answer in chat. Format and save path: [output.md](output.md).

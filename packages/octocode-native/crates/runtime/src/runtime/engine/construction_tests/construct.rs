@@ -222,7 +222,6 @@ async fn sections_runtime_checks_paths_and_sanitizes_before_inference() {
     let mut context = ExecutionContext {
         cancellation: tokio_util::sync::CancellationToken::new(),
         deadline: std::time::Instant::now() - std::time::Duration::from_secs(1),
-        walk_threads: None,
         response_window: None,
         github_credential: None,
     };

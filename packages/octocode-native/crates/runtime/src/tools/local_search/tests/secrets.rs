@@ -5,9 +5,10 @@ mod failures;
 mod ranking;
 
 #[test]
-fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
+fn source_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
     let security = ContentSecurity::new();
     let mut file = octocode_engine::types::TextSearchFile {
+        term_counts: Vec::new(),
         path: "gone.txt".into(),
         match_count: 1,
         matches: vec![octocode_engine::types::TextSearchMatch {
@@ -23,9 +24,6 @@ fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
             .into(),
             count: None,
             rank: None,
-            original_chars: Some(400),
-
-            original_bytes: Some(400),
         }],
         source: None,
     };
@@ -33,7 +31,7 @@ fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
         .expect("fixture directory")
         .path()
         .join("gone.txt");
-    let verified = verify::guard_clipped_secrets(
+    let verified = verify::guard_source_secrets(
         &mut file,
         &missing,
         crate::tools::local_search::sources::Expected::Fresh,
@@ -53,12 +51,13 @@ fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
 /// A source that shrank or was replaced after the search no longer holds
 /// the matched line, so the clipped value cannot be verified.
 #[test]
-fn clipped_secret_guard_fails_closed_when_the_match_line_is_gone() {
+fn source_secret_guard_fails_closed_when_the_match_line_is_gone() {
     let security = ContentSecurity::new();
     let root = tempfile::tempdir().expect("fixture directory");
     let source = root.path().join("shrunk.txt");
     fs::write(&source, "one line now\n").expect("fixture");
     let mut file = octocode_engine::types::TextSearchFile {
+        term_counts: Vec::new(),
         path: "shrunk.txt".into(),
         match_count: 1,
         matches: vec![octocode_engine::types::TextSearchMatch {
@@ -74,13 +73,10 @@ fn clipped_secret_guard_fails_closed_when_the_match_line_is_gone() {
             .into(),
             count: None,
             rank: None,
-            original_chars: Some(400),
-
-            original_bytes: Some(400),
         }],
         source: None,
     };
-    let verified = verify::guard_clipped_secrets(
+    let verified = verify::guard_source_secrets(
         &mut file,
         &source,
         crate::tools::local_search::sources::Expected::Fresh,
@@ -111,10 +107,10 @@ fn all_values(body: &serde_json::Value) -> String {
         .join("\n")
 }
 
-// A clipped value (matchOnly span, matchContentLength) must not
+// A selected matchOnly span must not
 // leak a partial secret that no longer matches the secret patterns.
 #[test]
-fn clipped_values_never_leak_partial_secrets() {
+fn selected_spans_never_leak_partial_secrets() {
     let token = "ghp_1234567890abcdefghijklmnopqrstuvwxyzAB";
     let file = format!("token: {token} end\n");
     let cases = [
@@ -233,7 +229,7 @@ fn late_key_bodies_in_large_sources_stay_redacted() {
 }
 
 #[test]
-fn classification_candidates_never_receive_clipped_secrets_even_when_excluded() {
+fn classification_candidates_never_receive_partial_secrets_even_when_excluded() {
     use crate::tools::selection::{Decision, JudgeCall, SelectionJudge};
     use serde_json::{Value, json};
     use std::sync::{Arc, Mutex};
@@ -300,7 +296,6 @@ fn classification_candidates_never_receive_clipped_secrets_even_when_excluded() 
             &policy,
             &security,
             &NeverCancel,
-            None,
             None,
             Some(&selection),
         )

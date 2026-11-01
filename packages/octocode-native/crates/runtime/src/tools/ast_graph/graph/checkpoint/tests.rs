@@ -2,6 +2,8 @@ use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, workspace_policy};
 
+mod durability;
+mod locking;
 mod scan_and_reuse;
 
 fn fixture() -> (Fixture, GraphScan) {
@@ -16,7 +18,6 @@ fn fixture() -> (Fixture, GraphScan) {
     let scan = GraphScan {
         root: root.clone(),
         checkpoint: Some(root.join(".facts")),
-        max_files: 50_000,
         ..Default::default()
     };
     (dir, scan)
@@ -80,7 +81,7 @@ fn interrupted_extraction_resumes_verified_facts_and_equals_clean_build() {
     assert!(resumed.construction.resumed_files >= 2);
     assert_eq!(resumed.construction.checkpointed_files, 12);
     assert!(resumed.construction.resumed_files <= resumed.reused_files);
-    scan.force = true;
+    scan.refresh = true;
     let clean = build(&scan, &NeverCancel).unwrap();
     assert_eq!(clean.construction.resumed_files, 0);
     equivalent(resumed, clean);
@@ -113,7 +114,7 @@ fn changed_deleted_and_corrupt_artifacts_cannot_supply_stale_facts() {
             ))
             .exists()
     );
-    scan.force = true;
+    scan.refresh = true;
     equivalent(recovered, build(&scan, &NeverCancel).unwrap());
 }
 
@@ -257,7 +258,7 @@ fn provider_only_grammar_resumes_through_the_same_checkpoint_owner() {
         resumed.facts["settings.toml"].declarations[0].name,
         "answer"
     );
-    scan.force = true;
+    scan.refresh = true;
     equivalent(resumed, build(&scan));
 }
 
@@ -316,6 +317,7 @@ fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
         &policy,
         &security,
         RegistryView::installed(),
+        &NeverCancel,
     )
     .unwrap()
     .unwrap();
@@ -326,7 +328,7 @@ fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
     let stop = || false;
     let mut budget = octocode_engine::text::analysis::MapBudget::new(
         octocode_engine::text::analysis::MapLimits::default(),
-        std::time::Instant::now() + LIMITS.file_map_deadline,
+        crate::execution::cancel::deadline_of(&crate::execution::cancel::NeverCancel),
         &stop,
     );
     let admitted = octocode_engine::text::analysis::AdmittedSource::from_bytes(
@@ -347,10 +349,10 @@ fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
         reference_counts: &[],
         reused: false,
     };
-    let source = capture::capture(&view, &NeverCancel, &LIMITS).unwrap();
+    let source = capture::capture(&view, &NeverCancel).unwrap();
     job.state().memory_bytes = LIMITS.memory_only_bytes;
     assert_eq!(
-        job.keep(&view, &source).err().unwrap().code,
+        job.keep(&view, source).err().unwrap().code,
         ErrorCode::ScopeTooBroad
     );
     assert_eq!(job.progress().checkpointed_files, 0);

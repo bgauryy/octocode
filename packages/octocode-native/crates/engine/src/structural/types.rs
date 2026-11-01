@@ -1,6 +1,5 @@
 use crate::text::analysis::{ObservedSpan, OriginProjection, SourceDescriptors, SourceTemplates};
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Precise position of one captured metavariable node. Line is 1-based (usable
@@ -150,7 +149,7 @@ pub struct StructuralSearchFilesOptions {
     /// [`Prune::at`]: crate::search::walk::Prune::at
     pub default_exclude_dir: Option<Vec<String>>,
     /// Which ignore rules and dot entries the walk leaves out.
-    pub ignore: crate::search::walk::IgnorePolicy,
+    pub ignore: crate::types::IgnorePolicy,
     /// Maximum path depth below a directory root (1 = direct files; 0 = no descent). `None` = unbounded.
     pub max_depth: Option<u32>,
     pub max_files: Option<u32>,
@@ -194,10 +193,6 @@ pub struct StructuralSearchFilesDetailedResult {
     /// unevaluated candidate (pass it back as `skip_files`). `None` when the
     /// scan is complete, or was cut by an explicit `max_files`.
     pub scan_resume: Option<u32>,
-    /// The first candidate (walk order) the walk cap left out: the walk
-    /// stopped before it, so it and every later candidate are unread. `None`
-    /// when the walk reached the end of its scope.
-    pub scan_frontier: Option<PathBuf>,
     pub files: Vec<StructuralSearchDetailedFileResult>,
     pub total_matches: u32,
     pub parsed_files: u32,
@@ -214,6 +209,9 @@ pub struct StructuralSearchFilesDetailedResult {
     pub diagnostics: Vec<StructuralDiagnostic>,
     pub warnings: Vec<String>,
 }
+
+/// Which matches a line scope keeps, by file and 1-based start line.
+pub type KeepLine<'a> = dyn Fn(&std::path::Path, u32) -> bool + Sync + 'a;
 
 /// What a structural walk could not read: the count (`skipped` and
 /// `permission_denied`, as every other walk counts them, so one disclosure

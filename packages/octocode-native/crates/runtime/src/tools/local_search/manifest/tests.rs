@@ -57,6 +57,7 @@ fn fresh(value: TextSearchResult) -> Fresh {
 fn one_match(path: &std::path::Path, line: u32, value: &str) -> TextSearchResult {
     TextSearchResult {
         files: vec![octocode_engine::types::TextSearchFile {
+            term_counts: Vec::new(),
             path: path.to_string_lossy().into_owned(),
             match_count: 1,
             matches: vec![TextSearchMatch {
@@ -69,8 +70,6 @@ fn one_match(path: &std::path::Path, line: u32, value: &str) -> TextSearchResult
                 value_digest: TextSearchMatch::digest_of(value),
                 count: None,
                 rank: None,
-                original_chars: None,
-                original_bytes: None,
             }],
             source: None,
         }],

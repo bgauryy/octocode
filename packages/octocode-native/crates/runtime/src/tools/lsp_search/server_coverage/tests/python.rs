@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn python_incoming_rows_name_dynamic_dispatch_and_offer_text_search() {
-    let mut row = json!({"kind":"callers","matches":[{"path":"a.py"}]});
+    let mut row = json!({"operation":"callers","matches":[{"path":"a.py"}]});
     let q = query(
         json!({"path":"/w/a.py","operation":"callers","symbolName":"get_or_create","line":3}),
     );
@@ -35,7 +35,7 @@ fn python_incoming_rows_name_dynamic_dispatch_and_offer_text_search() {
         "{row}"
     );
     // Outgoing questions are not affected.
-    let mut definition = json!({"kind":"definition","matches":[]});
+    let mut definition = json!({"operation":"definition","matches":[]});
     let q = query(json!({"path":"/w/a.py","operation":"definition","symbolName":"x","line":3}));
     annotate(
         &mut definition,
@@ -88,7 +88,7 @@ async fn python_misses_name_unresolved_imports_apart_from_dynamic_dispatch() {
                 scope.answer([root.join(file).to_string_lossy()]);
             }
         }
-        let mut row = json!({"kind":"references","matches":[{"path":"accounting.py"}]});
+        let mut row = json!({"operation":"references","matches":[{"path":"accounting.py"}]});
         let q = query(
             json!({"path":anchor,"operation":"references","symbolName":"complete_sum","line":1}),
         );

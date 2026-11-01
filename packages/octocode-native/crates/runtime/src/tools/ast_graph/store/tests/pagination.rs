@@ -1,7 +1,8 @@
 use super::*;
+use crate::tools::ast_graph::test_support::{next_offset, next_query};
 
 #[test]
-fn explicit_snapshot_paths_survive_pages_and_node_leads_without_a_workspace() {
+fn explicit_snapshot_paths_page_and_lead_by_their_snapshot_id() {
     let dir = fixture();
     let root = dir.0.as_path();
     let ingested = ingest_fixture(root, None);
@@ -12,10 +13,6 @@ fn explicit_snapshot_paths_survive_pages_and_node_leads_without_a_workspace() {
         .join(id)
         .canonicalize()
         .unwrap();
-    let pinned = format!(
-        "--graph {}",
-        octocode_io::shell::quote(&snapshot.to_string_lossy())
-    );
     let expected = ask(root, "symbols", Some("src/lib.ts"), |_| {});
     for path in [snapshot.clone(), snapshot.join(GRAPH_FILE)] {
         let mut options = QueryOptions {
@@ -32,25 +29,12 @@ fn explicit_snapshot_paths_survive_pages_and_node_leads_without_a_workspace() {
             assert_eq!(page.class, ExitClass::Success, "{}", page.value);
             union.extend(ids(&page));
             if offset < 4 {
-                let next = page.value["next"].as_str().unwrap();
-                assert!(next.contains(&pinned), "{next}");
-                assert!(!next.contains("--workspace"), "{next}");
-                assert!(
-                    next.ends_with(&format!("--offset {}", offset + 2)),
-                    "{next}"
-                );
+                assert_eq!(page.value["graph"]["id"], id, "{}", page.value);
+                assert_eq!(next_offset(&page), Some(offset + 2), "{}", page.value);
                 options.graph = Some(snapshot.to_string_lossy().into_owned());
             }
         }
         assert_eq!(union, ids(&expected));
-        options.op = "node".into();
-        options.offset = None;
-        let node = query(&options, &workspace_policy(root));
-        let leads = node.value["node"]["next"].as_array().unwrap();
-        assert!(!leads.is_empty());
-        for lead in leads {
-            assert!(lead.as_str().unwrap().contains(&pinned), "{lead}");
-        }
     }
 }
 
@@ -80,8 +64,8 @@ fn explicit_snapshot_path_survives_ambiguous_candidate_continuation() {
     };
     let first = query(&options, &workspace_policy(root));
     assert_eq!(first.class, ExitClass::InvalidInput);
-    assert_eq!(first.value["total"], 25);
-    let next = first.next_query.as_ref().unwrap();
+    assert_eq!(first.value["pagination"]["totalItems"], 25);
+    let next = next_query(&first).unwrap();
     assert_eq!(next.graph.as_deref(), Some(snapshot.to_str().unwrap()));
     assert!(next.workspace.is_none());
     assert_eq!(next.offset, Some(20));
@@ -91,7 +75,7 @@ fn explicit_snapshot_path_survives_ambiguous_candidate_continuation() {
         .as_array()
         .unwrap()
         .iter()
-        .chain(rest.value["results"].as_array().unwrap())
+        .chain(rest.value["rows"].as_array().unwrap())
         .map(|row| row["id"].as_str().unwrap())
         .collect::<BTreeSet<_>>();
     assert_eq!(union.len(), 25);

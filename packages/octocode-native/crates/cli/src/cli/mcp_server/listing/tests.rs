@@ -125,3 +125,46 @@ fn a_catalog_tool_without_a_presentation_is_an_error() {
     };
     assert!(message.contains("unknownTool"), "{message}");
 }
+
+/// What `tools/list` sends is what core published: each entry, after the
+/// rmcp `Tool` the handler serves it as, is the presentation's `mcp`
+/// definition, and its `inputSchema` is byte for byte the embedded one.
+#[test]
+fn tools_list_serves_the_core_published_definitions_byte_for_byte() {
+    let names = presentation_tools();
+    let names = names.iter().map(String::as_str).collect::<Vec<_>>();
+    for selection in [false, true] {
+        let catalog = catalog(&names, json!({"selection": selection}), json!([]));
+        let listing = build(presentation(), &catalog).expect("listing");
+        for listed in listing.tools {
+            let name = listed["name"].as_str().expect("name").to_owned();
+            let source = presentation()["tools"]
+                .as_array()
+                .expect("tools")
+                .iter()
+                .find(|tool| tool["name"] == name.as_str())
+                .expect("presented");
+            let mcp = &source
+                .get("selection")
+                .filter(|_| selection)
+                .unwrap_or(source)["mcp"];
+            let served: rmcp::model::Tool =
+                serde_json::from_value(listed).expect("an rmcp tool definition");
+            let wire = serde_json::to_value(&served).expect("serialized tool");
+            let mut expected = mcp.clone();
+            expected["name"] = json!(name);
+            // The one runtime addition: the language servers this host has.
+            if name == "lspSearch" {
+                let text = mcp["description"].as_str().expect("description");
+                expected["description"] =
+                    json!(super::super::super::schema::with_lsp_servers(text, &[]));
+            }
+            assert_eq!(wire, expected, "{name} selection={selection}");
+            assert_eq!(
+                serde_json::to_string(&wire["inputSchema"]).expect("schema text"),
+                serde_json::to_string(&mcp["inputSchema"]).expect("schema text"),
+                "{name} selection={selection}"
+            );
+        }
+    }
+}

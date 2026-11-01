@@ -3,7 +3,7 @@ use super::*;
 
 fn stale_rows(dir: &Path) -> (Value, Value) {
     let out = ask(dir, "stale", None, |_| {});
-    (out.value["fresh"].clone(), out.value["results"].clone())
+    (out.value["fresh"].clone(), out.value["rows"].clone())
 }
 
 /// A linking config (tsconfig, package.json, ...) beside the sources or up
@@ -66,52 +66,21 @@ fn stale_reports_sources_added_since_ingest() {
     let out = ask(dir.0.as_path(), "stale", None, |_| {});
     assert_eq!(out.value["fresh"], false, "{}", out.value);
     assert_eq!(
-        out.value["results"],
+        out.value["rows"],
         json!([
             {"file": "src/deep/new/y.ts", "status": "added"},
             {"file": "src/z.ts", "status": "added"},
         ])
     );
-    assert!(out.value["reingest"].is_string(), "{}", out.value);
-    assert_ne!(ingest_fixture(dir.0.as_path(), None).value["reused"], true);
-}
-
-/// A snapshot whose scan stopped at maxFiles cannot tell an added file
-/// from one past the cap, so it is never called fresh; its re-ingest keeps
-/// the snapshot's exclusions and raises maxFiles, the limit that cut it.
-#[test]
-fn a_truncated_snapshot_is_never_fresh() {
-    let dir = fixture();
-    let out = ingest(
-        &IngestOptions {
-            path: dir.0.as_path().join("app"),
-            workspace: Some(dir.0.as_path().to_path_buf()),
-            max_files: Some(2),
-            exclude_dir: vec!["gen".into()],
-            ..Default::default()
-        },
-        &workspace_policy(dir.0.as_path()),
-        &ContentSecurity::new(),
-        &NeverCancel,
-        None,
-    );
-    assert_eq!(out.value["scan"]["truncated"], true, "{}", out.value);
-    let stale = ask(dir.0.as_path(), "stale", None, |_| {});
-    assert_eq!(stale.value["fresh"], false, "{}", stale.value);
-    assert!(
-        stale.value["unchecked"]
-            .as_str()
-            .is_some_and(|why| why.contains("maxFiles (2)")),
+    let reingest = &out.value["reingest"];
+    assert_eq!(
+        (&reingest["kind"], &reingest["tool"]),
+        (&json!("related"), &json!("graphBuild")),
         "{}",
-        stale.value
+        out.value
     );
-    // The cut's re-ingest is stated once, in the graph block.
-    assert!(stale.value.get("reingest").is_none(), "{}", stale.value);
-    let reingest = stale.value["graph"]["reingest"].as_str().expect("reingest");
-    assert!(
-        reingest.ends_with(" --max-files 4 --exclude gen"),
-        "{reingest}"
-    );
+    assert!(reingest["input"]["queries"][0]["path"].is_string(), "{reingest}");
+    assert_ne!(ingest_fixture(dir.0.as_path(), None).value["reused"], true);
 }
 
 /// A snapshot published before snapshot bounds became build refusals may

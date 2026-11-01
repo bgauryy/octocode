@@ -2,8 +2,9 @@
 //! the document's keys, as a code outline lists declarations. Each line is
 //! the source line that opens a key, with the citation gutter (`N\t`); a key
 //! whose value spans lines carries its span (`start-end\t`), so its value is
-//! one `ranges` read away. Containers are listed down to [`MAX_DEPTH`] levels
-//! of nesting, scalars at the top level only, plus the member that names each
+//! one `ranges` read away. Multi-line containers are listed at every depth
+//! (as a code outline lists nested declarations; the response pages a long
+//! outline), scalars at the top level only, plus the member that names each
 //! object of an array (see `json::identity`).
 //!
 //! TOML is read with the `toml` parser (its spans place every table; a line
@@ -20,9 +21,6 @@ use json::json_entries;
 use toml_tables::toml_entries;
 use yaml::yaml_entries;
 
-/// Nesting levels of containers an outline lists.
-const MAX_DEPTH: usize = 3;
-
 /// One outlined key: its 1-based line span and nesting depth (1 = top level).
 #[derive(Debug, PartialEq, Eq)]
 struct Entry {
@@ -31,6 +29,9 @@ struct Entry {
     depth: usize,
     /// Listed even as a one-line value: the member naming an array element.
     names_element: bool,
+    /// A multi-line scalar (a YAML block or quoted scalar): text, listed at
+    /// the top level only, never as a container.
+    scalar: bool,
 }
 
 impl Entry {
@@ -40,6 +41,7 @@ impl Entry {
             end: line,
             depth,
             names_element: false,
+            scalar: false,
         }
     }
 }
@@ -81,12 +83,11 @@ pub(super) fn key_outline(content: &str, path: &str) -> Option<KeyOutline> {
     })
 }
 
-/// The outline lines: containers within [`MAX_DEPTH`], top-level scalars and
-/// element names, each source line once.
+/// The outline lines: multi-line containers at any depth, top-level scalars
+/// and element names, each source line once.
 fn render(content: &str, mut entries: Vec<Entry>) -> Option<String> {
     entries.retain(|entry| {
-        entry.depth <= MAX_DEPTH
-            && (entry.end > entry.start || entry.depth == 1 || entry.names_element)
+        (entry.end > entry.start && !entry.scalar) || entry.depth == 1 || entry.names_element
     });
     entries.sort_by_key(|entry| (entry.start, std::cmp::Reverse(entry.end)));
     entries.dedup_by_key(|entry| entry.start);

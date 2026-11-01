@@ -6,10 +6,11 @@ use super::*;
 #[test]
 fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_grammar() {
     let root = Fixture::new();
+    let window = crate::tools::ast_search::scan_window::test_window(1);
     root.write("a.py", "def ordinary():\n    return 1\n");
     root.write("z.ts", "export function target() { return 2; }\n");
     for selector in [json!({}), json!({"include":["*.py", "*.ts"]})] {
-        let mut query = json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"maxFiles":1,"includeCaptures":true});
+        let mut query = json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"includeCaptures":true});
         query
             .as_object_mut()
             .expect("query")
@@ -21,7 +22,7 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
         assert_eq!(first["isPartial"], true, "{first}");
         let reasons = first["partialReasons"].as_array().expect("cuts");
         assert!(!reasons.contains(&json!("compileFailed")), "{first}");
-        assert!(reasons.contains(&json!("maxFiles")), "{first}");
+        assert!(reasons.contains(&json!("scanBudget")), "{first}");
         assert!(
             !first["diagnostics"].to_string().contains("a.py"),
             "{first}"
@@ -46,8 +47,7 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
         json!({"rule":{"kind":"function_declaration"},"include":["*.ts"]}),
         json!({"rule":{"kind":"function_declaration"},"exclude":["*.py"]}),
     ] {
-        let mut query =
-            json!({"operation":"match","path":root.0,"maxFiles":1,"includeCaptures":true});
+        let mut query = json!({"operation":"match","path":root.0,"includeCaptures":true});
         query
             .as_object_mut()
             .expect("query")
@@ -87,7 +87,7 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
         json!({"rule":{"kind":"not_a_node"}}),
         json!({"parser":"python","rule":{"kind":"function_declaration"}}),
     ] {
-        let mut query = json!({"operation":"match","path":root.0,"maxFiles":1});
+        let mut query = json!({"operation":"match","path":root.0});
         query
             .as_object_mut()
             .expect("query")
@@ -95,8 +95,7 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
         let error = run(&root.0, query).expect_err("invalid selector");
         assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     }
-    let query =
-        json!({"operation":"match","path":root.0,"maxFiles":1,"rule":{"pattern":"target("}});
+    let query = json!({"operation":"match","path":root.0,"rule":{"pattern":"target("}});
     let first = run(&root.0, query).expect("bounded pattern coverage");
     assert_eq!(first["isPartial"], true, "{first}");
     let next = first["next"]["expandScan"]["input"]["queries"][0].clone();
@@ -111,9 +110,10 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
         "{last}"
     );
     assert!(last["next"].get("expandScan").is_none(), "{last}");
+    drop(window);
     let error = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"maxFiles":10,"rule":{"pattern":"target("}}),
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"target("}}),
     )
     .expect_err("whole-scope invalid pattern");
     assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
@@ -128,11 +128,12 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
 #[test]
 fn a_final_window_of_an_inapplicable_grammar_is_whole_and_names_it() {
     let root = Fixture::new();
+    let _window = crate::tools::ast_search::scan_window::test_window(1);
     root.write("a.ts", "export function target() { return 2; }\n");
     root.write("z.py", "def ordinary():\n    return 1\n");
     let first = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"maxFiles":1}),
+        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"}}),
     )
     .expect("first compatible grammar");
     assert_eq!(first["matchCount"], 1, "{first}");
@@ -153,6 +154,7 @@ fn a_final_window_of_an_inapplicable_grammar_is_whole_and_names_it() {
 #[test]
 fn directory_scan_windows_infer_each_files_grammar_without_losing_other_languages() {
     let root = Fixture::new();
+    let _window = crate::tools::ast_search::scan_window::test_window(1);
     for (name, source) in [
         ("a.ts", "hit(1);\nhit(2);\n"),
         ("b.js", "hit(3);\nhit(4);\n"),
@@ -161,8 +163,7 @@ fn directory_scan_windows_infer_each_files_grammar_without_losing_other_language
     ] {
         root.write(name, source);
     }
-    let start =
-        json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"},"maxFiles":1});
+    let start = json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"}});
     let mut values = Vec::new();
     let walk = checks::walker::walk("astSearch", json!({"queries":[start]}), |call| {
         let input = crate::tools::test_support::opened_input(crate::id::ToolId::AstSearch, call);

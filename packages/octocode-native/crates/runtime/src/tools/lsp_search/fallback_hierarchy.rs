@@ -3,11 +3,14 @@
 use super::anchor::Position;
 use super::cancellable;
 use super::failure::LspFailure;
+use super::file_windows::FileWindows;
 use super::heritage;
 use super::recovery::{get_locations, resolve_definition_chain};
 use super::render::uri_to_path;
 use super::source::SourceCache;
-use super::walk::{Expansion, HierarchySource, HierarchyWalk, MAX_HIERARCHY_NODES, NodeKeys, Walk};
+use super::walk::{
+    Expansion, HierarchySource, HierarchyWalk, MAX_HIERARCHY_NODES, NodeKeys, Resume, Walk,
+};
 use crate::execution::cancel::CancellationCheck;
 use crate::tools::lsp_search::lsp_search_query;
 use octocode_contract_types::LspSearchQuery;
@@ -53,29 +56,27 @@ impl CandidateWindow {
             octocode_engine::digest::Nulls::Drop,
         );
         let digest = format!("lsp-candidates:{}", crate::digest::json_sha256(&identity));
-        let page = crate::num::usize_of(lsp_search_query::candidate_page(query));
-        let start = (page - 1).saturating_mul(MAX_HIERARCHY_NODES);
+        let list = FileWindows::new(candidates, MAX_HIERARCHY_NODES, digest);
+        let page = lsp_search_query::candidate_page(query).max(1);
         // A window's first result page carries the candidate digest. Later
         // result pages carry a result snapshot salted with this same digest.
-        if page > 1
-            && (start >= candidates.len()
-                || (lsp_search_query::page(query).unwrap_or(1) == 1
-                    && lsp_search_query::snapshot(query) != Some(digest.as_str())))
-        {
+        let entering = page > 1 && lsp_search_query::page(query).unwrap_or(1) == 1;
+        let expected = entering.then(|| lsp_search_query::snapshot(query).unwrap_or_default());
+        if !list.admits(page, expected) {
             return None;
         }
-        let has_more = candidates.len() > start.saturating_add(MAX_HIERARCHY_NODES);
+        let (has_more, digest) = (list.more_after(page), list.digest().to_owned());
         Some(Self {
-            items: candidates
-                .into_iter()
-                .skip(start)
-                .take(MAX_HIERARCHY_NODES)
-                .collect(),
+            items: list.into_window(page),
             digest,
             has_more,
         })
     }
 }
+
+/// One file's type parse, made by the first expansion that needs it.
+type DocumentCell =
+    tokio::sync::OnceCell<std::sync::Arc<octocode_engine::graph::GraphFactsDocument>>;
 
 pub(super) struct Fallback<'a, 'p> {
     client: &'a NativeLspClient,
@@ -85,15 +86,14 @@ pub(super) struct Fallback<'a, 'p> {
     failures: Mutex<Vec<LspFailure>>,
     keys: Mutex<NodeKeys<'p>>,
     bases: Mutex<std::collections::HashMap<String, Vec<Value>>>,
-    documents: Mutex<
-        std::collections::HashMap<
-            String,
-            std::sync::Arc<octocode_engine::graph::GraphFactsDocument>,
-        >,
-    >,
+    /// Each file's type parse, once: concurrent expansions of one file wait
+    /// for its parse, other files' parses run beside it.
+    documents: Mutex<std::collections::HashMap<String, std::sync::Arc<DocumentCell>>>,
     initial: Mutex<Option<(Value, Vec<LspCodeSnippet>)>>,
-    /// A node other than the anchor had more candidates than one window.
-    candidate_limit: std::sync::atomic::AtomicBool,
+    /// Nodes other than the anchor with more implementation candidates than
+    /// one window, in the order found: each resumes as the anchor of its own
+    /// walk, where its candidates page by window.
+    candidate_capped: Mutex<Vec<Value>>,
 }
 
 impl<'a, 'p> Fallback<'a, 'p> {
@@ -114,13 +114,8 @@ impl<'a, 'p> Fallback<'a, 'p> {
             bases: Mutex::new(std::collections::HashMap::new()),
             documents: Mutex::new(std::collections::HashMap::new()),
             initial: Mutex::new(None),
-            candidate_limit: std::sync::atomic::AtomicBool::new(false),
+            candidate_capped: Mutex::new(Vec::new()),
         }
-    }
-
-    pub(super) fn candidate_limited(&self) -> bool {
-        self.candidate_limit
-            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// A relation the source and the server's answers did not establish.
@@ -153,21 +148,26 @@ impl<'a, 'p> Fallback<'a, 'p> {
         &self,
         path: &str,
     ) -> Result<std::sync::Arc<octocode_engine::graph::GraphFactsDocument>, LspFailure> {
-        let mut documents = self.documents.lock().await;
-        if let Some(document) = documents.get(path).cloned() {
-            return Ok(document);
-        }
-        let source = self.source(path).await?;
-        let owned_path = path.to_owned();
-        let document = super::blocking_cancellable(self.cancel, move |_| {
-            heritage::type_document(&source.content, &owned_path)
+        let cell = std::sync::Arc::clone(
+            self.documents
+                .lock()
+                .await
+                .entry(path.to_owned())
+                .or_default(),
+        );
+        cell.get_or_try_init(|| async {
+            let source = self.source(path).await?;
+            let owned_path = path.to_owned();
+            let document = super::blocking_cancellable(self.cancel, move |_| {
+                heritage::type_document(&source.content, &owned_path)
+            })
+            .await?
+            .ok_or_else(|| LspFailure::invalid_query("Type parsing worker failed"))?
+            .map_err(LspFailure::invalid_query)?;
+            Ok(document)
         })
-        .await?
-        .ok_or_else(|| LspFailure::invalid_query("Type parsing worker failed"))?
-        .map_err(LspFailure::invalid_query)?;
-        let document = std::sync::Arc::new(document);
-        documents.insert(path.to_owned(), document.clone());
-        Ok(document)
+        .await
+        .cloned()
     }
 
     async fn node(&self, path: &str, line: u32, character: u32) -> Result<Value, LspFailure> {
@@ -223,7 +223,45 @@ impl<'a, 'p> Fallback<'a, 'p> {
             .finish(self, self.cancel)
             .await?;
         walk.failures.extend(self.failures.lock().await.drain(..));
+        let capped = std::mem::take(&mut *self.candidate_capped.lock().await);
+        self.resume_candidates(&mut walk, capped, depth).await;
         Ok(walk)
+    }
+
+    /// Resume each candidate-capped node (`capped`) as the anchor of its own
+    /// walk over the levels left below it: re-anchored, its candidates page
+    /// by window, so every one is checked. A node already resuming for a
+    /// node or fan-out cap is listed once.
+    async fn resume_candidates(&self, walk: &mut HierarchyWalk, capped: Vec<Value>, depth: u32) {
+        let depth = depth.max(1);
+        let mut keys = self.keys.lock().await;
+        let mut resuming = walk
+            .resumes
+            .iter()
+            .map(|resume| keys.key(&resume.node))
+            .collect::<std::collections::HashSet<_>>();
+        for node in capped {
+            let key = keys.key(&node);
+            // Expanded one level below the edge that reached it; a root
+            // expands first.
+            let reached = walk
+                .edges
+                .iter()
+                .find(|edge| keys.key(&edge.node) == key)
+                .map_or(0, |edge| edge.level);
+            walk.candidate_capped.push(
+                node.get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?")
+                    .to_owned(),
+            );
+            if resuming.insert(key) {
+                walk.resumes.push(Resume {
+                    node,
+                    depth: depth - reached,
+                });
+            }
+        }
     }
 }
 

@@ -135,6 +135,7 @@ mod adapter_repairs;
 mod adapter_visibility;
 
 mod namespaces;
+mod nested_callers;
 
 #[cfg(feature = "tree-sitter-scala")]
 mod scala;

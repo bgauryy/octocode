@@ -17,9 +17,11 @@ use serde_json::Value;
 
 /// The runtime-owned services a local row runs against.
 pub(super) struct LocalEnv<'a> {
+    pub memory_only: bool,
     pub paths: &'a PathPolicy,
     pub security: &'a ContentSecurity,
     pub views: &'a crate::security::scan::SanitizedViewMemo,
+    pub source_views: &'a std::sync::Arc<crate::tools::source_view::ViewCache>,
     pub cargo: Option<&'a str>,
     pub selection: Option<&'a crate::tools::selection::Runtime>,
 }
@@ -33,9 +35,11 @@ pub(super) fn execute_local(
     env: &LocalEnv<'_>,
 ) -> Result<DomainResult, ExecutionError> {
     let &LocalEnv {
+        memory_only,
         paths,
         security,
         views,
+        source_views,
         selection,
         cargo,
     } = env;
@@ -50,15 +54,20 @@ pub(super) fn execute_local(
         };
     }
     match tool {
-        ToolId::GraphBuild | ToolId::GraphQuery => {
-            if tool == ToolId::GraphBuild {
-                let _ = parsed!(octocode_contract_types::GraphBuildQuery);
-            } else {
-                let _ = parsed!(octocode_contract_types::GraphQueryQuery);
-            }
-            crate::tools::ast_graph::store::tools::execute(
-                tool, query, paths, security, context, cargo,
+        ToolId::GraphBuild => {
+            let request = parsed!(octocode_contract_types::GraphBuildQuery);
+            crate::tools::ast_graph::store::tools::execute_build(
+                &request,
+                paths,
+                security,
+                context,
+                cargo,
+                memory_only,
             )
+        }
+        ToolId::GraphQuery => {
+            let _ = parsed!(octocode_contract_types::GraphQueryQuery);
+            crate::tools::ast_graph::store::tools::execute_query(query, paths, context)
         }
         ToolId::LocalFetch => {
             let request = parsed!(LocalFetchQuery);
@@ -70,6 +79,7 @@ pub(super) fn execute_local(
                 context,
                 context.response_window,
                 selection,
+                source_views,
             );
             let status = result.status.row_status();
             let missing = result.resource_missing;
@@ -89,7 +99,6 @@ pub(super) fn execute_local(
                 paths,
                 security,
                 context,
-                context.walk_threads,
                 context.response_window,
                 selection,
             );
@@ -97,8 +106,7 @@ pub(super) fn execute_local(
                 Ok(result) => {
                     let status = (result.status == SearchStatus::Empty).then_some("empty");
                     let source_digest = result.source_snapshot.clone();
-                    let data =
-                        serde_json::to_value(&result).map_err(|_| ExecutionError::WorkerFailed)?;
+                    let data = result.to_row().map_err(|_| ExecutionError::WorkerFailed)?;
                     let mut row = DomainResult::payload(data, status);
                     row.source_digest = source_digest;
                     Ok(row)
@@ -210,21 +218,35 @@ pub(super) fn provider_failure(
     });
     // An invalid input's message names the rejected field or the registry's
     // own reason; a static hint would only restate it.
+    // Only a registry's own recoveries are written here; every other code
+    // takes the shared recovery table's one wording (a retryable HTTP status
+    // reads as the transient failure it is).
     if hints.is_empty() && code != ErrorCode::InvalidInput {
-        hints.push(
-            match code {
-                ErrorCode::Authentication | ErrorCode::Permission => {
-                    "Verify registry credentials and access, then retry."
-                }
-                ErrorCode::RateLimited => "Wait for the provider rate-limit reset before retrying.",
-                ErrorCode::Timeout => "Retry once; if it persists, verify registry availability.",
-                ErrorCode::CapabilityUnavailable => {
-                    "Use the exact package lookup supported by this ecosystem."
-                }
-                _ if retryable => "Retry once; if it persists, verify registry availability.",
-                _ => "Verify provider configuration and the requested package coordinate.",
+        let own = match code {
+            ErrorCode::Authentication | ErrorCode::Permission => Some(
+                "Registry denied access: verify the registry credentials and access, then retry.",
+            ),
+            ErrorCode::CapabilityUnavailable => {
+                Some("Use the exact package lookup supported by this ecosystem.")
             }
-            .into(),
+            _ => None,
+        };
+        let shared = || {
+            let situation = if retryable && code == ErrorCode::HttpStatus {
+                ErrorCode::Transport
+            } else {
+                code
+            };
+            crate::response::rows::error_code_hint(
+                ToolId::ArtifactSearch.output(),
+                situation,
+                &Value::Null,
+            )
+        };
+        hints.extend(
+            own.or_else(shared)
+                .filter(|hint| !hint.is_empty())
+                .map(str::to_owned),
         );
     }
     // The upstream HTTP status distinguishes e.g. a registry 404 from a 429

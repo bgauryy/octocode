@@ -3,42 +3,39 @@
 use super::*;
 use octocode_engine::graph::{FileGraphNode, GraphFactsDocument};
 
-/// Whether Cargo linking was requested but has no manifest, and the
-/// workspace crates `cargo metadata` names (empty when unavailable).
+/// The workspace crates `cargo metadata` names for every Cargo workspace
+/// that encloses a scanned Rust file, with a diagnostic per workspace it
+/// could not read and one for Rust files no manifest encloses (their imports
+/// of other crates stay external; module paths still link by syntax).
 pub(super) fn cargo_linking(
     scan: &GraphScan,
     b: &mut BuiltGraph,
     known: &BTreeSet<String>,
     cancel: &dyn CancellationCheck,
-) -> (bool, CargoCrates) {
-    let rust_cargo_unavailable = scan.cargo_metadata
-        && known.iter().any(|file| is_rust(file))
-        && !has_cargo_manifest(&b.root, known);
-    if rust_cargo_unavailable {
+) -> CargoCrates {
+    let rust = known
+        .iter()
+        .map(String::as_str)
+        .filter(|file| is_rust(file));
+    let (manifests, loose) = enclosing_manifests(&b.root, rust);
+    if loose > 0 {
         b.diagnostics.push(Diagnostic::new(
             ".",
             None,
             DiagnosticCode::UnsupportedLinking,
-            "Cargo metadata cargo-manifest-missing: No Cargo.toml was found at the scan root or known Rust-file ancestors. Ingest the crate root that contains Cargo.toml (not a nested src/ directory); crate:: imports cannot be resolved otherwise.".into(),
+            format!("Cargo metadata cargo-manifest-missing: {loose} Rust file(s) have no enclosing Cargo.toml; their imports of other crates stay external."),
         ));
     }
-    let cargo_crates = if scan.cargo_metadata && !rust_cargo_unavailable {
-        match load_cargo_crates(&b.root, scan.cargo.as_deref(), cancel) {
-            Ok(map) => map,
-            Err(message) => {
-                b.diagnostics.push(Diagnostic::new(
-                    ".",
-                    None,
-                    DiagnosticCode::UnsupportedLinking,
-                    format!("Cargo metadata failed: {message}"),
-                ));
-                CargoCrates::default()
-            }
-        }
-    } else {
-        CargoCrates::default()
-    };
-    (rust_cargo_unavailable, cargo_crates.within(&b.root))
+    let (crates, failures) = load_cargo_crates(&b.root, &manifests, scan.cargo.as_deref(), cancel);
+    for failure in failures {
+        b.diagnostics.push(Diagnostic::new(
+            ".",
+            None,
+            DiagnosticCode::UnsupportedLinking,
+            format!("Cargo metadata failed: {failure}"),
+        ));
+    }
+    crates.within(&b.root)
 }
 
 /// Link one scanned file, unless its fact schema is unsupported.
@@ -81,28 +78,6 @@ pub(super) fn is_rust(file: &str) -> bool {
     super::super::linking::Linker::of(file) == super::super::linking::Linker::Rust
 }
 
-pub(super) fn has_cargo_manifest(root: &Path, known: &BTreeSet<String>) -> bool {
-    if root.join("Cargo.toml").is_file() {
-        return true;
-    }
-    known.iter().filter(|file| is_rust(file)).any(|file| {
-        let mut directory = root.join(file).parent().map(Path::to_path_buf);
-        while let Some(candidate) = directory {
-            if !candidate.starts_with(root) {
-                return false;
-            }
-            if candidate.join("Cargo.toml").is_file() {
-                return true;
-            }
-            if candidate == root {
-                return false;
-            }
-            directory = candidate.parent().map(Path::to_path_buf);
-        }
-        false
-    })
-}
-
 pub(super) fn sanitize(security: &ContentSecurity, text: &str) -> String {
     security.sanitize_text(text, None).content
 }
@@ -112,7 +87,6 @@ pub(super) struct LinkInputs<'x> {
     pub rust_modules: &'x RustModules,
     pub(super) known: &'x BTreeSet<String>,
     pub(super) security: &'x ContentSecurity,
-    pub(super) rust_cargo_unavailable: bool,
     pub(super) cargo_crates: &'x CargoCrates,
     pub(super) ctx: &'x ResolveContext,
     pub(super) packages: &'x PackageIndex,

@@ -26,7 +26,6 @@ fn materialize_first_row<C: CancellationCheck>(
         expected_digest: &expected,
         security,
         cancel,
-        walk_threads: Some(1),
     };
     verify::materialize(&scope, file, 0..1)
 }
@@ -49,7 +48,7 @@ fn deferred_hit_before_a_large_binary_tail_remains_readable_and_binds_the_tail()
         serde_json::json!({"path":path,"matchString":["needle"]}),
         None,
     );
-    let scan = executor::scan_query(&request, &policy, &NeverCancel, Some(1), None)
+    let scan = executor::scan_query(&request, &policy, &NeverCancel, (None, None))
         .expect("engine accepts the binary prefix");
     assert_eq!(scan.parsed.files.len(), 1);
     assert_eq!(scan.parsed.files[0].matches.len(), 1);
@@ -73,17 +72,9 @@ fn deferred_hit_before_a_large_binary_tail_remains_readable_and_binds_the_tail()
     .expect("unchanged binary tail does not prevent reconstructing the earlier hit");
     assert_eq!(reconstructed.matches[0].value, "needle before binary");
 
-    let result = executor::page_of(
-        &request,
-        &policy,
-        &security,
-        &NeverCancel,
-        Some(1),
-        scan,
-        None,
-    )
-    .expect("unchanged binary tail is hashed without buffering it as a line");
-    let mut owned_scan = executor::scan_query(&request, &policy, &NeverCancel, Some(1), None)
+    let result = executor::page_of(&request, &policy, &security, &NeverCancel, scan, None)
+        .expect("unchanged binary tail is hashed without buffering it as a line");
+    let mut owned_scan = executor::scan_query(&request, &policy, &NeverCancel, (None, None))
         .expect("baseline scan plan");
     let mut options = owned_scan.search_options.clone();
     options.values = octocode_engine::types::SourceValues::Hashed;
@@ -97,16 +88,8 @@ fn deferred_hit_before_a_large_binary_tail_remains_readable_and_binds_the_tail()
         "needle before binary"
     );
     owned_scan.reusable = None;
-    let owned = executor::page_of(
-        &request,
-        &policy,
-        &security,
-        &NeverCancel,
-        Some(1),
-        owned_scan,
-        None,
-    )
-    .expect("owned page preserves the existing conservative secret guard");
+    let owned = executor::page_of(&request, &policy, &security, &NeverCancel, owned_scan, None)
+        .expect("owned page preserves the existing conservative secret guard");
     assert_eq!(
         result, owned,
         "deferred reconstruction preserves the complete owned page, including redaction"

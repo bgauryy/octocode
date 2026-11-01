@@ -36,8 +36,7 @@ function describe(tool) {
 
 function manifestTools() {
   return getPublicToolCatalog()
-    .tools.filter(tool => !tool.cliOnly)
-    .map(tool => ({ name: tool.name, description: describe(tool) }));
+    .tools.map(tool => ({ name: tool.name, description: describe(tool) }));
 }
 
 const packageRoot = resolve(import.meta.dirname, '..');

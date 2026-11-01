@@ -197,7 +197,9 @@ export function outlineRows(rows = [], extra = {}, parent = {}, state = {}) {
     const nested = (members ?? []).map(member => ({ ...shared, ...member }));
     const key = JSON.stringify([scope, extra.path, parent.parent, parent.parentLine, symbolName, row.kind, row.line]);
     const own = outlineContext(row, continued) && unchangedContext(decl, context.get(key)) ? [] : [decl];
-    if (row.occurrenceId !== undefined && !context.has(key)) context.set(key, decl);
+    // Every declaration's first appearance is the context a later part's fragment of it repeats: a split nested
+    // two levels deep (file > symbol > members) repeats the symbol, which carries no occurrenceId.
+    if (!context.has(key)) context.set(key, decl);
     return [...own, ...outlineRows(nested, extra, { parent: symbolName, parentLine: row.line }, { continued, context, scope })];
   });
 }

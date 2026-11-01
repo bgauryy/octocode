@@ -2,7 +2,7 @@
 // Core's lint setup is a copy of this repo's: ../octocode-mcp-host/packages/octocode-core keeps
 // scripts/oxlint-baseline.mjs and .oxlintrc.json beside its own baseline. This repo owns both.
 // Fails when the core copy drifts: the baseline script must be byte-identical, and the config
-// must carry the same rules (only `$schema`, `ignorePatterns` and overrides scoped to this repo's
+// must carry the same rules (only `$schema`, `ignorePatterns`, the CLI-flag `options` and overrides scoped to this repo's
 // `packages/...` or `skills/...` paths are layout-specific). Skips with a note when the sibling checkout is absent.
 // Usage: node skills-dev/octocode-dev/scripts/core-lint-sync.mjs
 import { isDeepStrictEqual } from 'node:util';
@@ -13,7 +13,7 @@ import { ROOT } from './lib/workspaces.mjs';
 import { parse } from './oxlint-baseline.mjs';
 
 const CORE = path.resolve(ROOT, '..', 'octocode-mcp-host', 'packages', 'octocode-core');
-const LAYOUT_KEYS = new Set(['$schema', 'ignorePatterns']);
+const LAYOUT_KEYS = new Set(['$schema', 'ignorePatterns', 'options']);
 
 /** An override is layout-specific when every glob names a path under this repo's `packages/` or `skills/`. */
 const repoScoped = override => (override.files ?? []).every(glob => /^(packages|skills)\//.test(glob));

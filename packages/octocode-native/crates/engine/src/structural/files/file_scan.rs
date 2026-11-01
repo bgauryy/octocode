@@ -36,6 +36,8 @@ pub(super) struct FileScan<'a> {
     pub(super) matchers: CompiledMatchers,
     pub(super) max_file_bytes: u64,
     pub(super) demand: StructuralDemand<'a>,
+    /// Which matches a scope keeps, by file and 1-based start line.
+    pub(super) keep_line: Option<&'a crate::structural::types::KeepLine<'a>>,
 }
 
 impl FileScan<'_> {
@@ -186,6 +188,13 @@ impl FileScan<'_> {
         found.bind_source(crate::structural::SourceBinder::with_budget(
             admitted, budget,
         ));
+        let file = std::path::PathBuf::from(&path_string);
+        let keep_here = self
+            .keep_line
+            .map(|keep| move |line: u32| keep(&file, line));
+        if let Some(keep) = &keep_here {
+            found.keep_lines(keep);
+        }
         if let Err(error) = run(content, &mut found) {
             let diagnostic = error.diagnostic(&path_string);
             return (
@@ -213,7 +222,7 @@ impl FileScan<'_> {
         let recovered = found.recovered();
         let matches = found.into_file_matches();
         (
-            Tally::Parsed(matches.len() as u32),
+            Tally::Parsed(crate::num::saturating_u32(matches.len())),
             StructuralSearchDetailedFileResult {
                 path: path_string,
                 source_sha256: None,

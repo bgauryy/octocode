@@ -54,8 +54,14 @@ pub(super) fn feedback_arcs(members: &[u32], adj: &dyn Fn(u32) -> Vec<u32>) -> V
             }
         }
     }
-    let mut out_deg = succ.iter().map(|s| s.len() as i64).collect::<Vec<_>>();
-    let mut in_deg = pred.iter().map(|p| p.len() as i64).collect::<Vec<_>>();
+    let mut out_deg = succ
+        .iter()
+        .map(|s| crate::num::i64_of_usize(s.len()))
+        .collect::<Vec<_>>();
+    let mut in_deg = pred
+        .iter()
+        .map(|p| crate::num::i64_of_usize(p.len()))
+        .collect::<Vec<_>>();
     let mut alive = vec![true; k];
     let mut left_count = 0usize;
     let mut position = vec![0usize; k];

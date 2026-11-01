@@ -352,7 +352,11 @@ pub(super) fn initialize_params(config: &LspLanguageServerConfig) -> Result<Valu
             "workspace": {
                 "configuration": true,
                 "workspaceFolders": true,
-                "symbol": { "dynamicRegistration": false }
+                "symbol": { "dynamicRegistration": false },
+                // A server that registers gets file events for the scope's
+                // files at each request (`client/watched.rs`), so a file no
+                // request opened still reaches its index.
+                "didChangeWatchedFiles": { "dynamicRegistration": true, "relativePatternSupport": true }
             },
             "window": {
                 "workDoneProgress": true

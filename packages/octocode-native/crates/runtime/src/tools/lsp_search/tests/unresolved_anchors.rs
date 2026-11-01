@@ -15,10 +15,11 @@ fn unresolved_anchors_preserve_requested_spelling_and_offer_explicit_related_wor
     );
     anchor_recovery(&mut row, &q, Some("function render() {}\nrender();"));
     assert!(row.get("next").is_none());
-    let related = row["related"]
-        .as_array()
-        .expect("source and search recovery");
-    assert_eq!(related.len(), 2);
+    // The file never spells `renderX` (in any case): a read for it would
+    // find nothing, so the workspace search is the one recovery.
+    let related = row["related"].as_array().expect("search recovery");
+    assert_eq!(related.len(), 1, "{row}");
+    assert!(related.iter().all(|call| call["tool"] != "localFetch"));
     for call in related {
         assert_eq!(call["kind"], "related");
         crate::contracts::validate(call["tool"].as_str().expect("tool"), call["input"].clone())

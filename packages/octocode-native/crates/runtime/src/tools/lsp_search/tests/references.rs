@@ -73,39 +73,6 @@ async fn grouped_references_replace_locations_with_file_summaries() {
         .expect("grouped references satisfy the output contract");
 }
 
-#[test]
-fn a_capped_alias_scan_is_disclosed_with_a_text_search() {
-    let q = query(serde_json::json!({
-        "operation": "references", "path": "/repo/a.ts", "symbolName": "foo", "line": 1
-    }));
-    let mut row = serde_json::json!({
-        "type": "references",
-        "kind": "references", "coverage": {}
-    });
-    let scope = super::super::scope::Scope::new("/repo".into(), vec!["*.ts".into()]);
-    super::super::recovery::disclose_alias_cap(&mut row, &q, &scope);
-    assert_eq!(row["coverage"]["aliasScan"], "capped", "{row}");
-    assert_eq!(row["isPartial"], true);
-    assert_eq!(
-        row["partialReasons"],
-        serde_json::json!([super::super::recovery::ALIAS_SCAN_CAPPED_REASON])
-    );
-    // The alias cap is fixed per request: a terminal limit, with the
-    // lexical lead as the only way past it.
-    assert_eq!(row["terminalLimit"], true, "{row}");
-    // The warning says why no page reaches the rest and where the lead is.
-    let warning = row["warnings"][0].as_str().unwrap_or_default();
-    assert!(warning.contains("no page or retry re-checks them"), "{row}");
-    let lead = row["related"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|call| call["tool"] == "localSearch")
-        .expect("text exploration");
-    assert_eq!(lead["kind"], "related");
-    assert_eq!(lead["input"]["queries"][0]["path"], "/repo");
-}
-
 #[tokio::test(flavor = "current_thread")]
 async fn recovered_alias_references_are_labeled_in_output() {
     let (_dir, root, paths) = temp_workspace();

@@ -1,6 +1,6 @@
-//! Tool availability from configuration and surface, refined by provider
-//! readiness at host startup. Discovery and admission project the same
-//! [`Availability`]; CLI help uses the configuration-only resolution.
+//! Tool exposure by surface. CLI exposes every tool in the build; MCP
+//! applies configuration gates. Provider readiness is checked by invocation,
+//! never by discovery. Execution still enforces credentials and security.
 
 use crate::config::{ConfigFieldSpec, ConfigOutput, RuntimeSurface, field};
 use crate::id::ToolId;
@@ -10,20 +10,10 @@ use std::sync::Arc;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Availability {
     Available,
-    /// Parked in this build (contract `disabled`): off on every surface,
-    /// whatever the configuration.
-    Disabled,
     /// `tools.disabled` lists it, or `tools.enabled` leaves it out.
     ToolList(&'static ConfigFieldSpec),
-    /// A contract `cliOnly` tool on a surface other than the CLI.
-    CliOnly,
     /// Settings it needs that are unset, in prerequisite order.
     MissingConfiguration(Vec<&'static ConfigFieldSpec>),
-    /// The configured provider failed its authenticated startup ping.
-    ProviderUnavailable {
-        code: octocode_contract_types::ErrorCode,
-        message: String,
-    },
 }
 
 impl Availability {
@@ -37,11 +27,8 @@ impl Availability {
     pub(crate) fn reason_code(&self) -> Option<&'static str> {
         match self {
             Self::Available => None,
-            Self::Disabled => Some("disabled"),
             Self::ToolList(_) => Some("toolsList"),
-            Self::CliOnly => Some("cliOnly"),
             Self::MissingConfiguration(_) => Some("missingConfiguration"),
-            Self::ProviderUnavailable { .. } => Some("providerUnavailable"),
         }
     }
 
@@ -50,15 +37,10 @@ impl Availability {
     pub(crate) fn reason_text(&self) -> String {
         match self {
             Self::Available => "it is available.".into(),
-            Self::Disabled => "it is disabled in this build.".into(),
             Self::ToolList(setting) if setting.path == field::TOOLS_DISABLED.path => {
                 format!("{} lists it.", setting.display_name())
             }
             Self::ToolList(setting) => format!("{} does not list it.", setting.display_name()),
-            Self::CliOnly => "only the CLI runs it.".into(),
-            Self::ProviderUnavailable { message, .. } => format!(
-                "the classification provider ping failed: {message} Restart after checking the provider and credential."
-            ),
             Self::MissingConfiguration(settings) => format!(
                 "it needs {}.",
                 settings
@@ -75,23 +57,13 @@ impl Availability {
     #[must_use]
     pub fn env_vars(&self) -> Vec<&'static str> {
         match self {
-            Self::Available | Self::Disabled | Self::CliOnly | Self::ProviderUnavailable { .. } => {
-                Vec::new()
-            }
+            Self::Available => Vec::new(),
             Self::ToolList(setting) => setting.env_name().into_iter().collect(),
             Self::MissingConfiguration(settings) => settings
                 .iter()
                 .filter_map(|setting| setting.env_name())
                 .collect(),
         }
-    }
-
-    /// An unset beta gate or classification credential: the caller can opt in.
-    #[must_use]
-    pub(crate) fn needs_opt_in(&self) -> bool {
-        matches!(self, Self::MissingConfiguration(settings) if settings.iter().any(|setting| {
-            setting.path == field::LOCAL_BETA.path || setting.path == field::CLASSIFICATION_API.path
-        }))
     }
 }
 
@@ -105,25 +77,9 @@ pub struct ToolAvailability {
 impl ToolAvailability {
     #[must_use]
     pub fn resolve(config: &ConfigOutput, surface: RuntimeSurface) -> Self {
-        Self::resolve_with(config, surface, ToolId::is_disabled)
-    }
-
-    /// [`Self::resolve`] under an explicit `disabled` policy.
-    fn resolve_with(
-        config: &ConfigOutput,
-        surface: RuntimeSurface,
-        disabled: impl Fn(ToolId) -> bool,
-    ) -> Self {
         let tools: Vec<_> = ToolId::ALL
             .into_iter()
-            .map(|id| {
-                let availability = if disabled(id) {
-                    Availability::Disabled
-                } else {
-                    resolve(config, surface, id)
-                };
-                (id, availability)
-            })
+            .map(|id| (id, resolve(config, surface, id)))
             .collect();
         let available = tools
             .iter()
@@ -152,29 +108,6 @@ impl ToolAvailability {
     pub fn available(&self) -> &Arc<[&'static str]> {
         &self.available
     }
-
-    pub(crate) fn with_provider_failure(
-        &self,
-        code: octocode_contract_types::ErrorCode,
-        message: String,
-    ) -> Self {
-        let mut checked = self.clone();
-        for (id, availability) in &mut checked.tools {
-            if *id == ToolId::Clasify && availability.is_available() {
-                *availability = Availability::ProviderUnavailable {
-                    code,
-                    message: message.clone(),
-                };
-            }
-        }
-        checked.available = checked
-            .tools
-            .iter()
-            .filter(|(_, availability)| availability.is_available())
-            .map(|(id, _)| id.as_str())
-            .collect();
-        checked
-    }
 }
 
 /// The classification credential (`classification.api`): a blank value is
@@ -188,7 +121,7 @@ pub fn classification_key(config: &ConfigOutput) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-/// Settings a tool needs on every surface. Family comes from the contract; clone and
+/// Settings MCP exposure needs. Family comes from the contract; clone and
 /// clasify add their own prerequisite. Clasify needs a credential;
 /// the credential stays separate, so hiding public clasify never disables
 /// goals on other tools.
@@ -196,7 +129,7 @@ fn prerequisites(id: ToolId) -> impl Iterator<Item = &'static ConfigFieldSpec> {
     [
         id.is_local().then_some(field::LOCAL_ENABLED),
         match id {
-            ToolId::GhCloneRepo => Some(field::STORAGE_MODE),
+            ToolId::GhCloneRepo => Some(field::TOOLS_ENABLE_CLONE),
             ToolId::Clasify => Some(field::CLASSIFICATION_API),
             _ => None,
         },
@@ -210,9 +143,7 @@ fn is_met(config: &ConfigOutput, setting: &ConfigFieldSpec) -> bool {
     match setting.path {
         path if path == field::LOCAL_ENABLED.path => resolved.local.enabled,
         path if path == field::LOCAL_BETA.path => resolved.local.beta,
-        path if path == field::STORAGE_MODE.path => {
-            crate::config::is_persistent_storage_enabled(resolved)
-        }
+        path if path == field::TOOLS_ENABLE_CLONE.path => resolved.tools.enable_clone,
         path if path == field::CLASSIFICATION_API.path => classification_key(config).is_some(),
         _ => false,
     }
@@ -221,16 +152,14 @@ fn is_met(config: &ConfigOutput, setting: &ConfigFieldSpec) -> bool {
 /// The MCP-only restriction, shared by discovery, admission and emitted leads.
 /// CLI callers retain access to beta tools without opting into MCP exposure.
 pub(crate) fn mcp_restriction(config: &ConfigOutput, id: ToolId) -> Option<Availability> {
-    if id.is_cli_only() {
-        Some(Availability::CliOnly)
-    } else if id.is_beta() && !config.resolved.local.beta {
-        Some(Availability::MissingConfiguration(vec![field::LOCAL_BETA]))
-    } else {
-        None
-    }
+    let availability = resolve(config, RuntimeSurface::Mcp, id);
+    (!availability.is_available()).then_some(availability)
 }
 
 fn resolve(config: &ConfigOutput, surface: RuntimeSurface, id: ToolId) -> Availability {
+    if surface == RuntimeSurface::Cli {
+        return Availability::Available;
+    }
     let tools = &config.resolved.tools;
     let listed = |names: &Option<Vec<String>>| {
         names
@@ -243,10 +172,8 @@ fn resolve(config: &ConfigOutput, surface: RuntimeSurface, id: ToolId) -> Availa
     if listed(&tools.enabled) == Some(false) {
         return Availability::ToolList(field::TOOLS_ENABLED);
     }
-    if surface != RuntimeSurface::Cli
-        && let Some(restriction) = mcp_restriction(config, id)
-    {
-        return restriction;
+    if id.is_beta() && !config.resolved.local.beta {
+        return Availability::MissingConfiguration(vec![field::LOCAL_BETA]);
     }
     let missing: Vec<_> = prerequisites(id)
         .filter(|setting| !is_met(config, setting))

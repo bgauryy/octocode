@@ -62,16 +62,8 @@ fn clasify_with_unreachable_provider_exits_by_failure_class() {
 }
 
 #[tokio::test]
-async fn clasify_rejects_removed_question_types_after_a_successful_ping() {
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/v1/models"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"models":[]})))
-        .expect(1)
-        .mount(&server)
-        .await;
+async fn clasify_rejects_removed_question_types_without_provider_requests() {
+    let server = wiremock::MockServer::start().await;
     let workspace = Workspace::new();
     let query = serde_json::json!({"queries":[{"operation":"evaluate","content":{"fact":"present"},"questions":{"q":{"type":"locate","instructions":"fact"}}}]});
     let mut command = workspace.cli();
@@ -79,11 +71,20 @@ async fn clasify_rejects_removed_question_types_after_a_successful_ping() {
         .env("OCTOCODE_CLASSIFICATION_API", "dummy")
         .env("OCTOCODE_CLASSIFICATION_API_HOST", server.uri())
         .env("OCTOCODE_BETA", "false")
-        .args(["clasify", &query.to_string()]);
+        .args(["clasify", &query.to_string(), "--json"]);
     let output = tokio::task::spawn_blocking(move || command.output().expect("clasify"))
         .await
         .unwrap();
     assert_eq!(exit_code(&output), Some(2), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("invalidInput"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "invalid input must not probe or invoke the provider"
+    );
 }
 
 #[test]

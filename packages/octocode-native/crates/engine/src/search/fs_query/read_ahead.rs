@@ -16,9 +16,9 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
-use crate::search::fs_resume::Child;
+use crate::types::fs_resume::Child;
 
 /// Directories a walk reads itself before it starts reading ahead: a small
 /// listing never pays for the workers.
@@ -36,8 +36,23 @@ pub(super) struct Listing {
     pub(super) entries: std::io::Result<(Vec<Child>, Vec<std::io::Error>)>,
 }
 
-/// Read `base` as the walk does.
+/// Read `base` as the walk does: with no deadline the read is never given up.
 pub(super) fn read_listing(base: &Path) -> Listing {
+    read_listing_until(base, None).unwrap_or_else(|| Listing {
+        read_at: None,
+        entries: Ok((Vec::new(), Vec::new())),
+    })
+}
+
+/// Entries a listing reads between two looks at its deadline: a clock read
+/// costs about what reading one entry does.
+const ENTRIES_PER_DEADLINE_CHECK: usize = 64;
+
+/// [`read_listing`], given up once the walk's `deadline` passes during it
+/// (`None`): a directory too large to list within the walk's time budget is
+/// left for the window that resumes the walk, which lists it whole.
+pub(super) fn read_listing_until(base: &Path, deadline: Option<Instant>) -> Option<Listing> {
+    let late = || deadline.is_some_and(|at| crate::scan_budget::walk_now() >= at);
     // Taken before the listing: a change after it moves the time on.
     let read_at = fs::symlink_metadata(base)
         .and_then(|metadata| metadata.modified())
@@ -52,7 +67,10 @@ pub(super) fn read_listing(base: &Path) -> Listing {
         // directory listing on common platforms.
         let mut children = Vec::new();
         let mut errors = Vec::new();
-        for entry in read_dir {
+        for (index, entry) in read_dir.enumerate() {
+            if index % ENTRIES_PER_DEADLINE_CHECK == ENTRIES_PER_DEADLINE_CHECK - 1 && late() {
+                return None;
+            }
             match entry {
                 Ok(entry) => children.push(Child {
                     name: entry.file_name(),
@@ -62,9 +80,23 @@ pub(super) fn read_listing(base: &Path) -> Listing {
             }
         }
         children.sort_unstable_by(|a, b| a.name.cmp(&b.name));
-        (children, errors)
+        Some((children, errors))
     });
-    Listing { read_at, entries }
+    let entries = match entries {
+        Ok(read) => Ok(read?),
+        Err(error) => Err(error),
+    };
+    Some(Listing { read_at, entries })
+}
+
+/// A directory the walk asked [`ReadAhead::take`] for.
+pub(super) enum Taken {
+    /// It was never queued: the walk reads it itself.
+    NotQueued,
+    Read(Listing),
+    /// The walk's deadline passed while its read was under way: the listing
+    /// is dropped when it arrives.
+    Late,
 }
 
 #[derive(Default)]
@@ -136,10 +168,11 @@ impl ReadAhead {
         }
     }
 
-    /// The listing of `dir` when it was queued, waiting for its read.
-    pub(super) fn take(&mut self, dir: &Path) -> Option<Listing> {
+    /// The listing of `dir` when it was queued, waiting for its read until
+    /// the walk's `deadline`.
+    pub(super) fn take(&mut self, dir: &Path, deadline: Option<Instant>) -> Taken {
         if !self.pending.remove(dir) {
-            return None;
+            return Taken::NotQueued;
         }
         let mut read = self
             .shared
@@ -148,13 +181,27 @@ impl ReadAhead {
             .unwrap_or_else(PoisonError::into_inner);
         loop {
             if let Some(listing) = read.done.remove(dir) {
-                return Some(listing);
+                return Taken::Read(listing);
+            }
+            let Some(at) = deadline else {
+                read = self
+                    .shared
+                    .arrived
+                    .wait(read)
+                    .unwrap_or_else(PoisonError::into_inner);
+                continue;
+            };
+            let left = at.saturating_duration_since(crate::scan_budget::walk_now());
+            if left.is_zero() {
+                read.abandoned.insert(dir.to_path_buf());
+                return Taken::Late;
             }
             read = self
                 .shared
                 .arrived
-                .wait(read)
-                .unwrap_or_else(PoisonError::into_inner);
+                .wait_timeout(read, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
         }
     }
 

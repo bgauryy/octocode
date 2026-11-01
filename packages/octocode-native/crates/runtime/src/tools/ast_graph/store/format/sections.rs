@@ -17,8 +17,8 @@ pub(super) fn read_strings(
     let mut previous = Vec::<u8>::new();
     let mut decoded_bytes = tables.strings.iter().map(String::len).sum::<usize>();
     for _ in 0..count {
-        let shared = strs.var()? as usize;
-        let suffix = strs.var()? as usize;
+        let shared = usize::try_from(strs.var()?).map_err(|_| "graph string table is corrupt")?;
+        let suffix = usize::try_from(strs.var()?).map_err(|_| "graph string table is corrupt")?;
         if shared > previous.len() {
             return Err("graph string table is corrupt".into());
         }
@@ -122,7 +122,7 @@ pub(super) fn read_edges(
     tables: &mut GraphTables,
     strings: u32,
 ) -> Result<(), String> {
-    let node_count = tables.nodes.len() as u32;
+    let node_count = tables.node_bound()?;
     let count = edges.count()?;
     if count > LIMITS.edges {
         return Err("graph edge table exceeds item limit; re-ingest a narrower scope".into());
@@ -164,7 +164,7 @@ pub(super) fn read_file_tables(
     tables: &mut GraphTables,
     strings: u32,
 ) -> Result<(), String> {
-    let node_count = tables.nodes.len() as u32;
+    let node_count = tables.node_bound()?;
     let string_ok = |id: u32| id < strings;
     let node_ok = |id: u32| id < node_count;
     let file_ok = |id: u32| {

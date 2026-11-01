@@ -193,11 +193,12 @@ impl KeyState {
         if !permits_free {
             return false;
         }
-        let spacing = config
-            .search_spacing
-            .max(config.graphql_spacing)
-            .max(config.write_spacing)
-            .as_millis() as u64;
+        let spacing = super::millis(
+            config
+                .search_spacing
+                .max(config.graphql_spacing)
+                .max(config.write_spacing),
+        );
         let facts = self.facts();
         facts.cooldown_until_ms <= now
             && facts.circuit_failures == 0

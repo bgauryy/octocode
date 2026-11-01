@@ -1,5 +1,22 @@
 //! Filesystem query options, entries and results.
 
+/// A listing rule the caller owns ([`FileSystemQueryOptions::lists`]):
+/// whether the entry `path` (a directory when the flag is set) at walk
+/// position `u32` (as [`FileSystemQueryResult::walk_position`] counts) is
+/// listed. It is asked once per fresh entry, so a resumed window asks only
+/// of its own.
+#[derive(Clone)]
+pub struct ListsEntry(pub std::sync::Arc<ListsRule>);
+
+/// The rule a [`ListsEntry`] holds.
+pub type ListsRule = dyn Fn(&std::path::Path, bool, u32) -> bool + Send + Sync;
+
+impl std::fmt::Debug for ListsEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ListsEntry")
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FileSystemQueryOptions {
     pub path: String,
@@ -12,7 +29,7 @@ pub struct FileSystemQueryOptions {
     /// Minimum depth where direct children are depth 1.
     pub min_depth: Option<u32>,
     /// Which ignore rules and dot entries the walk leaves out.
-    pub ignore: crate::search::walk::IgnorePolicy,
+    pub ignore: crate::types::IgnorePolicy,
     /// List entries one of these globs matches (`search::glob`: a glob
     /// without `/` matches a name at any depth, one with `/` the path below
     /// the root).
@@ -59,7 +76,7 @@ pub struct FileSystemQueryOptions {
     /// latency.
     pub stop_at_limit: Option<bool>,
     /// Store at most this many matching entries while still counting matches
-    /// when stop_at_limit is false.
+    /// when stop_at_limit is false. `None` stores every one.
     pub limit: Option<u32>,
     /// Wall time the walk may spend before it stops at the next entry and
     /// reports where in [`FileSystemQueryResult::time_cut`]. `None` walks
@@ -77,7 +94,11 @@ pub struct FileSystemQueryOptions {
     /// walk of the same shape at exactly that position, the resumed walk
     /// continues from it and replays nothing; otherwise it is ignored and
     /// the walk replays as above.
-    pub resume: Option<crate::search::fs_resume::WalkCursor>,
+    pub resume: Option<crate::types::fs_resume::WalkCursor>,
+    /// The caller's last listing rule, asked of an entry every other filter
+    /// lists: whether it is listed. It never prunes: the walk still enters
+    /// every directory it would enter. `None` lists all.
+    pub lists: Option<ListsEntry>,
     /// Keep a [`FileSystemQueryResult::window_cursor`] at the listed entry
     /// this many entries into the walk (the root entry is none), for a
     /// window that ends there ([`FileSystemQueryResult::end_at`]).
@@ -155,13 +176,13 @@ pub struct FileSystemQueryResult {
     /// the `skip_entries` that resumes at the first uninspected entry.
     pub walk_position: u32,
     /// What the walk counted, by position: [`Self::end_at`] recounts from it.
-    pub tally: crate::search::fs_resume::WalkTally,
+    pub tally: crate::types::fs_resume::WalkTally,
     /// Where a walk cut by time stood: its `time_cut` entry is the next one
     /// a resume inspects. `None` when the walk was not cut, or after
     /// [`Self::end_at`] moved the end elsewhere.
-    pub cursor: Option<crate::search::fs_resume::WalkCursor>,
+    pub cursor: Option<crate::types::fs_resume::WalkCursor>,
     /// Where the walk stood at the entry `window_rows` named.
-    pub window_cursor: Option<crate::search::fs_resume::WalkCursor>,
+    pub window_cursor: Option<crate::types::fs_resume::WalkCursor>,
 }
 
 impl FileSystemQueryResult {

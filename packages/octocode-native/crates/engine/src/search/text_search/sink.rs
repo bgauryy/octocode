@@ -1,10 +1,11 @@
 //! The `grep_searcher` sink that collects one file's matches, spans, contexts, and line weights.
 
 use super::mode::MatchWork;
+use crate::num::saturating_u32;
 use crate::search::relevance;
 use crate::search::text_parser::{FileEntry, RawMatch, strip_trailing_newline};
+use crate::text::interior_offset;
 use crate::text::utf8_offsets::byte_to_utf16_offset;
-use crate::text::{Decoded, interior_offset};
 use crate::types::TextSearchMatch;
 use aho_corasick::AhoCorasick;
 use grep_matcher::Matcher;
@@ -12,91 +13,14 @@ use grep_searcher::{Searcher, Sink, SinkContext, SinkMatch};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
+mod columns;
+use columns::{SpanColumns, block_text, span_value};
+
 /// Cap on emitted spans per file in only-matching mode, so a pathological
 /// file with a huge number of hits can't blow up the result. A long line is
 /// reachable whole below it; the true submatch count is still reported in
 /// stats.
 pub(super) const MAX_ONLY_MATCHING_PER_FILE: u32 = 200_000;
-
-/// A matched or context block's text as every reader decodes it
-/// ([`Decoded::interior`]: UTF-8, else Latin-1 or U+FFFD for invalid bytes),
-/// and whether it was not UTF-8. Raw byte offsets map into it with
-/// [`interior_offset`].
-fn block_text(bytes: &[u8]) -> (String, bool) {
-    let decoded = Decoded::interior(bytes);
-    (decoded.text.into_owned(), decoded.warning.is_some())
-}
-
-/// Maps raw submatch offsets in a matched block to decoded-text offsets and UTF-16
-/// columns. `find_iter` yields non-overlapping matches left to right, so a
-/// forward cursor keeps a line with k spans at O(line + k) instead of
-/// rescanning the prefix per span (O(line · k)). The line's UTF-8 validity is
-/// checked once; an invalid line keeps the exact per-span lossy mapping.
-struct SpanColumns<'a> {
-    pub(super) bytes: &'a [u8],
-    text: &'a str,
-    valid_utf8: bool,
-    cursor_byte: usize,
-    cursor_utf16: usize,
-    line: u32,
-    line_start: usize,
-}
-
-impl<'a> SpanColumns<'a> {
-    pub(super) fn new(bytes: &'a [u8], text: &'a str) -> Self {
-        Self {
-            bytes,
-            text,
-            valid_utf8: std::str::from_utf8(bytes).is_ok(),
-            cursor_byte: 0,
-            cursor_utf16: 0,
-            line: 0,
-            line_start: 0,
-        }
-    }
-
-    fn lossy(&self, raw: usize) -> usize {
-        if self.valid_utf8 {
-            raw.min(self.bytes.len())
-        } else {
-            interior_offset(self.bytes, raw)
-        }
-    }
-
-    /// Line delta, UTF-16 column and line-local byte offset of a span start.
-    pub(super) fn position(&mut self, start: usize) -> (u32, u32, u32) {
-        let target = self.text.floor_char_boundary(start);
-        if target < self.cursor_byte {
-            self.cursor_byte = 0;
-            self.cursor_utf16 = 0;
-            self.line = 0;
-            self.line_start = 0;
-        }
-        for (offset, ch) in self.text[self.cursor_byte..target].char_indices() {
-            if ch == '\n' {
-                self.line = self.line.saturating_add(1);
-                self.line_start = self.cursor_byte + offset + 1;
-                self.cursor_utf16 = 0;
-            } else {
-                self.cursor_utf16 += ch.len_utf16();
-            }
-        }
-        self.cursor_byte = target;
-        (
-            self.line,
-            self.cursor_utf16 as u32,
-            (target - self.line_start) as u32,
-        )
-    }
-}
-
-/// Slice the matched span `[start, end)` (byte offsets) out of `line` as a
-/// valid UTF-8 substring.
-fn span_value(line: &str, start: usize, end: usize) -> String {
-    let start = line.floor_char_boundary(start);
-    let end = line.ceil_char_boundary(end).max(start);
-    line[start..end].to_owned()
-}
 
 /// `grep_searcher::Sink` that accumulates matches/contexts for one file and,
 /// using the matcher, derives the 0-based UTF-16 column of the first submatch.
@@ -131,6 +55,18 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     /// A matched or context line was not UTF-8, so its value is decoded
     /// text, not verbatim bytes ([`block_text`]).
     pub(super) not_utf8: bool,
+    /// One matcher per searched term (empty: none counted).
+    pub(super) terms: &'a [M],
+    /// Per term of `terms`: its matches (when submatches are enumerated)
+    /// or the matched lines holding it.
+    pub(super) term_counts: Vec<u32>,
+    /// The search's test-code scope and this file's path: matched lines
+    /// on the other side are left out.
+    pub(super) test_code: Option<(&'a crate::types::TestCodeScope, &'a std::path::Path)>,
+    /// This file's test-only spans, read on its first matched line.
+    pub(super) test_spans: Option<std::sync::Arc<Vec<[u32; 2]>>>,
+    /// Matched lines the scope left out.
+    pub(super) test_lines_excluded: u32,
 }
 
 impl<'a, M: Matcher> CollectSink<'a, M> {
@@ -139,10 +75,15 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
         work: MatchWork,
         deadline: Option<Instant>,
         stop: &'a AtomicBool,
-        words: Option<&'a AhoCorasick>,
+        (words, terms): (Option<&'a AhoCorasick>, &'a [M]),
     ) -> Self {
         Self {
             words,
+            terms,
+            term_counts: vec![0; terms.len()],
+            test_code: None,
+            test_spans: None,
+            test_lines_excluded: 0,
             covered: 0,
             matcher,
             entry: FileEntry::new(),
@@ -162,6 +103,82 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
     }
 }
 
+impl<M: Matcher> CollectSink<'_, M> {
+    /// Whether a test-code scope keeps the matched block at 1-based
+    /// `line`; one it leaves out is counted. The file's spans are read on
+    /// its first matched line, so a file without hits is never parsed.
+    fn keeps_line(&mut self, line: u32, bytes: &[u8]) -> bool {
+        let Some((scope, path)) = self.test_code else {
+            return true;
+        };
+        // A test path is test code whole; any other file's spans say.
+        let spans = self.test_spans.get_or_insert_with(|| {
+            if (scope.test_path)(path) {
+                std::sync::Arc::new(vec![crate::types::WHOLE_FILE])
+            } else {
+                (scope.spans)(path)
+            }
+        });
+        let test = spans
+            .iter()
+            .any(|[start, end]| (*start..=*end).contains(&line));
+        if test == scope.keep_test {
+            return true;
+        }
+        let lines = saturating_u32(bytes.split_inclusive(|&b| b == b'\n').count().max(1));
+        self.test_lines_excluded = self.test_lines_excluded.saturating_add(lines);
+        false
+    }
+
+    /// One matched block's per-term counts. With enumerated submatches
+    /// (count-matches) each submatch counts once, for the first term whose
+    /// own match there is that submatch, else the first that matches from its
+    /// start (a block with no enumerable submatch counts for the first term
+    /// it holds). Count-lines enumerates none: each term the block holds
+    /// counts the block's lines.
+    fn count_terms(&mut self, bytes: &[u8], spans: &[(usize, usize)]) -> std::io::Result<()> {
+        let failed = |error: M::Error| std::io::Error::other(error.to_string());
+        let terms = self.terms;
+        if self.work.enumerate_submatches {
+            if spans.is_empty() {
+                for (index, term) in terms.iter().enumerate() {
+                    if term.is_match(bytes).map_err(failed)? {
+                        self.term_counts[index] = self.term_counts[index].saturating_add(1);
+                        break;
+                    }
+                }
+                return Ok(());
+            }
+            for &(start, end) in spans {
+                let mut exact = None;
+                let mut from_start = None;
+                for (index, term) in terms.iter().enumerate() {
+                    if let Some(found) = term.find_at(bytes, start).map_err(failed)?
+                        && found.start() == start
+                    {
+                        from_start.get_or_insert(index);
+                        if found.end() == end {
+                            exact = Some(index);
+                            break;
+                        }
+                    }
+                }
+                if let Some(index) = exact.or(from_start) {
+                    self.term_counts[index] = self.term_counts[index].saturating_add(1);
+                }
+            }
+            return Ok(());
+        }
+        let lines = saturating_u32(bytes.split_inclusive(|&b| b == b'\n').count().max(1));
+        for (index, term) in terms.iter().enumerate() {
+            if term.is_match(bytes).map_err(failed)? {
+                self.term_counts[index] = self.term_counts[index].saturating_add(lines);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl<M: Matcher> Sink for CollectSink<'_, M> {
     type Error = std::io::Error;
 
@@ -177,10 +194,14 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             self.deadline_hit = true;
             return Ok(false);
         }
-        let line_number = mat.line_number().unwrap_or(0) as u32;
+        let line_number = saturating_u32(mat.line_number().unwrap_or(0));
         let bytes = mat.bytes();
+        if !self.keeps_line(line_number, bytes) {
+            return Ok(true);
+        }
         let mut count: u32 = 0;
         let mut first_start = None;
+        let mut spans = Vec::new();
 
         if self.work.collect_spans {
             let (line_text, not_utf8) = block_text(bytes);
@@ -199,11 +220,13 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                         let value = span_value(&line_text, start, end);
                         let (line_delta, column, byte_offset) = columns.position(start);
                         let line = line_number.saturating_add(line_delta);
-                        let lines = value
-                            .as_bytes()
-                            .split_inclusive(|&b| b == b'\n')
-                            .count()
-                            .max(1) as u32;
+                        let lines = saturating_u32(
+                            value
+                                .as_bytes()
+                                .split_inclusive(|&b| b == b'\n')
+                                .count()
+                                .max(1),
+                        );
                         om.push(TextSearchMatch {
                             deferred: None,
                             line,
@@ -214,8 +237,6 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                             value,
                             count: None,
                             rank: None,
-                            original_chars: None,
-                            original_bytes: None,
                         });
                     } else {
                         self.span_cap_reached = true;
@@ -238,15 +259,17 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                     value: line_text,
                     count: None,
                     rank: None,
-                    original_chars: None,
-                    original_bytes: None,
                 });
             }
         } else if self.work.enumerate_submatches {
+            let counts_terms = !self.terms.is_empty();
             self.matcher
                 .find_iter(bytes, |matched| {
                     count = count.saturating_add(1);
                     first_start.get_or_insert(matched.start());
+                    if counts_terms {
+                        spans.push((matched.start(), matched.end()));
+                    }
                     true
                 })
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
@@ -254,17 +277,13 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                 let (line_text, not_utf8) = block_text(bytes);
                 self.not_utf8 |= not_utf8;
                 let line_text = strip_trailing_newline(line_text);
-                let column = byte_to_utf16_offset(
+                let column = saturating_u32(byte_to_utf16_offset(
                     &line_text,
                     interior_offset(bytes, first_start.unwrap_or(0)).min(line_text.len()),
-                ) as u32;
-                if let Some(limit) = self.work.deferred_snippet {
-                    let mut hit = crate::search::text_parser::line_match(
-                        &line_text,
-                        line_number,
-                        column,
-                        limit,
-                    );
+                ));
+                if self.work.deferred_line {
+                    let mut hit =
+                        crate::search::text_parser::line_match(&line_text, line_number, column);
                     hit.value = String::new();
                     hit.deferred = Some(0);
                     self.entry.prepared.push(hit);
@@ -278,6 +297,9 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             }
         }
 
+        if !self.terms.is_empty() {
+            self.count_terms(bytes, &spans)?;
+        }
         if self.work.weigh_lines {
             // Count-lines never enumerates submatches: find the first one here.
             let first = match first_start {
@@ -298,13 +320,13 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             }
         }
         self.submatches = self.submatches.saturating_add(count.max(1));
-        let lines = bytes.split_inclusive(|&b| b == b'\n').count().max(1) as u32;
+        let lines = saturating_u32(bytes.split_inclusive(|&b| b == b'\n').count().max(1));
         self.matched_lines = self.matched_lines.saturating_add(lines);
         Ok(true)
     }
 
     fn context(&mut self, _searcher: &Searcher, ctx: &SinkContext<'_>) -> std::io::Result<bool> {
-        let line_number = ctx.line_number().unwrap_or(0) as u32;
+        let line_number = saturating_u32(ctx.line_number().unwrap_or(0));
         let (line_text, not_utf8) = block_text(ctx.bytes());
         self.not_utf8 |= not_utf8;
         let line_text = strip_trailing_newline(line_text);

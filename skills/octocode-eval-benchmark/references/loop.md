@@ -32,7 +32,7 @@ flowchart TD
 - **Suite (middle)**: error-analyze traces; add or fix cases, criteria, failure categories; rebalance. KPI: top-failure coverage, regression stay-green rate.
 - **Meta (outer)**: authorized maintainer improves program, skill, graders, budgets, harness; new baseline and sealed final check; development traces only. KPI: fewer repeated failure signatures.
 - Before escalating, check development failures for sensor defects or missing coverage. Grow the suite only between experiments, from real failures.
-- Inner loop flat: missing cases go to suite level, a bad program to meta; with no new hypothesis or failure mode, mine traces for recurrent search patterns and change the search strategy in code or program, not only `program.md` wording.
+- Inner loop flat: missing cases go to suite level, a bad program to meta; with no new hypothesis or failure mode, mine traces for recurrent search patterns and change the search strategy in code or program, not only optimizer-instruction wording (`instructions/`).
 
 ## Diagnose failures
 

@@ -112,16 +112,22 @@ fn every_lead_of_a_battery_of_calls_validates_and_runs() {
     let file = root.0.join("f0.ts").to_string_lossy().into_owned();
     let rows = [
         json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"}}),
-        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"},"maxFiles":2}),
         json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"},"includeCaptures":false}),
         json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"nothing($A)"}}),
         json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"}}),
         json!({"operation":"symbols","path":dir}),
-        json!({"operation":"symbols","path":dir,"symbolFilter":{"terms":["C1"]},"maxFiles":2}),
         json!({"operation":"symbols","path":file}),
         json!({"operation":"syntaxTree","path":file}),
     ];
     for row in rows {
+        follow(&root.0, row, 3);
+    }
+    // Scans cut into two-file windows hand out their resume leads too.
+    let _window = crate::tools::ast_search::scan_window::test_window(2);
+    for row in [
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"}}),
+        json!({"operation":"symbols","path":dir,"symbolFilter":{"terms":["C1"]}}),
+    ] {
         follow(&root.0, row, 3);
     }
 }

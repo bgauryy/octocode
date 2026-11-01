@@ -174,3 +174,26 @@ fn numeric_union_selectors_share_literal_equality() {
         );
     }
 }
+
+#[test]
+fn integral_floats_convert_exactly_or_not_at_all() {
+    use super::literals::integral_number;
+    let float = |value: f64| serde_json::Number::from_f64(value).expect("finite");
+    let two_63 = 9_223_372_036_854_775_808_f64;
+    for (input, expected) in [
+        (3.0, Some(serde_json::Number::from(3_u64))),
+        (-0.0, Some(serde_json::Number::from(0_u64))),
+        (
+            9_007_199_254_740_993_f64,
+            Some(serde_json::Number::from(9_007_199_254_740_992_u64)),
+        ),
+        (two_63, Some(serde_json::Number::from(1_u64 << 63))),
+        (-two_63, Some(serde_json::Number::from(i64::MIN))),
+        (-3.0, Some(serde_json::Number::from(-3_i64))),
+        (18_446_744_073_709_551_616_f64, None),
+        (-2.0 * two_63, None),
+        (1.5, None),
+    ] {
+        assert_eq!(integral_number(&float(input)), expected, "{input}");
+    }
+}

@@ -67,10 +67,11 @@ pub(super) fn escapes_root(file: &str, spec: &str) -> bool {
     if !path.starts_with("./") && !path.starts_with("../") {
         return false;
     }
-    let mut depth = dirname(file)
+    let depth = dirname(file)
         .split('/')
         .filter(|s| !s.is_empty() && *s != ".")
-        .count() as i64;
+        .count();
+    let mut depth = crate::num::i64_of_usize(depth);
     for segment in path.split('/') {
         match segment {
             "" | "." => {}
@@ -137,13 +138,17 @@ pub(super) fn record_resolution(
         && is_non_code_specifier(spec)
     {
         b.count_import(ImportOutcome::NonCode, file, line, spec);
+    } else if lang != Linker::Python && unscanned_on_disk(&b.root, file, spec) {
+        b.count_import(ImportOutcome::Unscanned, file, line, spec);
     } else if spec.starts_with('.')
         || spec.starts_with('/')
         || (lang == Linker::Rust && rust_internal_specifier(spec))
         || internal_bare
     {
         b.count_import(ImportOutcome::UnresolvedInternal, file, line, spec);
-        let message = if escapes_root(file, spec) {
+        let message = if escapes_root(file, spec)
+            || (lang == Linker::Rust && rust_super_escapes_root(file, spec))
+        {
             format!("{OUTSIDE_ROOT} {spec:?} (unresolvedInternal).")
         } else {
             format!("Cannot link import {spec:?} (unresolvedInternal).")
@@ -159,6 +164,16 @@ pub(super) fn record_resolution(
         return true;
     }
     false
+}
+
+/// Whether relative `spec` from `file` names a file that exists on disk
+/// under `root`, the snapshot root, though the scan does not hold it
+/// (`../dist/cli.js` build output, `../assets/schema.sql`). A path that
+/// climbs above the root stays an outside-root gap: the scope is the cause.
+fn unscanned_on_disk(root: &std::path::Path, file: &str, spec: &str) -> bool {
+    let path = spec.split(['?', '#']).next().unwrap_or(spec);
+    path.starts_with('.')
+        && join_within_root(dirname(file), path).is_some_and(|rel| root.join(rel).is_file())
 }
 
 pub(super) fn resolve(

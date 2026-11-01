@@ -2,7 +2,7 @@ use super::*;
 use octocode_contract_types::LocalFetchQuery;
 
 #[test]
-fn canonical_match_wire_keeps_source_coordinates_and_counters() {
+fn canonical_match_wire_keeps_source_coordinates() {
     let fixture = Fixture::new();
     let path = fixture.write("a.txt", "zero\none\nneedle\nthree\nfour\n");
     let req = qj(
@@ -18,8 +18,7 @@ fn canonical_match_wire_keeps_source_coordinates_and_counters() {
     );
     assert_eq!(wire["matchedLines"], serde_json::json!([3]));
     assert_eq!(wire["selectedMatchCount"], 1);
-    assert_eq!(wire["sourceBytes"], 27);
-    assert_eq!(wire["returnedBytes"], 17);
+    assert!(wire.get("sourceBytes").is_none() && wire.get("returnedBytes").is_none());
     assert_eq!(wire["totalLines"], 5);
     crate::tools::test_support::published(crate::id::ToolId::LocalFetch, &wire);
 }

@@ -23,9 +23,6 @@ impl ToolOutput for Output {
             ErrorCode::SymbolsUnsupported => {
                 "Use localFetch view:symbols for document headings/keys or localSearch for text. Set parser or parserGlobs only for source written in a supported grammar."
             }
-            ErrorCode::LanguageFileRequired => {
-                "For a directory, drop parser: each extension picks its grammar; parserGlobs overrides (e.g. {cpp:[\"**/*.h\"]})."
-            }
             ErrorCode::LanguageDirectoryRequired => {
                 "For a single file, use parser instead of parserGlobs."
             }
@@ -46,8 +43,6 @@ pub(super) fn unsupported_read(path: &str) -> Value {
 
 /// Publish explicitly typed producer calls in their canonical channels.
 pub(super) fn finish(mut data: Value) -> Value {
-    if let Some(calls) = data.as_object_mut().and_then(|row| row.remove("calls")) {
-        crate::response::result::attach_calls(&mut data, calls);
-    }
+    crate::response::result::finish_calls(&mut data);
     data
 }

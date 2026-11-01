@@ -13,6 +13,6 @@ node skills-dev/octocode-dev/scripts/dev.mjs verify      # full repo contract
 | Folder | Contents |
 |---|---|
 | [`scripts/`](scripts/README.md) | `dev.mjs` task runner, workspace health, docs gate, dependency dedupe, dev setup, publish guard, build helpers, tool inventory |
-| [`docs/`](docs/DEVELOPMENT.md) | Developer docs: [development](docs/DEVELOPMENT.md), [adding config](docs/ADDING_CONFIG.md), [release](docs/RELEASE.md), [tool quality bar](docs/TOOL_QUALITY.md) |
+| [`docs/`](docs/DEVELOPMENT.md) | Developer docs: [development](docs/DEVELOPMENT.md), [adding config](docs/ADDING_CONFIG.md), [release](docs/RELEASE.md), [tool quality bar](docs/TOOL_QUALITY.md), [scraping maintenance](docs/SCRAPING_MAINTENANCE.md) |
 
 User-facing docs stay in the repository `docs/` folder (`<repo>/docs/README.md`).

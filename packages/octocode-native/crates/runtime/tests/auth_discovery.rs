@@ -51,12 +51,12 @@ async fn mcp_runtime_discovers_once_and_pins_credential_across_github_requests()
     config.env.remove("GITHUB_TOKEN");
     config.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;
     let runtime =
-        octocode_native::runtime::ToolRuntime::with_limits(config, crate::support::FIXTURE_LIMITS)
+        octocode_native::runtime::ToolRuntime::with_limits(config, crate::support::PROVIDER_LIMITS)
             .unwrap();
     let result = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"readme.txt","ref":"main","forceRefresh":true}),
+        json!({"owner":"a","repo":"b","path":"readme.txt","ref":"main","refresh":true}),
     )
     .await
     .unwrap();
@@ -163,10 +163,9 @@ async fn rejected_stored_token_falls_back_to_gh_in_a_running_runtime() {
     config.env.remove("GITHUB_TOKEN");
     config.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;
     let runtime =
-        octocode_native::runtime::ToolRuntime::with_limits(config, crate::support::FIXTURE_LIMITS)
+        octocode_native::runtime::ToolRuntime::with_limits(config, crate::support::PROVIDER_LIMITS)
             .unwrap();
-    let query =
-        json!({"owner":"a","repo":"b","path":"readme.txt","ref":"main","forceRefresh":true});
+    let query = json!({"owner":"a","repo":"b","path":"readme.txt","ref":"main","refresh":true});
     let rejected = call(&runtime, "ghGetFileContent", query.clone())
         .await
         .unwrap();

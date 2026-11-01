@@ -47,7 +47,7 @@ fn deeply_nested_symbols_page_every_alias_and_preserve_required_identity() {
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":data})],
         &[None],
-        Some(ToolId::AstSearch),
+        ToolId::AstSearch,
     )
     .plan(700, &CancellationToken::new())
     .expect("valid plan");

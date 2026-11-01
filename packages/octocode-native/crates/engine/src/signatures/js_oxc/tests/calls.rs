@@ -18,6 +18,21 @@ fn preserves_super_receiver_identity() {
     );
 }
 
+/// ES private methods are called as `this.#name()` and `this?.#name()`; both
+/// are call sites with the `#` name the declaration carries (issue #478).
+#[test]
+fn private_method_calls_are_call_sites() {
+    let facts = graph(
+        "class A {\n  #priv() {}\n  #opt() {}\n  pub() {}\n  run() { this.#priv(); this?.#opt(); this.pub(); }\n}\n",
+        "private.ts",
+    );
+    let callees = calls_of_kind(&facts, "calls")
+        .into_iter()
+        .map(|(_, callee, _)| callee)
+        .collect::<Vec<_>>();
+    assert_eq!(callees, vec!["this.#priv", "this.#opt", "this.pub"]);
+}
+
 #[test]
 fn extracts_calls_nested_in_return_binary_and_args() {
     let src = "export function run(x: number) {\n  return helper(x) + other(x);\n}\nfunction helper(n: number) { return n; }\nfunction other(n: number) { return n; }\n";

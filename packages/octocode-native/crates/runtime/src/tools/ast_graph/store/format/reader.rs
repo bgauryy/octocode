@@ -3,7 +3,10 @@
 use super::*;
 
 pub(super) fn unzigzag(value: u64) -> i64 {
-    ((value >> 1) as i64) ^ -((value & 1) as i64)
+    // `value >> 1` fits in 63 bits, so the reinterpretation is exact; a set
+    // low bit marks a negative value (`!half` is `half ^ -1`).
+    let half = (value >> 1).cast_signed();
+    if value & 1 == 0 { half } else { !half }
 }
 
 // ── Decoding ────────────────────────────────────────────────────────────────
@@ -126,13 +129,13 @@ pub(super) fn decode_with(
 ) -> Result<(GraphTables, String), String> {
     cancel.check()?;
     if bytes.len() < HEADER_LEN || &bytes[..8] != MAGIC {
-        return Err("not an octocode graph (bad magic); re-run `octocode graph ingest`".into());
+        return Err("not an octocode graph (bad magic); rebuild it with graphBuild".into());
     }
     let mut header = Reader::new(&bytes[8..HEADER_LEN], "header");
     let version = header.fixed_u32()?;
     if version != FORMAT_VERSION {
         return Err(format!(
-            "graph format v{version} is not supported by this octocode (v{FORMAT_VERSION}); re-run `octocode graph ingest`"
+            "graph format v{version} is not supported by this octocode (v{FORMAT_VERSION}); rebuild it with graphBuild"
         ));
     }
     let section_count = header.fixed_u32()? as usize;
@@ -149,7 +152,10 @@ pub(super) fn decode_with(
         .ok_or("graph directory is truncated")?;
     let digest = Sha256::digest(directory);
     if digest.as_slice() != stored {
-        return Err("graph checksum mismatch (file is corrupt or truncated); re-run `octocode graph ingest`".into());
+        return Err(
+            "graph checksum mismatch (file is corrupt or truncated); rebuild it with graphBuild"
+                .into(),
+        );
     }
     let sections = Sections(read_section_table(body, section_count)?);
     let tables = decode_tables(&sections, scope, cancel)?;
@@ -165,7 +171,7 @@ pub(super) fn decode_tables(
     read_strings(&mut sections.get(b"STRS", "STRS")?, &mut tables, &LIMITS)?;
     // Records and lookup indexes reference only these strings; occurrence
     // evidence may also reference the `STRE` strings that follow them.
-    let records = tables.strings.len() as u32;
+    let records = tables.string_bound()?;
     read_nodes(&mut sections.get(b"NODE", "NODE")?, &mut tables)?;
     if scope == Scope::Files {
         read_file_tables(sections, &mut tables, records)?;
@@ -188,7 +194,7 @@ pub(super) fn decode_tables(
     )?;
     if scope == Scope::Full {
         read_strings(&mut sections.get(b"STRE", "STRE")?, &mut tables, &LIMITS)?;
-        let strings = tables.strings.len() as u32;
+        let strings = tables.string_bound()?;
         super::evidence::read_occurrences(sections, &mut tables, strings)?;
     }
     tables.index_adjacency();

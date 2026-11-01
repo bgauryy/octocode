@@ -9,7 +9,7 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
-async fn malformed_remote_regex_keeps_original_error_and_required_file_path() {
+async fn malformed_remote_regex_keeps_the_original_error() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
@@ -26,7 +26,7 @@ async fn malformed_remote_regex_keeps_original_error_and_required_file_path() {
         assert_eq!(row_status(&out), "error");
         let data = row_data(&out);
         assert_eq!(data["errorCode"], "invalidPattern", "{data}");
-        assert_eq!(data["path"], "README.md");
+        assert!(data.get("path").is_none(), "{data}");
         assert!(
             data["error"]
                 .as_str()
@@ -73,7 +73,7 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
         let outcome = call(
             &runtime,
             "ghGetFileContent",
-            json!({"owner": "a", "repo": "b", "path": name, "ref": sha, "forceRefresh": true}),
+            json!({"owner": "a", "repo": "b", "path": name, "ref": sha, "refresh": true}),
         )
         .await
         .expect("row-level error");
@@ -128,7 +128,7 @@ async fn anonymous_rate_limit_advises_authentication() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner": "a", "repo": "b", "path": "x.rs", "ref": sha, "forceRefresh": true}),
+        json!({"owner": "a", "repo": "b", "path": "x.rs", "ref": sha, "refresh": true}),
     )
     .await
     .expect("row-level error");

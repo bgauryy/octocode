@@ -13,7 +13,7 @@ fn every_code_fragment_keeps_optional_provenance_and_evidence_qualifiers() {
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":{"files":[file]}})],
         &[None],
-        Some(crate::id::ToolId::GhSearchCode),
+        crate::id::ToolId::GhSearchCode,
     )
     .plan(1000, &CancellationToken::new())
     .expect("valid plan");
@@ -54,7 +54,7 @@ fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
         &options,
         Vec::new(),
         &[],
-        None,
+        crate::id::ToolId::LocalSearch,
     );
     assert!(pagination.total_pages > 2 && pagination.has_more);
     let row = &first["results"][0];
@@ -79,7 +79,7 @@ fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
             &options,
             Vec::new(),
             &[],
-            None,
+            crate::id::ToolId::LocalSearch,
         );
         for row in envelope["results"].as_array().unwrap() {
             for file in row["data"]["files"].as_array().unwrap() {
@@ -117,7 +117,7 @@ fn later_slices_of_an_element_do_not_repeat_its_description() {
                     &options,
                     Vec::new(),
                     &[],
-                    Some(crate::id::ToolId::GhGetHistoryItem),
+                    crate::id::ToolId::GhGetHistoryItem,
                 )
                 .1
                 .snapshot
@@ -129,7 +129,7 @@ fn later_slices_of_an_element_do_not_repeat_its_description() {
             &page,
             Vec::new(),
             &[],
-            Some(crate::id::ToolId::GhGetHistoryItem),
+            crate::id::ToolId::GhGetHistoryItem,
         );
         let pr = &envelope["results"][0]["data"]["pullRequests"][0];
         assert_eq!(pr["number"], 7, "{envelope:?}");
@@ -172,7 +172,7 @@ fn rows_scope_never_repeats_secondary_evidence_per_fragment() {
                 &options,
                 Vec::new(),
                 &[],
-                None,
+                crate::id::ToolId::GhGetHistoryItem,
             );
             assert!(first.total_pages > 1);
             let (mut actual_commits, mut actual_files) = (Vec::new(), Vec::new());
@@ -187,7 +187,7 @@ fn rows_scope_never_repeats_secondary_evidence_per_fragment() {
                     &options,
                     Vec::new(),
                     &[],
-                    None,
+                    crate::id::ToolId::GhGetHistoryItem,
                 );
                 for row in envelope["results"].as_array().unwrap() {
                     actual_commits.extend(
@@ -232,7 +232,7 @@ fn rows_scope_preserves_dominant_context_with_complete_bounded_pages() {
         &options,
         Vec::new(),
         &[],
-        None,
+        crate::id::ToolId::LocalSearch,
     );
     let mut seen = Vec::new();
     assert!(pagination.total_pages > 1);
@@ -246,7 +246,7 @@ fn rows_scope_preserves_dominant_context_with_complete_bounded_pages() {
             },
             Vec::new(),
             &[],
-            None,
+            crate::id::ToolId::LocalSearch,
         );
         let envelope = Value::Object(envelope);
         assert!(octocode_engine::json_size::utf16_units(&envelope).unwrap() <= 600);

@@ -2,7 +2,7 @@
 
 Root automation for the Octocode monorepo. Call a script directly only for a flag that `dev.mjs` does not expose.
 
-`skills:check` and `test:ci` discover `*.test.mjs` files recursively under `skills/`, `skills-beta/`, and `skills-dev/`. An empty suite fails these tasks before Node can auto-discover other repository tests. The `skills/common` workspace and this dev skill run their own tests through their workspace gates. The ignored local `octocode-orchestrator-local-worker` skill is not part of these shipped roots; its model-backed eval is opt-in and does not run in CI.
+`skills:check` and `test:ci` discover `*.test.mjs` files recursively under every collection in `skills/common/build.mjs` `COLLECTIONS` (`skills/`, `skills-dev/`). An empty suite fails these tasks before Node can auto-discover other repository tests. The `skills/common` workspace and this dev skill run their own tests through their workspace gates. The ignored local `octocode-orchestrator-local-worker` skill is not part of these shipped roots; its model-backed eval is opt-in and does not run in CI.
 
 | Script | Does | Run via |
 |---|---|---|
@@ -19,8 +19,8 @@ Root automation for the Octocode monorepo. Call a script directly only for a fla
 | [core-lint-sync.mjs](core-lint-sync.mjs) | Fails when the sibling core's copies drift from this repo's canonical lint setup: `scripts/oxlint-baseline.mjs` byte-identical, `.oxlintrc.json` with the same rules (layout keys and `packages/...` overrides excepted). Skips with a note when `../octocode-mcp-host` is absent. | `dev.mjs verify`; tests: [core-lint-sync.test.mjs](core-lint-sync.test.mjs) |
 | [package-build.mjs](package-build.mjs) | Build helpers shared by the `octocode` and `octocode-mcp` builds: the bundle's external list (Node built-ins plus published runtime dependencies), the build-time check that every external runtime import is a declared dependency, and copying the repo `docs/` into the package output. | Imported by `packages/octocode/build.mjs` and `packages/octocode-mcp/build.mjs`; package `build` scripts run `package-build.mjs docs <outDir>` |
 | [docs-verify.mjs](docs-verify.mjs) | Validates links, workflow references, the public tool catalog, configuration keys, and publishing contracts. | `node skills-dev/octocode-dev/scripts/dev.mjs docs:verify` |
-| [check-research-guidance.mjs](check-research-guidance.mjs) | Validates every `octocode` example in `skills/octocode-research` (JSON `{tool,query}` blocks and CLI lines) against the live tool schemas; needs the built CLI. | Last step of `dev.mjs verify`; `node skills-dev/octocode-dev/scripts/check-research-guidance.mjs [--self-test]` |
-
+| [check-research-guidance.mjs](check-research-guidance.mjs) | Validates every `octocode` example in the [guidance files](lib/guidance-files.mjs) (every skill, `docs/`, package READMEs and docs; JSON `{tool,query}` blocks and CLI lines) against the live tool schemas; needs the built CLI. | Last step of `dev.mjs verify`; `node skills-dev/octocode-dev/scripts/check-research-guidance.mjs [--self-test]` |
+| [check-vocabulary.mjs](check-vocabulary.mjs) | Checks each inline-code `parent.child` path in the same guidance files against the [contract vocabulary](lib/contract-vocabulary.mjs): tool input, query and output schemas, continuation channels, paths the contract text names, and config keys. A known parent with an undeclared child (the retired next.page, now `next.nextPage`) fails. Paths right in another vocabulary are listed with a reason in [vocabulary-exceptions.json](vocabulary-exceptions.json); an entry that matches nothing fails. Offline. | `dev.mjs docs:verify`; tests: [check-vocabulary.test.mjs](check-vocabulary.test.mjs) |
 | [artifact-freshness.mjs](artifact-freshness.mjs) | Checks the embedded version and contract fingerprint of staged native artifacts. | Imported by workspace health; tests: [artifact-freshness.test.mjs](artifact-freshness.test.mjs) |
 | [brew-formula.mjs](brew-formula.mjs) | Renders the Homebrew formula from published npm platform payloads. | `node skills-dev/octocode-dev/scripts/dev.mjs brew:formula [version] [--out FILE]`; [smoke-query regression](brew-formula.test.mjs) executes the generated request against the built CLI during `dev.mjs verify` |
 | [rust-quality.mjs](rust-quality.mjs) | Opt-in Rust quality tools from `packages/octocode-native/dev-tools.json`: pinned-version inventory, `pins <tool...>` (the `name@version` list every CI install reads), libFuzzer campaigns, the selected Miri tests, cargo-llvm-lines. Never installs anything. | `dev.mjs rust:tools`, `fuzz:smoke`, `fuzz`, `miri`, `llvm-lines`; tests: [rust-quality.test.mjs](rust-quality.test.mjs) |
@@ -31,7 +31,7 @@ Shared script support: [entry-point detection](lib/entrypoint.mjs) preserves inv
 
 `workspace-health.mjs` parses its mode and delegates to [workspace discovery and build order](lib/workspaces.mjs), [contract checks](lib/workspace-checks.mjs) and [script runs](lib/workspace-run.mjs).
 
-Related checks: [publish guard](prepublish.test.mjs), [symlinked entry points](entry-symlink.test.mjs).
+Related checks: [publish guard](prepublish.test.mjs), [symlinked entry points](entry-symlink.test.mjs), [native `target/debug` size for `build:dev`'s cache cleanup](native-target.test.mjs).
 
 ## Notes
 

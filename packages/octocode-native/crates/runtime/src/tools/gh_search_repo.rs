@@ -11,7 +11,7 @@ mod rows;
 #[cfg(test)]
 mod tests;
 
-use crate::id::{ToolId, gh_search_repo_policy::PAGE_SIZE};
+use crate::id::ToolId;
 use crate::response::result::{Continuation, ToolData};
 use crate::tools::gh_shared::{
     GhFailure, SearchWindow, add_next, pick_rows, rerun_renamed, search_failure,
@@ -48,13 +48,10 @@ pub async fn run(
             search_failure(error),
             ToolId::GhSearchRepo,
             query,
-            PAGE_SIZE,
+            access::limit(query),
+            access::owner(query),
             access::repo(query),
         );
-        let failure = match access::owner(query) {
-            Some(owner) => crate::tools::gh_shared::with_owner_listing(failure, owner),
-            None => failure,
-        };
         // The message names the login; no repair lead exists for it.
         match missing_owner {
             Some(owner) => GhFailure {
@@ -77,7 +74,7 @@ pub(crate) async fn execute(
     }
     crate::tools::gh_shared::reject_boolean_keywords(&access::keywords(query))?;
     let current = access::page(query);
-    let per = PAGE_SIZE;
+    let per = access::limit(query);
     let fetched = fetch_page(provider, query, current, per, context).await;
     // GitHub search does not follow renames: a search inside one
     // repository that a rename could explain reruns once under the
@@ -97,9 +94,9 @@ pub(crate) async fn execute(
     let (data, listing) = fetched?;
     let page = RepoPage::of(&data, listing.as_ref(), current, per);
     let mut leads = top_leads(data.items.first());
-    // With archive exclusion, a listing that skipped archived repositories
+    // With archive exclusion, a listing that left out archived repositories
     // offers a fresh search whose typed archive filter includes them.
-    if access::archive(query) == GitHubArchive::Exclude && page.archived_skipped > 0 {
+    if access::archive(query) == GitHubArchive::Exclude && page.archive_filtered > 0 {
         leads.insert(
             leads.len().min(1),
             ("includeArchived", include_archived(query)),
@@ -216,7 +213,7 @@ async fn exact_repository(
     if let Some(to) = renamed {
         value["warnings"] = json!([crate::tools::gh_shared::renamed_warning(owner, repo, &to)]);
     }
-    crate::tools::gh_shared::finish_calls(&mut value);
+    crate::response::result::finish_calls(&mut value);
     Ok(ToolData::from(value))
 }
 

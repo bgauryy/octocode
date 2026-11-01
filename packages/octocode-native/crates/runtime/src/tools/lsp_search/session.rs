@@ -195,7 +195,12 @@ pub(super) async fn open_session(
             "The language server is still indexing the project; semantic results are not ready yet.",
             true,
         );
-        partial_with_related_rerun(&mut row, query, "languageServerIndexing", &[]);
+        partial_with_related_rerun(
+            &mut row,
+            query,
+            crate::response::paging::PartialReason::LanguageServerIndexing,
+            &[],
+        );
         return Err(receipt::naming(
             Exit::Row(row),
             receipt::server_receipt(&config, false),
@@ -317,7 +322,10 @@ pub(super) fn start_failure(
 }
 
 /// The first didOpen of a document can trigger a project load (tsserver
-/// starts one only then); wait for it so queries do not race it.
+/// starts one only then); wait for it so queries do not race it. An
+/// outline (`documentSymbols`) is the file's own syntax, answered without
+/// the project (typescript-language-server routes it to its syntax server),
+/// so it syncs without that wait and reports no open readiness.
 pub(super) async fn sync_document(
     query: &LspSearchQuery,
     target: &Target,
@@ -327,12 +335,19 @@ pub(super) async fn sync_document(
     cancel: &dyn CancellationCheck,
 ) -> Result<Option<String>, Exit> {
     if let Some(document) = document {
-        return match cancellable(
-            cancel,
-            client.open_document_and_wait(target.path.clone(), &document.content, None, None),
-        )
-        .await?
-        {
+        let path = target.path.clone();
+        let synced = if lsp_search_query::op(query) == Op::DocumentSymbols {
+            cancellable(cancel, client.open_document(path, &document.content))
+                .await?
+                .map(|()| None)
+        } else {
+            cancellable(
+                cancel,
+                client.open_document_and_wait(path, &document.content, None, None),
+            )
+            .await?
+        };
+        return match synced {
             Ok(readiness) => Ok(readiness),
             Err(error) => Err(target.fail(
                 query,

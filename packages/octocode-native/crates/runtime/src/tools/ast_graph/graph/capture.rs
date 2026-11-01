@@ -2,7 +2,6 @@ use super::*;
 use octocode_engine::text::analysis::{
     MapBudget, MapLimits, ObservedSpan, OriginProjection, SourceDescriptors,
 };
-use std::time::Instant;
 
 type SpanKey = (u32, u32, u32);
 
@@ -39,12 +38,11 @@ pub(crate) fn key(span: ObservedSpan) -> SpanKey {
 pub(super) fn capture(
     view: &octocode_engine::fact_scan::GraphFactsView<'_>,
     cancel: &dyn CancellationCheck,
-    limits: &super::super::limits::Limits,
 ) -> Result<CapturedSource, ToolError> {
     let stop = || cancel.check().is_err();
     let mut budget = MapBudget::new(
         MapLimits::default(),
-        Instant::now() + limits.file_map_deadline,
+        crate::execution::cancel::deadline_of(cancel),
         &stop,
     );
     let mut keys = Vec::new();

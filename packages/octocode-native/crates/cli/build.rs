@@ -8,6 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for path in [
         repository.join("skills"),
         repository.join("packages/octocode/scripts/stage-skills.mjs"),
+        repository.join("packages/octocode-config/src"),
         generator.clone(),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());

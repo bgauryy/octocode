@@ -46,12 +46,18 @@ pub(crate) fn rate_limited_error(message: &str, rate_limit: RateLimit) -> Provid
 pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_millis() as u64)
+        .map(millis)
         .unwrap_or(0)
 }
 
+/// Whole milliseconds of `duration`, saturating at `u64::MAX` (~584 million
+/// years: no wait or epoch reaches it).
+pub(crate) fn millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
 pub(crate) fn ceil_secs(duration: Duration) -> u64 {
-    duration.as_millis().div_ceil(1000) as u64
+    u64::try_from(duration.as_millis().div_ceil(1000)).unwrap_or(u64::MAX)
 }
 
 async fn acquire(

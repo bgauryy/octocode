@@ -271,7 +271,6 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
                 &crate::execution::cancel::NeverCancel,
                 None,
                 None,
-                None,
             )
             .expect("lead runs")
             .files

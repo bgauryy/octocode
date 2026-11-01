@@ -49,7 +49,7 @@ impl SlotPlan {
     ) -> Self {
         Self {
             group,
-            spacing: config.spacing(group).as_millis() as u64,
+            spacing: super::millis(config.spacing(group)),
             window: window && config.code_search_per_minute != usize::MAX,
             per_minute: config.code_search_per_minute,
             cap,

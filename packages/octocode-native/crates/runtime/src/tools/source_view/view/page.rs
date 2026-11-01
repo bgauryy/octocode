@@ -37,15 +37,11 @@ pub(super) fn cut_page<'a>(
     let q = std::borrow::Cow::Borrowed(q);
     // A configured response window owns the page budget. Keep the smaller
     // fallback for direct callers without one and any explicit preview.
-    let line_page_bytes =
-        facts
-            .window
-            .map_or(super::super::pagination::LINE_PAGE_BYTES, |window| {
-                crate::response::page_windows::page_budget(
-                    Some(window),
-                    &crate::response::result::query_row(q.as_ref(), &[]),
-                )
-            });
+    let line_page_bytes = facts
+        .window
+        .map_or(super::super::pagination::LINE_PAGE_BYTES, |window| {
+            crate::response::page_windows::page_budget(Some(window))
+        });
     let page_q = q.as_ref();
     // A byte page of a streamed window is cut at its offset in the window.
     let in_window = facts.byte_origin.map(|origin| origin.within(page_q));
@@ -188,9 +184,6 @@ pub(super) fn page_result(
         modified: (view.mode != Some(ReadView::Symbols))
             .then(|| facts.modified.clone())
             .flatten(),
-        source_chars: Some(source.chars),
-        source_bytes: Some(source.bytes),
-        returned_chars: Some(chars),
         returned_bytes: Some(ret_bytes),
         returned_lines: Some(ret_lines),
         pagination: Some(pg.pagination),

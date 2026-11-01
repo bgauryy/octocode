@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import { fail } from './lib/fail.mjs';
+import { loadOctocodeEnv } from './lib/config-env.mjs';
+
+loadOctocodeEnv();
 
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {

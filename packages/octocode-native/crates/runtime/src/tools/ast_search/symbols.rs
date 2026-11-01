@@ -1,9 +1,8 @@
 use crate::cache::CacheClass;
-use crate::id::ToolId;
 use crate::response::result::ToolError;
 use crate::{execution::cancel::CancellationCheck, policy::path::PathPolicy};
 use octocode_contract_types::{AstSearchQuerySymbols, ErrorCode};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 mod directory;
 mod empty_outline;
@@ -40,7 +39,10 @@ pub(crate) mod ast_search_query_symbols {
     pub(crate) fn language_globs(
         query: &AstSearchQuerySymbols,
     ) -> Option<BTreeMap<String, Vec<String>>> {
-        query.parser_globs.as_ref().map(super::super::parser_globs)
+        query
+            .parser_globs
+            .as_ref()
+            .map(crate::tools::ast_rule::parser_globs)
     }
     pub(crate) fn kinds(query: &AstSearchQuerySymbols) -> Option<Vec<String>> {
         (!query.symbol_kinds.is_empty())
@@ -48,11 +50,6 @@ pub(crate) mod ast_search_query_symbols {
     }
     pub(crate) fn exclude(query: &AstSearchQuerySymbols) -> Option<Vec<String>> {
         (!query.exclude.is_empty()).then(|| query.exclude.clone())
-    }
-    /// The caller's file scan cap; unset scans the scope within the scan
-    /// time budget.
-    pub(crate) fn max_files(query: &AstSearchQuerySymbols) -> Option<u32> {
-        query.max_files.map(|value| u32_of(value.get()))
     }
     /// Leading files (walk order) an earlier window outlined.
     pub(crate) fn scan_offset(query: &AstSearchQuerySymbols) -> u32 {
@@ -118,7 +115,9 @@ fn run_symbols(
     if meta.is_file() {
         let row_paths = super::RowPaths::new(paths, &p.canonical, true);
         let display_path = row_paths.delivered(&p.canonical.to_string_lossy());
-        let outline = match outline_file(q, &p.canonical, &display_path, cancel)? {
+        let scoped = crate::tools::test_code::Scoped::of(q.test_code, paths);
+        let outline = match outline_file(q, (&p.canonical, &display_path), scoped.as_ref(), cancel)?
+        {
             Ok(outline) => outline,
             Err(terminal) => return Ok(terminal),
         };
@@ -134,7 +133,8 @@ fn run_symbols(
     // unchanged time.
     let mapped = mapped_files(q, &p.canonical)?;
     // One walk serves the memo fingerprint and, on a miss, the outline scan.
-    let walk = walk_directory(q, &p.canonical, paths, cancel)?;
+    let scoped = crate::tools::test_code::Scoped::of(q.test_code, paths);
+    let walk = walk_directory(q, &p.canonical, (paths, scoped.as_ref()), cancel)?;
     let (memo_key, settled) = directory_memo_key(q, &p.canonical, &walk);
     let other_key = || with_settled(memo_key.clone(), !settled);
     let hit = if ast_search_query_symbols::page(q) > 1 {
@@ -149,12 +149,14 @@ fn run_symbols(
     if let Some(hit) = hit {
         let mut page = render_page(q, &hit.value, row_paths, response_window, cancel)?;
         note_skipped(q, &p.canonical, mapped.as_ref(), paths, cancel, &mut page);
+        note_directory_parser(q, &mut page);
         return Ok(page);
     }
-    let outline = outline_walked(q, &p.canonical, walk, cancel)?;
+    let outline = outline_walked(q, &p.canonical, (walk, scoped.as_ref()), cancel)?;
     let set = select(q, &p.canonical, outline, cancel)?;
     let mut page = render_page(q, &set, row_paths, response_window, cancel)?;
     note_skipped(q, &p.canonical, mapped.as_ref(), paths, cancel, &mut page);
+    note_directory_parser(q, &mut page);
     let bytes = octocode_engine::json_size::bytes(&set).unwrap_or(usize::MAX);
     SYMBOL_PAGES.put(
         memo_key,
@@ -167,7 +169,22 @@ fn run_symbols(
     Ok(page)
 }
 
-/// `parser` names one file's grammar; `parserGlobs` maps a directory's.
+/// A directory reads each file by `parserGlobs`, else its extension:
+/// `parser`, one file's grammar, does not apply, and the page says so.
+fn note_directory_parser(q: &AstSearchQuerySymbols, page: &mut serde_json::Value) {
+    if let Some(parser) = ast_search_query_symbols::language(q) {
+        crate::response::paging::push_notice(
+            page,
+            format!(
+                "parser \"{parser}\" applies to one file and was not applied: a directory reads each file by parserGlobs, else its extension."
+            ),
+        );
+    }
+}
+
+/// `parser` names one file's grammar; `parserGlobs` maps a directory's, and
+/// a directory with `parser` still reads each file by its extension
+/// ([`note_directory_parser`]).
 fn check_language_scope(
     q: &AstSearchQuerySymbols,
     canonical: &std::path::Path,
@@ -186,22 +203,6 @@ fn check_language_scope(
             octocode_engine::text::analysis::AnalysisOperation::Declarations,
         );
     }
-    if q.parser.is_none() {
-        return Ok(());
-    }
-    let mut error = ToolError::new(
-        ErrorCode::LanguageFileRequired,
-        "language on symbols requires a single source file.",
-    );
-    // Directory symbols pick each file's grammar from its extension, so
-    // the same query without language is the exact repair.
-    if let Ok(mut repaired) = serde_json::to_value(q) {
-        if let Some(object) = repaired.as_object_mut() {
-            object.remove("parser");
-        }
-        error.calls = Some(Box::new(json!({
-            "repair": crate::response::result::restart_query(ToolId::AstSearch, &repaired)
-        })));
-    }
-    Err(error)
+    // A directory reads each file by `parserGlobs`, else its extension.
+    Ok(())
 }

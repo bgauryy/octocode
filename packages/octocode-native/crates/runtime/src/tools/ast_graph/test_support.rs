@@ -1,5 +1,5 @@
 //! Fixtures the code-graph test modules share: a temporary tree, ingested
-//! into its own workspace and asked through `graph query`.
+//! into its own workspace and asked through the graph query engine.
 use super::store::{GraphOutput, IngestOptions, QueryOptions};
 use crate::tools::test_support::Fixture;
 use serde_json::Value;
@@ -36,13 +36,13 @@ pub(super) const CARGO_APP: (&str, &str) = (
 );
 
 /// Ingests `scan` into the snapshots of `workspace` (the path policy's
-/// root), as `octocode graph ingest` does.
+/// root), as graphBuild does.
 pub(super) fn ingest(workspace: &Path, scan: &Path) -> GraphOutput {
     super::store::ingest(
         &IngestOptions {
             path: scan.to_path_buf(),
             workspace: Some(workspace.to_path_buf()),
-            force: true,
+            refresh: true,
             ..Default::default()
         },
         &crate::tools::test_support::workspace_policy(workspace),
@@ -52,7 +52,7 @@ pub(super) fn ingest(workspace: &Path, scan: &Path) -> GraphOutput {
     )
 }
 
-/// One `graph query` against the latest snapshot of `workspace`.
+/// One graph query against the latest snapshot of `workspace`.
 pub(super) fn ask(workspace: &Path, op: &str, target: Option<&str>) -> Value {
     ask_with(workspace, op, target, |_| {})
 }
@@ -80,7 +80,7 @@ pub(super) fn ask_with(
 
 /// The `id` of every result row.
 pub(super) fn result_ids(out: &Value) -> Vec<&str> {
-    out["results"]
+    out["rows"]
         .as_array()
         .into_iter()
         .flatten()
@@ -90,7 +90,7 @@ pub(super) fn result_ids(out: &Value) -> Vec<&str> {
 
 /// The result row whose `id` is `id`.
 pub(super) fn result_row<'v>(out: &'v Value, id: &str) -> &'v Value {
-    out["results"]
+    out["rows"]
         .as_array()
         .into_iter()
         .flatten()
@@ -98,12 +98,31 @@ pub(super) fn result_row<'v>(out: &'v Value, id: &str) -> &'v Value {
         .unwrap_or_else(|| panic!("no {id} row: {out}"))
 }
 
-/// The member lists of `graph query cycles`.
+/// The member lists of a `cycles` answer.
 pub(super) fn cycle_members(out: &Value) -> Vec<Value> {
-    out["results"]
+    out["rows"]
         .as_array()
         .into_iter()
         .flatten()
         .map(|row| row["nodes"].clone())
         .collect()
+}
+
+/// The row offset where `out`'s next page resumes, when rows remain.
+pub(super) fn next_offset(out: &GraphOutput) -> Option<usize> {
+    use super::store::{Channel, Resume};
+    out.next.iter().find_map(|(channel, resume)| match (channel, resume) {
+        (Channel::NextPage, Resume::Row { offset, .. }) => Some(*offset),
+        (Channel::NextPage, Resume::Query(next)) => next.offset,
+        _ => None,
+    })
+}
+
+/// The graphQuery request that continues `out` on its next page.
+pub(super) fn next_query(out: &GraphOutput) -> Option<&super::store::QueryOptions> {
+    use super::store::{Channel, Resume};
+    out.next.iter().find_map(|(channel, resume)| match (channel, resume) {
+        (Channel::NextPage, Resume::Query(next)) => Some(next.as_ref()),
+        _ => None,
+    })
 }

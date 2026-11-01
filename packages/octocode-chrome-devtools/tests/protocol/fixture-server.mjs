@@ -102,6 +102,38 @@ const routes = {
   },
   '/popup': (res, context) => routes['/inner'](res, context),
 };
+// dev-check fixture: a warning, a source-mapped console error and exception, a 404 and a refused request.
+const devRoutes = {
+  '/dev-check': res => {
+    res.setHeader('content-type', 'text/html');
+    res.end(
+      `<!doctype html><title>Dev check</title><p id="ready">Dev page</p><script>console.warn('dev warning')</script><script src="/dev-check/app.js"></script><script>fetch('/dev-check/missing').catch(()=>{});fetch('http://127.0.0.1:9/refused').catch(()=>{})</script>`
+    );
+  },
+  '/dev-check/app.js': res => {
+    res.setHeader('content-type', 'text/javascript');
+    res.end(
+      "function boot() {\n  console.error('dev boot failed');\n  throw new Error('dev boom');\n}\nsetTimeout(boot, 0);\n//# sourceMappingURL=app.js.map\n"
+    );
+  },
+  '/dev-check/app.js.map': res => {
+    res.setHeader('content-type', 'application/json');
+    res.end(
+      JSON.stringify({
+        version: 3,
+        sources: ['src/app.ts'],
+        names: [],
+        mappings: 'AAAA;AACA;AACA;AACA;AACA',
+      })
+    );
+  },
+  '/dev-check/missing': res => {
+    res.statusCode = 404;
+    res.end('missing');
+  },
+};
+Object.assign(routes, devRoutes);
+
 /** Routes by the exact request URL, query included. */
 const exactRoutes = {
   '/worker.js': res => {

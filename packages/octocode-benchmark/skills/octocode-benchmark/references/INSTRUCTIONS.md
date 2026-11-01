@@ -1,3 +1,5 @@
+Load when planning an authorized package benchmark run.
+
 # Run a benchmark (orchestrated checklist)
 
 One **orchestrator** drives a **pairwise matchup** — Octocode (anchor) vs one baseline CLI —
@@ -22,7 +24,7 @@ Concrete recipe: [run-with-agents.md](run-with-agents.md) →
 4. **Phase 3 — summarize.** Validate logs (`compare/bin/validate_campaign.py`), recompute paired
    stats per [aggregation-and-stats.md](aggregation-and-stats.md), write the report
    ([REPORT_TEMPLATE.md](REPORT_TEMPLATE.md)), exclude + count unresolved questions, and
-   update `results/SUMMARY.md` + `results/README.md`.
+   save per [output.md](../output.md); update published `results/` only when requested.
 
 ## Rules that keep it fair
 

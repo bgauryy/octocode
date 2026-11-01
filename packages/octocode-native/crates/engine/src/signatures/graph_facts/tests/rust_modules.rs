@@ -162,7 +162,7 @@ fn use_heavy_rust_file_keeps_its_imports_inside_the_deadline() {
     assert_eq!(imports[0]["moduleScope"], serde_json::json!([]));
     assert!(imports.iter().all(|i| i.get("resolutionHint").is_none()));
     assert!(
-        elapsed < crate::signatures::extractor::AST_EXECUTION_TIMEOUT / 2,
+        elapsed < std::time::Duration::from_secs(1),
         "took {elapsed:?}"
     );
 }

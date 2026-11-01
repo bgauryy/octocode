@@ -9,10 +9,8 @@ import {
   buildEnforcementContractIr,
   type EnforcementContractIr,
 } from '@octocodeai/octocode-core/schema';
-
-export type Json =
-  null | boolean | number | string | Json[] | { [key: string]: Json };
-export type JsonObject = { [key: string]: Json };
+import { isObject, pascal, type Json, type JsonObject } from './json.ts';
+import { nameVariants, typeName } from './variant-names.ts';
 
 type ToolRecord = {
   name: string;
@@ -21,33 +19,39 @@ type ToolRecord = {
   outputSchema: JsonObject;
 };
 
-const isObject = (value: Json | undefined): value is JsonObject =>
-  !!value && typeof value === 'object' && !Array.isArray(value);
+/** Whether `value` is JSON all the way down, as the generated contract is. */
+const isJsonValue = (value: unknown): value is Json =>
+  value === null ||
+  ['boolean', 'number', 'string'].includes(typeof value) ||
+  (Array.isArray(value) && value.every(isJsonValue)) ||
+  (typeof value === 'object' && Object.values(value).every(isJsonValue));
 
-export const pascal = (value: string): string =>
-  value.charAt(0).toUpperCase() + value.slice(1);
+/** A contract value that must be a JSON object; anything else is a core defect. */
+function jsonObject(value: unknown, what: string): JsonObject {
+  if (isJsonValue(value) && isObject(value)) return value;
+  throw new TypeError(`${what} is not a JSON object`);
+}
 
-/** `workspace:uri` → `WorkspaceUri`, `anchored` → `Anchored`. */
-const typeName = (title: string): string =>
-  title
-    .split(/[^A-Za-z0-9]+/)
-    .filter(Boolean)
-    .map(pascal)
-    .join('');
+/** Code-unit order, as `Array.prototype.sort` uses without a comparator. */
+const byKey = ([left]: [string, unknown], [right]: [string, unknown]): number =>
+  left < right ? -1 : left > right ? 1 : 0;
 
 function sortKeys(value: Json): Json {
   if (Array.isArray(value)) return value.map(sortKeys);
   if (!isObject(value)) return value;
   return Object.fromEntries(
-    Object.keys(value)
-      .sort()
-      .map(key => [key, sortKeys(value[key] as Json)])
+    Object.entries(value)
+      .sort(byKey)
+      .map(([key, child]) => [key, sortKeys(child)])
   );
 }
 
 function withoutAnnotations(value: Json): Json {
   if (Array.isArray(value)) return value.map(withoutAnnotations);
-  if (!isObject(value)) return value;
+  return isObject(value) ? objectWithoutAnnotations(value) : value;
+}
+
+function objectWithoutAnnotations(value: JsonObject): JsonObject {
   return Object.fromEntries(
     Object.entries(value)
       .filter(([key]) => key !== 'title' && key !== 'description')
@@ -104,7 +108,7 @@ class Definitions {
       if (Array.isArray(schema))
         return schema.map(value => expand(value, active));
       if (!isObject(schema)) return schema;
-      const clean = withoutAnnotations(schema) as JsonObject;
+      const clean = objectWithoutAnnotations(schema);
       const reference = clean.$ref;
       if (
         typeof reference === 'string' &&
@@ -122,7 +126,9 @@ class Definitions {
         ])
       );
     };
-    const expected = shapeKey(expand(this.defs[queryName] as Json));
+    const query = this.defs[queryName];
+    if (query === undefined) throw new Error(`Missing query definition: ${queryName}`);
+    const expected = shapeKey(expand(query));
     const visited = new Set<JsonObject>();
     const visit = (schema: Json | undefined): void => {
       if (!isObject(schema) || visited.has(schema)) return;
@@ -187,101 +193,15 @@ function stringConstsAsEnums(value: Json): Json {
   return walked;
 }
 
-/** The union keyword a schema branches on, as authored. */
-const unionKey = (schema: JsonObject): 'oneOf' | 'anyOf' | undefined =>
-  Array.isArray(schema.oneOf)
-    ? 'oneOf'
-    : Array.isArray(schema.anyOf)
-      ? 'anyOf'
-      : undefined;
-
-const singleValue = (schema: Json | undefined): string | undefined =>
-  isObject(schema) &&
-  Array.isArray(schema.enum) &&
-  schema.enum.length === 1 &&
-  typeof schema.enum[0] === 'string'
-    ? schema.enum[0]
-    : undefined;
-
-/**
- * typify tags a `oneOf` by a required discriminator whose values are unique;
- * when two branches share a value (astSearch's two `operation: "match"`
- * forms) or the discriminator is optional, it falls back to positional
- * `Variant0…` names. Name those branches from the contract
- * itself instead: `<Owner><Value>`, plus the required field only that branch
- * has when values repeat (`AstSearchQueryMatchPattern` / `…MatchRule`).
- */
-function nameVariants(schema: JsonObject, owner: string): JsonObject {
-  const key = unionKey(schema);
-  const branches = key ? schema[key] : undefined;
-  if (
-    !key ||
-    !Array.isArray(branches) ||
-    !branches.every(branch => isObject(branch) && branch.title === undefined)
-  ) {
-    return schema;
-  }
-  const objects = branches as JsonObject[];
-  const properties = (branch: JsonObject): JsonObject =>
-    isObject(branch.properties) ? branch.properties : {};
-  const discriminators = Object.keys(properties(objects[0] ?? {})).filter(key =>
-    objects.every(branch => singleValue(properties(branch)[key]) !== undefined)
-  );
-  const valuesOf = (key: string): string[] =>
-    objects.map(branch => singleValue(properties(branch)[key]) as string);
-  const required = (branch: JsonObject): string[] =>
-    Array.isArray(branch.required)
-      ? branch.required.filter((key): key is string => typeof key === 'string')
-      : [];
-  const [discriminator] = discriminators;
-  if (!discriminator)
-    return nameByOwnField(objects, owner, required, schema, key);
-  const values = valuesOf(discriminator);
-  const titled = objects.map((branch, index) => {
-    const value = values[index] as string;
-    const peers = objects.filter(
-      (_, other) => other !== index && values[other] === value
-    );
-    const own = required(branch).find(key =>
-      peers.every(peer => !required(peer).includes(key))
-    );
-    const suffix =
-      peers.length === 0 ? '' : own ? typeName(own) : String(index);
-    return { ...branch, title: `${owner}${typeName(value)}${suffix}` };
-  });
-  return { ...schema, [key]: titled };
-}
-
-/**
- * Field-discriminated branches use their first unique required field:
- * `<Owner><Field>`.
- */
-function nameByOwnField(
-  objects: JsonObject[],
-  owner: string,
-  required: (branch: JsonObject) => string[],
-  schema: JsonObject,
-  key: 'oneOf' | 'anyOf'
-): JsonObject {
-  const names = objects.map((branch, index) => {
-    const peers = objects.filter((_, other) => other !== index);
-    const own = required(branch).find(key =>
-      peers.every(peer => !required(peer).includes(key))
-    );
-    return own === undefined ? undefined : `${owner}${typeName(own)}`;
-  });
-  const titles = names.filter((name): name is string => name !== undefined);
-  if (
-    titles.length !== objects.length ||
-    new Set(titles).size !== titles.length
-  )
-    return schema;
+/** One IR tool record's name and schemas, checked as JSON. */
+function toolRecord(record: Readonly<Record<string, unknown>>): ToolRecord {
+  const { name } = record;
+  if (typeof name !== 'string') throw new TypeError('A contract tool has no name');
   return {
-    ...schema,
-    [key]: objects.map((branch, index) => ({
-      ...branch,
-      title: titles[index] as string,
-    })),
+    name,
+    querySchema: jsonObject(record.querySchema, `${name}.querySchema`),
+    inputSchema: jsonObject(record.inputSchema, `${name}.inputSchema`),
+    outputSchema: jsonObject(record.outputSchema, `${name}.outputSchema`),
   };
 }
 
@@ -307,7 +227,7 @@ export function buildToolTypesBundle(
           : exclusive
       );
     };
-    for (const [local, schema] of Object.entries(inner as JsonObject)) {
+    for (const [local, schema] of Object.entries(isObject(inner) ? inner : {})) {
       // Zod emits `__schemaN` for a cyclic schema core left unnamed; a
       // generated type needs a stable, core-owned name.
       if (/^__schema\d+$/.test(local)) {
@@ -316,7 +236,7 @@ export function buildToolTypesBundle(
         );
       }
       definitions.add(local, {
-        ...(normalize(schema) as JsonObject),
+        ...jsonObject(normalize(schema), local),
         title: local,
       });
     }
@@ -327,12 +247,15 @@ export function buildToolTypesBundle(
       return;
     }
     definitions.add(name, {
-      ...(normalize(body, name) as JsonObject),
+      ...jsonObject(normalize(body, name), name),
       title: name,
     });
   };
-  register('AnalysisCapabilities', ir.analysisCapabilitiesSchema as JsonObject);
-  for (const tool of ir.tools as unknown as ToolRecord[]) {
+  register(
+    'AnalysisCapabilities',
+    jsonObject(ir.analysisCapabilitiesSchema, 'analysisCapabilitiesSchema')
+  );
+  for (const tool of ir.tools.map(toolRecord)) {
     const base = pascal(tool.name);
     register(`${base}Query`, tool.querySchema);
     register(`${base}Input`, tool.inputSchema);
@@ -341,7 +264,6 @@ export function buildToolTypesBundle(
     // both languages expose one row type, not two.
     definitions.reuseQuery(`${base}Input`, `${base}Query`);
   }
-  const names = Object.keys(definitions.defs).sort();
   return {
     fingerprint: ir.fingerprint,
     bundle: {
@@ -349,7 +271,7 @@ export function buildToolTypesBundle(
       $comment: `@generated by @octocodeai/config scripts/generate-tool-contract.ts from contract ${ir.fingerprint}; do not edit.`,
       title: 'OctocodeToolTypes',
       $defs: Object.fromEntries(
-        names.map(name => [name, definitions.defs[name] as Json])
+        Object.entries(definitions.defs).sort(byKey)
       ),
     },
   };

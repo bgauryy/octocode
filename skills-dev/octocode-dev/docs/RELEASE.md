@@ -1,6 +1,6 @@
 # Release checklist
 
-Publishing is owner-triggered. It never runs from CI or an agent session. Contract pipeline and build commands: [DEVELOPMENT.md](DEVELOPMENT.md#contract-pipeline). Native platform packages: `<repo>/packages/octocode-native/docs/PUBLISHING.md`.
+Publishing is owner-triggered. It never runs from CI or an agent session. CI's Release workflow (`.github/workflows/release.yml`, manual dispatch) builds, runtime-verifies and packs rows 2–4; the owner publishes its tarballs. Contract pipeline and build commands: [DEVELOPMENT.md](DEVELOPMENT.md#contract-pipeline). Native platform packages: `<repo>/packages/octocode-native/docs/PUBLISHING.md`.
 
 ## What ships, where
 
@@ -9,9 +9,9 @@ One release line ships in lockstep at one version `<v>` (rows 2–4). Core keeps
 | # | Artifact | What it is | Channel | Build | Publish (from that directory) | Check after |
 |---|---|---|---|---|---|---|
 | 1 | `@octocodeai/octocode-core` | Tool contracts (Zod), descriptions, instructions | npm | in `octocode-mcp-host` | `npm publish` in `octocode-mcp-host/packages/octocode-core`, at the version pinned in `packages/octocode-config/package.json` | `npm view @octocodeai/octocode-core@<core> version` |
-| 2 | `@octocodeai/octocode-native-<p>`, one per platform | **The native binary**: the `octocode` CLI and the stdio MCP server (`octocode mcp`) | npm | `yarn workspace @octocodeai/octocode-native build:all` | `packages/octocode-native/npm/<p>`: `npm publish` | `npm view @octocodeai/octocode-native-<p>@<v> version` |
-| 3 | `octocode-mcp` | Thin launcher of `octocode mcp` (bundles `@octocodeai/config`'s development-override guard; depends on the native platform packages) | npm | `yarn workspace octocode-mcp build` | `packages/octocode-mcp`: `npm publish` | `npm view octocode-mcp dist-tags.latest` → `<v>` (`octocode install` writes `octocode-mcp@latest`) |
-| 4 | `octocode` | Node CLI launcher (bundles the config development guard; forwards every command to native; ships the same skills) | npm | `yarn workspace octocode build` | `packages/octocode`: `npm publish` | `npx -y octocode@<v> --version` → `octocode <v>` |
+| 2 | `@octocodeai/octocode-native-<p>`, one per platform | **The native binary**: the `octocode` CLI and the stdio MCP server (`octocode mcp`) | npm | Release workflow (local: `yarn workspace @octocodeai/octocode-native build:all`) | `npm publish release-packages/octocodeai-octocode-native-<p>-<v>.tgz` | `npm view @octocodeai/octocode-native-<p>@<v> version` |
+| 3 | `octocode-mcp` | Thin launcher of `octocode mcp` (bundles `@octocodeai/config`'s development-override guard; depends on the native platform packages) | npm | Release workflow (local: `yarn workspace octocode-mcp build`) | `npm publish release-packages/octocode-mcp-<v>.tgz` | `npm view octocode-mcp dist-tags.latest` → `<v>` (`octocode install` writes `octocode-mcp@latest`) |
+| 4 | `octocode` | Node CLI launcher (bundles the config development guard; forwards every command to native; ships the same skills) | npm | Release workflow (local: `yarn workspace octocode build`) | `npm publish release-packages/octocode-<v>.tgz` | `npx -y octocode@<v> --version` → `octocode <v>` |
 | 5 | `@octocodeai/codex-plugin` | Codex plugin (pins `octocode-mcp@<v>`) | npm + git | runs in `prepack` | `packages/octocode-codex-plugin`: `npm publish`; then set `.agents/plugins/marketplace.json` to the plugin version and push this repo. Details: `packages/octocode-codex-plugin/ARCHITECTURE.md` | `npm view @octocodeai/codex-plugin version` |
 | 6 | `@octocodeai/claude-plugin` | Claude Code plugin (pins `octocode-mcp@<v>`) | npm + git | runs in `prepack` | `packages/octocode-claude-plugin`: `npm publish --access public`; then publish `.claude-plugin/marketplace.json` with the same version. Details: `packages/octocode-claude-plugin/ARCHITECTURE.md` | `npm view @octocodeai/claude-plugin version` |
 | 7 | Homebrew `bgauryy/octocode/octocode` | **The native binary** for macOS and Linux, no Node (downloads the row-2 tarballs) | git: tap repo `bgauryy/homebrew-octocode` | `node skills-dev/octocode-dev/scripts/dev.mjs brew:formula` renders `packages/octocode-native/homebrew/octocode.rb` (sha256 of the registry bytes; refuses when the host platform's published binary does not report `octocode <v>`) | copy it to `Formula/octocode.rb` in the tap repo; `brew audit --strict --online bgauryy/octocode/octocode`; push the tap | `brew install bgauryy/octocode/octocode && brew test bgauryy/octocode/octocode` |
@@ -19,7 +19,7 @@ One release line ships in lockstep at one version `<v>` (rows 2–4). Core keeps
 
 ```mermaid
 flowchart LR
-  r1["1 core"] --> pp["prepublish --fix + yarn install"] --> r2["2 platform packages"] --> r3["3 octocode-mcp"] --> r4["4 octocode"]
+  r1["1 core"] --> pp["prepublish --fix + yarn install"] --> ci["Release workflow: build, verify, pack"] --> r2["2 platform packages"] --> r3["3 octocode-mcp"] --> r4["4 octocode"]
   r4 --> r5["5 Codex plugin"]
   r4 --> r6["6 Claude plugin"]
   r4 --> r7["7 Homebrew"]
@@ -39,12 +39,23 @@ Row 7 has not shipped yet: the tap still serves the old Node-based 2.0.0 formula
 
 **Never published** (private, bundled into rows 3–4 or dev-only): `@octocodeai/octocode-native` (the Rust workspace; its `npm/<p>` packages are row 2), `@octocodeai/config`, `octocode-mcp-cli`, `@octocodeai/octocode-benchmark`.
 
-### Before row 2
+### Publishing rows 2–4
 
 1. **Version:** `packages/octocode-native/package.json`, `packages/octocode/package.json`, `packages/octocode-mcp/package.json`, `workspace.package.version` in `packages/octocode-native/Cargo.toml`, `packages/octocode-mcp/manifest.json` and `server.json`. Then `node packages/octocode-native/scripts/platform-packages.cjs` (writes every platform manifest and both launchers' pins at that version) and `yarn install`.
 2. **Registry, not local resolutions:** `node skills-dev/octocode-dev/scripts/prepublish.mjs --fix`, `yarn install`, then `yarn workspace @octocodeai/config check:core-contract-sync:published`.
-3. **Build after the bump:** `yarn workspace @octocodeai/octocode-native build:all`. Each staged `packages/octocode-native/npm/<p>/octocode --version` must print `<v>`; a binary built before the bump reports the old version, and npm never lets you replace a published version.
-4. **Commit**, so the published `gitHead` names a real commit.
+3. **Commit and push**: the Release workflow builds a pushed commit, and the published `gitHead` names it.
+4. **Build, verify and pack in CI:** run the Release workflow at that commit (`gh workflow run release.yml -f ref=<sha>`). Per platform it runs `build-native.cjs --release --target <p>`, then `packages/octocode-native/scripts/smoke-binary.cjs` on that platform's own runner: format, CPU and libc (gnu: no `GLIBC_` above 2.28), the embedded and the reported contract fingerprint, `--version` → `octocode <v>`, `schema`, and `localSearch`/`localFetch` through the CLI and a stdio `octocode mcp` session. musl runs in Alpine; each gnu binary also runs in a glibc 2.28 image. When every platform passes, `pack-release.cjs` packs the platform packages and both launchers into the `release-packages` artifact with `SHA256SUMS`, and `upgrade-path.mjs` installs them over the previous release on Linux, macOS and Windows. Every job must be green; the `smoke-*` and `upgrade-path-*` artifacts hold the JSON reports. A binary built before the bump fails the version checks, and npm never lets you replace a published version.
+5. **Download, check, publish** rows 2–4 from the verified tarballs, in this order:
+
+```bash
+gh run download <run-id> -n release-packages -D release-packages
+(cd release-packages && shasum -a 256 -c SHA256SUMS)    # every line: OK
+for f in release-packages/octocodeai-octocode-native-*-<v>.tgz; do npm publish "$f" --access public; done
+npm publish release-packages/octocode-mcp-<v>.tgz
+npm publish release-packages/octocode-<v>.tgz
+```
+
+Without CI: `build:all`, run `node packages/octocode-native/scripts/smoke-binary.cjs packages/octocode-native/npm/<p>` on a machine of each platform, build both launchers, then `node packages/octocode-native/scripts/pack-release.cjs --out release-packages`.
 
 Then smoke-test from a clean temp dir (`npx -y octocode-mcp@<v>`, `npx -y octocode@<v> schema`), and as a project dependency, which is what exposes a bin collision or a binary that cannot describe itself:
 
@@ -73,11 +84,12 @@ Run `node skills-dev/octocode-dev/scripts/dev.mjs setup` to restore the dev reso
 | Contract freshness (dev) | `yarn workspace @octocodeai/config check:tool-contract` | `packages/octocode-config/contract/` (embedded by native) is exactly what the resolved core generates |
 | Contract sync (published) | `yarn workspace @octocodeai/config check:core-contract-sync:published` | Embedded contracts match the **npm-published** core at the pinned version. Run before publishing native |
 | Docs links and catalog | `node skills-dev/octocode-dev/scripts/dev.mjs docs:verify` (repo root) | Doc links, workflow references, tool catalog and counts, and config keys match source |
+| Release workflow | Actions → Release (`release.yml`) | Each platform binary runs on its own OS and CPU, gnu ones at glibc 2.28; the tarballs and `SHA256SUMS`; the upgrade path on Linux, macOS and Windows |
 | Launcher e2e | `yarn workspace octocode exec vitest run tests/e2e/launcher.e2e.test.ts` after `build:dev` (local; not in CI) | The built npm launcher drives the real native binary end-to-end |
 
 ## Failure playbook
 
 | Failure | Action |
 |---|---|
-| `Generated tool contract is stale` | Core changed since the last regen. Run `yarn contracts:regen` (repo root) and re-verify. |
+| `Generated tool contract is stale` | Core changed since the last regen. Run `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` (repo root) and re-verify. |
 | `contract-sync: FINGERPRINT MISMATCH` in `--published` mode | Publish the matching core first (step 1), or align the pinned core version. Never publish native around this gate. |

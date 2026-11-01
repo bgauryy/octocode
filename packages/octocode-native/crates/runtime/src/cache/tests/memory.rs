@@ -110,3 +110,30 @@ fn partitions_never_share_entries() {
     assert!(fresh.get(&key("a", "second")).is_none());
     assert!(store.get(&key("a", "second")).is_none());
 }
+
+/// An idle entry lives while it is read: each read restarts its lifetime,
+/// and it expires only after a full lifetime without one. A volatile entry
+/// stored at the same moment expires on schedule whatever its reads.
+#[test]
+fn idle_entries_live_while_read_and_expire_when_unused() {
+    let ttl = Duration::from_millis(400);
+    let store = Store::<u32>::new(CacheConfig::default(), None);
+    store.put(key("walk", "x"), 1, 4, CacheClass::Idle { ttl });
+    store.put(key("fixed", "x"), 2, 4, CacheClass::Volatile { ttl });
+    for _ in 0..4 {
+        std::thread::sleep(ttl / 2);
+        assert!(
+            store.get(&key("walk", "x")).is_some(),
+            "read within its lifetime"
+        );
+    }
+    assert!(
+        store.get(&key("fixed", "x")).is_none(),
+        "a volatile entry ages from its store time"
+    );
+    std::thread::sleep(ttl + ttl / 4);
+    assert!(
+        store.get(&key("walk", "x")).is_none(),
+        "unused for its lifetime"
+    );
+}

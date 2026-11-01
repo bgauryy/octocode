@@ -1,12 +1,15 @@
-//! `graph query impact`: blast radius of a change.
+//! graphQuery `impact`: blast radius of a change.
 //!
 //! Two precisions, chosen by what changed:
 //! - **File seeds** (a changed file) propagate like Jest `--findRelatedTests`
 //!   and Nx `affected`: every importer is affected, transitively.
 //! - **Symbol seeds** (a changed declaration) propagate only through the
-//!   edges that bind that declaration (`calls`, `uses`, `inherits`), plus
-//!   importers of its module that bind no name at all (side-effect,
-//!   namespace, or unlinked imports), which stay conservatively affected.
+//!   edges that bind that declaration (`calls`, `uses`, `inherits`,
+//!   `passes`). An importer whose linked references into the module name
+//!   only other items is skipped. One with no linked name at all
+//!   (side-effect, namespace, glob or unlinked imports) is a module-level
+//!   `candidate`: listed, since it may reach the name, but neither proven
+//!   affected nor expanded as if its whole module changed.
 //!
 //! Each affected file carries its distance, the edge that reached it, and the
 //! weakest edge confidence along that path. Manifest, lockfile, and compiler
@@ -28,6 +31,10 @@ struct Reach {
     /// Edge that first reached this node: `(from node, kind, detail)`.
     via: Option<(u32, EdgeKind, u32)>,
     types_only: bool,
+    /// Reached only through a module-level import under symbol precision:
+    /// it binds no linked name of the changed module, so it is listed as
+    /// a candidate and not expanded.
+    candidate: bool,
 }
 
 pub(crate) struct Impact {
@@ -45,6 +52,7 @@ pub(crate) fn run(
 ) -> Impact {
     let mut walk = Propagation::new(t);
     let symbol_mode = walk.seed_changes(seeds, global);
+    walk.symbol_precision = symbol_mode && global.is_empty();
     let depth_limited = walk.propagate(max_depth);
     report(t, &walk.reach, seeds, global, symbol_mode, depth_limited)
 }
@@ -58,6 +66,12 @@ struct Propagation<'t> {
     whole: Vec<bool>,
     queue: VecDeque<u32>,
     component_dir: BTreeMap<u32, u32>,
+    /// The summary's `precision:"symbol"`: import-only reach is a candidate.
+    symbol_precision: bool,
+    /// `(target file, referring file)` for every linked reference
+    /// (`uses`, `calls`, `inherits`, `passes`) across files, built on first
+    /// use.
+    referrers: std::cell::OnceCell<BTreeSet<(u32, u32)>>,
 }
 
 impl<'t> Propagation<'t> {
@@ -73,6 +87,8 @@ impl<'t> Propagation<'t> {
                 .iter()
                 .map(|(node, dir, _, _)| (*node, *dir))
                 .collect(),
+            symbol_precision: false,
+            referrers: std::cell::OnceCell::new(),
         }
     }
 
@@ -84,6 +100,7 @@ impl<'t> Propagation<'t> {
                 confidence: Confidence::High,
                 via: None,
                 types_only: false,
+                candidate: false,
             });
             self.queue.push_back(id);
         }
@@ -102,9 +119,9 @@ impl<'t> Propagation<'t> {
                 NodeKind::File => {
                     self.seed(id);
                     // Every declaration in a changed file is changed.
-                    for (sym, node) in t.nodes.iter().enumerate() {
+                    for (sym, node) in t.node_ids().zip(&t.nodes) {
                         if node.kind == NodeKind::Symbol && node.file == id {
-                            self.seed(sym as u32);
+                            self.seed(sym);
                         }
                     }
                 }
@@ -135,24 +152,25 @@ impl<'t> Propagation<'t> {
             }
         }
         for (dir, _) in global {
-            for (id, node) in t.nodes.iter().enumerate() {
+            for (id, node) in t.node_ids().zip(&t.nodes) {
                 let path = t.str(node.key);
                 if node.kind == NodeKind::File
                     && (dir.is_empty() || path.starts_with(&format!("{dir}/")))
                 {
-                    self.seed(id as u32);
+                    self.seed(id);
                 }
             }
         }
         symbol_mode
     }
 
-    /// Files that bind at least one name from a target file (`uses` edges),
-    /// so a symbol-level change can skip them when the name is not affected.
-    /// An importer "binds" a target when its import statement names
-    /// symbols (a `uses` edge from the same import line, or into the
-    /// target): then only those symbols, not the whole module, carry the
-    /// change.
+    /// Files that bind at least one name from a target file, so a
+    /// symbol-level change can skip them when the name is not affected. An
+    /// importer "binds" a target when its import statement names symbols (a
+    /// `uses` edge from the same import line, or into the target), or when
+    /// any of its declarations has a linked reference into the target
+    /// (`paging::push_warnings()` through a module import): then only those
+    /// symbols, not the whole module, carry the change.
     fn binds(&self, importer: u32, target: u32, import_line: u32) -> bool {
         let t = self.t;
         t.out(importer).iter().any(|edge| {
@@ -160,6 +178,27 @@ impl<'t> Propagation<'t> {
                 && (edge.dst == target
                     || t.nodes[edge.dst as usize].file == target
                     || (import_line != NONE && edge.line == import_line))
+        }) || self.referrers().contains(&(target, importer))
+    }
+
+    fn referrers(&self) -> &BTreeSet<(u32, u32)> {
+        self.referrers.get_or_init(|| {
+            let t = self.t;
+            let file_of = |id: u32| match t.nodes[id as usize].kind {
+                NodeKind::File => id,
+                _ => t.nodes[id as usize].file,
+            };
+            t.edges
+                .iter()
+                .filter(|edge| {
+                    matches!(
+                        edge.kind,
+                        EdgeKind::Uses | EdgeKind::Calls | EdgeKind::Inherits | EdgeKind::Passes
+                    ) && t.nodes[edge.dst as usize].kind == NodeKind::Symbol
+                })
+                .map(|edge| (file_of(edge.dst), file_of(edge.src)))
+                .filter(|(target, referrer)| target != referrer && *referrer != NONE)
+                .collect()
         })
     }
 
@@ -188,6 +227,9 @@ impl<'t> Propagation<'t> {
             let Some(current) = self.reach[id as usize] else {
                 continue;
             };
+            if current.candidate {
+                continue;
+            }
             if current.depth >= max_depth {
                 depth_limited = true;
                 continue;
@@ -253,7 +295,14 @@ impl<'t> Propagation<'t> {
         let src = step.src;
         let crosses = self.component_dir.get(&t.nodes[src as usize].file)
             != self.component_dir.get(&t.nodes[id as usize].file);
-        let candidate = Reach {
+        // Under symbol precision a file not changed whole reaches its
+        // importer only by module: an unbound import, or a namespace/glob
+        // `uses` of the file itself.
+        let candidate = self.symbol_precision
+            && t.nodes[id as usize].kind == NodeKind::File
+            && !self.whole[id as usize]
+            && matches!(step.kind, EdgeKind::Imports | EdgeKind::Uses);
+        let reached = Reach {
             depth: if step.kind == EdgeKind::Contains {
                 current.depth
             } else {
@@ -263,16 +312,18 @@ impl<'t> Propagation<'t> {
             confidence: current.confidence.max(step.confidence),
             via: Some((id, step.kind, step.detail)),
             types_only: current.types_only || step.types_only,
+            candidate,
         };
         let slot = &mut self.reach[src as usize];
-        let better = slot.is_none_or(|old| {
-            (candidate.depth, candidate.confidence) < (old.depth, old.confidence)
-        });
+        // Proven reach outranks a candidate at any depth.
+        let rank = |r: &Reach| (r.candidate, r.depth, r.confidence);
+        let better = slot.is_none_or(|old| rank(&reached) < rank(&old));
         if better {
-            *slot = Some(candidate);
+            *slot = Some(reached);
             self.queue.push_back(src);
         }
         if step.kind == EdgeKind::Imports
+            && !candidate
             && t.nodes[src as usize].kind == NodeKind::File
             && !self.whole[src as usize]
             && !self.is_barrel(src)

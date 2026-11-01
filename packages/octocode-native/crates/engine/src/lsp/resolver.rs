@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
 use crate::lsp::grammar::grammar_for_file;
 use crate::lsp::types::{LspFuzzyPosition, LspResolvedSymbol};
-use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
+use crate::signatures::extractor::whole_file_deadline;
 use std::time::Instant;
 
 mod line_scan;
@@ -10,8 +10,27 @@ mod syntax;
 use line_scan::{scan_near_line, scan_whole_file};
 use syntax::{collect_symbol_candidates, pick_candidate};
 
-const DEFAULT_RADIUS: i32 = 5;
-const MAX_POSITION_SOURCE_BYTES: usize = super::MAX_LSP_SOURCE_BYTES as usize;
+const DEFAULT_RADIUS: usize = 5;
+
+/// The 0-based line a 1-based `line_hint` names (0 and 1 both name line 0).
+fn hinted_line(line_hint: u32) -> usize {
+    usize::try_from(line_hint.saturating_sub(1)).unwrap_or(usize::MAX)
+}
+
+/// Signed line distance `to - from`, saturating at the `i32` range.
+fn line_delta(from: usize, to: usize) -> i32 {
+    if to >= from {
+        i32::try_from(to - from).unwrap_or(i32::MAX)
+    } else {
+        i32::try_from(from - to).map_or(i32::MIN, |distance| -distance)
+    }
+}
+const MAX_POSITION_SOURCE_BYTES: u64 = super::MAX_LSP_SOURCE_BYTES;
+
+/// Whether a `len`-byte source is past the position-resolution cap.
+fn exceeds_source_cap(len: usize) -> bool {
+    u64::try_from(len).map_or(true, |len| len > MAX_POSITION_SOURCE_BYTES)
+}
 
 fn budget_error() -> Error {
     Error::new(
@@ -28,7 +47,7 @@ fn check_budget(deadline: Instant) -> Result<()> {
 }
 
 fn check_source_size(size: usize) -> Result<()> {
-    if size > MAX_POSITION_SOURCE_BYTES {
+    if exceeds_source_cap(size) {
         Err(Error::new(format!(
             "[lspSourceTooLarge] Symbol position source exceeds {MAX_POSITION_SOURCE_BYTES} bytes; narrow the source."
         )))
@@ -43,7 +62,7 @@ pub(crate) fn resolve_position_from_content(
     fuzzy: LspFuzzyPosition,
 ) -> Result<LspResolvedSymbol> {
     check_source_size(content.len())?;
-    let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
+    let deadline = whole_file_deadline();
     let lines = normalized_lines(&content);
     resolve_position_from_lines(&lines, &fuzzy, deadline)
 }
@@ -57,12 +76,7 @@ pub fn resolve_position_in_file_content(
     fuzzy: &LspFuzzyPosition,
 ) -> Result<LspResolvedSymbol> {
     check_source_size(content.len())?;
-    resolve_position_before(
-        file_path,
-        content,
-        fuzzy,
-        Instant::now() + AST_EXECUTION_TIMEOUT,
-    )
+    resolve_position_before(file_path, content, fuzzy, whole_file_deadline())
 }
 
 /// Zero-based lines where `symbol_name` occurs as code in `content`: an
@@ -76,10 +90,10 @@ pub fn code_occurrence_lines(
     content: &str,
     symbol_name: &str,
 ) -> Option<Vec<usize>> {
-    if content.len() > MAX_POSITION_SOURCE_BYTES || symbol_name.is_empty() {
+    if exceeds_source_cap(content.len()) || symbol_name.is_empty() {
         return None;
     }
-    let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
+    let deadline = whole_file_deadline();
     let tree = parse_as_code(file_path, content, deadline)?;
     let root = tree.root_node();
     let mut candidates = Vec::new();

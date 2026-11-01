@@ -2,7 +2,7 @@
 //! returns at most a few unnumbered fragments per file, so every file of the
 //! page is read (core API quota, through the contents cache) and its keyword
 //! lines are listed as `"<line>\t<text>"` (the numbered-line form), the way
-//! `grep -n` would: with several keywords, the lines holding all of them.
+//! `grep -n` would: every line holding any requested keyword.
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::text::file_text;
 use octocode_github::{GitHubProvider, ProviderError, ProviderErrorKind, RequestContext};
@@ -14,26 +14,15 @@ mod scoring;
 use blob::{Blob, hit_declarations};
 use budget::{SCANS, fan_out, scan_weight};
 
-/// Hit lines listed per file; a file with more states `matchCount`, and its
-/// `next.readHits` row reads every keyword line. 20 → 5 (2026-10-09): one
-/// repo-scoped search listed up to 20 lines per file (8.9 KB for 20 files)
-/// where a shell search returns paths; five lines show what a file
-/// holds, and its read returns the rest.
-pub(super) const MAX_LINES_PER_FILE: usize = 5;
-/// Characters kept per hit line (a window around the first keyword).
-const MAX_LINE_CHARS: usize = 200;
 /// Blobs larger than this keep their index fragments.
 const MAX_SCAN_BYTES: usize = 2 * 1024 * 1024;
 
 /// One file's hits at a resolved commit.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum FileHits {
-    /// The lines holding every keyword, else each keyword's first line
-    /// (capped at [`MAX_LINES_PER_FILE`]); `total` counts every keyword line.
+    /// Every keyword line in source order, preserved whole for response pagination.
     Lines {
         lines: Vec<String>,
-        /// A shown line was cut to its keyword window.
-        clipped: bool,
         first: u32,
         last: u32,
         /// The hit that best fits the goal ([`hit_score`]).
@@ -45,11 +34,6 @@ pub(super) enum FileHits {
         /// holds it: a `matchString` + `block` read returns that whole
         /// declaration.
         declaration: Option<String>,
-        /// The last shown line, when the listing is exactly the file's
-        /// first keyword lines with none cut: a read of the lines after it
-        /// reaches every unshown hit once. `None` when a hit line was
-        /// skipped or cut, so only a whole re-read reaches it.
-        resume_after: Option<u32>,
     },
     /// The blob was read but no line holds a keyword (index lag or
     /// tokenization differences): keep the index fragments.
@@ -137,7 +121,10 @@ fn scan_all(
     security: &(impl ContentScan + Sync),
     context: &RequestContext,
 ) -> Result<Vec<FileHits>, ProviderError> {
-    let cores = crate::tools::workers::host_cores();
+    // This scan computes on this host: it counts toward the process's CPU
+    // budget while it runs and fans out to its share of the cores.
+    let _computing = octocode_engine::search::cpu::host().enter();
+    let cores = crate::tools::workers::workers(files.len(), None);
     Ok(fan_out(
         &SCANS,
         context,
@@ -190,17 +177,15 @@ pub(super) fn scan(
     blob.declared = hit_declarations(outline.as_deref(), &found);
     let hits = blob.hits(found, &needles, goal);
     let anchor = blob.anchor(&hits, &needles, security);
-    let listing = blob.listing(&hits, &needles, anchor.window, security);
+    let lines = blob.listing(&hits, security);
     FileHits::Lines {
         declaration: blob.declaration(&hits, anchor.best, security),
-        lines: listing.lines,
-        clipped: listing.clipped,
+        lines,
         first: anchor.first,
         last: anchor.last,
         best: anchor.best,
         total: hits.len(),
         line_count: blob.lowered.len(),
-        resume_after: listing.resume_after,
     }
 }
 

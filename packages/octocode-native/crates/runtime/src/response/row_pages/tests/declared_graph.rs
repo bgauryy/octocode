@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use tokio_util::sync::CancellationToken;
 
 fn fragments(data: Value, tool: ToolId, budget: usize) -> Vec<Value> {
-    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], Some(tool))
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
         .plan(budget, &CancellationToken::new())
         .expect("valid plan");
     assert!(plan.total_pages > 1, "fixture must exercise fragmentation");
@@ -65,8 +65,8 @@ fn every_graph_evidence_fragment_preserves_capabilities_and_validates() {
         .collect::<Vec<_>>();
     let expected = coverage();
     let descriptors = source_evidence();
-    let data = json!({"op":"unresolved","graph":{"id":"snapshot","root":"/scope","createdAt":"now"},
-        "results":results,"total":40,"argumentCoverage":expected,"edges":["calls","passes"],
+    let data = json!({"operation":"unresolved","graph":{"id":"snapshot","root":"/scope","createdAt":"now"},
+        "rows":results,"pagination":{"page":1,"totalItems":40,"hasMore":false},"argumentCoverage":expected,"edges":["calls","passes"],
         "scan":{"excludeDir":["vendor","generated"]},"sourceEvidence":descriptors});
     let mut seen = Vec::new();
     for row in fragments(data, ToolId::GraphQuery, 1700) {
@@ -76,7 +76,7 @@ fn every_graph_evidence_fragment_preserves_capabilities_and_validates() {
         assert_eq!(data["sourceEvidence"], descriptors);
         assert_eq!(data["edges"], json!(["calls", "passes"]));
         assert_eq!(data["scan"]["excludeDir"], json!(["vendor", "generated"]));
-        seen.extend(data["results"].as_array().expect("results").iter().cloned());
+        seen.extend(data["rows"].as_array().expect("results").iter().cloned());
     }
     assert_eq!(seen, results);
 }
@@ -92,7 +92,7 @@ fn items(label: &str, count: usize) -> Value {
 #[test]
 fn declared_sibling_evidence_is_delivered_once_for_large_and_small_lists() {
     for size in [1, 30] {
-        let mut data = json!({"op":"impact","results":(0..30).map(|index| json!({"id":format!("result-{index}"),"roles":["test","generated"]})).collect::<Vec<_>>()});
+        let mut data = json!({"operation":"impact","rows":(0..30).map(|index| json!({"id":format!("result-{index}"),"roles":["test","generated"]})).collect::<Vec<_>>()});
         let paths = [
             "/summary/changed",
             "/summary/configChanges",
@@ -117,8 +117,8 @@ fn declared_sibling_evidence_is_delivered_once_for_large_and_small_lists() {
             data.pointer_mut(parent).expect("parent")[key] = value.clone();
             expected.insert(path, value);
         }
-        let results = data["results"].clone();
-        expected.insert("/results", results);
+        let results = data["rows"].clone();
+        expected.insert("/rows", results);
         let mut actual = BTreeMap::<&str, Vec<Value>>::new();
         for row in fragments(data, ToolId::GraphQuery, 1600) {
             for path in expected.keys() {
@@ -159,8 +159,8 @@ fn nested_declared_arrays_and_keyed_records_preserve_every_item() {
         json!({"id":id,"evidence":evidence,"controls":["scope confirmed"],"emptyContext":[],"coordinates":[[0,1],[2,3]]})
     }).collect::<Vec<_>>();
     let mut actual = BTreeMap::<String, Vec<Value>>::new();
-    for part in fragments(json!({"results":rows}), ToolId::GraphQuery, 1700) {
-        for row in part["data"]["results"].as_array().expect("results") {
+    for part in fragments(json!({"rows":rows}), ToolId::GraphQuery, 1700) {
+        for row in part["data"]["rows"].as_array().expect("results") {
             let id = row["id"].as_str().expect("stable finding identity");
             assert_eq!(row["controls"], json!(["scope confirmed"]));
             assert_eq!(row["emptyContext"], json!([]));
@@ -188,15 +188,15 @@ fn nested_declared_arrays_and_keyed_records_preserve_every_item() {
 #[test]
 fn graph_build_pruning_pages_do_not_split_capability_metadata() {
     let pruned = items("snapshot", 40);
-    let expected = coverage();
+    let expected = json!({"nodes":3,"edges":2});
     let mut actual = Vec::new();
     for row in fragments(
-        json!({"id":"new","pruned":pruned,"argumentCoverage":expected}),
+        json!({"id":"new","pruned":pruned,"counts":expected}),
         ToolId::GraphBuild,
         900,
     ) {
         crate::tools::test_support::assert_row_contract(ToolId::GraphBuild, &row["data"]);
-        assert_eq!(row["data"]["argumentCoverage"], expected);
+        assert_eq!(row["data"]["counts"], expected);
         actual.extend(
             row["data"]["pruned"]
                 .as_array()
@@ -210,7 +210,7 @@ fn graph_build_pruning_pages_do_not_split_capability_metadata() {
 
 #[test]
 fn undeclared_collections_remain_whole_and_oversized_is_terminal() {
-    let data = json!({"node":{"id":"atomic","coordinates":items("coordinate",100)},"results":[]});
+    let data = json!({"node":{"id":"atomic","coordinates":items("coordinate",100)},"rows":[]});
     let options = ResponsePageOptions {
         response_chars: Some(500),
         paging: true,
@@ -224,7 +224,7 @@ fn undeclared_collections_remain_whole_and_oversized_is_terminal() {
         &options,
         Vec::new(),
         &[],
-        Some(ToolId::GraphQuery),
+        ToolId::GraphQuery,
     );
     assert_eq!(pagination.total_pages, 1);
     assert_eq!(pagination.oversized, Some(true));
@@ -234,8 +234,8 @@ fn undeclared_collections_remain_whole_and_oversized_is_terminal() {
     static NO_COLLECTIONS: crate::contracts::output_fields::CollectionRoutes =
         crate::contracts::output_fields::CollectionRoutes { nodes: Vec::new() };
     let mut arena = FragmentArena {
-        collection_routes: Some(&NO_COLLECTIONS),
-        ..Default::default()
+        collection_routes: &NO_COLLECTIONS,
+        ..FragmentArena::new(ToolId::GraphQuery)
     };
     let mut planned = Vec::new();
     arena

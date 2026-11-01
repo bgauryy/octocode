@@ -30,16 +30,19 @@ fn json_is_indented_for_a_terminal_and_compact_for_a_pipe() {
 fn clap_errors_keep_every_line_in_json() {
     use clap::CommandFactory;
     let error = super::Args::command()
-        .try_get_matches_from(["octocode", "graph", "query", "notAnOp"])
-        .expect_err("invalid op");
+        .try_get_matches_from(["octocode", "schema", "localSearch", "--view", "notAView"])
+        .expect_err("invalid view");
     let envelope = super::parse::clap_error_envelope(&error);
     assert_eq!(envelope["errorCode"], "invalidInput");
-    assert_eq!(envelope["error"], "invalid value 'notAnOp' for '<OP>'");
+    assert_eq!(
+        envelope["error"],
+        "invalid value 'notAView' for '--view <VIEW>'"
+    );
     let details = envelope["details"].as_array().expect("details");
     assert!(
         details[0]
             .as_str()
-            .is_some_and(|line| line.starts_with("[possible values: stats, ")),
+            .is_some_and(|line| line.starts_with("[possible values: query, ")),
         "{envelope}"
     );
 }
@@ -160,7 +163,7 @@ fn json_is_one_global_flag() {
         vec!["octocode", "auth", "status", "--json"],
         vec!["octocode", "auth", "logout", "--json"],
         vec!["octocode", "install", "--list", "--json"],
-        vec!["octocode", "graph", "query", "stats", "--json"],
+        vec!["octocode", "graphQuery", "--json", "{}"],
         vec!["octocode", "lsp-server", "list", "--json"],
     ] {
         let args = parse_args_from(argv.clone()).expect("parses");

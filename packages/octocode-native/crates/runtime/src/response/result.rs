@@ -47,13 +47,58 @@ impl Continuation {
         }
     }
 
+    /// The call: its input's rows without the fields that hold their
+    /// contract default ([`without_defaults`]). A related call is a fresh
+    /// public request, so its rows also drop the tool's private progress
+    /// ([`fresh_query_row`]); only continued work keeps it, for its cursor.
     pub fn build(self) -> Value {
+        let input = match self.kind {
+            ContinuationKind::Continue => self.input,
+            ContinuationKind::Related => without_private_progress(self.tool, self.input),
+        };
         serde_json::json!({
             "kind": match self.kind { ContinuationKind::Continue => "continue", ContinuationKind::Related => "related" },
             "tool": self.tool.as_str(),
-            "input": self.input,
+            "input": without_defaults(self.tool, input),
         })
     }
+}
+
+/// `input` with each query row as [`fresh_query_row`].
+fn without_private_progress(tool: ToolId, mut input: Value) -> Value {
+    if let Some(rows) = input.get_mut("queries").and_then(Value::as_array_mut) {
+        for row in rows.iter_mut() {
+            *row = fresh_query_row(tool, row);
+        }
+    }
+    input
+}
+
+/// `input` with each query row's fields that equal their contract default
+/// dropped: parsing re-applies the default, so the call (and a cursor that
+/// saves it) runs exactly the same query in fewer bytes. A default is read
+/// from the variants of the row's `operation`; a field whose variants
+/// disagree or declare none stays. `operation` itself always stays.
+fn without_defaults(tool: ToolId, mut input: Value) -> Value {
+    let Some(rows) = input.get_mut("queries").and_then(Value::as_array_mut) else {
+        return input;
+    };
+    for row in rows.iter_mut().filter_map(Value::as_object_mut) {
+        let operation = row
+            .get("operation")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        row.retain(|field, value| {
+            field == "operation"
+                || crate::contracts::query_schema_value(
+                    tool,
+                    operation.as_deref(),
+                    field,
+                    "default",
+                ) != Some(&*value)
+        });
+    }
+    input
 }
 
 /// Rows one `tool` call accepts: the contract's `queries.maxItems`, so a
@@ -75,12 +120,13 @@ pub(crate) fn rows_per_call(tool: ToolId) -> usize {
 }
 
 /// The first row of a continuation call (`input.queries[0]`).
+#[cfg(test)]
 #[must_use]
 pub(crate) fn continuation_row(call: &Value) -> Option<&Value> {
     call.get("input")?.get("queries")?.get(0)
 }
 
-/// [`continuation_row`], mutable.
+/// The first row of a continuation call (`input.queries[0]`), mutable.
 pub(crate) fn continuation_row_mut(call: &mut Value) -> Option<&mut Value> {
     call.get_mut("input")?.get_mut("queries")?.get_mut(0)
 }
@@ -114,23 +160,27 @@ pub(crate) fn with_changes(mut row: Value, changes: &Value) -> Value {
 pub(crate) const PAGES_KEY: &str = "next";
 pub(crate) const HINTS_KEY: &str = "hints";
 
-#[derive(Debug, Default, Serialize)]
+/// What a tool learned beside its data: the coverage gaps that make the
+/// row partial and the recovery hints. The row stage writes them through
+/// [`crate::response::paging::mark_partial`].
+#[derive(Debug, Default)]
 pub(crate) struct ToolDiagnostics {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub codes: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub partial_reasons: Vec<crate::response::paging::PartialReason>,
     pub hints: Vec<String>,
-    pub partial: bool,
 }
 impl ToolDiagnostics {
-    pub fn add(&mut self, code: &str, hint: &str, partial: bool) {
-        if !self.codes.iter().any(|value| value == code) {
-            self.codes.push(code.into());
-        }
+    /// A recovery hint, once.
+    pub fn hint(&mut self, hint: &str) {
         if !self.hints.iter().any(|value| value == hint) {
             self.hints.push(hint.into());
         }
-        self.partial |= partial;
+    }
+
+    /// A coverage gap: the row is partial for `reason`.
+    pub fn partial(&mut self, reason: crate::response::paging::PartialReason) {
+        if !self.partial_reasons.contains(&reason) {
+            self.partial_reasons.push(reason);
+        }
     }
 }
 
@@ -181,7 +231,7 @@ pub(crate) fn fresh_query_row(tool: ToolId, row: &Value) -> Value {
 
 /// A new request over the same scope; private progress belongs only to the saved work.
 pub(crate) fn restart_query(tool: ToolId, row: &Value) -> Value {
-    Continuation::related(tool, fresh_query_row(tool, row)).build()
+    Continuation::related(tool, row.clone()).build()
 }
 
 /// [`ToolError::stale_snapshot`] as a result row, for a tool that returns
@@ -247,6 +297,13 @@ pub(crate) fn attach_related(data: &mut Value, call: Value) {
         && !related.contains(&call)
     {
         related.push(call);
+    }
+}
+
+/// Assemble a producer's explicitly typed private `calls` into public channels.
+pub(crate) fn finish_calls(value: &mut Value) {
+    if let Some(calls) = value.as_object_mut().and_then(|row| row.remove("calls")) {
+        attach_calls(value, calls);
     }
 }
 

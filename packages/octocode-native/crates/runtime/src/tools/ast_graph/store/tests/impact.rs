@@ -197,7 +197,7 @@ fn dependents_include_importers_through_a_reexporting_module() {
         "{}",
         out.value
     );
-    let through = &out.value["results"][1];
+    let through = &out.value["rows"][1];
     assert_eq!(through["edge"], "uses", "{through}");
     assert_eq!(through["via"], "reexport", "{through}");
     assert_eq!(through["depth"], 1, "{through}");
@@ -218,7 +218,7 @@ fn impact_summary_is_sent_once_and_does_not_repeat_the_rows() {
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
     let first = ask(root, "impact", Some("src/lib.ts"), |o| o.limit = Some(1));
-    assert_eq!(first.value["truncated"], true, "{}", first.value);
+    assert_eq!(first.value["pagination"]["hasMore"], true, "{}", first.value);
     let summary = &first.value["summary"];
     assert!(summary["byDepth"].is_object(), "{summary}");
     for repeated in [
@@ -236,5 +236,86 @@ fn impact_summary_is_sent_once_and_does_not_repeat_the_rows() {
     });
     assert_eq!(second.class, ExitClass::Success, "{}", second.value);
     assert!(second.value.get("summary").is_none(), "{}", second.value);
-    assert_eq!(second.value["results"].as_array().map(Vec::len), Some(1));
+    assert_eq!(second.value["rows"].as_array().map(Vec::len), Some(1));
+}
+
+/// Symbol precision lists only what binds the changed name: an importer
+/// whose linked references into the module name other items is skipped, and
+/// one with no linked name at all (a glob or bare module import) is a
+/// module-level `candidate`, never a `direct` breakage, and is not expanded
+/// as if its whole module changed.
+#[test]
+fn symbol_impact_keeps_import_only_rows_as_unexpanded_candidates() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub mod paging;\npub mod names_other;\npub mod binds;\npub mod glob;\npub mod above;\n",
+        ),
+        (
+            "src/paging.rs",
+            "pub trait RowFields {\n    fn fields(&self) -> usize;\n}\n\npub fn push_warnings() -> usize {\n    1\n}\n",
+        ),
+        (
+            "src/names_other.rs",
+            "use crate::paging;\n\npub fn other() -> usize {\n    paging::push_warnings()\n}\n",
+        ),
+        (
+            "src/binds.rs",
+            "use crate::paging::RowFields;\n\npub fn count(row: &dyn RowFields) -> usize {\n    row.fields()\n}\n",
+        ),
+        (
+            "src/glob.rs",
+            "#[allow(unused_imports)]\nuse crate::paging::*;\n",
+        ),
+        (
+            "src/above.rs",
+            "use crate::glob;\nuse crate::names_other;\n\npub fn up() -> usize {\n    names_other::other()\n}\n",
+        ),
+    ]);
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let out = ask(
+        dir.0.as_path(),
+        "impact",
+        Some("src/paging.rs#RowFields"),
+        |_| {},
+    );
+    assert_eq!(out.value["summary"]["precision"], "symbol", "{}", out.value);
+    let rows = out.value["rows"].as_array().expect("rows");
+    let risk = |file: &str| {
+        rows.iter()
+            .find(|row| row["id"] == file)
+            .map(|row| row["risk"].as_str().unwrap_or_default().to_owned())
+    };
+    assert_eq!(
+        risk("src/binds.rs").as_deref(),
+        Some("direct"),
+        "{}",
+        out.value
+    );
+    assert_eq!(
+        risk("src/names_other.rs"),
+        None,
+        "names only push_warnings: {}",
+        out.value
+    );
+    for row in rows.iter().filter(|row| {
+        row["via"]
+            .as_str()
+            .is_some_and(|via| via.starts_with("imports"))
+    }) {
+        assert_eq!(row["risk"], "candidate", "import-only row: {}", out.value);
+    }
+    assert_eq!(
+        risk("src/above.rs"),
+        None,
+        "nothing above a candidate or a skipped importer: {}",
+        out.value
+    );
 }

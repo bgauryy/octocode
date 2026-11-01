@@ -172,6 +172,8 @@ const readPaths = [
       'cdp-runner-session.mjs',
       'cdp-runner-targets.mjs',
       'target-owner.mjs',
+      // Source maps for dev-server-check stacks.
+      'sourcemap-resolver.mjs',
     ].flatMap(name => [resolve(__dir, name), safePath(resolve(__dir, name))]),
     OCTOCODE_OUTPUT_BASE,
     OCTOCODE_TREE_REAL,
@@ -264,6 +266,11 @@ const SCRIPT_ENV_ALLOWLIST = [
   'STORAGE_WAIT_MS',
   'STEALTH_CHECK_URL',
   'AFFILIATES_CHECK_URL',
+  // dev-check: the page, its wait condition and ceiling.
+  'DEV_URL',
+  'DEV_WAIT_UNTIL',
+  'DEV_IDLE_MS',
+  'DEV_TIMEOUT_MS',
 ];
 const scriptEnv = Object.fromEntries(
   SCRIPT_ENV_ALLOWLIST.filter(key => process.env[key] !== undefined).map(

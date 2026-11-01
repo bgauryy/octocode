@@ -5,7 +5,6 @@ pub(super) fn detect_dependencies(c: &mut Ctx) {
     let v = &c.v;
     let t = v.t;
     let mut undeclared = BTreeMap::<(String, u32), Vec<(u32, u32)>>::new();
-    let mut dev_in_prod = BTreeMap::<(String, u32), Vec<(u32, u32)>>::new();
     let mut hoisted = BTreeMap::<(String, u32), Vec<(u32, u32)>>::new();
     for edge in &t.edges {
         if edge.kind != EdgeKind::Imports || t.nodes[edge.dst as usize].kind != NodeKind::Package {
@@ -25,12 +24,6 @@ pub(super) fn detect_dependencies(c: &mut Ctx) {
             }
             "external-undeclared" if v.production(edge.src) => {
                 undeclared
-                    .entry((component, edge.dst))
-                    .or_default()
-                    .push((edge.src, edge.line));
-            }
-            "external-dev" if v.production(edge.src) => {
-                dev_in_prod
                     .entry((component, edge.dst))
                     .or_default()
                     .push((edge.src, edge.line));
@@ -61,18 +54,6 @@ pub(super) fn detect_dependencies(c: &mut Ctx) {
             0.75,
             json!({"package": name, "component": component, "importers": files.len(), "sites": sites(files)}),
             vec!["builtins, workspace siblings and ancestor manifests checked"],
-        ));
-    }
-    for ((component, package), files) in &dev_in_prod {
-        let name = t.str(t.nodes[*package as usize].name).to_owned();
-        pending.push((
-            "dev-dependency-in-production",
-            format!("{component}::{name}"),
-            format!("Production code imports dev-only dependency `{name}`"),
-            0.6,
-            0.7,
-            json!({"package": name, "component": component, "importers": files.len(), "sites": sites(files)}),
-            vec!["test and config files excluded"],
         ));
     }
     for ((component, package), files) in &hoisted {
@@ -219,7 +200,10 @@ pub(super) fn detect_unresolved(c: &mut Ctx) {
                 impact: 0.5,
                 evidence: json!({"count": sites.len(), "sites": sites, "outsideRoot": outside}),
                 controls,
-                verify: vec![format!("octocode graph query diagnostics {}", quote(&file))],
+                verify: vec![step(
+                    ToolId::GraphQuery,
+                    json!({"operation": "diagnostics", "target": file}),
+                )],
             },
         );
     }

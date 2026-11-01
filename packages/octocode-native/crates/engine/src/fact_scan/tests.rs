@@ -23,6 +23,7 @@ struct Scanned {
     skipped: Vec<GraphFactsScanDiagnostic>,
     files_skipped: u32,
     truncated: bool,
+    scan_resume: Option<u32>,
 }
 
 /// Every file the scan read or skipped, sorted.
@@ -54,6 +55,7 @@ fn scan_admitted(
         skipped: scan.skipped,
         files_skipped: scan.files_skipped,
         truncated: scan.truncated,
+        scan_resume: scan.scan_resume,
     })
 }
 

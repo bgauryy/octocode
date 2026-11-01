@@ -1,15 +1,12 @@
-use super::super::handoff::hit_windows;
 use super::super::local_search_query::{View, shows_span_columns};
 use super::super::rows::project_match;
 use super::costs::Owner;
-use super::expansion::{FileReads, RowRead};
 use super::*;
-use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 use octocode_engine::types::{TextSearchFile, TextSearchMatch};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-fn hit(line: u32, clipped: bool) -> TextSearchMatch {
+fn hit(line: u32) -> TextSearchMatch {
     TextSearchMatch {
         deferred: None,
         line,
@@ -20,60 +17,7 @@ fn hit(line: u32, clipped: bool) -> TextSearchMatch {
         value_digest: [0; 32],
         count: None,
         rank: Some(1),
-        original_chars: clipped.then_some(4_000),
-        original_bytes: clipped.then_some(4_000),
     }
-}
-
-/// Kept as rows join, a file's reads equal the batch count over the
-/// same rows ([`hit_windows`] merged, long hits one each), and `added`
-/// is exactly what `add` then changes.
-#[test]
-fn incremental_file_reads_equal_the_batch_count() {
-    // Lines in rank order: out of line order, overlapping, adjacent,
-    // bridging, repeated.
-    let lines = [
-        40u32, 10, 12, 60, 11, 30, 26, 34, 90, 1, 2, 70, 80, 55, 45, 50, 100, 120, 140, 160, 180,
-        200, 220, 240, 260, 25, 33,
-    ];
-    for context in [0, 2, 4] {
-        let mut reads = FileReads::default();
-        let mut shown = Vec::new();
-        for (n, &line) in lines.iter().enumerate() {
-            let read = if n % 7 == 3 {
-                RowRead::Long
-            } else {
-                let (start, end) = hit_windows([line], SearchContext::symmetric(context))[0];
-                RowRead::Window { start, end }
-            };
-            let before = reads.rows();
-            let added = reads.added(read);
-            reads.add(read);
-            assert_eq!(reads.rows(), before + added, "{context} {line}");
-            shown.push((line, read));
-            let long = shown
-                .iter()
-                .filter(|(_, read)| *read == RowRead::Long)
-                .count();
-            let windows = hit_windows(
-                shown
-                    .iter()
-                    .filter(|(_, read)| *read != RowRead::Long)
-                    .map(|(line, _)| *line),
-                SearchContext::symmetric(context),
-            );
-            assert_eq!(
-                reads.rows(),
-                long + windows.len().div_ceil(RANGES_MAX_ITEMS),
-                "{context} {line}"
-            );
-        }
-    }
-    let mut multiline = FileReads::default();
-    assert_eq!(multiline.added(RowRead::Multiline), 1);
-    multiline.add(RowRead::Multiline);
-    assert_eq!(multiline.added(RowRead::Multiline), 0);
-    assert_eq!(multiline.added(RowRead::None), 0);
 }
 
 /// Cutting every page prices each row once and each file entry once,
@@ -83,27 +27,20 @@ fn incremental_file_reads_equal_the_batch_count() {
 fn stream_pages_price_each_row_and_file_once() {
     let files = (0..30u32)
         .map(|n| TextSearchFile {
+            term_counts: Vec::new(),
             path: format!("src/f{n}.rs"),
             match_count: 40,
-            matches: (1..=40).map(|line| hit(line * 3, line % 2 == 0)).collect(),
+            matches: (1..=40).map(|line| hit(line * 3)).collect(),
             source: None,
         })
         .collect::<Vec<_>>();
     let rows = std::cell::Cell::new(0usize);
     let entries = std::cell::Cell::new(0usize);
-    let read = |matched: &TextSearchMatch| {
-        if matched.original_chars.is_some() {
-            let (start, end) = hit_windows([matched.line], SearchContext::symmetric(1))[0];
-            RowRead::Window { start, end }
-        } else {
-            RowRead::None
-        }
-    };
     let pages = stream_pages(
         &files,
         10,
         false,
-        2_000,
+        (2_000, None),
         StreamCosts {
             file: &|_| {
                 entries.set(entries.get() + 1);
@@ -114,7 +51,6 @@ fn stream_pages_price_each_row_and_file_once() {
                 25
             },
             name: &|_, _| RowName::None,
-            read: &read,
         },
         None,
     );
@@ -123,17 +59,6 @@ fn stream_pages_price_each_row_and_file_once() {
     assert_eq!(entries.get(), 30);
     let mut seen = 0;
     for page in &pages {
-        let reads = page
-            .iter()
-            .map(|(index, range)| {
-                let mut reads = FileReads::default();
-                for matched in &files[*index].matches[range.clone()] {
-                    reads.add(read(matched));
-                }
-                reads.rows()
-            })
-            .sum::<usize>();
-        assert!(reads <= max_expansion_rows(), "{reads}");
         seen += page.iter().map(|(_, range)| range.len()).sum::<usize>();
     }
     assert_eq!(seen, 30 * 40, "every row on exactly one page");
@@ -143,18 +68,18 @@ fn stream_pages_price_each_row_and_file_once() {
 /// shows serializes, with `column` only where the response keeps it.
 #[test]
 fn row_chars_price_the_row_as_shown() {
-    let mut matched = hit(7, false);
+    let mut matched = hit(7);
     matched.value = "quote \" tab \t é 😀 needle".into();
     matched.column = 4;
-    for (cap, span_columns) in [(None, false), (Some(5), true), (Some(500), false)] {
-        let mut row = project_match(&matched, cap);
+    for span_columns in [false, true] {
+        let mut row = project_match(&matched);
         if !span_columns {
             row.column = None;
         }
         assert_eq!(
-            row_chars(&matched, cap, span_columns),
+            row_chars(&matched, span_columns),
             octocode_engine::json_size::utf16_units(&row).unwrap_or(0) + 1,
-            "{cap:?} {span_columns}"
+            "{span_columns}"
         );
     }
 }
@@ -210,9 +135,10 @@ fn page_cuts_outline_only_the_first_pages_files_and_every_call_cuts_alike() {
     let root = tempfile::tempdir().expect("fixture directory");
     let files = (0..100u32)
         .map(|n| TextSearchFile {
+            term_counts: Vec::new(),
             path: format!("src/f{n:03}.rs"),
             match_count: 30,
-            matches: (1..=30).map(|line| hit(line * 4, false)).collect(),
+            matches: (1..=30).map(|line| hit(line * 4)).collect(),
             source: None,
         })
         .collect::<Vec<_>>();
@@ -285,20 +211,28 @@ fn listed_file_chars_match_the_rendered_entry() {
         "naïve/𝄞/日本.ts",
         "",
     ] {
-        for count in [0, 9, 10, 4_294_967_295] {
+        for (count, terms) in [
+            (0, vec![]),
+            (9, vec![9, 0]),
+            (10, vec![]),
+            (4_294_967_295, vec![4_294_967_295, 0, 12]),
+        ] {
             let file = TextSearchFile {
+                term_counts: terms.clone(),
                 path: path.to_owned(),
                 match_count: count,
                 matches: Vec::new(),
                 source: None,
             };
             for view in [View::Files, View::CountMatches, View::CountLines] {
+                let counted = matches!(view, View::CountMatches | View::CountLines);
                 let rendered = SearchFile {
                     path: file.path.clone(),
                     matches: None,
                     match_keys: Vec::new(),
                     total_occurrences: (view == View::CountMatches).then_some(count),
                     total_matched_lines: (view == View::CountLines).then_some(count),
+                    term_counts: (counted && !terms.is_empty()).then(|| terms.clone()),
                     pagination: None,
                 };
                 assert_eq!(

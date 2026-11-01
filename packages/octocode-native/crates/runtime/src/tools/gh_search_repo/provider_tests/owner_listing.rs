@@ -19,7 +19,13 @@ async fn owner_listing_counts_skipped_archived_repositories() {
     let out = run(&server, json!({"owner":"o","operation":"list"})).await;
     assert_eq!(out.data["repositories"].as_array().map(Vec::len), Some(1));
     let warnings = out.data["warnings"].to_string();
-    assert!(warnings.contains("2 archived repositories"), "{}", out.data);
+    assert!(
+        warnings.contains(
+            r#"filters.archive \"exclude\" left out 2 archived repositories (a filter, not a gap)"#
+        ),
+        "{}",
+        out.data
+    );
     assert_eq!(
         crate::tools::test_support::checks::related_call(&out.data, "ghSearchRepo", |input| input
             ["queries"][0]["filters"]["archive"]
@@ -269,4 +275,40 @@ async fn owner_listing_marks_forks_only() {
     assert_eq!(rows.len(), 2, "{}", out.data);
     assert!(rows[0].get("fork").is_none(), "{}", out.data);
     assert_eq!(rows[1]["fork"], true, "{}", out.data);
+}
+
+/// `archive:"only"` leaves out the non-archived rows, and says exactly
+/// that: a filter, never a gap, and no lead to the rows it filtered.
+#[tokio::test]
+async fn archive_only_listing_names_the_non_archived_rows_it_filtered() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/orgs/o/repos"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            repo_item("live", false),
+            repo_item("old", true),
+            repo_item("older", true)
+        ])))
+        .mount(&server)
+        .await;
+    let out = run(
+        &server,
+        json!({"owner":"o","operation":"list","filters":{"archive":"only"}}),
+    )
+    .await;
+    assert_eq!(out.data["repositories"].as_array().map(Vec::len), Some(2));
+    let warnings = out.data["warnings"].to_string();
+    assert!(
+        warnings.contains(
+            r#"filters.archive \"only\" left out 1 non-archived repository (a filter, not a gap)"#
+        ),
+        "{}",
+        out.data
+    );
+    assert!(!warnings.contains("archived repositories"), "{}", out.data);
+    assert!(
+        out.data["next"].get("includeArchived").is_none(),
+        "{}",
+        out.data
+    );
 }

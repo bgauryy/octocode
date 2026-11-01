@@ -14,9 +14,8 @@
       "queries": [
         {
           "path": ".",
-          "maxFiles": 50000,
           "keep": 3,
-          "force": false
+          "refresh": false
         }
       ]
     }
@@ -49,7 +48,7 @@
         {
           "operation": "stats",
           "path": ".",
-          "includeProvenance": true
+          "includeProvenance": false
         }
       ]
     }
@@ -72,7 +71,7 @@
         {
           "operation": "find",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 50,
           "kind": "symbol",
           "target": "server"
@@ -97,7 +96,7 @@
         {
           "operation": "node",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "target": "src/server.ts"
         }
       ]
@@ -120,7 +119,7 @@
         {
           "operation": "symbols",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "target": "src/server.ts",
           "limit": 50
         }
@@ -145,7 +144,7 @@
         {
           "operation": "deps",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "target": "src/server.ts",
           "confidence": "high",
           "limit": 50,
@@ -172,7 +171,7 @@
         {
           "operation": "dependents",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "target": "src/server.ts",
           "confidence": "high",
           "limit": 50,
@@ -199,7 +198,7 @@
         {
           "operation": "callers",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "target": "src/server.ts",
           "confidence": "high",
           "limit": 50,
@@ -226,7 +225,7 @@
         {
           "operation": "callees",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "target": "src/server.ts",
           "confidence": "high",
           "limit": 50,
@@ -253,7 +252,7 @@
         {
           "operation": "walk",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "target": "src/server.ts",
           "confidence": "high",
           "limit": 50,
@@ -280,7 +279,7 @@
         {
           "operation": "path",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "target": "src/a.ts",
           "confidence": "high",
           "to": "src/b.ts"
@@ -307,7 +306,7 @@
         {
           "operation": "cycles",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "edges": [
             "imports"
           ],
@@ -334,7 +333,7 @@
         {
           "operation": "hubs",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "confidence": "high",
           "limit": 50,
           "direction": "out"
@@ -359,7 +358,7 @@
         {
           "operation": "diagnostics",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 50,
           "target": "src/"
         }
@@ -387,7 +386,7 @@
         {
           "operation": "witnesses",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 1,
           "edges": [
             "calls"
@@ -415,7 +414,7 @@
         {
           "operation": "witnesses",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 50,
           "confidence": "high",
           "to": "src/worker.ts#run"
@@ -442,7 +441,7 @@
         {
           "operation": "witnesses",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 50,
           "edges": [
             "passes"
@@ -470,7 +469,7 @@
         {
           "operation": "unresolved",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 1,
           "target": "src/server.ts"
         }
@@ -497,7 +496,7 @@
         {
           "operation": "unresolved",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 1,
           "edges": [
             "passes"
@@ -527,7 +526,7 @@
         {
           "operation": "unresolved",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 1,
           "edges": [
             "calls",
@@ -553,7 +552,7 @@
         {
           "operation": "stale",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 50
         }
       ]
@@ -576,7 +575,7 @@
         {
           "operation": "impact",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 50,
           "target": "src/a.ts",
           "depth": 3
@@ -603,7 +602,7 @@
         {
           "operation": "impact",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 50,
           "changed": [
             "src/a.ts"
@@ -630,7 +629,7 @@
         {
           "operation": "impact",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 50,
           "since": "main",
           "depth": 3
@@ -659,7 +658,7 @@
         {
           "operation": "impact",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 50,
           "target": "src/a.ts",
           "changed": [
@@ -688,7 +687,7 @@
         {
           "operation": "drift",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "limit": 50,
           "baseline": "20261025-baseline"
         }
@@ -712,7 +711,7 @@
         {
           "operation": "candidates",
           "path": ".",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "target": "server",
           "limit": 50
         }
@@ -741,7 +740,7 @@
           "operation": "candidates",
           "path": "src",
           "graph": "20261026-snapshot",
-          "includeProvenance": true,
+          "includeProvenance": false,
           "target": "./server",
           "kind": "symbol",
           "limit": 1
@@ -750,19 +749,125 @@
     }
   },
   {
-    "id": "graph-query.invalid-0-find",
+    "id": "graph-query.valid-27-find",
     "tool": "graphQuery",
     "input": {
       "queries": [
         {
-          "operation": "find"
+          "operation": "find",
+          "kind": "file",
+          "limit": 1000
         }
       ]
     },
-    "accepted": false
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "find",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 1000,
+          "kind": "file"
+        }
+      ]
+    }
   },
   {
-    "id": "graph-query.invalid-1-node",
+    "id": "graph-query.valid-28-symbols",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "symbols"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-29-symbols",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "target": [
+            "src/a.ts",
+            "src/b.ts"
+          ],
+          "limit": 1000
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "path": ".",
+          "includeProvenance": false,
+          "target": [
+            "src/a.ts",
+            "src/b.ts"
+          ],
+          "limit": 1000
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-30-issues",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "issues",
+          "detectors": [
+            "cycle",
+            "unreachable-file"
+          ],
+          "entries": [
+            "src/main.ts"
+          ],
+          "minScore": 0.5,
+          "minTier": 60
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "issues",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "detectors": [
+            "cycle",
+            "unreachable-file"
+          ],
+          "entries": [
+            "src/main.ts"
+          ],
+          "minScore": 0.5,
+          "minTier": 60
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.invalid-0-node",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -774,19 +879,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-2-symbols",
-    "tool": "graphQuery",
-    "input": {
-      "queries": [
-        {
-          "operation": "symbols"
-        }
-      ]
-    },
-    "accepted": false
-  },
-  {
-    "id": "graph-query.invalid-3-deps",
+    "id": "graph-query.invalid-1-deps",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -798,7 +891,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-4-dependents",
+    "id": "graph-query.invalid-2-dependents",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -810,7 +903,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-5-callers",
+    "id": "graph-query.invalid-3-callers",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -822,7 +915,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-6-callees",
+    "id": "graph-query.invalid-4-callees",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -834,7 +927,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-7-walk",
+    "id": "graph-query.invalid-5-walk",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -846,7 +939,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-8-path",
+    "id": "graph-query.invalid-6-path",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -859,7 +952,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-9-path",
+    "id": "graph-query.invalid-7-path",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -872,7 +965,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-10-drift",
+    "id": "graph-query.invalid-8-drift",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -884,7 +977,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-11-impact",
+    "id": "graph-query.invalid-9-impact",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -896,7 +989,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-12-impact",
+    "id": "graph-query.invalid-10-impact",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -909,7 +1002,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-13-stats",
+    "id": "graph-query.invalid-11-stats",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -922,7 +1015,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-14-stats",
+    "id": "graph-query.invalid-12-stats",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -935,7 +1028,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-15-stats",
+    "id": "graph-query.invalid-13-stats",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -948,7 +1041,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-16-unresolved",
+    "id": "graph-query.invalid-14-unresolved",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -961,7 +1054,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-17-unresolved",
+    "id": "graph-query.invalid-15-unresolved",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -974,7 +1067,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-18-unresolved",
+    "id": "graph-query.invalid-16-unresolved",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -987,7 +1080,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-19-unresolved",
+    "id": "graph-query.invalid-17-unresolved",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1002,7 +1095,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-20-witnesses",
+    "id": "graph-query.invalid-18-witnesses",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1015,7 +1108,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-21-node",
+    "id": "graph-query.invalid-19-node",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1029,7 +1122,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-22-find",
+    "id": "graph-query.invalid-20-find",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1043,7 +1136,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-23-path",
+    "id": "graph-query.invalid-21-path",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1058,7 +1151,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-24-hubs",
+    "id": "graph-query.invalid-22-hubs",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1071,7 +1164,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-25-cycles",
+    "id": "graph-query.invalid-23-cycles",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1084,7 +1177,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-26-cycles",
+    "id": "graph-query.invalid-24-cycles",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1097,7 +1190,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-27-impact",
+    "id": "graph-query.invalid-25-impact",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1111,7 +1204,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-28-candidates",
+    "id": "graph-query.invalid-26-candidates",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1123,27 +1216,54 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-29-candidates",
+    "id": "graph-query.invalid-27-symbols",
     "tool": "graphQuery",
     "input": {
       "queries": [
         {
-          "operation": "candidates",
-          "target": ""
+          "operation": "symbols",
+          "target": []
         }
       ]
     },
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-30-candidates",
+    "id": "graph-query.invalid-28-issues",
     "tool": "graphQuery",
     "input": {
       "queries": [
         {
-          "operation": "candidates",
-          "target": "server",
-          "kind": "method"
+          "operation": "issues",
+          "detectors": [
+            "typo"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-29-issues",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "issues",
+          "minTier": 75
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-30-issues",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "issues",
+          "target": "ignored"
         }
       ]
     },
@@ -1156,8 +1276,7 @@
       "queries": [
         {
           "operation": "candidates",
-          "target": "server",
-          "limit": 0
+          "target": ""
         }
       ]
     },
@@ -1171,7 +1290,7 @@
         {
           "operation": "candidates",
           "target": "server",
-          "limit": 1001
+          "kind": "method"
         }
       ]
     },
@@ -1185,7 +1304,7 @@
         {
           "operation": "candidates",
           "target": "server",
-          "to": "other"
+          "limit": 0
         }
       ]
     },
@@ -1193,6 +1312,20 @@
   },
   {
     "id": "graph-query.invalid-34-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "to": "other"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-35-candidates",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1208,7 +1341,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-35-candidates",
+    "id": "graph-query.invalid-36-candidates",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1222,7 +1355,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-36-candidates",
+    "id": "graph-query.invalid-37-candidates",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1236,7 +1369,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-37-candidates",
+    "id": "graph-query.invalid-38-candidates",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1250,7 +1383,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-38-candidates",
+    "id": "graph-query.invalid-39-candidates",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1266,7 +1399,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-39-candidates",
+    "id": "graph-query.invalid-40-candidates",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1280,7 +1413,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-40-candidates",
+    "id": "graph-query.invalid-41-candidates",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1294,7 +1427,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-41-candidates",
+    "id": "graph-query.invalid-42-candidates",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1308,7 +1441,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-42-candidates",
+    "id": "graph-query.invalid-43-candidates",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -1480,6 +1613,7 @@
           "keywords": [
             " parser "
           ],
+          "limit": 20,
           "ecosystem": "crates"
         }
       ]
@@ -2092,6 +2226,7 @@
           "keywords": [
             "parser"
           ],
+          "limit": 20,
           "ecosystem": "crates"
         }
       ]
@@ -2332,6 +2467,7 @@
             ],
             "context": "Find cache expiry."
           },
+          "limit": 50,
           "page": 1
         }
       ]
@@ -2810,6 +2946,7 @@
             "by": "bestMatch",
             "order": "desc"
           },
+          "limit": 50,
           "page": 1
         }
       ]
@@ -2836,6 +2973,7 @@
             "by": "bestMatch",
             "order": "desc"
           },
+          "limit": 50,
           "page": 1
         }
       ]
@@ -2865,6 +3003,7 @@
           "matchIn": [
             "content"
           ],
+          "limit": 50,
           "page": 1
         }
       ]
@@ -2890,6 +3029,7 @@
           "matchIn": [
             "content"
           ],
+          "limit": 50,
           "page": 1
         }
       ]
@@ -2915,6 +3055,7 @@
           "matchIn": [
             "content"
           ],
+          "limit": 50,
           "page": 1
         }
       ]
@@ -2961,6 +3102,7 @@
               "Relevant?"
             ]
           },
+          "limit": 50,
           "page": 1
         }
       ]
@@ -3009,6 +3151,7 @@
             "by": "stars",
             "order": "desc"
           },
+          "limit": 50,
           "page": 1
         }
       ]
@@ -3041,6 +3184,7 @@
             "by": "pushedAt",
             "order": "desc"
           },
+          "limit": 50,
           "page": 1
         }
       ]
@@ -3172,6 +3316,7 @@
           "matchIn": [
             "content"
           ],
+          "limit": 50,
           "page": 1
         }
       ]
@@ -3212,6 +3357,7 @@
           "matchIn": [
             "path"
           ],
+          "limit": 50,
           "page": 1
         }
       ]
@@ -3310,7 +3456,8 @@
           "include": [
             "**/*.ts"
           ],
-          "materialize": true
+          "materialize": true,
+          "limit": 300
         }
       ]
     }
@@ -3335,7 +3482,8 @@
           "operation": "refs",
           "owner": "o",
           "repo": "r",
-          "ref": "main"
+          "ref": "main",
+          "limit": 100
         }
       ]
     }
@@ -3654,6 +3802,7 @@
       "queries": [
         {
           "operation": "pullRequest",
+          "limit": 50,
           "page": 1
         }
       ]
@@ -3675,6 +3824,7 @@
       "queries": [
         {
           "operation": "pullRequest",
+          "limit": 50,
           "page": 1,
           "owner": "o"
         }
@@ -3715,6 +3865,7 @@
       "queries": [
         {
           "operation": "pullRequest",
+          "limit": 50,
           "page": 1,
           "owner": "o",
           "repo": "r",
@@ -3747,6 +3898,7 @@
       "queries": [
         {
           "operation": "pullRequest",
+          "limit": 50,
           "page": 1,
           "owner": "o",
           "repo": "r",
@@ -3778,6 +3930,7 @@
       "queries": [
         {
           "operation": "pullRequest",
+          "limit": 50,
           "page": 1,
           "owner": "o",
           "repo": "r",
@@ -3835,6 +3988,7 @@
       "queries": [
         {
           "operation": "pullRequest",
+          "limit": 50,
           "page": 1,
           "owner": "o",
           "repo": "r",
@@ -3901,6 +4055,7 @@
       "queries": [
         {
           "operation": "issue",
+          "limit": 50,
           "page": 1,
           "owner": "o",
           "repo": "r",
@@ -3951,6 +4106,7 @@
           "operation": "commit",
           "owner": "o",
           "repo": "r",
+          "limit": 50,
           "page": 1,
           "filters": {
             "committer": {
@@ -3990,6 +4146,7 @@
           "operation": "commit",
           "owner": "o",
           "repo": "r",
+          "limit": 50,
           "page": 1,
           "keywords": [
             "fix"
@@ -5430,7 +5587,7 @@
           "symbolName": "expire",
           "line": 1,
           "operation": "callers",
-          "graphDepth": 0
+          "depth": 0
         }
       ]
     }
@@ -5446,7 +5603,7 @@
           "symbolName": "expire",
           "line": 1,
           "operation": "callees",
-          "graphDepth": 0
+          "depth": 0
         }
       ]
     }
@@ -5462,7 +5619,7 @@
           "symbolName": "expire",
           "line": 1,
           "operation": "supertypes",
-          "graphDepth": 0
+          "depth": 0
         }
       ]
     }
@@ -5478,7 +5635,7 @@
           "symbolName": "expire",
           "line": 1,
           "operation": "subtypes",
-          "graphDepth": 0
+          "depth": 0
         }
       ]
     }
@@ -6564,9 +6721,9 @@
     }
   },
   {
-    "id": "clasify.removed-brief",
+    "id": "clasify.brief",
     "tool": "clasify",
-    "accepted": false,
+    "accepted": true,
     "input": {
       "queries": [
         {
@@ -6578,6 +6735,22 @@
               "instructions": "Does the text require a restart?"
             }
           },
+          "mainGoal": "Check restart",
+          "reasoning": "Inspect source"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
           "mainGoal": "Check restart",
           "reasoning": "Inspect source"
         }

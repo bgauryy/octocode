@@ -8,9 +8,10 @@ pub(super) use entries::{
 };
 use entries::{git_kind, note_unlisted, unlisted_kind};
 
-/// Deepest level a listing may reach (contract `maxDepth` maximum).
+/// Deepest level a listing may reach: every level (the contract bounds no
+/// `maxDepth`), spelled as the largest depth a lead can carry.
 pub(super) fn max_listing_depth() -> usize {
-    crate::contracts::query_schema_max(ToolId::GhStructure, None, "maxDepth")
+    crate::num::usize_of(u32::MAX)
 }
 
 /// One `include` glob over repository-relative paths, matched as authored.

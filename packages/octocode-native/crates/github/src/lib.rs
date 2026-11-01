@@ -1,5 +1,15 @@
 //! GitHub protocol, bounded transport, and provider operations.
 //! Hosts own credential acquisition, cache storage, and application policy.
+// Numeric conversions are explicit (`try_from` with a stated outcome): a
+// lossy `as` cast fails CI (`-D warnings`). Tests may cast fixture values.
+#![cfg_attr(
+    not(test),
+    warn(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap
+    )
+)]
 
 mod budget;
 mod cache_key;

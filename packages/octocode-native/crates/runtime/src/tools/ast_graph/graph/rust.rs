@@ -15,6 +15,18 @@ pub(crate) fn rust_module_child_dir(importer: &str) -> String {
     }
 }
 
+/// Whether a `super::` chain climbs above the snapshot root: each `super`
+/// leaves one directory of the importer's module directory, and the root's
+/// own module (`.`) has no parent inside the scan.
+pub(super) fn rust_super_escapes_root(importer: &str, spec: &str) -> bool {
+    let climbs = spec.split("::").take_while(|s| *s == "super").count();
+    let depth = rust_module_child_dir(importer)
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .count();
+    climbs > depth
+}
+
 /// The importer's crate-root directory: the nearest ancestor holding a
 /// `lib.rs`/`main.rs` in the scanned set; `None` when the scan holds none.
 pub(super) fn rust_crate_root(importer: &str, known: &BTreeSet<String>) -> Option<String> {
@@ -238,7 +250,11 @@ pub(super) fn resolve_rust(
         }
         "super" => {
             // Each `super` climbs one module level from the importer's own
-            // module directory.
+            // module directory; past the snapshot root the target is outside
+            // the scan, never a same-named root file.
+            if rust_super_escapes_root(importer, trimmed) {
+                return None;
+            }
             let mut base = rust_module_child_dir(importer);
             let mut index = 0;
             while segments.get(index) == Some(&"super") {

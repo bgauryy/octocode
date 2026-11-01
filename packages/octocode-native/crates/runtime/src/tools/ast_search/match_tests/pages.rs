@@ -1,84 +1,30 @@
 //! Budgeted match paging, bounded scans and pinned source identity.
 use super::*;
 
+/// A cut scan says so and resumes: partial, named by its cause, with the
+/// `expandScan` lead that reads the files after it.
 #[test]
-fn match_directory_scan_truncation_is_surfaced_not_silent() {
-    let root = Fixture::new();
-    // Three candidate files, each with the matchable identifier `source`.
-    for name in ["a.rs", "b.rs", "c.rs"] {
-        std::fs::write(root.0.join(name), "pub fn source() {}\n").expect("source file");
-    }
-    let (paths, security) = simple_policy(&root.0);
-    let out = execute_row(
-        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"pub fn source() {}"},"maxFiles":1}),
-        &paths,
-        &security,
-        &NeverCancel,
-    )
-    .expect("match runs");
-
-    assert!(out.get("truncated").is_none(), "undeclared field: {out}");
-    assert_eq!(
-        out["partialReasons"],
-        json!(["maxFiles"]),
-        "a capped scan names its cap; got {out}"
-    );
-    assert_eq!(
-        out["isPartial"],
-        json!(true),
-        "capped scan is partial; got {out}"
-    );
-    let diagnostics = out["diagnostics"].as_array().cloned().unwrap_or_default();
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d["code"] == json!("structural.scan.truncated")),
-        "expected a structural.scan.truncated diagnostic; got {out}"
-    );
-}
-
-#[test]
-fn a_raisable_max_files_cut_offers_an_expanded_scan() {
+fn a_cut_scan_is_surfaced_and_resumes_after_its_window() {
     let root = Fixture::new();
     for name in ["a.rs", "b.rs", "c.rs"] {
         std::fs::write(root.0.join(name), "pub fn source() {}\n").expect("source file");
     }
-    let rows = [
-        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"pub fn source() {}"},"maxFiles":1}),
-        json!({"operation":"symbols","path":root.0,"maxFiles":1}),
-    ];
-    for query in rows {
-        let out = run(&root.0, query.clone()).expect("scan");
+    let _window = crate::tools::ast_search::scan_window::test_window(1);
+    for query in [
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"pub fn source() {}"}}),
+        json!({"operation":"symbols","path":root.0}),
+    ] {
+        let out = run(&root.0, query).expect("scan");
+        assert_eq!(out["partialReasons"], json!(["scanBudget"]), "{out}");
         assert!(out.get("terminalLimit").is_none(), "{out}");
         let expand = &out["next"]["expandScan"]["input"]["queries"][0];
-        assert_eq!(expand["maxFiles"], 2, "{out}");
-        assert_eq!(expand["page"], 1, "{out}");
-        assert!(
-            expand
-                .get("snapshot")
-                .is_none_or(serde_json::Value::is_null),
-            "{out}"
-        );
+        assert!(expand.get("page").is_none(), "page 1 is the default: {out}");
         assert!(
             out["diagnostics"]
-                .as_array()
-                .is_some_and(|diagnostics| diagnostics
-                    .iter()
-                    .any(|d| d["code"] == "structural.scan.truncated")),
+                .to_string()
+                .contains("structural.scan.truncated"),
             "{out}"
         );
-        let expanded = run(&root.0, expand.clone()).expect("expanded scan");
-        assert_eq!(
-            expanded["next"]["expandScan"]["input"]["queries"][0]["maxFiles"], 4,
-            "{expanded}"
-        );
-        let whole = {
-            let mut whole = query.clone();
-            whole["maxFiles"] = json!(4);
-            run(&root.0, whole).expect("whole scan")
-        };
-        assert!(whole["next"].get("expandScan").is_none(), "{whole}");
-        assert!(whole.get("terminalLimit").is_none(), "{whole}");
     }
 }
 

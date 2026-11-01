@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { localScriptImports } from '../../../test-utils/bundled-imports.mjs';
 import { readJson } from '../../octocode/scripts/build-plugin.mjs';
 import { packageRoot, repoRoot } from '../scripts/build.ts';
 
@@ -51,11 +52,35 @@ test('release metadata, MCP pin, and marketplace agree', () => {
   });
 });
 
+test('script import discovery separates dependencies from fixture source', () => {
+  const source = `
+    import './side-effect.mjs';
+    import { value } from './static.mjs';
+    export { value } from '../export.mjs';
+    export * from './all.mjs';
+    const lazy = import('./lazy.mjs');
+    const legacy = require('./legacy.cjs');
+    const fixture = "import { run } from './fixture';";
+    const template = \`import x from './template'; \${import('./nested.mjs')}\`;
+    // import './comment.mjs';
+    import 'node:fs';
+  `;
+  assert.deepEqual(localScriptImports(source).sort(), [
+    '../export.mjs',
+    './all.mjs',
+    './lazy.mjs',
+    './legacy.cjs',
+    './nested.mjs',
+    './side-effect.mjs',
+    './static.mjs',
+  ]);
+});
+
 test('all public skills ship with their local script imports', () => {
   const bundled = join(packageRoot, 'skills');
   assert.deepEqual(
     names(bundled),
-    [...names(join(repoRoot, 'skills')), 'octocode-get-started'].sort()
+    names(join(repoRoot, 'skills'))
   );
   for (const name of names(join(repoRoot, 'skills'))) {
     assert.equal(
@@ -67,17 +92,15 @@ test('all public skills ship with their local script imports', () => {
     assert.ok(!path.includes('/node_modules/') && !path.includes('/target/'));
     if (!/\.(?:mjs|cjs|js)$/.test(path)) continue;
     const text = readFileSync(path, 'utf8');
-    for (const match of text.matchAll(
-      /(?:from\s*|import\s*\(|require\s*\()\s*['"](\.\.?\/[^'"\n]+)['"]/g
-    )) {
-      const dependency = resolve(dirname(path), match[1]);
+    for (const specifier of localScriptImports(text)) {
+      const dependency = resolve(dirname(path), specifier);
       assert.ok(
         dependency.startsWith(`${bundled}/`),
-        `Import escapes bundle: ${path}: ${match[1]}`
+        `Import escapes bundle: ${path}: ${specifier}`
       );
       assert.ok(
         existsSync(dependency),
-        `Missing bundled import: ${path}: ${match[1]}`
+        `Missing bundled import: ${path}: ${specifier}`
       );
     }
   }

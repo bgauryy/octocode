@@ -30,6 +30,9 @@ macro_rules! common {
 pub(crate) fn path(q: &LocalSearchQuery) -> &str {
     common!(q, path, path.as_str())
 }
+pub(crate) fn test_code(q: &LocalSearchQuery) -> Option<octocode_contract_types::TestCode> {
+    common!(q, test_code, *test_code)
+}
 pub(crate) fn case_mode(q: &LocalSearchQuery) -> CaseMode {
     common!(q, case_mode, *case_mode)
 }
@@ -62,6 +65,15 @@ pub(crate) fn default_excludes(q: &LocalSearchQuery) -> &Option<DefaultExcludes>
 }
 pub(crate) fn page(q: &LocalSearchQuery) -> u32 {
     common!(q, page, u32_of(page.get()))
+}
+/// Rows per page (`limit`): hit rows in content and matchOnly views, files
+/// in the others; `None` cuts pages by the budget alone.
+pub(crate) fn limit(q: &LocalSearchQuery) -> Option<usize> {
+    common!(
+        q,
+        limit,
+        limit.map(|limit| crate::num::usize_of(limit.get()))
+    )
 }
 pub(crate) fn match_page(q: &LocalSearchQuery) -> u32 {
     common!(q, match_page, u32_of(match_page.get()))
@@ -267,24 +279,39 @@ pub(crate) fn reverse(q: &LocalSearchQuery) -> Option<bool> {
 pub(crate) fn pattern(q: &LocalSearchQuery) -> &str {
     patterns(q).0.first().map_or("", |value| value.as_str())
 }
+/// Each `matchString` entry of a list query as the alternative
+/// [`normalized`] joins it as, in order; `None` for a single entry.
+pub(crate) fn term_patterns(q: &LocalSearchQuery) -> Option<Vec<String>> {
+    (patterns(q).0.len() > 1).then(|| {
+        patterns(q)
+            .0
+            .iter()
+            .map(|entry| alternation_of(q, std::iter::once(entry.as_str())))
+            .collect()
+    })
+}
+
+/// The alternation of `entries`, each keeping the query's case rule for
+/// itself and escaped unless the query is a regex.
+fn alternation_of<'a>(q: &LocalSearchQuery, entries: impl Iterator<Item = &'a str>) -> String {
+    let sensitive = |entry: &str| match case_mode(q) {
+        CaseMode::Smart => entry.chars().any(char::is_uppercase),
+        CaseMode::Sensitive => true,
+        CaseMode::Insensitive => false,
+    };
+    crate::tools::match_list::alternation(
+        entries.map(|entry| (entry, sensitive(entry))),
+        regex_mode(q) != RegexEngine::Literal,
+    )
+}
+
 pub(crate) fn normalized(
     q: &LocalSearchQuery,
 ) -> Result<std::borrow::Cow<'_, LocalSearchQuery>, crate::response::result::ToolError> {
     if patterns(q).0.len() == 1 {
         return Ok(std::borrow::Cow::Borrowed(q));
     }
-    let sensitive = |entry: &str| match case_mode(q) {
-        CaseMode::Smart => entry.chars().any(char::is_uppercase),
-        CaseMode::Sensitive => true,
-        CaseMode::Insensitive => false,
-    };
-    let alternation = crate::tools::match_list::alternation(
-        patterns(q)
-            .0
-            .iter()
-            .map(|entry| (entry.as_str(), sensitive(entry.as_str()))),
-        regex_mode(q) != RegexEngine::Literal,
-    );
+    let alternation = alternation_of(q, patterns(q).0.iter().map(|entry| entry.as_str()));
     let dialect = if regex_mode(q) == RegexEngine::Pcre2 {
         RegexEngine::Pcre2
     } else {
@@ -308,32 +335,16 @@ pub(crate) fn normalized(
             )
         })
 }
-pub(super) const RESPONSE_VALUE_CHAR_BUDGET: usize = 1_000_000;
-pub(super) const MIN_MATCH_VALUE_CHARS: usize = 40;
-pub(super) const DEFAULT_MATCH_CONTENT_LENGTH: u32 =
-    local_search_policy::MATCH_CONTENT_LENGTH as u32;
-pub(super) const MAX_DEFAULT_MATCH_CONTENT_LENGTH: u32 =
-    local_search_policy::MAX_MATCH_CONTENT_LENGTH as u32;
-pub(super) const DEFAULT_MAX_MATCHES_PER_FILE: u32 = local_search_policy::MATCHES_PER_FILE as u32;
-pub(super) const DEFAULT_SNIPPET_PAGE_SIZE: u32 = local_search_policy::SNIPPET_PAGE_SIZE as u32;
-pub(super) const DEFAULT_LIST_PAGE_SIZE: u32 = local_search_policy::LIST_PAGE_SIZE as u32;
-pub(super) const MAX_COLLECTED_FILES: u32 = 10_000;
-pub(super) fn effective_match_content_length(q: &LocalSearchQuery) -> u32 {
-    DEFAULT_MATCH_CONTENT_LENGTH
-        .saturating_mul(
-            context(q)
-                .before
-                .saturating_add(context(q).after)
-                .saturating_add(1),
-        )
-        .min(MAX_DEFAULT_MATCH_CONTENT_LENGTH)
+/// The contract's default matches per file (`semanticPolicy`).
+pub(super) fn default_matches_per_file() -> u32 {
+    crate::num::u32_of_usize(local_search_policy::MATCHES_PER_FILE)
 }
 pub(super) fn default_page_size(view: View) -> u32 {
-    if matches!(view, View::Content | View::MatchOnly) {
-        DEFAULT_SNIPPET_PAGE_SIZE
+    crate::num::u32_of_usize(if matches!(view, View::Content | View::MatchOnly) {
+        local_search_policy::SNIPPET_PAGE_SIZE
     } else {
-        DEFAULT_LIST_PAGE_SIZE
-    }
+        local_search_policy::LIST_PAGE_SIZE
+    })
 }
 pub(super) fn uses_context(view: View) -> bool {
     view == View::Content

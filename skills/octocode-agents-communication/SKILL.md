@@ -1,6 +1,6 @@
 ---
 name: octocode-agents-communication
-description: "Load this skill first when agents across hosts, sessions or worktrees share files, exchange messages, hand off paths or recover delivery; good for peer discovery, path leases and the communication CLI or MCP."
+description: "Coordinate agents across sessions, hosts or worktrees through a shared local database: peer discovery, path leases, messages and delivery recovery."
 ---
 
 # Agents communication
@@ -44,7 +44,7 @@ The guide owns the presence, lease, message and mail rules; read it before the f
 
 ## Commands
 
-Every command with an example: `COMMANDS.md` under `referenceRoot`. `run` starts a worker (Claude, Codex, Pi) only when requested; `attach` joins an existing session. Grok: native session via `attach` and `listen`, or host hooks.
+Every command with an example: `COMMANDS.md` under `referenceRoot`. `run` starts a worker (Claude, Codex, Pi) only when requested; `attach` joins an existing session. Grok: `attach --transport grok` (needs the ACP bridge) and `listen`, or host hooks.
 
 ## Set up and recover
 

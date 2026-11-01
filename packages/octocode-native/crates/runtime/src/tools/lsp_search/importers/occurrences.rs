@@ -1,9 +1,23 @@
 //! Opening candidate files and verifying each occurrence's identity with
 //! the server, concurrently and in order.
 use super::*;
+use crate::tools::lsp_search::call_sites::classify_sites;
+use crate::tools::lsp_search::source::Source;
+use octocode_engine::graph::GraphPosition;
 
-/// A synchronized candidate and its `(line, character, is-call)` occurrences.
-pub(super) type OpenedFile = (String, Vec<(u32, u32, bool)>);
+/// One occurrence of the name in a candidate: zero-based line and UTF-16
+/// character, whether it is a call, and the file's own binding it names
+/// (the oxc parse's id, see `ReferenceSite::binding`).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Spot {
+    pub(super) line: u32,
+    pub(super) character: u32,
+    pub(super) is_call: bool,
+    pub(super) binding: Option<u32>,
+}
+
+/// A synchronized candidate and its occurrences.
+pub(super) type OpenedFile = (String, Vec<Spot>);
 
 /// Open every candidate that mentions `symbol`; wait once, on the last one
 /// opened, for the project load the opens trigger, so identity checks do
@@ -33,10 +47,20 @@ pub(super) async fn open_candidates(
             failed.push(file.clone());
             continue;
         };
-        let spots = occurrences(&source.content, symbol);
-        if !spots.is_empty() {
-            eligible.push((file.clone(), spots));
+        let mut spots = occurrences(&source.content, symbol)
+            .into_iter()
+            .map(|(line, character, is_call)| Spot {
+                line,
+                character,
+                is_call,
+                binding: None,
+            })
+            .collect::<Vec<_>>();
+        if spots.is_empty() {
+            continue;
         }
+        classify_occurrences(cancel, &source, file, &mut spots).await?;
+        eligible.push((file.clone(), spots));
     }
     let last = eligible.len().saturating_sub(1);
     let mut opened = Vec::new();
@@ -66,6 +90,36 @@ pub(super) async fn open_candidates(
         }
     }
     Ok((opened, failed))
+}
+
+/// Settle each occurrence's is-call by TypeScript's call-site rule, from one
+/// oxc parse of the file (see [`classify_sites`]): an implementing method's
+/// own `name(` is no call, and `name<T>(…)`, `` name`…` ``, `@name`,
+/// `<Name />` and `x.name` are. An occurrence the parse leaves undecided (a
+/// comment), or a file oxc cannot parse, keeps the text rule. The same
+/// parse names the binding of each occurrence.
+async fn classify_occurrences(
+    cancel: &dyn CancellationCheck,
+    source: &Arc<Source>,
+    path: &str,
+    spots: &mut [Spot],
+) -> Result<(), LspFailure> {
+    let starts = spots
+        .iter()
+        .map(|spot| GraphPosition {
+            line: spot.line,
+            character: spot.character,
+        })
+        .collect();
+    if let Some(sites) = classify_sites(cancel, source, path, starts).await? {
+        for (spot, site) in spots.iter_mut().zip(sites) {
+            if let Some(is_call) = site.is_call {
+                spot.is_call = is_call;
+            }
+            spot.binding = site.binding;
+        }
+    }
+    Ok(())
 }
 
 /// A zero-based site: canonical file, line, UTF-16 character.
@@ -160,7 +214,7 @@ pub(super) async fn verify_occurrences(
 
 /// Run `task` over `items` with at most `limit` in flight; results keep
 /// the order of `items`, and the first failure drops the unfinished tasks.
-pub(super) async fn ordered_concurrently<I, T, Fut>(
+pub(in super::super) async fn ordered_concurrently<I, T, Fut>(
     items: Vec<I>,
     limit: usize,
     task: impl FnMut(I) -> Fut,
@@ -176,7 +230,7 @@ where
 }
 
 /// Candidate files verified at once on a server that pipelines requests.
-pub(super) const CONCURRENT_FILE_VERIFICATIONS: usize = 8;
+pub(in super::super) const CONCURRENT_FILE_VERIFICATIONS: usize = 8;
 
 /// What the definition chains of one candidate's occurrences proved.
 pub(super) struct FileVerdict {
@@ -208,26 +262,50 @@ pub(super) async fn verify_file(
     // One verified anchor answers for the whole file's program; keep
     // checking only until a verified call site is found as well.
     let mut verified_any = false;
-    for (spot_line, spot_character, is_call) in spots {
+    // What each of the file's bindings was proven to name: every other
+    // site of a binding names the same declaration, so it is decided
+    // without a request. An undecided binding is asked again at its next
+    // site.
+    let mut settled = HashMap::<u32, Binding>::new();
+    for spot in spots {
+        let Spot {
+            line: spot_line,
+            character: spot_character,
+            is_call,
+            binding: named,
+        } = spot;
         if verified_any && !is_call {
             continue;
         }
         cancel.check().map_err(LspFailure::cancelled)?;
-        let resolved = identities(
-            client,
-            sources,
-            snippet_policy,
-            cancel,
-            &file,
-            spot_line,
-            spot_character,
-        )
-        .await?;
-        let Some(resolved) = resolved else {
-            unresolved = true;
-            continue;
+        let known = named.and_then(|id| settled.get(&id).copied());
+        let verdict = match known {
+            Some(verdict) => verdict,
+            None => {
+                let resolved = identities(
+                    client,
+                    sources,
+                    snippet_policy,
+                    cancel,
+                    &file,
+                    spot_line,
+                    spot_character,
+                )
+                .await?;
+                let Some(resolved) = resolved else {
+                    unresolved = true;
+                    continue;
+                };
+                let verdict = binding(&resolved, &file, declaration, &content, missing);
+                if let Some(id) = named
+                    && verdict != Binding::Undecided
+                {
+                    settled.insert(id, verdict);
+                }
+                verdict
+            }
         };
-        match binding(&resolved, &file, declaration, &content, missing) {
+        match verdict {
             Binding::Anchor => {
                 anchors.push(Anchor {
                     path: file.clone(),
@@ -250,99 +328,4 @@ pub(super) async fn verify_file(
         unresolved,
         elsewhere,
     })
-}
-
-/// What the name at one candidate site binds, by its definition chain.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum Binding {
-    /// The anchor's declaration alone: a reference.
-    Anchor,
-    /// Another declaration: not a reference.
-    Other,
-    /// Neither proven: no reference, and the file stays unverified.
-    Undecided,
-}
-
-/// What the name at a site of `file` (canonical) binds, from the `resolved`
-/// identities of its definition chain. It binds the anchor only when every
-/// identity is the anchor's `declaration` or lies in a file that declares
-/// it (the module's own export of it). A site that also binds a
-/// declaration of `file` itself (a same-named `const`, parameter or
-/// destructured binding the site's scope declares, which shadows the
-/// anchor; a shorthand `{ name }` names it and, through a contextual type,
-/// the anchor's property too) binds that declaration. Any other extra
-/// identity, an import binding of `file` the server did not follow
-/// included, leaves the site undecided. A chain that misses the anchor is
-/// another declaration unless it stopped on such an import.
-pub(super) fn binding(
-    resolved: &HashSet<String>,
-    file: &str,
-    declaration: &HashSet<String>,
-    content: &str,
-    missing: &dyn Fn(&Path) -> bool,
-) -> Binding {
-    if resolved.is_disjoint(declaration) {
-        return if stays_on_import(resolved, file, declaration, content, missing) {
-            Binding::Undecided
-        } else {
-            Binding::Other
-        };
-    }
-    let declaring = declaration
-        .iter()
-        .map(|identity| identity_file(identity))
-        .collect::<HashSet<_>>();
-    let extra = resolved
-        .difference(declaration)
-        .filter(|identity| !declaring.contains(identity_file(identity)))
-        .collect::<Vec<_>>();
-    if extra.is_empty() {
-        return Binding::Anchor;
-    }
-    let own = extra
-        .into_iter()
-        .filter(|identity| identity_file(identity) == file)
-        .cloned()
-        .collect::<HashSet<_>>();
-    if own.is_empty() || stays_on_import(&own, file, declaration, content, missing) {
-        Binding::Undecided
-    } else {
-        Binding::Other
-    }
-}
-
-/// The file of a `path:line:character:endLine:endCharacter` identity.
-fn identity_file(identity: &str) -> &str {
-    identity.rsplitn(5, ':').last().unwrap_or(identity)
-}
-
-/// Declaration identities reached by the definition chain at a position.
-pub(super) async fn identities(
-    client: &NativeLspClient,
-    sources: &mut SourceCache<'_>,
-    snippet_policy: &SnippetReadPolicy,
-    cancel: &dyn CancellationCheck,
-    path: &str,
-    line: u32,
-    character: u32,
-) -> Result<Option<HashSet<String>>, LspFailure> {
-    match resolve_definition_chain(
-        client,
-        sources,
-        snippet_policy,
-        cancel,
-        path,
-        line,
-        character,
-    )
-    .await
-    {
-        Ok((found, warnings, _)) if warnings.is_empty() => {
-            Ok(Some(found.iter().map(snippet_identity).collect()))
-        }
-        // A retained pre-failure alias is not terminal declaration proof.
-        Ok(_) => Ok(None),
-        Err(failure) if failure.is_cancelled() => Err(failure),
-        Err(_) => Ok(None),
-    }
 }

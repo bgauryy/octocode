@@ -4,14 +4,14 @@
 //! carries requests in and results out.
 use super::listing::Listing;
 use octocode_contract_types::ErrorCode;
-use octocode_native::runtime::error::mcp_result;
+use octocode_native::runtime::error::{McpResult, mcp_result};
 use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
 use octocode_native::security::scrub_error_text;
 use rmcp::ErrorData;
 use rmcp::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, Implementation, JsonObject,
-    ListToolsResult, MetaObject, PaginatedRequestParams, ProtocolVersion, ResultType,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
+    JsonObject, ListToolsResult, MetaObject, PaginatedRequestParams, ProtocolVersion, ResultType,
     ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
@@ -68,7 +68,7 @@ impl Handler {
         tool: &str,
         input: Value,
         cancelled: tokio_util::sync::CancellationToken,
-    ) -> Result<Value, RuntimeError> {
+    ) -> Result<McpResult, RuntimeError> {
         let request = format!("mcp-{}", self.next_request.fetch_add(1, Ordering::Relaxed));
         let admission = self.runtime.admit_with(request.clone(), None);
         let result = match admission {
@@ -153,12 +153,20 @@ impl ServerHandler for Handler {
         let meta = self.response_meta(&context);
         let tool = request.name;
         let input = request.arguments.map_or(Value::Null, Value::Object);
-        let response = self
-            .run(&tool, input, context.ct)
+        // A request that names a progress token is told its call's progress.
+        let token = context.meta.get_progress_token();
+        let McpResult {
+            text,
+            structured_content,
+            is_error,
+        } = super::progress::relayed(token, &context.peer, self.run(&tool, input, context.ct))
             .await
             .map_err(|error| protocol_error(&tool, &error))?;
-        let mut result: CallToolResult = serde_json::from_value(response)
-            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        // Built from its parts: the envelope is not walked again into a
+        // result value before rmcp serializes it.
+        let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
+        result.structured_content = Some(structured_content);
+        result.is_error = Some(is_error);
         // rmcp completes list results itself; a call result carries its type
         // from here (it strips it again for a 2025-era peer).
         result.result_type = Some(ResultType::COMPLETE);

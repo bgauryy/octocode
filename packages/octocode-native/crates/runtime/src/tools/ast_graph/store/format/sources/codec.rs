@@ -57,8 +57,9 @@ fn check_catalog(
         cancel,
     )?;
     sorted_ids(descriptors.units.iter().map(|row| row.id.as_str()), cancel)?;
-    let stop = || cancel.check().is_err();
-    SourceCatalog::new(descriptors, &mut map_budget(&stop))?;
+    let poll = super::Poll::new(cancel);
+    let stop = || poll.stopped();
+    SourceCatalog::new(descriptors, &mut map_budget(cancel, &stop))?;
     Ok(())
 }
 #[cfg(test)]

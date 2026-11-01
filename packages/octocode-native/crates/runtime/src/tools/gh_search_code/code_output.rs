@@ -9,14 +9,15 @@ mod empty_scope;
 mod hit_commits;
 mod index_ref;
 
-pub(super) use empty_scope::{empty_hints, empty_scope, owner_exists, path_mode_given_code};
+pub(super) use empty_scope::{
+    empty_hints, empty_scope, owner_exists, path_mode_given_code, unsearched_ref,
+};
 pub(super) use hit_commits::{
     Resolution, index_commits, line_commit, requested_ref, resolve_lines, row_repo,
 };
 pub(super) use index_ref::disclose_index_ref;
 
-/// Reads a shaped page carries: the top hit's line range, and one read of
-/// every keyword line for each file whose listed hits were capped or cut.
+/// Optional top-hit exploration and required reads of unresolved source.
 pub(super) struct PageReads {
     pub(super) top: Option<Value>,
     pub(super) hits: Vec<Value>,
@@ -61,30 +62,17 @@ pub(super) fn shape_files(
             match hits {
                 super::lines::FileHits::Lines {
                     lines,
-                    clipped,
                     first,
                     last,
                     best,
                     total,
                     line_count,
                     declaration,
-                    resume_after,
                 } => {
                     row.insert("lines".into(), json!(lines));
-                    // A file states its count when it has unlisted hits, or
-                    // when a `fields` pick asks for it.
-                    if *total > lines.len() || picks(query, "matchCount") {
+                    // Complete lines already carry the count unless explicitly selected.
+                    if picks(query, "matchCount") {
                         row.insert("matchCount".into(), json!(total));
-                    }
-                    if (*total > lines.len() || *clipped)
-                        && let Some(read) = hits_read(
-                            query,
-                            row,
-                            sha,
-                            resume_after.map(|after| (after, *line_count)),
-                        )
-                    {
-                        hit_reads.push(read);
                     }
                     if top.is_none() {
                         top = Some(match declaration {
@@ -106,7 +94,7 @@ pub(super) fn shape_files(
                     // lead to the keyword lines at the ref.
                     row.shift_remove("matches");
                     row.insert("lineResolved".into(), json!(false));
-                    if let Some(read) = hits_read(query, row, sha, None) {
+                    if let Some(read) = hits_read(query, row, sha) {
                         hit_reads.push(read);
                     }
                 }

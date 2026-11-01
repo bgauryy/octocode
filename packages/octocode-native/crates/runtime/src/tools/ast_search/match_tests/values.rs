@@ -1,5 +1,4 @@
-//! Clipped match values and the reads a match offers: every cut stays
-//! reachable by a read or an expansion.
+//! Complete selected match values and intentional structural expansions.
 
 use super::*;
 
@@ -20,7 +19,7 @@ fn a_match_offers_a_read_of_the_top_files_hits() {
     let row = &read["input"]["queries"][0];
     assert_eq!(
         row["ranges"],
-        json!([{"startLine":1,"endLine":5},{"startLine":9,"endLine":15}]),
+        json!([{"startLine":1,"endLine":5},{"startLine":9,"endLine":12}]),
         "{out}"
     );
     assert!(
@@ -50,16 +49,16 @@ fn a_multi_line_match_read_covers_the_whole_match() {
         ["queries"][0];
     assert_eq!(
         row["ranges"],
-        json!([{"startLine":1,"endLine":14}]),
+        json!([{"startLine":1,"endLine":11}]),
         "{out}"
     );
 }
 
 #[test]
 fn captured_values_preserve_long_source_without_a_display_cap() {
-    for size in [40, 600, 20_000] {
+    for size in [40, 600, 50_000] {
         let root = Fixture::new();
-        let selected = format!("call({})", "y".repeat(size));
+        let selected = format!("call(\"{}END_OF_VALUE\")", "é😀界".repeat(size));
         root.write("long.rs", format!("fn main() {{ {selected}; }}\n"));
         let out = run(
             &root.0,
@@ -70,7 +69,12 @@ fn captured_values_preserve_long_source_without_a_display_cap() {
         let row = &out["files"][0]["matches"][0];
         assert_eq!(row["value"], selected, "size {size}: {out}");
         assert!(row.get("clipped").is_none());
-        assert!(value_reads(&out).is_empty());
+        assert!(
+            out["next"]
+                .as_object()
+                .is_none_or(|next| next.keys().all(|name| !name.starts_with("expandValues"))),
+            "complete values need no size-driven expansion"
+        );
     }
 }
 
@@ -88,8 +92,19 @@ fn block_expansion_reaches_the_complete_body_and_captures() {
         "rule":{"pattern":"fn $N() { $$$B }"}}),
     )
     .expect("lean block");
-    let call = &out["next"]["expandCaptures"];
-    assert_eq!(call["kind"], "continue", "{out}");
+    // Optional work on a complete result: a related lead, never a required
+    // continuation, so the row carries no `next` (and needs no coverage
+    // note).
+    assert!(out.get("next").is_none(), "{out}");
+    let call = out["related"]
+        .as_array()
+        .and_then(|calls| {
+            calls
+                .iter()
+                .find(|call| call["input"]["queries"][0]["includeCaptures"] == true)
+        })
+        .unwrap_or_else(|| panic!("related expansion: {out}"));
+    assert_eq!(call["kind"], "related", "{out}");
     let next = &call["input"]["queries"][0];
     assert_eq!(next["includeCaptures"], true);
     let full = run(&root.0, next.clone()).expect("complete body");
@@ -102,4 +117,20 @@ fn block_expansion_reaches_the_complete_body_and_captures() {
         600
     );
     assert!(only_read_left(&full), "{full}");
+}
+
+#[test]
+fn complete_match_values_preserve_comments_newlines_and_indentation() {
+    let root = Fixture::new();
+    let selected = "call(\n    // retain this comment\n    \"value\"\n)";
+    root.write("comments.rs", format!("fn main() {{ {selected}; }}\n"));
+    for captures in [false, true] {
+        let out = run(
+            &root.0,
+            json!({"operation":"match","path":root.0.join("comments.rs"),
+            "rule":{"pattern":"call($$$A)"},"includeCaptures":captures}),
+        )
+        .expect("match");
+        assert_eq!(out["files"][0]["matches"][0]["value"], selected, "{out}");
+    }
 }

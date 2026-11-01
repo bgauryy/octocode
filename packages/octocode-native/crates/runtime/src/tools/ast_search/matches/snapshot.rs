@@ -100,6 +100,7 @@ pub(super) fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> S
         q.exclude(),
         q.include_hidden(),
         q.include_ignored(),
+        q.test_code(),
         q.max_depth(),
         scope.language,
         q.language_globs(),
@@ -107,7 +108,6 @@ pub(super) fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> S
         // Always present: validation stamps the contract defaults.
         q.sort().unwrap_or_default(),
         q.result_view().as_deref().unwrap_or_default(),
-        q.max_files(),
         q.scan_offset(),
         &scan.source_digest,
         ordered

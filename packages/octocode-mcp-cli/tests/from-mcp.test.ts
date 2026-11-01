@@ -8,9 +8,7 @@ import {
   cliFromMcp,
   connectClient,
   connectStdio,
-  connectStreamableHttp,
   createStdioTransport,
-  createStreamableHttpTransport,
   type McpClientLike,
   type McpToolResult,
 } from '../src/from-mcp.js';
@@ -328,15 +326,6 @@ describe('cliFromMcp', () => {
     });
     expect(seen).toBeInstanceOf(createStdioTransport({ command: 'node' }).constructor);
     expect(connected).toBeDefined();
-
-    const http = createStreamableHttpTransport('http://127.0.0.1/mcp');
-    const httpUrl = createStreamableHttpTransport(new URL('http://127.0.0.1/mcp'), { sessionId: 's' });
-    expect(http).toBeDefined();
-    expect(httpUrl).toBeDefined();
-    await connectStreamableHttp('http://127.0.0.1/mcp', undefined, async transport => {
-      expect(transport).toBeInstanceOf(createStreamableHttpTransport('http://127.0.0.1/mcp').constructor);
-      return { close: async () => undefined } as never;
-    });
 
     const server = new McpServer({ name: 'demo', version: '3' }, { instructions: 'hi' });
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();

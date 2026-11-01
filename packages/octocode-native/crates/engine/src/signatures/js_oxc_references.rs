@@ -17,7 +17,7 @@ use oxc_ast::AstKind;
 use oxc_semantic::{AstNodes, NodeId, Semantic};
 use oxc_span::{GetSpan, Span};
 
-use crate::types::GraphReferenceCount;
+use crate::graph::GraphReferenceCount;
 
 use super::js_oxc_shared::SpanPositions;
 
@@ -46,11 +46,13 @@ pub(super) fn value_reference_counts(
         .map(|target| {
             let start = line_index.byte_offset(target.line, target.character);
             let count = match symbols_by_start.get(&start) {
-                Some(&symbol) => scoping
-                    .get_resolved_references(symbol)
-                    .filter(|reference| reference.is_read() || reference.is_type())
-                    .filter(|reference| is_value_use(nodes, reference.node_id()))
-                    .count() as u32,
+                Some(&symbol) => crate::num::saturating_u32(
+                    scoping
+                        .get_resolved_references(symbol)
+                        .filter(|reference| reference.is_read() || reference.is_type())
+                        .filter(|reference| is_value_use(nodes, reference.node_id()))
+                        .count(),
+                ),
                 None => member_counts
                     .get_or_insert_with(|| count_member_accesses(nodes))
                     .get(target.name)
@@ -99,25 +101,72 @@ fn count_member_accesses(nodes: &AstNodes<'_>) -> HashMap<String, u32> {
     counts
 }
 
-/// Whether the expression at `node_id` (spanning `span`) is the callee of a
-/// call, construction or tagged template, looking through parentheses and
-/// TypeScript-only wrappers the way the call facts do.
-fn is_call_target(nodes: &AstNodes<'_>, node_id: NodeId, mut span: Span) -> bool {
+/// What an expression is the target of, through parentheses and
+/// TypeScript-only wrappers: TypeScript's call-hierarchy targets
+/// (`isCallOrNewExpressionTarget`, `isTaggedTemplateTag`,
+/// `isDecoratorTarget`, `isJsxOpeningLikeElementTagName`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Invocation {
+    /// The callee of a call or a construction (`x()`, `x?.()`, `new x()`).
+    Call,
+    /// The tag of a tagged template (`` x`…` ``).
+    Tag,
+    /// A decorator's expression (`@x`).
+    Decorator,
+    /// The tag name of a JSX opening or self-closing element (`<X />`).
+    JsxTag,
+}
+
+/// What the expression at `node_id` (spanning `span`) is invoked as, looking
+/// through parentheses and TypeScript-only wrappers the way the call facts do.
+fn invocation(nodes: &AstNodes<'_>, node_id: NodeId, mut span: Span) -> Option<Invocation> {
     for kind in nodes.ancestor_kinds(node_id) {
-        match kind {
+        let (target, invocation) = match kind {
             AstKind::ParenthesizedExpression(_)
             | AstKind::TSAsExpression(_)
             | AstKind::TSSatisfiesExpression(_)
             | AstKind::TSTypeAssertion(_)
             | AstKind::TSNonNullExpression(_)
-            | AstKind::TSInstantiationExpression(_) => span = kind.span(),
-            AstKind::CallExpression(call) => return call.callee.span() == span,
-            AstKind::NewExpression(call) => return call.callee.span() == span,
-            AstKind::TaggedTemplateExpression(call) => return call.tag.span() == span,
-            _ => return false,
-        }
+            | AstKind::TSInstantiationExpression(_) => {
+                span = kind.span();
+                continue;
+            }
+            AstKind::CallExpression(call) => (call.callee.span(), Invocation::Call),
+            AstKind::NewExpression(call) => (call.callee.span(), Invocation::Call),
+            AstKind::TaggedTemplateExpression(call) => (call.tag.span(), Invocation::Tag),
+            AstKind::Decorator(decorator) => (decorator.expression.span(), Invocation::Decorator),
+            AstKind::JSXOpeningElement(element) => (element.name.span(), Invocation::JsxTag),
+            _ => return None,
+        };
+        return (target == span).then_some(invocation);
     }
-    false
+    None
+}
+
+/// Whether the expression at `node_id` (spanning `span`) is the callee of a
+/// call, construction or tagged template: the targets the call facts model
+/// as edges.
+fn is_call_target(nodes: &AstNodes<'_>, node_id: NodeId, span: Span) -> bool {
+    matches!(
+        invocation(nodes, node_id, span),
+        Some(Invocation::Call | Invocation::Tag)
+    )
+}
+
+/// Whether the name at `node_id` is a call site by TypeScript's
+/// call-hierarchy rule (`convertEntryToCallSite`, services/callHierarchy.ts
+/// v5.9.3): any [`Invocation`] target, the name of a property access
+/// (`a.x`, `a.#x`, `<a.X />`, passed as a value too), or the argument of an
+/// element access (`a["x"]`). A declaration's own name is none of them.
+pub(super) fn is_call_site(nodes: &AstNodes<'_>, node_id: NodeId) -> bool {
+    let span = nodes.kind(node_id).span();
+    match nodes.parent_kind(node_id) {
+        AstKind::StaticMemberExpression(member) if member.property.span == span => true,
+        AstKind::PrivateFieldExpression(member) if member.field.span == span => true,
+        AstKind::JSXMemberExpression(member) if member.property.span == span => true,
+        AstKind::ComputedMemberExpression(member) if member.expression.span() == span => true,
+        _ => invocation(nodes, node_id, span).is_some(),
+    }
 }
 
 #[cfg(test)]

@@ -7,6 +7,38 @@ pub fn sha256(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
+/// A [`std::io::Write`] sink that SHA-256 hashes every byte written to it,
+/// so an encoding is hashed without being built.
+#[derive(Default)]
+pub struct HashWriter(Sha256);
+
+impl HashWriter {
+    /// The SHA-256 of everything written.
+    #[must_use]
+    pub fn finalize(self) -> [u8; 32] {
+        self.0.finalize().into()
+    }
+}
+
+impl std::io::Write for HashWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The SHA-256 of `value`'s compact JSON rendering (the bytes
+/// `serde_json::to_vec` produces), hashed while it serializes. `None` if
+/// serialization failed.
+pub fn json_sha256(value: &(impl serde::Serialize + ?Sized)) -> Option<[u8; 32]> {
+    let mut writer = HashWriter::default();
+    serde_json::to_writer(&mut writer, value).ok()?;
+    Some(writer.finalize())
+}
+
 /// What one streaming pass over a value's compact JSON rendering learned.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JsonFingerprint {
@@ -113,8 +145,22 @@ pub fn canonical_json(value: Value, nulls: Nulls) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{Nulls, canonical_json, fingerprint_json, sha256};
+    use super::{Nulls, canonical_json, fingerprint_json, json_sha256, sha256};
     use serde_json::json;
+
+    /// The streamed JSON digest is the [`sha256`] of the bytes `to_vec`
+    /// builds, and the fingerprint's digest.
+    #[test]
+    fn the_json_digest_is_that_of_the_serialized_bytes() {
+        for value in [
+            json!(null),
+            json!({"b": [1, "é"], "a": null, "t": "quote \" 中文 😀"}),
+        ] {
+            let digest = hex::encode(json_sha256(&value).expect("serializes"));
+            assert_eq!(digest, sha256(&serde_json::to_vec(&value).unwrap()));
+            assert_eq!(digest, fingerprint_json(&value).expect("serializes").digest);
+        }
+    }
 
     /// The streamed fingerprint is the digest and UTF-16 length of the
     /// rendering `to_string` builds, whatever the value holds.

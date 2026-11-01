@@ -21,14 +21,13 @@ use tree_sitter::{Language, Query, QueryCursor, QueryCursorOptions, StreamingIte
 mod outline;
 mod parse;
 
-pub(crate) use outline::is_annotation_kind;
 use outline::{
     ELIDED, collapse_annotation_runs, collapse_docstrings, collapse_import_runs,
     collapse_signature, drop_closing_rows, import_runs,
 };
 pub(crate) use parse::{
-    AST_EXECUTION_TIMEOUT, ParseFailure, parse_before, parse_ranges_before, parse_ranges_ending,
-    parse_with_deadline,
+    ParseFailure, parse_before, parse_ranges_before, parse_ranges_ending, parse_with_deadline,
+    whole_file_deadline,
 };
 
 /// Index in `chain` (strict ancestors, root first) of the outermost
@@ -145,13 +144,7 @@ fn cached_query(language: &Language, body_query: &'static str) -> Option<Arc<Que
 /// Test helper: `(1-based line number, trimmed text)` pairs.
 #[cfg(test)]
 pub(crate) fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, String)>> {
-    extract_with_limits(
-        content,
-        cfg,
-        Instant::now() + AST_EXECUTION_TIMEOUT,
-        65_536,
-        false,
-    )
+    extract_with_limits(content, cfg, whole_file_deadline(), 65_536, false)
 }
 
 /// The extracted lines for the rendered outline: a run of top-level imports becomes
@@ -161,7 +154,7 @@ pub(crate) fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usi
 /// first line, marked [`ELIDED`]; the declaration head's line range reads
 /// the rest.
 pub fn extract_outline(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, String)>> {
-    let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
+    let deadline = whole_file_deadline();
     let tree = parse_before(content, &cfg.language, deadline)?;
     outline_from_tree(content, cfg, &tree, deadline)
 }

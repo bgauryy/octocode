@@ -32,9 +32,13 @@ flowchart LR
 ## Pack
 
 - Exactly what the production agent receives: instructions and tool names, descriptions, and schemas dumped from the running server or loader, never from source. Add sample outputs only when production shows them; otherwise label the results an upper bound.
+- Freeze the served artifact before the round: copy the server build, dump the pack from that copy, and run every call through it. A rebuild during the round would otherwise move the baseline.
+- Runner: one literal command line in the brief. Shells such as zsh do not word-split a command stored in a variable. Use distinct exit codes for ok, rejected input and other errors, and mark any truncation the runner applies.
+- Targets: a quiet tree or fixed fixtures. Concurrent edits to the searched files stale snapshots and read as false findings.
 - One group per interviewee, by job (local text, structure and identity, remote reads, history, classification), plus one cross-cutting group for the instructions.
 - 6–9 executable scenarios per group against real targets, including edge cases: missing path, empty result, paged or partial result, a field from another mode, an unavailable feature, injected text, a question that needs the user.
 - Each round, replace about a third of the scenarios so fixes do not overfit.
+- Keep each round's pack, answers and `graded.json` under `<workspace>/.octocode/octocode-agentic-prompts/tmp/<run>/round-<n>/`; the saved report links them.
 
 ## Interviewee brief
 
@@ -74,9 +78,10 @@ Cold-call line:
 
 ## Grade
 
-- Replay every cold call yourself: `node scripts/interview-grade.mjs <round-dir> --cmd '<runner {tool} {input}>' --reject <regex>`. The runner must accept both substituted arguments. The grader skips placeholder steps; exclude intended-error scenarios. Resolve malformed lines and ensure at least one gradable call before reporting valid-cold rate and rejection count per group.
+- Replay every cold call yourself: `node <skill-folder>/scripts/interview-grade.mjs <round-dir> --cmd '<runner {tool} {input}>' --reject <regex>`. The runner must accept both substituted arguments. The grader skips steps whose `input` contains a `<…>` placeholder; exclude intended-error scenarios. Resolve malformed lines and ensure at least one gradable call before reporting valid-cold rate and rejection count per group.
 - Phase B prediction misses are findings: the agent's model of the output was wrong.
 - Self-rated confidence is a tiebreaker only; it moves less than behavior does.
+- Before calling a missing lead or field a regression, compare with schema defaults applied: surfaces that omit default-valued fields make exact-match graders and agent predictions fail on correct output.
 
 ## Reproduce and prioritize
 
@@ -84,6 +89,7 @@ Cold-call line:
 - Rank: silent wrong evidence > valid intent rejected > misleading error or recovery > undocumented output shape > wording.
 - Weight recurrence: a gap raised by two independent agents or two rounds is real far more often than a single report.
 - Separate three causes: contract (fix it), environment (missing provider, auth, gate: report it), model (agent ignored a correct rule: fix only by moving the rule to where that agent looked).
+- Interviewees also see their own host's connected servers. A quote that appears nowhere in the pack is environment: check the pack before treating it as a contract conflict.
 
 ## Fix
 

@@ -84,7 +84,7 @@ async fn gh_bad_ref_is_not_found_with_a_refs_lead() {
     for (tool, query) in [
         (
             "ghGetFileContent",
-            json!({"owner":"a","repo":"b","path":"README.md","ref":"no-such-ref","forceRefresh":true}),
+            json!({"owner":"a","repo":"b","path":"README.md","ref":"no-such-ref","refresh":true}),
         ),
         (
             "ghStructure",
@@ -142,7 +142,7 @@ async fn gh_missing_full_sha_is_named_with_a_refs_lead() {
     for (tool, query) in [
         (
             "ghGetFileContent",
-            json!({"owner":"a","repo":"b","path":"README.md","ref":MISSING,"forceRefresh":true}),
+            json!({"owner":"a","repo":"b","path":"README.md","ref":MISSING,"refresh":true}),
         ),
         (
             "ghStructure",

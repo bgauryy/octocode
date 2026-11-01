@@ -81,7 +81,7 @@ async fn excluded_source_is_reachable_by_an_explicit_related_request() {
 }
 
 #[tokio::test]
-async fn clipped_unicode_source_is_recoverable_from_emitted_reads() {
+async fn long_unicode_search_values_arrive_complete_without_expansion_reads() {
     let workspace = Workspace::new();
     let line = format!(
         "{}needleHere{} END_OF_SOURCE",
@@ -98,38 +98,12 @@ async fn clipped_unicode_source_is_recoverable_from_emitted_reads() {
     .await
     .expect("search");
     let data = row_data(&found);
-    assert_eq!(data["files"][0]["matches"][0]["clipped"], true, "{data}");
-    let mut pending = checks::leads(data)
-        .into_iter()
-        .filter(|lead| lead.kind == "continue" && lead.tool == "localFetch")
-        .map(|lead| lead.query)
-        .collect::<std::collections::VecDeque<_>>();
+    assert_eq!(data["files"][0]["matches"][0]["value"], line);
+    assert!(data["files"][0]["matches"][0].get("clipped").is_none());
     assert!(
-        !pending.is_empty(),
-        "clipped evidence must remain reachable: {data}"
-    );
-    let mut content = String::new();
-    let mut calls = 0;
-    while let Some(input) = pending.pop_front() {
-        calls += 1;
-        assert!(calls < 100, "read walk terminates");
-        let read = call(&runtime, "localFetch", input)
-            .await
-            .expect("emitted read executes");
-        for row in read.structured_content["results"].as_array().expect("rows") {
-            assert_ne!(row["status"], "error", "{row}");
-            content.push_str(row["data"]["content"].as_str().expect("source"));
-        }
-        pending.extend(
-            checks::leads(&read.structured_content)
-                .into_iter()
-                .filter(|lead| lead.kind == "continue" && lead.tool == "localFetch")
-                .map(|lead| lead.query),
-        );
-    }
-    assert!(
-        content.contains("needleHere") && content.contains("END_OF_SOURCE"),
-        "all evidence survives expansion"
+        checks::leads(data)
+            .into_iter()
+            .all(|lead| lead.kind != "continue" || lead.tool != "localFetch")
     );
     runtime.close().await;
 }

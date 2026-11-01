@@ -20,7 +20,11 @@ pub(super) use pages::{
 
 /// GitHub's compare endpoint lists at most this many changed files.
 pub(super) const COMPARE_FILE_LIMIT: usize = 300;
-/// PR and commit file lists stop at 3000 files (30 batches of 100).
+/// PR and commit file lists stop at 3000 files (30 batches of 100): a
+/// documented provider ceiling, not tuning. GitHub REST "List pull request
+/// files": "Responses include a maximum of 3000 files"; "Get a commit":
+/// pagination "up to a limit of 3000 files". Files past it are unreachable
+/// through the API, so a capped window discloses the terminal limit.
 pub(super) const MAX_FILE_BATCHES: usize = 30;
 /// A commit's files page 300 at a time (GitHub's default and largest
 /// `per_page` there), so a commit of up to 300 files is one batch with an
@@ -29,8 +33,10 @@ pub(super) const COMMIT_FILE_BATCH: usize = 300;
 /// Commit file batches up to the 3000-file stop.
 pub(super) const MAX_COMMIT_FILE_BATCHES: usize =
     MAX_FILE_BATCHES * MAX_PER_PAGE / COMMIT_FILE_BATCH;
-/// Comments/reviews scanned for one page (3000 items).
-pub(super) const MAX_COLLECTION_BATCHES: usize = 30;
+/// Comments, reviews and discussion: GitHub caps only `per_page` (100)
+/// for these lists, so a window reads every batch its page needs and the
+/// call's own deadline bounds a filtered scan.
+pub(super) const MAX_COLLECTION_BATCHES: usize = usize::MAX;
 /// GitHub lists at most 250 commits for a pull request.
 pub(super) const MAX_PR_COMMIT_BATCHES: usize = 3;
 

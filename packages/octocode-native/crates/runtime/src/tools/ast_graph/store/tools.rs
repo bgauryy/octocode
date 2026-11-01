@@ -4,9 +4,6 @@ use crate::execution::{ExecutionContext, ExecutionError};
 use crate::id::ToolId;
 use crate::response::{outcome::DomainResult, result::Continuation};
 
-pub(crate) struct Output;
-impl crate::response::output::ToolOutput for Output {}
-
 fn text(row: &Value, key: &str) -> Option<String> {
     row[key].as_str().map(str::to_owned)
 }
@@ -25,7 +22,7 @@ fn failure(message: impl Into<String>) -> GraphOutput {
     GraphOutput::error(ErrorCode::InvalidInput, message)
 }
 
-fn scope(row: &Value, paths: &PathPolicy) -> Result<(PathBuf, PathBuf), GraphOutput> {
+fn scope(path: &str, paths: &PathPolicy) -> Result<(PathBuf, PathBuf), GraphOutput> {
     let resolve = |path: &str| {
         paths
             .validate(path)
@@ -33,7 +30,7 @@ fn scope(row: &Value, paths: &PathPolicy) -> Result<(PathBuf, PathBuf), GraphOut
             .map_err(|e| GraphOutput::error(e.shared_code(), e.message))
     };
     let workspace = resolve(".")?;
-    let root = resolve(row["path"].as_str().unwrap_or("."))?;
+    let root = resolve(path)?;
     if !root.is_dir() || !root.starts_with(&workspace) {
         return Err(failure(
             "path must be a directory inside the current workspace",
@@ -76,7 +73,7 @@ fn exact_snapshot(home: &Path, id: &str, root: &Path) -> Result<String, GraphOut
 }
 
 fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput> {
-    let (workspace, root) = scope(row, paths)?;
+    let (workspace, root) = scope(row["path"].as_str().unwrap_or("."), paths)?;
     let home = graph_home(Some(&workspace)).map_err(failure)?;
     let id = match row["graph"].as_str() {
         Some(id) => id.to_owned(),
@@ -102,94 +99,148 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
         .transpose()?;
     Ok(QueryOptions {
         op: text(row, "operation").unwrap_or_default(),
-        include_provenance: row["includeProvenance"].as_bool(),
+        path: Some(row["path"].as_str().unwrap_or(".").to_owned()),
+        include_provenance: row["includeProvenance"] == true,
         workspace: Some(workspace),
         graph: Some(graph),
         baseline,
         target: text(row, "target").or_else(|| text(row, "cycle")),
+        targets: strings(row, "target"),
+        reasons: strings(row, "reasons"),
         to: text(row, "to"),
         edges: strings(row, "edges"),
         kind: text(row, "kind"),
         direction: text(row, "direction"),
-        depth: row["depth"].as_u64().map(|n| n as u32),
+        depth: row["depth"].as_u64().map(crate::num::u32_of),
         confidence: text(row, "confidence"),
-        limit: row["limit"].as_u64().map(|n| n as usize),
-        offset: row["offset"].as_u64().map(|n| n as usize),
+        limit: row["limit"].as_u64().map(crate::num::usize_of),
+        offset: row["offset"].as_u64().map(crate::num::usize_of),
+        page: row["page"].as_u64().map(crate::num::usize_of),
         list: text(row, "list"),
+        view: text(row, "view"),
         changed: strings(row, "changed"),
         since: text(row, "since"),
+        detectors: strings(row, "detectors"),
+        entries: strings(row, "entries"),
+        min_score: row["minScore"].as_f64(),
+        min_tier: row["minTier"]
+            .as_u64()
+            .and_then(|tier| u8::try_from(tier).ok()),
         check_freshness: true,
         ..Default::default()
     })
 }
 
+/// Build measurements no follow-up call takes and no coverage claim rests on.
+const RECEIPT_INTERNALS: [&str; 7] = [
+    "dir",
+    "bytes",
+    "sha256",
+    "extraction",
+    "argumentCoverage",
+    "buildMs",
+    "totalMs",
+];
+
 fn build(
-    row: &Value,
+    query: &GraphBuildQuery,
     paths: &PathPolicy,
     security: &ContentSecurity,
     context: &ExecutionContext,
     cargo: Option<&str>,
+    memory_only: bool,
 ) -> GraphOutput {
-    let (workspace, root) = match scope(row, paths) {
+    let (workspace, root) = match scope(&query.path, paths) {
         Ok(scope) => scope,
         Err(error) => return error,
     };
-    let language_globs = match serde_json::from_value(
-        row.get("parserGlobs").cloned().unwrap_or_else(|| json!({})),
-    ) {
-        Ok(globs) => globs,
-        Err(error) => return failure(error.to_string()),
-    };
     let options = IngestOptions {
-        path: root,
+        memory_only,
         workspace: Some(workspace),
-        exclude_dir: strings(row, "exclude"),
-        max_files: row["maxFiles"].as_u64().map(|n| n as u32),
-        force: row["force"] == true,
-        keep: row["keep"].as_u64().map(|n| n as usize),
-        language_globs,
+        ..IngestOptions::of_query(query, root)
     };
     let mut out = ingest(&options, paths, security, context, cargo);
     if let Some(object) = out.value.as_object_mut() {
-        object.remove("next");
+        // The scope sits inside the workspace: named relative to it, like every
+        // local evidence path.
+        if let Some(relative) = object
+            .get("root")
+            .and_then(Value::as_str)
+            .and_then(|path| paths.workspace_relative(path))
+        {
+            object.insert("root".into(), Value::String(relative));
+        }
+        // What a follow-up call or a coverage claim needs stays; the rest of
+        // the build's measurements live in the snapshot (graphQuery stats).
+        for key in RECEIPT_INTERNALS {
+            object.remove(key);
+        }
+        // The manifest keeps every scan fact for reuse checks; the receipt
+        // states only the ones that carry information (a cut, an exclude).
+        if let Some(scan) = object.get_mut("scan").and_then(Value::as_object_mut) {
+            scan.retain(|_, value| {
+                !(value == &json!(0)
+                    || value == &json!(false)
+                    || value.as_array().is_some_and(Vec::is_empty))
+            });
+        }
     }
     if let Some(id) = out.value["id"].as_str() {
         out.value["related"] = json!([Continuation::related(
             ToolId::GraphQuery,
-            json!({"operation":"stats", "path": options.path, "graph": id})
+            json!({"operation":"stats", "path": query.path.as_str(), "graph": id})
         )
         .build()]);
     }
     out
 }
 
-pub(crate) fn execute(
-    tool: ToolId,
-    row: &Value,
+/// One validated graphBuild row: ingest a snapshot of its path.
+pub(crate) fn execute_build(
+    query: &GraphBuildQuery,
     paths: &PathPolicy,
     security: &ContentSecurity,
     context: &ExecutionContext,
     cargo: Option<&str>,
+    memory_only: bool,
 ) -> Result<DomainResult, ExecutionError> {
     context.check()?;
-    let mut out = if tool == ToolId::GraphBuild {
-        build(row, paths, security, context, cargo)
-    } else {
-        match options(row, paths) {
-            Ok(options) => super::query::query_cancellable(&options, paths, context),
-            Err(error) => error,
-        }
+    let out = build(query, paths, security, context, cargo, memory_only);
+    context.check()?;
+    Ok(result(out))
+}
+
+/// One validated graphQuery row against an exact snapshot of its path.
+pub(crate) fn execute_query(
+    row: &Value,
+    paths: &PathPolicy,
+    context: &ExecutionContext,
+) -> Result<DomainResult, ExecutionError> {
+    context.check()?;
+    let mut out = match options(row, paths) {
+        Ok(options) => super::query::query_cancellable(
+            &QueryOptions {
+                response_window: context.response_window,
+                reuse_snapshot: true,
+                ..options
+            },
+            paths,
+            context,
+        ),
+        Err(error) => error,
     };
     context.check()?;
-    if tool == ToolId::GraphQuery {
-        pages::convert(&mut out.value, row, out.next_query.as_deref());
-    }
+    pages::convert(&mut out, row);
+    Ok(result(out))
+}
+
+fn result(out: GraphOutput) -> DomainResult {
     let status = match out.class {
         ExitClass::Success => None,
         ExitClass::Empty => Some("empty"),
         _ => Some("error"),
     };
-    Ok(DomainResult::payload(out.value, status))
+    DomainResult::payload(out.value, status)
 }
 
 mod pages;

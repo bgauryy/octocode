@@ -115,6 +115,7 @@ fn a_match_miss_lead_preserves_literal_patterns_and_smart_case() {
         serde_json::json!(["no.where", "Elsewhere"]),
         "{next}"
     );
+    let row = crate::tools::test_support::opened(crate::id::ToolId::LocalSearch, row);
     assert_eq!(row["regexEngine"], "literal", "{next}");
     assert_eq!(row["caseMode"], "smart", "{next}");
 }
@@ -178,6 +179,7 @@ fn literal_bars_preserve_the_exact_match_in_related_searches() {
             serde_json::json!([pattern]),
             "{calls}"
         );
+        let query = crate::tools::test_support::opened(crate::id::ToolId::LocalSearch, query);
         assert_eq!(query["regexEngine"], "literal", "{calls}");
     }
 }
@@ -202,6 +204,7 @@ fn an_insensitive_miss_runs_its_patterns_once() {
             &NeverCancel,
             None,
             None,
+            &Default::default(),
         );
         assert_eq!(r.status, ReadStatus::Empty, "{r:?}");
         RUST_REGEX_RUNS.with(std::cell::Cell::get)

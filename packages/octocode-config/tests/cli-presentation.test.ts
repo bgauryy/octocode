@@ -13,9 +13,9 @@ import { at, presentation, tool, tools } from './cli-presentation-fixture.ts';
 const ajv = new Ajv2020({ strict: false, validateFormats: false });
 
 function commands(help: string): Array<{ name: string; input: unknown }> {
-  return [...help.matchAll(/^ {2}octocode (\w+) ('(?:[^']|'\\'')*')/gm)].map(match => ({
-    name: match[1]!,
-    input: JSON.parse(match[2]!.slice(1, -1).replaceAll("'\\''", "'")),
+  return [...help.matchAll(/^ {2}octocode (\w+) ('(?:[^']|'\\'')*')/gm)].map(([, name = '', quoted = '']) => ({
+    name,
+    input: JSON.parse(quoted.slice(1, -1).replaceAll("'\\''", "'")),
   }));
 }
 
@@ -28,7 +28,7 @@ describe('canonical CLI and MCP discovery', () => {
       expect(tool(definition.name).title).toBe(definition.title);
   });
 
-  it('publishes the same exact request envelope in CLI schema and MCP', () => {
+  it('publishes the same request envelope in CLI schema and MCP', () => {
     for (const definition of DIRECT_TOOL_DEFINITIONS) {
       const entry = tool(definition.name);
       const expected = publishedInputSchema(definition);
@@ -39,7 +39,8 @@ describe('canonical CLI and MCP discovery', () => {
         if (!variant.example) throw new Error(`Missing example for ${definition.name}`);
         const input = { queries: [variant.example] };
         expect(validate(input), JSON.stringify(validate.errors)).toBe(true);
-        for (const rejected of [variant.example, { ...input, responseLength: 1000 }, { ...input, cursor: 'token' }, { queries: [{ ...variant.example, extras: ['hints'] }] }])
+        // A cursor beside queries is native's to reject: the listing is one object with each field once.
+        for (const rejected of [variant.example, { ...input, responseLength: 1000 }, { queries: [{ ...variant.example, extras: ['hints'] }] }])
           expect(validate(rejected), JSON.stringify(rejected)).toBe(false);
       }
       expect(validate({ cursor: 'returned-token' })).toBe(true);

@@ -259,3 +259,15 @@ fn changed_file_globs_do_not_widen_literal_paths_or_case() {
         }
     }
 }
+
+/// The review pick names every qualifying file its `include` lead can
+/// carry: the contract's `include` bound, not a fixed count of its own.
+#[test]
+fn review_selection_names_every_file_the_include_bound_admits() {
+    let max = crate::contracts::query_limits::gh_get_history_item::INCLUDE_MAX_ITEMS;
+    let files = (0..max + 20)
+        .map(|n| json!({"filename": format!("src/f{n:03}.rs"), "additions": 1, "deletions": 0}))
+        .collect::<Vec<_>>();
+    assert_eq!(review_selection(&files[..40], 1_000_000).len(), 40);
+    assert_eq!(review_selection(&files, 1_000_000).len(), max);
+}

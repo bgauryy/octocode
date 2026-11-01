@@ -24,14 +24,27 @@ function platformPackageName(suffix) {
   return `@octocodeai/octocode-native-${suffix}`;
 }
 
+/** `true` (musl), `false` (glibc) or `null` when `ldd` is absent or names neither. */
+function muslFromLdd(system) {
+  try {
+    const ldd = system.readLdd?.() ?? readFileSync('/usr/bin/ldd', 'utf8');
+    if (ldd.toLowerCase().includes('musl')) return true;
+    if (ldd.includes('GNU C Library')) return false;
+  } catch {}
+  return null;
+}
+
+/**
+ * Every launch runs this on Linux, so the cheap evidence comes first: glibc's
+ * `ldd` script carries its "GNU C Library" header and musl's names musl (the
+ * detect-libc rule). The process report (~20 ms) and an `ldd --version` spawn
+ * answer only when `ldd` is absent or names neither.
+ */
 function isMusl(system = {}) {
   const platform = system.platform ?? process.platform;
   if (platform !== 'linux') return false;
-  try {
-    const ldd = system.readLdd?.() ?? readFileSync('/usr/bin/ldd', 'utf8');
-    if (ldd.toLowerCase().includes('musl'))
-      return true;
-  } catch {}
+  const fromLdd = muslFromLdd(system);
+  if (fromLdd !== null) return fromLdd;
   const report = system.report ?? process.report?.getReport?.();
   if (report?.header?.glibcVersionRuntime) return false;
   const probe = system.probe ?? spawnSync('ldd', ['--version'], { encoding: 'utf8' });

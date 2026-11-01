@@ -90,38 +90,6 @@ async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_cha
 }
 
 #[tokio::test]
-async fn expired_disk_snapshot_does_not_reexecute() {
-    let workspace = Workspace::new();
-    let env = [("OCTOCODE_STORAGE_MODE", "persistent".into())];
-    let runtime = workspace.runtime(&env);
-    let (_, next) = saved_fixture(&workspace, &runtime).await;
-    runtime.close().await;
-    let dir = workspace.home.join("tmp/response-pages");
-    // An entry file is its header line, then the value.
-    for file in std::fs::read_dir(dir).expect("snapshot store").flatten() {
-        if file.path().extension().is_some_and(|ext| ext == "entry") {
-            let bytes = std::fs::read(file.path()).expect("entry");
-            let end = bytes
-                .iter()
-                .position(|byte| *byte == b'\n')
-                .expect("header");
-            let mut header: Value = serde_json::from_slice(&bytes[..end]).expect("header json");
-            header["storedAtUnix"] = json!(1);
-            let mut aged = header.to_string().into_bytes();
-            aged.extend_from_slice(&bytes[end..]);
-            std::fs::write(file.path(), aged).expect("age entry");
-        }
-    }
-    let runtime = workspace.runtime(&env);
-    let error = runtime
-        .run("expired".into(), "localSearch".into(), next)
-        .await
-        .expect_err("expired snapshot");
-    assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
-    runtime.close().await;
-}
-
-#[tokio::test]
 async fn failed_snapshot_retention_returns_complete_result_without_display_next() {
     let workspace = Workspace::new();
     std::fs::create_dir_all(workspace.home.join("tmp")).expect("cache parent");

@@ -11,6 +11,7 @@ import {
   publishedInputSchema,
   publishedJson,
   publishedRow,
+  publishedRowSchema,
   sentForms,
   rowVariants,
   toolVariants,
@@ -50,10 +51,11 @@ export function toolHelpSection(definition: Definition): string {
   for (const example of jsonExamples)
     lines.push(`  octocode ${name} ${shellQuote(exampleJson({ queries: [example] }))}`);
   lines.push('', 'Input: {"queries":[…]} for fresh calls; copy {"cursor":"…"} from a continuation.');
-  if (variants.length === 1) {
+  const [only] = variants;
+  if (only && variants.length === 1) {
     lines.push(
       '',
-      `Required: ${variants[0]!.requires.join(', ') || 'none; every field is optional.'}`
+      `Required: ${only.requires.join(', ') || 'none; every field is optional.'}`
     );
   } else if (variants.length > 1) {
     lines.push('', 'Required fields, by operation:');
@@ -90,18 +92,19 @@ export function compactFields(definition: Definition, selection: boolean): strin
     const json = schema ? publishedJson(schema) : {};
     return Array.isArray(json.enum) ? json.enum.map(String) : typeof json.const === 'string' ? [json.const] : [];
   };
-  const selector = variants.length < 2
+  const [first] = variants;
+  const selector = !first || variants.length < 2
     ? undefined
-    : (['operation', ...Object.keys(variants[0]!.shape)].find(field => {
+    : (['operation', ...Object.keys(first.shape)].find(field => {
         const sets = variants.map(variant => valuesOf(variant.shape[field]).join('|'));
         return sets.every(Boolean) && new Set(sets).size > 1;
       }) ?? (variants.some(variant => 'operation' in variant.shape) ? 'operation' : undefined));
   return variants
     .map((variant, index) => {
-      const form = forms[index]!;
+      const requires = forms[index]?.requires ?? [];
       const fields = Object.entries(variant.shape)
         .filter(([field, schema]) => shown.has(field) && field !== selector && !('not' in publishedJson(schema)))
-        .map(([field]) => ({ field, required: form.requires.includes(field) }))
+        .map(([field]) => ({ field, required: requires.includes(field) }))
         .toSorted(
           (left, right) =>
             Number(right.required) - Number(left.required) || left.field.localeCompare(right.field)
@@ -109,7 +112,7 @@ export function compactFields(definition: Definition, selection: boolean): strin
       const listed = fields.slice(0, max).map(({ field, required }) => `${field}${required ? '*' : '?'}`);
       if (fields.length > max) listed.push('…');
       const values = selector ? valuesOf(variant.shape[selector]) : [];
-      const optional = selector && form.requires.includes(selector) ? '' : '?';
+      const optional = selector && requires.includes(selector) ? '' : '?';
       const lead = values.length
         ? [`${selector}${optional}:${values.map(value => JSON.stringify(value)).join('|')}`]
         : [];
@@ -130,7 +133,7 @@ const view = (definition: Definition, querySchema: Json, extra: Json = {}): Json
 function rendered(definition: Definition, selection: boolean) {
   const { name } = definition;
   const inputSchema = publishedInputSchema(definition, selection);
-  const row = publishedJson(publishedRow(definition, selection));
+  const row = publishedRowSchema(definition, selection);
   return {
     views: {
       query: view(definition, row, { inputSchema }),

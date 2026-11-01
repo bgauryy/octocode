@@ -187,10 +187,7 @@ fn expired_walk_budget_discards_partial_candidates() {
     let source = "const target = 1;";
     let spec = crate::lsp::resolver::grammar_for_file("demo.ts").unwrap();
     let tree = spec
-        .parse_before(
-            source,
-            std::time::Instant::now() + crate::lsp::resolver::AST_EXECUTION_TIMEOUT,
-        )
+        .parse_before(source, crate::signatures::extractor::whole_file_deadline())
         .unwrap();
     let mut candidates = Vec::new();
     let result = crate::lsp::resolver::collect_symbol_candidates(

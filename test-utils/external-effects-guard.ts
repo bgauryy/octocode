@@ -13,11 +13,12 @@
  *
  * Tests that need any of these must inject their own fake. The guard fails
  * loudly so the need is never silently skipped. The temp home lives under the
- * OS temp directory, which the OS reclaims.
+ * OS temp directory and is removed after each test file.
  *
  * Contracts verified by packages/octocode-config/tests/external-effects-guard.test.ts.
  */
-import { vi } from 'vitest';
+import { rmSync } from 'node:fs';
+import { afterAll, vi } from 'vitest';
 import { hermeticEnv } from './hermetic-env.js';
 
 // ─── Hermetic env: home, credentials, live flags, network sink ──────────────────────
@@ -30,6 +31,9 @@ for (const name of Object.keys(process.env)) {
 }
 Object.assign(process.env, hermetic);
 export const HERMETIC_HOME = hermetic['OCTOCODE_HOME']!;
+afterAll(() => {
+  rmSync(HERMETIC_HOME, { recursive: true, force: true });
+});
 
 const BLOCK_PROCESS = 'TEST_EXTERNAL_EFFECT_BLOCKED: inject a process/browser mock';
 const BLOCK_FETCH = 'TEST_EXTERNAL_EFFECT_BLOCKED: inject a fetch mock';

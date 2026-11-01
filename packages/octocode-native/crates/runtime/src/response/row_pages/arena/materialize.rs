@@ -1,5 +1,3 @@
-#[cfg(test)]
-use super::super::drop_emptied_lists;
 use super::super::{drop_empty_declared_siblings, note_materialized};
 use super::{Fragment, FragmentArena, FragmentKind, RowSplit};
 use serde_json::{Value, json};
@@ -13,21 +11,14 @@ impl FragmentArena {
         let mut value = self.build(&fragment.kind);
         // Pruned once the fragment is whole: a list the skeleton emptied
         // may be the slot a joined split fills.
-        if let Some(context) = self.page_context {
-            for (pointer, source) in later {
-                if let Some(routes) = self.collection_routes {
-                    drop_empty_declared_siblings(
-                        &mut value,
-                        source,
-                        pointer,
-                        routes,
-                        &context.required,
-                    );
-                } else {
-                    #[cfg(test)]
-                    drop_emptied_lists(&mut value, pointer, &context.required);
-                }
-            }
+        for (pointer, source) in later {
+            drop_empty_declared_siblings(
+                &mut value,
+                source,
+                pointer,
+                self.collection_routes,
+                &self.page_context.required,
+            );
         }
         value
     }
@@ -106,7 +97,8 @@ impl FragmentArena {
                 index,
             } => {
                 let mut value = self.build(inner);
-                // The outermost element wins over a nested one's marker.
+                // One marker per fragment: nested levels compose into it
+                // when planned (`mark_continuations`).
                 value["rowPart"] = json!({"continues": {"array": array, "index": index}});
                 value
             }

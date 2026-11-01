@@ -16,6 +16,7 @@ fn mcp_from_rows(mut structured: Value) -> Value {
         }),
     )
     .expect("MCP response")
+    .into_value()
 }
 
 #[test]
@@ -44,7 +45,7 @@ fn malformed_row_in_mixed_batch_keeps_healthy_row_and_mcp_success_flag() {
             "owner":"a","repo":"b","bytes":0,
             "location":{
                 "kind":"repo","localPath":"/tmp/repo",
-                "cached":false,"commitSha":"abc",
+                "commitSha":"abc",
                 "resolvedRef":"main"
             }
         }}

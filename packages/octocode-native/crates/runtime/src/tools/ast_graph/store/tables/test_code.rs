@@ -1,12 +1,12 @@
 //! Test code inside production trees: modules mounted only under test, and
 //! which edges are test evidence.
 use super::*;
-use crate::tools::ast_graph::edges::RUST_MODULE;
+use crate::tools::ast_graph::edges::mounts;
 
 impl<'a> Projector<'a> {
-    /// Rust modules mounted only under test are test files: a `mod x;`
-    /// inside a `#[cfg(test)]` item, or declared by a test file, and every
-    /// module below them. (A module mounted for production as well keeps
+    /// Rust modules mounted only under test are test files: a `mod x;` or a
+    /// spliced `include!` inside a `#[cfg(test)]` item, or in a test file,
+    /// and every module below them. (A module mounted for production as well keeps
     /// its production line as its `mod` evidence, so it stays production.)
     pub(super) fn mount_test_modules(&mut self) {
         let built = self.built;
@@ -14,10 +14,11 @@ impl<'a> Projector<'a> {
             .nodes
             .iter()
             .flat_map(|(parent, node)| {
-                node.edges.iter().filter_map(move |(child, kinds)| {
+                node.edges.iter().flat_map(move |(child, kinds)| {
                     kinds
-                        .get(RUST_MODULE)
-                        .map(|line| (parent.as_str(), child.as_str(), *line))
+                        .iter()
+                        .filter(|(kind, _)| mounts(kind))
+                        .map(move |(_, line)| (parent.as_str(), child.as_str(), *line))
                 })
             })
             .collect::<Vec<_>>();

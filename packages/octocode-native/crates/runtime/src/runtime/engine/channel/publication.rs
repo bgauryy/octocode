@@ -7,8 +7,8 @@ use crate::runtime::engine::cursors::{Pending, SavedWork};
 use serde_json::{Value, json};
 
 impl ChannelRun {
-    pub(super) fn pending(&self) -> Result<Pending, ExecutionError> {
-        Pending::new(self.access, None).ok_or(ExecutionError::WorkerFailed)
+    pub(super) fn pending(&self) -> Pending {
+        Pending::new(self.access, None)
     }
 
     pub(super) fn retain_pending(
@@ -51,13 +51,13 @@ impl ChannelRun {
                 {
                     input["responseChars"] = chars.clone();
                 }
-                pending.insert(
+                Some(pending.insert(
                     target,
                     input,
                     SavedWork::ToolResume {
                         index: self.origin_index.or(origin),
                     },
-                )
+                ))
             },
         )
     }
@@ -73,21 +73,19 @@ impl ChannelRun {
         };
         outcome.structured_content.edit(|output| {
             let next = &mut output["responsePagination"]["next"];
-            let token = pending
-                .insert(
-                    self.id,
-                    self.response_query.clone(),
-                    SavedWork::ResponsePage(cursor),
-                )
-                .ok_or(ExecutionError::WorkerFailed)?;
+            let token = pending.insert(
+                self.id,
+                self.response_query.clone(),
+                SavedWork::ResponsePage {
+                    cursor,
+                    index: self.origin_index,
+                },
+            );
+            // The page was measured with the placeholder handle, which has
+            // the issued handle's exact length (`cursor::issued`), so the
+            // page size and its oversized flag stand.
             next["input"] = json!({"cursor":token});
-            crate::response::pager::measure_page(
-                output,
-                self.options
-                    .response_chars
-                    .or(Some(self.output.auto_page_chars)),
-            )
-            .map_err(|_| ExecutionError::WorkerFailed)
+            Ok(())
         })
     }
 }

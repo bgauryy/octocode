@@ -208,10 +208,10 @@ pub struct GitHubTransport {
     /// Response cache for reads made on the transport (search pages and
     /// history reads): a repeated search, even from a new CLI process,
     /// sends no request, so it spends no search budget and waits for no
-    /// search spacing. Clones share it.
+    /// search spacing. Transport handles share it.
     pub cache: Arc<dyn super::ConditionalCache>,
     /// `owner/repo` (lowercase) whose requests GitHub redirected to
-    /// `/repositories/<id>`: a renamed repository. Clones share it.
+    /// `/repositories/<id>`: a renamed repository. Transport handles share it.
     renamed: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Repository metadata reads, shared by the rows of a batch.
     pub(crate) repositories: Arc<super::search::RepositoryMemo>,
@@ -219,6 +219,27 @@ pub struct GitHubTransport {
     pub(crate) owners: Arc<super::search::OwnerSources>,
 }
 impl GitHubTransport {
+    /// Forget repository routing and metadata after the caller drains its requests.
+    pub fn clear_metadata(&self) {
+        self.repositories.clear_idle();
+        self.renamed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+    }
+
+    /// Share HTTP connections and rate-limit admission while retaining no
+    /// reusable response or repository results in this execution scope.
+    pub fn uncached(&self) -> Self {
+        Self {
+            cache: Arc::new(super::NoCache),
+            repositories: Arc::new(super::KeyedFlight::transient()),
+            renamed: Arc::default(),
+            owners: Arc::default(),
+            ..self.clone()
+        }
+    }
+
     /// A transport admitting its requests through `budget`: production
     /// passes [`GitHubBudget::global`] (or [`GitHubBudget::paced`]).
     pub fn new(

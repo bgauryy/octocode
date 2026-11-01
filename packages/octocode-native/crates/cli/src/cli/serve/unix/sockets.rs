@@ -129,3 +129,27 @@ pub(super) fn touch(socket: &Path) {
         libc::utimes(path.as_ptr(), std::ptr::null());
     }
 }
+
+/// Stop warm servers and require an acknowledgement after their work drains.
+/// A failure leaves cache deletion to a later retry after the server stops.
+pub(in crate::cli) async fn stop_all_and_wait() -> Result<(), String> {
+    tokio::task::spawn_blocking(|| {
+        use std::io::{BufRead, Read, Write};
+        let (dir, uid) = socket_dir(&std::env::temp_dir());
+        if !dir.exists() { return Ok(()); }
+        private_dir(&dir, uid).ok_or_else(|| "warm server directory is not private".to_owned())?;
+        let servers = live_servers(&dir, None);
+        for (_, mut stream) in servers {
+            let timeout = Some(super::client::REPLY_DEADLINE);
+            stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
+            stream.set_write_timeout(timeout).map_err(|error| error.to_string())?;
+            stream.write_all(b"{\"stop\":true,\"drain\":true}\n").map_err(|error| error.to_string())?;
+            let mut line = String::new();
+            std::io::BufReader::new(stream).take(128).read_line(&mut line).map_err(|error| error.to_string())?;
+            if line.trim() != "{\"stopped\":true}" {
+                return Err("A warm server stopped without confirming that its calls drained; rerun cache clear after it exits.".into());
+            }
+        }
+        Ok(())
+    }).await.map_err(|error| error.to_string())?
+}

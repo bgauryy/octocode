@@ -5,35 +5,23 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::{Notify, Semaphore};
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 /// Longest per-request timeout a runtime accepts. Deadlines are
 /// `Instant::now() + timeout`; a bound keeps that sum representable on every
 /// platform instead of panicking at admission (M4).
-pub(crate) const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
+pub const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// Admission bounds. Every admitted request runs at once: there is no run
+/// queue, so an independent call never waits for another to finish. Their
+/// fan-outs share the cores through the process CPU budget
+/// ([`octocode_engine::search::cpu`]), and `pending` refuses work past it.
 #[derive(Clone, Debug)]
 pub struct RequestLimits {
-    /// Requests of [`Cost::Walk`] that run at once.
-    pub concurrency: usize,
-    /// Requests of [`Cost::Light`] that run at once, on slots of their own.
-    pub(crate) light_concurrency: usize,
-    /// Admitted requests (running or queued, both costs) before `busy`.
+    /// Admitted requests (all running) before `busy`.
     pub pending: usize,
     pub timeout: Duration,
-}
-
-/// What a request may cost while it holds a slot, decided at admission.
-/// Light requests (a stored page, a read of one small file) run on their own
-/// slots, so they never queue behind tree walks.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum Cost {
-    /// May walk a tree, or wait on a provider or a language server.
-    #[default]
-    Walk,
-    /// Bounded, small work.
-    Light,
 }
 
 /// The per-request execution budget of every runtime surface (CLI, warm
@@ -47,8 +35,6 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 impl Default for RequestLimits {
     fn default() -> Self {
         Self {
-            concurrency: 4,
-            light_concurrency: 4,
             pending: 64,
             timeout: DEFAULT_TIMEOUT,
         }
@@ -104,9 +90,6 @@ impl std::fmt::Display for ExecutionError {
 pub(crate) struct ExecutionContext {
     pub cancellation: CancellationToken,
     pub deadline: Instant,
-    /// This query's share of the cores for parallel directory walks, set by
-    /// the batch budget when several queries walk at once. `None` = all cores.
-    pub(crate) walk_threads: Option<u32>,
     /// This row's share of the response page (an explicit `responseChars`,
     /// else the runtime's `auto_page_chars`) that a streamed page must
     /// fit, set by the engine per row. `None` = no window; pages take their
@@ -145,8 +128,6 @@ struct State {
 
 struct Inner {
     state: Mutex<State>,
-    slots: Arc<Semaphore>,
-    light_slots: Arc<Semaphore>,
     drained: Notify,
     limits: RequestLimits,
 }
@@ -166,17 +147,9 @@ struct RequestGuard {
 pub struct RequestAdmission {
     guard: RequestGuard,
     context: ExecutionContext,
-    cost: Cost,
 }
 
 impl RequestAdmission {
-    /// Run this request on the slots of `cost` (default [`Cost::Walk`]).
-    #[must_use]
-    pub(crate) fn with_cost(mut self, cost: Cost) -> Self {
-        self.cost = cost;
-        self
-    }
-
     /// Carry the caller's GitHub token on this request as a secret override.
     pub(crate) fn with_github_token(mut self, token: SecretString) -> Self {
         self.context.github_credential =
@@ -202,19 +175,12 @@ impl Drop for RequestGuard {
 
 impl RequestRuntime {
     pub fn new(limits: RequestLimits) -> Result<Self, ExecutionError> {
-        if limits.concurrency == 0
-            || limits.light_concurrency == 0
-            || limits.pending < limits.concurrency
-            || limits.timeout.is_zero()
-            || limits.timeout > MAX_TIMEOUT
-        {
+        if limits.pending == 0 || limits.timeout.is_zero() || limits.timeout > MAX_TIMEOUT {
             return Err(ExecutionError::InvalidLimits);
         }
         Ok(Self {
             inner: Arc::new(Inner {
                 state: Mutex::new(State::default()),
-                slots: Arc::new(Semaphore::new(limits.concurrency)),
-                light_slots: Arc::new(Semaphore::new(limits.light_concurrency)),
                 drained: Notify::new(),
                 limits,
             }),
@@ -233,14 +199,6 @@ impl RequestRuntime {
         } else {
             false
         }
-    }
-
-    pub fn is_closed(&self) -> bool {
-        self.inner
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .closed
     }
 
     pub(crate) fn active_requests(&self) -> usize {
@@ -306,11 +264,9 @@ impl RequestRuntime {
             context: ExecutionContext {
                 cancellation: token,
                 deadline,
-                walk_threads: None,
                 response_window: None,
                 github_credential: None,
             },
-            cost: Cost::Walk,
         })
     }
 
@@ -326,27 +282,13 @@ impl RequestRuntime {
         if !Arc::ptr_eq(&self.inner, &admission.guard.inner) {
             return Err(ExecutionError::WorkerFailed);
         }
-        let RequestAdmission {
-            guard,
-            context,
-            cost,
-        } = admission;
-        let slots = match cost {
-            Cost::Walk => &self.inner.slots,
-            Cost::Light => &self.inner.light_slots,
-        };
+        let RequestAdmission { guard, context } = admission;
         let token = context.cancellation.clone();
         let _cancel_on_drop = token.clone().drop_guard();
         let deadline = tokio::time::Instant::from_std(context.deadline);
-        let permit = tokio::select! {
-            biased;
-            _ = token.cancelled() => return Err(ExecutionError::Cancelled),
-            _ = tokio::time::sleep_until(deadline) => return Err(ExecutionError::Timeout),
-            permit = slots.clone().acquire_owned() => permit.map_err(|_| ExecutionError::Closed)?,
-        };
+        // A request cancelled or expired before it starts never runs work.
         let mut task = tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
             let _guard = guard;
-            let _permit = permit;
             context.check()?;
             let result = work(context.clone());
             context.check()?;

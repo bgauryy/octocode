@@ -26,14 +26,14 @@ impl Linker<'_> {
     /// package's names only through an import: that binding stays medium.
     pub(super) fn same_go_package(&self, site: &Site, candidates: &[u32]) -> Option<Linked> {
         let caller_path = self.scope.path(self.file_of(site.caller))?;
-        let caller_dir = crate::tools::ast_graph::graph::parent(caller_path);
+        let caller_dir = crate::tools::ast_graph::paths::parent(caller_path);
         let caller_test = caller_path.ends_with("_test.go");
         let in_package = candidates
             .iter()
             .copied()
             .filter(|id| {
                 self.scope.path(self.file_of(*id)).is_some_and(|path| {
-                    crate::tools::ast_graph::graph::parent(path) == caller_dir
+                    crate::tools::ast_graph::paths::parent(path) == caller_dir
                         && (caller_test || !path.ends_with("_test.go"))
                 })
             })

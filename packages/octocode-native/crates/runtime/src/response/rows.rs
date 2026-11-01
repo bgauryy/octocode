@@ -1,12 +1,14 @@
 //! Stable indexed result rows, with explicit coverage and guidance.
 mod envelope;
 mod recovery;
+mod restart;
 use crate::id::ToolId;
 pub use envelope::envelope;
 pub(crate) use recovery::{
     CANCELLED_HINT, GITHUB_AUTH_RECOVERY_HINT, attach_diagnostics, attach_error_hint,
-    error_code_hint,
+    attach_error_notice, error_code_hint,
 };
+pub(crate) use restart::require_restart;
 use serde_json::{Value, json};
 
 #[derive(Default)]

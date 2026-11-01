@@ -14,9 +14,15 @@ use serde_json::{Map, Value};
 use super::ContentSecurity;
 use crate::contracts::ValidationIssue;
 
+/// Security ceiling, not a data cap: an input string past it is refused at
+/// the gate (paths, patterns and keywords are far shorter), so no caller
+/// value can force unbounded scanning or redaction work.
 const MAX_STRING_LENGTH: usize = 10_000;
 /// Contract `limits.maxInputArrayItems`.
 const MAX_ARRAY_LENGTH: usize = crate::id::MAX_INPUT_ARRAY_ITEMS;
+/// Security ceiling, not a data cap: JSON nesting deeper than this is
+/// refused, so a hostile query cannot exhaust the stack of the recursive
+/// walk. No tool input nests anywhere near it.
 const MAX_DEPTH: usize = 20;
 
 /// A query row that passed [`ContentSecurity::check_input`]: its keys are

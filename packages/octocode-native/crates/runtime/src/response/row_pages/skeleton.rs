@@ -26,74 +26,6 @@ pub(super) fn escape_pointer(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
-/// The largest evidence array with at least two elements reachable through
-/// objects and single-element arrays. Executable calls remain indivisible.
-#[cfg(test)]
-fn largest_array(value: &Value, pointer: &str) -> Option<(String, usize)> {
-    let mut best: Option<(String, usize)> = None;
-    let mut consider = |candidate: Option<(String, usize)>| {
-        if let Some(candidate) = candidate
-            && best.as_ref().is_none_or(|current| candidate.1 > current.1)
-        {
-            best = Some(candidate);
-        }
-    };
-    match value {
-        Value::Object(map) => {
-            for (key, child) in map {
-                if key == PAGES_KEY || key == HINTS_KEY || key == "related" {
-                    continue;
-                }
-                consider(largest_array(
-                    child,
-                    &format!("{pointer}/{}", escape_pointer(key)),
-                ));
-            }
-        }
-        Value::Array(items) if items.len() >= 2 => {
-            consider(Some((
-                pointer.to_owned(),
-                octocode_engine::json_size::utf16_units(value).unwrap_or(0),
-            )));
-        }
-        Value::Array(items) => {
-            if let Some(item) = items.first() {
-                consider(largest_array(item, &format!("{pointer}/0")));
-            }
-        }
-        _ => {}
-    }
-    best
-}
-
-/// Empty every remaining array of `skeleton` large enough (over a quarter
-/// of `budget`) to matter if repeated per fragment. Returns, when any was
-/// emptied, the split's rest: the skeleton as it was, holding them and the
-/// lists beside the paged array at `pointer`. The rest is the split's first
-/// part, so its slices carry those lists emptied.
-#[cfg(test)]
-pub(super) fn lean_skeleton(skeleton: &mut Value, budget: usize, pointer: &str) -> Option<Value> {
-    let mut rest = None;
-    while let Some((relative, chars)) = skeleton
-        .get("data")
-        .and_then(|data| largest_array(data, ""))
-        && chars.saturating_mul(4) > budget
-    {
-        if rest.is_none() {
-            rest = Some(skeleton.clone());
-        }
-        let path = format!("/data{relative}");
-        match skeleton.pointer_mut(&path).and_then(Value::as_array_mut) {
-            Some(items) => items.clear(),
-            None => break,
-        }
-    }
-    if rest.is_some() {
-        empty_secondary_lists(skeleton, pointer);
-    }
-    rest
-}
-
 /// The outermost array element a paged array at `pointer` lies in (reached
 /// through single-element arrays), as (array pointer, element index).
 pub(super) fn enclosing_element(value: &Value, pointer: &str) -> Option<(String, usize)> {
@@ -115,68 +47,6 @@ pub(super) fn continues_chars(array: &str, index: usize) -> usize {
     octocode_engine::json_size::utf16_units(&json!({"continues": {"array": array, "index": index}}))
         .unwrap_or(0)
         - 1
-}
-
-/// Move the largest array out of `row`'s data, as (JSON pointer, items).
-#[cfg(test)]
-pub(super) fn take_largest_array(row: &mut Value) -> Option<(String, Vec<Value>)> {
-    let (relative, _) = row.get("data").and_then(|data| largest_array(data, ""))?;
-    let pointer = format!("/data{relative}");
-    let items = row
-        .pointer_mut(&pointer)
-        .and_then(Value::as_array_mut)
-        .map(std::mem::take)?;
-    Some((pointer, items))
-}
-
-/// A later slice of a split row repeats its skeleton; the evidence lists
-/// beside the paged array, at each level of its `pointer` (diagnostics
-/// beside the paged files, a cycle's edges beside its files), were delivered
-/// with the first part, so later slices carry them emptied: each record
-/// once.
-#[cfg(test)]
-pub(super) fn empty_secondary_lists(skeleton: &mut Value, pointer: &str) {
-    fn empty_collections(value: &mut Value) {
-        match value {
-            Value::Array(items) => {
-                items.clear();
-            }
-            Value::Object(map) => {
-                for (name, child) in map {
-                    if name != PAGES_KEY && name != HINTS_KEY {
-                        empty_collections(child);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    let mut segments = pointer.trim_start_matches('/').split('/');
-    if segments.next() != Some("data") {
-        return;
-    }
-    let mut node = skeleton.get_mut("data");
-    for segment in segments {
-        let key = segment.replace("~1", "/").replace("~0", "~");
-        let Some(current) = node else {
-            return;
-        };
-        if let Some(map) = current.as_object_mut() {
-            for (name, value) in map.iter_mut() {
-                if *name == key || name == PAGES_KEY || name == HINTS_KEY {
-                    continue;
-                }
-                // Compact scalar rows are evidence too. Continuation inputs
-                // stay intact behind the next/hints boundary above.
-                empty_collections(value);
-            }
-        }
-        node = match current {
-            Value::Object(map) => map.get_mut(&key),
-            Value::Array(items) => key.parse::<usize>().ok().and_then(|at| items.get_mut(at)),
-            _ => None,
-        };
-    }
 }
 
 /// A later slice of a split element (a pull request whose comments page)
@@ -210,42 +80,6 @@ pub(super) fn lean_elements(
                     || context.optional.contains(name)
                     || value.is_array()
                     || value.is_object()
-            });
-        }
-        in_element = current.is_array();
-        node = match current {
-            Value::Object(map) => map.get_mut(key),
-            Value::Array(items) => key.parse::<usize>().ok().and_then(|i| items.get_mut(i)),
-            _ => None,
-        };
-    }
-}
-
-/// On a later slice, each array element the paged `pointer` passes through
-/// drops its lists left empty (an emptied `reviews: []` says nothing) unless
-/// its entry schema requires them; the paged array itself stays.
-#[cfg(test)]
-pub(super) fn drop_emptied_lists(
-    value: &mut Value,
-    pointer: &str,
-    required: &std::collections::BTreeSet<String>,
-) {
-    let segments = pointer
-        .trim_start_matches('/')
-        .split('/')
-        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
-        .collect::<Vec<_>>();
-    let mut node = Some(value);
-    let mut in_element = false;
-    for key in &segments {
-        let Some(current) = node else {
-            return;
-        };
-        if in_element && let Some(map) = current.as_object_mut() {
-            map.retain(|name, value| {
-                name == key
-                    || required.contains(name)
-                    || value.as_array().is_none_or(|items| !items.is_empty())
             });
         }
         in_element = current.is_array();

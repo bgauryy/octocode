@@ -11,8 +11,6 @@ fn hit(line: u32, value: &str) -> TextSearchMatch {
         value_digest: TextSearchMatch::digest_of(value),
         count: line.is_multiple_of(2).then_some(line),
         rank: Some(line % 4),
-        original_chars: line.is_multiple_of(3).then_some(4_000),
-        original_bytes: line.is_multiple_of(3).then_some(u32::MAX),
     }
 }
 
@@ -20,8 +18,8 @@ fn assert_same(left: &TextSearchResult, right: &TextSearchResult) {
     assert_eq!(left.files.len(), right.files.len());
     for (a, b) in left.files.iter().zip(&right.files) {
         assert_eq!(
-            (&a.path, a.match_count, a.source),
-            (&b.path, b.match_count, b.source)
+            (&a.path, a.match_count, &a.term_counts, a.source),
+            (&b.path, b.match_count, &b.term_counts, b.source)
         );
         assert_eq!(a.matches.len(), b.matches.len());
         for (x, y) in a.matches.iter().zip(&b.matches) {
@@ -35,8 +33,6 @@ fn assert_same(left: &TextSearchResult, right: &TextSearchResult) {
                     x.value_digest,
                     x.count,
                     x.rank,
-                    x.original_chars,
-                    x.original_bytes
                 ),
                 (
                     y.line,
@@ -47,8 +43,6 @@ fn assert_same(left: &TextSearchResult, right: &TextSearchResult) {
                     y.value_digest,
                     y.count,
                     y.rank,
-                    y.original_chars,
-                    y.original_bytes
                 )
             );
         }
@@ -65,6 +59,7 @@ fn a_packed_scan_unpacks_to_the_same_scan() {
     let line = "fn needle(x: u32) -> u32 { x + 1 } // 中文 ✓".repeat(3);
     let files = (0..200u32)
         .map(|n| TextSearchFile {
+            term_counts: (0..n % 4).map(|term| n + term).collect(),
             path: format!("/repo/src/module_{n}/file.rs"),
             match_count: n,
             matches: (0..n % 7)
@@ -89,7 +84,7 @@ fn a_packed_scan_unpacks_to_the_same_scan() {
         files,
         stats: TextSearchStats {
             match_count: Some(600),
-            cap_reasons: vec![octocode_engine::types::CapReason::MaxCollectedFiles],
+            cap_reasons: vec![octocode_engine::types::CapReason::MaxFileSize],
             ..Default::default()
         },
     };
@@ -118,6 +113,7 @@ fn a_packed_scan_unpacks_to_the_same_scan() {
 fn compact_classes_store_an_oversized_scan_and_preserve_all_duplicate_relations() {
     let mut scan = TextSearchResult {
         files: vec![TextSearchFile {
+            term_counts: Vec::new(),
             path: "/dense.txt".into(),
             match_count: 150_000,
             matches: (0..150_000)

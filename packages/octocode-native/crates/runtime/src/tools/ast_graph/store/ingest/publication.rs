@@ -1,3 +1,4 @@
+use super::super::super::graph::checkpoint;
 use super::*;
 
 pub(super) struct Staged {
@@ -118,6 +119,72 @@ impl Drop for Staged {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.path);
     }
+}
+
+/// The build lock with abandoned staging removed. Staging exists only under
+/// this lock, so every stage [`cleanup`] finds is one a dead process left.
+pub(super) fn lock(
+    home: &Path,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<std::fs::File, GraphOutput> {
+    let lock = super::super::build_lock::acquire(home, cancel, paths)?;
+    cleanup(home, paths, cancel)?;
+    Ok(lock)
+}
+
+/// Points `latest` at the reused snapshot `receipt` names; under the lock.
+pub(super) fn point_latest(home: &Path, mut receipt: Value, started: Instant) -> GraphOutput {
+    let id = receipt["id"].as_str().unwrap_or_default();
+    if let Err(error) = write_atomic(&home.join(LATEST_FILE), id.as_bytes(), false) {
+        return GraphOutput::error(
+            ErrorCode::FileAccessFailed,
+            format!("cannot point latest at graph {id}: {error}"),
+        );
+    }
+    crate::tools::ast_graph::progress::emit(|| format!("reused {id}: its sources are unchanged"));
+    receipt["totalMs"] = json!(crate::num::millis_of(started.elapsed()));
+    GraphOutput::ok(receipt)
+}
+
+/// Marks the scope's extraction job complete once the snapshot `receipt`
+/// names is published.
+pub(super) fn finish_checkpoint(
+    options: &IngestOptions,
+    home: &Path,
+    built: &super::super::super::types::BuiltGraph,
+    receipt: &Value,
+) -> Result<(), GraphOutput> {
+    let job = checkpoint::job_path(&home.join(".facts"), &built.root);
+    if !options.memory_only
+        && let Err(error) = checkpoint::complete(&job)
+    {
+        return Err(GraphOutput::error(
+            error.code,
+            format!(
+                "graph {} was published at {}, but its extraction checkpoint could not be marked complete: {}",
+                receipt["id"].as_str().unwrap_or_default(),
+                receipt["dir"].as_str().unwrap_or_default(),
+                error.message
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Writes the snapshot under a temp dir, renames it into place and points
+/// the latest marker at it.
+#[cfg(test)]
+pub(in crate::tools::ast_graph::store) fn publish(
+    home: &Path,
+    id: &str,
+    _stamp: &str,
+    bytes: &[u8],
+    manifest: &Value,
+) -> std::io::Result<PathBuf> {
+    let staged = Staged::new(home)?;
+    write_atomic(&staged.graph(), bytes, true)?;
+    staged.publish(home, id, manifest)
 }
 
 #[cfg(test)]

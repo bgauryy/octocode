@@ -1,6 +1,6 @@
 ---
 name: zod
-description: "Load this skill first when creating, changing, reviewing or testing Zod schemas, or migrating Zod v3 to v4; covers parsing, inferred types, composition, errors, transforms and boundary tests."
+description: "Create, change, review or test Zod schemas, or migrate v3 to v4. Covers parsing, inferred types, composition, errors, transforms and boundary tests against the installed version."
 license: MIT
 user-invocable: false
 agentic: false

@@ -56,6 +56,14 @@ impl<K: Ord + Clone, S: Default> KeyedFlight<K, S> {
         }
     }
 
+    /// Forget idle retained results without splitting a flight still in progress.
+    pub fn clear_idle(&self) {
+        self.slots
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|_, slot| Arc::strong_count(slot) > 1);
+    }
+
     /// Keys currently known (in flight, or retained): what the tests
     /// observe of forgetting and pruning; no caller needs it.
     #[cfg(test)]

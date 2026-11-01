@@ -23,7 +23,7 @@ fn expired_graph_walk_does_not_emit_complete_facts() {
     let tree = crate::signatures::extractor::parse_before(
         source,
         &language,
-        std::time::Instant::now() + crate::signatures::extractor::AST_EXECUTION_TIMEOUT,
+        crate::signatures::extractor::whole_file_deadline(),
     )
     .unwrap();
     let index = NodePositions::new(source);
@@ -84,7 +84,7 @@ fn deeply_nested_receiver_lookups_stay_inside_the_deadline() {
     assert_eq!(saves.len(), 1_500);
     assert!(saves.iter().all(|call| call["receiverType"] == "Store"));
     assert!(
-        elapsed < crate::signatures::extractor::AST_EXECUTION_TIMEOUT / 2,
+        elapsed < std::time::Duration::from_secs(1),
         "took {elapsed:?}"
     );
 }

@@ -3,8 +3,8 @@
 
 use super::nodes::{NodeKeys, builtin_name, is_builtin_lib_declaration};
 use super::{
-    Expansion, HierarchyEdge, HierarchySource, HierarchyWalk, MAX_HIERARCHY_DEPTH,
-    MAX_HIERARCHY_FAN_OUT, MAX_HIERARCHY_NODES, Resume,
+    Expansion, HierarchyEdge, HierarchySource, HierarchyWalk, MAX_HIERARCHY_FAN_OUT,
+    MAX_HIERARCHY_NODES, Resume,
 };
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
@@ -18,8 +18,8 @@ use std::collections::{HashMap, HashSet};
 /// Concurrent expansion requests per level.
 const LEVEL_CONCURRENCY: usize = 4;
 
-/// Breadth-first walk from `roots` up to `depth` levels (clamped to
-/// [`MAX_HIERARCHY_DEPTH`]). Cancellation is checked before every level and
+/// Breadth-first walk from `roots` up to `depth` levels (at least one; the
+/// walk ends sooner where the hierarchy does). Cancellation is checked before every level and
 /// while each level's requests are in flight.
 #[cfg(test)]
 pub(in crate::tools::lsp_search) async fn walk_hierarchy(
@@ -55,7 +55,7 @@ impl<'a> Walk<'a> {
         expansion: Expansion,
         depth: u32,
     ) -> Self {
-        let depth = depth.clamp(1, MAX_HIERARCHY_DEPTH);
+        let depth = depth.max(1);
         Self {
             walker: Walker::new(paths, roots, depth),
             expansion,

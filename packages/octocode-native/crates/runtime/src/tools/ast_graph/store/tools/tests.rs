@@ -5,23 +5,37 @@ fn context() -> ExecutionContext {
     ExecutionContext {
         cancellation: tokio_util::sync::CancellationToken::new(),
         deadline: Instant::now() + std::time::Duration::from_secs(60),
-        walk_threads: None,
         response_window: None,
         github_credential: None,
     }
 }
 
+/// One validated row of `tool`, dispatched as the runtime does.
+fn execute(
+    tool: ToolId,
+    row: &Value,
+    dir: &Path,
+    context: &ExecutionContext,
+) -> Result<DomainResult, ExecutionError> {
+    let paths = workspace_policy(dir);
+    if tool == ToolId::GraphBuild {
+        let query: GraphBuildQuery = serde_json::from_value(row.clone()).expect("typed query");
+        execute_build(
+            &query,
+            &paths,
+            &ContentSecurity::new(),
+            context,
+            None,
+            false,
+        )
+    } else {
+        execute_query(row, &paths, context)
+    }
+}
+
 fn call(dir: &Path, tool: ToolId, row: Value) -> Value {
     let row = crate::contracts::validate_built_query(tool.as_str(), row).expect("input contract");
-    let result = execute(
-        tool,
-        &row,
-        &workspace_policy(dir),
-        &ContentSecurity::new(),
-        &context(),
-        None,
-    )
-    .expect("execute");
+    let result = execute(tool, &row, dir, &context()).expect("execute");
     crate::tools::test_support::assert_row_contract(tool, &result.data);
     result.data
 }
@@ -40,31 +54,40 @@ fn argument_evidence_variants_and_continuations_match_the_generated_contract() {
         "function handler(){} function broken(){ const missing; consume(handler); }",
     );
     let built = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let stats = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stats","path":"app","graph":built["id"]}),
+    );
     assert_eq!(
-        built["argumentCoverage"]["population"],
+        stats["argumentCoverage"]["population"],
         "syntax-argument-slots"
     );
     let mut reasons = BTreeSet::new();
     for operation in ["witnesses", "unresolved"] {
-        let mut input = json!({"operation":operation,"path":"app","edges":["passes"],"limit":1});
+        let mut input = json!({"operation":operation,"path":"app","edges":["passes"],"limit":1,"includeProvenance":true});
         let mut ids = BTreeSet::new();
         loop {
             let page = call(&dir.0, ToolId::GraphQuery, input);
-            assert_eq!(page["argumentCoverage"], built["argumentCoverage"]);
-            for row in page["results"].as_array().expect("results") {
+            // Stated once, on the first page; equal to stats when stated.
+            assert!(
+                page.get("argumentCoverage")
+                    .is_none_or(|coverage| coverage == &stats["argumentCoverage"])
+            );
+            for row in page["rows"].as_array().expect("results") {
                 assert_eq!(row["edge"], "passes");
                 assert!(ids.insert(row["id"].as_str().expect("id").to_owned()));
                 if let Some(reason) = row["reason"].as_str() {
                     reasons.insert(reason.to_owned());
                 }
             }
-            match page.pointer("/next/page/input/queries/0") {
+            match page.pointer("/next/nextPage/input/queries/0") {
                 Some(next) => {
                     assert_eq!(next["edges"], json!(["passes"]));
                     input = next.clone();
                 }
                 None => {
-                    assert_eq!(ids.len() as u64, page["total"]);
+                    assert_eq!(ids.len() as u64, page["pagination"]["totalItems"]);
                     break;
                 }
             }
@@ -94,13 +117,15 @@ fn build_reuse_pages_and_freshness_are_workspace_scoped() {
     );
     dir.write("other/a.ts", "export const other = 2;\n");
     let built = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    // The snapshot lives in the workspace; its receipt names the scope relative to it.
     assert!(
-        Path::new(built["dir"].as_str().expect("dir")).starts_with(
-            std::fs::canonicalize(&dir.0)
-                .expect("canonical root")
-                .join(".octocode/graph")
-        )
+        dir.0
+            .join(".octocode/graph")
+            .join(built["id"].as_str().expect("id"))
+            .is_dir(),
+        "{built}"
     );
+    assert_eq!(built["root"], "app", "{built}");
     let reused = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     assert_eq!(built["id"], reused["id"]);
     assert_eq!(reused["reused"], true);
@@ -119,7 +144,7 @@ fn build_reuse_pages_and_freshness_are_workspace_scoped() {
         callers["confidence"], "high",
         "the core contract supplies the default"
     );
-    assert_eq!(callers["results"][0]["id"], "a.ts#final");
+    assert_eq!(callers["rows"][0]["id"], "a.ts#final");
     call(&dir.0, ToolId::GraphBuild, json!({"path":"other"}));
     let mut row = json!({"operation":"find", "path":"app", "target":"f", "limit":1});
     let mut keys = BTreeSet::new();
@@ -127,13 +152,13 @@ fn build_reuse_pages_and_freshness_are_workspace_scoped() {
         let page = call(&dir.0, ToolId::GraphQuery, row);
         assert_eq!(page["graph"]["id"], built["id"]);
         assert_eq!(page["freshness"]["fresh"], true);
-        for item in page["results"].as_array().expect("results") {
+        for item in page["rows"].as_array().expect("results") {
             assert!(keys.insert(item.to_string()), "duplicate row");
         }
-        match page.pointer("/next/page/input/queries/0") {
+        match page.pointer("/next/nextPage/input/queries/0") {
             Some(next) => row = next.clone(),
             None => {
-                assert_eq!(keys.len() as u64, page["total"]);
+                assert_eq!(keys.len() as u64, page["pagination"]["totalItems"]);
                 break;
             }
         }
@@ -166,7 +191,7 @@ fn missing_snapshots_offer_build_recovery_for_the_requested_scope() {
         json!({"operation":"drift", "path":"app", "graph":built["id"], "baseline":"missing-baseline"}),
     ] {
         let mut output = call(&dir.0, ToolId::GraphQuery, row.clone());
-        crate::response::rows::attach_error_hint(ToolId::GraphQuery, &mut output, &row);
+        crate::response::rows::attach_error_hint(ToolId::GraphQuery.output(), &mut output, &row);
         assert_eq!(output["errorCode"], "notFound", "{output}");
         let hints = output["hints"].as_array().expect("hints");
         assert!(
@@ -187,7 +212,11 @@ fn missing_snapshots_offer_build_recovery_for_the_requested_scope() {
         let recovered = call(&dir.0, ToolId::GraphBuild, input);
         let expected =
             std::fs::canonicalize(dir.0.join(row["path"].as_str().expect("path"))).expect("scope");
-        assert_eq!(recovered["root"], expected.to_string_lossy().as_ref());
+        let root = recovered["root"].as_str().expect("root");
+        assert_eq!(
+            std::fs::canonicalize(dir.0.join(root)).expect("relative scope"),
+            expected
+        );
     }
 }
 
@@ -217,17 +246,7 @@ fn cancelled_build_does_not_publish() {
     dir.write("a.ts", "export const a = 1;");
     let ctx = context();
     ctx.cancellation.cancel();
-    assert!(
-        execute(
-            ToolId::GraphBuild,
-            &json!({}),
-            &workspace_policy(&dir.0),
-            &ContentSecurity::new(),
-            &ctx,
-            None
-        )
-        .is_err()
-    );
+    assert!(execute(ToolId::GraphBuild, &json!({}), &dir.0, &ctx).is_err());
     assert!(!dir.0.join(".octocode/graph").exists());
 }
 
@@ -246,14 +265,12 @@ fn cycle_member_continuations_validate_without_hiding_public_target_inputs() {
         ToolId::GraphQuery,
         json!({"operation":"cycles", "path":"cycle"}),
     );
-    let preview = page["results"][0]["nodes"]
-        .as_array()
-        .expect("cycle preview");
+    let preview = page["rows"][0]["nodes"].as_array().expect("cycle preview");
     let row = &page["next"]["cycle0"]["input"]["queries"][0];
     assert!(row["cycle"].is_string());
     assert!(row.get("target").is_none());
     let rest = call(&dir.0, ToolId::GraphQuery, row.clone());
-    let remaining = rest["results"].as_array().expect("remaining cycle members");
+    let remaining = rest["rows"].as_array().expect("remaining cycle members");
     assert_eq!(preview.len() + remaining.len(), 51);
     let unique = preview
         .iter()
@@ -309,4 +326,50 @@ mod candidates;
 
 mod constructors;
 
+mod filters;
+
+mod listing;
+
+mod cli_parity;
+
+mod paging;
+
 mod projection;
+
+/// The stats lead of a build names the scope as the caller wrote it; the
+/// workspace's absolute location never appears in the output.
+#[test]
+fn a_build_leads_its_stats_by_the_callers_path() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;");
+    let built = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let lead = crate::tools::test_support::checks::leads(&built)
+        .into_iter()
+        .find(|lead| lead.tool == "graphQuery")
+        .unwrap_or_else(|| panic!("stats lead: {built}"));
+    assert_eq!(lead.query["queries"][0]["path"], "app", "{built}");
+    let root = std::fs::canonicalize(&dir.0).expect("root");
+    crate::tools::test_support::checks::assert_absent(&built, &root.to_string_lossy());
+    // An uncut scan with no excludes states only its file count.
+    let scan = &built["scan"];
+    assert_eq!(scan, &json!({"filesScanned": 1}), "{built}");
+}
+
+/// `impact` takes any depth: core bounds none, so a deep request runs
+/// instead of failing on a bound the contract no longer declares.
+#[test]
+fn impact_runs_at_a_depth_past_any_former_ceiling() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export function a() { return 1; }");
+    dir.write(
+        "app/b.ts",
+        "import { a } from './a'; export function b() { return a(); }",
+    );
+    call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let out = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"impact","path":"app","changed":["a.ts"],"depth":25}),
+    );
+    assert!(out.get("error").is_none(), "{out}");
+}

@@ -171,10 +171,12 @@ pub(in super::super) async fn verified_anchors(
 /// through a namespace or default binding whose member `.symbol` the file
 /// spells) from a module that may be the anchor's (see [`AnchorModule`];
 /// any module when `module` is unknown), and those the check cannot decide:
-/// refused by the policy, unreadable, larger than [`CODE_CHECK_MAX_BYTES`],
-/// unparsable, or past [`CODE_CHECK_MAX_FILES`]. One blocking worker reads
-/// the files in turn and keeps none: the server never opens them, so no
-/// request cache holds them.
+/// refused by the policy, unreadable, larger than the parser's bound
+/// ([`octocode_engine::signatures::MAX_PARSE_SIZE`]), unparsable, or not
+/// reached before the request stopped. Every file is checked: one
+/// cancellable blocking worker reads them in turn and keeps none (the server
+/// never opens them, so no request cache holds them); its parses are
+/// digest-cached for later windows.
 pub(super) async fn check_imports(
     ignored: &mut IgnoredMentions,
     policy: &PathPolicy,
@@ -188,13 +190,11 @@ pub(super) async fn check_imports(
         let mut relays = HashMap::new();
         files
             .into_iter()
-            .enumerate()
-            .map(|(index, file)| {
-                let imports = (index < CODE_CHECK_MAX_FILES && !stopped())
+            .map(|file| {
+                let imports = (!stopped())
                     .then(|| {
                         let content = read_checked(&policy, &file)?;
-                        let facts =
-                            octocode_engine::signatures::extract_graph_facts(&content, &file)?;
+                        let facts = crate::tools::declarations_cache::graph_facts(&content, &file)?;
                         Some(
                             imports_name(&facts, &content, &symbol)
                                 && module.as_deref().is_none_or(|module| {
@@ -242,12 +242,9 @@ pub(in super::super) fn imports_name(
 ) -> bool {
     let member = format!(".{symbol}");
     let spells_member = || {
-        content.match_indices(&member).any(|(at, _)| {
-            !content[at + member.len()..]
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$')
-        })
+        octocode_engine::text::whole_word_starts(content, &member)
+            .next()
+            .is_some()
     };
     facts
         .imports

@@ -2,8 +2,8 @@
 //! [`octocode_io::memo::Memo`] as its memory tier plus an optional
 //! byte-bounded disk tier. The writer picks a [`CacheClass`] per entry, so
 //! pinned facts never expire while movable ones age out or revalidate.
+pub(crate) mod async_io;
 mod disk;
-pub mod evictions;
 pub(crate) use disk::Disk;
 
 use octocode_io::memo::{Memo, MemoLimits};
@@ -13,6 +13,40 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Persistent store directories: construction and maintenance share this inventory.
+#[derive(Clone, Copy)]
+pub(crate) enum Directory {
+    Response,
+    Outline,
+    Artifact,
+    ResponsePages,
+    Continuations,
+    SectionAssessments,
+    Judgment,
+}
+impl Directory {
+    pub(crate) const ALL: [Self; 7] = [
+        Self::Response,
+        Self::Outline,
+        Self::Artifact,
+        Self::ResponsePages,
+        Self::Continuations,
+        Self::SectionAssessments,
+        Self::Judgment,
+    ];
+    pub(crate) fn path(self, home: &std::path::Path) -> PathBuf {
+        home.join("tmp").join(match self {
+            Self::Response => "response",
+            Self::Outline => "outline",
+            Self::Artifact => "artifact",
+            Self::ResponsePages => "response-pages",
+            Self::Continuations => "continuations",
+            Self::SectionAssessments => "section-assessments",
+            Self::Judgment => "judgment",
+        })
+    }
+}
 
 /// An entry's identity. `scope` is opaque to the store: a provider passes
 /// its credential [`octocode_github::Partition::identity`], a local memo
@@ -36,22 +70,35 @@ pub enum CacheClass {
     Revalidate { fresh: Duration },
     /// Expires `ttl` after it is stored.
     Volatile { ttl: Duration },
+    /// Expires `ttl` after its last use: every read restarts its lifetime in
+    /// both tiers, so retained work lives while a reader keeps using it.
+    Idle { ttl: Duration },
 }
 
 impl CacheClass {
     fn ttl(self) -> Option<Duration> {
         match self {
-            Self::Volatile { ttl } => Some(ttl),
+            Self::Volatile { ttl } | Self::Idle { ttl } => Some(ttl),
             Self::Immutable | Self::Revalidate { .. } => None,
         }
     }
 
-    /// Freshness of an entry `age` old, or `None` once it expired.
+    /// The lifetime a read restarts, for a class whose age counts from its
+    /// last use.
+    fn idle(self) -> Option<Duration> {
+        match self {
+            Self::Idle { ttl } => Some(ttl),
+            Self::Immutable | Self::Revalidate { .. } | Self::Volatile { .. } => None,
+        }
+    }
+
+    /// Freshness of an entry `age` old (since its last use for
+    /// [`Self::Idle`]), or `None` once it expired.
     fn freshness(self, age: Duration) -> Option<bool> {
         match self {
             Self::Immutable => Some(true),
             Self::Revalidate { fresh } => Some(age < fresh),
-            Self::Volatile { ttl } => (age < ttl).then_some(true),
+            Self::Volatile { ttl } | Self::Idle { ttl } => (age < ttl).then_some(true),
         }
     }
 }
@@ -106,12 +153,12 @@ impl<V: Serialize + DeserializeOwned> DiskCodec<V> for JsonCodec {
 /// values out on disk.
 pub struct Store<V, C = JsonCodec> {
     config: CacheConfig,
-    memory: Memo<CacheKey, V, CacheClass>,
+    memory: Memo<Arc<CacheKey>, V, CacheClass>,
     disk: Option<Disk>,
     codec: PhantomData<C>,
 }
 
-impl<V, C: DiskCodec<V>> Store<V, C> {
+impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
     /// `disk: None` keeps the store in this process only.
     pub(crate) fn new(config: CacheConfig, disk: Option<PathBuf>) -> Self {
         Self {
@@ -127,9 +174,16 @@ impl<V, C: DiskCodec<V>> Store<V, C> {
     }
 
     pub(crate) fn get(&self, key: &CacheKey) -> Option<Cached<V>> {
+        self.read_memory(key).or_else(|| self.read_disk(key))
+    }
+
+    fn read_memory(&self, key: &CacheKey) -> Option<Cached<V>> {
         if let Some(hit) = self.memory.get(key) {
             // The memo already dropped an expired `Volatile` entry.
             if let Some(fresh) = hit.meta.freshness(hit.age) {
+                if let Some(ttl) = hit.meta.idle() {
+                    self.touch(key, ttl);
+                }
                 return Some(Cached {
                     value: hit.value,
                     fresh,
@@ -137,7 +191,17 @@ impl<V, C: DiskCodec<V>> Store<V, C> {
             }
             self.memory.remove(key);
         }
-        self.read_disk(key)
+        None
+    }
+
+    /// Restart an [`CacheClass::Idle`] entry's lifetime in every tier: a
+    /// memory hit never reads the disk entry, so its file is touched too and
+    /// another process (or a restart) sees the same last use.
+    fn touch(&self, key: &CacheKey, ttl: Duration) {
+        self.memory.touch(key, ttl);
+        if let Some(disk) = &self.disk {
+            disk.touch(key);
+        }
     }
 
     /// Mutable retained work is read under its owner's transaction lock.
@@ -155,10 +219,22 @@ impl<V, C: DiskCodec<V>> Store<V, C> {
         let (value, class, age, bytes) = self.disk.as_ref()?.read::<V, C>(key, &self.config)?;
         let fresh = class.freshness(age)?;
         let now = Instant::now();
+        // The read restarted an idle entry's lifetime (the disk tier touched
+        // its file), so its memory copy starts fresh too.
+        let age = if class.idle().is_some() {
+            Duration::ZERO
+        } else {
+            age
+        };
         let stored_at = now.checked_sub(age).unwrap_or(now);
-        let value =
-            self.memory
-                .insert_full(key.clone(), value, class, bytes, class.ttl(), stored_at);
+        let value = self.memory.insert_full(
+            Arc::new(key.clone()),
+            value,
+            class,
+            bytes,
+            class.ttl(),
+            stored_at,
+        );
         Some(Cached { value, fresh })
     }
 
@@ -178,16 +254,24 @@ impl<V, C: DiskCodec<V>> Store<V, C> {
         bytes: usize,
         class: CacheClass,
     ) -> (Arc<V>, bool) {
-        if self.config.max_entries == 0 || bytes > self.config.max_bytes {
+        if self.config.max_entries == 0
+            || bytes > self.config.max_bytes
+            || class.freshness(Duration::ZERO).is_none()
+        {
             return (Arc::new(value), false);
         }
         let saved = self
             .disk
             .as_ref()
             .is_none_or(|disk| disk.write::<V, C>(&key, &value, class, &self.config));
-        let value = self
-            .memory
-            .insert_full(key, value, class, bytes, class.ttl(), Instant::now());
+        let value = self.memory.insert_full(
+            Arc::new(key),
+            value,
+            class,
+            bytes,
+            class.ttl(),
+            Instant::now(),
+        );
         (value, saved)
     }
 

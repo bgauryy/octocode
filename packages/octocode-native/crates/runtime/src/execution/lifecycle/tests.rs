@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 fn runtime() -> RequestRuntime {
     RequestRuntime::new(RequestLimits {
-        concurrency: 1,
         pending: 2,
         ..RequestLimits::default()
     })
@@ -50,50 +49,10 @@ where
     runtime.execute_blocking_admitted(admission, work).await
 }
 
-/// Run request `"running"` on the one execution slot until it is cancelled;
-/// returns once the work has started.
-async fn occupy(runtime: &RequestRuntime) -> tokio::task::JoinHandle<Result<(), ExecutionError>> {
-    let entered = Arc::new(Notify::new());
-    let running = {
-        let runtime = runtime.clone();
-        let entered = entered.clone();
-        tokio::spawn(async move {
-            run(&runtime, "running", move |context| {
-                entered.notify_one();
-                spin_until_stopped(&context);
-                Ok(())
-            })
-            .await
-        })
-    };
-    entered.notified().await;
-    running
-}
-
 fn spin_until_stopped(context: &ExecutionContext) {
     while context.check().is_ok() {
         std::thread::yield_now();
     }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn caller_drop_while_queued_releases_admission_without_running_work() {
-    let runtime = runtime();
-    let running = occupy(&runtime).await;
-    let admission = runtime.admit("dropped".into()).expect("admitted");
-    let mut work = Box::pin(
-        runtime.execute_blocking_admitted(admission, |_| -> Result<(), _> {
-            panic!("dropped caller must not execute")
-        }),
-    );
-    assert!(futures_util::poll!(&mut work).is_pending());
-    assert_eq!(runtime.active_requests(), 2);
-    drop(work);
-    assert_eq!(runtime.active_requests(), 1);
-    assert!(runtime.cancel("running"));
-    assert_eq!(running.await.expect("join"), Err(ExecutionError::Cancelled));
-    assert_eq!(run(&runtime, "next", |_| Ok(7)).await, Ok(7));
-    assert_eq!(runtime.active_requests(), 0);
 }
 
 #[tokio::test]
@@ -200,37 +159,6 @@ async fn timeout_is_observed_before_return_and_worker_panic_releases_slot() {
     assert_eq!(runtime.active_requests(), 0);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn queue_is_bounded_and_queued_cancellation_never_runs_work() {
-    let runtime = runtime();
-    let first = occupy(&runtime).await;
-    let queued = {
-        let runtime = runtime.clone();
-        tokio::spawn(async move {
-            run(&runtime, "queued", |_| -> Result<(), _> {
-                panic!("cancelled queue must not execute")
-            })
-            .await
-        })
-    };
-    tokio::time::timeout(Duration::from_secs(1), async {
-        while runtime.active_requests() != 2 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("queued registration");
-    assert!(matches!(
-        runtime.admit("overflow".into()),
-        Err(ExecutionError::Busy)
-    ));
-    assert!(runtime.cancel("queued"));
-    assert_eq!(queued.await.expect("join"), Err(ExecutionError::Cancelled));
-    assert!(runtime.cancel("running"));
-    assert_eq!(first.await.expect("join"), Err(ExecutionError::Cancelled));
-    runtime.close().await;
-}
-
 /// M4: a host timeout too large for a deadline is an invalid limit at
 /// construction, never a panic when a request is admitted.
 #[test]
@@ -253,41 +181,36 @@ fn unrepresentable_timeout_is_rejected_not_a_panic_at_admission() {
     assert!(longest.admit("one".into()).is_ok());
 }
 
-/// A light request runs on its own slots while every walk slot is held, yet
-/// still counts toward the shared pending bound.
+/// Every admitted request runs at once, up to the pending bound: no run
+/// queue makes an independent call wait for another to finish. Each
+/// request's work waits until all of them have started, which only
+/// completes when none is queued.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn light_requests_never_queue_behind_walks_and_share_the_pending_bound() {
-    let runtime = runtime();
-    let running = occupy(&runtime).await;
-    let admission = runtime
-        .admit("light".into())
-        .expect("admitted")
-        .with_cost(Cost::Light);
-    let served = tokio::time::timeout(
-        Duration::from_secs(5),
-        runtime.execute_blocking_admitted(admission, |_| Ok(7)),
-    )
-    .await
-    .expect("a light request does not wait for the walk slot");
-    assert_eq!(served, Ok(7));
-    // pending = 2: the running walk and one queued request fill it.
-    let queued = runtime.admit("queued".into()).expect("admitted");
-    assert!(matches!(
-        runtime
-            .admit("over".into())
-            .map(|a| a.with_cost(Cost::Light)),
-        Err(ExecutionError::Busy)
-    ));
-    drop(queued);
-    assert!(runtime.cancel("running"));
-    assert_eq!(running.await.expect("join"), Err(ExecutionError::Cancelled));
-    assert!(matches!(
-        RequestRuntime::new(RequestLimits {
-            light_concurrency: 0,
-            ..RequestLimits::default()
-        }),
-        Err(ExecutionError::InvalidLimits)
-    ));
+async fn every_admitted_request_runs_at_once() {
+    const CALLS: usize = 16;
+    let runtime = RequestRuntime::new(RequestLimits {
+        pending: CALLS,
+        timeout: Duration::from_secs(20),
+    })
+    .expect("valid limits");
+    let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let names = (0..CALLS)
+        .map(|call| format!("call-{call}"))
+        .collect::<Vec<_>>();
+    let calls = names.iter().enumerate().map(|(call, name)| {
+        let started = started.clone();
+        run(&runtime, name, move |context| {
+            started.fetch_add(1, Ordering::SeqCst);
+            while started.load(Ordering::SeqCst) < CALLS {
+                context.check()?;
+                std::thread::yield_now();
+            }
+            Ok(call)
+        })
+    });
+    let done = futures_util::future::join_all(calls).await;
+    assert_eq!(done, (0..CALLS).map(Ok).collect::<Vec<_>>());
+    assert_eq!(runtime.active_requests(), 0);
 }
 
 /// Admitted work runs on a blocking thread in its caller's notice scope, so

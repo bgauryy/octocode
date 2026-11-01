@@ -17,13 +17,13 @@ pub(crate) fn full_validation(
 ) -> Result<serde_json::Value, String> {
     let mut header = Reader::new(&bytes[8..HEADER_LEN], "header");
     header.fixed_u32()?;
-    let count = header.fixed_u32()? as usize;
+    let count = usize::try_from(header.fixed_u32()?).map_err(|_| "graph header overflows")?;
     let mut total = 1 + count;
     let mut directory = Reader::new(&bytes[HEADER_LEN..], "directory");
+    let span = |value: u64| usize::try_from(value).map_err(|_| "graph directory overflows");
     for _ in 0..count {
         let tag = directory.take(4)?;
-        let offset = directory.fixed_u64()? as usize;
-        let len = directory.fixed_u64()? as usize;
+        let (offset, len) = (span(directory.fixed_u64()?)?, span(directory.fixed_u64()?)?);
         directory.take(32)?;
         if tag == b"NODE" || tag == b"DECL" {
             let (_, blocks) = blocks::parse(
@@ -89,7 +89,7 @@ impl SnapshotReader {
         let version = r.fixed_u32()?;
         if version != FORMAT_VERSION {
             return Err(format!(
-                "graph format v{version} is not supported (v{FORMAT_VERSION}); re-run `octocode graph ingest`"
+                "graph format v{version} is not supported (v{FORMAT_VERSION}); rebuild it with graphBuild"
             ));
         }
         let count = r.fixed_u32()? as usize;
@@ -314,7 +314,7 @@ impl SnapshotReader {
                 files.insert(tag, std::borrow::Cow::Owned(self.section(tag, cancel)?));
             }
         }
-        let string_count = t.strings.len() as u32;
+        let string_count = t.string_bound()?;
         read_file_tables(&Sections(files), &mut t, string_count)?;
 
         Ok(t)
@@ -384,6 +384,7 @@ impl SnapshotReader {
             .collect()
     }
 
+    #[cfg(test)]
     pub(crate) fn validation(&self) -> serde_json::Value {
         let total = 1
             + self.sections.len()

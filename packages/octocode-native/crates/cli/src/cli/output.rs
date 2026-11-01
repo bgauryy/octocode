@@ -53,9 +53,9 @@ impl Printed {
         match result {
             Ok(outcome) => {
                 let structured = &outcome.structured_content;
-                // A view prints a single-row search, listing or symbol
-                // result in its standard line format; every other result
-                // prints the same JSON as `--json`.
+                // Text prints a single-row search, listing or symbol result
+                // in its standard line format, and any other result or batch
+                // as `key: value` text ([`super::lines::render`]).
                 let view = ToolId::from_name(tool)
                     .filter(|_| !json_out)
                     .and_then(|id| super::lines::render(id, structured, query, cwd));

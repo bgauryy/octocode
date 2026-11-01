@@ -61,6 +61,7 @@ async fn local_evidence_paths_share_workspace_and_external_spelling_on_both_chan
             ("astSearch", json!({"operation":"symbols","path":scope})),
             ("localFetch", json!({"path":scope.join("lib.rs")})),
         ] {
+            let asked = query["path"].clone();
             let input = json!({"queries":[query]});
             let cli = invoke(&runtime, Channel::Cli, tool, input.clone()).await;
             let mcp = invoke(&runtime, Channel::Mcp, tool, input).await;
@@ -68,8 +69,17 @@ async fn local_evidence_paths_share_workspace_and_external_spelling_on_both_chan
             let data = &cli["results"][0]["data"];
             let expected_file = format!("{prefix}/lib.rs");
             match tool {
-                "localFetch" => assert_eq!(data["path"], expected_file, "{data}"),
-                "structureSearch" => assert_eq!(data["path"], prefix, "{data}"),
+                // A row states its path only when it differs from the request's.
+                "localFetch" => {
+                    assert_eq!(
+                        data.get("path").unwrap_or(&asked),
+                        &json!(expected_file),
+                        "{data}"
+                    );
+                }
+                "structureSearch" => {
+                    assert_eq!(data.get("path").unwrap_or(&asked), &json!(prefix), "{data}");
+                }
                 _ => assert_eq!(data["files"][0]["path"], expected_file, "{data}"),
             }
             let skipped = data["skippedPaths"]["entries"].as_array();
@@ -109,7 +119,7 @@ async fn saved_local_pages_keep_relative_evidence_and_complete_the_same_scope_on
     for channel in [Channel::Cli, Channel::Mcp] {
         let mut pending = vec![json!({"queries":[{
             "operation":"files","path":workspace.workspace.join("nested/source"),
-            "entryType":"file","maxEntries":2
+            "entryType":"file","limit":2
         }],"responseChars":500})];
         let mut seen = std::collections::BTreeSet::new();
         let mut entries = std::collections::BTreeSet::new();

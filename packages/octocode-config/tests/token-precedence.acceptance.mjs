@@ -13,21 +13,11 @@ const base = path.join(root, '.octocode/octocode-dev/token-precedence');
 await fs.mkdir(base, { recursive: true });
 const fixture = await fs.mkdtemp(path.join(base, 'fixture-'));
 const observations = [];
-let classificationFixture = false;
 const server = http.createServer((req, res) => {
   observations.push(req.headers.authorization);
   req.resume();
-  res.writeHead(
-    classificationFixture && observations.length === 1 ? 200 : 401,
-    {
-      'Content-Type': 'application/json',
-    }
-  );
-  res.end(
-    classificationFixture && observations.length === 1
-      ? '{"model":"fixture","answers":{"answer":{"type":"noul","noul":0.9}},"usage":{"input_tokens":2,"output_tokens":1}}'
-      : '{"message":"synthetic credential probe"}'
-  );
+  res.writeHead(401, { 'Content-Type': 'application/json' });
+  res.end('{"message":"synthetic credential probe"}');
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const endpoint = `http://127.0.0.1:${server.address().port}`;
@@ -38,7 +28,7 @@ const groups = [
     input: {
       queries: [
         {
-          reasoning: 'Probe source precedence on a local fixture endpoint.',
+          operation: 'search',
           keywords: ['fixture'],
         },
       ],
@@ -48,9 +38,7 @@ const groups = [
     tool: 'clasify',
     aliases: ['OCTOCODE_CLASSIFICATION_API'],
     input: {
-      reasoning: 'Probe source precedence on a local fixture endpoint.',
-      resources: [{ value: 'fixture' }],
-      questions: [{ type: 'yesno', ask: 'Is this a fixture?' }],
+      queries: [{ operation: 'models' }],
     },
   },
 ];
@@ -59,7 +47,6 @@ try {
   for (const group of groups)
     for (const alias of group.aliases)
       for (const source of ['workspace', 'process']) {
-        classificationFixture = group.tool === 'clasify';
         const name = `${group.tool}-${alias}-${source}`;
         const home = path.join(fixture, name, 'home'),
           cwd = path.join(fixture, name, 'workspace');
@@ -83,7 +70,12 @@ try {
           OCTOCODE_HOME: home,
           GITHUB_API_URL: endpoint,
           OCTOCODE_CLASSIFICATION_API_HOST: endpoint,
-          ...(group.tool === 'clasify' ? { OCTOCODE_BETA: '1' } : {}),
+          ...(process.env.OCTOCODE_NATIVE_BIN
+            ? {
+                OCTOCODE_NATIVE_BIN: process.env.OCTOCODE_NATIVE_BIN,
+                NODE_ENV: 'test',
+              }
+            : {}),
           ...(source === 'process' ? { [alias]: 'process-fixture' } : {}),
         };
         for (const surface of ['cli', 'mcp']) {
@@ -127,11 +119,10 @@ try {
               await client.close();
             }
           }
-          const requiredRequests =
-            group.tool === 'clasify' && surface === 'mcp' ? 2 : 1;
-          assert.ok(
-            observations.length >= requiredRequests,
-            `${name}/${surface}: expected ${requiredRequests} local provider request(s)`
+          assert.equal(
+            observations.length,
+            1,
+            `${name}/${surface}: exactly one invocation request and no startup probe`
           );
           assert.ok(
             observations.every(

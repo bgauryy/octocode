@@ -63,6 +63,15 @@ pub struct SourceTemplates {
     pub units: Vec<UnitTemplate>,
 }
 impl SourceTemplates {
+    /// SHA-256 of the text the first root representation was built from.
+    pub fn root_digest(&self) -> Option<&str> {
+        self.representations
+            .iter()
+            .find_map(|representation| match &representation.content {
+                RepresentationContent::Root { source_digest, .. } => Some(source_digest.as_str()),
+                _ => None,
+            })
+    }
     pub fn new(
         text: &str,
         adapter: Producer,

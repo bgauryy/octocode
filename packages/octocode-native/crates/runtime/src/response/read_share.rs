@@ -16,7 +16,7 @@ const ENVELOPE_CHARS: usize = 512;
 /// from a `page`-char response: an equal share, less the envelope when the
 /// rows read sources (their readers fit the share exactly).
 pub(crate) fn row_window(tool: ToolId, page: usize, rows: usize) -> usize {
-    let page = if tool.output().reads_source() {
+    let page = if tool.reads_source() {
         page.saturating_sub(ENVELOPE_CHARS)
     } else {
         page

@@ -128,7 +128,7 @@ impl Drop for Pcre2WorkerSlot {
 pub(super) fn search_pcre2(
     opts: TextSearchOptions,
     mode: Mode,
-    matcher: grep_pcre2::RegexMatcher,
+    (matcher, terms): (grep_pcre2::RegexMatcher, Vec<grep_pcre2::RegexMatcher>),
     path_filter: Arc<dyn TextSearchPathFilter>,
     cancelled: &(dyn Fn() -> bool + Sync),
     limits: Pcre2Limits,
@@ -156,7 +156,7 @@ pub(super) fn search_pcre2(
             let _slot = Pcre2WorkerSlot;
             let _ = tx.send(collect(
                 &opts_worker,
-                &matcher,
+                (&matcher, &terms),
                 mode,
                 path_filter,
                 &state_worker,

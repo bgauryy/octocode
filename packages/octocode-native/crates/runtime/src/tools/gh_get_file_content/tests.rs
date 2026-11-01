@@ -33,6 +33,7 @@ fn shaping(judge: impl crate::tools::selection::SelectionJudge + 'static) -> Sha
         Duration::from_secs(10),
     );
     Shaping {
+        views: Default::default(),
         security: Safe,
         memo: Arc::new(SanitizedViewMemo::new()),
         context: selection.context.clone(),

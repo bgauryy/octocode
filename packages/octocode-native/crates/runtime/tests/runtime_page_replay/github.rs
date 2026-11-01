@@ -57,7 +57,7 @@ async fn pages_at(server: &MockServer, reference: &str) {
             "ghGetFileContent".into(),
             json!({
                 "queries":[{"owner":"a","repo":"b","path":"src/lib.rs","ref":reference,
-                    "forceRefresh":true}],
+                    "refresh":true}],
                 "responseChars": 800
             }),
         )
@@ -138,7 +138,7 @@ async fn saved_github_pages_check_current_home_credentials_without_network_repla
         ];
         let runtime = workspace.runtime(&env);
         let source = json!({"owner":"a","repo":"b","path":"src/lib.rs","ref":SHA,
-            "forceRefresh":true});
+            "refresh":true});
         let row = if tool == "clasify" {
             let criteria: serde_json::Map<_, _> = (0..64)
                 .map(|index| (format!("label{index:02}"), json!("criterion")))

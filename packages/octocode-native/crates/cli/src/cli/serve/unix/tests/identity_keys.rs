@@ -125,3 +125,25 @@ fn the_server_key_covers_every_identity_input() {
         "build"
     );
 }
+
+/// A symlink to the binary, and a spelling of its path through `..`, key
+/// the same build as its real path: they reach one server. A rebuild (new
+/// contents) is another build.
+#[test]
+fn every_path_to_one_binary_is_one_build() {
+    let dir = tempfile::tempdir().expect("dir");
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("bin");
+    let real = bin.join("octocode");
+    std::fs::write(&real, b"build one").expect("binary");
+    let link = dir.path().join("octocode-link");
+    std::os::unix::fs::symlink(&real, &link).expect("symlink");
+    let identity = build_identity(&real).expect("real path");
+    assert_eq!(build_identity(&link), Some(identity.clone()));
+    assert_eq!(
+        build_identity(&bin.join("..").join("bin").join("octocode")),
+        Some(identity.clone())
+    );
+    std::fs::write(&real, b"build two, rebuilt").expect("rebuild");
+    assert_ne!(build_identity(&link), Some(identity));
+}

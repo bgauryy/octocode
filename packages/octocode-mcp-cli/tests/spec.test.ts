@@ -8,7 +8,6 @@ import {
   defineCli,
   defineCommand,
   parseCommandInput,
-  withCommands,
   type Flag,
   type JsonSchema,
 } from '../src/spec.js';
@@ -211,7 +210,6 @@ describe('commands', () => {
     expect(() => defineCommand({ name: 'search', description: 'd', source: 'mcp', run: () => 1 })).toThrow(/inputSchema/);
     expect(() => defineCli({ name: 'issues', instructions: '', commands: [command, command] })).toThrow(/Duplicate/);
     expect(() => defineCli({ name: 'issues', instructions: '', commands: [{ ...command, name: 'version' }] })).toThrow(/Reserved/);
-    expect(() => withCommands(defineCli({ name: 'issues', instructions: 'i', version: '1', commands: [command] }), [command])).toThrow(/Duplicate/);
   });
 
   it('builds usage from required flags first', () => {

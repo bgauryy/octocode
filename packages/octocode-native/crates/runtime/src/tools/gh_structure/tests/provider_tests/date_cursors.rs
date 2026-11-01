@@ -41,10 +41,7 @@ async fn date_chunks_keep_the_query_and_return_every_entry_once() {
                     .map(|value| value.as_str().expect("entry").to_owned()),
             );
         }
-        let next = out
-            .data
-            .pointer("/next/expandDates/input/queries/0")
-            .or_else(|| out.data.pointer("/next/nextPage/input/queries/0"));
+        let next = out.data.pointer("/next/nextPage/input/queries/0");
         let Some(next) = next else { break };
         assert_eq!(next["operation"], "tree");
         assert_eq!(next["owner"], "a");
@@ -60,4 +57,32 @@ async fn date_chunks_keep_the_query_and_return_every_entry_once() {
         .map(|index| format!("f{index:03}.rs (1, 2026-10-23)"))
         .collect::<Vec<_>>();
     assert_eq!(names, expected);
+}
+
+/// A listing page longer than one dated batch says so in the two places an
+/// agent reads first: the standard page lead and a warning naming how many
+/// entries remain and why; `pagination` never reads as complete.
+#[tokio::test]
+async fn entries_past_one_dated_batch_are_led_as_the_next_page() {
+    let server = server().await;
+    let entries = (0..170)
+        .map(|index| {
+            let name = format!("f{index:03}.rs");
+            json!({"name":name,"path":name,"type":"file","size":1})
+        })
+        .collect::<Vec<_>>();
+    mount_json(&server, "/api/v3/repos/a/b/contents", 200, json!(entries)).await;
+    let row = json!({"operation":"tree","owner":"a","repo":"b","ref":"main","maxDepth":1});
+    let out = list(&server, row).await.expect("tree page");
+    let data = &out.data;
+    assert!(data["next"].get("expandDates").is_none(), "{data}");
+    assert!(data.pointer("/next/nextPage/input").is_some(), "{data}");
+    assert_eq!(data["pagination"]["hasMore"], true, "{data}");
+    assert_eq!(data["pagination"]["totalItems"], 170, "{data}");
+    let warnings = data["warnings"].to_string();
+    assert!(
+        warnings.contains("70 more entries") && warnings.contains("next page"),
+        "{data}"
+    );
+    crate::tools::test_support::assert_row_contract(ToolId::GhStructure, data);
 }

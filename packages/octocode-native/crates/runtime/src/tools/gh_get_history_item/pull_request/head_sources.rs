@@ -14,13 +14,10 @@ use crate::tools::gh_shared::text::file_text;
 use octocode_github::{ContentRequest, GitHubProvider, GitHubTransport, RequestContext};
 use serde_json::Value;
 
-/// Files read at the head per call to widen `matchString` context; the rest
-/// keep their clip flag and `next.expandContext`.
-const MAX_HEAD_SOURCES: usize = 10;
-
-/// The head text of each in-scope file whose `matchString` hit runs need
-/// more context than its hunks hold, read once at `headSha` (the history
-/// read cache revalidates it). `None` when no file needs it.
+/// The head text of every file on this page whose `matchString` hit runs
+/// need more context than its hunks hold, read once at `headSha` (the
+/// history read cache revalidates it; the transport's request budget paces
+/// the concurrent reads). `None` when no file needs it.
 pub(super) async fn head_sources(
     transport: &GitHubTransport,
     query: &HistoryItemRequest,
@@ -52,7 +49,6 @@ pub(super) async fn head_sources(
             str_at(file, "/patch").is_some_and(|patch| head_text_needed(patch, &needle, lines))
         })
         .filter_map(|file| str_at(file, "/filename").map(str::to_owned))
-        .take(MAX_HEAD_SOURCES)
         .collect();
     if paths.is_empty() {
         return None;

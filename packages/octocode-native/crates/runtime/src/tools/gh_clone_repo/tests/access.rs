@@ -1,6 +1,76 @@
-//! Access checks: API refusals, and cache hits served only behind the caller's own access check.
+//! Access checks run before every fresh fetch, including replacements.
 use super::bench::*;
 use super::*;
+
+struct ForbiddenCache;
+
+impl octocode_github::ConditionalCache for ForbiddenCache {
+    fn get<'a>(
+        &'a self,
+        _: &'a octocode_github::Partition,
+        _: &'a str,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Option<octocode_github::CachedContent>> + Send + 'a>>
+    {
+        Box::pin(async { panic!("clone read a shared response cache") })
+    }
+
+    fn put<'a>(
+        &'a self,
+        _: &'a octocode_github::Partition,
+        _: String,
+        _: octocode_github::CachedContent,
+        _: octocode_github::Retention,
+    ) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async { panic!("clone wrote a shared response cache") })
+    }
+}
+
+#[tokio::test]
+async fn clone_bypasses_shared_provider_caches_even_for_full_commit_refs() {
+    let server = wiremock::MockServer::builder().start().await;
+    let bench = Bench::at(mock_endpoint(&server));
+    let provider = GitHubProvider::new(one_shot_provider(&server).transport, ForbiddenCache);
+    let sha = &bench.fixture.first_commit;
+    answer_commit(&server, sha, ALICE, commit(sha)).await;
+    let query = GhCloneRepoQuery {
+        ref_: Some(reference(sha)),
+        ..query()
+    };
+    for _ in 0..2 {
+        clone_as(&bench, &provider, &query, ALICE)
+            .await
+            .expect("uncached clone");
+    }
+    assert_eq!(api_calls(&server).await.len(), 2);
+}
+
+#[tokio::test]
+async fn repeated_clone_fetches_fresh_and_writes_no_cache_metadata() {
+    let server = wiremock::MockServer::builder().start().await;
+    let bench = Bench::at(mock_endpoint(&server));
+    let provider = one_shot_provider(&server);
+    answer_commit(&server, "main", ALICE, commit(&bench.fixture.first_commit)).await;
+    let first = clone_as(&bench, &provider, &query(), ALICE)
+        .await
+        .expect("first clone");
+    let before = bench.clones_seen();
+    let second = clone_as(&bench, &provider, &query(), ALICE)
+        .await
+        .expect("fresh replacement");
+    assert_eq!(first.location.local_path, second.location.local_path);
+    assert!(
+        bench.clones_seen() > before,
+        "each invocation must fetch the checkout again"
+    );
+    assert!(
+        !Path::new(&second.location.local_path)
+            .join(".octocode-clone-meta.json")
+            .exists()
+    );
+    let row = serde_json::to_value(second).unwrap();
+    assert!(row["location"].get("cached").is_none());
+    assert!(row["location"].get("expiresAt").is_none());
+}
 
 /// The pinning `commits/{ref}` answer refuses a row before git runs: a
 /// missing ref or repository is not-found input (exit 3) naming what is
@@ -42,7 +112,10 @@ fn api_refusals_name_what_is_missing() {
     match api_refusal(&tagged, "nope", missing_repo) {
         Ok(CloneFailure::Clone(error)) => {
             assert_eq!(error.code, ErrorCode::NotFound);
-            assert_eq!(error.message, "Repository not found: o/r");
+            assert_eq!(
+                error.message,
+                crate::tools::gh_shared::repository_not_found_message("o", "r")
+            );
             assert_eq!(
                 error.calls.as_ref().expect("search lead")["findRepository"]["tool"],
                 "ghSearchRepo",
@@ -74,7 +147,7 @@ fn api_refusals_name_what_is_missing() {
 /// GitHub denies Bob the repository: Bob gets the not-found a fresh clone
 /// would give him, no checkout path, and Alice's checkout stays.
 #[tokio::test]
-async fn cache_hit_is_not_served_to_a_caller_without_access() {
+async fn existing_checkout_is_not_served_to_a_caller_without_access() {
     let server = wiremock::MockServer::builder().start().await;
     let bench = Bench::at(mock_endpoint(&server));
     let provider = one_shot_provider(&server);
@@ -84,7 +157,6 @@ async fn cache_hit_is_not_served_to_a_caller_without_access() {
     let alice = clone_as(&bench, &provider, &query(), ALICE)
         .await
         .unwrap_or_else(|_| panic!("Alice clones"));
-    assert!(!alice.location.cached);
     assert_eq!(alice.location.resolved_ref, "main");
     let clones = bench.clones_seen();
 
@@ -94,7 +166,10 @@ async fn cache_hit_is_not_served_to_a_caller_without_access() {
             assert_eq!(error.code, ErrorCode::NotFound, "{error:?}");
             assert_eq!(
                 error.message,
-                "Repository not found: fixture-owner/fixture-repo"
+                crate::tools::gh_shared::repository_not_found_message(
+                    "fixture-owner",
+                    "fixture-repo"
+                )
             );
             test_support::checks::assert_absent(
                 &serde_json::json!(error),
@@ -117,7 +192,7 @@ async fn cache_hit_is_not_served_to_a_caller_without_access() {
 /// A caller GitHub grants the repository is served the hit after one
 /// `commits/{ref}` read with their own token, with no re-clone.
 #[tokio::test]
-async fn cache_hit_is_served_after_the_callers_access_check() {
+async fn fresh_clone_follows_the_callers_access_check() {
     let server = wiremock::MockServer::builder().start().await;
     let bench = Bench::at(mock_endpoint(&server));
     let provider = one_shot_provider(&server);
@@ -132,13 +207,12 @@ async fn cache_hit_is_served_after_the_callers_access_check() {
     let bob = clone_as(&bench, &provider, &query(), BOB)
         .await
         .unwrap_or_else(|_| panic!("Bob may read the repository"));
-    assert!(bob.location.cached, "{bob:?}");
     assert_eq!(bob.location.local_path, alice.location.local_path);
     assert_eq!(bob.location.commit_sha, sha);
     assert_eq!(
         bench.clones_seen(),
-        clones,
-        "an allowed hit is not re-cloned"
+        clones + 1,
+        "every allowed invocation fetches a fresh checkout"
     );
     assert_eq!(api_calls(&server).await, [COMMITS_MAIN, COMMITS_MAIN]);
 }

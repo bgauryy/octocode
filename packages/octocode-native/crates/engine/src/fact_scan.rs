@@ -16,6 +16,12 @@ mod evaluate;
 pub use evaluate::SOURCE_BUDGET_EXCEEDED;
 mod memo;
 
+/// Drop parsed source facts held by this process.
+pub fn clear_cache() {
+    memo::FACTS_MEMO.invalidate_all();
+    memo::FACTS_MEMO.run_pending_tasks();
+}
+
 use crate::signatures::languages::RegistryView;
 use crate::text::analysis::{AnalysisOperation, MapLimits};
 #[cfg(test)]
@@ -24,7 +30,7 @@ use evaluate::evaluate_walk;
 use memo::facts_heap_bytes;
 
 /// Largest source the graph-facts scan parses; a larger file stays an
-/// unparsed (skipped) node. One bound for graph ingest and its reuse check.
+/// unparsed (skipped) node. One bound for graphBuild and its reuse check.
 pub const MAX_GRAPH_SOURCE_BYTES: u32 = 1_000_000;
 
 /// One parsed file, borrowed from the scan's cache: a caller reduces it to
@@ -38,7 +44,7 @@ pub struct GraphFactsView<'a> {
     pub facts: &'a GraphFactsDocument,
     pub admitted: &'a crate::text::analysis::AdmittedSource<'a>,
     pub source: &'a crate::text::analysis::BoundSource<'a>,
-    pub reference_counts: &'a [crate::types::GraphReferenceCount],
+    pub reference_counts: &'a [crate::graph::GraphReferenceCount],
     /// Full graph facts came from an in-memory or caller-provided cache.
     /// The declarations-only extractor owns separate cache telemetry.
     pub reused: bool,
@@ -163,7 +169,8 @@ pub enum FactsSource<'a> {
     /// once per content version and kept in the scan's own memo.
     Graph,
     /// Full facts may be reused from the caller's versioned persistent store,
-    /// after the scan reads and fingerprints the current source.
+    /// after the scan reads and fingerprints the current source. That store
+    /// replaces the scan's memo: this scan neither fills nor reads it.
     CachedGraph(&'a GraphFactsReuse<'a>),
     /// Declarations only, from the caller's [`DeclarationsExtraction`] and
     /// its cache. The scan keeps no copy, so one cache holds a file's
@@ -204,7 +211,7 @@ pub type GraphFactsReuse<'a> =
 
 /// The candidate files a graph-facts scan of `options` reads, in walk order:
 /// files of an outlined grammar (or mapped by `languageGlobs`) that `admit`
-/// passes, up to `max_files` (unset: the walk budget). A caller that needs
+/// passes, up to `max_files` (unset: every one). A caller that needs
 /// the file list first (to count or fingerprint a scope) walks once with
 /// this and hands the walk to [`scan_walked_graph_facts`].
 pub fn walk_graph_fact_files(
@@ -224,9 +231,6 @@ pub fn walk_graph_fact_files_with_registry(
     let root = std::path::PathBuf::from(&options.path);
     let overrides =
         parser_overrides_with_registry(&root, options.language_globs.as_deref(), registry)?;
-    let max_files = options
-        .max_files
-        .unwrap_or(u32::try_from(crate::scan_budget::walk_ceiling()).unwrap_or(u32::MAX));
     let extensions = registry.extensions(AnalysisOperation::GraphFacts);
     // A file only `languageGlobs` map to a grammar has an extension no grammar
     // claims, so with overrides the walk admits it by glob as well.
@@ -256,7 +260,7 @@ pub fn walk_graph_fact_files_with_registry(
             default_exclude_dir: options.default_exclude_dir.clone(),
             exclude: options.exclude.clone(),
             stop_at_limit: Some(true),
-            limit: Some(max_files),
+            limit: options.max_files,
             ..Default::default()
         },
         &walk_filter,

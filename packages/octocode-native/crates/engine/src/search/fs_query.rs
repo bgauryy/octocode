@@ -9,9 +9,9 @@ mod filters;
 mod read_ahead;
 mod walker;
 
-use super::fs_resume::Frame;
 use super::walk::Stop;
 use crate::error::Error;
+use crate::types::fs_resume::Frame;
 use crate::types::{FileSystemQueryOptions, FileSystemQueryResult};
 use compiled::CompiledQuery;
 pub use filters::NameFilter;

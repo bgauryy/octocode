@@ -222,3 +222,43 @@ async fn a_graphql_first_page_is_served_though_more_remain() {
         out.data
     );
 }
+
+/// Labels past GraphQL's first page are read on from their cursor, so the
+/// summary lists every label and never reports a clipped list.
+#[tokio::test]
+async fn every_label_is_read_on_from_its_cursor() {
+    let label = |n: usize| json!({"name": format!("l{n:03}")});
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .and(body_string_contains("after:$after"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+            "repository": {"pullRequest": {"labels": {
+                "pageInfo": {"hasNextPage": false, "endCursor": "l2"},
+                "nodes": (100..130).map(label).collect::<Vec<_>>()}}}
+        }})))
+        .expect(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(graphql_pr(json!({
+            "labels": {"pageInfo": {"hasNextPage": true, "endCursor": "l1"},
+                "nodes": (0..100).map(label).collect::<Vec<_>>()},
+            "commentsConn": {"pageInfo": {"hasNextPage": false}, "nodes": []},
+            "files": {"pageInfo": {"hasNextPage": false}, "nodes": []}
+        }))))
+        .with_priority(2)
+        .mount(&server)
+        .await;
+    let out = read(
+        &server,
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,
+            "sections":["files","comments"]}),
+    )
+    .await;
+    let pr = &out.data["pullRequests"][0];
+    assert_eq!(pr["labels"].as_array().map(Vec::len), Some(130), "{pr}");
+    assert!(pr.get("labelsClipped").is_none(), "{pr}");
+}

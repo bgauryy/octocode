@@ -39,12 +39,12 @@ async function locationsAndReferences(ctx, surface, checks) {
 }
 
 async function graph(ctx, surface, checks) {
-  const callers = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.callers', query: { ...anchor, operation: 'callers', graphDepth: 1 }, checks, responseChars: 600 });
+  const callers = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.callers', query: { ...anchor, operation: 'callers', depth: 1 }, checks, responseChars: 600 });
   const edges = files(callers.data).flatMap(file => file.matches.map(match => [relative(ctx, file.path), match.symbolName ?? '<module>', match.sites.map(site => site.line)]));
   equal(checks, `lsp.call-sites.${surface}`, edges, [['code/model.ts', 'calculate', [19, 20]], ['code/use.ts', '<module>', [4]]]);
   const callees = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.callees', query: { ...anchor, line: 18, symbolName: 'calculate', operation: 'callees' }, checks });
   equal(checks, `lsp.callees.${surface}`, files(callees.data).flatMap(file => file.matches.map(match => [match.symbolName, match.line, match.sites.map(site => site.line)])), [['add', 14, [19, 20]]]);
-  const supertypes = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.supertypes', query: { workspaceRoot, path: model, line: 12, symbolName: 'LargeSquare', operation: 'supertypes', graphDepth: 2 }, checks });
+  const supertypes = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.supertypes', query: { workspaceRoot, path: model, line: 12, symbolName: 'LargeSquare', operation: 'supertypes', depth: 2 }, checks });
   equal(checks, `lsp.hierarchy-depth.${surface}`, supertypes.data.flatMap(row => row.matches ?? []).map(match => [match.symbolName, match.level]), [['Square', 1], ['Shape', 2]]);
   const subtypes = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.subtypes', query: { workspaceRoot, path: model, line: 5, symbolName: 'Square', operation: 'subtypes' }, checks });
   equal(checks, `lsp.subtypes.${surface}`, subtypes.data.flatMap(row => row.matches ?? []).map(match => match.symbolName), ['LargeSquare']);

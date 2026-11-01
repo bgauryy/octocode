@@ -152,3 +152,55 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
         assert!(seen.contains(line.as_str()), "{seen} / {line}");
     }
 }
+
+/// The `nextPage` lead of `result`'s first row.
+fn next_page(result: &Value) -> Value {
+    result["structuredContent"]["results"][0]["data"]["next"]["nextPage"]["input"].clone()
+}
+
+/// The same continuation issued twice (two identical requests, as a lead a
+/// reader meets on several pages) is one cursor string: following either
+/// reads the same next page (`limit` rows per page), so a reader that
+/// follows each lead it meets reads that page once.
+#[tokio::test]
+async fn an_identical_continuation_is_one_cursor() {
+    let workspace = Workspace::new();
+    for name in ["a", "b", "c", "d", "e"] {
+        workspace.write(&format!("{name}.txt"), "x\n");
+    }
+    let runtime = workspace.runtime(&[]);
+    let request = json!({"queries":[{"operation":"files","path":".","entryType":"file",
+        "extensions":["txt"],"limit":2,"view":"paths"}]});
+    let mut leads = Vec::new();
+    for call in ["first", "second"] {
+        let result = runtime
+            .run_mcp(call.into(), "structureSearch".into(), request.clone())
+            .await
+            .expect("listing");
+        let lead = next_page(&result);
+        support::assert_cursor_only(&lead);
+        leads.push(lead);
+    }
+    assert_eq!(leads[0], leads[1], "one continuation, one cursor");
+    let mut windows = Vec::new();
+    for lead in &leads {
+        let page = runtime
+            .run_mcp("next".into(), "structureSearch".into(), lead.clone())
+            .await
+            .expect("next page");
+        assert_ne!(page["isError"], true, "{page}");
+        windows.push(page["structuredContent"]["results"][0]["data"]["files"].clone());
+    }
+    assert_eq!(windows[0], windows[1], "the same page");
+    assert!(windows[0].as_array().is_some_and(|files| !files.is_empty()));
+    let distinct = leads
+        .iter()
+        .map(|lead| lead["cursor"].as_str().expect("cursor"))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        distinct.len(),
+        1,
+        "a reader following each lead reads it once"
+    );
+    runtime.close().await;
+}

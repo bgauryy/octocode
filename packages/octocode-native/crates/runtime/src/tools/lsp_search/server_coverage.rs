@@ -36,28 +36,32 @@ use gates::*;
 pub(super) use includes::package_includes;
 use includes::{annotate_includes, record_text_coverage};
 
-pub(super) const DYNAMIC_REASON: &str = "dynamicDispatch";
+pub(super) const DYNAMIC_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::DynamicDispatch;
 /// File-level: missing files import the name by a path the server did not
 /// resolve to the anchor's module.
-pub(super) const UNRESOLVED_IMPORT_REASON: &str = "importUnresolved";
+pub(super) const UNRESOLVED_IMPORT_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::ImportUnresolved;
 /// Why an `importUnresolved` row is partial; it reads the same on every page.
 const UNRESOLVED_IMPORT_NOTE: &str = "Files that import the name are missing from the answer: the server did not resolve their import here.";
-pub(super) const CFG_REASON: &str = "cfgGatedFiles";
-pub(super) const CFG_NEGATED_REASON: &str = "cfgNegatedFeatures";
+pub(super) const CFG_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::CfgGatedFiles;
+pub(super) const CFG_NEGATED_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::CfgNegatedFeatures;
 /// File-level: cleared when every file that uses the name is answered.
-pub(super) const BUILD_SCRIPTS_REASON: &str = "buildScriptsOff";
+pub(super) const BUILD_SCRIPTS_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::BuildScriptsOff;
 /// File-level, like [`BUILD_SCRIPTS_REASON`]; no build context recovers it.
-pub(super) const OUTSIDE_INCLUDE_REASON: &str = "includeOutsidePackage";
+pub(super) const OUTSIDE_INCLUDE_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::IncludeOutsidePackage;
 /// File-level: the anchor file is a module of several crates.
-pub(super) const SHARED_MODULE_REASON: &str = "sharedModuleFile";
+pub(super) const SHARED_MODULE_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::SharedModuleFile;
 /// The server's inference limit is stated once in the tool description.
 const PYTHON_WARNING: &str = "Files that spell the name are missing from the answer.";
-/// Bound of the Rust gate scan; a larger workspace counts what it reached.
-const MAX_SCANNED_FILES: usize = 20_000;
 /// Largest file the gate scan reads; generated sources (a 2.4 MB
 /// `tool_types.rs`) fit, so they never make every answer partial.
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
-const GATE_SCAN_BUDGET: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// The lexical `findText` check, named by its search.
 fn text_check() -> String {
@@ -71,6 +75,7 @@ pub(super) fn annotate(
     server: Server<'_>,
     scope: &Scope,
     rust: super::receipt::RustAnalysis,
+    stopped: &dyn Fn() -> bool,
 ) {
     if !is_incoming(lsp_search_query::operation(query))
         || !row.is_object()
@@ -88,9 +93,16 @@ pub(super) fn annotate(
             // A workspace symbol is a declaration the server found: no use
             // of it is missing.
             if lsp_search_query::op(query) != Op::WorkspaceSymbol {
-                annotate_includes(row, query, server.anchor, scope, rust.build_scripts);
+                annotate_includes(
+                    row,
+                    query,
+                    server.anchor,
+                    scope,
+                    rust.build_scripts,
+                    stopped,
+                );
             }
-            annotate_rust(row, query, server.root, scope, rust.all_features);
+            annotate_rust(row, query, server.root, scope, rust.all_features, stopped);
         }
         _ => {}
     }
@@ -106,7 +118,8 @@ pub(super) struct Server<'a> {
 }
 
 /// Partial reason of a workspace-symbol answer the server's result limit cut.
-const WORKSPACE_SYMBOL_CAPPED_REASON: &str = "workspaceSymbolCoverageUnknown";
+const WORKSPACE_SYMBOL_CAPPED_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::WorkspaceSymbolCoverageUnknown;
 /// Why no workspace-symbol answer proves completeness, and what checks the rest.
 const WORKSPACE_SYMBOL_NOTE: &str = "workspace/symbol has no completeness marker: declarations the server did not index or return are unknown, and no page of this list completes it; confirm with a localSearch of the name.";
 
@@ -190,7 +203,13 @@ fn annotate_python(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
     }
 }
 
-fn flag_noted(row: &mut Value, query: &LspSearchQuery, reason: &str, note: String, scope: &Scope) {
+fn flag_noted(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    reason: crate::response::paging::PartialReason,
+    note: String,
+    scope: &Scope,
+) {
     flag_partial(row, query, reason, None, scope);
     if lists_reason(row, reason) {
         crate::response::paging::push_notice(row, note);
@@ -205,12 +224,13 @@ fn continues_a_page(query: &LspSearchQuery) -> bool {
 }
 
 /// Whether `row` is flagged with `reason`.
-fn lists_reason(row: &Value, reason: &str) -> bool {
-    row.pointer("/coverage/reason").and_then(Value::as_str) == Some(reason)
+fn lists_reason(row: &Value, reason: crate::response::paging::PartialReason) -> bool {
+    let reason = reason.to_string();
+    row.pointer("/coverage/reason").and_then(Value::as_str) == Some(reason.as_str())
         || row
             .get("partialReasons")
             .and_then(Value::as_array)
-            .is_some_and(|listed| listed.iter().any(|listed| listed == reason))
+            .is_some_and(|listed| listed.iter().any(|listed| *listed == reason.as_str()))
 }
 
 #[cfg(test)]

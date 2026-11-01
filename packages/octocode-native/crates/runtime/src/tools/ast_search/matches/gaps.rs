@@ -79,11 +79,7 @@ pub(super) fn skipped_walk(
         hidden: q.include_hidden().unwrap_or(false),
         default_excludes: q.default_excludes(),
     };
-    let budget = q
-        .max_files()
-        .map_or_else(octocode_engine::scan_budget::walk_ceiling, |files| {
-            files as usize
-        });
+    let budget = usize::MAX;
     let (include, exclude) = (
         q.include().unwrap_or_default(),
         q.exclude().unwrap_or_default(),
@@ -151,10 +147,7 @@ pub(super) fn directory_choice(
             hidden: q.include_hidden().unwrap_or(false),
             default_excludes: q.default_excludes(),
         },
-        q.max_files()
-            .map_or_else(octocode_engine::scan_budget::walk_ceiling, |files| {
-                files as usize
-            }),
+        usize::MAX,
         Globs {
             include: &include,
             exclude: &exclude,

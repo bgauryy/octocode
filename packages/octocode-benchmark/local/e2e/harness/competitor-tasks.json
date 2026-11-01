@@ -1135,7 +1135,6 @@
                 "owner": "expressjs",
                 "repo": "express",
                 "ref": "v5.1.0",
-                "forceRefresh": true,
                 "paths": [
                   "lib"
                 ]

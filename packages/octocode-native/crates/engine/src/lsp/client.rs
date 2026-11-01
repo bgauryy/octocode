@@ -16,6 +16,7 @@ use tokio::time::Duration;
 
 mod lifecycle;
 mod open_documents;
+mod project_loads;
 mod requests;
 mod server_process;
 mod snippets;
@@ -79,6 +80,8 @@ struct NativeLspClientInner {
     server_info: StdMutex<Option<Value>>,
     readiness: StdMutex<Option<String>>,
     progress: Arc<ProgressTracker>,
+    /// Projects whose first open already waited (see `project_loads.rs`).
+    project_loads: StdMutex<project_loads::ProjectLoads>,
     /// In-flight requests, document syncs, diagnostic waits, and caller
     /// [`LspLease`]s. Non-zero means busy: the pool never idles out or evicts
     /// a busy client.
@@ -99,6 +102,9 @@ struct NativeLspClientInner {
     /// away). Part of every cached response key: an answer given before the
     /// change is never reused after it, whatever the caller's generation.
     content_epoch: AtomicU64,
+    /// The [`CallId`] whose first request last brought the open documents
+    /// in line with their files (`0`: none).
+    documents_checked_for: AtomicU64,
     /// The project config files (compile database, `.clangd`) of every
     /// directory this server resolved a document through, as they were when
     /// it first looked. The server never re-reads them for a document it
@@ -126,18 +132,41 @@ struct NativeLspClientInner {
     options: LspClientOptions,
 }
 
-/// One cached response and its JSON size, measured once at insert so the
-/// cache weigher reads a number instead of serializing the value again.
+/// One cached response, the call that asked for it, and its JSON size,
+/// measured once at insert so the cache weigher reads a number instead of
+/// serializing the value again.
 #[derive(Clone)]
 struct CachedResponse {
     value: Arc<Value>,
+    call: Option<CallId>,
     json_bytes: usize,
 }
 
 impl CachedResponse {
-    fn new(value: Arc<Value>) -> Self {
+    fn new(value: Arc<Value>, call: Option<CallId>) -> Self {
         let json_bytes = crate::json_size::bytes_or(value.as_ref(), usize::MAX);
-        Self { value, json_bytes }
+        Self {
+            value,
+            call,
+            json_bytes,
+        }
+    }
+}
+
+/// One tool call's identity, unique within the process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CallId(std::num::NonZeroU64);
+
+impl CallId {
+    /// An id no earlier call had.
+    pub fn next() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let id = NEXT.fetch_add(1, Ordering::Relaxed);
+        Self(std::num::NonZeroU64::new(id).unwrap_or(std::num::NonZeroU64::MIN))
+    }
+
+    fn get(self) -> u64 {
+        self.0.get()
     }
 }
 
@@ -148,10 +177,17 @@ impl CachedResponse {
 /// cache (continuation pages, and first pages whose generation carries the
 /// project fingerprint); without it requests reach the server and refresh
 /// the cache. An empty generation bypasses the cache.
+///
+/// `call` names the one tool call the scope serves. Within it, an answer
+/// the same call already got is reused even without `reuse` (files do not
+/// change under one call; an edit to an open document still misses), and
+/// open documents are compared with their files once, at its first
+/// request. `None` asks and compares at every request.
 #[derive(Clone, Debug, Default)]
 pub struct ResponseScope {
     pub reuse: bool,
     pub generation: String,
+    pub call: Option<CallId>,
 }
 
 tokio::task_local! {
@@ -194,10 +230,12 @@ impl NativeLspClient {
                 server_info: StdMutex::new(None),
                 readiness: StdMutex::new(None),
                 progress: ProgressTracker::new(),
+                project_loads: StdMutex::default(),
                 activity: Arc::new(AtomicUsize::new(0)),
                 sync_lock: Mutex::new(()),
                 open_docs: StdMutex::new(OpenDocuments::new(MAX_OPEN_DOCUMENTS)),
                 content_epoch: AtomicU64::new(0),
+                documents_checked_for: AtomicU64::new(0),
                 project_config: StdMutex::new(ProjectConfigWatch::new(
                     crate::lsp::config::project_config_files(&config_command),
                 )),
@@ -246,6 +284,11 @@ impl NativeLspClient {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *readiness = None;
         }
+        self.inner
+            .project_loads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
         {
             let mut open_docs = self
                 .inner

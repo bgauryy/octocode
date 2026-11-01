@@ -56,7 +56,7 @@ pub(super) fn annotate_sibling_branch_fields(
         };
         if let Some(requires) = sibling_missing_fields(root, &same_mode, value, field) {
             schema.insert("siblingRequires".into(), Value::Array(requires));
-        } else if let Some(requires) = sibling_selector_values(&declaring, value) {
+        } else if let Some(requires) = sibling_selector_values(&declaring, value, field) {
             schema.insert("siblingRequires".into(), Value::Array(requires));
         }
     }

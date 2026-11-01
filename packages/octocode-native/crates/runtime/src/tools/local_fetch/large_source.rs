@@ -14,6 +14,7 @@
 use crate::tools::source_view::local_fetch_query;
 mod held;
 mod index;
+mod matches;
 mod page;
 mod ranges;
 mod stream;
@@ -68,7 +69,6 @@ fn unsupported(q: &LocalFetchQuery, len: u64, reason: &str, next: NextCalls) -> 
             super::acquire::MAX_SOURCE_BYTES / (1024 * 1024)
         ),
     );
-    result.source_bytes = usize::try_from(len).ok();
     result.next = Some(next);
     result
 }
@@ -107,8 +107,11 @@ pub(super) fn fetch_window(
         stamp,
         len,
     };
-    if !local_fetch_query::match_strings(q).is_empty() {
-        return match_needs_whole_file(q, len);
+    if local_fetch_query::view(q) == ReadView::Content
+        && local_fetch_query::block(q)
+        && !local_fetch_query::match_strings(q).is_empty()
+    {
+        return block_needs_whole_file(q, len);
     }
     if local_fetch_query::view(q) != ReadView::Content || local_fetch_query::block(q) {
         return unsupported(
@@ -129,6 +132,9 @@ pub(super) fn fetch_window(
             }
         })
     };
+    if !local_fetch_query::match_strings(q).is_empty() {
+        return matches::fetch_matches(q, &source, modified, noted(true), security, cancel);
+    }
     if local_fetch_query::has_ranges(q) && local_fetch_query::start_line(q).is_none() {
         return fetch_ranges(q, &source, modified, noted(true), security, cancel);
     }
@@ -150,16 +156,21 @@ fn streamed_warning(len: u64) -> String {
     )
 }
 
-/// A match read needs the whole file: lead to localSearch, which streams
-/// it, and to bounded line windows.
-fn match_needs_whole_file(q: &LocalFetchQuery, len: u64) -> LocalFetchResult {
-    let mut next = read_bounded(q);
-    next.text_search = crate::tools::source_view::extraction::search_lead(
+/// A `block` match read parses the whole file to find each hit's
+/// declaration: lead to the same match read without `block`, which streams.
+fn block_needs_whole_file(q: &LocalFetchQuery, len: u64) -> LocalFetchResult {
+    let next = NextCalls {
+        read: local_fetch_query::updated(q, serde_json::json!({"block":null}))
+            .ok()
+            .map(FetchCall::related),
+        ..NextCalls::default()
+    };
+    unsupported(
         q,
-        local_fetch_query::path(q),
-        &local_fetch_query::match_strings(q),
-    );
-    unsupported(q, len, "matchString needs the whole file.", next)
+        len,
+        "block parses the whole file to find each hit's declaration; the same read without block serves the hits with their context lines.",
+        next,
+    )
 }
 
 /// Bounded line windows from the first line.

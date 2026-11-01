@@ -64,7 +64,7 @@ flowchart TD
   G --> H[Write, verify with test -f dest/SKILL.md, report]
 ```
 
-Fetch with `npx -y octocode ghCloneRepo '{"queries":[{"owner":"OWNER","repo":"REPO","path":"PATH"}]}'` (`"ref":"<ref>"` for a branch or tag; no `path` for the whole repository); checkout at the result's `location.localPath`. Report per [output](../output.md#response).
+Fetch with `npx -y octocode ghCloneRepo '{"queries":[{"owner":"OWNER","repo":"REPO","paths":["PATH"]}]}'` (`"ref":"<ref>"` for a branch or tag; no `paths` for the whole repository; substitute the selected CLI per [configuration](configuration.md#inspect-without-exposing-secrets)); checkout at the result's `location.localPath`. Report per [output](../output.md#response).
 
 - Never silently write or rename fetched scripts or hooks; surface missing or restrictive licenses.
 - Intent flips mid-flow: keep the cache, resume at the safety scan or the adapt step.

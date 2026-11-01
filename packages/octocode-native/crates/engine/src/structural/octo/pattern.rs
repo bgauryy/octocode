@@ -1,11 +1,10 @@
 use std::collections::HashSet;
-use std::time::Instant;
 
 use tree_sitter::{Language, Node, Tree};
 
 use super::line_index_support::to_structural_match_with_context;
 use super::matching::{
-    CandidatePlan, CaptureEnv, ExecutionError, Found, named_children, node_text,
+    CandidatePlan, CaptureEnv, Deadline, ExecutionError, Found, named_children, node_text,
     parse_tree_with_deadline, raw_range, visit_named,
 };
 use super::metavars::meta_from_node;
@@ -30,7 +29,7 @@ const MAX_MULTI_CAPTURE_ATTEMPTS: usize = 10_000;
 
 pub(super) struct MatchBudget {
     attempts: usize,
-    deadline: Instant,
+    deadline: Deadline,
 }
 
 /// See [`CompiledPattern::declaration`].
@@ -127,14 +126,14 @@ impl CompiledPattern {
     pub(super) fn find_special_matches(
         &self,
         content: &str,
-        deadline: Instant,
+        deadline: Deadline,
         recovery: &Recovery,
         found: &mut Found<'_>,
     ) -> Result<(), ExecutionError> {
         let Some(special) = &self.special else {
             return Ok(());
         };
-        let tree = parse_tree_with_deadline(&self.language, content, deadline)?;
+        let tree = parse_tree_with_deadline(&self.language, content, deadline.parse_by())?;
         if recovery.hides_match(&tree, content) {
             found.mark_recovered();
         }
@@ -173,7 +172,7 @@ impl CompiledPattern {
         candidate: Node<'_>,
         content: &str,
         captures: &mut CaptureEnv,
-        deadline: Instant,
+        deadline: Deadline,
     ) -> Result<bool, ExecutionError> {
         if let Some(special) = &self.special {
             return Ok(special.matches(candidate, content, captures));

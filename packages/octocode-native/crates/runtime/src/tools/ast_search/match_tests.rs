@@ -1,8 +1,7 @@
 //! astSearch `match`: file and match pages, clipped values, captures,
 //! scan windows and the reads a match offers.
 use super::test_rows::*;
-use crate::execution::cancel::NeverCancel;
-use crate::tools::test_support::{Fixture, simple_policy};
+use crate::tools::test_support::Fixture;
 use octocode_contract_types::ErrorCode;
 use serde_json::json;
 

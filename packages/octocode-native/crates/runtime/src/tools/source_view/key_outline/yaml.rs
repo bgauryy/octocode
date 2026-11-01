@@ -26,10 +26,7 @@ pub(super) fn yaml_entries(content: &str) -> Vec<Entry> {
         let raw_indent = raw.len() - body.len();
         match &continued {
             Some(Continued::Block { parent_indent }) => {
-                if body.is_empty() {
-                    continue;
-                }
-                if raw_indent > *parent_indent {
+                if body.is_empty() || raw_indent > *parent_indent {
                     last_content = line;
                     continue;
                 }
@@ -65,17 +62,29 @@ pub(super) fn yaml_entries(content: &str) -> Vec<Entry> {
             }
         }
         last_content = line;
-        let value = match yaml_key(item) {
+        let (value, parent_indent, key) = match yaml_key(item) {
             Some(colon) => {
                 open.push((indent, entries.len()));
                 entries.push(Entry::at(line, open.len()));
-                (Some(item[colon + 1..].trim_start()), indent)
+                (
+                    Some(item[colon + 1..].trim_start()),
+                    indent,
+                    Some(entries.len() - 1),
+                )
             }
             // A bare list item's own scalar belongs to its dash.
-            None => (dash_indent.map(|_| item), dash_indent.unwrap_or(indent)),
+            None => (
+                dash_indent.map(|_| item),
+                dash_indent.unwrap_or(indent),
+                None,
+            ),
         };
-        if let (Some(value), parent_indent) = value {
+        if let Some(value) = value {
             continued = continues(value, parent_indent);
+            // A key whose value is a multi-line scalar holds text, not keys.
+            if let Some(entry) = key.filter(|_| continued.is_some()) {
+                entries[entry].scalar = true;
+            }
         }
     }
     for (_, entry) in open {

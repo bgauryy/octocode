@@ -4,6 +4,7 @@
 //! this binary, so there is no second artifact to drift from the runtime.
 mod handler;
 mod listing;
+mod progress;
 
 use handler::Handler;
 use octocode_native::config::RuntimeSurface;
@@ -73,7 +74,7 @@ pub(super) async fn run() -> ! {
         ..HostOptions::default()
     };
     let runtime = match ToolRuntime::from_host(host) {
-        Ok(runtime) => Arc::new(runtime.check_clasify_provider().await),
+        Ok(runtime) => Arc::new(runtime),
         Err(error) => {
             fail_startup(&format!("Server initialization failed: {}", error.message)).await
         }

@@ -1,5 +1,6 @@
 //! Test-only provider for proving admission independently of tree-sitter.
 use super::{FactProvider, RegistryView};
+use crate::num::saturating_u32;
 use crate::{graph::*, text::analysis::*};
 
 #[expect(
@@ -49,13 +50,15 @@ fn extract_keys(
     let position = |byte: usize| {
         let prefix = &content[..byte];
         GraphPosition {
-            line: prefix.bytes().filter(|b| *b == b'\n').count() as u32,
-            character: prefix
-                .rsplit('\n')
-                .next()
-                .unwrap_or_default()
-                .encode_utf16()
-                .count() as u32,
+            line: saturating_u32(prefix.bytes().filter(|b| *b == b'\n').count()),
+            character: saturating_u32(
+                prefix
+                    .rsplit('\n')
+                    .next()
+                    .unwrap_or_default()
+                    .encode_utf16()
+                    .count(),
+            ),
         }
     };
     for (key, value) in parsed.get_ref() {
@@ -76,10 +79,13 @@ fn extract_keys(
             line: range.start.line + 1,
             range: range.clone(),
             selection_range,
-            source_range: Some(ObservedSpan::root(selected.start as u32, end as u32)),
+            source_range: Some(ObservedSpan::root(
+                saturating_u32(selected.start),
+                saturating_u32(end),
+            )),
             selection_byte_range: Some(ObservedSpan::root(
-                selected.start as u32,
-                selected.end as u32,
+                saturating_u32(selected.start),
+                saturating_u32(selected.end),
             )),
             parse_assessment: GraphParseAssessment::parsed(range),
             ..Default::default()

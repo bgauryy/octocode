@@ -10,8 +10,11 @@ test('caller validation accepts exact public envelopes and rejects private engin
   for (const state of [{ page: 2 }, { registryCursor: 'private-provider-position' }]) {
     assert.notEqual(validateInput('artifactSearch', { queries: [{ ...queries[0], ...state }] }), null);
   }
-  assert.notEqual(validateInput('artifactSearch', { queries, cursor: 'issued-opaque-handle' }), null);
-  assert.notEqual(validateInput('artifactSearch', { queries, responseChars: 50_001 }), null);
+  // The listed schema is one object with each field once; native rejects the
+  // mix and names the fix (input-boundaries `cursorWithQueries`, both surfaces).
+  // responseChars has a floor, never a ceiling: a large budget is the caller's choice.
+  assert.equal(validateInput('artifactSearch', { queries, responseChars: 1_000_000 }), null);
+  assert.notEqual(validateInput('artifactSearch', { queries, responseChars: 0 }), null);
 });
 
 test('caller validation retains nested authored constraints and strict unknown-field rejection', () => {

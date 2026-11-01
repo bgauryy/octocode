@@ -140,7 +140,7 @@ impl RegistryClient<'_> {
     ) -> Result<Option<serde_json::Value>, ArtifactError> {
         // An entry that does not deserialize is a miss and is removed.
         if let Some(cache) = self.cache
-            && let Some(hit) = cache.0.get(&key)
+            && let Some(hit) = cache.0.get_async(key.clone()).await
         {
             return Ok(Some(hit.value.as_ref().clone()));
         }
@@ -150,57 +150,67 @@ impl RegistryClient<'_> {
         };
         let (value, weight) = decode(&bytes).ok_or_else(|| invalid(artifact_type))?;
         if let Some(cache) = self.cache {
-            cache.0.put(key, value.clone(), weight, REGISTRY_ANSWER);
+            cache
+                .0
+                .put_async(key, value.clone(), weight, REGISTRY_ANSWER)
+                .await;
         }
         Ok(Some(value))
     }
 
     /// A release fact remembered under `resource` (`type:name@version:…`);
     /// published versions never change, so a fact never expires.
-    pub(crate) fn fact(&self, resource: &str) -> Option<serde_json::Value> {
-        let hit = self.cache?.0.get(&fact_key(resource))?;
+    pub(crate) async fn fact(&self, resource: &str) -> Option<serde_json::Value> {
+        let hit = self.cache?.0.get_async(fact_key(resource)).await?;
         Some(hit.value.as_ref().clone())
     }
 
-    pub(crate) fn remember_fact(&self, resource: &str, fact: &serde_json::Value) {
+    pub(crate) async fn remember_fact(&self, resource: &str, fact: &serde_json::Value) {
         let Some(cache) = self.cache else {
             return;
         };
         let size = octocode_engine::json_size::bytes(fact).unwrap_or(usize::MAX);
-        cache.0.put(
-            fact_key(resource),
-            fact.clone(),
-            size,
-            CacheClass::Immutable,
-        );
+        cache
+            .0
+            .put_async(
+                fact_key(resource),
+                fact.clone(),
+                size,
+                CacheClass::Immutable,
+            )
+            .await;
     }
 
     /// A release fact that may change (an absent tag, pushed later),
     /// remembered under `resource` for as long as a registry answer lives.
-    pub(crate) fn remember_answer(&self, resource: &str, fact: &serde_json::Value) {
+    pub(crate) async fn remember_answer(&self, resource: &str, fact: &serde_json::Value) {
         if let Some(cache) = self.cache {
             let size = octocode_engine::json_size::bytes(fact).unwrap_or(usize::MAX);
             cache
                 .0
-                .put(fact_key(resource), fact.clone(), size, REGISTRY_ANSWER);
+                .put_async(fact_key(resource), fact.clone(), size, REGISTRY_ANSWER)
+                .await;
         }
     }
 
     /// A discovery page's start remembered under `resource` (an opaque
     /// next-page token), for as long as a registry answer lives.
-    pub(crate) fn cursor(&self, resource: &str) -> Option<String> {
-        let hit = self.cache?.0.get(&cursor_key(resource))?;
+    pub(crate) async fn cursor(&self, resource: &str) -> Option<String> {
+        let hit = self.cache?.0.get_async(cursor_key(resource)).await?;
         hit.value.as_str().map(str::to_owned)
     }
 
-    pub(crate) fn remember_cursor(&self, resource: &str, cursor: &str) {
+    pub(crate) async fn remember_cursor(&self, resource: &str, cursor: &str) {
         if let Some(cache) = self.cache {
-            cache.0.put(
-                cursor_key(resource),
-                serde_json::Value::String(cursor.to_owned()),
-                cursor.len(),
-                REGISTRY_ANSWER,
-            );
+            cache
+                .0
+                .put_async(
+                    cursor_key(resource),
+                    serde_json::Value::String(cursor.to_owned()),
+                    cursor.len(),
+                    REGISTRY_ANSWER,
+                )
+                .await;
         }
     }
 

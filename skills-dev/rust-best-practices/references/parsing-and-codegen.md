@@ -4,7 +4,7 @@ Load when generating tool contracts, parsing source (tree-sitter, oxc, syn), run
 
 ## Tool contract generation: Octocode
 - Author schemas, descriptions, instructions, and limits in `@octocodeai/octocode-core`; `@octocodeai/config` owns generation.
-- Build core, then run `yarn contracts:regen` from the repo root. Immediately rebuild native, then affected interfaces with `octocode-dev`.
+- Build core, then run `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` from the repo root. Immediately rebuild native, then affected interfaces with `octocode-dev`.
 - Use generated Rust query/result types. Add accessor `impl` blocks when needed; do not mirror the wire format in serde or interface types.
 - Native `build.rs` embeds the generated contract in place and checks fingerprints. Regenerate and rebuild on drift; do not bypass the guard.
 - Implement each new field/discriminator and declare its native effect in `field-effect-coverage.json`. A declaration alone does not prove behavior.

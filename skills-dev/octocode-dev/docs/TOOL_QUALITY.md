@@ -31,8 +31,8 @@ node packages/octocode/out/octocode.js schema
 node packages/octocode/out/octocode.js schema localFetch --view query
 ```
 
-- The catalog has 16 tools, with 12 enabled by default in MCP. `OCTOCODE_BETA=true` adds `graphBuild` and `graphQuery`; `ghCloneRepo` is CLI-only. A classification key and successful provider ping add `clasify`. Graph tools use the same Rust store as `octocode graph ingest|query`.
-- `clasify` is omitted when no key resolves (`OCTOCODE_CLASSIFICATION_API` or `.octocoderc` `classification.api`), when `OCTOCODE_CLASSIFICATION_API` is blank, or when its provider ping fails. Local-tool, clone, storage, beta, and allowlist settings also gate tools.
+- CLI exposes all 16 tools; MCP has 12 enabled by default. Its independent opt-ins are `OCTOCODE_BETA` for both graph tools, `OCTOCODE_ENABLE_CLONE` for clone, and a nonblank classification key for `clasify`. See the [configuration matrix](../../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp) for filters and trust rules. The CLI runs graph tools as generated tool commands, the only graph surface.
+- Discovery makes no provider request. Test missing prerequisites and provider failures at invocation, separately from MCP visibility. An enabled clone in memory mode stays visible and reports its persistent-storage requirement when called. CLI ignores MCP visibility settings while retaining path and content security.
 - Record effective configuration and unavailable capabilities per run; enabling a tool installs no language server and grants no provider access. Test CLI and MCP when registration, schema projection, formatting, or continuation rendering changes.
 
 ## Shared acceptance requirements
@@ -60,6 +60,7 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 
 ### Lossless reachable pagination
 
+- Paginate before reducing response size: preserve complete selected values. Never clip or summarize requested evidence to meet a byte, token or `responseChars` target, even if a separate read can recover it. Keep an indivisible oversized value whole and disclose it. Explicit transformed views and security redaction define the requested representation.
 - `hasMore:true` is insufficient: execute returned continuations through the named tool and prove their union covers the fixture (termination, stable identities, no gaps, no repeats).
 - Cover every independent partial surface (lists, file/match pages, graph data, diagnostics, source lines, transformed characters, history collections, patches, response text). Continuations keep filters, operation, view, snapshot/ref, and other pagination axes.
 - Requested length is a window target: validate actual offsets and coverage; mark estimated page counters. Test tiny windows, boundary-crossing tokens, multibyte text, empty results, a short final page.
@@ -79,16 +80,16 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 | `localSearch` | Lexical text and regex queries independently. | Match continuations, exclusions, zero-result diagnostics. |
 | `localFetch` | Path-only, full, range, match, each view. | Matched anchors; transformed windows; fallback mode, redaction, source lines. |
 | `clasify` | Noul, Choice, Score over values and unread resources. | Body-free answers, coverage, focus scopes, provider failures, cache reuse on exact reads. |
-| `structureSearch` | `tree` and `files` with name and metadata filters. | Pagination, snapshots, depth bounds, exclusions. |
-| `astSearch` | `match`, `syntaxTree`, `symbols`. | Pattern/rule exclusivity, language selection; captures, nodes, results; parser and scan limits. |
+| `structureSearch` | `view:"paths"` and `view:"details"` with name and metadata filters. | Listing/tree pagination, snapshots, depth bounds, exclusions. |
+| `astSearch` | `match`, `syntaxTree`, `symbols`. | Structural `rule` composition, parser selection; captures, nodes, results; parser and scan limits. |
 | `lspSearch` | Document, workspace, anchored, hierarchy operations. | Distinguish no server, unsupported capability, failed anchor, valid empty; provenance; snapshots. |
 | `graphBuild` | Scope, force, storage, and CLI/MCP beta availability; one query per batch. | Freshness, durable extraction resume, source invalidation, bounded spill, failed-build preservation, corrupt checkpoint rejection. |
 | `graphQuery` | Every operation, selector, witness/resolution option, and availability gate. | Pinned continuation union for every collection; integrity errors, stale snapshots, grammar coverage, evidence and unresolved sites. |
-| `ghSearchRepo`, `ghSearchCode`, `ghStructure` | Exercise code, repository, and tree variants (one tool each); reject branch selection for indexed code search. | Candidate matches, immutable tree identity, metadata pages, indexing uncertainty, provider-limit diagnostics. |
-| `ghGetFileContent` | Exact, compact, full, paginated views. | Local/remote parity; pinned refs, repeated-outline prevention, redaction, directory-input rejection. |
-| `ghSearchHistory` | PR, issue, commit discovery with operation scope. | Discovery pages; filters and exact-detail hints; minification modes; provider-incomplete results. |
+| `ghSearchRepo`, `ghSearchCode`, `ghStructure` | Exercise code, repository, and tree variants (one tool each); code search uses the default-branch index, and an explicit `ref` requires `repo` and re-reads its hits. | Candidate matches, immutable tree identity, metadata pages, indexing uncertainty, provider-limit diagnostics. |
+| `ghGetFileContent` | `content`, `compact`, `symbols`; full and windowed reads. | Local/remote parity; pinned refs, repeated-outline prevention, redaction, directory-input rejection. |
+| `ghSearchHistory` | PR, issue, commit discovery with operation scope. | Discovery pages; filters, field selection and exact-detail hints; provider-incomplete results. |
 | `ghGetHistoryItem` | PR/issue, commit, compare, selected content. | Each of files, comments, reviews, commits, bodies, patches traversed alone; omitted-patch/error state; immutable refs. |
-| `ghCloneRepo` | Default ref, full SHA, sparse path, refresh, availability gates. | Checkout identity, cache reuse, isolated snapshots, concurrent mutation, rollback, cleanup; crash recovery apart. |
+| `ghCloneRepo` | Default ref, full SHA, sparse paths, history depth, availability gates. | Fresh checkout identity on every call; clean destination replacement, local edit preservation, concurrent mutation, rollback, cleanup; crash recovery apart. |
 | `artifactSearch` | Exact, scoped, keyword; reject mixed or empty selectors. | Keyword continuations, repo subdirectory, registry failures, authenticated registries. |
 
 ## Minification and smart-window matrix
@@ -97,7 +98,7 @@ Test only controls the public operation supports.
 
 | Surface | Supported content controls | Required comparisons |
 |---|---|---|
-| Local / GitHub file fetch | `none`, `standard`, `symbols`; selectors; line or UTF-8 byte windows. | Exact source, matched text, outline, fallback metadata, continuation union; GitHub: pinned commit, parity, distinct offsets. |
+| Local / GitHub file fetch | `content`, `compact`, `symbols`; selectors; line or UTF-8 byte windows. | Exact source, matched text, outline, fallback metadata, continuation union; GitHub: pinned commit, parity, distinct offsets. |
 | GitHub code search, PR/issue discovery | `fields` (keeps each row's id); no `minify`. | Snippets keep matched evidence and positions; list continuations; unsupported controls rejected. |
 | PR detail | Bodies, patches, comments, reviews, commits; no `minify` (text is GitHub's verbatim text). | Exact text; every content surface and continuation. |
 | Issue detail | Body/comment selectors, character windows; no `minify`. | Selected text; all reachable comment/body windows. |

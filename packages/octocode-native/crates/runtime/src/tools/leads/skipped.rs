@@ -201,7 +201,8 @@ pub(crate) fn skipped_path_error(error: impl std::fmt::Display) -> ToolError {
 
 /// The `partialReasons` entry of a result whose check of the paths its walk
 /// skipped ran out of time: that scope is unchecked, absence there unproven.
-pub(crate) const SKIPPED_UNCHECKED: &str = "skippedPathsUnchecked";
+pub(crate) const SKIPPED_UNCHECKED: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::SkippedPathsUnchecked;
 
 /// What one walk's skipped paths hold, as every local tool states it.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -182,6 +182,19 @@ fn symbols_are_bare_identifiers_or_follow_a_declaration_keyword() {
     }
 }
 
+/// An identifier continues with exactly the engine's identifier characters
+/// (a combining mark included).
+#[test]
+fn searched_symbols_continue_with_engine_identifier_characters() {
+    for name in ["cafe\u{301}", "x$y", "a_b9", "naïve", "a-b", "a.b", "a²"] {
+        let continues = name
+            .chars()
+            .skip(1)
+            .all(octocode_engine::text::is_ident_char);
+        assert_eq!(searched_symbol(name).is_some(), continues, "{name:?}");
+    }
+}
+
 /// A file over the enclosing cap is not outlined (its hits keep no
 /// `enclosing`); one at the cap still is.
 #[test]

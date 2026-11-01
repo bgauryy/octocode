@@ -12,7 +12,12 @@ fn annotated_empty(
             .map_or(serde_json::Value::Null, |context| json!(context)),
     );
     let mut row = empty(query, category, message, available);
-    annotate_empty_includes(&mut row, query, RustAnalysis::of(&config).build_scripts);
+    annotate_empty_includes(
+        &mut row,
+        query,
+        RustAnalysis::of(&config).build_scripts,
+        &|| false,
+    );
     row
 }
 
@@ -118,12 +123,21 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         serde_json::json!({"buildScripts": true}),
         "{tipped}"
     );
+    // The cause the tip states is the row's partial reason, as on every
+    // operation that states it.
+    assert_eq!(tipped["isPartial"], true, "{tipped}");
+    assert_eq!(
+        tipped["partialReasons"],
+        json!(["buildScriptsOff"]),
+        "{tipped}"
+    );
     let built = requery(
         &scripted,
         serde_json::json!({"rustContext": {"buildScripts": true}}),
     );
     let built = annotated_empty(&built, "noLocations", "none", true);
     assert!(built.get("hints").is_none(), "{built}");
+    assert!(built.get("partialReasons").is_none(), "{built}");
     let configured =
         super::server_context::rust_server_config(json!({"buildScripts":true,"procMacros":true}));
     let mut inherited = super::super::failure::empty(&scripted, "noLocations", "none", true);
@@ -131,6 +145,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         &mut inherited,
         &scripted,
         RustAnalysis::of(&configured).build_scripts,
+        &|| false,
     );
     assert!(inherited.get("hints").is_none(), "{inherited}");
     assert!(
@@ -146,13 +161,31 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         false,
     );
     let before = unavailable.clone();
-    annotate_empty_includes(&mut unavailable, &scripted, false);
+    annotate_empty_includes(&mut unavailable, &scripted, false, &|| false);
     assert_eq!(
         unavailable, before,
         "unavailable providers cannot report an empty semantic result or a build-script repair"
     );
-    // Source included from outside the package never loads: its own tip,
-    // and no rerun.
+}
+
+/// Source a package `include!`s from outside its directory never loads:
+/// its own tip and partial reason, and no build-script rerun it may defeat.
+#[test]
+fn an_outside_include_is_partial_without_a_build_script_rerun() {
+    let package = tempfile::tempdir().expect("package");
+    std::fs::create_dir_all(package.path().join("src")).expect("src");
+    std::fs::write(
+        package.path().join("Cargo.toml"),
+        "[package]\nname = \"p\"\n",
+    )
+    .expect("manifest");
+    std::fs::write(package.path().join("build.rs"), "fn main() {}\n").expect("build.rs");
+    let scripted = query(json!({
+        "operation": "definition",
+        "path": package.path().join("src/lib.rs").to_string_lossy(),
+        "symbolName": "execute",
+        "line": 10
+    }));
     std::fs::write(
         package.path().join("src/lib.rs"),
         "include!(\"../../elsewhere/types.rs\");\n",
@@ -168,6 +201,11 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     assert_eq!(
         outside["hints"].as_array().map(Vec::len),
         Some(1),
+        "{outside}"
+    );
+    assert_eq!(
+        outside["partialReasons"],
+        json!(["includeOutsidePackage"]),
         "{outside}"
     );
     assert!(
@@ -188,6 +226,11 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     .expect("lib");
     let both = annotated_empty(&scripted, "noLocations", "none", true);
     assert_eq!(both["hints"].as_array().map(Vec::len), Some(2), "{both}");
+    assert_eq!(
+        both["partialReasons"],
+        json!(["includeOutsidePackage", "buildScriptsOff"]),
+        "{both}"
+    );
     assert!(
         both["hints"][1]
             .as_str()

@@ -42,6 +42,8 @@ Load when evidence spans files, writing an ADR or agent instruction file, or che
 
 ## Agent instruction files
 
+When `octocode-agentic-prompts` is available, it owns behavioral wording; this section covers index structure and link checks.
+
 - Check how the target host loads `AGENTS.md` or `CLAUDE.md`; preserve its scope and precedence. Keep nested instructions focused on local differences.
 - Draft as an index; verify every linked path and command.
 - Sections only for non-obvious value: package manager (one line); Commands table (task, command, file-scoped test or lint); External references table (need, path); Key conventions that prevent likely mistakes.

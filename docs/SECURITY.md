@@ -34,7 +34,7 @@ The runtime scans untrusted provider and filesystem content before rendering. De
 - one state: the caller's literal `content`, or the complete selected source captured through the authorized reader and sanitized like a direct tool call;
 - optional explicitly referenced PNG/JPEG assets, captured internally and sent as their original bytes. Image pixels and metadata are not text-scanned or redacted.
 
-Treat questions and selected evidence as disclosed to that provider. Ordinary calls without `classification` send no evidence. When public `clasify` is configured and allowed, host startup sends an authenticated model-catalog ping; neither that ping nor the model catalog operation sends evidence. Source and image locators pass the input and path policy before capture; credential-looking locators are rejected. A URL source is fetched over HTTPS only, under the address policy at connection and every redirect, with bounded size and redirects, and no stored credential is sent to that origin. Image bytes stay out of tool responses, which return capture identity and a saved inspection path instead.
+Treat questions and selected evidence as disclosed to that provider. Ordinary calls without `classification` send no evidence. Catalog discovery does not probe the classification provider; an explicit `clasify operation:"models"` request fetches its model catalog without sending source evidence. Source and image locators pass the input and path policy before capture; credential-looking locators are rejected. A URL source is fetched over HTTPS only, under the address policy at connection and every redirect, with bounded size and redirects, and no stored credential is sent to that origin. Image bytes stay out of tool responses, which return capture identity and a saved inspection path instead.
 
 ## Filesystem policy
 
@@ -48,7 +48,7 @@ Treat questions and selected evidence as disclosed to that provider. Ordinary ca
 
 Denial messages name the path as requested or relative to `~`; outside-root denials list the allowed roots.
 
-`OCTOCODE_ENABLE_LOCAL=false` disables local tools. `clasify` requires a nonblank classification credential and a successful provider ping; it is independent of `OCTOCODE_BETA`.
+[Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) controls MCP catalog exposure. Those switches and tool lists do not hide CLI commands. Both interfaces still enforce the path and content protections above, credential requirements, and storage policy when a call runs.
 
 ## External processes
 

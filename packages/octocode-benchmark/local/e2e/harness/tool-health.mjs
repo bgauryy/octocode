@@ -40,7 +40,7 @@ import { CASES } from './tool-health/cases.mjs';
 import { ADVANCED } from './tool-health/advanced.mjs';
 import { createDriver } from './tool-health/driver.mjs';
 import { transportPagesProblem } from './tool-health/compare.mjs';
-import { runParked, runTool } from './tool-health/run-tool.mjs';
+import { runTool } from './tool-health/run-tool.mjs';
 import { startSurfaces } from './tool-health/surfaces.mjs';
 import { formatCheckSummary, summarizeChecks } from './tool-health/check-summary.mjs';
 
@@ -52,14 +52,11 @@ const PERFORMANCE = args.includes('--performance');
 if (PERFORMANCE && process.env.OCTOCODE_LIVE !== '1') throw new Error('--performance requires OCTOCODE_LIVE=1; default tests use mocks and do not assert wall-clock latency');
 const selected = args.find(a => !a.startsWith('--'))?.split(',');
 const CONCURRENCY = 8;
-const CLI_ONLY = new Set(contract.tools.filter(t => t.cliOnly).map(t => t.name));
 const TOOLS = new Set(contract.tools.map(t => t.name));
-/** Parked tools (contract `disabled`) run on no surface, beta included. */
-const PARKED = new Set(contract.tools.filter(t => t.disabled).map(t => t.name));
 
-// Compile before serving mocks: synchronous schema compilation can otherwise
-// prevent a healthy provider from answering within the startup ping deadline.
-const { validateOutput, validateInput } = contractValidators({ precompile: true });
+// Compile before serving mocks so synchronous schema compilation cannot delay
+// provider responses during tool calls.
+const { validateOutput, validateInput, validateExactInput } = contractValidators({ precompile: true });
 
 const surfaces = await startSurfaces(FIXTURE);
 const { cliArgs } = surfaces;
@@ -80,29 +77,27 @@ try {
   report.coverage = { contractTools, noCase, stale, noAdvanced, staleAdvanced };
   if (noCase.length || stale.length || noAdvanced.length || staleAdvanced.length) { console.log(`FAIL coverage — ${JSON.stringify(report.coverage)}`); exitCode = 1; }
 
-  // Surfaces list every tool: CLI schema (beta on) and MCP tools/list (non-CLI-only).
+  // Surfaces list every contract tool: CLI schema (beta on) and MCP tools/list.
   const schema = await cliArgs(['schema']);
   surfaceServer = await surfaces.mcpServer('schema', FIXTURE);
   const cliTools = (() => { try { return JSON.parse(schema.stdout).tools.map(t => t.name); } catch { return []; } })();
   const mcpTools = surfaceServer.tools.map(t => t.name);
-  const cliExpected = contract.tools.filter(t => !t.disabled).map(t => t.name);
-  const cliMissing = cliExpected.filter(t => !cliTools.includes(t));
-  const mcpExpected = contract.tools.filter(t => !t.cliOnly && !t.disabled).map(t => t.name);
-  const mcpMissing = mcpExpected.filter(t => !mcpTools.includes(t));
-  const mcpExtra = mcpTools.filter(t => !mcpExpected.includes(t));
+  const cliMissing = contractTools.filter(t => !cliTools.includes(t));
+  const mcpMissing = contractTools.filter(t => !mcpTools.includes(t));
+  const mcpExtra = mcpTools.filter(t => !contractTools.includes(t));
   report.surfaces = { cliTools, mcpTools, cliMissing, mcpMissing, mcpExtra };
   if (cliMissing.length || mcpMissing.length || mcpExtra.length) {
-    console.log(`FAIL surfaces — CLI schema lacks: ${cliMissing.join(', ') || '-'}; MCP lacks: ${mcpMissing.join(', ') || '-'}; MCP exposes CLI-only: ${mcpExtra.join(', ') || '-'}`);
+    console.log(`FAIL surfaces — CLI schema lacks: ${cliMissing.join(', ') || '-'}; MCP lacks: ${mcpMissing.join(', ') || '-'}; MCP exposes non-contract: ${mcpExtra.join(', ') || '-'}`);
     exitCode = 1;
   }
 
-  const driver = createDriver({ validate: validateOutput, validateInput, validateTransport: transportPagesProblem, tools: TOOLS, cliOnly: CLI_ONLY, schemaOf: tool => outputSchemas.get(tool) });
+  const driver = createDriver({ validate: validateOutput, validateInput, validateTransport: transportPagesProblem, tools: TOOLS, schemaOf: tool => outputSchemas.get(tool) });
   surfaceServer.close();
   surfaceServer = null;
-  const suite = { driver, surfaces, deep: DEEP, performance: PERFORMANCE, validateOutput, validateInput, advanced: ADVANCED };
+  const suite = { driver, surfaces, deep: DEEP, performance: PERFORMANCE, validateOutput, validateInput, validateExactInput, advanced: ADVANCED };
 
   // One job per tool: each tool and surface has its own credential, so none waits on another's pacing.
-  const queue = contractTools.filter(t => CASES[t] && (!selected || selected.includes(t))).map(t => [t, { ...CASES[t], cliOnly: CLI_ONLY.has(t) }]);
+  const queue = contractTools.filter(t => CASES[t] && (!selected || selected.includes(t))).map(t => [t, CASES[t]]);
   // Longest first: tools with walks and LSP.
   queue.sort((a, b) => (b[1].budgetMs + (b[1].walks?.length ?? 0) * 5000) - (a[1].budgetMs + (a[1].walks?.length ?? 0) * 5000));
   const results = new Map();
@@ -110,7 +105,7 @@ try {
     while (queue.length) {
       const [name, spec] = queue.shift();
       let result;
-      try { result = await (PARKED.has(name) ? runParked : runTool)(suite, name, spec); } catch (error) { result = { tool: name, status: 'FAIL', firstFailure: `harness: ${error.stack?.split('\n').slice(0, 2).join(' ') ?? error}`, errorStack: error.stack, checks: [], timings: [] }; }
+      try { result = await runTool(suite, name, spec); } catch (error) { result = { tool: name, status: 'FAIL', firstFailure: `harness: ${error.stack?.split('\n').slice(0, 2).join(' ') ?? error}`, errorStack: error.stack, checks: [], timings: [] }; }
       result.checkSummary = summarizeChecks(result.checks);
       results.set(name, result);
       const line = `${result.status.padEnd(4)} ${name.padEnd(17)} ${String(result.ms ?? 0).padStart(6)}ms  slowest ${String(result.slowestMs ?? 0).padStart(5)}/${String(result.budgetMs ?? '-').padEnd(5)}ms  ${String(result.calls ?? 0).padStart(3)} calls  checks: ${formatCheckSummary(result.checkSummary)}`;

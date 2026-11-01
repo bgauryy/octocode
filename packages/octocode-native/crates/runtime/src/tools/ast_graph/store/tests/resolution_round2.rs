@@ -42,7 +42,7 @@ fn inherited_calls_follow_bound_bases_and_overrides() {
             "{target}: {}",
             out.value
         );
-        assert_eq!(out.value["results"][0]["via"], "inherited");
+        assert_eq!(out.value["rows"][0]["via"], "inherited");
     }
     let own = call_ids(dir.0.as_path(), "override.ts#Override.send", "high");
     assert_eq!(
@@ -50,6 +50,29 @@ fn inherited_calls_follow_bound_bases_and_overrides() {
         vec!["override.ts#Override.transaction"],
         "{}",
         own.value
+    );
+}
+
+/// ES private methods link like public ones: `this.#m()` and `this?.#m()`
+/// bind to the class's own `#m` (issue #478).
+#[test]
+fn private_method_calls_link_to_their_declarations() {
+    let dir = git_app(&[(
+        "src/a.ts",
+        "export class A {\n  #priv() { return 1; }\n  #opt() { return 2; }\n  pub() { return 3; }\n  run() { this.#priv(); this?.#opt(); this.pub(); }\n}\n",
+    )]);
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let out = call_ids(dir.0.as_path(), "src/a.ts#A.run", "high");
+    let mut got = ids(&out);
+    got.sort();
+    assert_eq!(
+        got,
+        vec!["src/a.ts#A.#opt", "src/a.ts#A.#priv", "src/a.ts#A.pub"],
+        "{}",
+        out.value
     );
 }
 
@@ -150,7 +173,7 @@ fn rust_glob_calls_preserve_identity_through_reexports_and_cycles() {
         "{}",
         out.value
     );
-    assert_eq!(out.value["results"][0]["via"], "import-glob");
+    assert_eq!(out.value["rows"][0]["via"], "import-glob");
 }
 
 #[test]

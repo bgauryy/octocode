@@ -137,6 +137,7 @@ fn select(mut structured: Value, query: &Value, runtime: &Runtime) -> (Value, Va
     let mut response_query = query.clone();
     apply_sanitized_rows(
         ToolId::GhSearchCode,
+        ToolId::GhSearchCode.output(),
         &mut structured,
         &[crate::security::CheckedQuery::checked(query.clone())],
         &[0],
@@ -220,42 +221,41 @@ async fn classification_reads_sanitized_evidence_and_replay_preserves_it() {
 }
 
 #[tokio::test]
-async fn excluded_first_hit_and_capped_hit_reads_do_not_bypass_selection() {
+async fn complete_hit_rows_and_optional_reads_do_not_bypass_selection() {
     let server = fixture().await;
     let (runtime, recorded) = runtime();
     let query = query();
     let captured = capture(&server, &query, &runtime).await;
     let original = &captured["results"][0]["data"];
     assert_eq!(
-        original["next"]["read"]["input"]["queries"][0]["path"],
+        crate::tools::test_support::checks::related_call(original, "ghGetFileContent", |_| true)["input"]
+            ["queries"][0]["path"],
         "src/excluded.rs"
     );
-    assert_eq!(
-        original["next"]["readHits"]["input"]["queries"][0]["path"],
-        "src/excluded.rs"
-    );
-    assert_eq!(
-        original["next"]["readHits2"]["input"]["queries"][0]["path"],
-        "src/selected.rs"
-    );
-    let selected_remainder = original["next"]["readHits2"].clone();
+    assert!(original["next"].get("readHits").is_none());
+    assert!(original["next"].get("readHits2").is_none());
     let (selected, replay_query) = select(captured.clone(), &query, &runtime);
     let data = &selected["results"][0]["data"];
     assert_eq!(data["selection"]["selectedItems"], 1);
     assert_eq!(data["selection"]["excludedItems"], 1);
-    assert!(data["next"].get("read").is_none(), "top hit was excluded");
-    // The excluded file's read is gone; the surviving read is numbered
-    // from the first label, so no gap suggests missing leads.
     assert!(
-        data["next"].get("readHits").is_none(),
-        "excluded file read is removed"
+        crate::tools::test_support::checks::find_related_call(data, "ghGetFileContent", |input| {
+            input["queries"][0]["path"] == "src/excluded.rs"
+        })
+        .is_none(),
+        "excluded top hit must not leak through optional reads"
     );
-    assert_eq!(data["next"]["readHits2"], selected_remainder);
+    assert!(data["next"].get("readHits").is_none());
+    assert!(data["next"].get("readHits2").is_none());
+    assert_eq!(data["files"].as_array().expect("selected files").len(), 1);
+    assert_eq!(data["files"][0]["path"], "src/selected.rs");
     assert_eq!(
-        data["next"]["readHits2"]["input"]["queries"][0]["ranges"],
-        json!([{"startLine":6,"endLine":8}])
+        data["files"][0]["lines"]
+            .as_array()
+            .expect("complete hit lines")
+            .len(),
+        8
     );
-    assert_eq!(data["next"]["readHits2"]["input"]["queries"][0]["ref"], SHA);
 
     let provider_next = &data["next"]["nextPage"]["input"]["queries"][0];
     assert_eq!(provider_next["page"], 2);
@@ -285,8 +285,15 @@ async fn excluded_first_hit_and_capped_hit_reads_do_not_bypass_selection() {
     let recovered = &recovered["results"][0]["data"];
     assert_eq!(recovered["files"].as_array().map(Vec::len), Some(2));
     assert!(recovered["files"][0]["lines"].as_array().is_some());
-    assert!(recovered["next"]["readHits"].is_object());
-    assert!(recovered["next"]["readHits2"].is_object());
+    assert!(recovered["next"].get("readHits").is_none());
+    assert!(recovered["next"].get("readHits2").is_none());
+    assert!(
+        recovered["files"]
+            .as_array()
+            .expect("files")
+            .iter()
+            .all(|file| file["lines"].as_array().expect("complete lines").len() == 8)
+    );
     assert_eq!(recorded.lock().expect("recorded states").len(), 1);
 }
 

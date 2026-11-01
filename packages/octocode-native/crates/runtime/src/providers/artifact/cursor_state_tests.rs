@@ -9,10 +9,6 @@ fn constructed_or_stale_cursor_state_is_rejected() {
             ..Default::default()
         },
         ArtifactProviderState {
-            page: Some(MAX_CURSOR_PAGE + 1),
-            ..Default::default()
-        },
-        ArtifactProviderState {
             page: Some(0),
             ..Default::default()
         },
@@ -31,6 +27,19 @@ fn constructed_or_stale_cursor_state_is_rejected() {
     ] {
         assert!(validate_cursor_state(ArtifactType::Nuget, &state, 50).is_ok());
     }
+}
+
+/// A page number is bounded only by the result position it starts at, never
+/// by a fixed page count: 1-row pages reach as deep as the registry does.
+#[test]
+fn a_page_number_is_bounded_by_its_start_not_a_page_count() {
+    let at = |page: u64| ArtifactProviderState {
+        page: Some(page),
+        ..Default::default()
+    };
+    let deepest = max_start_offset(ArtifactType::Rubygems);
+    assert!(validate_cursor_state(ArtifactType::Rubygems, &at(deepest + 1), 1).is_ok());
+    assert!(validate_cursor_state(ArtifactType::Rubygems, &at(deepest + 2), 1).is_err());
 }
 
 /// A page-addressed registry's page is bounded by the result position

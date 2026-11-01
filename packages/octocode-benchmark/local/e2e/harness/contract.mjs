@@ -8,6 +8,8 @@ export const contract = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/oct
 const presentation = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/octocode-config/contract/cli-presentation.json'), 'utf8'));
 const publicTools = new Map(presentation.tools.map(tool => [tool.name, tool]));
 
+const contractTool = name => contract.tools.find(tool => tool.name === name);
+
 export function contractValidators({ selection = true, precompile = false } = {}) {
   const ajv = createAjv();
   const validatorOf = schemaOf => {
@@ -26,5 +28,13 @@ export function contractValidators({ selection = true, precompile = false } = {}
     const tool = publicTools.get(name);
     return (selection && tool.selection ? tool.selection.mcp : tool.mcp).inputSchema;
   };
-  return { validateInput: validatorOf(publicInput), validateOutput: validatorOf(name => contract.tools.find(tool => tool.name === name).outputSchema) };
+  const listed = validatorOf(publicInput);
+  const exact = validatorOf(name => contractTool(name).inputSchema);
+  return {
+    validateInput: listed,
+    // What native rejects before any work: the listed schema (no private state) plus
+    // the exact form union (a superset's gaps: a field outside its form, a cursor mix).
+    validateExactInput: (tool, value) => listed(tool, value) ?? exact(tool, value),
+    validateOutput: validatorOf(name => contractTool(name).outputSchema),
+  };
 }

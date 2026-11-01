@@ -5,8 +5,11 @@
 //! the parent module.
 use super::write_json;
 use octocode_contract_types::ErrorCode;
+use octocode_native::providers::github::StoredCredentials;
 use octocode_native::response::exit::ExitClass;
-use octocode_native::runtime::{FailureKind, ToolRuntime};
+use octocode_native::runtime::{
+    AuthStatus, FailureKind, LoginPlan, LoginTarget, ToolRuntime, Verification,
+};
 use serde_json::json;
 
 /// A failed auth command: the one `{error, errorCode}` envelope (JSON) or
@@ -21,103 +24,51 @@ fn auth_failure(code: ErrorCode, message: &str, next_step: Option<&str>, json_ou
 
 const LOGIN_NEXT_STEP: &str = "Run `octocode auth login`, or set GITHUB_TOKEN / GH_TOKEN.";
 
-/// Use the same credential hostname for status, login, and logout.
-fn configured_github_host(runtime: &ToolRuntime) -> String {
-    octocode_native::providers::github::configured_credential_host(
-        &runtime.config().resolved.github.api_url,
-    )
-    .unwrap_or_else(|| "github.com".into())
-}
-
-async fn resolve_auth(
-    runtime: &ToolRuntime,
-    host: &str,
-) -> Option<octocode_native::providers::github::AuthSelection> {
-    use octocode_io::budget::RequestBudget;
-    use octocode_native::providers::github::{AuthMode, Authentication};
-    let auth = Authentication::new(std::sync::Arc::new(runtime.config().clone()));
-    let budget = RequestBudget::with_timeout(std::time::Duration::from_secs(5), 0);
-    auth.resolve(host, AuthMode::Inspect, &budget)
-        .await
-        .ok()
-        .flatten()
-}
-
-/// Where the active GitHub token comes from, without verifying it.
-pub(super) async fn active_token_source(runtime: &ToolRuntime) -> Option<String> {
-    let host = configured_github_host(runtime);
-    resolve_auth(runtime, &host)
-        .await
-        .map(|selection| selection.source_label().to_owned())
-}
-
 pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
-    use octocode_native::providers::github::login::{TokenCheck, verify_token};
-    let api_base = &runtime.config().resolved.github.api_url;
-    let hostname = configured_github_host(runtime);
-    let selection = resolve_auth(runtime, &hostname).await;
-    let source = selection.as_ref().map_or("none", |s| s.source_label());
-    // A present token proves nothing: GitHub must accept it. A rejected token
-    // is not authenticated; one GitHub could not be asked about is unverified.
-    let check = match selection.as_ref() {
-        Some(selected) => Some(
-            verify_token(
-                api_base,
-                selected.token(),
-                std::time::Duration::from_secs(5),
-            )
-            .await,
-        ),
-        None => None,
-    };
-    let (authenticated, verification, verified_login) = match check {
-        None => (false, "none", None),
-        Some(TokenCheck::Valid(login)) => (true, "verified", login),
-        Some(TokenCheck::Unverified) => (true, "unverified", None),
-        Some(TokenCheck::Rejected) => (false, "invalid", None),
-    };
-    let username = verified_login.or_else(|| {
-        authenticated
-            .then(|| selection.as_ref().and_then(|s| s.username.clone()))
-            .flatten()
-    });
+    let status = runtime.auth_status().await;
+    let AuthStatus {
+        host,
+        source,
+        verification,
+        username,
+    } = &status;
     // Not authenticated is the documented auth exit (4), whatever the mode.
     let unauthenticated = super::exit_code(ExitClass::Failed(FailureKind::Authentication));
     if json_out {
         let written = write_json(&json!({
-            "authenticated": authenticated,
-            "verification": verification,
+            "authenticated": verification.authenticated(),
+            "verification": verification.as_str(),
             "username": username,
-            "hostname": hostname,
+            "hostname": host,
             "tokenSource": source,
         }));
         return match written {
-            0 if authenticated => 0,
+            0 if verification.authenticated() => 0,
             0 => unauthenticated,
             failed => failed,
         };
     }
     match verification {
-        "verified" | "unverified" => {
-            let note = if verification == "unverified" {
+        Verification::Verified | Verification::Unverified => {
+            let note = if *verification == Verification::Unverified {
                 "; unverified: GitHub could not be reached"
             } else {
                 ""
             };
-            match &username {
+            match username {
                 Some(user) => println!("authenticated as {user} (source: {source}{note})"),
                 None => println!("authenticated (source: {source}{note})"),
             }
             0
         }
-        "invalid" => {
+        Verification::Invalid => {
             eprintln!("invalid token (source: {source}): GitHub rejected it (HTTP 401)");
             eprintln!(
                 "Run `octocode auth login`, or fix or unset the token; an invalid env token overrides stored login."
             );
             unauthenticated
         }
-        _ => {
+        Verification::None => {
             eprintln!("unauthenticated");
             eprintln!("{LOGIN_NEXT_STEP}");
             unauthenticated
@@ -133,81 +84,37 @@ pub async fn login(
     json_out: bool,
 ) -> u8 {
     // `--hostname` overrides the configured GitHub host for enterprise device
-    // login; otherwise fall back to the host derived from `github.apiUrl`.
-    let host = hostname
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| configured_github_host(runtime));
-    let client_id_env = octocode_native::config::environment::OCTOCODE_GITHUB_CLIENT_ID;
-    let client_id = octocode_native::providers::github::login::client_id_for_host(
-        &host,
-        runtime.config().env_value(client_id_env),
-    );
-    if client_id.is_empty() {
-        let message =
-            format!("{client_id_env} is required for GitHub Enterprise device login and refresh.");
-        return auth_failure(ErrorCode::MissingConfiguration, &message, None, json_out);
+    // login; otherwise the host derived from `github.apiUrl`.
+    let target = match runtime.login_target(hostname) {
+        Ok(target) => target,
+        Err((code, message)) => return auth_failure(code, &message, None, json_out),
+    };
+    match runtime.login_plan(&target, force, refresh) {
+        LoginPlan::Refresh => refresh_login(runtime, &target, json_out).await,
+        LoginPlan::AlreadyAuthenticated(existing) => {
+            already_authenticated(&existing, &target.host, json_out)
+        }
+        LoginPlan::DeviceFlow { env_override } => {
+            // Non-fatal: the environment token keeps winning until it is unset.
+            if let Some(var) = env_override.filter(|_| !json_out) {
+                eprintln!(
+                    "⚠ {var} is set and takes priority over stored credentials until you unset it."
+                );
+            }
+            use std::io::IsTerminal;
+            if !std::io::stdin().is_terminal() {
+                let message =
+                    "login requires an interactive terminal, or set GITHUB_TOKEN / GH_TOKEN.";
+                return auth_failure(ErrorCode::InvalidInput, message, None, json_out);
+            }
+            device_login(runtime, &target, json_out).await
+        }
     }
-
-    let credential_store =
-        octocode_native::providers::github::CredentialStore::new(&runtime.config().home);
-
-    // Refresh path: exchange the stored refresh token; no device flow, no TTY.
-    if refresh {
-        return refresh_login(&host, client_id, &credential_store, json_out).await;
-    }
-
-    // Already-authenticated short-circuit: a stored OAuth credential for this
-    // host is left in place unless `--force` re-authenticates.
-    let stored = credential_store
-        .load(&host)
-        .ok()
-        .flatten()
-        .map(|(stored, _)| stored);
-    if let Some(existing) = stored.as_ref().filter(|stored| {
-        !force && !octocode_native::providers::github::login::is_token_expired(stored)
-    }) {
-        return already_authenticated(existing, &host, json_out);
-    }
-
-    // Warn when an environment token is set: it takes priority over the stored
-    // OAuth credential this flow writes, so the new login won't be used until
-    // the variable is unset. Non-fatal. The variable name comes from the same
-    // resolved selection the request path uses (`config.token`, source
-    // `env:<VAR>`) so it names the token that would actually win.
-    let env_token_var = runtime
-        .config()
-        .token
-        .as_ref()
-        .map(octocode_native::config::PrivateTokenSelection::source)
-        .and_then(|source| source.strip_prefix("env:"));
-    if let Some(var) = env_token_var
-        && !json_out
-    {
-        eprintln!("⚠ {var} is set and takes priority over stored credentials until you unset it.");
-    }
-
-    use std::io::IsTerminal;
-    if !std::io::stdin().is_terminal() {
-        let message = "login requires an interactive terminal, or set GITHUB_TOKEN / GH_TOKEN.";
-        return auth_failure(ErrorCode::InvalidInput, message, None, json_out);
-    }
-
-    device_login(&host, client_id, &credential_store, json_out).await
 }
 
 /// `auth login --refresh`: exchange the stored refresh token.
-async fn refresh_login(
-    host: &str,
-    client_id: &str,
-    store: &octocode_native::providers::github::CredentialStore,
-    json_out: bool,
-) -> u8 {
-    let result = octocode_native::providers::github::login::refresh_auth_token_result_in_store(
-        host, client_id, store,
-    )
-    .await;
+async fn refresh_login(runtime: &ToolRuntime, target: &LoginTarget, json_out: bool) -> u8 {
+    let result = runtime.refresh_login(target).await;
     if result.success {
         let host_label = result.hostname.as_deref().unwrap_or("github.com");
         if json_out {
@@ -234,11 +141,7 @@ async fn refresh_login(
 }
 
 /// A live stored OAuth credential for `host`: left in place.
-fn already_authenticated(
-    existing: &octocode_native::providers::github::StoredCredentials,
-    host: &str,
-    json_out: bool,
-) -> u8 {
+fn already_authenticated(existing: &StoredCredentials, host: &str, json_out: bool) -> u8 {
     if json_out {
         return write_json(&json!({
             "success": true,
@@ -259,21 +162,8 @@ fn already_authenticated(
 
 /// The device flow; the old login stays until the replacement has been
 /// authenticated and saved.
-async fn device_login(
-    host: &str,
-    client_id: &str,
-    store: &octocode_native::providers::github::CredentialStore,
-    json_out: bool,
-) -> u8 {
-    let endpoints = octocode_native::providers::github::login::LoginEndpoints::from_host(host);
-    match octocode_native::providers::github::login::login_device_flow_in_store(
-        &endpoints,
-        client_id,
-        &tokio_util::sync::CancellationToken::new(),
-        store,
-    )
-    .await
-    {
+async fn device_login(runtime: &ToolRuntime, target: &LoginTarget, json_out: bool) -> u8 {
+    match runtime.device_login(target).await {
         Ok(stored) => {
             if json_out {
                 return write_json(&json!({
@@ -299,8 +189,11 @@ async fn device_login(
 }
 
 pub fn logout(runtime: &ToolRuntime, json_out: bool) -> u8 {
-    let store = octocode_native::providers::github::CredentialStore::new(&runtime.config().home);
-    logout_with(runtime, &|host| store.delete(host), json_out)
+    logout_with(
+        runtime,
+        &|host| runtime.delete_github_credential(host),
+        json_out,
+    )
 }
 
 fn logout_with(
@@ -309,9 +202,8 @@ fn logout_with(
     json_out: bool,
 ) -> u8 {
     let view = runtime.inspect_config();
-    // Same host derivation as auth status / login so all three target the
-    // identical credential-store host (api.github.com → github.com).
-    let host = configured_github_host(runtime);
+    // Status, login and logout target the one credential host.
+    let host = runtime.github_credential_host();
     match delete(&host) {
         Ok(()) if json_out => {
             write_json(&json!({"loggedOut": true, "hostname": host, "home": view.home}))

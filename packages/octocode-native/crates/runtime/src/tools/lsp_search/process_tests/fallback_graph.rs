@@ -4,6 +4,7 @@
 use super::*;
 use octocode_contract_types::LspSearchQuery;
 
+mod candidates;
 mod hierarchy;
 
 type ImplementationTargets<'a> = (&'a str, usize, &'a [(&'a str, usize)]);
@@ -29,6 +30,25 @@ fn fallback_graph_pages(
     implementations: &[ImplementationTargets<'_>],
     queries: &[(&str, &str, usize, u32)],
 ) -> Vec<Vec<serde_json::Value>> {
+    fallback_graph_walk(files, definitions, implementations, queries, None).0
+}
+
+/// A server named `name` (its command stem) that answers each location
+/// request `delay_ms` late, and the most requests it held at once.
+struct Delayed<'a> {
+    name: &'a str,
+    delay_ms: u32,
+}
+
+/// [`fallback_graph_pages`] against the server, or a [`Delayed`] one, and
+/// the most location requests that server held at once (0 when undelayed).
+fn fallback_graph_walk(
+    files: &[(&str, &str)],
+    definitions: &[(&str, usize, &str, &str, usize)],
+    implementations: &[ImplementationTargets<'_>],
+    queries: &[(&str, &str, usize, u32)],
+    delayed: Option<Delayed<'_>>,
+) -> (Vec<Vec<serde_json::Value>>, usize) {
     use crate::execution::cancel::NeverCancel;
     use crate::tools::lsp_search::ops::Operation;
     use crate::tools::lsp_search::source::{SourceCache, snippet_policy};
@@ -96,25 +116,52 @@ fn fallback_graph_pages(
     const p = msg.params.position;
     const key = `${file}:${p.line}:${p.character}`;
     const entries = graph[msg.method.endsWith('/definition') ? 'definitions' : 'implementations'];
-    send({ jsonrpc: '2.0', id: msg.id, result: entries[key] || [] });"#,
+    const reply = () => send({ jsonrpc: '2.0', id: msg.id, result: entries[key] || [] });
+    const delay = Number(process.env.FAKE_LSP_DELAY || 0);
+    if (!delay) { reply(); return; }
+    globalThis.held = (globalThis.held || 0) + 1;
+    globalThis.peak = Math.max(globalThis.peak || 0, globalThis.held);
+    fs.writeFileSync(process.env.FAKE_LSP_PEAK, String(globalThis.peak));
+    setTimeout(() => { globalThis.held -= 1; reply(); }, delay);"#,
         );
+    let script = match &delayed {
+        Some(delayed) => {
+            use std::os::unix::fs::PermissionsExt;
+            let named = root.join(delayed.name);
+            std::fs::write(&named, &server).expect("named server");
+            std::fs::set_permissions(&named, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod");
+            named
+        }
+        None => script,
+    };
     std::fs::write(&script, server).expect("fixture server");
+    let peak = root.join("peak.log");
     let mut config = config(&root, &script, None);
     config.env = Some(
         [("FAKE_LSP_GRAPH".into(), graph.to_string())]
             .into_iter()
+            .chain(
+                delayed
+                    .as_ref()
+                    .map(|delayed| ("FAKE_LSP_DELAY".into(), delayed.delay_ms.to_string())),
+            )
+            .chain(
+                delayed
+                    .as_ref()
+                    .map(|_| ("FAKE_LSP_PEAK".into(), peak.to_string_lossy().into_owned())),
+            )
             .collect(),
     );
     let paths = crate::tools::test_support::workspace_policy(&root);
-    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+    let rows = tokio::runtime::Runtime::new().expect("rt").block_on(async {
         let client = NativeLspClient::new(config);
         client.start().await.expect("server starts");
         let mut rows = Vec::new();
         for (operation, file, line, depth) in queries {
-            let node = declaration(file, *line);
             let name = files.iter().find(|(entry, _)| entry == file).expect("file").1.lines().nth(*line).expect("line").split_whitespace().nth(2).expect("name");
             let path = root.join(file).to_string_lossy().into_owned();
-            let start = json!({"operation":operation,"path":path,"line":line+1,"symbolName":name,"graphDepth":depth});
+            let start = json!({"operation":operation,"path":path,"line":line+1,"symbolName":name,"depth":depth});
             let mut pages = Vec::new();
             let mut walker = Walker::new(ToolId::LspSearch.as_str(), json!({"queries":[start]}));
             while let Some(call) = walker.next_query() {
@@ -123,9 +170,11 @@ fn fallback_graph_pages(
                 let mut sources = SourceCache::new(&paths);
                 let policy = snippet_policy(&paths);
                 let scope = crate::tools::lsp_search::scope::Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".into()]);
+                // Each call anchors where its query says: a resumed walk
+                // re-anchors on another node by name, line and occurrence.
+                let (path, line, character) = query_anchor(&wire);
                 let row = Operation { client: &client, query: &query, sources: &mut sources, snippet_policy: &policy,
-                    cancel: &NeverCancel, path: &path, scope: &scope, root_only: false, line: u32::try_from(*line).expect("line"),
-                    character: u32::try_from(node["range"]["start"]["character"].as_u64().expect("character")).expect("character"),
+                    cancel: &NeverCancel, path: &path, scope: &scope, root_only: false, line, character,
                     language_id:Some("typescript"), budget:16_000, response_window:None }.run().await.expect("fallback hierarchy");
                 let row = crate::tools::lsp_search::failure::with_next(&query, row);
                 if let Some(next) = row.pointer("/next/nextPage/input/queries/0") {
@@ -141,7 +190,25 @@ fn fallback_graph_pages(
         }
         client.stop().await.expect("fixture server closed");
         rows
-    })
+    });
+    let held = std::fs::read_to_string(&peak).map_or(0, |peak| peak.trim().parse().expect("peak"));
+    (rows, held)
+}
+
+/// The zero-based anchor of a query row: its path, its line, and the UTF-16
+/// column of the `occurrence`-th whole-word `symbolName` on that line.
+fn query_anchor(wire: &serde_json::Value) -> (String, u32, u32) {
+    let path = wire["path"].as_str().expect("path").to_owned();
+    let line = u32::try_from(wire["line"].as_u64().expect("line") - 1).expect("line");
+    let name = wire["symbolName"].as_str().expect("symbolName");
+    let occurrence = usize::try_from(wire["occurrence"].as_u64().unwrap_or(0)).expect("occurrence");
+    let text = std::fs::read_to_string(&path).expect("anchor source");
+    let row = text.lines().nth(line as usize).expect("anchor line");
+    let start = octocode_engine::text::whole_word_starts(row, name)
+        .nth(occurrence)
+        .expect("anchored name");
+    let character = row[..start].encode_utf16().count();
+    (path, line, u32::try_from(character).expect("character"))
 }
 
 #[test]
@@ -256,9 +323,9 @@ fn fallback_subtypes_page_the_anchor_candidates_by_window() {
         "no remaining required work: {last}"
     );
     let deeper = &crate::tools::test_support::checks::related_call(last, "lspSearch", |input| {
-        input["queries"][0]["graphDepth"] == 2
+        input["queries"][0]["depth"] == 2
     })["input"]["queries"][0];
-    assert_eq!(deeper["graphDepth"], 2, "{last}");
+    assert_eq!(deeper["depth"], 2, "{last}");
     assert!(
         deeper.get("candidatePage").is_none(),
         "from the start: {last}"

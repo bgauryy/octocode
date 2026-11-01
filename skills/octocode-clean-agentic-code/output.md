@@ -36,6 +36,8 @@ Then the `#` title and a lead paragraph stating the answer. Always include `## R
 | Item | Why deferred | What would settle it |
 |---|---|---|
 
+Report-only defects (error masking, stubs, test or grader gaming) go under `## Deferred` as one SBAR line each below the table.
+
 End `## Checks` with the change command, such as `git diff -- <paths>`.
 
 After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.

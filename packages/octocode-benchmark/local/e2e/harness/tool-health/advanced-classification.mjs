@@ -8,6 +8,24 @@ import { sectionChecks, unreadSectionsChecks, memorySectionsChecks } from './cla
 import { inlineChecks } from './classification-inline.mjs';
 import { githubImageChecks, urlPolicyChecks } from './classification-network.mjs';
 
+const CONTRACT = new URL('../../../../../octocode-config/contract/tool-contract.json', import.meta.url);
+
+/** The score criteria maximum the generated contract admits; core owns it. */
+function scoreLevelsMaximum() {
+  const clasify = JSON.parse(fs.readFileSync(CONTRACT, 'utf8')).tools.find(tool => tool.name === 'clasify');
+  const maxima = [];
+  const walk = node => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== 'object') return;
+    const criteria = node.properties?.criteria;
+    if (typeof criteria?.maxItems === 'number') maxima.push(criteria.maxItems);
+    Object.values(node).forEach(walk);
+  };
+  walk(clasify);
+  assert.ok(maxima.length, 'clasify score criteria declare a maximum');
+  return Math.max(...maxima);
+}
+
 async function literalChecks(ctx, surface, provider) {
   const checks = [], call = query => ctx.call(ctx.q(query), surface);
   const models = data(await call({ operation: 'models' }));
@@ -207,7 +225,7 @@ function invalidShapes() {
     tooManyQuestions: { ...row, questions: Object.fromEntries(Array.from({ length: 26 }, (_, i) => [`q${i}`, noul('Is evidence present?')])) },
     emptyChoice: { ...row, questions: { choice: { type: 'choice', criteria: {} } } },
     emptyScore: { ...row, questions: { score: { type: 'score', criteria: [] } } },
-    scoreOverflow: { ...row, questions: { score: { type: 'score', criteria: Array(11).fill('level') } } },
+    scoreOverflow: { ...row, questions: { score: { type: 'score', criteria: Array(scoreLevelsMaximum() + 1).fill('level') } } },
   });
 }
 
@@ -216,7 +234,7 @@ async function admissionChecks(ctx, surface, provider) {
   for (const [label, query] of invalidShapes()) {
     const input = ctx.q(query), result = await ctx.call(input, surface);
     const errorCode = result.json?.errorCode ?? data(result)?.errorCode;
-    checks.push([`admission.${label}`, ctx.validateInput('clasify', input) !== null && errorCode === 'invalidInput'
+    checks.push([`admission.${label}`, ctx.validateExactInput('clasify', input) !== null && errorCode === 'invalidInput'
       && provider.sent.length === before, result.json]);
   }
   return checks;

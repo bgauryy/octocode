@@ -1,6 +1,12 @@
 //! The detector run context and how findings are drafted into it.
 use super::*;
 
+/// A verify step: the tool and its query row. `issues` pins graphQuery
+/// steps to the snapshot it reads and states each as a related call.
+pub(super) fn step(tool: ToolId, row: Value) -> VerifyStep {
+    VerifyStep { tool, row }
+}
+
 // ── Detectors ───────────────────────────────────────────────────────────────
 
 /// `(timing label, detectors it produces, runner)`.
@@ -58,7 +64,7 @@ pub(super) struct Draft<'a> {
     pub(super) impact: f64,
     pub(super) evidence: Value,
     pub(super) controls: Vec<&'static str>,
-    pub(super) verify: Vec<String>,
+    pub(super) verify: Vec<VerifyStep>,
 }
 
 pub(super) fn push(out: &mut Vec<Finding>, draft: Draft<'_>) {

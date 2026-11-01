@@ -22,8 +22,8 @@ fn short_peer_evidence_is_priced_with_its_large_descriptor_and_delivered_once() 
         let peer = json!([{"id":"peer","sourceOrigin":origin(1)}]);
         let row = json!({"data":{"primary":primary,"peer":peer,"sourceEvidence":descriptors}});
         let mut arena = FragmentArena {
-            collection_routes: Some(routes()),
-            ..Default::default()
+            collection_routes: routes(),
+            ..FragmentArena::new(crate::id::ToolId::Clasify)
         };
         let mut fragments = Vec::new();
         arena

@@ -3,7 +3,7 @@
 use super::super::files::{is_traversal, sort_key};
 use super::super::walk_policy::{WalkLeft, WalkPolicy};
 use super::super::walked::Walked;
-use super::super::{Resumes, Walking, end_window, max_walk, rows, walk_error};
+use super::super::{Resumes, Walking, end_window, rows, walk_error};
 use super::Listing;
 use crate::execution::cancel::CancellationCheck;
 use crate::num::u32_of_usize;
@@ -44,17 +44,27 @@ pub(super) fn walk_listing<Q: Listing>(
         filtered: q.filtered(),
     };
     let sort = q.sort();
-    let walk_limit = if q.early_exit() || bound.is_some() {
-        u32_of_usize(requested)
+    // The rows this window ends at: the earlier windows' (`scanOffset`)
+    // and its own `requested`.
+    let window_end = q.scan_offset().saturating_add(requested);
+    // A probe stops at its own entry cap, and a walk-order listing at the
+    // first match past its window (the first matches are final once found);
+    // any other listing walks its whole scope, bounded only by time, so
+    // its sort ranks every entry.
+    let walk_limit = if bound.is_some() {
+        Some(u32_of_usize(requested))
+    } else if q.early_exit() {
+        Some(u32_of_usize(window_end))
     } else {
-        max_walk()
+        None
     };
     let resumes = Resumes {
         identity: q.walk_identity(root),
         paths,
         root,
     };
-    let (resume, window_rows) = resumes.options(walking, q.walk_offset(), requested);
+    let (resume, window_rows) = resumes.options(walking, q.walk_offset(), window_end);
+    let test_code = TestCodeLeft::of(q.test_code(), paths);
     let mut native = octocode_engine::search::fs_query::query_file_system(
         FileSystemQueryOptions {
             resume,
@@ -64,7 +74,8 @@ pub(super) fn walk_listing<Q: Listing>(
             exclude_dir: None,
             stop_at_limit: Some(true),
             skip_entries: Some(q.walk_offset()),
-            limit: Some(walk_limit),
+            limit: walk_limit,
+            lists: test_code.as_ref().map(TestCodeLeft::rule),
             ..q.engine_options(root)
         },
         &|path, file_type, visit| left.admit(&policy, path, file_type, visit),
@@ -100,7 +111,12 @@ pub(super) fn walk_listing<Q: Listing>(
     } else {
         vec![None; native.entries.len()]
     };
-    let window = end_window(&mut native, requested, q.scan_offset(), is_traversal(&sort));
+    let window = end_window(
+        &mut native,
+        window_end,
+        q.scan_offset(),
+        is_traversal(&sort),
+    );
     resumes.keep(&mut native, walking);
     // `end_window` keeps a walk-order prefix: the counts of its entries.
     lines.truncate(native.entries.len());
@@ -108,9 +124,59 @@ pub(super) fn walk_listing<Q: Listing>(
     rows::sort_rows(&mut rows, &sort);
     let mut walk = Walked::finish(native, rows, requested, q.scan_offset(), left, security);
     walk.meta.time_window = window;
-    walk.meta.ranked = !is_traversal(&sort);
+    walk.meta.test_code_excluded = test_code.map(|left| left.through(walk.meta.walk_position));
     rows::group(&mut walk.rows, &sort);
     Ok(walk)
+}
+
+/// A `testCode` scope over a listing walk, and the walk positions of the
+/// entries it left out: a window counts those it covers.
+struct TestCodeLeft {
+    scoped: std::sync::Arc<crate::tools::test_code::Scoped>,
+    left: std::sync::Arc<std::sync::Mutex<Vec<u32>>>,
+}
+
+impl TestCodeLeft {
+    fn of(scope: Option<octocode_contract_types::TestCode>, paths: &PathPolicy) -> Option<Self> {
+        crate::tools::test_code::Scoped::of(scope, paths).map(|scoped| Self {
+            scoped: std::sync::Arc::new(scoped),
+            left: std::sync::Arc::default(),
+        })
+    }
+
+    /// The engine's listing rule: the scope's verdict, recording each entry
+    /// left out by position.
+    fn rule(&self) -> octocode_engine::types::ListsEntry {
+        let (scoped, left) = (
+            std::sync::Arc::clone(&self.scoped),
+            std::sync::Arc::clone(&self.left),
+        );
+        octocode_engine::types::ListsEntry(std::sync::Arc::new(move |path, is_dir, position| {
+            let listed = scoped.lists(path, is_dir);
+            if !listed {
+                left.lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(position);
+            }
+            listed
+        }))
+    }
+
+    /// The entries left out at walk positions through `through`.
+    fn through(self, through: usize) -> crate::tools::test_code::Excluded {
+        let left = self
+            .left
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        crate::tools::test_code::Excluded {
+            files: crate::num::u32_of_usize(
+                left.iter()
+                    .filter(|position| crate::num::usize_of(**position) <= through)
+                    .count(),
+            ),
+            lines: 0,
+        }
+    }
 }
 
 /// End the walk before `native.entries[at]`, as its time budget does: the
@@ -124,8 +190,8 @@ fn cut_walk_before(native: &mut octocode_engine::types::FileSystemQueryResult, a
         first.relative_path.clone(),
         first.walk_position.saturating_sub(1),
     );
-    // The window ends before the walk's own end, so not at its ceiling, and
-    // counts only what it covers.
+    // The window ends before the walk's own end and counts only what it
+    // covers.
     native.end_at(before);
     native.time_cut = Some(relative);
 }

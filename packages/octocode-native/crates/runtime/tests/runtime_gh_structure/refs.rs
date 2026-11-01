@@ -128,8 +128,7 @@ async fn refs_with_ref_resolves_one_ref() {
     .await
     .expect("one ref");
     let data = row_data(&outcome);
-    assert_eq!(data["owner"], "a");
-    assert_eq!(data["repo"], "b");
+    assert!(data.get("owner").is_none() && data.get("repo").is_none());
     assert_eq!(data["commitSha"], "7".repeat(40));
     assert_eq!(data["refKind"], "tag");
     assert!(

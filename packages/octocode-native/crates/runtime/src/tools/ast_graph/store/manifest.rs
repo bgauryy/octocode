@@ -16,7 +16,6 @@ pub(super) struct ManifestInput<'a> {
     pub(super) projection: &'a tables::Projection,
     pub(super) bytes: usize,
     pub(super) digest: &'a str,
-    pub(super) max_files: u32,
     pub(super) exclude_dir: &'a [String],
     pub(super) language_globs: &'a BTreeMap<String, Vec<String>>,
     pub(super) inputs: &'a BTreeMap<String, String>,
@@ -84,9 +83,6 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         "scan": {
             "filesScanned": input.built.facts.len(),
             "filesSkipped": input.built.files_skipped,
-            // The file scan stopped at `maxFiles`.
-            "truncated": input.built.truncated,
-            "maxFiles": input.max_files,
             "excludeDir": input.exclude_dir,
         },
         "counts": {
@@ -101,6 +97,7 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
             "unresolvedInternal": imports[ImportOutcome::UnresolvedInternal as usize],
             "unsupported": imports[ImportOutcome::Unsupported as usize],
             "nonCode": imports[ImportOutcome::NonCode as usize],
+            "unscanned": imports[ImportOutcome::Unscanned as usize],
         },
         "calls": input.projection.calls,
         "argumentCoverage": argument_coverage::coverage(input.built, tables),

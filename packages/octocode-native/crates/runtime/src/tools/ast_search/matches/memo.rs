@@ -1,7 +1,7 @@
+use super::MatchQuery;
 use super::scan::{scan_directory, scan_file, sort_files};
 use super::snapshot::memo_source_unchanged;
 use super::types::{Scan, Scope};
-use super::{MatchQuery, content_length};
 use crate::response::result::ToolError;
 use crate::{execution::cancel::CancellationCheck, policy::path::PathPolicy};
 use octocode_engine::structural::{FileMatches, StructuralDiagnostic};
@@ -39,8 +39,8 @@ pub(super) fn scan_key(q: MatchQuery<'_>, paths: &PathPolicy) -> String {
         q.default_excludes(),
         super::super::source::MAX_PARSE_SOURCE_BYTES,
         q.capture_text().unwrap_or(false),
-        content_length(q),
-        q.provenance()
+        q.provenance(),
+        q.test_code()
     ]))
 }
 
@@ -158,7 +158,7 @@ pub(super) fn shared_scan(
     }
     let started = octocode_engine::stamp::settle_clock();
     let mut scan = if scope.is_file {
-        scan_file(q, scope, cancel)?
+        scan_file(q, scope, paths, cancel)?
     } else {
         scan_directory(q, scope, paths, cancel)?
     };

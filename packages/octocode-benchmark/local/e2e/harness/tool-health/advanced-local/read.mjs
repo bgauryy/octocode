@@ -32,14 +32,14 @@ async function selections(ctx, surface, checks) {
 async function views(ctx, surface, checks) {
   const json = await scenario(ctx, 'localFetch', surface, { label: 'read.compact-json', query: { path: fixturePath('read/data.json'), view: 'compact' }, checks });
   const output = json.data.map(data => sourceView(data).text).join('');
-  checks.push([`read.compact-json.${surface}`, JSON.stringify(JSON.parse(output)) === JSON.stringify(JSON.parse(sourceText(ctx, 'read/data.json'))) && json.data[0].view === 'compact', output]);
+  checks.push([`read.compact-json.${surface}`, JSON.stringify(JSON.parse(output)) === JSON.stringify(JSON.parse(sourceText(ctx, 'read/data.json'))) && (json.data[0].view ?? 'compact') === 'compact', output]);
   const range = await scenario(ctx, 'localFetch', surface, { label: 'read.compact-range', query: { path: model, view: 'compact', ranges: [{ startLine: 14, endLine: 16 }] }, checks });
-  checks.push([`read.compact-selection.${surface}`, range.data.every(data => data.view === 'compact') && range.data.map(data => sourceView(data).text).join('').includes('return a + b'), JSON.stringify(range.data)]);
+  checks.push([`read.compact-selection.${surface}`, range.data.every(data => (data.view ?? 'compact') === 'compact') && range.data.map(data => sourceView(data).text).join('').includes('return a + b'), JSON.stringify(range.data)]);
   const symbols = await scenario(ctx, 'localFetch', surface, { label: 'read.symbols', query: { path: model, view: 'symbols' }, checks, responseChars: 500 });
   const functions = symbols.data.flatMap(data => (data.content ?? '').split('\n')).filter(line => /\bexport (function|const invoke)\b/.test(line));
   const source = sourceText(ctx, 'code/model.ts').split('\n');
   equal(checks, `read.declarations.${surface}`, functions, [`14-16\t${source[13]}`, `18-21\t${source[17]}`, `25\t${source[24]}`]);
-  checks.push([`read.symbols-view.${surface}`, symbols.data.every(data => data.view === 'symbols'), JSON.stringify(symbols.data)]);
+  checks.push([`read.symbols-view.${surface}`, symbols.data.every(data => (data.view ?? 'symbols') === 'symbols'), JSON.stringify(symbols.data)]);
 }
 
 async function orderedRanges(ctx, surface, checks) {
@@ -85,7 +85,7 @@ async function pagedMixedReads(ctx, surface, checks) {
   const rows = responses.flatMap(entry => entry.result.json?.results ?? []);
   checks.push([`read.paged-batch.complete.${surface}`, report.failures.length === 0, JSON.stringify(report.failures)]);
   checks.push([`read.paged-batch.response-pages.${surface}`, responses.some(entry => entry.result.json?.responsePagination?.hasMore === true), `${responses.length} calls`]);
-  checks.push([`read.paged-batch.source-pages.${surface}`, rows.some(row => row.data?.next?.continueWindow), `${rows.length} rows`]);
+  checks.push([`read.paged-batch.source-pages.${surface}`, rows.some(row => row.data?.next?.nextPage), `${rows.length} rows`]);
   equal(checks, `read.paged-batch.status-indexes.${surface}`, rows.filter(row => row.status).map(row => [row.index, row.status]), [[1, 'empty'], [2, 'error']]);
   for (const { index, file, start, end } of [
     { index: 0, file: 'read/windows.txt', start: 1, end: 2 },

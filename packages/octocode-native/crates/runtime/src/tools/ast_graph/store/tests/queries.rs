@@ -1,5 +1,6 @@
 //! Query operations: answers, references, paging, flags and leads.
 use super::*;
+use crate::tools::ast_graph::test_support::{next_offset, next_query};
 
 #[test]
 fn queries_answer_imports_calls_cycles_and_packages() {
@@ -20,12 +21,12 @@ fn queries_answer_imports_calls_cycles_and_packages() {
 
     let callers = ask(root, "callers", Some("greet"), |_| {});
     assert_eq!(ids(&callers), vec!["src/main.ts#main"], "{}", callers.value);
-    assert_eq!(callers.value["results"][0]["via"], "import");
-    assert_eq!(callers.value["results"][0]["confidence"], "high");
+    assert_eq!(callers.value["rows"][0]["via"], "import");
+    assert_eq!(callers.value["rows"][0]["confidence"], "high");
 
     let callees = ask(root, "callees", Some("src/lib.ts#greet"), |_| {});
     assert_eq!(ids(&callees), vec!["src/lib.ts#shout"]);
-    assert_eq!(callees.value["results"][0]["via"], "local");
+    assert_eq!(callees.value["rows"][0]["via"], "local");
 
     let member = ask(root, "callees", Some("Box.open"), |_| {});
     assert_eq!(
@@ -36,9 +37,9 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     );
 
     let cycles = ask(root, "cycles", None, |_| {});
-    assert_eq!(cycles.value["total"], 1, "{}", cycles.value);
+    assert_eq!(cycles.value["pagination"]["totalItems"], 1, "{}", cycles.value);
     assert_eq!(
-        cycles.value["results"][0]["nodes"],
+        cycles.value["rows"][0]["nodes"],
         json!(["src/a.ts", "src/b.ts"])
     );
 
@@ -116,12 +117,8 @@ fn list_operations_page_with_a_runnable_next_command() {
         o.limit = Some(2);
     });
     assert_eq!(first.class, ExitClass::Success, "paging is success");
-    assert_eq!(first.value["truncated"], true);
-    let next = first.value["next"].as_str().expect("next");
-    assert!(
-        next.contains("--offset 2") && next.contains("--limit 2"),
-        "{next}"
-    );
+    assert_eq!(first.value["pagination"]["hasMore"], true);
+    assert_eq!(next_offset(&first), Some(2), "{}", first.value);
     let second = ask(dir.0.as_path(), "symbols", Some("src/lib.ts"), |o| {
         o.limit = Some(2);
         o.offset = Some(2);
@@ -150,7 +147,7 @@ fn heritage_and_jsx_become_inherits_and_renders_edges() {
     let bases = ask(dir.0.as_path(), "deps", Some("Crate"), |o| {
         o.edges = vec!["inherits".into()];
     });
-    let rows = bases.value["results"].as_array().expect("rows");
+    let rows = bases.value["rows"].as_array().expect("rows");
     let got = rows
         .iter()
         .map(|r| {
@@ -181,44 +178,7 @@ fn heritage_and_jsx_become_inherits_and_renders_edges() {
         "{}",
         renders.value
     );
-    assert_eq!(renders.value["results"][0]["via"], "renders:local");
-}
-
-/// Every answer over a snapshot whose scan was cut says so in its graph
-/// block: the cut and, for a file-scan cut, the re-ingest that lifts it.
-#[test]
-fn answers_over_a_cut_snapshot_name_the_cut_and_the_reingest() {
-    let dir = fixture();
-    let root = dir.0.as_path();
-    let out = ingest(
-        &IngestOptions {
-            path: root.join("app"),
-            workspace: Some(root.to_path_buf()),
-            max_files: Some(2),
-            ..Default::default()
-        },
-        &workspace_policy(root),
-        &ContentSecurity::new(),
-        &NeverCancel,
-        None,
-    );
-    assert_eq!(out.value["scan"]["truncated"], true, "{}", out.value);
-    for op in ["cycles", "stats", "issues"] {
-        let answer = ask(root, op, None, |_| {});
-        let graph = &answer.value["graph"];
-        assert_eq!(
-            graph["partialReasons"],
-            json!(["maxFiles"]),
-            "{op}: {graph}"
-        );
-        let reingest = graph["reingest"].as_str().expect("reingest");
-        assert!(reingest.ends_with(" --max-files 4"), "{op}: {reingest}");
-    }
-    let full = ingest_root(root, &root.join("app"), None, true);
-    assert_eq!(full.value["scan"]["truncated"], false, "{}", full.value);
-    let graph = &ask(root, "cycles", None, |_| {}).value["graph"];
-    assert!(graph.get("partialReasons").is_none(), "{graph}");
-    assert!(graph.get("reingest").is_none(), "{graph}");
+    assert_eq!(renders.value["rows"][0]["via"], "renders:local");
 }
 
 /// Flags outside their documented range are bad input (exit 2), never
@@ -228,12 +188,17 @@ fn out_of_range_flags_are_rejected_and_a_page_past_the_end_is_empty() {
     let dir = fixture();
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
-    for (depth, limit) in [
-        (Some(0), None),
-        (Some(21), None),
-        (None, Some(0)),
-        (None, Some(1001)),
-    ] {
+    // No depth bound but the graph's own: a deep walk is admitted.
+    let deep = ask(root, "callers", Some("src/lib.ts#greet"), |o| {
+        o.depth = Some(21);
+    });
+    assert_ne!(deep.class, ExitClass::InvalidInput, "{}", deep.value);
+    // No limit bound either: pages and responseChars bound a page.
+    let wide = ask(root, "callers", Some("src/lib.ts#greet"), |o| {
+        o.limit = Some(1001);
+    });
+    assert_ne!(wide.class, ExitClass::InvalidInput, "{}", wide.value);
+    for (depth, limit) in [(Some(0), None), (None, Some(0))] {
         let out = ask(root, "callers", Some("src/lib.ts#greet"), |o| {
             o.depth = depth;
             o.limit = limit;
@@ -251,7 +216,7 @@ fn out_of_range_flags_are_rejected_and_a_page_past_the_end_is_empty() {
         o.offset = Some(500);
     });
     assert_eq!(past.class, ExitClass::Empty, "{}", past.value);
-    assert!(past.value["total"].as_u64().is_some_and(|total| total > 0));
+    assert!(past.value["pagination"]["totalItems"].as_u64().is_some_and(|total| total > 0));
 }
 
 /// An unknown `--edge` names every edge kind `--edge` accepts.
@@ -271,24 +236,16 @@ fn unknown_edge_kind_lists_every_kind() {
 }
 
 /// Every lead runs against the snapshot that produced it: `node` hints and
-/// `issues` verify commands carry `--graph <id> --workspace <dir>`, like
-/// `next`, and verify steps are commands, not prose.
+/// `issues` verify steps pin its id, like `next`, and verify steps are tool
+/// calls (a tool name and its query row), not prose.
 #[test]
 fn node_leads_and_verify_commands_are_pinned_to_the_snapshot() {
     let dir = issues_fixture();
     let root = dir.0.as_path();
     let ingested = ingest_fixture(root, None);
     let id = ingested.value["id"].as_str().expect("id").to_owned();
-    let pinned = format!("--graph {id} --workspace ");
-    let node = ask(root, "node", Some("src/lib.ts#greet"), |_| {});
-    let hints = node.value["node"]["next"].as_array().expect("next");
-    assert!(!hints.is_empty());
-    for hint in hints {
-        let hint = hint.as_str().unwrap_or_default();
-        assert!(hint.contains(&pinned), "{hint}");
-    }
     let issues = ask(root, "issues", None, |o| o.limit = Some(200));
-    let steps = issues.value["results"]
+    let steps = issues.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
@@ -296,10 +253,14 @@ fn node_leads_and_verify_commands_are_pinned_to_the_snapshot() {
         .collect::<Vec<_>>();
     assert!(!steps.is_empty(), "{}", issues.value);
     for step in &steps {
-        let step = step.as_str().unwrap_or_default();
-        assert!(step.starts_with("octocode "), "{step}");
-        if step.starts_with("octocode graph query ") {
-            assert!(step.contains(&pinned), "{step}");
+        // Each step is a runnable related call, not text.
+        assert_eq!(step["kind"], "related", "{step}");
+        let row = &step["input"]["queries"][0];
+        if step["tool"] == "graphQuery" {
+            assert_eq!(row["graph"], id, "{step}");
+        } else {
+            assert_eq!(step["tool"], "lspSearch", "{step}");
+            assert!(row["path"].is_string(), "{step}");
         }
     }
 }
@@ -329,32 +290,31 @@ fn ambiguous_reference_pages_every_candidate() {
     let out = ask(root, "callers", Some("run"), |_| {});
     assert_eq!(out.class, ExitClass::InvalidInput, "{}", out.value);
     assert_eq!(out.value["candidates"].as_array().map(Vec::len), Some(20));
-    assert_eq!(out.value["total"], 25);
-    assert_eq!(out.value["truncated"], true);
-    let next = out.value["next"].as_str().expect("next");
-    assert!(
-        next.starts_with("octocode graph query candidates run ")
-            && next.contains(&id)
-            && next.ends_with("--offset 20"),
-        "{next}"
+    assert_eq!(out.value["pagination"]["totalItems"], 25);
+    assert_eq!(out.value["pagination"]["hasMore"], true);
+    let next = next_query(&out).expect("structured continuation");
+    assert_eq!(
+        (next.op.as_str(), next.target.as_deref(), next.offset),
+        ("candidates", Some("run"), Some(20)),
+        "{next:?}"
     );
     let error = out.value["error"].as_str().unwrap_or_default();
     assert!(
-        !error.contains("--kind"),
+        !error.contains("kind"),
         "every candidate is a symbol: {error}"
     );
-    let mut continued = out.next_query.clone().expect("structured continuation");
+    let mut continued = next.clone();
     continued.graph = Some(id);
     let rest = query(&continued, &workspace_policy(root));
-    assert_eq!(rest.value["results"].as_array().unwrap().len(), 5);
+    assert_eq!(rest.value["rows"].as_array().unwrap().len(), 5);
     let union = out.value["candidates"]
         .as_array()
         .unwrap()
         .iter()
-        .chain(rest.value["results"].as_array().unwrap())
+        .chain(rest.value["rows"].as_array().unwrap())
         .map(|row| row["id"].as_str().unwrap())
         .collect::<BTreeSet<_>>();
     assert_eq!(union.len(), 25);
     let found = ask(root, "find", Some("run"), |o| o.limit = Some(100));
-    assert_eq!(found.value["total"], 25, "{}", found.value);
+    assert_eq!(found.value["pagination"]["totalItems"], 25, "{}", found.value);
 }

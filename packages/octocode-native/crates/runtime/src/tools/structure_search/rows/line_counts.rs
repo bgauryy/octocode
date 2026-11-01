@@ -53,7 +53,7 @@ const FILE_OPEN_WORKERS: usize = 4;
 /// Workers for counting `entries` files ([`crate::tools::workers::workers`]),
 /// at most [`FILE_OPEN_WORKERS`].
 fn line_count_workers(entries: usize) -> usize {
-    crate::tools::workers::workers(None, entries, Some(FILE_OPEN_WORKERS))
+    crate::tools::workers::workers(entries, Some(FILE_OPEN_WORKERS))
 }
 
 /// The line counts of `files` (`None`: a directory, never counted), on

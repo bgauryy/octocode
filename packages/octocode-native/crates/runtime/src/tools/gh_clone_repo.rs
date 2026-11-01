@@ -1,11 +1,11 @@
 //! Durable, shallow GitHub checkout materialization through the system Git baseline.
-pub(crate) mod cache;
 mod checkout;
 mod git;
 mod pin;
 mod plan;
 mod process;
 mod recovery;
+pub(crate) mod storage;
 mod validate;
 
 use crate::execution::cancel::CancellationCheck;
@@ -23,6 +23,18 @@ use std::time::{Duration, Instant};
 use validate::validate_query;
 
 pub use process::{GitOutput, GitRunControl, GitRunRequest, GitRunner, SystemGit};
+
+/// Clone storage is an execution prerequisite, before provider or Git work.
+pub(crate) fn require_persistent_storage(enabled: bool) -> Result<(), CloneError> {
+    if enabled {
+        Ok(())
+    } else {
+        Err(CloneError::new(
+            ErrorCode::PersistentStorageDisabled,
+            "Clone requires persistent local storage. Set storage.mode=\"persistent\" or OCTOCODE_STORAGE_MODE=persistent to use ghCloneRepo.",
+        ))
+    }
+}
 
 /// The requested sparse checkout: repo-relative paths in request order,
 /// duplicates removed.
@@ -49,8 +61,7 @@ impl Sparse {
         &self.paths
     }
 
-    /// Cache identity: the sorted, newline-joined path set, so request
-    /// order does not split the cache.
+    /// Destination identity: the sorted path set ignores request order.
     pub(crate) fn key(&self) -> String {
         let mut sorted = self.paths.clone();
         sorted.sort();
@@ -66,31 +77,23 @@ fn history_depth(query: &GhCloneRepoQuery) -> u64 {
 
 #[derive(Clone, Debug)]
 pub struct CloneConfig {
-    pub cache_home: PathBuf,
+    pub home: PathBuf,
     pub persistent: bool,
-    pub cache_ttl: Duration,
-    pub max_cache_size_bytes: u64,
-    pub max_clone_count: usize,
     pub lock_wait: Duration,
     /// The runtime's network timeout: git's network steps are sized from it.
     pub network_timeout: Duration,
 }
 
 impl CloneConfig {
-    /// A persistent clone cache under `cache_home` with the runtime's
-    /// constant clone limits and network timeout.
-    pub fn persistent(cache_home: impl Into<PathBuf>) -> Self {
+    /// Checkout output and working directories under the configured home.
+    pub fn persistent(home: impl Into<PathBuf>) -> Self {
         let defaults = crate::execution::RuntimeLimits::DEFAULT;
         Self {
-            cache_home: cache_home.into(),
+            home: home.into(),
             persistent: true,
-            cache_ttl: Duration::ZERO,
-            max_cache_size_bytes: 0,
-            max_clone_count: 0,
             lock_wait: Duration::from_secs(5 * 60),
             network_timeout: Duration::ZERO,
         }
-        .with_limits(&defaults.clone)
         .with_network_timeout(defaults.network_timeout)
     }
 
@@ -98,15 +101,6 @@ impl CloneConfig {
     #[must_use]
     pub fn with_network_timeout(mut self, timeout: Duration) -> Self {
         self.network_timeout = timeout;
-        self
-    }
-
-    /// Apply the runtime's clone cache limits.
-    #[must_use]
-    pub fn with_limits(mut self, limits: &crate::execution::CloneLimits) -> Self {
-        self.cache_ttl = limits.ttl;
-        self.max_cache_size_bytes = limits.max_bytes;
-        self.max_clone_count = limits.max_clones;
         self
     }
 }
@@ -128,7 +122,6 @@ pub struct CloneContext<'a> {
 pub struct CloneLocation {
     pub kind: &'static str,
     pub local_path: String,
-    pub cached: bool,
     pub commit_sha: String,
     pub resolved_ref: String,
     /// Sparse checkouts name every requested path.
@@ -144,9 +137,6 @@ pub struct CloneLocation {
     /// When the checkout of this commit was cloned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloned_at: Option<String>,
-    /// When the checkout stops being reused (`forceRefresh` re-clones now).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -203,17 +193,19 @@ impl CloneError {
 /// of the internal-sounding `clone.defaultBranchUnavailable` that cloning
 /// without metadata would report.
 pub fn repository_not_found(query: &GhCloneRepoQuery) -> CloneError {
-    let (owner, repo) = (&query.owner, &query.repo);
+    let (owner, repo) = (query.owner.as_str(), query.repo.as_str());
     CloneError {
-        // The message names the repository; the hint stays within the
-        // response stage's guidance cap so it is never cut mid-sentence.
-        hints: vec![crate::tools::gh_shared::REPOSITORY_ACCESS_HINT.into()],
-        calls: Some(Box::new(serde_json::json!({
-            "findRepository": crate::tools::gh_shared::repository_search(repo.as_str())
-        }))),
+        hints: vec![crate::tools::gh_shared::repository_search_hint(
+            Some(owner),
+            repo,
+        )],
+        calls: Some(Box::new(crate::tools::gh_shared::repository_recovery(
+            Some(owner),
+            repo,
+        ))),
         ..CloneError::new(
             ErrorCode::NotFound,
-            format!("Repository not found: {owner}/{repo}"),
+            crate::tools::gh_shared::repository_not_found_message(owner, repo),
         )
     }
 }
@@ -248,6 +240,11 @@ pub async fn run(
     request: Result<&RequestContext, ProviderError>,
     context: &CloneContext<'_>,
 ) -> Result<CloneResult, CloneFailure> {
+    require_persistent_storage(context.config.persistent)?;
+    let provider = GitHubProvider {
+        transport: provider.transport.uncached(),
+    };
+    let provider = &provider;
     let request = request.map_err(CloneFailure::Provider)?;
     validate_query(query).map_err(CloneFailure::Clone)?;
     let pin = pin(provider, query, request).await?;
@@ -284,7 +281,7 @@ fn control<'a>(context: &'a CloneContext<'a>) -> GitRunControl<'a> {
     GitRunControl {
         cancellation: context.cancellation,
         deadline: context.deadline,
-        cache_home: &context.config.cache_home,
+        home: &context.config.home,
     }
 }
 
@@ -306,10 +303,6 @@ fn hash(value: &str, characters: usize) -> String {
     digest.update(value.as_bytes());
     hex::encode(digest.finalize())[..characters].to_owned()
 }
-
-/// This tool's output facts for the shared response stages.
-pub(crate) struct Output;
-impl crate::response::output::ToolOutput for Output {}
 
 #[cfg(test)]
 mod tests;

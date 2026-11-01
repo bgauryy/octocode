@@ -24,7 +24,7 @@ async fn continuations_omit_default_view_fields() {
         query["view"] = json!(view);
         let result = read(&provider, query).await;
         let next = result.file.calls.expect("continuation");
-        let page = &next["continueWindow"]["input"]["queries"][0];
+        let page = &next["nextPage"]["input"]["queries"][0];
         assert_eq!(page["view"], view);
         assert_eq!(page["ref"], sha);
         assert!(
@@ -60,7 +60,7 @@ async fn unsized_page_continuations_stay_unsized() {
         let Some(next) = result.file.calls.clone() else {
             break;
         };
-        let page = next["continueWindow"]["input"]["queries"][0].clone();
+        let page = next["nextPage"]["input"]["queries"][0].clone();
         assert!(page.get("length").is_none(), "page {pages}: {next}");
         assert!(page.get("unit").is_none(), "page {pages}: {next}");
         assert!(pages < 100, "the chain never ends: {next}");
@@ -111,7 +111,7 @@ async fn the_shared_read_leaves_room_for_the_github_row_envelope() {
             .file
             .calls
             .as_ref()
-            .is_some_and(|next| next.get("continueWindow").is_some()),
+            .is_some_and(|next| next.get("nextPage").is_some()),
         "a whole file within the window but not its envelope pages: {:?}",
         whole.file.calls
     );
@@ -125,6 +125,7 @@ async fn the_shared_read_leaves_room_for_the_github_row_envelope() {
         body.as_bytes(),
         Path::new("src/lib.rs"),
         &crate::tools::source_view::SourceFacts {
+            views: Default::default(),
             modified: None,
             window: Some(1 << 20),
             beside: 0,
@@ -199,10 +200,16 @@ async fn a_minified_comment_range_leads_to_the_read_as_is() {
 async fn unknown_windows_fill_each_call_before_the_next() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
-    let body: String = (0..60)
+    let per_call = crate::response::result::rows_per_call(crate::id::ToolId::GhGetFileContent);
+    let ranges_per_read = crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
+    // One read more than a call holds; the last read takes one range.
+    let unknown = ranges_per_read * per_call + 1;
+    // Each line is its own chunk (over half the chunk target), alternating
+    // unknown and kept, so every unknown line is its own range.
+    let body: String = (0..2 * unknown)
         .map(|i| {
             let word = if i % 2 == 0 { "maybe" } else { "keep" };
-            format!("{word} {}\n", "x".repeat(1_500))
+            format!("{word} {}\n", "x".repeat(1_100))
         })
         .collect();
     mount_json(
@@ -221,29 +228,31 @@ async fn unknown_windows_fill_each_call_before_the_next() {
     }))
     .expect("query");
     let judge = crate::tools::test_support::selection_fake::WordJudge { fail: None };
+    // One page judges every line, so every unknown range is on this page.
+    let mut shaping = shaping(judge);
+    shaping.selection.limits.max_candidates = 2 * unknown;
+    shaping.selection.limits.max_chars = 2 * body.len();
     let result = execute(
         &provider,
         &query,
         &fixture_context(Duration::from_secs(10), 1 << 22),
-        Some(1_000_000),
-        shaping(judge),
+        Some(2 * body.len()),
+        shaping,
     )
     .await
     .expect("read");
     let next = result.file.calls.expect("leads");
-    let per_call = crate::response::result::rows_per_call(crate::id::ToolId::GhGetFileContent);
-    let batches = [
-        "unfilteredUnknown",
-        "unfilteredUnknown2",
-        "unfilteredUnknown3",
-        "unfilteredUnknown4",
-    ]
-    .iter()
-    .filter_map(|name| next[*name]["input"]["queries"].as_array())
-    .map(Vec::len)
-    .collect::<Vec<_>>();
+    let batches = std::iter::once("unfilteredUnknown".to_owned())
+        .chain((2..).map(|n| format!("unfilteredUnknown{n}")))
+        .map_while(|name| next[&name]["input"]["queries"].as_array().map(Vec::len))
+        .collect::<Vec<_>>();
     let reads: usize = batches.iter().sum();
-    assert_eq!(reads, 3, "30 unknown lines at 10 ranges a read: {next}");
+    assert_eq!(
+        reads,
+        unknown.div_ceil(ranges_per_read),
+        "{unknown} unknown lines at {ranges_per_read} ranges a read: {next}"
+    );
+    assert!(batches.len() > 1, "more reads than one call holds: {next}");
     assert_eq!(batches.len(), reads.div_ceil(per_call), "{next}");
     assert!(
         batches[..batches.len() - 1].iter().all(|n| *n == per_call),

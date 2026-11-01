@@ -81,7 +81,7 @@ fn materialize_skips_name_each_path_once_and_warn_with_counts() {
 }
 
 #[test]
-fn materialization_page_boundary_continues_and_page_ceiling_is_explicit() {
+fn materialization_page_boundary_and_pages_past_the_former_ceiling_continue() {
     let query: GhStructureQueryTree = serde_json::from_value(json!({"operation":"tree",
         "owner": "a", "repo": "b", "ref": "a".repeat(40),
         "path": ""}))
@@ -113,12 +113,12 @@ fn materialization_page_boundary_continues_and_page_ceiling_is_explicit() {
         value["calls"]["continueMaterialize"]["input"]["queries"][0]["ref"],
         "a".repeat(40)
     );
-    for materialize in [false, true] {
+    for (materialize, lead) in [(false, "nextPage"), (true, "continueMaterialize")] {
         let mut value = json!({"files": [{"dir": ".", "files": ["last.rs"]}]});
         attach_continuations(&mut value, &query, &page(1000), false, materialize, None)
-            .expect("terminal");
-        assert_eq!(value["terminalLimit"], true);
-        assert!(value.get("next").is_none());
+            .expect("continuation");
+        assert!(value.get("terminalLimit").is_none(), "{value}");
+        assert_eq!(value["calls"][lead]["input"]["queries"][0]["page"], 1001);
         assert_eq!(value["files"][0]["files"][0], "last.rs");
     }
 }

@@ -1,26 +1,11 @@
 // DOM operation inputs: run options (from the caller or DOM_* env) and validated steps.
+import { chromeDomActions } from '../chrome-contract.mjs';
 import { errorMessage } from '../error-message.mjs';
 import { buildKeyPressEvents } from '../human-input.mjs';
 import type { DomConfig, DomOptions, DomStep, RawStep } from './dom-types.mjs';
 
 /** Every DOM step action, in documented order. */
-export const DOM_ACTIONS = [
-  'inspect',
-  'click',
-  'dblclick',
-  'fill',
-  'type',
-  'press',
-  'hover',
-  'select',
-  'check',
-  'uncheck',
-  'focus',
-  'scroll',
-  'upload',
-  'drag',
-  'wait',
-];
+export const DOM_ACTIONS: readonly string[] = chromeDomActions;
 
 /** The operation an acting step reports once it succeeded. */
 export const DONE: Record<string, string> = {

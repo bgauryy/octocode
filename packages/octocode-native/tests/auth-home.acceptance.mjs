@@ -151,7 +151,7 @@ const query = {
   repo: 'b',
   path: 'readme.txt',
   ref: 'main',
-  forceRefresh: true,
+  refresh: true,
 };
 // Logout exercises a unique fictional host, never a real user's OS entry.
 const logoutHost = `octocode-fixture-${process.pid}.invalid`;

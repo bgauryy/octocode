@@ -59,12 +59,14 @@ fn refusal_error(path: &std::path::Path, refusal: octocode_engine::text::Refusal
     }
 }
 
+/// A source-map pass that ends with `cancel`'s request.
 pub(super) fn mapping_budget<'a>(
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
     cancelled: &'a (dyn Fn() -> bool + Sync),
 ) -> octocode_engine::text::analysis::MapBudget<'a> {
     octocode_engine::text::analysis::MapBudget::new(
         octocode_engine::text::analysis::MapLimits::default(),
-        std::time::Instant::now() + crate::execution::DEFAULT_TIMEOUT,
+        crate::execution::cancel::deadline_of(cancel),
         cancelled,
     )
 }
@@ -88,7 +90,11 @@ pub(super) fn admitted<'a>(
 /// to a text search of it in the same file.
 pub(super) fn source_limit(path: &str, literal: Option<&str>) -> Value {
     let mut row = serde_json::json!({"status":"error","path":path,"errorCode":ErrorCode::FileTooLarge,"error":"Source exceeds the native parser byte limit."});
-    crate::response::paging::terminal_limit(&mut row, "fileTooLarge", &[]);
+    crate::response::paging::terminal_limit(
+        &mut row,
+        crate::response::paging::PartialReason::FileTooLarge,
+        &[],
+    );
     if let Some(lead) = literal.and_then(|literal| text_search(path, literal)) {
         row["calls"] = serde_json::json!({ "findText": lead });
     }

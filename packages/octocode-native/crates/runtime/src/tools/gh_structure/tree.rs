@@ -39,7 +39,7 @@ pub(super) async fn execute_tree(
     };
     let date_offset = query
         .date_offset
-        .map_or(0, crate::num::usize_of_signed)
+        .map_or(0, crate::num::usize_of)
         .min(page.entries.len());
     let shown_entries = if query.materialize != Some(true) {
         &page.entries[date_offset
@@ -130,7 +130,7 @@ pub(super) async fn execute_tree(
     {
         value["calls"]["read"] = read;
     }
-    crate::tools::gh_shared::finish_calls(&mut value);
+    crate::response::result::finish_calls(&mut value);
     output.data = value;
     Ok(output)
 }
@@ -202,7 +202,7 @@ async fn date_page(
         commit_sha,
         &page.entries[query
             .date_offset
-            .map_or(0, crate::num::usize_of_signed)
+            .map_or(0, crate::num::usize_of)
             .min(page.entries.len())..],
         context,
     )

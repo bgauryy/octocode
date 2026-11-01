@@ -1,0 +1,283 @@
+# Every hint and notice template the runtime emits: owner (a tool, or
+# shared), source file under src/, template ({…} are format! slots, \n a
+# newline). Checked by tools/hints_tests.rs; regenerate rows with
+# OCTOCODE_WRITE_HINT_REGISTRY=1 and review each new owner.
+shared	policy/discovery.rs	Do not retry or respell: the security path policy withholds this path; no flag or config lifts it.
+shared	policy/discovery/withheld.rs	`.git` file
+shared	policy/discovery/withheld.rs	`.git` files
+shared	policy/discovery/withheld.rs	credential file
+shared	policy/discovery/withheld.rs	credential files
+shared	policy/discovery/withheld.rs	security-policy dirs {names}
+shared	policy/discovery/withheld.rs	{count} {}
+shared	policy/discovery/withheld.rs	{name}/ ×{count}
+shared	policy/discovery/withheld.rs	{} (submodule or worktree pointers)
+shared	policy/discovery/withheld.rs	{} not followed
+shared	policy/discovery/withheld.rs	{} outside the allowed roots or unresolvable
+shared	policy/discovery/withheld.rs	{} withheld by path policy: {}.
+shared	providers/classification/transport.rs	Check OCTOCODE_CLASSIFICATION_API_HOST.
+shared	providers/classification/transport.rs	Remove paths, credentials, query strings, and fragments from the configured API root.
+shared	providers/classification/transport.rs	Replace the configured key.
+shared	providers/classification/transport.rs	Use an HTTPS API root without a path, query, fragment, or credentials.
+shared	providers/classification/transport/errors.rs	Add credit or quota to the OCTOCODE_CLASSIFICATION_API account, then rerun.
+shared	providers/classification/transport/errors.rs	Check OCTOCODE_CLASSIFICATION_API and account access.
+shared	providers/classification/transport/errors.rs	Check connectivity, certificates, proxy settings, and the configured API root.
+shared	providers/classification/transport/errors.rs	Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST, then retry.
+shared	providers/classification/transport/errors.rs	Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST.
+shared	providers/classification/transport/errors.rs	Check state, questions and request size; list models with clasify {"operation":"models"} before naming one.
+shared	providers/classification/transport/errors.rs	Narrow the state or the source ranges, or shorten the questions.
+shared	providers/classification/transport/errors.rs	Redirects are disabled; check OCTOCODE_CLASSIFICATION_API_HOST.
+shared	providers/classification/transport/errors.rs	Retry after about {seconds:.0}s, or reduce concurrent clasify calls.
+shared	providers/classification/transport/errors.rs	Retry later or reduce concurrent clasify calls.
+shared	providers/classification/transport/errors.rs	Retry unresolved evidence in a smaller request.
+shared	providers/classification/transport/request.rs	Reduce the supplied state or question count.
+shared	providers/github/auth/resolver.rs	[octocode] warning: no GitHub credential for {host} and the secure credential store is unavailable; GitHub tools run unauthenticated (60 requests/hour). Set GITHUB_TOKEN or run octocode auth login for a higher limit.
+shared	response/output.rs	Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.
+shared	response/output.rs	Path did not open as a file: list it with structureSearch operation:"files", then retry with one exact listed file.
+shared	response/output.rs	Path not found: list its parent directory with structureSearch, then retry with the exact listed path.
+shared	response/rows/recovery.rs	Check httpStatus and the message; this status is not a network failure.
+shared	response/rows/recovery.rs	Check storage configuration and access; use GitHub read tools when a persistent local checkout is unavailable.
+shared	response/rows/recovery.rs	Check the package name, registry and manifest/lockfile version; discover published versions before choosing another version.
+shared	response/rows/recovery.rs	Choose a supported evidence view or inspect the source without classification.
+shared	response/rows/recovery.rs	Choose an existing project directory as workspaceRoot and verify it contains the anchor file before retrying.
+shared	response/rows/recovery.rs	Configure a language server for this file, or use related source/text reads and report the semantic coverage gap.
+shared	response/rows/recovery.rs	Copy the emitted continuation input unchanged. If it is no longer valid, restart the original request.
+shared	response/rows/recovery.rs	Correct the classification provider configuration named in the error, or read the sources without classification.
+shared	response/rows/recovery.rs	Correct the glob named in the error; globs select paths, while regexEngine selects text-pattern syntax. Do not change the intended scope.
+shared	response/rows/recovery.rs	Correct the missing configuration named in the error, then retry; report unavailable coverage until it is configured.
+shared	response/rows/recovery.rs	Input rejected: fix only the field the error names, as its message shows; broadening will not help.
+shared	response/rows/recovery.rs	Inspect octocode config --json and correct the setting named in the error before retrying.
+shared	response/rows/recovery.rs	Inspect the git error, repository access and revision; retry only after correcting the cause.
+shared	response/rows/recovery.rs	Inspect the graphQuery schema and correct the rejected operation or fields; do not retry the same query unchanged.
+shared	response/rows/recovery.rs	Inspect the policy refusal and use an authorized source; do not work around denied access.
+shared	response/rows/recovery.rs	Inspect the requested scope, filters and coverage; no matches in this scope do not establish repository-wide absence.
+shared	response/rows/recovery.rs	Inspect the scan failure and access to its scope. Retry only after fixing the cause; report unscanned paths as a coverage gap.
+shared	response/rows/recovery.rs	Inspect the source acquisition error and use an emitted source read. Unavailable or unjudged evidence is not irrelevant.
+shared	response/rows/recovery.rs	Install or expose git on PATH before retrying the clone.
+shared	response/rows/recovery.rs	Let the active request finish before retrying; avoid launching duplicate work.
+shared	response/rows/recovery.rs	Locate a bounded region with localSearch, then read exact ranges with localFetch. Full-file structural analysis may remain unavailable.
+shared	response/rows/recovery.rs	Narrow paths, ranges or filters; split independent scopes into separate queries. State what remains unchecked.
+shared	response/rows/recovery.rs	Narrow the classification source scope, or inspect bounded source ranges directly; preserve unknown candidates as a coverage gap.
+shared	response/rows/recovery.rs	Not found: verify the exact name, its repository or registry, the revision or version, and access rights; a miss here is not proof it exists nowhere else.
+shared	response/rows/recovery.rs	Preserve local changes in the checkout; use its current source or a separate checkout rather than overwriting it.
+shared	response/rows/recovery.rs	Read the current source and locate the exact symbol and line before retrying; do not guess a different identity.
+shared	response/rows/recovery.rs	Refresh tool discovery and check availability. Use an available tool that answers the same question, or report the missing capability.
+shared	response/rows/recovery.rs	Report the errorCode and failing call as a tool failure. Follow applicable recovery calls; do not infer absence or retry unchanged repeatedly.
+shared	response/rows/recovery.rs	Restore access to the credential store or supply the provider token through its supported environment setting.
+shared	response/rows/recovery.rs	Restore provider quota before retrying classification, or inspect the original sources without classification.
+shared	response/rows/recovery.rs	Retry once only if retryable is true; if it persists, check provider availability and report the coverage gap.
+shared	response/rows/recovery.rs	Retry once only if retryable is true; otherwise inspect the related source read and report that semantic verification is unavailable.
+shared	response/rows/recovery.rs	Retry once with a smaller scope or fewer independent queries; if it times out again, report unavailable coverage.
+shared	response/rows/recovery.rs	Retry once; report a provider response incompatibility if it persists.
+shared	response/rows/recovery.rs	Retry only if the result is still needed and what cancelled it changed; otherwise report the cancellation.
+shared	response/rows/recovery.rs	Run octocode auth login or set GH_TOKEN/GITHUB_TOKEN; an invalid env token overrides stored login.
+shared	response/rows/recovery.rs	Start a fresh runtime or MCP session before retrying the original request.
+shared	response/rows/recovery.rs	The provider blocks this resource for legal reasons; retrying will not help.
+shared	response/rows/recovery.rs	The provider returned an invalid classification. Inspect original sources; do not treat unclassified candidates as excluded.
+shared	response/rows/recovery.rs	The source could not be processed safely. Choose a smaller supported source; do not bypass the security check.
+shared	response/rows/recovery.rs	Use a reader for this file format or inspect its metadata with structureSearch; text and AST tools cannot read binary content.
+shared	response/rows/recovery.rs	Use an emitted restart call, or restart the original request. Discard stale coordinates and never invent or edit a cursor.
+shared	response/rows/recovery.rs	Use localFetch for exact text or document outlines and localSearch for text candidates; these do not verify semantic identity.
+shared	response/rows/recovery.rs	Use the canonical allowed host and repository.
+shared	response/rows/recovery.rs	Verify access and token scopes; do not treat denial as absence.
+shared	response/rows/recovery.rs	Verify the exact path, read permissions and text encoding; retry only after correcting the cause.
+shared	response/rows/recovery.rs	Verify the requested revision and checkout commit; do not substitute a different revision as evidence.
+shared	response/rows/recovery.rs	Wait for Retry-After or the rate-limit reset before retrying.
+shared	runtime/domain_dispatch/source_reader.rs	Check source access, then start a fresh request explicitly.
+shared	runtime/domain_dispatch/source_reader.rs	Inspect the localFetch schema.
+shared	runtime/domain_dispatch/source_reader.rs	Retry the request explicitly.
+shared	runtime/github.rs	GitHub rejected the token supplied with this request; re-authenticate with the host and retry.
+shared	runtime/github/rows.rs	Wait for the rate-limit reset, or run octocode auth login for a higher quota.
+shared	security/input.rs	; send a shorter, distinctive fragment
+shared	security/input.rs	exceeds maximum length
+artifactSearch	tools/artifact_search/leads.rs	Check the exact packageName spelling; {} has no keyword search.
+artifactSearch	tools/artifact_search/pages.rs	{artifact_type} matched {total} results; paging reaches only the first {reach} (through page {last}).
+shared	tools/ast_graph/graph/scope.rs	Build a narrower directory (files per directory, largest first), or exclude generated or vendored trees:
+shared	tools/ast_graph/graph/scope.rs	Build a narrower directory, or exclude generated or vendored trees.
+shared	tools/ast_graph/graph/scope.rs	graphBuild {}  # {count} files
+shared	tools/ast_graph/store/detect/reach.rs	exports of {files} production file(s) not judged ({languages}): only languages with named-import linking ({}) are checked; confirm with lspSearch references
+shared	tools/ast_graph/store/detect/reach.rs	{language}: {}
+shared	tools/ast_graph/store/ingest.rs	extraction committed so far is kept; build this scope again to resume from it
+shared	tools/ast_graph/store/tools.rs	Use an existing snapshot ID, or run graphBuild for this path and use its returned ID.
+shared	tools/ast_rule.rs	Make each pattern one parseable node and each rule a rule object; astSearch operation:"syntaxTree" shows the shape.
+astSearch	tools/ast_search/language.rs	set parser:"cpp" (parserGlobs for a directory).
+astSearch	tools/ast_search/language.rs	{} parses as C with {c} syntax error(s) and as C++ with {cpp}; {repair}
+astSearch	tools/ast_search/language.rs	{} spells C++ `{keyword}`, which the C parser reads as a name; {repair}
+astSearch	tools/ast_search/matches/render.rs	No{language} file under this path was parsed.
+astSearch	tools/ast_search/matches/render.rs	{matches} matches in {files} files fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).
+astSearch	tools/ast_search/matches/types.rs	1 file skipped: no AST grammar for its name ({names}); it was not searched, so absence there is unproven; if it is source code, parserGlobs maps its name to a grammar.
+astSearch	tools/ast_search/matches/types.rs	{count} files skipped: no AST grammar for their names ({names}); they were not searched, so absence there is unproven; if they are source code, parserGlobs maps their names to a grammar.
+astSearch	tools/ast_search/matches/types.rs	{count} {noun} parsed with syntax errors that could hide a match ({names}); astSearch syntaxTree shows where.
+astSearch	tools/ast_search/output.rs	For a single file, use parser instead of parserGlobs.
+astSearch	tools/ast_search/output.rs	Set parser to the grammar of the source files (e.g. "typescript", "rust").
+astSearch	tools/ast_search/output.rs	Use localFetch to read the file or localSearch to search its text. Set parser only when the source is written in a supported grammar.
+astSearch	tools/ast_search/output.rs	Use localFetch view:symbols for document headings/keys or localSearch for text. Set parser or parserGlobs only for source written in a supported grammar.
+astSearch	tools/ast_search/symbols.rs	parser "{parser}" applies to one file and was not applied: a directory reads each file by parserGlobs, else its extension.
+astSearch	tools/ast_search/symbols/empty_outline.rs	outlinable file
+astSearch	tools/ast_search/symbols/empty_outline.rs	outlinable files
+astSearch	tools/ast_search/symbols/left_out.rs	kinds {} leaves out every declaration named {}: {} of kind{} {kinds}. Add {kinds} to kinds to list {}.
+astSearch	tools/ast_search/symbols/left_out.rs	symbolName {} equals a declaration, so {} declaration{} that only contain{} it {} not listed: {}. Pass {} to list {}.
+astSearch	tools/ast_search/symbols/left_out.rs	these names
+astSearch	tools/ast_search/symbols/left_out.rs	this name
+astSearch	tools/ast_search/symbols/outline.rs	symbols does not outline {kind} files; the related[] localFetch request outlines this one, or search it with localSearch.
+astSearch	tools/ast_search/symbols/page.rs	0 declarations {named}in {files_scanned} {files}.
+astSearch	tools/ast_search/symbols/page.rs	named {} 
+shared	tools/bounded_process/capture.rs	[stderr cut: {error}]
+shared	tools/bounded_process/capture.rs	[stderr truncated at {STDERR_BYTES} bytes]
+clasify	tools/clasify/sections.rs	Copy nextSectionPage unchanged, or start a fresh sections request.
+clasify	tools/clasify/sections.rs	Use persistent storage across CLI calls or a long-lived MCP runtime; start a fresh sections request explicitly if the saved plan expired.
+clasify	tools/clasify/sections/assess.rs	Use the pinned raw reader to inspect the complete target.
+clasify	tools/clasify/sections/capture.rs	Use its pinned raw reader or assess a narrower resource set.
+clasify	tools/clasify/sections/capture.rs	Use raw readers or a smaller resource set.
+clasify	tools/clasify/sections/capture.rs	Use the pinned raw reader or a smaller resource selection.
+clasify	tools/clasify/sections/capture.rs	Use the resource's read call to inspect the sanitized source; for a new evaluation, select complete lines.
+ghCloneRepo	tools/gh_clone_repo/checkout.rs	Verify the path with ghStructure, or omit path for a full clone.
+ghSearchCode	tools/gh_search_code.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
+ghSearchCode	tools/gh_search_code.rs	keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 `{branch}`
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 with `pathPrefix:"{}"`
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Code search indexes only the default branch{branch}; `{reference}` was not searched.
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match across the owner is unproven absence: the index may not cover every repository; list them with the related[] ghSearchRepo request, then search or read one.
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match is unproven absence: check the source with the related[] ghStructure or ghCloneRepo request.
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Repository is archived, so its code-search index may lag: list its files with the related[] ghStructure request.
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`pathPrefix:"{}"` is a directory scope: to search one file there, set `nameContains` to its name and `pathPrefix` to its parent.
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`pathPrefix` is a directory prefix and `{}` looks like a file: search it by `nameContains:"{}"`{under}, or read it with matchString.
+ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	 at {}
+ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	; `lines` read at {reference}
+ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	Files from the default-branch index{index}, not {reference}{lines}.
+ghSearchHistory	tools/gh_search_history/shape.rs	pull request
+ghSearchRepo	tools/gh_search_repo/page.rs	archived repositories
+ghSearchRepo	tools/gh_search_repo/page.rs	archived repository
+ghSearchRepo	tools/gh_search_repo/page.rs	filters.archive "{mode}" left out {} (a filter, not a gap)
+ghSearchRepo	tools/gh_search_repo/page.rs	non-archived repositories
+ghSearchRepo	tools/gh_search_repo/page.rs	non-archived repository
+shared	tools/gh_shared/failed_read.rs	The submodule's repository is not on GitHub.
+shared	tools/gh_shared/failure.rs	A login in a user qualifier (author, assignee, reviewed-by, …) does not resolve: fix its spelling or drop it.
+shared	tools/gh_shared/failure.rs	Authorize this token for the organization (SAML SSO) at the row's ssoUrl, then retry.
+shared	tools/gh_shared/failure.rs	Check the owner/repo spelling and this token's access.
+shared	tools/gh_shared/failure.rs	The related[] ghSearchRepo call lists repositories named like `{repo}` under any owner: confirm the owner before using one.
+shared	tools/gh_shared/failure.rs	The related[] ghSearchRepo calls list repositories named like `{repo}` under any owner (confirm the owner before using one) and the repositories `{owner}` holds.
+ghStructure	tools/gh_structure/failures.rs	Only the path's case differs.
+ghStructure	tools/gh_structure/failures.rs	The path names a file (its case differs).
+ghStructure	tools/gh_structure/listing.rs	One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.
+ghStructure	tools/gh_structure/traverse/entries.rs	{path} ({label})
+shared	tools/judgment.rs	Set OCTOCODE_CLASSIFICATION_API.
+shared	tools/judgment/batch.rs	Inspect the current clasify query schema.
+shared	tools/judgment/batch.rs	Narrow the state, reduce image bytes, or shorten the questions.
+shared	tools/leads/broaden.rs	No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.
+shared	tools/leads/skipped.rs	At least 
+shared	tools/leads/skipped.rs	Skipped paths ({}) were not checked in time, so absence there is unproven.
+shared	tools/leads/skipped.rs	{}{} {} behind skipped paths ({why}).
+localFetch	tools/local_fetch/large_source/ranges.rs	; the ranges after it are read on their own
+localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone{after}.
+localSearch	tools/local_search/coverage.rs	No matches where searched; the withheld entries in skippedPaths may hold it (unproven).
+localSearch	tools/local_search/coverage.rs	Nothing searched: include/exclude matched no file; the related[] structureSearch request lists the names to fix the globs.
+localSearch	tools/local_search/coverage.rs	Nothing searched: no file under path; check the path, or set includeHidden/includeIgnored when the files are dot or ignored entries.
+localSearch	tools/local_search/coverage.rs	Nothing searched: the target file was skipped ({}). Read it with localFetch.
+localSearch	tools/local_search/coverage.rs	The target file is binary (NUL byte found); it was not searched past that point.
+localSearch	tools/local_search/coverage.rs	{} unreadable
+localSearch	tools/local_search/leads.rs	{total} matches: run the related[] view:"countMatches" request to rank files before paging.
+localSearch	tools/local_search/output.rs	Check read access to the path; a broader search reads the same files.
+localSearch	tools/local_search/output.rs	Correct the regex named in the error. If the intended match is literal text, set regexEngine to literal and keep matchString unchanged.
+localSearch	tools/local_search/probes.rs	No case-sensitive match, but {} file(s) match with case ignored; caseMode:"insensitive" finds them.
+localSearch	tools/local_search/probes.rs	Skipped paths ({counts}) hold no {what} either; the check searched them.
+localSearch	tools/local_search/probes.rs	Skipped paths ({counts}) hold no {what} outside what their check withheld (warnings).
+localSearch	tools/local_search/probes.rs	Skipped paths: {notice}
+localSearch	tools/local_search/probes.rs	file that lacks a match
+localSearch	tools/local_search/probes.rs	file that matches
+localSearch	tools/local_search/probes.rs	files that lack a match
+localSearch	tools/local_search/probes.rs	files that match
+lspSearch	tools/lsp_search/failure/leads.rs	coverage.outOfReachFiles counts files that spell `{name}` outside its reach ({}): they cannot reference it, so they are neither missed sites nor leads.
+lspSearch	tools/lsp_search/failure/paging.rs	{stage}: {total} server {requests} failed ({} distinct errors; most frequent, {count}×: {message}); the locations they would add are missing.
+lspSearch	tools/lsp_search/failure/paging.rs	{stage}: {total} server {requests} failed: {message}; the locations they would add are missing.
+lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) has no location until build scripts run; the rerun with rustContext.buildScripts enabled {BUILD_SCRIPTS_COST}.
+lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) resolves only with rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}.
+lspSearch	tools/lsp_search/failure/rows.rs	A name defined in source this package include!s from outside its directory never resolves in rust-analyzer: read it with localSearch.
+lspSearch	tools/lsp_search/importers.rs	The scan for gitignored files that spell this name did not finish, so importers among them are unverified; a localSearch with includeIgnored reads them.
+lspSearch	tools/lsp_search/importers/coverage.rs	 The scan for gitignored files did not finish, so more may exist.
+lspSearch	tools/lsp_search/importers/coverage.rs	 and 
+lspSearch	tools/lsp_search/importers/coverage.rs	1 imports it
+lspSearch	tools/lsp_search/importers/coverage.rs	1 nested repository
+lspSearch	tools/lsp_search/importers/coverage.rs	Of the gitignored files that spell this name ({rules}), {}; importer recovery did not verify them, and a localSearch with includeIgnored reads their text.{more}
+lspSearch	tools/lsp_search/importers/coverage.rs	The scan for gitignored files did not enter {} (directories with their own .git) under the scope root{listed}.
+lspSearch	tools/lsp_search/importers/coverage.rs	ignore rules
+lspSearch	tools/lsp_search/importers/coverage.rs	{count} import it
+lspSearch	tools/lsp_search/importers/coverage.rs	{count} nested repositories
+lspSearch	tools/lsp_search/importers/coverage.rs	{} could not be checked for an import (unreadable, larger than {} MiB, or unparsable)
+lspSearch	tools/lsp_search/inferred_project.rs	Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.
+lspSearch	tools/lsp_search/ops/diagnostics.rs	Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them.
+lspSearch	tools/lsp_search/ops/hierarchy.rs	{} implementation(s) are source:"{SCAN_SOURCE}" (matched by name).
+lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search found no {searched} source file to load a project; pass path for a file in the symbol's project.
+lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search used the {searched} server; this root also holds {} unsearched projects.
+lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search: the {searched} server searched the project of {}; for another project, pass path there.
+lspSearch	tools/lsp_search/ops/references.rs	{withheld} reference(s) outside the allowed read roots were omitted; add the path to ALLOWED_PATHS to read them.
+lspSearch	tools/lsp_search/output.rs	Configure the server's project (clangd: compile_commands.json, compile_flags.txt or .clangd); the next call reloads it.
+lspSearch	tools/lsp_search/output.rs	Locate the exact name and line with the related calls, then retry; do not guess another identity.
+lspSearch	tools/lsp_search/output.rs	Provide path for a representative workspace source file so Octocode can select its language server.
+lspSearch	tools/lsp_search/output.rs	Retry once if retryable (it restarts); after a memory kill use the related[] text search (unverified), or astSearch + localFetch.
+lspSearch	tools/lsp_search/output.rs	Retry once if retryable; else confirm in source: locate with astSearch/localSearch, then localFetch it.
+lspSearch	tools/lsp_search/output.rs	Retry once: the first call initialises the language server (~60 s cold start); else astSearch/localSearch + localFetch.
+lspSearch	tools/lsp_search/output.rs	This server cannot prove type hierarchy; inspect declarations with astSearch and confirm exact source.
+lspSearch	tools/lsp_search/output.rs	Use astSearch symbols/match or localSearch for candidates, then localFetch exact source.
+lspSearch	tools/lsp_search/output.rs	Use localSearch or astSearch to locate a bounded region, then read that exact source range.
+lspSearch	tools/lsp_search/output.rs	Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads.
+lspSearch	tools/lsp_search/output.rs	Use the related source read or text search; semantic results remain unavailable. Retry LSP only after configuring a server for this file.
+lspSearch	tools/lsp_search/server_coverage.rs	Files that import the name are missing from the answer: the server did not resolve their import here.
+lspSearch	tools/lsp_search/server_coverage.rs	workspace/symbol has no completeness marker: declarations the server did not index or return are unknown, and no page of this list completes it; confirm with a localSearch of the name.
+lspSearch	tools/lsp_search/walk/outcome.rs	{out_of_policy} hierarchy items outside the allowed read roots were omitted.
+shared	tools/selection/judge.rs	Use the explicit unfiltered continuation to inspect this evidence.
+shared	tools/source_capture.rs	Correct the source query; it is the reader's own row.
+shared	tools/source_capture.rs	Enable the reader, or supply the data as content.
+shared	tools/source_capture.rs	Judge it in parts: narrower ranges, one query row per part, or operation:"sections" with the source under resources.
+shared	tools/source_capture.rs	Name localFetch or ghGetFileContent, or supply the data as content.
+shared	tools/source_capture.rs	Read an allowed path.
+shared	tools/source_capture.rs	Retry with longContext:true for a {long}-character state limit.
+shared	tools/source_capture/assets.rs	Check the file path and permissions.
+shared	tools/source_capture/assets.rs	Enable the referenced reader before classifying its images.
+shared	tools/source_capture/assets.rs	Read an allowed regular image file.
+shared	tools/source_capture/assets.rs	Reference an explicit PNG or JPEG image by its asset key.
+shared	tools/source_capture/assets.rs	Retry once the image is stable.
+shared	tools/source_capture/assets.rs	Use a smaller image or fewer assets; images are never resized or truncated silently.
+shared	tools/source_capture/assets/fit.rs	Pad the image to the minimum size yourself and retry.
+shared	tools/source_capture/page.rs	Check the ranges and the path.
+shared	tools/source_capture/page.rs	Run the same read directly to inspect it.
+shared	tools/source_capture/resource.rs	Check the source ranges or omit them to select the complete text.
+shared	tools/source_capture/resource.rs	Enable the reader before assessing this source.
+shared	tools/source_capture/resource.rs	Start a fresh sections request to assess the changed source.
+shared	tools/source_capture/resource.rs	Start a fresh sections request.
+shared	tools/source_capture/resource.rs	Use a text representation with known encoding.
+shared	tools/source_capture/resource.rs	Use an authorized text reader.
+shared	tools/source_capture/resource.rs	Use an explicit image asset for image questions.
+shared	tools/source_capture/resource.rs	Use localFetch, ghGetFileContent, or url.
+shared	tools/source_capture/resource.rs	Use the reader's canonical ranges field.
+shared	tools/source_capture/url.rs	Check the URL.
+shared	tools/source_capture/url.rs	Check the URL; a page behind sign-in cannot be captured anonymously.
+shared	tools/source_capture/url.rs	Pass a direct PNG or JPEG URL, not a page embedding the image.
+shared	tools/source_capture/url.rs	Pass a direct image URL without a fragment.
+shared	tools/source_capture/url.rs	Pass an absolute https:// URL.
+shared	tools/source_capture/url.rs	Pass the final URL directly.
+shared	tools/source_capture/url.rs	Retry with more time, or supply the page text as content.
+shared	tools/source_capture/url/decode.rs	Capture an HTML or text page, or supply the content as content.
+shared	tools/source_capture/url/decode.rs	Check the URL.
+shared	tools/source_capture/url/decode.rs	Read the rendered page in a browser and supply its text as content.
+shared	tools/source_capture/url/decode.rs	Use an anchor the page defines once, or drop the fragment.
+shared	tools/source_capture/url/decode.rs	Use an anchor the page defines, or drop the fragment to capture the whole page.
+shared	tools/source_capture/url/decode.rs	Use another anchor, or drop the fragment to capture the whole page.
+shared	tools/source_capture/url/fetch.rs	Capture only public HTTPS pages; read internal pages with a local reader.
+shared	tools/source_capture/url/fetch.rs	Check the URL, or supply the page text as content.
+shared	tools/source_capture/url/fetch.rs	Retry; supply the page text as content if it keeps failing.
+shared	tools/source_capture/url/fetch.rs	Select a smaller page or section, or supply the text as content.
+shared	tools/source_capture/url/store.rs	Check that the Octocode home is writable, or supply the text as content.
+shared	tools/source_capture/url/store.rs	Check that the Octocode home is writable.
+shared	tools/source_capture/url/store.rs	Enable localFetch for source capture storage.
+shared	tools/source_capture/url/store.rs	Supply the page text as content.
+shared	tools/source_capture/url/store.rs	Use persistent storage for unread source captures.
+shared	tools/source_view/block/recovery.rs	, e.g. Flow types
+shared	tools/source_view/block/recovery.rs	The parser could not parse lines {} of this file (syntax its grammar lacks{example}) and recovered, so {misses}.
+shared	tools/source_view/block/recovery.rs	The parser could not parse lines {} of this file, where secret-shaped text was redacted, so {misses}.
+shared	tools/source_view/no_match.rs	matchString ran on redacted text: text behind this file's [REDACTED…] placeholders cannot match.
+shared	tools/source_view/prepare.rs	Redacted private-key block(s) found in the source before selecting the window.
+shared	tools/source_view/view/page.rs	The compact view removed every selected line; use view:content to read the source.
+structureSearch	tools/structure_search/probe.rs	No entry matches {}; {}{count} {} without {}: the related[] structureSearch request lists {}.
+structureSearch	tools/structure_search/probe.rs	at least 
+structureSearch	tools/structure_search/probe.rs	entries match
+structureSearch	tools/structure_search/probe.rs	entry matches

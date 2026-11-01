@@ -126,11 +126,11 @@ pub(super) fn listed_file(
     Group {
         source_descriptors: Vec::new(),
         chars,
+        rows: 1,
         row,
         out_of_range: false,
         more_matches: false,
         truncated_captures: false,
-        clipped: vec![],
         priced: None,
     }
 }
@@ -142,6 +142,8 @@ pub(super) struct MatchPages {
     pub(super) cut: crate::response::page_windows::PageCut,
     /// What the file adds to a file page: its first match page.
     pub(super) first_chars: usize,
+    /// What the file counts against `limit` on a file page ([`Group::rows`]).
+    pub(super) rows: usize,
 }
 
 impl MatchPages {
@@ -158,13 +160,19 @@ pub(super) fn match_pages(
     budget: usize,
     row_paths: RowPaths<'_>,
 ) -> MatchPages {
-    let paging = crate::response::page_windows::Paging::of(None, budget);
+    let paging = crate::response::page_windows::Paging::of(q.limit(), budget);
     // The file's place on a file page is its first match page, whichever
     // match page is asked for, so the file pages never move.
-    let first = crate::response::page_windows::select(paging, sizes, 1).range;
+    let first = crate::response::page_windows::select(paging, sizes, 1);
+    let rows = if first.more {
+        sizes.len()
+    } else {
+        first.range.len()
+    };
     MatchPages {
         cut: crate::response::page_windows::select(paging, sizes, q.match_page() as usize),
-        first_chars: sizes[first].iter().sum::<usize>() + row_paths.chars(path) + 32,
+        first_chars: sizes[first.range].iter().sum::<usize>() + row_paths.chars(path) + 32,
+        rows,
     }
 }
 
@@ -188,10 +196,10 @@ pub(super) fn priced_group(
         source_descriptors: Vec::new(),
         row: json!({"path": path}),
         chars: pages.first_chars,
+        rows: pages.rows,
         out_of_range: pages.out_of_range(),
         more_matches: pages.cut.more,
         truncated_captures: false,
-        clipped: vec![],
         priced: Some(index),
     }
 }
@@ -226,9 +234,12 @@ pub(super) fn rebuild_page(
         .enumerate()
         .filter_map(|(slot, group)| group.priced.map(|index| (slot, index)))
         .collect::<Vec<_>>();
-    let workers = crate::tools::workers::workers(None, priced.len(), None);
+    // The scan priced only the matches on the scope's side of the
+    // test-code line; the rebuild keeps the same ones (it counts nothing).
+    let scoped = crate::tools::test_code::Scoped::of(q.test_code(), row_paths.paths);
+    let workers = crate::tools::workers::workers(priced.len(), None);
     let rebuilt = crate::tools::workers::each_parallel(&mut priced, workers, |&mut (_, index)| {
-        rebuild_file(q, scope, &files[index], cancel)
+        rebuild_file(q, scope, &files[index], (scoped.as_ref(), cancel))
     });
     let mut incomplete = Vec::new();
     for ((slot, index), outcome) in priced.into_iter().zip(rebuilt) {
@@ -256,7 +267,10 @@ fn rebuild_file(
     q: MatchQuery<'_>,
     scope: &Scope,
     file: &ScannedFile,
-    cancel: &dyn CancellationCheck,
+    (scoped, cancel): (
+        Option<&crate::tools::test_code::Scoped>,
+        &dyn CancellationCheck,
+    ),
 ) -> Result<RebuiltFile, RebuildError> {
     let (Some((source, digest)), FileMatches::Priced(prices)) = (&file.source, &file.matches)
     else {
@@ -286,6 +300,7 @@ fn rebuild_file(
     };
     let rows = matches
         .iter()
+        .filter(|m| scoped.is_none_or(|scoped| scoped.sides(source, m.start_line)))
         .map(|m| super::match_row(q, m, cancel))
         .collect::<Result<Vec<_>, _>>()
         .map_err(RebuildError::Evidence)?;
@@ -303,10 +318,10 @@ pub(super) fn unevaluated_group(path: String) -> Group {
         source_descriptors: Vec::new(),
         row: json!({"path": path}),
         chars: 0,
+        rows: 1,
         out_of_range: false,
         more_matches: false,
         truncated_captures: false,
-        clipped: vec![],
         priced: None,
     }
 }
@@ -322,17 +337,12 @@ pub(super) fn match_group(
     let sizes = rows.iter().map(row_chars).collect::<Vec<_>>();
     let pages = match_pages(q, &path, &sizes, budget, row_paths);
     let (out_of_range, more_matches) = (pages.out_of_range(), pages.cut.more);
-    let first_chars = pages.first_chars;
+    let (first_chars, first_rows) = (pages.first_chars, pages.rows);
     let window = pages.cut.range.clone();
     let page_rows = &rows[window];
     // Rows whose text was cut to a header or that hide capture text:
-    // `captureText:true` (next.expandCaptures) returns them whole.
+    // `includeCaptures:true` (next.expandCaptures) returns them whole.
     let truncated_captures = page_rows.iter().any(|row| row.withheld);
-    let clipped = page_rows
-        .iter()
-        .filter(|row| row.shown_cut)
-        .map(|row| row.lines)
-        .collect();
     let selected = page_rows
         .iter()
         .map(|row| row.value.clone())
@@ -359,11 +369,11 @@ pub(super) fn match_group(
     Group {
         source_descriptors,
         chars: first_chars,
+        rows: first_rows,
         row,
         out_of_range,
         more_matches,
         truncated_captures,
-        clipped,
         priced: None,
     }
 }

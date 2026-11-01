@@ -7,10 +7,10 @@ import {
   DIRECT_TOOL_DEFINITIONS,
   TOOL_NAMES,
   isBetaTool,
-  isCliOnlyTool,
 } from '@octocodeai/config/schema';
 import { DEFAULT_CONFIG } from '@octocodeai/config';
 import { ROOT } from './lib/workspaces.mjs';
+import { checkVocabulary } from './check-vocabulary.mjs';
 
 const REPO_BLOB_PREFIXES = ['octocode', 'octocode-mcp'].map(repo => `https://github.com/bgauryy/${repo}/blob/main/`);
 const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DEFINITIONS.map(
@@ -18,18 +18,15 @@ const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DEFINITIONS.map(
 );
 const DISCOVERABLE_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
 // Default MCP catalog: core tool policy decides beta and CLI-only tools;
-// clasify additionally needs a classification key, absent by default.
+// Clasify needs a key; clone needs its own opt-in, both absent by default.
 const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
   if (name === TOOL_NAMES.CLASIFY) return false;
-  if (isBetaTool(name) && !DEFAULT_CONFIG.local.beta) return false;
-  return !isCliOnlyTool(name);
+  if (name === TOOL_NAMES.GITHUB_CLONE_REPO && !DEFAULT_CONFIG.tools.enableClone) return false;
+  return !(isBetaTool(name) && !DEFAULT_CONFIG.local.beta);
 });
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;
-// Beta gates MCP exposure; CLI tools remain available. Clasify additionally
-// needs its provider credential and readiness check.
-const CLI_DEFAULT_TOOL_COUNT = PUBLIC_TOOL_NAMES.filter(
-  name => name !== TOOL_NAMES.CLASIFY
-).length;
+// CLI exposes every tool; execution checks credentials and other prerequisites.
+const CLI_DEFAULT_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
 const DOC_ROOTS = [
   path.join(ROOT, 'docs'),
   ...fs
@@ -315,6 +312,7 @@ function main() {
     ...validateWorkflowReadme(),
     ...validateToolCatalog(),
     ...validateToolExamples(),
+    ...checkVocabulary().findings.map(finding => `${finding.file}:${finding.line} \`${finding.token}\`: ${finding.message}`),
   ];
 
   if (failures.length > 0) {

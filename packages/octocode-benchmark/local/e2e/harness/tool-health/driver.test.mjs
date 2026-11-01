@@ -15,7 +15,7 @@ const continuation = (cursor, tool = 't') => ({ kind: 'continue', tool, input: {
 const related = (tool, input) => ({ kind: 'related', tool, input });
 const ok = data => ({ results: [{ index: 0, data }] });
 const driver = (options = {}) => createDriver({
-  validate: () => null, tools: new Set(['t', 'u', 'ghCloneRepo']), cliOnly: new Set(['ghCloneRepo']),
+  validate: () => null, tools: new Set(['t', 'u', 'ghCloneRepo']),
   schemaOf: () => schema, ...options,
 });
 function surface(script) {
@@ -244,7 +244,7 @@ test('display fragments reuse a completed captured read without executing it twi
   assert.equal(report.converged, 1);
 });
 
-test('a repeated branch with unfinished source pages is still an error', async () => {
+test('the same unfinished source read offered on two pages is one handle, followed once', async () => {
   const read = continuation('pinned-source', 'u');
   const s = surface((tool, input) => {
     if (tool === 'u') return input.cursor === 'pinned-source' ? ok({ next: { remaining: continuation('source-tail', 'u') } }) : ok({ content: 'tail' });
@@ -252,7 +252,8 @@ test('a repeated branch with unfinished source pages is still an error', async (
     return input.cursor ? result : { ...result, responsePagination: { next: continuation('fragment-2') } };
   });
   const report = await driver().explore('t', { queries: [{}] }, { surface: 'cli', call: s.call });
-  assert.ok(report.failures.some(failure => failure.check === 'lead.repeat' && failure.detail.includes('unfinished work')));
+  assert.deepEqual(report.failures.filter(failure => failure.check === 'lead.repeat'), []);
+  assert.equal(s.calls.filter(call => call.tool === 'u' && call.input.cursor === 'pinned-source').length, 1);
 });
 
 test('a continuation pointing to an ancestor remains a cycle', async () => {
@@ -296,12 +297,15 @@ test('invalid indexed replies and invalid output contracts are reported', async 
 });
 
 test('related convergence executes once; unavailable and writing calls are disclosed', async () => {
-  const s = surface((_tool, input) => input.queries?.[0]?.seed ? ok({ related: [related('u', { queries: [{}] }), related('ghCloneRepo', { queries: [{}] })] }) : ok({ related: [related('t', { queries: [{ seed: true }] })] }));
+  const s = surface((_tool, input) => input.queries?.[0]?.seed ? ok({ related: [related('u', { queries: [{}] }), related('ghCloneRepo', { queries: [{}] }), related('missing', { queries: [{}] })] }) : ok({ related: [related('t', { queries: [{ seed: true }] })] }));
   const report = await driver().explore('t', { queries: [{ seed: true }] }, { surface: 'mcp', call: s.call });
   assert.deepEqual(s.calls.map(c => c.tool), ['t', 'u']);
   assert.deepEqual(report.failures, []);
   assert.equal(report.converged, 1);
-  assert.match(report.skipped[0].reason, /CLI-only/);
+  assert.deepEqual(report.skipped.map(skip => [skip.tool, skip.reason]), [
+    ['ghCloneRepo', 'writes a fresh checkout (exercised by the ghCloneRepo case)'],
+    ['missing', 'target is not a contract tool'],
+  ]);
 });
 
 test('graph parity compares observed continuation routes, never token bytes', async () => {

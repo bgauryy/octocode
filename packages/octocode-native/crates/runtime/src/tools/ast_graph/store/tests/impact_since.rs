@@ -151,7 +151,7 @@ fn impact_since_with_no_changes_is_empty() {
         o.since = Some("HEAD".into());
     });
     assert_eq!(out.class, ExitClass::Empty, "{}", out.value);
-    assert_eq!(out.value["total"], 0, "{}", out.value);
+    assert_eq!(out.value["pagination"]["totalItems"], 0, "{}", out.value);
     assert_eq!(
         out.value["summary"]["reason"], "no files changed since HEAD",
         "{}",

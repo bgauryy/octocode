@@ -139,17 +139,8 @@ pub(super) fn shape(
     {
         map.remove("pagination");
     }
-    let next_page = paging.more.then(|| {
-        crate::response::paging::next_cursor(
-            &mut value,
-            ToolId::GhSearchHistory,
-            None,
-            "page",
-            paging.page + 1,
-        )
-    });
-    if let Some(next_page) = next_page.flatten() {
-        value["calls"]["nextPage"] = leads::next_page(query, next_page, paging.per);
+    if paging.more {
+        value["calls"]["nextPage"] = leads::next_page(query, paging.page + 1);
     }
     remove_null_fields(&mut value);
     mark_empty(&mut value, paging.more);

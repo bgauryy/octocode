@@ -150,7 +150,8 @@ impl PageFacts {
 /// window block (a read's `pagination`, a body's `contentPagination` entry,
 /// a patch's `patchPagination`) is built from these, so the keys and their
 /// order are one shape: `unit` (`lines`, `bytes` or `chars`), `offset`,
-/// `length`, `total`, `hasMore`, `nextOffset` while more is left, and
+/// `length`, `total`, `hasMore`, `nextOffset` while more is left (the shaping
+/// stages read it; publication drops it, `next.*` carries the cursor), and
 /// `outOfRange` on a window requested past the end.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SpanFacts {

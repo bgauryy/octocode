@@ -15,7 +15,7 @@ pub(crate) struct PageMemo<V> {
     ttl: Duration,
 }
 
-impl<V> PageMemo<V> {
+impl<V: Send + Sync + 'static> PageMemo<V> {
     /// A store that keeps a value for `ttl`, at most `max_entries` values,
     /// and at most `max_weight` total weight; the least recently used go
     /// first.
@@ -119,15 +119,16 @@ impl Watch<'_> {
     /// before `settled_before`.
     pub(crate) fn capture(&self, link: Link, settled_before: Option<SystemTime>) -> Option<Proof> {
         let root = self.root;
-        let mut paths = std::collections::BTreeSet::new();
-        paths.insert(root.to_path_buf());
+        // Deduplicated borrowed, so each shared parent is copied once.
+        let mut paths = std::collections::BTreeSet::<&Path>::new();
+        paths.insert(root);
         for source in self.sources {
             if let Some(parent) = source.parent()
                 && parent.starts_with(root)
             {
-                paths.insert(parent.to_path_buf());
+                paths.insert(parent);
             }
-            paths.insert(source.clone());
+            paths.insert(source);
         }
         let mut presence = self
             .markers
@@ -136,13 +137,17 @@ impl Watch<'_> {
             .collect::<Vec<_>>();
         for rule in self.rules {
             if exists(rule) {
-                paths.insert(rule.clone());
+                paths.insert(rule);
             } else {
                 presence.push((rule.clone(), false));
             }
         }
         Some(Proof {
-            stamps: StampSet::capture(paths, link, settled_before)?,
+            stamps: StampSet::capture(
+                paths.into_iter().map(Path::to_path_buf),
+                link,
+                settled_before,
+            )?,
             presence: presence.into(),
         })
     }

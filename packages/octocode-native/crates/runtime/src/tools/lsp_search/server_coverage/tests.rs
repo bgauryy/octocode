@@ -15,7 +15,7 @@ fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
     let before = stale.clone();
     workspace_symbols(&mut stale, "Shared", &scope, Some("/w/a.ts"), None);
     assert_eq!(stale, before);
-    let mut empty = json!({"kind":"empty"});
+    let mut empty = json!({"status":"empty"});
     workspace_symbols(&mut empty, "Shared", &scope, None, None);
     assert!(empty.get("isPartial").is_none(), "{empty}");
     assert!(empty.get("partialReasons").is_none(), "{empty}");
@@ -52,18 +52,53 @@ fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
     assert!(empty.get("terminalLimit").is_none());
 }
 
+/// `scope` after its text scan of `name`, as a request runs it before
+/// coverage annotations.
+fn scanned(scope: Scope, name: &str) -> Scope {
+    let policy = crate::tools::test_support::workspace_policy(Path::new(&scope.root));
+    tokio::runtime::Runtime::new()
+        .expect("rt")
+        .block_on(scope.text_files(name, &policy, &crate::execution::cancel::NeverCancel))
+        .expect("scan");
+    scope
+}
+
+/// The gate check reads only the files the request's text scan found
+/// under the server root, never every Rust file: among a thousand files,
+/// the one gated file that names the symbol is found by reading the files
+/// that mention it. Only the request (its cancellation or deadline) stops
+/// it early, which it discloses; a failed text scan checked nothing.
 #[test]
-fn gate_scan_reports_unvisited_files_after_its_cap() {
-    let root = tempfile::tempdir().expect("root");
-    std::fs::write(root.path().join("a.rs"), "pub fn other() {}\n").expect("first");
+fn gate_check_reads_only_the_files_that_mention_the_name() {
+    let dir = tempfile::tempdir().expect("root");
+    let root = dir.path().canonicalize().expect("canonical");
+    for n in 0..1000 {
+        std::fs::write(root.join(format!("a{n:04}.rs")), "pub fn other() {}\n").expect("file");
+    }
+    std::fs::write(root.join("lib.rs"), "pub fn wanted() {}\n").expect("lib");
     std::fs::write(
-        root.path().join("z.rs"),
-        "#[cfg(feature = \"extra\")] pub fn wanted() {}\n",
+        root.join("z.rs"),
+        "#[cfg(feature = \"extra\")] fn f() { wanted(); }\n",
     )
-    .expect("second");
-    let scan = scan_gates(root.path(), "wanted", Gate::Feature, 1);
-    assert!(scan.files.is_empty());
-    assert!(scan.has_more);
+    .expect("gated");
+    let text = root.to_string_lossy().into_owned();
+    let scope = scanned(Scope::new(text.clone(), vec!["*.rs".into()]), "wanted");
+    let mentions = scope.scanned_files("wanted").expect("scan").len();
+    assert_eq!(mentions, 2, "lib.rs and z.rs spell the name");
+    GATE_READS.with(|reads| reads.set(0));
+    let whole = gated_files_mentioning(&scope, &text, "wanted", Gate::Feature, &|| false);
+    assert_eq!(whole.matches, 1, "the gated file is found");
+    assert!(!whole.incomplete());
+    assert_eq!(
+        GATE_READS.with(std::cell::Cell::get),
+        mentions,
+        "files read"
+    );
+    let stopped = gated_files_mentioning(&scope, &text, "wanted", Gate::Feature, &|| true);
+    assert!(stopped.scan.files.is_empty() && stopped.scan.has_more);
+    let unscanned = Scope::new(text.clone(), vec!["*.rs".into()]);
+    let unknown = gated_files_mentioning(&unscanned, &text, "wanted", Gate::Feature, &|| false);
+    assert!(unknown.incomplete() && unknown.matches == 0);
 }
 
 /// A gated file counts only when it uses the name in code and the
@@ -80,13 +115,21 @@ fn gate_scan_ignores_comment_mentions_and_answered_files() {
     .expect("doc");
     let used = root.join("used.rs");
     std::fs::write(&used, "#[cfg(feature = \"x\")]\nfn f(c: Continuation) {}\n").expect("used");
-    let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.rs".into()]);
-    let count = gated_files_mentioning(&scope, &scope.root, "Continuation", Gate::Feature);
+    let scope = scanned(
+        Scope::new(root.to_string_lossy().into_owned(), vec!["*.rs".into()]),
+        "Continuation",
+    );
+    let count = gated_files_mentioning(&scope, &scope.root, "Continuation", Gate::Feature, &|| {
+        false
+    });
     assert_eq!(count.scan.files, vec![used.to_string_lossy().into_owned()]);
     assert_eq!(count.matches, 1);
     scope.answer([used.to_string_lossy()]);
     assert_eq!(
-        gated_files_mentioning(&scope, &scope.root, "Continuation", Gate::Feature).matches,
+        gated_files_mentioning(&scope, &scope.root, "Continuation", Gate::Feature, &|| {
+            false
+        })
+        .matches,
         0
     );
 }
@@ -131,6 +174,7 @@ fn annotate(
         server,
         scope,
         super::super::receipt::RustAnalysis::of(&config),
+        &|| false,
     );
 }
 
@@ -189,7 +233,7 @@ async fn rust_row_configured(
             .expect("name");
         q["symbolQuery"] = name;
     }
-    let mut row = json!({"kind":"references","matches":[{"path":"pkg/src/lib.rs"}]});
+    let mut row = json!({"operation":"references","matches":[{"path":"pkg/src/lib.rs"}]});
     let q = query(q);
     let config = configured_rust(&q, options);
     super::annotate(
@@ -202,13 +246,14 @@ async fn rust_row_configured(
         },
         &scope,
         super::super::receipt::RustAnalysis::of(&config),
+        &|| false,
     );
     row
 }
 
 #[test]
 fn text_search_lead_targets_repo_scope_with_language_include() {
-    let mut row = json!({"kind":"references","matches":[{"path":"a.py"}]});
+    let mut row = json!({"operation":"references","matches":[{"path":"a.py"}]});
     let q = query(
         json!({"path":"/repo/pkg/a.py","operation":"references","symbolName":"get","line":3}),
     );
@@ -230,10 +275,8 @@ fn text_search_lead_targets_repo_scope_with_language_include() {
 }
 
 #[test]
-fn gate_and_word_detection() {
+fn gate_detection() {
     assert!(has_feature_gate("#[cfg(all(test, feature = \"x\"))]"));
     assert!(has_feature_gate("#![cfg(feature=\"full\")]"));
     assert!(!has_feature_gate("#[cfg(test)]\nlet feature = 1;"));
-    assert!(mentions_word("a(spawn_blocking)", "spawn_blocking"));
-    assert!(!mentions_word("spawn_blocking_extra", "spawn_blocking"));
 }

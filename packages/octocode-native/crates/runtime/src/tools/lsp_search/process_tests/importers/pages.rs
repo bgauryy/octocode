@@ -72,7 +72,16 @@ fn importer_pages_reach_every_reference_exactly_once() {
         for page in &pages {
             assert!(page.row.get("terminalLimit").is_none(), "{}", page.row);
         }
-        let last = &pages.last().expect("pages").row;
+        // Leads from every page queue the next window early: the walk's
+        // last call is not the last window's last page, so find that page.
+        let last = &pages
+            .iter()
+            .rfind(|page| {
+                page.importer_page == 3
+                    && page.row.pointer("/pagination/hasMore") != Some(&true.into())
+            })
+            .expect("the last window's last page")
+            .row;
         assert!(last.get("isPartial").is_none(), "{last}");
         let first = &pages[0].row;
         assert_eq!(first["isPartial"], true, "{first}");
@@ -174,5 +183,59 @@ fn importer_pages_reach_every_caller_exactly_once() {
             callers, expected,
             "every importer's caller once, in its window"
         );
+    });
+}
+
+/// Every location page of a window with windows left leads to the next
+/// window, and every one of those leads is the same continuation: a reader
+/// that follows the lead from each page enters each window exactly once.
+#[test]
+fn every_page_of_a_window_offers_one_lead_to_the_next_window() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, execution) = importer_fixture();
+    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let pool = fake_server_pool();
+        let start = serde_json::json!({
+            "operation": "references", "path": root.join("a.ts").to_string_lossy(),
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
+        });
+        let (pages, continuations) = walk_pages(&pool, &root, &execution, start, Some(2000)).await;
+        for window in 1..=3 {
+            let rows = pages
+                .iter()
+                .filter(|page| page.importer_page == window)
+                .map(|page| &page.row)
+                .collect::<Vec<_>>();
+            assert!(rows.len() > 1, "window {window} spans location pages");
+            let leads = rows
+                .iter()
+                .map(|row| next_row(row, "nextImporterPage"))
+                .collect::<Vec<_>>();
+            if window == 3 {
+                assert!(
+                    leads.iter().all(Option::is_none),
+                    "the last window leads nowhere"
+                );
+                continue;
+            }
+            assert!(
+                leads.iter().all(Option::is_some),
+                "every page of window {window} leads on"
+            );
+            // Equal queries (key order aside) publish as one cursor.
+            assert!(
+                leads.iter().all(|lead| lead == &leads[0]),
+                "one continuation per window: {leads:?}"
+            );
+        }
+        let mut entries = Vec::new();
+        for (name, call) in &continuations {
+            if name == "nextImporterPage" && !entries.contains(&call) {
+                entries.push(call);
+            }
+        }
+        assert_eq!(entries.len(), 2, "each later window is entered once");
     });
 }

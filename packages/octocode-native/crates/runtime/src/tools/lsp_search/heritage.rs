@@ -183,13 +183,11 @@ pub(super) fn direct_bases(
             while let Some(found) = text[from..].find(&edge.to) {
                 let offset = from + found;
                 let suffix = offset + edge.to.len();
-                let is_word = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '$';
                 let column = u32::try_from(text[..offset].encode_utf16().count())
                     .map_err(|error| error.to_string())?;
                 if column >= start
                     && column < end
-                    && !text[..offset].chars().next_back().is_some_and(is_word)
-                    && !text[suffix..].chars().next().is_some_and(is_word)
+                    && octocode_engine::text::is_whole_word(text.as_bytes(), offset, suffix)
                 {
                     let prefix = &edge.to[..edge.to.len() - leaf.len()];
                     positions.push(
@@ -222,8 +220,11 @@ pub(super) fn direct_bases(
         .collect()
 }
 
-pub(super) fn type_document(content: &str, path: &str) -> Result<GraphFactsDocument, String> {
-    let document = octocode_engine::signatures::extract_graph_facts(content, path)
+pub(super) fn type_document(
+    content: &str,
+    path: &str,
+) -> Result<std::sync::Arc<GraphFactsDocument>, String> {
+    let document = crate::tools::declarations_cache::graph_facts(content, path)
         .ok_or_else(|| format!("Type heritage parsing unavailable for {path}"))?;
     // Every tree-sitter document carries the static syntax-only caveat; it
     // marks no gap. Any other diagnostic (recovered parse, deadline, Rust
@@ -251,7 +252,7 @@ pub(super) fn type_document(content: &str, path: &str) -> Result<GraphFactsDocum
 /// function or a variable has no extends/implements clause naming it, so a
 /// scan for it would report "no implementations" instead of "unanswered".
 pub(super) fn anchors_type_declaration(content: &str, file: &str, line: u32, name: &str) -> bool {
-    let Some(document) = octocode_engine::signatures::extract_graph_facts(content, file) else {
+    let Some(document) = crate::tools::declarations_cache::file_document(content, file) else {
         return false;
     };
     document.declarations.iter().any(|declaration| {

@@ -1,4 +1,7 @@
-use super::{all_declarations, document, symbols_store, symbols_view};
+use super::{
+    all_declarations, document, facts_parsed_through_cache, file_document, graph_facts,
+    symbols_store, symbols_view,
+};
 use octocode_engine::graph::GraphFactsDocument;
 use octocode_engine::signatures::OutlineUnavailable;
 use std::cell::Cell;
@@ -6,6 +9,7 @@ use std::cell::Cell;
 /// One render per source version, a missing outline included.
 #[test]
 fn symbols_views_and_their_verdicts_render_once_per_version() {
+    let store = symbols_store(None);
     let calls = Cell::new(0);
     let path = format!("symbols-cache-test-{}", std::process::id());
     let render = |outline| {
@@ -16,20 +20,18 @@ fn symbols_views_and_their_verdicts_render_once_per_version() {
             redacted_lines: Vec::new(),
         })
     };
-    let first = symbols_view(symbols_store(), "fn a() {}", &path, || {
+    let first = symbols_view(&store, "fn a() {}", &path, || {
         render(Ok("1\tfn a()".into()))
     });
-    let again = symbols_view(symbols_store(), "fn a() {}", &path, || {
-        render(Ok("other".into()))
-    });
+    let again = symbols_view(&store, "fn a() {}", &path, || render(Ok("other".into())));
     assert!(std::sync::Arc::ptr_eq(&first, &again));
     let missing = || render(Err(OutlineUnavailable::NotSmaller));
     assert_eq!(
-        symbols_view(symbols_store(), "x", &path, missing).outline,
+        symbols_view(&store, "x", &path, missing).outline,
         Err(OutlineUnavailable::NotSmaller)
     );
     assert_eq!(
-        symbols_view(symbols_store(), "x", &path, missing).outline,
+        symbols_view(&store, "x", &path, missing).outline,
         Err(OutlineUnavailable::NotSmaller)
     );
     assert_eq!(calls.get(), 2);
@@ -59,6 +61,43 @@ fn symbols_views_persist_across_stores() {
     let again = super::symbols_view(&store(), "fn a() {}", "a.rs", render);
     assert_eq!(first, again);
     assert_eq!(calls.get(), 1);
+}
+
+#[test]
+fn corrected_symbols_views_ignore_persisted_old_renderer_entries() {
+    use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
+
+    let dir = tempfile::tempdir().expect("cache directory");
+    let store = || Store::new(CacheConfig::default(), Some(dir.path().to_owned()));
+    let source = "# C#\nBody\n";
+    let path = "README.md";
+    store().put(
+        CacheKey {
+            namespace: "symbols-view/v2".into(),
+            scope: format!("{}\0{path}", env!("CARGO_PKG_VERSION")),
+            resource: octocode_engine::digest::sha256(source.as_bytes()),
+        },
+        super::SymbolsView {
+            outline: Ok("1\t# C".into()),
+            warning: None,
+            redacted_lines: Vec::new(),
+        },
+        128,
+        CacheClass::Immutable,
+    );
+    let render = || {
+        Ok(super::SymbolsView {
+            outline: Ok(crate::content::markdown_heading_outline(source, path).expect("headings")),
+            warning: None,
+            redacted_lines: Vec::new(),
+        })
+    };
+    let current = symbols_view(&store(), source, path, render);
+    assert_eq!(current.outline.as_deref(), Ok("1\t# C#"));
+    let replay = symbols_view(&store(), source, path, || {
+        panic!("reuse the corrected view")
+    });
+    assert_eq!(current, replay);
 }
 
 /// A parse named by `file`.
@@ -219,5 +258,62 @@ fn typed_declarations_and_the_engine_document_share_one_parse() {
     assert_eq!(
         *cached,
         octocode_engine::signatures::extract_declarations_document(source, &path).expect("engine")
+    );
+}
+
+/// The full graph facts keep their own entry beside the declarations
+/// parse: a repeat read hits it, heritage edges are kept, an edit parses
+/// again.
+#[test]
+fn one_parse_serves_every_reader_of_a_source_version() {
+    let file = format!("/facts-cache-{}/a.ts", std::process::id());
+    let first = graph_facts("export class A extends B {}\n", &file).expect("facts");
+    let again = graph_facts("export class A extends B {}\n", &file).expect("facts");
+    assert!(
+        std::sync::Arc::ptr_eq(&first, &again),
+        "a repeat read hits the cache"
+    );
+    assert!(
+        first.edges.iter().any(|edge| edge.relation == "extends"),
+        "heritage edges are kept"
+    );
+    let edited = graph_facts("export class A {}\n", &file).expect("facts");
+    assert!(
+        !std::sync::Arc::ptr_eq(&first, &edited),
+        "an edit is another version"
+    );
+    assert!(!edited.edges.iter().any(|edge| edge.relation == "extends"));
+    // The declarations parse of the same source is another entry.
+    let declarations = file_document("export class A extends B {}\n", &file).expect("declarations");
+    assert!(!std::sync::Arc::ptr_eq(&first, &declarations));
+}
+
+/// Concurrent readers of one source version's graph facts share one parse
+/// (the single flight): every reader gets the same stored document.
+#[test]
+fn concurrent_graph_facts_readers_parse_once() {
+    let file = format!("/facts-flight-{}/a.ts", std::process::id());
+    let source = "export class Shared extends Base {}\n";
+    let gate = std::sync::Barrier::new(8);
+    let outcomes = std::thread::scope(|scope| {
+        let workers = (0..8)
+            .map(|_| {
+                scope.spawn(|| {
+                    gate.wait();
+                    graph_facts(source, &file)
+                })
+            })
+            .collect::<Vec<_>>();
+        workers
+            .into_iter()
+            .map(|worker| worker.join().expect("worker").expect("facts"))
+            .collect::<Vec<_>>()
+    });
+    assert!(facts_parsed_through_cache(source, &file));
+    assert!(
+        outcomes
+            .iter()
+            .all(|outcome| std::sync::Arc::ptr_eq(outcome, &outcomes[0])),
+        "one parse serves the wave"
     );
 }

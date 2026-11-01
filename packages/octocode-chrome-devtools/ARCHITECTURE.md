@@ -17,7 +17,7 @@ flowchart TD
 |---|---|
 | `bin/octocode-chrome-devtools.mjs` | Route default MCP, `/cli`, and `/raw`; no browser logic |
 | `src/adapter.ts` | CLI/MCP composition, command registration, whole-input parsing and server lifecycle |
-| `@octocodeai/octocode-core` through `@octocodeai/config/schema` | Browser schemas (imported directly as `chromeSchemaFor` and `ChromeInvocation`), descriptions, instructions, output windows and the research catalog; the native Octocode tool registry stays separate |
+| `@octocodeai/octocode-core` through `@octocodeai/config/chrome` | Browser schemas (imported directly as `chromeSchemaFor` and `ChromeInvocation`), descriptions, instructions, output windows and the research catalog; the native Octocode tool registry stays separate |
 | `src/invocation.ts` | Serialized child execution, deadlines, private stdout/stderr capture and engine shutdown |
 | `src/engine/cli-catalog.mts`, `src/engine/cli.mts`, `src/engine/cli-options.mts`, `src/engine/cli-schema.mts` | Command/recipe registry, core arguments and preflight routing; option parsing and runner connection flags; the `schema` output |
 | `src/engine/cdp-connection.mts` | Shared WebSocket transport, request deadlines, flattened-session events, error evidence and pending-request cleanup |

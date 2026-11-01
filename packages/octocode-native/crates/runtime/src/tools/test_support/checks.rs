@@ -7,6 +7,44 @@ pub fn assert_output_contract(tool: &str, output: &Value) {
     validate_output(tool, &published)
         .unwrap_or_else(|error| panic!("{tool} output contract: {error:?}\n{published}"));
     assert_leads_valid(output);
+    assert_continued_listings_have_more(tool, output);
+}
+
+/// Leads that list more of the same listing a row's `pagination` counts.
+const SAME_LISTING: [&str; 3] = ["nextPage", "continueWalk", "expandScan"];
+
+/// A row whose `next.*` lists more of its own listing never says the
+/// listing ended: its `pagination.hasMore` is true.
+pub fn assert_continued_listings_have_more(tool: &str, output: &Value) {
+    fn visit(tool: &str, value: &Value) {
+        match value {
+            Value::Object(map) => {
+                if let (Some(pagination), Some(next)) = (
+                    map.get("pagination").filter(|p| p.get("hasMore").is_some()),
+                    map.get("next")
+                        .or_else(|| map.get("calls"))
+                        .and_then(Value::as_object),
+                ) {
+                    for name in SAME_LISTING {
+                        if next.get(name).is_some_and(|lead| lead["tool"] == tool) {
+                            assert_eq!(
+                                pagination["hasMore"], true,
+                                "{tool}: next.{name} lists more of this listing: {value}"
+                            );
+                        }
+                    }
+                }
+                for (key, child) in map {
+                    if !matches!(key.as_str(), "next" | "calls" | "related") {
+                        visit(tool, child);
+                    }
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|item| visit(tool, item)),
+            _ => {}
+        }
+    }
+    visit(tool, output);
 }
 
 #[derive(Debug, Clone, PartialEq)]

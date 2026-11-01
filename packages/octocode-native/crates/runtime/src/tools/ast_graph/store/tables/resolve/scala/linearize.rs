@@ -127,7 +127,10 @@ impl Linker<'_> {
                             .map(|(elem, weakest)| (*elem, (*weakest).max(*confidence))),
                     );
                 }
-                _ => joined.push((Elem::Opaque(owner, index as u32), Confidence::High)),
+                _ => joined.push((
+                    Elem::Opaque(owner, crate::num::u32_of_usize(index)),
+                    Confidence::High,
+                )),
             }
         }
         let mut seen = HashSet::new();

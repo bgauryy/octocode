@@ -18,7 +18,6 @@ fn loop_codes(root: &Path) -> Vec<(&'static str, octocode_contract_types::ErrorC
         &NeverCancel,
         None,
         None,
-        None,
     )
     .expect_err("loop");
     let structure: StructureSearchQuery =
@@ -159,7 +158,6 @@ fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
             &paths,
             &security,
             &NeverCancel,
-            None,
             None,
             None,
         )

@@ -69,7 +69,7 @@ fn blank_line_root(root: Node<'_>, start: usize, end: usize, line: u32) -> LineR
     let children = enclosing
         .named_children(&mut cursor)
         .filter(|child| {
-            !child.is_extra() && !crate::signatures::extractor::is_annotation_kind(child.kind())
+            !child.is_extra() && !crate::signatures::node_kinds::is_annotation_kind(child.kind())
         })
         .collect::<Vec<_>>();
     let next = children.iter().find(|child| child.start_byte() >= end);

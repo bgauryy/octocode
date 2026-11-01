@@ -47,7 +47,9 @@ async fn branch_hits_are_verified_at_the_ref_and_labeled() {
         "default-branch text is not shown as the ref: {data}"
     );
     assert_eq!(
-        data["next"]["read"]["input"]["queries"][0]["ref"], TREE_SHA,
+        crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| true)["input"]
+            ["queries"][0]["ref"],
+        TREE_SHA,
         "the read is pinned to the commit the lines came from: {data}"
     );
 }

@@ -1,5 +1,6 @@
 use super::*;
 use octocode_engine::text::analysis::{OriginProjection, SourceDescriptors};
+use serde::de::IgnoredAny;
 use std::io::Write;
 
 #[derive(Serialize, Deserialize)]
@@ -91,19 +92,53 @@ pub(super) fn decode(
     relative: &str,
     digest: &str,
 ) -> Result<Owned, ToolError> {
+    verified(bytes, namespace, relative, digest)
+}
+
+/// The extraction alone of a verified artifact: its source correspondence
+/// is checked as JSON but not decoded.
+pub(super) fn decode_extraction(
+    bytes: &[u8],
+    namespace: &str,
+    relative: &str,
+    digest: &str,
+) -> Result<cache::OwnedArtifact, ToolError> {
+    verified::<Artifact<cache::OwnedArtifact, IgnoredAny, IgnoredAny>>(
+        bytes, namespace, relative, digest,
+    )
+    .map(|artifact| artifact.extraction)
+}
+
+fn verified<A: serde::de::DeserializeOwned + Identity>(
+    bytes: &[u8],
+    namespace: &str,
+    relative: &str,
+    digest: &str,
+) -> Result<A, ToolError> {
     if bytes.len() < 65
         || bytes[64] != b'\n'
         || octocode_engine::digest::sha256(&bytes[65..]).as_bytes() != &bytes[..64]
     {
         return Err(failure("graph checkpoint checksum mismatch"));
     }
-    let artifact: Owned = serde_json::from_slice(&bytes[65..])
+    let artifact: A = serde_json::from_slice(&bytes[65..])
         .map_err(|_| failure("invalid graph checkpoint artifact"))?;
-    if artifact.extraction.namespace != namespace
-        || artifact.extraction.relative_path != relative
-        || artifact.extraction.content_digest != digest
+    let extraction = artifact.extraction();
+    if extraction.namespace != namespace
+        || extraction.relative_path != relative
+        || extraction.content_digest != digest
     {
         return Err(failure("graph checkpoint identity mismatch"));
     }
     Ok(artifact)
+}
+
+trait Identity {
+    fn extraction(&self) -> &cache::OwnedArtifact;
+}
+
+impl<D, O> Identity for Artifact<cache::OwnedArtifact, D, O> {
+    fn extraction(&self) -> &cache::OwnedArtifact {
+        &self.extraction
+    }
 }

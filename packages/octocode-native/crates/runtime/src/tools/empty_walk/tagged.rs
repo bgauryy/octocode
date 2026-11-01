@@ -1,6 +1,7 @@
 use crate::policy::prune;
 use octocode_engine::error::Error;
-use octocode_engine::search::walk::{IgnorePolicy, IgnoreRules, Prune};
+use octocode_engine::search::walk::{IgnoreRules, Prune};
+use octocode_engine::types::IgnorePolicy;
 use std::path::{Path, PathBuf};
 
 use super::reasons::prefixes;

@@ -1,15 +1,13 @@
 //! Page layout: how a scan is cut into pages (grid or streamed), what a
-//! page costs, and the reads that expand clipped values.
+//! page costs, preserving each selected value whole.
 use crate::tools::local_search::local_search_query::View;
 
 mod costs;
 mod entries;
-mod expansion;
 mod stream;
 
 use super::local_search_query::{
-    self, DEFAULT_MAX_MATCHES_PER_FILE, MIN_MATCH_VALUE_CHARS, RESPONSE_VALUE_CHAR_BUDGET,
-    default_page_size, streamed_layout,
+    self, default_matches_per_file, default_page_size, streamed_layout,
 };
 use super::rows::rank_file_rows;
 use crate::num::u32_of_usize;
@@ -19,11 +17,9 @@ pub(super) use costs::{FilePrice, NamePricing};
 use costs::{PageCosts, RowName};
 pub(super) use entries::{file_pagination, row_chars};
 use entries::{fits_whole, listed_file_chars};
-pub(super) use expansion::expand_values;
-use expansion::expansion_rows;
 use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::types::SearchContext;
-use stream::{PageRows, StreamCosts, max_expansion_rows, stream_pages};
+use stream::{PageRows, StreamCosts, stream_pages};
 
 /// Whether a view lists paths (with counts) instead of match rows.
 pub(super) fn list_view(view: View) -> bool {
@@ -47,9 +43,6 @@ pub(super) struct Layout {
     /// Resolved context around each row (empty for matchOnly).
     pub(super) context: SearchContext,
     pub(super) streamed: bool,
-    /// The response budget's per-row value share, when rows are shown.
-    /// The tighter of the matchOnly display bound and `budget_cap`.
-    pub(super) display_cap: Option<usize>,
     /// Context windows of nearby rows merge into one block.
     pub(super) merge_context: Option<SearchContext>,
     /// What each shown file's rendered path adds to its stored one: the
@@ -79,7 +72,7 @@ impl Layout {
         let list = list_view(view);
         let match_only = view == View::MatchOnly;
         let context = local_search_query::context(query);
-        let mut costs = PageCosts::new(query, paths, output_root, context);
+        let mut costs = PageCosts::new(query, paths, output_root);
         costs.owners = pricing.priced.clone();
         let priced_names = costs.shows_names;
         let hits_total: usize = if list {
@@ -90,24 +83,19 @@ impl Layout {
         // A name costs at least nothing: a result that does not fit whole
         // without its names never shows whole, and one that may is priced
         // whole (it is at most one page of files).
-        let show_all = !list
-            && fits_whole(&parsed.files, page_budget, &costs, true)
-            && {
+        // A `limit` below the result's rows pages it, however small it is.
+        let within_limit = local_search_query::limit(query).is_none_or(|limit| hits_total <= limit);
+        let show_all =
+            !list && within_limit && fits_whole(&parsed.files, page_budget, &costs, true) && {
                 let all = (0..parsed.files.len()).collect::<Vec<_>>();
                 pricing.price(&parsed.files, all)?;
                 costs.owners = pricing.priced.clone();
                 fits_whole(&parsed.files, page_budget, &costs, false)
-            }
-            && parsed
-                .files
-                .iter()
-                .map(|file| expansion_rows(&file.matches, &costs))
-                .sum::<usize>()
-                <= max_expansion_rows();
+            };
         let matches_per = if show_all {
             u32_of_usize(hits_total)
         } else {
-            DEFAULT_MAX_MATCHES_PER_FILE
+            default_matches_per_file()
         }
         .max(1);
         // A file with more hits than one match page shows its deciding rows
@@ -118,7 +106,7 @@ impl Layout {
         // source order.
         if !match_only {
             for file in &mut parsed.files {
-                if file.matches.len() as u32 > matches_per {
+                if u32_of_usize(file.matches.len()) > matches_per {
                     rank_file_rows(&mut file.matches);
                 }
             }
@@ -140,26 +128,7 @@ impl Layout {
         } else {
             Self::grid(query, parsed.files.len(), matches_per)
         };
-        let total_files = parsed.files.len() as u32;
-        let shown_total: usize = shown
-            .iter()
-            .map(|(index, rows)| {
-                let len = parsed.files[*index].matches.len();
-                rows.end.min(len).saturating_sub(rows.start.min(len))
-            })
-            .sum();
-        // Distribute the response value-char budget across the matches shown
-        // on this page: a giant match is clipped (reported by `originalChars`) rather
-        // than dropped, so the page/match cursors and the line anchor +
-        // localFetch cover full retrieval unchanged.
-        let budget_cap = (shown_total > 0)
-            .then(|| (RESPONSE_VALUE_CHAR_BUDGET / shown_total).max(MIN_MATCH_VALUE_CHARS));
-        let match_only_limit = costs.match_only_limit;
-        let display_cap = match (match_only_limit, budget_cap) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (Some(a), None) => Some(a),
-            (None, b) => b,
-        };
+        let total_files = u32_of_usize(parsed.files.len());
         // Content views emit a resolved context window per match row; windows of
         // nearby rows overlap, so merge them into one block per run of lines.
         // matchOnly carries exact spans, so it has no windows. A multiline
@@ -179,7 +148,6 @@ impl Layout {
                 context
             },
             streamed,
-            display_cap,
             merge_context,
             prefix_chars: costs.prefix_chars,
         })
@@ -210,7 +178,7 @@ impl Layout {
                 files,
                 matches_per as usize,
                 show_all,
-                page_budget,
+                (page_budget, local_search_query::limit(query)),
                 StreamCosts {
                     file: &|file| costs.file(file),
                     row: &|row| costs.row(row),
@@ -222,7 +190,6 @@ impl Layout {
                         RowName::Reserved if through.is_some() => RowName::None,
                         name => name,
                     },
-                    read: &|row| costs.read(row),
                 },
                 through,
             )
@@ -277,7 +244,10 @@ impl Layout {
             })
             .collect::<Vec<_>>();
         let cut = crate::response::page_windows::select(
-            crate::response::page_windows::Paging::Chars(page_budget),
+            crate::response::page_windows::Paging::of(
+                local_search_query::limit(query),
+                page_budget,
+            ),
             &sizes,
             local_search_query::page(query) as usize,
         );
@@ -310,7 +280,10 @@ impl Layout {
         let total_files = u32_of_usize(file_count);
         (
             shown,
-            crate::response::page_windows::count_pages(file_count, page_size as usize) as u32,
+            u32_of_usize(crate::response::page_windows::count_pages(
+                file_count,
+                crate::num::usize_of(page_size),
+            )),
             Some(page_size),
             total_files,
         )

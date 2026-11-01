@@ -11,17 +11,13 @@ npx -y octocode config check KEY
 
 `config home` locates the actual Octocode home; do not hard-code a user's home. `config check` reports whether a key is set without printing its value (exit `0` set, `1` unset). Inspect only keys relevant to the task.
 
-`config get KEY` prints the resolved value. For a credential, capture it directly into the consuming command's environment; never echo it, include it in a tool result, report, brief, URL, or shell trace.
+Provider scripts that use Octocode credentials call the bundled [shared config loader](../scripts/lib/config-env.mjs) before reading `process.env`. It applies the home and trusted workspace `.env` files using `@octocodeai/config`; process environment values keep precedence. The installed skill carries the loader, so it does not need `node_modules` or a repository checkout at runtime.
 
-```bash
-PROVIDER_KEY="$(npx -y octocode config get PROVIDER_KEY)" node <skill-folder>/scripts/<consumer>.mjs
-```
-
-Replace `PROVIDER_KEY` with the key that the consuming skill documents. A missing key follows that consumer's contract: skip an optional provider or report the required dependency; do not silently choose a paid provider.
+Use `config check KEY` to check whether a value is available without printing it. When you want to save a credential, use `npx -y octocode config set KEY --stdin`; keep the value out of shell history, tool output, reports and logs. For a one-command override, set the documented environment variable directly for the command.
 
 ## Configuration ownership
 
-Resolved key precedence is process environment, trusted workspace `.octocode/.env`, then Octocode home's `.env`. The config package owns lookup and parsing; scripts receive environment values and do not add another dotenv or home resolver.
+Resolved key precedence is process environment, trusted workspace `.octocode/.env`, then Octocode home's `.env`. The config package owns lookup, parsing and propagation; scripts receive environment values and do not add another dotenv or home resolver.
 
 List the needed key and its consumer in the skill's provider instructions. Keep provider-specific setup, pricing, consent, and failure behavior there.
 

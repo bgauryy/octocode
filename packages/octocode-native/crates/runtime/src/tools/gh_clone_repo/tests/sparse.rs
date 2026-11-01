@@ -57,11 +57,11 @@ impl GitRunner for FailingLsTree {
 #[test]
 fn an_unresolvable_sparse_path_type_fails_the_clone() {
     let fixture = Fixture::shared();
-    let (root, cache_home) = home_root();
+    let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = FailingLsTree(fixture_runner(&fixture));
-    let config = CloneConfig::persistent(&cache_home);
+    let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let error = clone_pinned(
         &fixture,
@@ -79,11 +79,11 @@ fn an_unresolvable_sparse_path_type_fails_the_clone() {
 #[test]
 fn sparse_file_path_checks_out_only_that_file() {
     let fixture = Fixture::shared();
-    let (root, cache_home) = home_root();
+    let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&cache_home);
+    let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     for branch in [Some("main".to_owned()), Some(fixture.first_commit.clone())] {
         for (file, absent) in [
@@ -154,9 +154,10 @@ fn multiple_sparse_paths_check_out_every_path() {
         &context,
     )
     .expect("same set, other order");
-    assert!(
-        reordered.location.cached,
-        "request order does not split the cache"
+    assert_eq!(
+        reordered.location.local_path,
+        local.to_string_lossy(),
+        "request order does not split the destination"
     );
 
     let mixed = clone_pinned(

@@ -41,7 +41,7 @@ async fn github_file_read_goes_through_execute_and_redacts() {
             "repo": "b",
             "path": "src/lib.rs",
             "ref": "main",
-            "forceRefresh": true,
+            "refresh": true,
             "ranges": [{"startLine":1,"endLine":2}]
         }),
     )
@@ -88,7 +88,7 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"src","ref":"main","forceRefresh":true}),
+        json!({"owner":"a","repo":"b","path":"src","ref":"main","refresh":true}),
     )
     .await
     .expect("directory read is a row error, not a contract violation");
@@ -142,7 +142,7 @@ async fn gh_file_read_of_binary_content_reports_size_and_blob() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"icon.png","ref":sha,"forceRefresh":true}),
+        json!({"owner":"a","repo":"b","path":"icon.png","ref":sha,"refresh":true}),
     )
     .await
     .expect("error row");
@@ -260,7 +260,11 @@ async fn gh_full_content_paging_keeps_an_explicit_view() {
             }));
             let walk = support::walk(&runtime, "ghGetFileContent", start, |output| {
                 let data = &output["results"][0]["data"];
-                assert_eq!(data["view"], "symbols", "{data}");
+                // The fresh page repeats no unchanged request field; a resumed one states it.
+                assert!(
+                    data.get("view").is_none_or(|view| view == "symbols"),
+                    "{data}"
+                );
                 pages
                     .lock()
                     .expect("pages")

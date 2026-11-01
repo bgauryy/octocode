@@ -22,9 +22,18 @@ fn every_item_lands_on_exactly_one_page_for_any_budget_or_count() {
         Paging::Chars(500),
         Paging::Chars(16_384),
         Paging::Chars(usize::MAX),
-        Paging::Count(1),
-        Paging::Count(20),
-        Paging::Count(1_000),
+        Paging::Rows {
+            rows: 1,
+            chars: usize::MAX,
+        },
+        Paging::Rows {
+            rows: 20,
+            chars: usize::MAX,
+        },
+        Paging::Rows {
+            rows: 1_000,
+            chars: usize::MAX,
+        },
     ] {
         let mut seen = vec![0u8; sizes.len()];
         let windows = paging.windows(&sizes);
@@ -47,10 +56,23 @@ fn a_set_that_fits_is_one_page_and_an_empty_set_has_none() {
 }
 
 #[test]
-fn an_explicit_count_overrides_the_budget() {
-    assert_eq!(Paging::of(Some(3), 16_000), Paging::Count(3));
+fn a_limit_bounds_rows_within_the_budget() {
+    assert_eq!(
+        Paging::of(Some(3), 16_000),
+        Paging::Rows {
+            rows: 3,
+            chars: 16_000
+        }
+    );
     assert_eq!(Paging::of(None, 16_000), Paging::Chars(16_000));
-    assert_eq!(Paging::of(Some(0), 16_000), Paging::Count(1));
+    assert_eq!(
+        Paging::of(Some(0), 16_000),
+        Paging::Rows {
+            rows: 1,
+            chars: 16_000
+        },
+        "at least one row per page"
+    );
 }
 
 #[test]
@@ -88,7 +110,10 @@ fn windows_survive_items_larger_than_any_budget() {
     for paging in [
         Paging::Chars(1),
         Paging::Chars(usize::MAX),
-        Paging::Count(1),
+        Paging::Rows {
+            rows: 1,
+            chars: usize::MAX,
+        },
     ] {
         let windows = paging.windows(&sizes);
         let covered: usize = windows.iter().map(std::iter::ExactSizeIterator::len).sum();
@@ -110,7 +135,11 @@ fn nth_page_is_one_based_and_page_zero_is_the_first() {
 fn count_pages_agrees_with_the_windows_it_names() {
     for total in [0_usize, 1, 2, 7, 64] {
         for size in [1_usize, 3, 64] {
-            let windows = Paging::Count(size).windows(&(0..total).map(|_| 1).collect::<Vec<_>>());
+            let windows = Paging::Rows {
+                rows: size,
+                chars: usize::MAX,
+            }
+            .windows(&(0..total).map(|_| 1).collect::<Vec<_>>());
             assert_eq!(
                 count_pages(total, size),
                 windows.len().max(1),
@@ -122,10 +151,9 @@ fn count_pages_agrees_with_the_windows_it_names() {
 
 #[test]
 fn the_budget_leaves_the_row_room_inside_the_window() {
-    let query = serde_json::json!({"operation": "symbols", "path": "src"});
-    let budget = page_budget(Some(20_000), &query);
+    let budget = page_budget(Some(20_000));
     assert!((10_000..20_000).contains(&budget), "{budget}");
-    assert_eq!(page_budget(None, &query), FALLBACK_PAGE_CHARS);
+    assert_eq!(page_budget(None), FALLBACK_PAGE_CHARS);
 }
 
 #[test]
@@ -138,10 +166,9 @@ fn page_chars_leave_the_row_room_inside_the_window() {
 
 #[test]
 fn configured_windows_reduce_hops_without_changing_explicit_counts() {
-    let query = serde_json::json!({"path":"src","operation":"symbols"});
     let sizes = vec![500; 120];
-    let small = Paging::of(None, page_budget(Some(24_000), &query)).windows(&sizes);
-    let large = Paging::of(None, page_budget(Some(50_000), &query)).windows(&sizes);
+    let small = Paging::of(None, page_budget(Some(24_000))).windows(&sizes);
+    let large = Paging::of(None, page_budget(Some(50_000))).windows(&sizes);
     assert!(large.len() < small.len());
     assert_eq!(
         large
@@ -151,7 +178,7 @@ fn configured_windows_reduce_hops_without_changing_explicit_counts() {
         sizes.len()
     );
     for budget in [24_000, 50_000] {
-        let explicit = Paging::of(Some(17), page_budget(Some(budget), &query)).windows(&sizes);
+        let explicit = Paging::of(Some(17), page_budget(Some(budget))).windows(&sizes);
         assert!(
             explicit
                 .iter()
@@ -169,7 +196,14 @@ fn configured_windows_reduce_hops_without_changing_explicit_counts() {
 fn select_cuts_counted_and_sized_pages_with_one_past_end_rule() {
     let sizes = [400, 400, 400, 900, 100];
     for (paging, pages, ranges) in [
-        (Paging::Count(2), 3, vec![0..2, 2..4, 4..5]),
+        (
+            Paging::Rows {
+                rows: 2,
+                chars: usize::MAX,
+            },
+            3,
+            vec![0..2, 2..4, 4..5],
+        ),
         (Paging::Chars(1_000), 3, vec![0..2, 2..3, 3..5]),
     ] {
         for (index, range) in ranges.iter().enumerate() {
@@ -191,7 +225,13 @@ fn select_cuts_counted_and_sized_pages_with_one_past_end_rule() {
         assert_eq!(block["totalPages"], 3, "{block}");
         assert_eq!(block["page"], 4, "{block}");
     }
-    for paging in [Paging::Count(2), Paging::Chars(1_000)] {
+    for paging in [
+        Paging::Rows {
+            rows: 2,
+            chars: usize::MAX,
+        },
+        Paging::Chars(1_000),
+    ] {
         let first = select(paging, &[], 1);
         assert_eq!(first.range, 0..0);
         assert_eq!((first.pages, first.more), (1, false));
@@ -199,4 +239,38 @@ fn select_cuts_counted_and_sized_pages_with_one_past_end_rule() {
         let second = select(paging, &[], 2);
         assert_eq!(second.facts.to_value()["outOfRange"], true);
     }
+}
+
+/// `limit` (rows) and the character budget both end a page, whichever comes
+/// first; a page holds at least one item, and a walk at a small limit lists
+/// every item exactly once.
+#[test]
+fn a_page_ends_at_the_limit_or_the_budget_whichever_comes_first() {
+    let sizes = [10, 10, 10, 500, 10, 10, 10, 10];
+    let rows = Paging::of(Some(3), 1_000).windows(&sizes);
+    assert_eq!(rows, vec![0..3, 3..6, 6..8], "limit first");
+    let chars = Paging::of(Some(100), 30).windows(&sizes);
+    assert_eq!(chars, vec![0..3, 3..4, 4..7, 7..8], "budget first");
+    for limit in 1..=sizes.len() {
+        let windows = Paging::of(Some(limit), 40).windows(&sizes);
+        assert!(windows.iter().all(|w| !w.is_empty() && w.len() <= limit));
+        let walked = windows.iter().flat_map(Clone::clone).collect::<Vec<_>>();
+        assert_eq!(
+            walked,
+            (0..sizes.len()).collect::<Vec<_>>(),
+            "limit {limit}"
+        );
+    }
+}
+
+/// A weighted item (a file of several match rows) counts its rows against
+/// the limit; one heavier than the limit still takes a page alone.
+#[test]
+fn weighted_items_count_their_rows_against_the_limit() {
+    let sizes = [1, 1, 1, 1];
+    let rows = [2, 2, 5, 1];
+    let windows = Paging::of(Some(4), usize::MAX).weighted_windows(&sizes, Some(&rows));
+    assert_eq!(windows, vec![0..2, 2..3, 3..4]);
+    let cut = select_weighted(Paging::of(Some(4), usize::MAX), &sizes, Some(&rows), 2);
+    assert_eq!((cut.range, cut.pages, cut.more), (2..3, 3, true));
 }

@@ -65,6 +65,8 @@ function probe(server, workspace, timeoutMs = 20_000) {
     let buffer = "";
     child.stderr.resume();
     child.on("exit", (code) => done({ error: `exited with code ${code} before answering` }));
+    // A server that exits early closes its stdin: the exit above records the failure, so a write error is expected.
+    child.stdin.on("error", () => {});
     let settled = false;
     const done = (result) => {
       if (settled) return;

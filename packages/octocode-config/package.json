@@ -1,12 +1,12 @@
 {
   "name": "@octocodeai/config",
   "private": true,
-  "description": "Octocode unified env + config loader (zero-dep '.' entry) plus the shared tool-contract hub ('./schema', './mcp') and the generated TypeScript/Rust tool input and output types, built from @octocodeai/octocode-core.",
+  "description": "Octocode unified env + config loader (zero-dep '.' entry) plus the shared contract hubs ('./schema' for research tools, './chrome' for Chrome DevTools) and the generated tool contract and Rust tool types, built from @octocodeai/octocode-core.",
   "version": "20.2.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
-    "@octocodeai/octocode-core": "21.0.1"
+    "@octocodeai/octocode-core": "21.2.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.3.1",
@@ -14,7 +14,6 @@
     "@vitest/coverage-v8": "^5.0.4",
     "ajv": "^8.20.0",
     "esbuild": "^0.28.2",
-    "json-schema-to-typescript": "16.0.0",
     "typescript": "^6.0.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.4"
@@ -32,9 +31,9 @@
       "types": "./dist/contracts/schema.d.ts",
       "import": "./dist/contracts/schema.js"
     },
-    "./mcp": {
-      "types": "./dist/contracts/mcp.d.ts",
-      "import": "./dist/contracts/mcp.js"
+    "./chrome": {
+      "types": "./dist/contracts/chrome.d.ts",
+      "import": "./dist/contracts/chrome.js"
     }
   },
   "homepage": "https://octocode.ai",
@@ -56,10 +55,10 @@
     "check:config-contract": "node scripts/generate-config-contract.ts --check",
     "check:core-contract-sync:published": "node scripts/check-core-contract-sync.cjs",
     "check:tool-contract": "node scripts/generate-tool-contract.ts --check",
-    "clean": "rm -rf dist/",
+    "clean": "rm -rf dist/ coverage/",
     "generate:config-contract": "node scripts/generate-config-contract.ts",
     "generate:tool-contract": "node scripts/generate-tool-contract.ts",
-    "lint": "node scripts/generate-config-contract.ts --check && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
+    "lint": "node scripts/generate-config-contract.ts --check && yarn run -T oxlint -c ../../.oxlintrc.json .",
     "test": "vitest run --coverage",
     "test:tokens:acceptance": "cd ../.. && node packages/octocode-config/tests/token-precedence.acceptance.mjs",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",

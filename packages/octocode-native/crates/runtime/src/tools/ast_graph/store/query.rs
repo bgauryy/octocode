@@ -1,34 +1,37 @@
 //! Bounded, deterministic questions over a published snapshot.
 //!
-//! Every list operation pages with `limit`/`offset`, reports `total`, and on
-//! a cut emits `truncated` plus a paste-ready `next` command; paging is
-//! success, so the exit stays 0.
+//! Every list operation pages with `limit`/`offset`, states its page as
+//! `pagination`, and on a cut carries a typed `next` continuation that the
+//! tool adapter makes executable; paging is success, so the exit stays 0.
 use super::format::{
     Confidence, EdgeKind, EdgeRec, FLAG_EXPORTED, GraphTables, NONE, NodeKind, ProvenanceRec,
     decode_with_cancel,
 };
 use super::{
-    GRAPH_FILE, GraphOutput, LATEST_FILE, MANIFEST_FILE, graph_home, list_snapshots,
+    Channel, GRAPH_FILE, GraphOutput, LATEST_FILE, Resume, MANIFEST_FILE, graph_home, list_snapshots,
     read_graph_file,
 };
 use crate::policy::path::PathPolicy;
 use crate::response::exit::ExitClass;
 use crate::tools::ast_graph::types::DiagnosticCode;
 use octocode_contract_types::ErrorCode;
-use octocode_io::shell::quote;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 mod answers;
 mod assess;
+mod budget;
 mod coverage;
 mod evidence;
 mod find;
 mod flags;
 mod health;
+mod lean;
 mod load;
 mod lookup;
+mod opened;
+mod options;
 mod paging;
 mod references;
 mod sources;
@@ -41,17 +44,27 @@ use flags::*;
 use health::*;
 use load::*;
 use lookup::*;
+pub use options::QueryOptions;
 use paging::*;
+pub(crate) use paging::query_row;
 use walks::*;
 use window::*;
 
-const DEFAULT_LIMIT: usize = 50;
-const MAX_LIMIT: usize = 1000;
-const MAX_DEPTH: u32 = 20;
+/// The page and depth bounds of a graph query are the `graphQuery` tool
+/// contract's, so the CLI and MCP surfaces page the same way.
+#[expect(
+    clippy::panic,
+    reason = "a missing default is a contract defect caught by contract tests"
+)]
+fn default_limit() -> usize {
+    crate::contracts::query_schema_number(crate::id::ToolId::GraphQuery, None, "limit", "default")
+        .and_then(|limit| usize::try_from(limit).ok())
+        .unwrap_or_else(|| panic!("contract declares no default for graphQuery limit"))
+}
 /// Impact beyond three hops is mostly noise for a change review (GitNexus
-/// d1/d2/d3 buckets); `--depth` widens it.
+/// d1/d2/d3 buckets); `depth` widens it.
 const DEFAULT_IMPACT_DEPTH: u32 = 3;
-/// `issues` hides findings below this tier unless `--min-tier` says otherwise.
+/// `issues` hides findings below this tier unless `minTier` says otherwise.
 const DEFAULT_MIN_TIER: u8 = 90;
 const MAX_CANDIDATES: usize = 20;
 /// Ranked `find` rows an unknown reference suggests.
@@ -103,57 +116,21 @@ operations! {
     Drift => "drift",
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct QueryOptions {
-    pub op: String,
-    pub include_provenance: Option<bool>,
-    pub check_freshness: bool,
-    /// Node reference: key, absolute path, name, or `Class.method`.
-    pub target: Option<String>,
-    /// Second reference for `path`.
-    pub to: Option<String>,
-    /// Snapshot directory, `graph.bin` path, id, scope, or a substring of
-    /// exactly one id.
-    pub graph: Option<String>,
-    pub workspace: Option<PathBuf>,
-    /// Edge kinds to follow (`contains`, `imports`, `uses`, `calls`, `inherits`).
-    pub edges: Vec<String>,
-    /// Node kind filter (`file`, `symbol`, `package`).
-    pub kind: Option<String>,
-    /// `out`, `in`, or `both`.
-    pub direction: Option<String>,
-    pub depth: Option<u32>,
-    /// Weakest call-edge confidence to follow (`high`, `medium`, `low`).
-    pub confidence: Option<String>,
-    pub limit: Option<usize>,
-    pub offset: Option<usize>,
-    /// Evidence list in `summary` or `baseline` to return as paged results.
-    pub list: Option<String>,
-    /// `issues`: detectors to run (default all).
-    pub detectors: Vec<String>,
-    /// `issues`: snapshot to diff findings against (new / existing / resolved).
-    pub baseline: Option<String>,
-    /// `issues`: drop findings scoring below this.
-    pub min_score: Option<f64>,
-    /// `impact`: additional changed references (files or symbols).
-    pub changed: Vec<String>,
-    /// `impact`: git revision; files changed since it (plus untracked) seed
-    /// the blast radius.
-    pub since: Option<String>,
-    /// `issues`: lowest finding tier to show (100/90/60; default 90).
-    pub min_tier: Option<u8>,
-    /// `issues`: entrypoints (node references) in place of the inferred ones.
-    pub entries: Vec<String>,
-}
-
 #[derive(Default)]
 struct Graph {
     compact_provenance: bool,
+    /// Characters a page's rows may take ([`budget::page_budget`]).
+    page_budget: Option<usize>,
+    /// The process-cache key of a reusable snapshot ([`opened`]).
+    reuse: Option<opened::Key>,
     explicit_path: Option<PathBuf>,
     id: String,
     manifest: Value,
     t: GraphTables,
     selective: Option<std::cell::RefCell<super::format::SnapshotReader>>,
+    /// The reads and integrity checks behind a query: test evidence of how
+    /// little it decoded, never in a response.
+    #[cfg(test)]
     validation: Option<Value>,
     source_budget: std::cell::RefCell<crate::response::source_evidence::ProjectionBudget>,
 }
@@ -215,7 +192,8 @@ fn run_with(
     };
     let flags = Flags::parse(options)?;
     let mut graph = load_with(options, paths, cancel, selective).map_err(|failure| *failure)?;
-    graph.compact_provenance = options.include_provenance == Some(false);
+    graph.compact_provenance = !options.include_provenance;
+    graph.page_budget = budget::page_budget(options.response_window);
     let mut pinned = options.clone();
     if let Some(path) = &graph.explicit_path {
         pinned.graph = Some(path.to_string_lossy().into_owned());
@@ -231,21 +209,21 @@ fn run_with(
         cancel,
     };
     let g = &graph;
-    let freshness = options.check_freshness.then(|| {
+    // `stale` is the freshness check itself: its answer states it once.
+    let freshness = (options.check_freshness && !matches!(op, Op::Stale)).then(|| {
         let root = Path::new(graph.manifest["root"].as_str().unwrap_or_default());
         let checked = super::snapshot_changes(paths, root, &graph.t, &graph.manifest, true);
         let analysis_current = super::analysis_current(&graph.manifest);
-        json!({"fresh": checked.changes.is_empty() && checked.added_checked && analysis_current,
-            "addedChecked": checked.added_checked, "analysisCurrent": analysis_current})
+        json!({"fresh": checked.changes.is_empty() && analysis_current,
+            "analysisCurrent": analysis_current})
     });
     let result = (|| match op {
         Op::Stats => stats(g, cancel),
         Op::Candidates => query.candidates(),
         Op::Witnesses | Op::Unresolved => query.evidence(),
         Op::Find => {
-            let text = options.target.as_deref().ok_or_else(|| {
-                GraphOutput::error(ErrorCode::InvalidInput, "`find` needs search text")
-            })?;
+            // No text: every node (of the kind), ranked like any match.
+            let text = options.target.as_deref().unwrap_or_default();
             Ok(run_page(
                 options,
                 g,
@@ -253,10 +231,10 @@ fn run_with(
                 find(g, text, query.flags.kind, query.window(), cancel)?,
             ))
         }
-        Op::Node => node(g, query.target("a node reference")?, options, cancel),
+        Op::Node => node(g, query.target("a node reference")?, cancel),
         Op::Symbols => {
-            let root = query.target("a file or symbol")?;
-            let (extra, page) = symbols(g, root, query.window(), cancel)?;
+            let roots = query.symbol_roots()?;
+            let (extra, page) = symbols(g, &roots, query.window(), cancel)?;
             Ok(run_page(options, g, extra, page))
         }
         Op::Deps | Op::Dependents | Op::Callers | Op::Callees | Op::Walk => query.traversal(),
@@ -294,24 +272,35 @@ fn run_with(
         Ok(output) => (output, false),
         Err(output) => (output, true),
     };
+    if graph.compact_provenance {
+        lean::project(&mut output.value);
+    }
     graph.close_sources(&mut output, cancel)?;
+    #[cfg(test)]
     if let Some(reader) = &graph.selective {
-        output.value["validation"] = reader.borrow().validation();
+        output.validation = reader.borrow().validation();
     } else if let Some(validation) = &graph.validation {
-        output.value["validation"] = validation.clone();
+        output.validation = validation.clone();
     }
     if failed {
         return Err(output);
     }
-    if options.edges.iter().any(|edge| edge == "passes") {
+    if options.edges.iter().any(|edge| edge == "passes") && first_page(options) {
         output.value["argumentCoverage"] = graph.manifest["argumentCoverage"].clone();
     }
     if let Some(freshness) = freshness {
         output.value["freshness"] = freshness;
     }
+    graph.fit_page(&mut output, options, cancel)?;
+    #[cfg(test)]
+    if let Some(reader) = &graph.selective {
+        output.validation = reader.borrow().validation();
+    }
     cancel
         .check()
         .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
+    // Only a completed query returns its snapshot for reuse.
+    graph.release();
     Ok(output)
 }
 

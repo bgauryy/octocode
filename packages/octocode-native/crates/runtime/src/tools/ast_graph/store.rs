@@ -1,6 +1,5 @@
-//! Persisted code graphs: `octocode graph ingest` builds a snapshot once;
-//! `octocode graph query` answers bounded questions from it without
-//! rebuilding.
+//! Persisted code graphs: `graphBuild` builds a snapshot once; `graphQuery`
+//! answers bounded questions from it without rebuilding.
 //!
 //! ```text
 //! <workspace>/.octocode/graph/
@@ -33,7 +32,7 @@ use crate::response::exit::ExitClass;
 use crate::{
     execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, GraphBuildQuery};
 use octocode_io::atomic::write_atomic;
 use serde_json::{Value, json};
 use std::{
@@ -58,7 +57,7 @@ fn read_graph_file(path: &Path) -> Result<Vec<u8>, String> {
     let limit = super::limits::LIMITS.snapshot_bytes;
     crate::tools::source::read_bounded(path, limit).map_err(|error| {
         format!(
-            "cannot read {} within the {limit}-byte snapshot limit: {error:?}; narrow the graph ingest scope",
+            "cannot read {} within the {limit}-byte snapshot limit: {error:?}; build a narrower path",
             path.display(),
         )
     })
@@ -66,7 +65,6 @@ fn read_graph_file(path: &Path) -> Result<Vec<u8>, String> {
 pub(crate) const MANIFEST_FILE: &str = "manifest.json";
 const LATEST_FILE: &str = "latest";
 const MANIFEST_KIND: &str = "octocode.graph";
-const DEFAULT_KEEP: usize = 3;
 /// Environment and tool-output directories the ingest prunes on top of the
 /// shared syntax-visible policy and `.gitignore` (hidden directories are never
 /// scanned).
@@ -85,8 +83,13 @@ const INGEST_EXCLUDES: &[&str] = &[
 pub struct GraphOutput {
     pub value: Value,
     pub class: ExitClass,
-    /// Domain continuation intent; adapters never infer it from shell text.
-    pub(crate) next_query: Option<Box<QueryOptions>>,
+    /// The calls that continue this answer, by `next` channel; the tool
+    /// adapter states each as an executable call.
+    pub(crate) next: Vec<(Channel, Resume)>,
+    /// What the query read and verified: test evidence of how little it
+    /// decoded, never in a response.
+    #[cfg(test)]
+    pub(crate) validation: Value,
 }
 
 impl GraphOutput {
@@ -94,14 +97,18 @@ impl GraphOutput {
         Self {
             value,
             class: ExitClass::Success,
-            next_query: None,
+            next: Vec::new(),
+            #[cfg(test)]
+            validation: Value::Null,
         }
     }
     pub(crate) fn empty(value: Value) -> Self {
         Self {
             value,
             class: ExitClass::Empty,
-            next_query: None,
+            next: Vec::new(),
+            #[cfg(test)]
+            validation: Value::Null,
         }
     }
     /// A failure with a declared `errorCodes` entry; its class decides the exit.
@@ -109,26 +116,92 @@ impl GraphOutput {
         Self {
             value: json!({"error": message.into(), "errorCode": code}),
             class: ExitClass::of(code),
-            next_query: None,
+            next: Vec::new(),
+            #[cfg(test)]
+            validation: Value::Null,
         }
     }
 }
 
-#[derive(Clone, Debug, Default)]
+/// A `next` channel of an answer (core `continuationChannels`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Channel {
+    /// The answer's rows after this page.
+    NextPage,
+    /// A `summary.<field>` or `baseline.<field>` list past its preview.
+    List(String),
+    /// The members of the cycle on row `i` of this page, past its preview.
+    Cycle(usize),
+}
+
+impl Channel {
+    pub(crate) fn name(&self) -> String {
+        match self {
+            Self::NextPage => "nextPage".into(),
+            Self::List(list) => list.clone(),
+            Self::Cycle(index) => format!("cycle{index}"),
+        }
+    }
+}
+
+/// Where a continuation resumes.
+#[derive(Clone, Debug)]
+pub(crate) enum Resume {
+    /// The same request from row `offset`: of evidence `list` when set, of
+    /// the cycle that `cycle` leads when set.
+    Row {
+        offset: usize,
+        list: Option<String>,
+        cycle: Option<String>,
+    },
+    /// Another request from its own `offset`: the candidates of an
+    /// ambiguous reference.
+    Query(Box<QueryOptions>),
+}
+
+#[derive(Clone, Debug)]
 pub struct IngestOptions {
+    /// Keep extraction intermediates in memory; the requested snapshot is still published.
+    pub memory_only: bool,
     /// Directory to scan.
     pub path: PathBuf,
     /// Workspace that owns `.octocode/graph`. The runtime fills it when
     /// unset ([`default_workspace`] of its working directory).
     pub workspace: Option<PathBuf>,
     pub exclude_dir: Vec<String>,
-    pub max_files: Option<u32>,
-    /// Snapshots of the same root to retain, newest first (default 3).
-    pub keep: Option<usize>,
+    /// Snapshots of the same root to retain, newest first.
+    pub keep: usize,
     /// Rebuild even when the latest snapshot of this scope is current.
-    pub force: bool,
+    pub refresh: bool,
     /// AST parsers by root-relative glob (`{"cpp": ["include/**/*.h"]}`).
     pub language_globs: BTreeMap<String, Vec<String>>,
+}
+
+impl IngestOptions {
+    /// The options a validated graphBuild `query` names for scanning `path`;
+    /// its omitted fields carry the contract's defaults.
+    pub(crate) fn of_query(query: &GraphBuildQuery, path: PathBuf) -> Self {
+        Self {
+            memory_only: false,
+            path,
+            workspace: None,
+            exclude_dir: query.exclude.iter().map(ToString::to_string).collect(),
+            keep: crate::num::usize_of(query.keep),
+            refresh: query.refresh,
+            language_globs: query
+                .parser_globs
+                .as_ref()
+                .map(crate::tools::ast_rule::parser_globs)
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// A graphBuild of the contract's default query.
+impl Default for IngestOptions {
+    fn default() -> Self {
+        Self::of_query(&GraphBuildQuery::default(), PathBuf::new())
+    }
 }
 
 #[cfg(test)]

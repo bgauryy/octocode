@@ -88,8 +88,8 @@ fn github_row(
     );
     query.insert("ref".into(), Value::String(resolved_ref.to_owned()));
     query.remove("snapshot");
-    if let Some(force) = access::force_refresh(source) {
-        query.insert("forceRefresh".into(), Value::Bool(force));
+    if let Some(force) = access::refresh(source) {
+        query.insert("refresh".into(), Value::Bool(force));
     }
     Value::Object(query)
 }
@@ -204,7 +204,7 @@ mod tests {
         let whole = &next["unfiltered"];
         assert_eq!(whole["tool"], "ghGetFileContent");
         assert_eq!(whole["input"]["queries"][0]["view"], "content");
-        let window = &next["continueWindow"]["input"]["queries"][0];
+        let window = &next["nextPage"]["input"]["queries"][0];
         assert_eq!(window["readProgress"]["offset"], 50);
         let rows = next["unfilteredUnknown2"]["input"]["queries"]
             .as_array()

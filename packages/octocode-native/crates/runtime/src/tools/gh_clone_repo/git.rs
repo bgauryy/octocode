@@ -1,7 +1,7 @@
 mod admission;
 mod sparse;
 
-use super::{CloneContext, CloneError, GitRunRequest, cache, control};
+use super::{CloneContext, CloneError, GitRunRequest, control};
 use admission::git_permit;
 use octocode_contract_types::ErrorCode;
 use sparse::sparse_set_args;
@@ -87,24 +87,13 @@ pub(super) fn tree_names(
         .collect())
 }
 
-/// Whether a cached checkout's working tree still matches its HEAD commit.
-/// Edited, deleted, or added files mean the cache no longer holds the fetched
-/// revision, so it must not be served as `verified`.
-pub(super) fn is_clean(context: &CloneContext<'_>, directory: &Path) -> Result<bool, CloneError> {
-    Ok(checkout_status(context, directory)?.clean)
-}
-
-pub(super) struct CheckoutStatus {
-    pub clean: bool,
-    pub safe_to_replace: bool,
-}
-
 /// Inspect ignored files as well: they do not change the verified revision,
 /// but replacing the checkout would still destroy them.
-pub(super) fn checkout_status(
+pub(super) fn safe_to_replace(
     context: &CloneContext<'_>,
     directory: &Path,
-) -> Result<CheckoutStatus, CloneError> {
+    expected_commit: &str,
+) -> Result<bool, CloneError> {
     let output = run(
         context,
         vec![
@@ -117,29 +106,22 @@ pub(super) fn checkout_status(
             "--ignored=matching".into(),
         ],
         head_timeout(context),
-        "check cached checkout cleanliness",
+        "check checkout cleanliness",
         None,
     )?;
-    let mut status = CheckoutStatus {
-        clean: true,
-        safe_to_replace: true,
-    };
-    for entry in output.stdout.split('\0').filter(|entry| !entry.is_empty()) {
-        // Only our untracked root metadata is bookkeeping. A tracked edit,
-        // nested namesake or arbitrary .octocode-* file remains user evidence.
-        if entry
-            .strip_prefix("?? ")
-            .or_else(|| entry.strip_prefix("!! "))
-            == Some(cache::META_FILE)
-        {
-            continue;
-        }
-        status.safe_to_replace = false;
-        if !entry.starts_with("!! ") {
-            status.clean = false;
-        }
+    if !output.stdout.split('\0').all(str::is_empty)
+        || !read_head(context, directory)?.eq_ignore_ascii_case(expected_commit)
+    {
+        return Ok(false);
     }
-    Ok(status)
+    let refs = run(
+        context,
+        scoped(directory, &["for-each-ref", "--format=%(refname)"]),
+        head_timeout(context),
+        "check local checkout refs",
+        None,
+    )?;
+    Ok(refs.stdout.trim().is_empty())
 }
 
 /// Repo-relative paths of the repository symlinks (index mode `120000`) the
@@ -217,7 +199,7 @@ pub(super) fn checkout(
         )?;
     }
     let depth = depth.to_string();
-    let mut fetch = scoped(target, &["fetch", "--depth", &depth]);
+    let mut fetch = scoped(target, &["fetch", "--no-tags", "--depth", &depth]);
     if sparse_paths.is_some() {
         fetch.extend([OsString::from("--filter"), OsString::from("blob:none")]);
     }

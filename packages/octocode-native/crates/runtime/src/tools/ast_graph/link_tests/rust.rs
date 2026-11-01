@@ -215,3 +215,44 @@ fn dependents_follow_rust_pub_use_reexports() {
         "{dependents}"
     );
 }
+
+/// A snapshot rooted inside a crate: `aliases.rs` declares `mod config;` but
+/// its own parent module is outside the scan. Its children still live in
+/// `aliases/`, so the declaration links and calls through it resolve.
+#[test]
+fn an_orphan_module_file_finds_its_children_in_its_own_directory() {
+    let temp = fixture(&[
+        (
+            "aliases.rs",
+            "mod config;\npub fn load() { config::read(); }\n",
+        ),
+        ("aliases/config.rs", "pub fn read() {}\n"),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(unresolved_internal(root), json!(0));
+    assert_eq!(
+        call_edges(root, "aliases.rs#load"),
+        [edge("aliases/config.rs#read", "namespace", "high")]
+    );
+}
+
+/// A snapshot rooted at a module directory: `super::capture::Item` from a
+/// root-level file names its sibling module, also when the file declares an
+/// inline `mod tests` (which makes it a parentless module-tree root).
+#[test]
+fn a_super_path_to_a_root_level_sibling_links_inside_a_module_directory() {
+    let temp = fixture(&[
+        (
+            "scope.rs",
+            "pub fn charge(source: &super::capture::CapturedSource) -> usize { source.len() }\n#[cfg(test)]\nmod tests {\n    use super::*;\n}\n",
+        ),
+        (
+            "capture.rs",
+            "pub struct CapturedSource;\nimpl CapturedSource { pub fn len(&self) -> usize { 0 } }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(unresolved_internal(root), json!(0));
+    let deps = ask(root, "deps", Some("scope.rs"));
+    assert_eq!(files(&deps), ["capture.rs"]);
+}

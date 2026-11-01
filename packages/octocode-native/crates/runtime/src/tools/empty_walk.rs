@@ -12,7 +12,8 @@
 //! Each tool builds the lead itself through its own continuation builder.
 
 use octocode_engine::error::Error;
-use octocode_engine::search::walk::{IgnorePolicy, Prune, walk_builder};
+use octocode_engine::search::walk::{Prune, walk_builder};
+use octocode_engine::types::IgnorePolicy;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 

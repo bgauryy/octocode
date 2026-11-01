@@ -261,11 +261,12 @@ fn record(
         }
         decisions[ordinal] = decision;
     }
-    for (ordinal, decision) in decisions.iter().enumerate() {
+    // Pool ordinals are `u32` runs, so every decided ordinal has a `u32` id.
+    for (ordinal, decision) in (0..=u32::MAX).zip(&decisions) {
         match decision {
-            Decision::Selected => plan.selected.push(ordinal as u32),
-            Decision::Related => plan.related.push(ordinal as u32),
-            Decision::Excluded => plan.excluded.push(ordinal as u32),
+            Decision::Selected => plan.selected.push(ordinal),
+            Decision::Related => plan.related.push(ordinal),
+            Decision::Excluded => plan.excluded.push(ordinal),
             Decision::Unknown => {}
         }
     }

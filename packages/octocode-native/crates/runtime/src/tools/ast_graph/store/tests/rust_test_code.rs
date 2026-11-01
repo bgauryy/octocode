@@ -57,7 +57,7 @@ fn crate_with_test_code() -> Fixture {
 }
 
 fn detector(out: &GraphOutput, name: &str) -> Vec<Value> {
-    out.value["results"]
+    out.value["rows"]
         .as_array()
         .into_iter()
         .flatten()
@@ -94,7 +94,7 @@ fn cfg_test_module_edges_are_test_edges() {
         "{cycle_members:?}"
     );
     let hubs = ask(root, "hubs", None, |_| {});
-    let contracts = hubs.value["results"]
+    let contracts = hubs.value["rows"]
         .as_array()
         .into_iter()
         .flatten()
@@ -105,7 +105,7 @@ fn cfg_test_module_edges_are_test_edges() {
         hubs.value
     );
     let deps = ask(root, "deps", Some("src/id.rs"), |_| {});
-    let row = deps.value["results"]
+    let row = deps.value["rows"]
         .as_array()
         .into_iter()
         .flatten()
@@ -136,15 +136,36 @@ fn cfg_test_mounted_modules_are_test_files() {
         "{}",
         engine.value
     );
-    let issues = ask(root, "issues", None, |o| {
-        o.limit = Some(200);
-        o.min_tier = Some(0);
-    });
-    assert!(
-        detector(&issues, "dev-dependency-in-production").is_empty(),
-        "{}",
-        issues.value
-    );
+}
+
+/// `include!` splices a file into the including module, so the file has that
+/// module's role: test code when a test-only module includes it.
+#[test]
+fn files_spliced_by_include_share_the_including_modules_role() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/lib.rs", "pub mod engine;\npub mod tables;\n"),
+        (
+            "src/engine.rs",
+            "pub fn run() {}\n\n#[cfg(test)]\nmod support;\n",
+        ),
+        (
+            "src/engine/support.rs",
+            "include!(\"support/spliced.rs\");\n",
+        ),
+        ("src/engine/support/spliced.rs", "pub fn fixture() {}\n"),
+        ("src/tables.rs", "include!(\"tables/rows.rs\");\n"),
+        ("src/tables/rows.rs", "pub fn row() {}\n"),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let role =
+        |file: &str| ask(root, "node", Some(file), |_| {}).value["node"]["roles"].to_string();
+    assert!(role("src/engine/support/spliced.rs").contains("test"));
+    assert!(!role("src/tables/rows.rs").contains("test"));
 }
 
 /// A Rust module and its own child directory (`tree.rs` and `tree/`) are
@@ -202,13 +223,13 @@ fn missing_graph_names_the_workspace_and_the_way_out() {
         + out.value["message"].as_str().unwrap_or_default();
     let workspace = root.display().to_string();
     assert!(message.contains(&workspace), "{}", out.value);
-    assert!(message.contains("--workspace"), "{}", out.value);
-    assert!(message.contains("octocode graph ingest"), "{}", out.value);
+    assert!(message.contains("graphBuild"), "{}", out.value);
+    assert!(!message.contains("octocode graph"), "{}", out.value);
 }
 
 /// `use` edges within one Rust module tree (`tree.rs` and `tree/child.rs`)
-/// are the tree, not coupling: the pair is no cycle, no hub and no misplaced
-/// file. Sibling modules that import each other (`a/x.rs`, `b/y.rs`) still
+/// are the tree, not coupling: the pair is no cycle and no single point of
+/// failure. Sibling modules that import each other (`a/x.rs`, `b/y.rs`) still
 /// form a cycle.
 #[test]
 fn rust_module_tree_edges_are_no_structural_coupling() {
@@ -233,83 +254,20 @@ fn rust_module_tree_edges_are_no_structural_coupling() {
             .any(|m| m.contains("src/a/x.rs") && m.contains("src/b/y.rs")),
         "siblings importing each other still cycle: {cycles:?}"
     );
-    for name in ["god-file", "misplaced-file", "single-point-of-failure"] {
-        let subjects = detector(&issues, name)
-            .iter()
-            .map(|row| row["subject"].to_string())
-            .collect::<Vec<_>>();
-        assert!(
-            subjects.iter().all(|s| !s.contains("src/tree.rs")),
-            "{name}: {subjects:?}"
-        );
-    }
+    let subjects = detector(&issues, "single-point-of-failure")
+        .iter()
+        .map(|row| row["subject"].to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        subjects.iter().all(|s| !s.contains("src/tree.rs")),
+        "single-point-of-failure: {subjects:?}"
+    );
     let cycles = ask(root, "cycles", None, |_| {});
     assert!(
         !cycles.value.to_string().contains("src/tree.rs"),
-        "`graph query cycles` agrees: {}",
+        "the cycles operation agrees: {}",
         cycles.value
     );
-}
-
-/// A crate whose `hub.rs` is imported by five siblings and imports five
-/// others: hub-like by fan-in and fan-out. With only `mod` declarations
-/// and `pub use` lines of its own it is a module root (a barrel), so no
-/// god-file; with declarations of its own it is one.
-fn crate_with_hub(own_items: bool) -> Fixture {
-    let mut files = vec![
-        (
-            "Cargo.toml".to_owned(),
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n".to_owned(),
-        ),
-        (
-            "src/lib.rs".to_owned(),
-            "pub mod hub;\npub mod s1;\npub mod s2;\npub mod s3;\npub mod s4;\npub mod s5;\npub mod u1;\npub mod u2;\npub mod u3;\npub mod u4;\npub mod u5;\n".to_owned(),
-        ),
-        (
-            "src/hub.rs".to_owned(),
-            format!(
-                "pub mod a;\npub mod b;\npub mod c;\npub use a::A;\nuse crate::u1::U1;\nuse crate::u2::U2;\nuse crate::u3::U3;\nuse crate::u4::U4;\nuse crate::u5::U5;\npub fn all() -> (U1, U2, U3, U4, U5) {{ (U1, U2, U3, U4, U5) }}\n{}",
-                if own_items {
-                    "pub struct Own1;\npub struct Own2;\n"
-                } else {
-                    ""
-                }
-            ),
-        ),
-        ("src/hub/a.rs".to_owned(), "pub struct A;\n".to_owned()),
-        ("src/hub/b.rs".to_owned(), "pub struct B;\n".to_owned()),
-        ("src/hub/c.rs".to_owned(), "pub struct C;\n".to_owned()),
-    ];
-    for n in 1..=5 {
-        files.push((
-            format!("src/s{n}.rs"),
-            "use crate::hub::A;\npub fn f() -> A { A }\n".to_owned(),
-        ));
-        files.push((format!("src/u{n}.rs"), format!("pub struct U{n};\n")));
-    }
-    let borrowed = files
-        .iter()
-        .map(|(a, b)| (a.as_str(), b.as_str()))
-        .collect::<Vec<_>>();
-    git_app(&borrowed)
-}
-
-#[test]
-fn rust_module_roots_are_barrels_not_god_files() {
-    for (own_items, expected) in [(false, 0), (true, 1)] {
-        let dir = crate_with_hub(own_items);
-        let root = dir.0.as_path();
-        assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
-        let issues = ask(root, "issues", None, |o| {
-            o.detectors = vec!["god-file".into()];
-            o.min_tier = Some(0);
-        });
-        let hubs = detector(&issues, "god-file")
-            .iter()
-            .filter(|row| row["subject"] == "src/hub.rs")
-            .count();
-        assert_eq!(hubs, expected, "own items {own_items}: {}", issues.value);
-    }
 }
 
 /// A relative import that climbs above the snapshot root is reported apart

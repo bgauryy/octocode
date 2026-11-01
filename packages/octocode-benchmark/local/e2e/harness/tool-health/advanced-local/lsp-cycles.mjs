@@ -20,14 +20,14 @@ const expected = {
 
 export async function cyclicCalls(ctx, surface, checks) {
   for (const operation of ['callers', 'callees']) {
-    for (const graphDepth of [1, 20]) {
-      const label = `lsp.cycle.${operation}.${graphDepth}`;
-      const result = await scenario(ctx, 'lspSearch', surface, { label, query: { workspaceRoot, path, operation, graphDepth, symbolName: 'alpha', line: 1 }, checks, responseChars: 600 });
+    for (const depth of [1, 20]) {
+      const label = `lsp.cycle.${operation}.${depth}`;
+      const result = await scenario(ctx, 'lspSearch', surface, { label, query: { workspaceRoot, path, operation, depth, symbolName: 'alpha', line: 1 }, checks, responseChars: 600 });
       const found = files(result.data).flatMap(file => file.matches.map(match => [
         relative(ctx, file.path), match.symbolName, match.line,
         match.via?.symbolName ?? 'alpha', match.sites.map(site => site.line),
       ]));
-      equal(checks, `${label}.${surface}.edges`, found, expected[operation].filter(edge => edge[2] <= graphDepth).map(([symbol, line, , via, sites]) => ['code/cycle.ts', symbol, line, via, sites]));
+      equal(checks, `${label}.${surface}.edges`, found, expected[operation].filter(edge => edge[2] <= depth).map(([symbol, line, , via, sites]) => ['code/cycle.ts', symbol, line, via, sites]));
     }
   }
 }

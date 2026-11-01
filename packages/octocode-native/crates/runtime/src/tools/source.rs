@@ -4,6 +4,7 @@
 //! past the limit is never read whole.
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
 use octocode_engine::stamp::SourceStamp;
@@ -60,22 +61,82 @@ impl StampSet {
         link: Link,
         settled_before: Option<SystemTime>,
     ) -> Option<Self> {
-        let stamps = paths
-            .into_iter()
-            .map(|path| stamp_of(&path, link, settled_before).map(|stamp| (path, stamp)))
-            .collect::<Option<Vec<_>>>()?;
+        let paths = paths.into_iter().collect::<Vec<_>>();
+        let gone = AtomicBool::new(false);
+        let stamps = in_chunks(&paths, |chunk| {
+            chunk
+                .iter()
+                .map(|path| {
+                    if gone.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    let stamp = stamp_of(path, link, settled_before);
+                    if stamp.is_none() {
+                        gone.store(true, Ordering::Relaxed);
+                    }
+                    stamp
+                })
+                .collect::<Option<Vec<_>>>()
+        })
+        .into_iter()
+        .collect::<Option<Vec<_>>>()?;
         Some(Self {
             link,
-            stamps: stamps.into(),
+            stamps: paths
+                .into_iter()
+                .zip(stamps.into_iter().flatten())
+                .collect(),
         })
     }
 
     /// Whether every path still has its stamp.
     pub(crate) fn unchanged(&self) -> bool {
-        self.stamps
-            .iter()
-            .all(|(path, stamp)| stamp_of(path, self.link, None).as_ref() == Some(stamp))
+        let changed = AtomicBool::new(false);
+        in_chunks(&self.stamps[..], |chunk| {
+            chunk.iter().all(|(path, stamp)| {
+                let same = !changed.load(Ordering::Relaxed)
+                    && stamp_of(path, self.link, None).as_ref() == Some(stamp);
+                if !same {
+                    changed.store(true, Ordering::Relaxed);
+                }
+                same
+            })
+        })
+        .into_iter()
+        .all(|same| same)
     }
+}
+
+/// Stats one stamp thread takes at least: a scoped thread costs tens of
+/// microseconds, about what a few hundred warm stats take, so a smaller set
+/// is stamped on the calling thread.
+const STATS_PER_WORKER: usize = 256;
+/// Most threads one stamp set is stamped on: the file-open fan-out the
+/// line counts measured best (`structure_search::rows::line_counts`).
+const STAT_WORKERS: usize = 4;
+
+/// `job` of each contiguous chunk of `items`, in order: one chunk per
+/// [`STATS_PER_WORKER`] items, on at most [`STAT_WORKERS`] scoped threads
+/// (one chunk on the calling thread when that is all there is).
+fn in_chunks<T: Sync, R: Send>(items: &[T], job: impl Fn(&[T]) -> R + Sync) -> Vec<R> {
+    let workers =
+        crate::tools::workers::workers(items.len() / STATS_PER_WORKER, Some(STAT_WORKERS));
+    if workers < 2 {
+        return vec![job(items)];
+    }
+    let job = &job;
+    std::thread::scope(|scope| {
+        items
+            .chunks(items.len().div_ceil(workers))
+            .map(|chunk| scope.spawn(move || job(chunk)))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|task| {
+                task.join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
+    })
 }
 
 /// Bytes of the regular file at `path`, at most `max_bytes`.
@@ -106,6 +167,36 @@ mod tests {
         std::fs::remove_file(&file).expect("remove");
         assert!(!set.unchanged(), "a deleted path is a change");
         assert!(StampSet::capture(paths(), Link::Follow, None).is_none());
+    }
+
+    /// A set large enough to be stamped and checked on several threads
+    /// keeps every path once, in order, and still falls with one change or
+    /// one missing path anywhere in it.
+    #[test]
+    fn a_large_stamp_set_is_one_proof_across_its_chunks() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let files = (0..STATS_PER_WORKER * STAT_WORKERS + 7)
+            .map(|index| {
+                let file = dir.path().join(format!("{index:05}.rs"));
+                std::fs::write(&file, "fn a() {}").expect("write");
+                file
+            })
+            .collect::<Vec<_>>();
+        let set = StampSet::capture(files.clone(), Link::Follow, None).expect("stamped");
+        assert_eq!(
+            set.stamps
+                .iter()
+                .map(|(path, _)| path.clone())
+                .collect::<Vec<_>>(),
+            files
+        );
+        assert!(set.unchanged());
+        let last = files.last().expect("files");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(last, "fn b() {}").expect("edit");
+        assert!(!set.unchanged(), "the last chunk's edit");
+        std::fs::remove_file(&files[0]).expect("remove");
+        assert!(StampSet::capture(files, Link::Follow, None).is_none());
     }
 
     #[test]

@@ -5,7 +5,8 @@ use crate::id::ToolId;
 use crate::response::result::{Continuation, query_row};
 use crate::tools::gh_shared::{
     GhFailure, PathRecovery, RepoPath, parent_dir, provider_hint, provider_message,
-    repository_not_found, repository_search, tree_recovery, validation_message, with_ref_recovery,
+    repository_not_found, repository_not_found_message, repository_recovery,
+    repository_search_hint, tree_recovery, validation_message, with_ref_recovery,
 };
 use octocode_contract_types::GhGetFileContentQuery;
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
@@ -50,9 +51,7 @@ pub(crate) fn failure(
     }
     let message = match error.kind {
         ProviderErrorKind::NotFound if repository_not_found(&error) => {
-            format!(
-                "Repository {owner}/{repo} not found, or private and not accessible to this token"
-            )
+            repository_not_found_message(owner, repo)
         }
         ProviderErrorKind::NotFound if found.is_some() => path_not_found(&at, at.reference),
         // Provider-local validation (no HTTP status) carries a specific,
@@ -62,6 +61,7 @@ pub(crate) fn failure(
         ProviderErrorKind::Validation => validation_message(&error, "Invalid request parameters"),
         _ => provider_message(&error),
     };
+    let mut label = None;
     let (hint, next): (Option<&str>, Option<Value>) = if error.reason
         == Some(ProviderErrorReason::BinaryFile)
     {
@@ -82,20 +82,15 @@ pub(crate) fn failure(
         // Listing a tree of the same repository cannot recover; a search
         // for its name names the owner that holds it (as on the search
         // tools).
-        (
-            None,
-            Some(json!({
-                "findRepository": repository_search(repo),
-                "findRepository2": crate::tools::gh_shared::owner_listing(owner),
-            })),
-        )
+        label = Some(repository_search_hint(Some(owner), repo));
+        (None, Some(repository_recovery(Some(owner), repo)))
     } else if error.kind == ProviderErrorKind::NotFound {
         path_recovery(query, &at, found)
     } else {
         (provider_hint(&error), None)
     };
     let mut failure = GhFailure::new(error, message);
-    if let Some(hint) = hint {
+    if let Some(hint) = hint.or(label.as_deref()) {
         failure = failure.hint(hint);
     }
     failure.calls = next.map(Box::new);

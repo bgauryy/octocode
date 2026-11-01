@@ -109,6 +109,8 @@ impl FileLink<'_, '_> {
                 parent: d.parent,
                 owner: d.owner,
                 prototype: d.prototype,
+                return_type: d.return_type,
+                try_type: d.try_type,
             });
         }
     }
@@ -132,7 +134,6 @@ impl FileLink<'_, '_> {
             join_within_root(dirname(&self.file), &i.specifier)
                 .filter(|target| self.inputs.known.contains(target))
         } else if rust
-            && !self.inputs.rust_cargo_unavailable
             && let ModuleResolution::Inside(target) =
                 self.inputs
                     .rust_modules
@@ -143,8 +144,6 @@ impl FileLink<'_, '_> {
             && let Some(local) = rust_local_target(&i, &self.file, modules, self.inputs.known)
         {
             Some(local)
-        } else if rust && self.inputs.rust_cargo_unavailable {
-            None
         } else {
             self.resolve(
                 &rust_scoped_specifier(&i, self.lang),
@@ -152,8 +151,7 @@ impl FileLink<'_, '_> {
                 i.imported_name.as_deref().unwrap_or_default(),
             )
         };
-        let unsupported = self.lang == Linker::Unsupported
-            || rust && !include && self.inputs.rust_cargo_unavailable;
+        let unsupported = self.lang == Linker::Unsupported;
         // An unresolved include names a file outside the scan, never a package.
         let external = if include {
             record_resolution(

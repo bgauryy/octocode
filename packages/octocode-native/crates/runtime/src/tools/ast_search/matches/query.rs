@@ -55,6 +55,9 @@ impl<'a> MatchQuery<'a> {
         use crate::policy::prune::DefaultsFlag;
         either_form!(self, default_excludes => default_excludes.defaults())
     }
+    pub fn test_code(self) -> Option<octocode_contract_types::TestCode> {
+        either_form!(self, test_code => *test_code)
+    }
     pub fn include_hidden(self) -> Option<bool> {
         either_form!(self, include_hidden => *include_hidden)
     }
@@ -81,11 +84,6 @@ impl<'a> MatchQuery<'a> {
     pub fn max_depth(self) -> Option<u32> {
         either_form!(self, max_depth => max_depth.map(|depth| u32_of(depth.get())))
     }
-    /// The caller's file scan cap; unset scans the whole scope within the
-    /// scan time budget.
-    pub fn max_files(self) -> Option<u32> {
-        either_form!(self, max_files => max_files.map(|files| u32_of(files.get())))
-    }
     /// Leading candidates (walk order) an earlier window evaluated.
     pub fn scan_offset(self) -> u32 {
         either_form!(self, scan_offset => scan_offset.map_or(0, |offset| u32_of(offset.get())))
@@ -94,7 +92,7 @@ impl<'a> MatchQuery<'a> {
         either_form!(self, parser => parser.as_ref().map(ToString::to_string))
     }
     pub fn language_globs(self) -> Option<std::collections::BTreeMap<String, Vec<String>>> {
-        either_form!(self, parser_globs => parser_globs.as_ref().map(super::super::parser_globs))
+        either_form!(self, parser_globs => parser_globs.as_ref().map(crate::tools::ast_rule::parser_globs))
     }
     pub fn sort(self) -> Option<&'static str> {
         use octocode_contract_types::{AstSearchQueryMatch0SortBy, AstSearchQueryMatchViewSortBy};
@@ -114,6 +112,11 @@ impl<'a> MatchQuery<'a> {
     }
     pub fn page(self) -> u32 {
         either_form!(self, page => u32_of(page.get()))
+    }
+    /// Rows per page (`limit`): matches in view content, files in the
+    /// file views; `None` cuts pages by the budget alone.
+    pub fn limit(self) -> Option<usize> {
+        either_form!(self, limit => limit.map(|limit| crate::num::usize_of(limit.get())))
     }
     pub fn match_page(self) -> u32 {
         either_form!(self, match_page => u32_of(match_page.get()))

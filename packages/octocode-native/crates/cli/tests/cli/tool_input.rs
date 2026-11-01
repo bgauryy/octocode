@@ -59,7 +59,7 @@ fn localfetch_cursor_walk_reconstructs_source_across_processes() {
         let call = if value["responsePagination"]["hasMore"] == true {
             &value["responsePagination"]["next"]
         } else {
-            &value["results"][0]["data"]["next"]["continueWindow"]
+            &value["results"][0]["data"]["next"]["nextPage"]
         };
         if call.is_null() {
             break;

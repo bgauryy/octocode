@@ -1,5 +1,7 @@
 //! GitHub search paging: the 1,000-result window, next pages, completeness and repair leads.
-use super::{GhFailure, RepoPath, repository_not_found, repository_search};
+use super::{
+    GhFailure, RepoPath, repository_not_found, repository_recovery, repository_search_hint,
+};
 use crate::id::ToolId;
 use crate::response::result::{Continuation, query_row};
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
@@ -102,37 +104,41 @@ impl SearchReach {
 /// A search failure's one repair lead, replacing its static hint: a page
 /// past the search window leads to the last page a
 /// [`SearchWindow::PageStart`] search serves (`repair`; a code search
-/// re-points it at its own last page); a
-/// repository that did not resolve leads to a search for its name
-/// (`findRepository`), which names the owner that holds it. Any other
+/// re-points it at its own last page); a repository that did not resolve
+/// leads to its [`repository_recovery`] (a search for its name and the
+/// `owner`'s listing), labelled by its [`repository_search_hint`]. Any other
 /// failure is returned unchanged.
 pub(crate) fn with_search_repair(
     mut failure: GhFailure,
     tool: ToolId,
     query: &impl serde::Serialize,
     per: usize,
+    owner: Option<&str>,
     repo: Option<&str>,
 ) -> GhFailure {
-    let (name, lead) = if failure.error.reason == Some(ProviderErrorReason::SearchWindowExceeded) {
-        (
-            "repair",
-            page_replay(tool, query, SearchWindow::PageStart.last_page(per)),
-        )
+    let (leads, hints) = if failure.error.reason == Some(ProviderErrorReason::SearchWindowExceeded)
+    {
+        let last = page_replay(tool, query, SearchWindow::PageStart.last_page(per));
+        (json!({ "repair": last }), Vec::new())
     } else if let Some(repo) = repo.filter(|_| repository_not_found(&failure.error)) {
-        ("findRepository", repository_search(repo))
+        (
+            repository_recovery(owner, repo),
+            vec![repository_search_hint(owner, repo)],
+        )
     } else {
         return failure;
     };
-    failure.hints.clear();
+    failure.hints = hints;
     let mut next = failure.calls.take().unwrap_or_else(|| Box::new(json!({})));
-    next[name] = lead;
+    if let (Some(next), Value::Object(leads)) = (next.as_object_mut(), leads) {
+        next.extend(leads);
+    }
     failure.calls = Some(next);
     failure
 }
 
-/// `next.nextPage`: the same query at the page after `page`; the contract
-/// `page` maximum is the last a search can name, so past it the page is a
-/// terminal limit.
+/// `next.nextPage`: the same query at the page after `page`. GitHub's own
+/// search window ([`SearchWindow`]) decides `has_more`.
 pub(crate) fn add_next(
     value: &mut Value,
     tool: ToolId,
@@ -143,11 +149,7 @@ pub(crate) fn add_next(
     if !has_more {
         return;
     }
-    let Some(next_page) = crate::response::paging::next_cursor(value, tool, None, "page", page + 1)
-    else {
-        return;
-    };
-    value["calls"] = json!({"nextPage": page_replay(tool, query, next_page)});
+    value["calls"] = json!({"nextPage": page_replay(tool, query, page + 1)});
 }
 
 /// The same query at `page`: an exact replay.
@@ -222,14 +224,29 @@ pub(crate) fn apply_partial(
             )
         });
         let warnings = Vec::from_iter(count);
+        if let Some(pagination) = value.get_mut("pagination").and_then(Value::as_object_mut) {
+            pagination.insert("totalItemsCapped".into(), Value::Bool(true));
+        }
         if has_more {
-            mark_partial(value, "providerResultCap", &warnings);
+            mark_partial(
+                value,
+                crate::response::paging::PartialReason::ProviderResultCap,
+                &warnings,
+            );
         } else {
-            terminal_limit(value, "providerResultCap", &warnings);
+            terminal_limit(
+                value,
+                crate::response::paging::PartialReason::ProviderResultCap,
+                &warnings,
+            );
         }
     }
     if incomplete {
-        mark_partial(value, "providerIncompleteResults", &[]);
+        mark_partial(
+            value,
+            crate::response::paging::PartialReason::ProviderIncompleteResults,
+            &[],
+        );
         value["calls"]["retry"] = page_replay(tool, query, page);
     }
 }

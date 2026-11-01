@@ -12,7 +12,7 @@ pub(super) fn unreached_files(v: &View, entries: &[u32]) -> (Vec<(u32, bool)>, V
         .iter()
         .copied()
         .filter(|f| v.flags(*f) & (ROLE_TEST | ROLE_CONFIG) != 0)
-        .chain((0..v.t.nodes.len() as u32).filter(|id| {
+        .chain(v.t.node_ids().filter(|id| {
             let node = &v.t.nodes[*id as usize];
             node.kind == NodeKind::Symbol && node.flags & FLAG_TEST != 0
         }))
@@ -117,9 +117,9 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
                 impact: 0.2,
                 evidence: json!({"orphan": orphan, "entrypoints": entries.len(), "entryRules": rules}),
                 controls,
-                verify: vec![format!(
-                    "octocode graph query dependents {} --edge imports,uses,calls",
-                    quote(&key)
+                verify: vec![step(
+                    ToolId::GraphQuery,
+                    json!({"operation": "dependents", "target": key, "edges": ["imports", "uses", "calls"]}),
                 )],
             },
         );
@@ -138,9 +138,9 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
                 impact: 0.2,
                 evidence: json!({"reachedFromTests": true, "reachedFromEntrypoints": false}),
                 controls: vec!["tests and configs treated as a separate entry class"],
-                verify: vec![format!(
-                    "octocode graph query dependents {} --edge imports,uses,calls",
-                    quote(&key)
+                verify: vec![step(
+                    ToolId::GraphQuery,
+                    json!({"operation": "dependents", "target": key, "edges": ["imports", "uses", "calls"]}),
                 )],
             },
         );
@@ -198,7 +198,7 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
     let mut local_only = BTreeMap::<u32, Vec<&str>>::new();
     // Files whose exports this detector cannot judge, by language.
     let mut unjudged = BTreeMap::<&str, BTreeSet<u32>>::new();
-    for (id, node) in t.nodes.iter().enumerate() {
+    for (id, node) in t.node_ids().zip(&t.nodes) {
         if node.kind != NodeKind::Symbol || node.flags & FLAG_EXPORTED == 0 || node.parent != NONE {
             continue;
         }
@@ -220,7 +220,7 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
             }
             continue;
         }
-        let used = t.incoming(id as u32).any(|e| {
+        let used = t.incoming(id).any(|e| {
             matches!(
                 e.kind,
                 EdgeKind::Uses | EdgeKind::Calls | EdgeKind::Inherits | EdgeKind::Passes
@@ -232,10 +232,8 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
         // Referenced inside its own file: the export is unnecessary, the
         // code is not dead (knip `ignoreExportsUsedInFile`).
         let local = node.flags & FLAG_LOCAL_USE != 0
-            || t.incoming(id as u32).any(|e| {
-                e.kind != EdgeKind::Contains
-                    && v.file_of[e.src as usize] == file
-                    && e.src != id as u32
+            || t.incoming(id).any(|e| {
+                e.kind != EdgeKind::Contains && v.file_of[e.src as usize] == file && e.src != id
             });
         let bucket = if local { &mut local_only } else { &mut by_file };
         bucket.entry(file).or_default().push(t.str(node.name));
@@ -284,9 +282,9 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
                     "namespace-imported files skipped",
                     "only languages with named-import linking (JS/TS/Python)",
                 ],
-                verify: vec![format!(
-                    "octocode lspSearch '{{\"queries\":[{{\"operation\":\"references\",\"path\":\"{key}\",\"symbolName\":\"{}\"}}]}}'",
-                    names[0]
+                verify: vec![step(
+                    ToolId::LspSearch,
+                    json!({"operation": "references", "path": key, "symbolName": names[0]}),
                 )],
             },
         );

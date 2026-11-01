@@ -136,6 +136,7 @@ pub(super) async fn run_target(
     let scope = scope::Scope::resolve(
         &target.path,
         &target.config.workspace_root,
+        lsp_search_query::workspace_root(query),
         paths,
         language_id,
     );
@@ -163,6 +164,9 @@ pub(super) async fn run_target(
             failure::anchor_recovery(&mut row, query, text);
             Exit::Row(row)
         })?;
+    // Every code-use check of the scope (the operation's and the one below)
+    // bounds the scanned files by the anchor declaration's reach.
+    scope.anchor_site(&target.path, anchor.line, anchor.character);
     let session = open_session(
         query,
         target,
@@ -191,10 +195,7 @@ pub(super) async fn run_target(
         line: anchor.line,
         character: anchor.character,
         language_id,
-        budget: crate::response::page_windows::page_budget(
-            response_window,
-            &lsp_search_query::to_row(query),
-        ),
+        budget: crate::response::page_windows::page_budget(response_window),
         response_window,
     }
     .run()
@@ -204,6 +205,7 @@ pub(super) async fn run_target(
         && let Some(name) = lsp_search_query::symbol_name(query)
     {
         scope.text_files(name, paths, cancel).await?;
+        scope.check_code_uses(name, cancel).await?;
     }
     annotate(
         &mut result,
@@ -212,6 +214,7 @@ pub(super) async fn run_target(
         &session,
         &scope,
         anchor.resolved_symbol,
+        &|| cancel.check().is_err(),
     );
     if matches!(lsp_search_query::op(query), Op::References | Op::Callers) {
         locations::attach_read_lead(&mut result);

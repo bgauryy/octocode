@@ -40,19 +40,22 @@ pub(super) struct GitHubServices {
     provider: GitHubProvider,
     timeout: Duration,
     home: PathBuf,
-    /// The ghCloneRepo cache limits.
-    clone_limits: crate::execution::CloneLimits,
     /// ghCloneRepo's git, keeping the runtime env's PATH, proxy and CA names.
     git: SystemGit,
     /// The automatic response page: file and patch pages are sized to fit
     /// it when the call names no `responseChars`.
     auto_page_chars: usize,
     /// Sanitized full views of recently paged files (scoped to this runtime's
-    /// single security policy), so each `next.continueWindow` skips a full rescan.
+    /// single security policy), so each `next.nextPage` skips a full rescan.
     sanitized_views: Arc<crate::security::scan::SanitizedViewMemo>,
+    source_views: Arc<crate::tools::source_view::ViewCache>,
 }
 
 impl GitHubServices {
+    pub(super) fn clear_memory(&self) {
+        self.provider.transport.clear_metadata();
+    }
+
     pub(crate) fn capture_content(
         &self,
         query: &Value,
@@ -88,6 +91,7 @@ impl GitHubServices {
         limits: &crate::execution::RuntimeLimits,
         home: PathBuf,
         cache: GitHubContentCache,
+        source_views: Arc<crate::tools::source_view::ViewCache>,
     ) -> Result<Self, ProviderError> {
         let endpoint =
             GitHubEndpoint::new(url::Url::parse(&config.resolved.github.api_url).map_err(
@@ -116,10 +120,10 @@ impl GitHubServices {
             provider: GitHubProvider::new(transport, cache),
             timeout: limits.network_timeout,
             home,
-            clone_limits: limits.clone,
             git,
             auto_page_chars: limits.auto_page_chars,
             sanitized_views: Arc::new(crate::security::scan::SanitizedViewMemo::new()),
+            source_views,
         })
     }
 

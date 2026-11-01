@@ -7,7 +7,6 @@
 //        ├── tool-contract/presentation.ts ───────────▶ contract/cli-presentation.json
 //        │                                             (native embed: `schema` and `<tool> --help`)
 //        └── tool-contract/bundle.ts ──▶ contract/tool-types.schema.json
-//                 ├── tool-contract/typescript.ts ──▶ src/contracts/toolTypes.generated.ts
 //                 └── tool-contract/rust.ts ────────▶ contract/tool_types.rs
 //                     (rust-reach.ts keeps only the types native source names
 //                      and what they reach)
@@ -27,29 +26,31 @@ import {
 import { buildToolTypesBundle } from './tool-contract/bundle.ts';
 import { buildCliPresentation } from './tool-contract/presentation.ts';
 import { renderRust, rustHeader } from './tool-contract/rust.ts';
-import { renderTypeScript } from './tool-contract/typescript.ts';
 
 export { buildToolTypesBundle } from './tool-contract/bundle.ts';
 
 const contractFile = (name: string): string =>
   fileURLToPath(new URL(`../contract/${name}`, import.meta.url));
 const rustPath = contractFile('tool_types.rs');
-const tsPath = fileURLToPath(new URL('../src/contracts/toolTypes.generated.ts', import.meta.url));
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
 
 function corePackageVersion(): string {
   // `./schema` resolves to <core>/dist/schema.js; the manifest sits one level up.
   const manifest = new URL('../package.json', import.meta.resolve('@octocodeai/octocode-core/schema'));
-  return (JSON.parse(readFileSync(manifest, 'utf8')) as { version: string }).version;
+  const parsed: unknown = JSON.parse(readFileSync(manifest, 'utf8'));
+  const version =
+    typeof parsed === 'object' && parsed !== null && 'version' in parsed ? parsed.version : undefined;
+  if (typeof version !== 'string') throw new TypeError(`${manifest.pathname} has no version`);
+  return version;
 }
 
 /** Every generated file except the Rust body, plus the header it must start with. */
-export async function generateToolContract(): Promise<{
+export function generateToolContract(): {
   files: Map<string, string>;
   bundleJson: string;
   rustHeader: string;
-}> {
+} {
   const ir = buildEnforcementContractIr();
   const contractJson = canonicalizeNativeContractIr(ir);
   const { fingerprint, bundle } = buildToolTypesBundle(ir);
@@ -68,15 +69,14 @@ export async function generateToolContract(): Promise<{
       [contractFile('cli-presentation.json'), `${JSON.stringify(buildCliPresentation())}\n`],
       [contractFile('provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`],
       [contractFile('tool-types.schema.json'), bundleJson],
-      [tsPath, await renderTypeScript(fingerprint, bundle, ir.tools.map((tool) => String(tool.name)))],
     ]),
     bundleJson,
     rustHeader: rustHeader(fingerprint, sha256(bundleJson)),
   };
 }
 
-async function main(): Promise<void> {
-  const { files, bundleJson, rustHeader: header } = await generateToolContract();
+function main(): void {
+  const { files, bundleJson, rustHeader: header } = generateToolContract();
   if (!process.argv.includes('--check')) {
     // Finish fallible generation before publishing any part of the contract.
     const rust = renderRust(header, bundleJson);
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   if (read(rustPath) !== renderRust(header, bundleJson)) stale.push(rustPath);
   if (stale.length > 0) {
     throw new Error(
-      `Generated tool contract is stale (${stale.join(', ')}). Run: yarn contracts:regen`
+      `Generated tool contract is stale (${stale.join(', ')}). Run: node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen`
     );
   }
 }
@@ -111,4 +111,4 @@ const realOrSelf = (p: string): string => {
     return resolve(p);
   }
 };
-if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) await main();
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) main();

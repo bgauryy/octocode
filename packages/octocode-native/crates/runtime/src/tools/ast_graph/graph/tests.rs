@@ -14,7 +14,6 @@ fn fixture_graph(root: &std::path::Path, exclude_dir: &[&str]) -> super::BuiltGr
         &super::GraphScan {
             root: root.to_path_buf(),
             exclude_dir: exclude_dir.iter().map(|dir| (*dir).to_owned()).collect(),
-            max_files: 50_000,
             ..Default::default()
         },
         &paths,
@@ -38,7 +37,6 @@ fn an_over_budget_scan_stops_early_and_names_narrower_scopes() {
     let error = super::build_graph(
         &super::GraphScan {
             root: root.to_path_buf(),
-            max_files: 50_000,
             limits: crate::tools::ast_graph::limits::Limits {
                 source_bytes: 1,
                 ..crate::tools::ast_graph::limits::LIMITS
@@ -62,7 +60,7 @@ fn an_over_budget_scan_stops_early_and_names_narrower_scopes() {
     let hints = error.hints.join("\n");
     let (big, small) = (hints.find("big"), hints.find("small"));
     assert!(big.is_some() && small.is_some() && big < small, "{hints}");
-    assert!(hints.contains("octocode graph ingest"), "{hints}");
+    assert!(hints.contains("graphBuild {"), "{hints}");
 }
 
 /// A file whose source correspondence outgrows the per-file budget is a scan

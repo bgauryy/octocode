@@ -1,5 +1,5 @@
 //! `block:true`: widen a line window to its enclosing declaration, so a read
-//! that starts at (or inside) a function, class, or heading section returns
+//! that starts at (or inside) a function or class returns
 //! through its end instead of stopping mid-body and forcing a re-read. Spans
 //! come from the same declaration outline behind `view:"symbols"` and
 //! clasify locate; a file type without one keeps the requested window.
@@ -81,7 +81,7 @@ fn leads_declaration(path: &str, line: &str) -> bool {
 
 /// Declaration spans for a block read: each widened up over the doc
 /// comments and attributes directly above it, so the window holds the
-/// declaration as written. Document headings keep their own spans.
+/// declaration as written. Document files skip this source-comment expansion.
 fn block_spans(content: &str, path: &str, blocks: &Blocks) -> Vec<(usize, usize)> {
     let lines: Vec<&str> = content.lines().collect();
     blocks
@@ -92,7 +92,7 @@ fn block_spans(content: &str, path: &str, blocks: &Blocks) -> Vec<(usize, usize)
 }
 
 /// `span` widened up over the doc comment and attribute run directly above
-/// it; a document heading keeps its span.
+/// it. Document files keep the provided span.
 fn with_docs(lines: &[&str], path: &str, (start, end): (usize, usize)) -> (usize, usize) {
     if matches!(
         crate::content::classify_file_type(path),
@@ -284,7 +284,7 @@ pub fn widen_matches(
     // `matchedLines` names every hit; the warning carries the count.
     if call_sites > 0 {
         warnings.push(format!(
-            "block: {call_sites} match(es) are not declaration heads; they keep their context window, and only the declarations matched by name widen."
+            "block: {call_sites} match(es) are inside declarations away from their heads; those keep their context windows because this read also matched declaration heads."
         ));
     }
     if one_line > 0 {

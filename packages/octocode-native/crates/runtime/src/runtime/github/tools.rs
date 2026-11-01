@@ -1,6 +1,6 @@
 //! Per-tool execution: each GitHub tool's typed query run through the shared provider into its row.
 use super::GitHubServices;
-use super::rows::{history_error, provider_error, tool_row};
+use super::rows::{history_error, history_search_error, provider_error, tool_row};
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::{
     id::GitHubTool,
@@ -61,6 +61,7 @@ impl GitHubServices {
                 let shaping = gh_get_file_content::Shaping {
                     security: security.clone(),
                     memo: self.sanitized_views.clone(),
+                    views: self.source_views.clone(),
                     context: context.clone(),
                     selection: selection.clone(),
                 };
@@ -114,9 +115,7 @@ impl GitHubServices {
         Ok(row)
     }
 
-    /// ghCloneRepo clones with git and checks the caller's access before
-    /// serving a cache hit; CloneConfig treats the octocode home as its cache
-    /// root and derives the clone, lock, stage and git-home dirs.
+    /// Clone a fresh checkout with the caller's access and runtime policy.
     async fn run_clone(
         &self,
         query: &GhCloneRepoQuery,
@@ -128,9 +127,7 @@ impl GitHubServices {
             Ok(request) => request,
             Err(error) => return provider_error(error),
         };
-        let config = CloneConfig::persistent(self.home.clone())
-            .with_limits(&self.clone_limits)
-            .with_network_timeout(self.timeout);
+        let config = CloneConfig::persistent(self.home.clone()).with_network_timeout(self.timeout);
         let clone_context = CloneContext {
             config: &config,
             endpoint: self.provider.transport.endpoint(),
@@ -179,7 +176,7 @@ impl GitHubServices {
         context.check()?;
         Ok(match result {
             Ok(data) => crate::runtime::dispatch::value_result(data),
-            Err(failure) => history_error(*failure.error, true, failure.calls),
+            Err(failure) => history_search_error(failure),
         })
     }
 }

@@ -19,10 +19,6 @@ impl ToolOutput for Output {
             _ => None,
         }
     }
-
-    fn reads_source(&self) -> bool {
-        true
-    }
 }
 
 #[cfg(test)]

@@ -1,12 +1,11 @@
-//! The secret check of clipped values against their source, and the
+//! The secret check of selected values against their source, and the
 //! digest of what was read.
 
 use super::*;
 use crate::tools::local_search::sources::Expected;
 
-/// Security: the engine clips values (matchOnly spans, matchContentLength,
-/// long-line windows) *before* sanitization, so a clipped
-/// secret no longer matches any secret pattern and leaks verbatim. For each
+/// Security: a matchOnly span can select a fragment of a secret that no
+/// longer matches a secret pattern on its own. For each
 /// shown match, sanitize the full source lines the value was cut from; a value
 /// line not literally present in that sanitized text overlapped a redaction and
 /// is replaced (placeholder for spans, the sanitized match line otherwise).
@@ -20,7 +19,7 @@ use crate::tools::local_search::sources::Expected;
 /// bytes that differ from the stored digest, or a missing digest, return
 /// `Changed` and the values must not be shown. Cancellation stops the read
 /// and returns the reason.
-pub(in crate::tools::local_search) fn guard_clipped_secrets(
+pub(in crate::tools::local_search) fn guard_source_secrets(
     file: &mut octocode_engine::types::TextSearchFile,
     source: &std::path::Path,
     expected: Expected,
@@ -46,7 +45,7 @@ pub(in crate::tools::local_search) struct ValueCheck<'a, C> {
     pub(in crate::tools::local_search) cancel: &'a C,
 }
 
-/// [`guard_clipped_secrets`] over the reader `open` returns, opened only
+/// [`guard_source_secrets`] over the reader `open` returns, opened only
 /// when a shown value needs its source lines.
 pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
     file: &mut octocode_engine::types::TextSearchFile,
@@ -153,7 +152,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
     Ok(verified)
 }
 
-/// Outcome of [`guard_clipped_secrets`] for one file's shown matches.
+/// Outcome of [`guard_source_secrets`] for one file's shown matches.
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::tools::local_search) enum Verification {
     /// Every shown value was checked against the source.
@@ -210,7 +209,7 @@ pub(in crate::tools::local_search) fn drain_digest<R: std::io::Read>(
 }
 
 /// Value shown in place of a match whose source could not be re-read for the
-/// clipped-secret check.
+/// source-secret check.
 pub(in crate::tools::local_search) const UNVERIFIED_PLACEHOLDER: &str =
     "[REDACTED: source unreadable for secret check]";
 

@@ -100,7 +100,7 @@ fn the_token_reaches_git_only_through_an_owner_only_askpass_helper() {
             &GitRunControl {
                 cancellation: &crate::execution::cancel::NeverCancel,
                 deadline: Instant::now() + timeout + Duration::from_secs(5),
-                cache_home: &home.0,
+                home: &home.0,
             },
         );
         match ran {
@@ -167,7 +167,7 @@ fn output_limit_reports_the_failed_stage_without_suggesting_different_repo_input
             &GitRunControl {
                 cancellation: &crate::execution::cancel::NeverCancel,
                 deadline: Instant::now() + Duration::from_secs(10),
-                cache_home: &home.0,
+                home: &home.0,
             },
         )
         .expect_err("collected process output remains bounded");

@@ -95,7 +95,14 @@ impl RustModules {
             if out.nodes[file_id].root || relocated.contains(file) {
                 bases.insert(dirname(file).to_owned());
             }
-            if ordinary.contains(file) || bases.is_empty() {
+            // A root that is neither a crate root nor a `lib`/`main`/`mod` file may be a
+            // module whose parent is outside the scan (`a.rs` declaring `mod b;` in
+            // `a/b.rs`): its children can live in its own module directory too.
+            let name = file.rsplit('/').next().unwrap_or(file);
+            let orphan = out.nodes[file_id].root
+                && !cargo.roots.contains(file)
+                && !matches!(name, "lib.rs" | "main.rs" | "mod.rs");
+            if ordinary.contains(file) || bases.is_empty() || orphan {
                 bases.insert(rust_module_child_dir(file));
             }
             for module in modules.iter().filter(|module| !module.unsupported) {
@@ -145,6 +152,13 @@ impl RustModules {
     fn context(&self, file: &str) -> Option<usize> {
         let &id = self.files.get(file)?;
         (self.nodes[id].root || !self.nodes[id].parents.is_empty()).then_some(id)
+    }
+
+    /// `super` from a module with no parent in the tree: a file whose parent
+    /// module is outside the scan (a crate root cannot write `super`), so the
+    /// directory resolver, which knows the snapshot root, takes over.
+    fn super_from_parentless(&self, id: usize, first: &str) -> bool {
+        first == "super" && self.nodes[id].parents.is_empty()
     }
 
     fn only(ids: &BTreeSet<usize>) -> Option<usize> {
@@ -208,7 +222,8 @@ impl RustModules {
             return ModuleResolution::OutsideModuleTree;
         };
         let first = import.specifier.split("::").next().unwrap_or_default();
-        if first == "crate" && cargo.scan_is_submodule() {
+        if (first == "crate" && cargo.scan_is_submodule()) || self.super_from_parentless(id, first)
+        {
             return ModuleResolution::OutsideModuleTree;
         }
         if import.import_kind != "module"
@@ -249,7 +264,9 @@ impl RustModules {
             if let Some(&id) = self.files.get(source) {
                 return self.target(id, &format!("self{}", &spec[first.len()..]));
             }
-        } else if let Some(id) = self.context(file) {
+        } else if let Some(id) = self.context(file)
+            && !self.super_from_parentless(id, first)
+        {
             return self.target(id, spec);
         }
         resolve_rust(spec, file, known, cargo)

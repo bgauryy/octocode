@@ -22,15 +22,15 @@ Keep the claim within the evidence: source occurrence, candidate binding, resolv
 
 ### Graph
 
-Use `graphBuild` and `graphQuery` over MCP when the catalog exposes them with `OCTOCODE_BETA=true`; otherwise use the selected CLI. CLI graph tools do not require beta. A build writes derived workspace snapshots and can prune older snapshots under its retention policy. Build the smallest directory containing both sides of the relationship with `octocode graph ingest <path>` or `graphBuild`. Read `stats` for scan, grammar and linkage coverage; use the same scope and returned snapshot throughout the investigation. Refresh after source or linking-context changes when authorized.
+Build the smallest directory containing both sides of the relationship (`graphBuild`; CLI graph tools need no beta). Read `stats` for scan, grammar and linkage coverage; keep one scope and snapshot throughout, and refresh after source or linking-context changes when authorized.
 
-Use `find` to discover nodes and `candidates` to resolve ambiguous stored references before choosing an exact ID. Use `witnesses` to inspect every occurrence supporting a relationship and `unresolved` for missing links, reasons and known candidates. Inspect argument coverage separately from call-link coverage: a `passes` edge records a direct reference in an argument slot, not invocation, scheduling or value propagation. Test declaration identities suggest candidate relevance; only test execution establishes a result.
+`find` discovers nodes, `candidates` resolves ambiguous references to an exact ID, `witnesses` lists every occurrence behind a relationship, `unresolved` lists missing links with reasons. Argument coverage is separate from call-link coverage: a `passes` edge is a direct reference in an argument slot, not invocation, scheduling or value propagation. Test declarations suggest relevance; only test execution establishes a result.
 
-Follow `responsePagination.next` to finish the current response before following its logical `next.*` pages. Copy issued cursor requests unchanged, keep the snapshot pinned, and drain all relevant evidence streams before an exhaustive claim. Each source-bearing fragment carries its descriptor closure; keep that context attached when combining fragments. An explicit terminal scan/model limit cannot be overcome by more response pages.
+Pages: finish `responsePagination.next` before logical `next.*`; drain all relevant evidence streams before an exhaustive claim. Source-bearing fragments carry their descriptor closure; keep it attached when combining. A terminal scan/model limit is not overcome by more pages.
 
-For dependencies, paths, cycles and impact, inspect confidence and coverage, then confirm decisive edges with exact source or LSP. Dynamic imports, feature gates, generated inputs and framework behavior can constrain reachability. A large graph's first result page does not imply the underlying graph load or analysis was bounded to that page.
+For dependencies, paths, cycles and impact, inspect confidence and coverage, then confirm decisive edges with source or LSP. Dynamic imports, feature gates, generated inputs and frameworks can constrain reachability. A first result page does not bound the graph load or analysis, and responses do not report read cost: size the population from `pagination.totalItems`, not from the rows on one page.
 
-Read `validation.scope` separately from analysis coverage: `accessedBlocks` checks the directory and accessed blocks, leaving unread blocks unchecked; `fullSnapshot` checks every stored block. Use `bytesRead` and decoded-record counts to assess query work, not response length. After an interrupted build, retry the same scope and options; `extraction.resumedFiles` counts recovered extraction work. It does not mean linking resumed or a partial graph was published. `force` ignores extraction checkpoints.
+A query verifies only the snapshot blocks it reads, and neither that check nor a clean response says anything about analysis coverage. For coverage, read `scan`, `linkage` and `argumentCoverage` from `stats`, and `coverage` on call queries. For currency, read `freshness` (`fresh`, `analysisCurrent`) on the response; the `stale` operation lists what changed. On `stats`, `extraction.resumedFiles` counts recovered extraction after an interrupted build, not resumed linking or a published partial graph; `refresh` ignores checkpoints.
 
 ## External and GitHub
 
@@ -127,7 +127,7 @@ Mode by input:
 
 ### Report
 
-- [Output](../output.md) report: `question: Review of PR #<number>: <title>`, title `# PR #<number> review: <one-line verdict>`, BLUF lead: recommendation, main risk, what was verified.
+- [Output](../output.md) report: `question: "Review of PR #<number>: <title>"`, title `# PR #<number> review: <one-line verdict>`, BLUF lead: recommendation, main risk, what was verified.
 - `## Answer`: verdict ([lobby](../SKILL.md#prove-then-act) words), confidence, why. `## Scope`: repository, PR head/merge SHA, files. `## Findings` before `## Evidence`: one table, columns ID, Location, Finding and evidence, Impact, Severity, Confidence, Fix (e.g. `SEC-1`, `src/auth.ts:42`, `High`, `high`).
 - `status` = how well findings are established; the verdict stays in the body.
 - Label findings `[DOMAIN-N]`, never `#N` (GitHub auto-links). Cite full blob URLs remotely, `file:line` locally.

@@ -2,6 +2,18 @@
 //! Rust paths.
 use crate::tools::test_support::Fixture;
 
+/// The crates of the workspace whose manifest is `root/Cargo.toml`.
+fn crates_at(root: &std::path::Path) -> super::super::CargoCrates {
+    let (crates, failures) = super::super::load_cargo_crates(
+        root,
+        &[root.join("Cargo.toml")].into(),
+        None,
+        &crate::execution::cancel::NeverCancel,
+    );
+    assert!(failures.is_empty(), "{failures:?}");
+    crates
+}
+
 fn cargo_fixture() -> Fixture {
     let root = Fixture::new();
     std::fs::write(
@@ -28,12 +40,7 @@ fn cargo_fixture() -> Fixture {
 #[test]
 fn cargo_aliases_are_resolved_in_the_importing_package() {
     let fixture = cargo_fixture();
-    let crates = super::super::load_cargo_crates(
-        &fixture.0.as_path().canonicalize().unwrap(),
-        None,
-        &crate::execution::cancel::NeverCancel,
-    )
-    .unwrap();
+    let crates = crates_at(&fixture.0.as_path().canonicalize().unwrap());
     let known = [
         "a/src/lib.rs",
         "b/src/lib.rs",
@@ -74,26 +81,11 @@ fn cargo_member_manifest_changes_refresh_dependency_aliases() {
     .unwrap();
     // Warm up after any first-run lockfile creation, so only the member
     // manifest changes between the two observations below.
-    super::super::load_cargo_crates(
-        &fixture.0.as_path().canonicalize().unwrap(),
-        None,
-        &crate::execution::cancel::NeverCancel,
-    )
-    .unwrap();
-    let before = super::super::load_cargo_crates(
-        &fixture.0.as_path().canonicalize().unwrap(),
-        None,
-        &crate::execution::cancel::NeverCancel,
-    )
-    .unwrap();
+    crates_at(&fixture.0.as_path().canonicalize().unwrap());
+    let before = crates_at(&fixture.0.as_path().canonicalize().unwrap());
     let text = std::fs::read_to_string(&manifest).unwrap();
     std::fs::write(&manifest, text.replace("shared =", "renamed =")).unwrap();
-    let after = super::super::load_cargo_crates(
-        &fixture.0.as_path().canonicalize().unwrap(),
-        None,
-        &crate::execution::cancel::NeverCancel,
-    )
-    .unwrap();
+    let after = crates_at(&fixture.0.as_path().canonicalize().unwrap());
     let known = ["z_two/src/lib.rs", "z_one/src/lib.rs"]
         .into_iter()
         .map(str::to_owned)
@@ -227,11 +219,51 @@ fn rust_uniform_path_fallback_only_links_the_importers_child_modules() {
 }
 
 #[test]
+fn rust_super_past_the_snapshot_root_stays_unresolved() {
+    // A snapshot rooted inside a crate: `limits.rs` is the root's child
+    // module, so `super` names the root's own module and a second `super`
+    // leaves the snapshot. It must not clamp to a same-named root file.
+    let known = ["limits.rs", "ingest.rs"]
+        .iter()
+        .map(|path| (*path).to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    let crates = super::super::CargoCrates::default();
+    assert_eq!(
+        super::super::resolve_rust("super::super::ingest::build;", "limits.rs", &known, &crates),
+        None
+    );
+    assert!(super::super::rust_super_escapes_root(
+        "limits.rs",
+        "super::super::ingest::build"
+    ));
+    // One `super` stays inside: a sibling module of the importer.
+    assert_eq!(
+        super::super::resolve_rust("super::ingest::build;", "limits.rs", &known, &crates),
+        Some("ingest.rs".to_owned())
+    );
+    assert!(!super::super::rust_super_escapes_root(
+        "limits.rs",
+        "super::ingest::build"
+    ));
+    assert!(!super::super::rust_super_escapes_root(
+        "a/b.rs",
+        "super::super::x"
+    ));
+    // A root-level sibling module: `super::capture` from `scope.rs`.
+    let siblings = ["scope.rs", "capture.rs"]
+        .iter()
+        .map(|path| (*path).to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        super::super::resolve_rust("super::capture", "scope.rs", &siblings, &crates),
+        Some("capture.rs".to_owned())
+    );
+}
+
+#[test]
 fn cargo_metadata_stdout_is_drained_while_the_child_runs() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let crates =
-        super::super::load_cargo_crates(root, None, &crate::execution::cancel::NeverCancel)
-            .expect("cargo metadata");
+    let crates = crates_at(root);
     assert_eq!(
         crates
             .resolve("src/lib.rs", "octocode_native")

@@ -42,8 +42,8 @@ An image asset supplies a source reference, not host-provided binary data. Refer
 
 ## Classifiers on search and fetch
 
-```json
-{"queries":[{"path":"src","matchString":["cache"],"classification":{"predicates":["Does this implement credential invalidation?"],"context":"Trace credential rotation through the cache."}}]}
+```bash
+octocode localSearch '{"queries":[{"path":"src","matchString":["cache"],"classification":{"predicates":["Does this implement credential invalidation?"],"context":"Trace credential rotation through the cache."}}]}'
 ```
 
 The same `classification` object works on the four supported tools. Predicates are independent questions about admitted candidates. The selection receipt counts selected, related, excluded and unknown units in its scope. Unknown units remain unknown; a partial selected view does not prove corpus absence.
@@ -56,7 +56,7 @@ A question must use its declared type and shape. Input errors identify the rejec
 
 ## Availability
 
-A nonblank `OCTOCODE_CLASSIFICATION_API` or `classification.api` enables inline classification. Public clasify also requires a successful authenticated `GET /v1/models` ping at host startup, with one attempt and a two-second deadline. It does not depend on `OCTOCODE_BETA` or `local.beta`. A failed ping omits clasify from the enabled CLI tool listing and MCP discovery and blocks execution until a new runtime starts. Its named CLI schema remains inspectable and reports disabled availability. Explicit tool allowlists and exclusions still apply. CLI `--help` uses configuration only and does not contact the provider. Reader availability and storage policy still apply. Inspect live schema/config before using a capability.
+[Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) owns CLI/MCP exposure, the classification key, blank-key opt-out and MCP tool filters. The CLI always lists `clasify`; MCP exposes it when its key is configured and catalog restrictions permit it. Discovery performs no provider ping. Missing credentials, rejected keys and provider outages are reported by the call that needs the provider. Source access and storage policies still apply. For credential setup, see [Authentication](AUTHENTICATION.md#classification-key-clasify).
 
 ## Limits
 

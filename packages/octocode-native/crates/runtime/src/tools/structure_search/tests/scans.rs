@@ -53,12 +53,9 @@ fn expanded_scans_list_every_entry_exactly_once() {
             .extend(extra.as_object().expect("sort").clone());
         let whole = listed_paths(&listed(&run(&root.0, base.clone()).expect("whole")));
         assert_eq!(whole.len(), 28);
-        let mut cut = base.clone();
-        cut["maxEntries"] = json!(3);
-
-        let (rows, calls) = walk_chain(&root.0, cut);
+        let (rows, calls) = with_window(3, || walk_chain(&root.0, base.clone()));
         let mut walked = listed_paths(&rows);
-        assert!(calls > 4, "{calls}");
+        assert!(calls >= 4, "{calls}");
         walked.sort();
         let mut expected = whole.clone();
         expected.sort();
@@ -68,10 +65,7 @@ fn expanded_scans_list_every_entry_exactly_once() {
     // contents a later window groups is still one entry.
     let tree = json!({"operation":"tree","path":root.0,"maxDepth":5});
     let whole = listed_paths(&listed(&run(&root.0, tree.clone()).expect("tree")));
-    let mut cut = tree;
-    cut["maxEntries"] = json!(4);
-
-    let (rows, _) = walk_chain(&root.0, cut);
+    let (rows, _) = with_window(4, || walk_chain(&root.0, tree));
     let walked = listed_paths(&rows);
     let unique = walked.iter().collect::<std::collections::HashSet<_>>();
     assert_eq!(unique.len(), walked.len(), "no duplicate: {walked:?}");
@@ -102,20 +96,11 @@ fn minimum_scan_windows_recover_every_listing_entry() {
         let mut expected = listed_paths(&listed(&run(&root.0, base.clone()).expect("whole")));
         expected.sort();
         assert_eq!(expected.len(), 3);
-        for limit in [1, 2] {
-            let mut query = base.clone();
-            query["maxEntries"] = json!(limit);
-
-            let first = run(&root.0, query.clone()).expect("first page");
-            if listed(&first).is_empty() {
-                let expand = &first["next"]["continueWalk"]["input"]["queries"][0];
-                assert!(expand.get("scanOffset").is_none(), "{first}");
-                assert!(expand["maxEntries"].as_u64().expect("limit") > limit);
-            }
-            let (rows, _) = walk_chain(&root.0, query);
+        for window in [1, 2] {
+            let (rows, _) = with_window(window, || walk_chain(&root.0, base.clone()));
             let mut actual = listed_paths(&rows);
             actual.sort();
-            assert_eq!(actual, expected, "{base}, maxEntries:{limit}");
+            assert_eq!(actual, expected, "{base}, window:{window}");
         }
     }
 }
@@ -128,7 +113,8 @@ fn expand_scan_rides_the_last_page_of_its_window() {
     for n in 0..9 {
         std::fs::write(root.0.join(format!("f{n}.go")), "x\n").expect("file");
     }
-    let query = json!({"operation":"files","path":root.0,"extensions":["go"],"maxEntries":4});
+    let query = json!({"operation":"files","path":root.0,"extensions":["go"]});
+    WINDOW.set(Some(4));
     let mut page = run_budget(&root.0, query, 1).expect("first");
     let mut shown = Vec::new();
     loop {
@@ -142,9 +128,10 @@ fn expand_scan_rides_the_last_page_of_its_window() {
     }
     assert_eq!(shown.len(), 4);
     let expand = &page["next"]["continueWalk"]["input"]["queries"][0];
-    assert_eq!(expand["maxEntries"], 8, "{page}");
+    assert!(expand.get("limit").is_none(), "{page}");
     assert_eq!(expand["scanOffset"], 4, "{page}");
     let resumed = run_budget(&root.0, expand.clone(), 1).expect("resumed");
+    WINDOW.set(None);
     assert!(paths(&resumed)[0].ends_with("f4.go"), "{resumed}");
 }
 

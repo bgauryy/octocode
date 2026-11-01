@@ -228,7 +228,7 @@ impl GitHubTransport {
             total_count: value
                 .get("total_count")
                 .and_then(Value::as_u64)
-                .unwrap_or(0) as usize,
+                .map_or(0, |count| usize::try_from(count).unwrap_or(usize::MAX)),
             incomplete_results: value
                 .get("incomplete_results")
                 .and_then(Value::as_bool)

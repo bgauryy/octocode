@@ -114,6 +114,7 @@ fn validate_test_input(
 
 fn publish_for_assertion(tool: &str, output: &Value) -> Value {
     let mut output = output.clone();
+    crate::response::pages::publish_rows(&mut output);
     if checks::leads(&output)
         .iter()
         .all(|lead| lead.kind != "continue" || lead.query.get("cursor").is_some())
@@ -160,18 +161,6 @@ pub(crate) fn published_next_page(tool: ToolId, row: &Value) -> Value {
         &public["results"][0]["data"]["next"]["nextPage"]["input"],
     )["queries"][0]
         .clone()
-}
-
-pub(crate) fn assert_next_page_keeps_the_budget(
-    tool: ToolId,
-    query: &Value,
-    row: &Value,
-    budget_of: impl Fn(Option<usize>, &Value) -> usize,
-) {
-    let next = published_next_page(tool, row);
-    for window in [None, Some(4_000), Some(20_000), Some(100_000)] {
-        assert_eq!(budget_of(window, &next), budget_of(window, query));
-    }
 }
 
 /// A tool's raw executor `row`, as [`published`], satisfies the

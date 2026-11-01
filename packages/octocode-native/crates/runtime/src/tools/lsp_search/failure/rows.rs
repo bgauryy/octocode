@@ -35,7 +35,6 @@ pub(in super::super) fn empty(
 ) -> Value {
     let mut row = json!({
         "status": "empty",
-        "kind": "empty",
         "category": category,
         "reason": reason,
         "lsp": { "serverAvailable": server_available },
@@ -56,14 +55,15 @@ pub(in super::super) fn no_answer(query: &LspSearchQuery, category: &str, reason
     if !without_project(query) {
         return empty(query, category, reason, true);
     }
-    let mut row = empty(query, NO_PROJECT, NO_PROJECT_REASON, true);
+    let mut row = empty(query, &NO_PROJECT.to_string(), NO_PROJECT_REASON, true);
     crate::response::paging::mark_partial(&mut row, NO_PROJECT, &[]);
     row
 }
 
 /// Category and partial reason of an empty answer about a file no project
 /// holds ([`no_answer`]).
-const NO_PROJECT: &str = "noProject";
+const NO_PROJECT: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::NoProject;
 const NO_PROJECT_REASON: &str = "No Cargo.toml or rust-project.json is above this file, and rust-analyzer analyzes no file outside one; empty is not absence.";
 
 /// Whether the query's file lies outside the project its language server
@@ -80,6 +80,7 @@ pub(in super::super) fn annotate_empty_includes(
     row: &mut Value,
     query: &LspSearchQuery,
     build_scripts: bool,
+    stopped: &dyn Fn() -> bool,
 ) {
     if let Some(path) = lsp_search_query::path(query) {
         // Incoming rows get the evidence-based include disclosure instead
@@ -88,11 +89,18 @@ pub(in super::super) fn annotate_empty_includes(
             && path.ends_with(".rs")
             && !super::super::inferred_project::is_incoming(lsp_search_query::operation(query))
             && let Some(includes) =
-                super::super::server_coverage::package_includes(&uri_to_path(path))
+                super::super::server_coverage::package_includes(&uri_to_path(path), stopped)
         {
+            // Each cause a tip states is the row's partial reason too, as on
+            // incoming rows (`server_coverage`): empty is no absence there.
             let mut tips = Vec::new();
             if !includes.outside.is_empty() {
                 tips.push(OUTSIDE_INCLUDE_TIP.to_owned());
+                crate::response::paging::mark_partial(
+                    row,
+                    super::super::server_coverage::OUTSIDE_INCLUDE_REASON,
+                    &[],
+                );
             }
             if !includes.generated.is_empty() && !build_scripts {
                 // With an outside include as well, the name may be defined
@@ -100,8 +108,10 @@ pub(in super::super) fn annotate_empty_includes(
                 // tip names it instead. Alone, the executable rerun is the
                 // lead, and the tip states what running it costs.
                 let rerun = includes.outside.is_empty();
+                let reason = super::super::server_coverage::BUILD_SCRIPTS_REASON;
+                crate::response::paging::mark_partial(row, reason, &[]);
                 if rerun {
-                    crate::response::result::attach_related(row, build_scripts_rerun(query));
+                    crate::response::result::attach_related(row, next_action(query, reason));
                 }
                 tips.push(build_script_tip(rerun));
             }
@@ -144,16 +154,31 @@ pub(super) fn build_script_tip(rerun_offered: bool) -> String {
 /// `include!`d from outside it defines never resolves.
 pub(super) const OUTSIDE_INCLUDE_TIP: &str = "A name defined in source this package include!s from outside its directory never resolves in rust-analyzer: read it with localSearch.";
 
-/// The same query with rust-analyzer running the crate's build scripts
-/// (`rustContext.buildScripts: true`, the rest of its Rust context kept),
-/// from the walk's first page.
-pub(in super::super) fn build_scripts_rerun(query: &LspSearchQuery) -> Value {
+/// The one next action of each partial reason that offers one, as an
+/// executable `lspSearch` lead from the walk's first page: `buildScriptsOff`
+/// reruns with `rustContext.buildScripts: true` (it runs repository code:
+/// the caller's consent), `cfgGatedFiles` with `rustContext.features:
+/// "all"`, and every other reason (`languageServerIndexing`, a retryable
+/// server failure, …) retries the same query. The rest of the Rust context
+/// is kept.
+pub(in super::super) fn next_action(
+    query: &LspSearchQuery,
+    reason: crate::response::paging::PartialReason,
+) -> Value {
+    use super::super::server_coverage::{BUILD_SCRIPTS_REASON, CFG_REASON};
     let mut rerun = same_query_rerun(query);
-    let mut context =
-        lsp_search_query::rust_context(query).map_or_else(|| json!({}), |context| json!(context));
-    context["buildScripts"] = json!(true);
-    rerun["rustContext"] = context;
-    crate::response::result::Continuation::related(crate::id::ToolId::LspSearch, rerun).build()
+    let setting = match reason {
+        BUILD_SCRIPTS_REASON => Some(("buildScripts", json!(true))),
+        CFG_REASON => Some(("features", json!("all"))),
+        _ => None,
+    };
+    if let Some((field, value)) = setting {
+        let mut context = lsp_search_query::rust_context(query)
+            .map_or_else(|| json!({}), |context| json!(context));
+        context[field] = value;
+        rerun["rustContext"] = context;
+    }
+    crate::response::result::Continuation::related(ToolId::LspSearch, rerun).build()
 }
 
 /// A contract-valid fresh LSP query: current execution state (page, snapshot,
@@ -199,27 +224,33 @@ pub(in super::super) fn mark_diagnostics_unpublished(
     query: &LspSearchQuery,
     wait_ms: u32,
 ) {
-    if row.pointer("/kind").and_then(Value::as_str) != Some("empty") {
+    if row.pointer("/status").and_then(Value::as_str) != Some("empty") {
         return;
     }
     row["category"] = json!("diagnosticsNotPublished");
     row["reason"] = json!(format!(
         "The language server published no diagnostics for this document within {wait_ms} ms."
     ));
-    partial_with_related_rerun(row, query, "diagnosticsNotPublished", &[]);
+    partial_with_related_rerun(
+        row,
+        query,
+        crate::response::paging::PartialReason::DiagnosticsNotPublished,
+        &[],
+    );
 }
 
 /// Partial reason of an empty answer on a line where the server reports an
 /// error: its analysis of that line may have dropped what was asked about
 /// (clang without the CUDA SDK drops every `kernel<<<…>>>(…)` launch).
-pub(in super::super) const ANCHOR_LINE_ERROR: &str = "anchorLineError";
+pub(in super::super) const ANCHOR_LINE_ERROR: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::AnchorLineError;
 
 /// Mark an empty row partial when an error-severity diagnostic (published
 /// shape, see `ops::diagnostic_items`) covers its one-based anchor `line`:
 /// the warning names the first such error and counts the rest. The context
 /// assessment attaches a diagnostic follow-up preserving the effective query.
 pub(in super::super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &Value, line: u32) {
-    if row.get("kind").and_then(Value::as_str) != Some("empty") {
+    if row.get("status").and_then(Value::as_str) != Some("empty") {
         return;
     }
     let line = u64::from(line);
@@ -268,16 +299,12 @@ pub(in super::super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &V
 pub(in super::super) fn partial_with_related_rerun(
     row: &mut Value,
     query: &LspSearchQuery,
-    reason: &str,
+    reason: crate::response::paging::PartialReason,
     warnings: &[String],
 ) {
     if !row.is_object() {
         return;
     }
     crate::response::paging::mark_partial(row, reason, warnings);
-    crate::response::result::attach_related(
-        row,
-        crate::response::result::Continuation::related(ToolId::LspSearch, same_query_rerun(query))
-            .build(),
-    );
+    crate::response::result::attach_related(row, next_action(query, reason));
 }

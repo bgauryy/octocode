@@ -1,15 +1,13 @@
 //! astSearch pages as a runtime call delivers them, through the response
-//! stages that respell paths ([`published`]). Every mode recomputes page
-//! N from the page budget, so page 1 (an absolute `path`) and the
-//! continuation it publishes (that path workspace-relative) must get one
-//! budget; and rows under a deep scope are sized by the path the response
-//! prints, so a page fits the window it was cut for.
+//! stages that respell paths ([`published`]). The page budget depends on
+//! the response window alone, so page 1 (an absolute `path`) and the
+//! continuation it publishes (that path workspace-relative) cut alike;
+//! rows under a deep scope are sized by the path the response prints, so
+//! a page fits the window it was cut for.
 use super::{AstSearchQuery, execute_ast};
 use crate::execution::cancel::NeverCancel;
 use crate::id::ToolId;
-use crate::tools::test_support::{
-    Fixture, assert_next_page_keeps_the_budget, checks, published, simple_policy,
-};
+use crate::tools::test_support::{Fixture, checks, published, published_next_page, simple_policy};
 use serde_json::{Value, json};
 
 const WINDOW: usize = 16_384;
@@ -31,18 +29,6 @@ fn typed(row: &Value) -> AstSearchQuery {
     serde_json::from_value(validated).expect("typed row")
 }
 
-/// The page budget astSearch cuts a row's pages by: each mode sizes its
-/// typed query under the response window.
-fn budget_of(window: Option<usize>, row: &Value) -> usize {
-    let value = match typed(row) {
-        AstSearchQuery::Symbols(query) => crate::response::result::query_value(&query),
-        AstSearchQuery::Match0(query) => crate::response::result::query_value(&query),
-        AstSearchQuery::MatchView(query) => crate::response::result::query_value(&query),
-        AstSearchQuery::SyntaxTree(query) => crate::response::result::query_value(&query),
-    };
-    crate::response::page_windows::page_budget(window, &value)
-}
-
 fn functions(prefix: &str, count: usize) -> String {
     (0..count)
         .map(|index| {
@@ -61,11 +47,11 @@ fn sources(root: &Fixture, dir: &str, files: usize, per_file: usize) {
     }
 }
 
-/// Every astSearch mode recomputes page N from the page budget: page 1 run
-/// from an absolute path and the `next.nextPage` its published response
-/// leads to (the path respelled workspace-relative) get the same budget.
+/// Every astSearch mode run from an absolute deep path publishes a
+/// `next.nextPage` (the path respelled workspace-relative) that validates
+/// as a query of the tool.
 #[test]
-fn every_mode_cuts_page_two_from_page_one_budget() {
+fn every_mode_publishes_a_valid_page_two_from_a_deep_path() {
     let root = Fixture::new();
     let dir = deep_dir("walks", 3);
     sources(&root, &format!("{dir}/many"), 500, 1);
@@ -84,11 +70,12 @@ fn every_mode_cuts_page_two_from_page_one_budget() {
     ];
     for row in rows {
         assert!(row["path"].as_str().is_some_and(|path| path.len() > 128));
-        let validated = crate::contracts::validate_query("astSearch", row.clone()).expect("row");
         let out = execute_ast(&typed(&row), &paths, &security, &NeverCancel, Some(WINDOW))
             .unwrap_or_else(|error| panic!("{row}: {error:?}"));
         assert_eq!(out["pagination"]["hasMore"], true, "{row} spans pages");
-        assert_next_page_keeps_the_budget(ToolId::AstSearch, &validated, &out, budget_of);
+        let next = published_next_page(ToolId::AstSearch, &out);
+        crate::contracts::validate_built_query("astSearch", next.clone())
+            .unwrap_or_else(|error| panic!("{next}: {error:?}"));
     }
 }
 

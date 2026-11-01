@@ -47,9 +47,8 @@ fn every_row_is_delivered_exactly_once_within_the_page_bound() {
     }
 }
 
-/// One broad row must not fill the first pages alone; every row of a
-/// batch shows its head on page one, within the budget. Each split row's
-/// page continuation waits for its last part.
+/// A page whose batch has rows on later pages leads with the warning that
+/// names the queries those pages serve or continue.
 #[test]
 fn a_page_with_rows_left_over_leads_with_an_incomplete_warning() {
     let rows = (0..3)
@@ -64,10 +63,32 @@ fn a_page_with_rows_left_over_leads_with_an_incomplete_warning() {
     let (first, _) = &pages[0];
     assert_eq!(first.keys().next().map(String::as_str), Some("warnings"));
     let banner = first["warnings"][0].as_str().expect("banner");
-    assert!(
-        banner.starts_with("incomplete: 2/3 rows; more response pages"),
-        "{banner}"
-    );
+    let rows = first["results"].as_array().expect("rows");
+    let index = |row: &Value| row["index"].as_u64().expect("index");
+    let served = rows.iter().map(index).collect::<Vec<_>>();
+    let continued = rows
+        .iter()
+        .filter(|row| row["rowPart"]["part"] != row["rowPart"]["of"])
+        .map(index)
+        .collect::<Vec<_>>();
+    let unserved = (0..3)
+        .filter(|index| !served.contains(index))
+        .collect::<Vec<_>>();
+    let list = |indexes: &[u64]| {
+        let noun = if indexes.len() == 1 {
+            "query"
+        } else {
+            "queries"
+        };
+        let indexes = indexes.iter().map(u64::to_string).collect::<Vec<_>>();
+        format!("{noun} {}", indexes.join(", "))
+    };
+    assert!(!unserved.is_empty(), "{first:?}");
+    let mut expected = format!("incomplete: later response pages serve {}", list(&unserved));
+    if !continued.is_empty() {
+        expected.push_str(&format!(" and continue {}", list(&continued)));
+    }
+    assert_eq!(banner, expected);
     // How to follow `next` lives once in the instructions, not per page.
     assert!(!banner.contains("responsePagination.next"), "{banner}");
     let (last, pagination) = pages.last().expect("last");
@@ -78,8 +99,11 @@ fn a_page_with_rows_left_over_leads_with_an_incomplete_warning() {
     }
 }
 
+/// Rows larger than a page are split, in row order: a page holds the
+/// rest of one row before the next row starts, every page stays within the
+/// budget, and each split row's page continuation rides its last part.
 #[test]
-fn the_first_page_shows_every_rows_head() {
+fn split_rows_fill_pages_in_row_order() {
     let rows = (0..5)
             .map(|index| {
                 let matches = (0..300)
@@ -94,24 +118,20 @@ fn the_first_page_shows_every_rows_head() {
         .cloned()
         .expect("object");
     let pages = walk(&structured, 20_000);
-    let (first, pagination) = &pages[0];
-    assert!(
-        pagination.returned_chars <= 20_000,
-        "{}",
-        pagination.returned_chars
-    );
-    let heads: Vec<_> = first["results"]
-        .as_array()
-        .expect("rows")
+    let order = pages
         .iter()
-        .map(|row| (row["index"].as_u64(), row["rowPart"]["part"].as_u64()))
-        .collect();
-    assert_eq!(
-        heads,
-        (0..5)
-            .map(|index| (Some(index), Some(1)))
-            .collect::<Vec<_>>()
-    );
+        .flat_map(|(page, _)| {
+            page["results"]
+                .as_array()
+                .expect("rows")
+                .iter()
+                .map(|row| (row["index"].as_u64(), row["rowPart"]["part"].as_u64()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let mut sorted = order.clone();
+    sorted.sort();
+    assert_eq!(order, sorted, "rows and their parts in order");
     let mut carriers = std::collections::BTreeMap::new();
     for (page, pagination) in &pages {
         assert!(
@@ -132,4 +152,28 @@ fn the_first_page_shows_every_rows_head() {
     assert_eq!(carriers.len(), 5, "{carriers:?}");
     assert!(carriers.values().all(|count| *count == 1), "{carriers:?}");
     assert_eq!(delivered(&pages).len(), 1_500);
+}
+
+/// Rows that fit a page are never split: pages cut at row boundaries, so
+/// twelve rows of 2,000 chars at 3,000 chars a page are twelve whole-row
+/// pages, and `totalPages` is the twelve calls a reader makes.
+#[test]
+fn rows_that_fit_a_page_are_never_split() {
+    let rows = (0..12)
+        .map(|index| json!({"index": index, "data": {"content": "x".repeat(2_000)}}))
+        .collect::<Vec<_>>();
+    let structured = json!({"results": rows})
+        .as_object()
+        .cloned()
+        .expect("object");
+    let pages = walk(&structured, 3_000);
+    assert_eq!(pages.len(), 12);
+    for (index, (page, pagination)) in pages.iter().enumerate() {
+        assert_eq!(pagination.total_pages, 12);
+        let rows = page["results"].as_array().expect("rows");
+        assert_eq!(rows.len(), 1, "{page:?}");
+        assert!(rows[0].get("rowPart").is_none(), "{page:?}");
+        assert_eq!(rows[0]["index"], index);
+        assert!(pagination.oversized.is_none());
+    }
 }

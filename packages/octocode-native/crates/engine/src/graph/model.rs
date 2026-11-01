@@ -49,6 +49,15 @@ pub struct GraphFactDeclaration {
     /// member declaration): the function's definition is another declaration.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub prototype: bool,
+    /// A Rust non-`async` function's declared return type reduced to a type
+    /// name as [`GraphFactCall::receiver_type`] spells one, `Self` read as the
+    /// enclosing impl's type: the type a method call on its result sees.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub return_type: Option<String>,
+    /// The type `?` yields from that return type: the first type argument of
+    /// a `Result<T, ..>` or `Option<T>`, spelled the same way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub try_type: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -171,6 +180,26 @@ pub struct GraphFactCall {
     /// plain code.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub macros: Vec<String>,
+    /// A Rust member call whose receiver is the value of another call: the
+    /// receiver expression itself (`T::open()?.m()`) or a `let` local bound
+    /// to it (`let x = c.f(); x.m()`). Recorded beside `receiver_type`: a
+    /// written type types the receiver first, but `T::new(..).unwrap()` needs
+    /// the declared return type of `T::new`, which outranks the
+    /// constructor-name guess.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receiver_call: Option<GraphReceiverCall>,
+}
+
+/// The call whose value a member call's receiver is: the bytes of that call
+/// expression, the `source_range` of its own [`GraphFactCall`] in the same
+/// file, and whether `?` unwraps it on the way.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct GraphReceiverCall {
+    pub start_byte: u32,
+    pub end_byte: u32,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unwrap: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -232,70 +261,6 @@ pub struct GraphFactCommonJsBinding {
     pub declaration_id: String,
 }
 
-/// What a graph-facts diagnostic says about its file's facts: consumers
-/// branch on the code, never on the message text.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
-#[serde(rename_all = "camelCase")]
-pub enum GraphFactCode {
-    /// The static caveat on every tree-sitter file: facts are syntax-only.
-    SyntaxOnly,
-    /// The parse recovered from syntax errors; facts may be partial.
-    RecoveredParse,
-    /// An error the JavaScript/TypeScript parser reported (its own text).
-    ParseError,
-    /// Graph parsing was interrupted by the deadline; facts are incomplete.
-    ParseDeadline,
-    /// Graph extraction exceeded its deadline; facts are incomplete.
-    TraversalDeadline,
-    /// Rust macro-generated imports are not linked.
-    RustMacroExpansion,
-    /// A Rust module carries conditional or custom attributes.
-    RustModuleAttributes,
-    /// The crate root carries inner conditional or custom attributes.
-    RustCrateAttributes,
-    /// An observed export-forwarding clause has no admitted member binding.
-    UnsupportedExportForwarding,
-    /// CommonJS export writes whose final shape is not provable (repeated,
-    /// conditional or deferred `module.exports =`, or a rebound `module` or
-    /// `exports`): the file exports no CommonJS names.
-    UnsupportedCommonJsExports,
-}
-
-impl GraphFactCode {
-    /// A caveat about import or module linking, which a declaration
-    /// listing never does.
-    pub fn is_linking_only(self) -> bool {
-        matches!(
-            self,
-            Self::RustMacroExpansion
-                | Self::RustModuleAttributes
-                | Self::RustCrateAttributes
-                | Self::UnsupportedExportForwarding
-                | Self::UnsupportedCommonJsExports
-        )
-    }
-}
-
-/// One diagnostic of a graph-facts document.
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphFactDiagnostic {
-    pub code: GraphFactCode,
-    pub message: String,
-    /// The 1-based line the diagnostic is about, when it is about one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub line: Option<u32>,
-}
-
-impl std::fmt::Display for GraphFactDiagnostic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.line {
-            Some(line) => write!(f, "{} at line {line}", self.message),
-            None => f.write_str(&self.message),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GraphFactsDocument {
@@ -315,7 +280,7 @@ pub struct GraphFactsDocument {
     pub argument_sites: Vec<super::GraphFactArgumentSite>,
     pub common_js: Vec<GraphFactCommonJs>,
     pub edges: Vec<GraphFactEdge>,
-    pub diagnostics: Vec<GraphFactDiagnostic>,
+    pub diagnostics: Vec<super::GraphFactDiagnostic>,
     /// 1-based `[start, end]` line spans of the syntax errors a recovered
     /// parse skipped (merged); empty for a clean parse.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -357,7 +322,7 @@ pub struct GraphFactsTypedEntry {
     /// The stamp of the bytes `content_digest` hashed, when settled.
     pub source_stamp: Option<crate::stamp::SourceStamp>,
     pub facts: GraphFactsDocument,
-    pub reference_counts: Vec<crate::types::GraphReferenceCount>,
+    pub reference_counts: Vec<GraphReferenceCount>,
 }
 
 #[cfg(test)]
@@ -381,4 +346,13 @@ mod tests {
         assert_eq!(facts.common_js[0].specifier.as_deref(), Some("pkg"));
         assert_eq!(facts.common_js[0].kind, "commonjs-require");
     }
+}
+
+#[derive(Debug, Clone)]
+/// Syntax-aware value references to one declaration, excluding its own name,
+/// export clauses and call-callee positions (those are call edges). Comments
+/// and string literals never count.
+pub struct GraphReferenceCount {
+    pub declaration_id: String,
+    pub count: u32,
 }

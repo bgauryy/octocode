@@ -14,24 +14,18 @@ use octocode_engine::lsp::client::{
     LocationRequest, NativeLspClient, SNIPPET_CONTENT_WITHHELD, SnippetReadPolicy,
 };
 use octocode_engine::lsp::types::LspCodeSnippet;
-use serde_json::Value;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::time::Duration;
 
 mod aliases;
+mod landing;
 #[cfg(test)]
 pub(super) use aliases::may_rename;
-pub(super) use aliases::{
-    ALIAS_SCAN_CAPPED_REASON, AliasSearch, disclose_alias_cap, recover_aliases,
-};
+pub(super) use aliases::{AliasSearch, recover_aliases};
+use landing::landing;
+pub(super) use landing::{Landing, lands};
 
 const DEFINITION_ALIAS_SETTLE_MS: u64 = 50;
-/// Definition hops followed past the first answer.
-const MAX_DEFINITION_HOPS: usize = 4;
-/// Candidate files alias recovery may read and parse per request.
-pub(super) const MAX_ALIAS_FILES_READ: usize = 32;
-/// Aliasing imports alias recovery may verify with the server per request.
-const MAX_ALIAS_IMPORTS: usize = 32;
 
 /// Location request through the snippet policy; locations whose content the
 /// policy withheld name unauthorized files and are dropped here.
@@ -74,9 +68,39 @@ async fn settled_locations(
     snippet_policy: &SnippetReadPolicy,
     cancel: &dyn CancellationCheck,
     request: LocationRequest,
-    (path, line, character): (&str, u32, u32),
+    position: (&str, u32, u32),
     settle: Option<Duration>,
 ) -> Result<(Vec<LspCodeSnippet>, usize), LspFailure> {
+    located(client, snippet_policy, cancel, request, position, settle)
+        .await
+        .map(|(found, _, withheld)| (found, withheld))
+}
+
+/// [`get_locations`], also saying whether the server spelled any location
+/// through a symlink (see [`one_spelling`]) and how many locations the
+/// read policy withheld.
+pub(super) async fn get_spelled_locations(
+    client: &NativeLspClient,
+    snippet_policy: &SnippetReadPolicy,
+    cancel: &dyn CancellationCheck,
+    request: LocationRequest,
+    position: (&str, u32, u32),
+) -> Result<(Vec<LspCodeSnippet>, bool, usize), LspFailure> {
+    located(client, snippet_policy, cancel, request, position, None).await
+}
+
+/// One location request: the locations in one spelling, whether any was
+/// respelled, and how many the read policy withheld. Locations outside the
+/// read roots are withheld, and counted: an answer missing them is
+/// partial, not smaller.
+async fn located(
+    client: &NativeLspClient,
+    snippet_policy: &SnippetReadPolicy,
+    cancel: &dyn CancellationCheck,
+    request: LocationRequest,
+    (path, line, character): (&str, u32, u32),
+    settle: Option<Duration>,
+) -> Result<(Vec<LspCodeSnippet>, bool, usize), LspFailure> {
     let mut snippets = cancellable(
         cancel,
         client.get_locations(
@@ -92,36 +116,6 @@ async fn settled_locations(
     let answered = snippets.len();
     snippets.retain(|snippet| snippet.content != SNIPPET_CONTENT_WITHHELD);
     let withheld = answered - snippets.len();
-    Ok((one_spelling(snippets).0, withheld))
-}
-
-/// [`get_locations`], also saying whether the server spelled any location
-/// through a symlink (see [`one_spelling`]) and how many locations the
-/// read policy withheld.
-pub(super) async fn get_spelled_locations(
-    client: &NativeLspClient,
-    snippet_policy: &SnippetReadPolicy,
-    cancel: &dyn CancellationCheck,
-    request: LocationRequest,
-    (path, line, character): (&str, u32, u32),
-) -> Result<(Vec<LspCodeSnippet>, bool, usize), LspFailure> {
-    let mut snippets = cancellable(
-        cancel,
-        client.get_locations(
-            request,
-            path.to_owned(),
-            line,
-            character,
-            snippet_policy,
-            None,
-        ),
-    )
-    .await??;
-    // Locations outside the read roots are withheld, and counted: an
-    // answer missing them is partial, not smaller.
-    let before = snippets.len();
-    snippets.retain(|snippet| snippet.content != SNIPPET_CONTENT_WITHHELD);
-    let withheld = before - snippets.len();
     let (snippets, respelled) = one_spelling(snippets);
     Ok((snippets, respelled, withheld))
 }
@@ -214,7 +208,12 @@ pub(super) async fn resolve_definition_chain(
     .await?;
     let mut visited = HashSet::new();
     let mut warnings = Vec::new();
-    for depth in 0..MAX_DEFINITION_HOPS {
+    // Locations name real paths (`one_spelling`); so does the anchor here.
+    let anchor = super::scope::canonical(path);
+    // No fixed hop count: every location is followed once (`visited`), so a
+    // chain ends where no hop finds a new one and a cycle ends when it comes
+    // back; cancellation bounds a server that keeps inventing locations.
+    for depth in 0_usize.. {
         let mut next = Vec::new();
         let mut advanced = false;
         for snippet in current.iter().cloned() {
@@ -229,6 +228,22 @@ pub(super) async fn resolve_definition_chain(
                 next.push(snippet);
                 continue;
             };
+            let (hop_line, hop_character) =
+                (snippet.range.start.line, snippet.range.start.character);
+            let landing = landing(cancel, &target, &source, hop_line, hop_character).await?;
+            // The answer at the asked position names the symbol written
+            // there: asking again from its start repeats the request, so
+            // that hop ends the chain unless the binding is an alias.
+            let repeats_the_anchor = target == anchor && holds(&snippet.range, line, character);
+            // A location that starts a declaration of its file (the
+            // declarations parse) is where the chain ends: a hop would
+            // only answer it again. An import or export binding still hops.
+            if (repeats_the_anchor && !(depth == 0 && landing == Landing::Alias))
+                || landing == Landing::Declaration
+            {
+                next.push(snippet);
+                continue;
+            }
             if let Err(error) = cancellable(
                 cancel,
                 client.open_document(target.clone(), &source.content),
@@ -243,29 +258,37 @@ pub(super) async fn resolve_definition_chain(
                 next.push(snippet);
                 continue;
             }
-            let (hop_line, hop_character) =
-                (snippet.range.start.line, snippet.range.start.character);
-            let mut nested = definition(target.clone(), hop_line, hop_character).await;
-            if let Ok(found) = &nested {
-                let has_distinct_target = found
-                    .iter()
-                    .any(|candidate| snippet_identity(candidate) != identity);
-                // Locations name real paths (`one_spelling`); so does the
-                // anchor here.
-                let anchor = super::scope::canonical(path);
-                if should_retry_definition_hop(depth, &anchor, &target, has_distinct_target) {
-                    // Ask again after the settle; never the cached early answer.
-                    nested = settled_locations(
-                        client,
-                        snippet_policy,
-                        cancel,
-                        LocationRequest::Definition,
-                        (&target, hop_line, hop_character),
-                        Some(Duration::from_millis(DEFINITION_ALIAS_SETTLE_MS)),
-                    )
-                    .await
-                    .map(|(found, _)| found);
-                }
+            // A repeated anchor reaches here only as an alias binding.
+            let mut nested = if repeats_the_anchor {
+                Ok(vec![snippet.clone()])
+            } else {
+                definition(target.clone(), hop_line, hop_character).await
+            };
+            if let Ok(found) = &nested
+                && should_retry_definition_hop(
+                    depth,
+                    &anchor,
+                    &target,
+                    found
+                        .iter()
+                        .any(|candidate| snippet_identity(candidate) != identity),
+                )
+                && landing == Landing::Alias
+            {
+                // An import or export binding a server has not resolved
+                // yet: ask again after the settle, never the cached early
+                // answer. A declaration answers itself however long it
+                // settles.
+                nested = settled_locations(
+                    client,
+                    snippet_policy,
+                    cancel,
+                    LocationRequest::Definition,
+                    (&target, hop_line, hop_character),
+                    Some(Duration::from_millis(DEFINITION_ALIAS_SETTLE_MS)),
+                )
+                .await
+                .map(|(found, _)| found);
             }
             let nested = match nested {
                 Ok(nested) => nested,
@@ -295,6 +318,20 @@ pub(super) async fn resolve_definition_chain(
         }
     }
     Ok((current, warnings, withheld))
+}
+
+/// Whether `range` holds the zero-based position `(line, character)`.
+fn holds(range: &octocode_engine::lsp::types::LspRange, line: u32, character: u32) -> bool {
+    spans(
+        (range.start.line, range.start.character),
+        (range.end.line, range.end.character),
+        (line, character),
+    )
+}
+
+/// Whether `at` lies in `start..=end` (zero-based `(line, character)`).
+fn spans(start: (u32, u32), end: (u32, u32), at: (u32, u32)) -> bool {
+    start <= at && at <= end
 }
 
 fn hop_failure_warning(snippet: &LspCodeSnippet, depth: usize, failure: &LspFailure) -> String {

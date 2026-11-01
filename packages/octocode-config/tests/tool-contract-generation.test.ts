@@ -11,12 +11,6 @@ import {
   buildEnforcementContractIr,
   getNativeContractFingerprint,
 } from '@octocodeai/octocode-core/schema';
-import type {
-  ToolInput,
-  ToolOutput,
-  ToolQuery,
-} from '../src/contracts/schema.js';
-import { TOOL_TYPES_CONTRACT_FINGERPRINT } from '../src/contracts/schema.js';
 import {
   buildToolTypesBundle,
   generateToolContract,
@@ -108,14 +102,14 @@ it('generates the fingerprinted analysis capabilities through the shared bundle'
 
 // Full-contract generation is an integration check, not a five-second latency assertion.
 describe('generated tool types', () => {
-  it('are current with the core Zod contract (embed, fixtures, TS, bundle, Rust header)', async () => {
-    const { files, rustHeader } = await generateToolContract();
+  it('are current with the core Zod contract (embed, fixtures, bundle, Rust header)', () => {
+    const { files, rustHeader } = generateToolContract();
     for (const [path, content] of files) {
       expect(readFileSync(path, 'utf8'), path).toBe(content);
     }
     expect(read('contract/tool_types.rs').startsWith(rustHeader)).toBe(true);
-    expect(TOOL_TYPES_CONTRACT_FINGERPRINT).toBe(
-      getNativeContractFingerprint()
+    expect(rustHeader).toContain(
+      `pub const TOOL_TYPES_CONTRACT_FINGERPRINT: &str = "${getNativeContractFingerprint()}";`
     );
   }, 30_000);
 
@@ -229,22 +223,7 @@ describe('generated tool types', () => {
 
 });
 
-describe('generated tool types in use', () => {
-  it('exposes canonical typed rows and exclusive input envelopes', () => {
-    const query: ToolQuery<'localFetch'> = {path:'/tmp/a.ts',ranges:[{startLine:1,endLine:2}]};
-    const input = {queries:[query]} satisfies ToolInput<'localFetch'>;
-    const saved = {cursor:'issued'} satisfies ToolInput<'localFetch'>;
-    const retired: ToolInput<'localFetch'> = {
-      // @ts-expect-error old envelope names are not accepted
-      responseSnapshot:'old',
-    };
-    const output = {results:[]} satisfies Partial<ToolOutput<'localFetch'>>;
-    expect(input.queries[0]?.path).toBe('/tmp/a.ts');
-    expect(saved.cursor).toBe('issued');
-    expect(retired).not.toHaveProperty('cursor');
-    expect(output.results).toEqual([]);
-  });
-
+describe('tool contract generator entry', () => {
   it('runs the generator when called through a symlink', () => {
     // --check is read-only; an empty PATH hides cargo-typify, so a run that reaches main() fails loudly.
     const dir = mkdtempSync(join(tmpdir(), 'contract-link-'));

@@ -1,6 +1,6 @@
 ---
 name: octocode-dev
-description: "Load this skill first for development in the Octocode monorepo: builds, tests, lint, verification, setup, dependencies and release preparation; also tool or config contract changes and end-to-end tool audits. Owns the task runner and generation pipeline."
+description: "Develop and verify the Octocode monorepo: setup, dependencies, builds, tests, lint, contract generation, tool or configuration audits, and release preparation. Owns the repository task runner and development guides."
 ---
 
 # Octocode Dev
@@ -18,18 +18,9 @@ flowchart LR
     B --> V["Call via $OCTO / fresh MCP"]
     R --> P[Report commands + results]
     V --> P
-    A -. "locate every layer" .-> M1["surface-map.md"]
-    A -. "schema, description, instruction, or limit; then surface-map" .-> M2["contract-audit.md"]
-    A -. "native behavior or data flow" .-> M3["implementation-audit.md"]
-    A -. "output, pagination, next.* pages, hints.*" .-> M4["output-audit.md"]
-    C -. "before editing and before reporting done" .-> M5["fix-and-verify.md"]
-    C -. "a setting or credential" .-> D1["ADDING_CONFIG.md"]
-    T -. "package layout, env vars, ownership" .-> D2["DEVELOPMENT.md"]
-    R -. "publish or release order" .-> D3["RELEASE.md"]
-    V -. "acceptance bar for anything a tool returns" .-> D4["TOOL_QUALITY.md"]
 ```
 
-A plain task run reports its exit code. Dotted edges name the trigger that loads a `references/` or `docs/` page. The tool-output acceptance bar also reads `<repo>/docs/TOOL_DATA_CONTRACT.md`.
+A plain task run reports its exit code. [Resources](#resources) names the trigger that loads each `references/` or `docs/` page.
 
 Paths: `<repo>` is the monorepo root. `CORE` is `../octocode-mcp-host/packages/octocode-core`. Bare `docs/` paths are this skill's docs. Route open native design to `rust-best-practices` and doc rewrites to `octocode-documentation`.
 
@@ -43,19 +34,19 @@ Local checks use the [host-only build rule](../../AGENTS.md#setup-run-develop): 
 
 ## Task runner
 
-Root `package.json` keeps only `contracts:regen`. Run every other repo task with `$DEV`. Extra arguments pass through; `$DEV --help` lists all tasks.
+Root `package.json` has no scripts. Run every repo task with `$DEV`. Extra arguments pass through; `$DEV --help` lists all tasks.
 
 | Need | Command |
 |---|---|
 | Fast local build (native host only) | `$DEV build:dev` |
 | Release-mode build (native host only, slow) | `$DEV build` |
-| Tests / lint / typecheck | `$DEV test` · `$DEV lint` · `$DEV typecheck` (`:ci` variants skip benchmark) |
+| Tests / lint / typecheck | `$DEV test` · `$DEV lint` · `$DEV typecheck` (`:ci` variants skip benchmark and native; `test:ci` also runs skill checks) |
 | Fix formatting that lint checks | `$DEV format` (each workspace `format`: prettier `--write`) |
 | Every tool end to end (CLI + MCP, hermetic, after `build:dev`) | `$DEV test:tools [tool,...]` |
 | Full repo contract before handoff | `$DEV verify` |
 | Docs links, catalog, config keys | `$DEV docs:verify` |
 | Workspace scripts present / outputs built | `$DEV health:check` · `$DEV check-outputs` |
-| Disk cleanup | `$DEV clean:cache` (stale native copies, deps stay warm) · `$DEV clean` (all build outputs) |
+| Disk cleanup | `$DEV clean:cache` (stale native copies, deps stay warm; `build:dev` and `test:rust` run it first when native `target/debug` is over 50 GiB) · `$DEV clean` (all build outputs) |
 | One range per external dependency | `$DEV deps:dedupe` (`--fix` rewrites) |
 | Local dev resolutions | `$DEV setup` then `yarn install` |
 | Publish guard | `$DEV prepublish` (`--fix`, `--dry-run`); CI build: `$DEV build:ci` |
@@ -68,9 +59,10 @@ When a script flag or path rule is unclear, read [the script guide](scripts/READ
 |---|---|
 | `run <script>`, `verify`, `check`, `report`, `check-outputs`; after editing it run `node --test skills-dev/octocode-dev/scripts/workspace-health.test.mjs` | `scripts/workspace-health.mjs` |
 | Debugging the `docs:verify` gate | `scripts/docs-verify.mjs` |
-| Changing standalone skill test discovery (`skills:check`, `test:ci`); verify with `node --test skills-dev/octocode-dev/scripts/skill-tests.test.mjs` | `scripts/skill-tests.test.mjs` |
-| A tool contract changed; check `octocode-research` examples against live schemas | `scripts/check-research-guidance.mjs [--json] [--self-test]` |
-| Dedupe flags beyond `deps:dedupe` | `scripts/dedupe-deps.mjs` |
+| Changing standalone skill test discovery (`skills:check`, `test:ci`); verify with `node --test skills-dev/octocode-dev/scripts/skill-tests.test.mjs` | `scripts/lib/skill-tests.mjs` |
+| A tool contract changed; check tool-call examples in every skill and doc against live schemas | `scripts/check-research-guidance.mjs [--json] [--self-test]` |
+| A field renamed or removed, or `docs:verify` names a prose field path the contract lacks; verify with `node --test skills-dev/octocode-dev/scripts/check-vocabulary.test.mjs` | `scripts/check-vocabulary.mjs [--json]` |
+| Debugging the `deps:dedupe` gate | `scripts/dedupe-deps.mjs` |
 | Local resolutions on (`setup`) / off before publish | `scripts/dev-setup.mjs` / `scripts/prepublish.mjs` |
 | Starting a tool audit | `scripts/tool-inventory.mjs [tool] [--json]` |
 | A file over 400 lines, or a stale or missing file-length baseline entry (`$DEV lint`, `verify`, CI) | `scripts/check-file-length.mjs [--write]` |
@@ -84,6 +76,22 @@ When a script flag or path rule is unclear, read [the script guide](scripts/READ
 4. Write one report from `assets/audit-report.md`. Each finding is a 5W2H record (`path:line`, severity, evidence, fix; `unknown` in a slot nobody verified) with its verification command and result. The path is in [the output format](output.md).
 
 A multi-tool audit may run one subagent per tool, each with a Task contract: objective (audit that tool), inputs (the tool name, this skill path, the report template), output (that tool's report, BLUF), Definition of Done (one 5W2H record per finding with its verification command and result).
+
+## Resources
+
+| When | Read | Why |
+|---|---|---|
+| Locating every layer of a tool | [surface-map.md](references/surface-map.md) | Owners from core contract to CLI and MCP |
+| A schema, description, instruction or limit (then surface-map) | [contract-audit.md](references/contract-audit.md) | Contract lane of an audit |
+| Native behavior or data flow | [implementation-audit.md](references/implementation-audit.md) | Implementation lane |
+| Output, pagination, `next.*` pages, `hints.*` | [output-audit.md](references/output-audit.md) | Output lane |
+| Before editing and before reporting done | [fix-and-verify.md](references/fix-and-verify.md) | Owning-layer fix and its verification |
+| A setting or credential | [ADDING_CONFIG.md](docs/ADDING_CONFIG.md) | Config key lifecycle |
+| Package layout, environment variables, ownership | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Repository map and contract pipeline |
+| Publish or release order | [RELEASE.md](docs/RELEASE.md) | Release workflow |
+| Scraping scripts or a new vendor | [SCRAPING_MAINTENANCE.md](docs/SCRAPING_MAINTENANCE.md) | Scraping maintenance |
+| Acceptance bar for anything a tool returns | [TOOL_QUALITY.md](docs/TOOL_QUALITY.md), `<repo>/docs/TOOL_DATA_CONTRACT.md` | Tool output quality |
+| Audit report | [audit-report.md](assets/audit-report.md) | Report template |
 
 ## Definition of Done
 
@@ -100,4 +108,4 @@ Follow [the output format](output.md).
 
 ## Related skills
 
-Use `octocode-research` for code evidence, `rust-best-practices` for open Rust design choices, and `octocode-documentation` for prose beyond a factual correction.
+Use `octocode-research` for code evidence, `rust-best-practices` for open Rust design choices, `octocode-graph-dev` for code graph engine changes and their language battery, and `octocode-documentation` for prose beyond a factual correction.

@@ -13,7 +13,8 @@ async function executeFreshSearch(ctx, surface, checks, scenario) {
   const query = { ...sourceScope, keywords: scenario.keywords, matchIn: scenario.matchIn };
   const result = await ctx.call(ctx.q(query), surface);
   const related = relatedSearch(result, scenario.variants);
-  const expected = scenario.variants.map(keywords => ({ ...sourceScope, keywords, matchIn: ['content'] }));
+  // Leads omit fields at their contract default; matchIn:['content'] is the default.
+  const expected = scenario.variants.map(keywords => ({ ...sourceScope, keywords }));
   const admitted = related && !ctx.validateInput(related.tool, related.input);
   checks.push([`code.related.${scenario.label}.authored.${surface}`, result.json?.results?.[0]?.status === 'empty'
     && admitted && isDeepStrictEqual(related.input.queries, expected), JSON.stringify(result.json)]);

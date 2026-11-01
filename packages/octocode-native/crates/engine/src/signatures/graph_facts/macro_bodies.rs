@@ -186,8 +186,8 @@ fn visit_body(
             operation,
             crate::text::analysis::RepresentationHandle(0),
             vec![crate::text::analysis::ByteRange::new(
-                body.range.start_byte as u32,
-                body.range.end_byte as u32,
+                crate::num::saturating_u32(body.range.start_byte),
+                crate::num::saturating_u32(body.range.end_byte),
             )],
         )
         .ok()?;

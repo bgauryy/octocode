@@ -1,5 +1,6 @@
 //! The file graph the code graph's cycle engine runs on, and its strongly
 //! connected components.
+use crate::num::saturating_u32;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -32,14 +33,14 @@ pub fn scc_filtered(
     let mut ids = BTreeMap::new();
     let mut names = Vec::with_capacity(graph.len());
     for key in graph.keys() {
-        ids.insert(key.as_str(), names.len() as u32);
+        ids.insert(key.as_str(), saturating_u32(names.len()));
         names.push(key.as_str());
     }
     let keys = names.len();
     for node in graph.values() {
         for (target, _) in node.edges.iter().filter(|(_, kinds)| keep(kinds)) {
             if !ids.contains_key(target.as_str()) {
-                ids.insert(target.as_str(), names.len() as u32);
+                ids.insert(target.as_str(), saturating_u32(names.len()));
                 names.push(target.as_str());
             }
         }
@@ -53,7 +54,7 @@ pub fn scc_filtered(
             .map(|(to, _)| ids[to.as_str()])
             .collect::<Vec<_>>();
     }
-    let components = strongly_connected_components(0..keys as u32, names.len(), |id| {
+    let components = strongly_connected_components(0..saturating_u32(keys), names.len(), |id| {
         successors[id as usize].iter().copied()
     });
     let mut out = components

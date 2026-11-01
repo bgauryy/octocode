@@ -19,7 +19,13 @@ pub(crate) struct Linker<'r> {
     pub(crate) recovered: &'r dyn Fn(u32) -> bool,
     /// Names of the `macro_rules!` the repo's Rust files declare.
     pub(crate) rust_macros: &'r HashSet<&'r str>,
+    /// A Rust function's declared return type and the type `?` yields from
+    /// it, by declaration node.
+    pub(crate) return_types: &'r HashMap<u32, ReturnTypes<'r>>,
 }
+
+/// See [`Linker::return_types`].
+pub(crate) type ReturnTypes<'r> = (Option<&'r str>, Option<&'r str>);
 
 /// Where a bare name may bind once its file and imports did not
 /// ([`Linker::bare_scope`]).
@@ -92,6 +98,9 @@ impl Linker<'_> {
             );
         }
         if let Some(linked) = self.local(site) {
+            return Some(linked);
+        }
+        if let Some(linked) = self.rust_self_impl(site) {
             return Some(linked);
         }
         let head = first_segment(site.qualifier);
@@ -291,7 +300,11 @@ impl Linker<'_> {
             qualifier.contains("::") && last.starts_with(|c: char| c.is_ascii_uppercase())
         });
         let head = path_type.unwrap_or(head);
-        let type_qualified = !receiver && head.starts_with(|c: char| c.is_ascii_uppercase());
+        // A value qualifier (`T::open().m`, `items.m`) is never a type, even
+        // when it starts with one.
+        let type_qualified = !receiver
+            && !site.value_qualifier
+            && head.starts_with(|c: char| c.is_ascii_uppercase());
         // `expr.name()` has an unknown receiver type: a graph-wide name match
         // is a coincidence (`.all()`, `.replace()`, `.kind()` on std/foreign
         // types), so a member call links only through a receiver type the

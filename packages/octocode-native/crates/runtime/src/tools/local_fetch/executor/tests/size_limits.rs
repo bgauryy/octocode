@@ -118,7 +118,6 @@ fn source_above_the_streaming_ceiling_returns_file_too_large() {
 
     assert_eq!(result.status, ReadStatus::Error);
     assert_eq!(result.error_code, Some(ErrorCode::FileTooLarge));
-    assert_eq!(result.source_bytes, Some(len as usize));
     assert_eq!(result.terminal_limit, Some(true));
     assert!(
         result

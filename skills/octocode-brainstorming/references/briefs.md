@@ -26,8 +26,8 @@ Hypotheses:
 Seek evidence likely under one hypothesis and unlikely under the others; try hardest to refute H1. Tag each claim with the hypothesis it tells apart.
 
 Search (Tavily, Exa, Serper at once):
-  cd <workspace> && TAVILY_API_KEY="$(npx -y octocode config get TAVILY_API_KEY)" EXA_API_KEY="$(npx -y octocode config get EXA_API_KEY)" SERPER_API_KEY="$(npx -y octocode config get SERPER_API_KEY)" node <skill-folder>/scripts/search.mjs --query "<query>" [--query "<another>"] [--kind web|news|papers] [--since YYYY-MM-DD] [--limit 8]
-Never print, echo, or write any key. Run <3-5 at medium, 5-8 at high> searches, varying wording and kind; host web tools are fine too.
+  cd <workspace> && node <skill-folder>/scripts/search.mjs --query "<query>" [--query "<another>"] [--kind web|news|papers] [--since YYYY-MM-DD] [--limit 8]
+The search script loads Octocode home and trusted workspace `.env` values through the bundled shared config loader; process environment values take precedence. To save a key, use `npx -y octocode config set KEY --stdin`. Never print, echo, or write a key. Run <3-5 at medium, 5-8 at high> searches, varying wording and kind; host web tools are fine too.
 
 Constraints:
 - Claim–evidence: never invent. Every claim needs a URL you opened in this task and a verbatim quote from that page (20+ characters; "..." between non-adjacent passages); never from memory or a search snippet. No evidence: say so.
@@ -44,7 +44,7 @@ Return: <6-10 at medium, 8-15 at high> claims as JSONL to <ledger path>, one per
 {"id":"<letter>1","direction":"<slug>","claim":"...","url":"...","quote":"...","sourceType":"...","published":"...","stance":"supports|challenges|context","hypothesis":"H1"}
 Verify the ledger: node <skill-folder>/scripts/verify-claims.mjs --ledger <ledger path> --out <ledger path>.verified.jsonl
 Stop condition, done when: two more varied searches add no new source ("no evidence found" beats a stretched source); 2+ claims challenge or limit the direction; a search for what contradicts your strongest claim ran; the ledger verifies (recopy each failed quote once as plain prose, no math, tables, or symbols, else delete it; rerun).
-Reply (BLUF, ≤200 words): findings first, then outcome (done, partial, failed, needs-input); each hypothesis survived, refuted (claim ids), or untested; strongest limiting evidence; verified and dropped counts; file path.
+Reply (BLUF, ≤200 words): findings first, then outcome (done, partial, failed, refused; missing input keeps the request open and names the one question); each hypothesis survived, refuted (claim ids), or untested; strongest limiting evidence; verified and dropped counts; file path.
 ```
 
 ## Debater brief
@@ -71,7 +71,7 @@ You judge "<resolution>" on verified evidence only: an argument without a verifi
 - Ignore eloquence, length, formatting, confidence, and reading order.
 - Score each side one criterion at a time; then reread in the opposite order. If your verdict changes, return UNRESOLVED.
 
-Return (BLUF, ≤300 words), verdict first: PRO, CON, or UNRESOLVED; confidence with its reason (high: ≥2 independent primary sources agree, no strong counterevidence; medium: one primary source, one origin behind several, or unresolved counterevidence; low: only secondary, vendor, or single-preprint support, or an untested prescription); the deciding ids; the one check most likely to overturn it.
+Return (BLUF, ≤300 words), verdict first: PRO, CON, or UNRESOLVED; confidence with its reason (high: ≥2 independent primary sources agree, no strong counterevidence; medium: one primary source, one origin behind several, or unresolved counterevidence; low: only secondary, vendor, community, trend, or single-preprint support, or an untested prescription); the deciding ids; the one check most likely to overturn it.
 ```
 
 ## Critic brief

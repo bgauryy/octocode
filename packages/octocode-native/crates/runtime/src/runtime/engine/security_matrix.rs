@@ -87,7 +87,7 @@ fn a_credential_in_a_query_never_runs_and_is_never_echoed_for_any_tool() {
             .unwrap_or_else(|| panic!("{tool:?}: no query text field accepts a token"));
         let mut row = base.clone();
         row[&field] = json!(TOKEN);
-        let admitted = runtime.admit_queries(tool, &input(&row), false);
+        let admitted = runtime.admit_queries(tool, &input(&row), false, false);
         let shown = payload_text(&admitted);
         assert!(
             !shown.contains(TOKEN),
@@ -192,7 +192,7 @@ fn oversized_or_too_deep_input_is_rejected_for_any_tool() {
                 issues.iter().all(|issue| issue.rule_id == "security.input"),
                 "{tool:?} {what}: {issues:?}"
             );
-            let admitted = runtime.admit_queries(tool, &input(&row), false);
+            let admitted = runtime.admit_queries(tool, &input(&row), false, false);
             assert!(
                 admitted
                     .as_ref()
@@ -222,7 +222,8 @@ fn a_credential_in_an_error_never_leaves_any_tool() {
         for (surface, shown) in [
             ("CLI JSON", projected.envelope.to_string()),
             ("CLI text", projected.text),
-            ("MCP", mcp.to_string()),
+            ("MCP text", mcp.text),
+            ("MCP structured", mcp.structured_content.to_string()),
         ] {
             assert!(!shown.contains(TOKEN), "{tool:?} {surface}: {shown}");
         }
@@ -260,10 +261,9 @@ async fn a_credential_in_evidence_is_redacted_on_both_channels() {
             );
             assert!(!shown.contains(TOKEN), "{tool} {channel:?}: {shown}");
             let mcp = super::super::error::mcp_result(tool, Ok(outcome)).expect("mcp");
-            assert!(
-                !mcp.to_string().contains(TOKEN),
-                "{tool} {channel:?}: {mcp}"
-            );
+            for shown in [&mcp.text, &mcp.structured_content.to_string()] {
+                assert!(!shown.contains(TOKEN), "{tool} {channel:?}: {shown}");
+            }
         }
     }
 }

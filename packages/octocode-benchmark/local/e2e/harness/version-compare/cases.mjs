@@ -50,7 +50,7 @@ export const CASES = {
     pub: 'localGetFileContent',
     checks: [
       { kind: 'happy', content: true, loc: { path: 'src/greeter.ts', fullContent: true }, pub: { query: { path: 'src/greeter.ts', fullContent: true, minify: 'none' } } },
-      { kind: 'page', content: true, truth: { file: 'src/greeter.ts' }, loc: { path: 'src/greeter.ts', unit: 'lines', offset: 0, length: 5 }, pub: { query: { path: 'src/greeter.ts', fullContent: true, minify: 'none', charOffset: 0, charLength: 120 } }, lead: { loc: 'continueWindow', pub: 'nextChunk' } },
+      { kind: 'page', content: true, truth: { file: 'src/greeter.ts' }, loc: { path: 'src/greeter.ts', unit: 'lines', offset: 0, length: 5 }, pub: { query: { path: 'src/greeter.ts', fullContent: true, minify: 'none', charOffset: 0, charLength: 120 } }, lead: { loc: 'nextPage', pub: 'nextChunk' } },
       { kind: 'match', loc: { path: 'src/greeter.ts', matchString: 'healthMarker' }, pub: { query: { path: 'src/greeter.ts', matchString: 'healthMarker' } } },
       { kind: 'empty', loc: { path: 'src/greeter.ts', matchString: 'zzzNoSuchText' }, pub: { query: { path: 'src/greeter.ts', matchString: 'zzzNoSuchText' } } },
       { kind: 'invalid', loc: { path: 'src/greeter.ts', ranges: 'not-an-array' }, pub: { query: { path: 'src/greeter.ts', startLine: 'x', endLine: 2 } } },
@@ -97,7 +97,7 @@ export const CASES = {
     pub: 'ghGetFileContent',
     checks: [
       { kind: 'happy', content: true, loc: { owner: O, repo: R, ref: REF, path: 'lib/application.js', fullContent: true }, pub: { query: { owner: O, repo: R, branch: REF, path: 'lib/application.js', fullContent: true, minify: 'none' } } },
-      { kind: 'page', content: true, truth: { owner: O, repo: R, ref: REF, path: 'History.md' }, loc: { owner: O, repo: R, ref: REF, path: 'History.md', fullContent: true }, pub: { query: { owner: O, repo: R, branch: REF, path: 'History.md', fullContent: true, minify: 'none' } }, lead: { loc: 'continueWindow', pub: 'nextChunk' }, maxPages: 40 },
+      { kind: 'page', content: true, truth: { owner: O, repo: R, ref: REF, path: 'History.md' }, loc: { owner: O, repo: R, ref: REF, path: 'History.md', fullContent: true }, pub: { query: { owner: O, repo: R, branch: REF, path: 'History.md', fullContent: true, minify: 'none' } }, lead: { loc: 'nextPage', pub: 'nextChunk' }, maxPages: 40 },
       { kind: 'match', loc: { owner: O, repo: R, ref: REF, path: 'lib/response.js', matchString: 'res.redirect = function' }, pub: { query: { owner: O, repo: R, branch: REF, path: 'lib/response.js', matchString: 'res.redirect = function' } } },
       { kind: 'empty', loc: { owner: O, repo: R, ref: REF, path: 'lib/response.js', matchString: 'zzzNoSuchText' }, pub: { query: { owner: O, repo: R, branch: REF, path: 'lib/response.js', matchString: 'zzzNoSuchText' } } },
       { kind: 'invalid', loc: { owner: O, repo: R }, pub: { query: { owner: O, repo: R } } },

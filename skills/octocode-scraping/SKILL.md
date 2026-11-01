@@ -1,6 +1,6 @@
 ---
 name: octocode-scraping
-description: "Load this skill first whenever a task needs text, tables or links from public web pages (pricing, docs, changelogs, blogs), before asking for the URL; good for crawls and cited local corpora."
+description: "Extract text, tables and links from public pages such as pricing, documentation, changelogs and blogs. Build bounded crawls and reusable local corpora with complete source evidence and citations."
 ---
 
 # Octocode Scraping
@@ -66,9 +66,9 @@ Script support comes from `skills/common`: [network guard](scripts/lib/net-guard
 
 ## Related skills
 
-- Live browser rendering or interaction: `octocode-chrome-devtools`.
-- Code or package claims: `octocode-research`.
-- For an orchestrated multi-actor task: [octocode-workflows composition](../octocode-workflows/references/composition.md).
+- Use `octocode-chrome-devtools` when the page needs live rendering or interaction.
+- Use `octocode-research` when the claim is about code or packages.
+- Use [octocode-workflows composition](../octocode-workflows/references/composition.md) for an orchestrated multi-actor task.
 
 ## Output
 

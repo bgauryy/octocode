@@ -1,9 +1,8 @@
 //! The final result: ordering, the collection cap, span collapsing, and stats.
 
-use super::DEFAULT_MAX_SNIPPET_CHARS;
-use super::collect::collection_limit;
 use super::mode::{Mode, lists_match_density, only_matching};
-use super::state::{CollectResult, FileRec, saturate_u32};
+use super::state::{CollectResult, FileRec};
+use crate::num::{saturating_i64, saturating_u32};
 use crate::search::text_parser::assemble_file;
 use crate::types::{
     CapReason, SearchOutput, SearchSort, SpanValues, TextSearchFile, TextSearchMatch,
@@ -11,23 +10,8 @@ use crate::types::{
 };
 use std::collections::HashMap;
 
-fn bytes_as_i64(bytes: u64) -> i64 {
-    bytes.min(i64::MAX as u64) as i64
-}
-
 /// Sort `recs` into the final result order and truncate to the collection cap.
 /// Returns whether any records were dropped by the cap.
-pub(super) fn sort_and_cap(opts: &TextSearchOptions, mode: Mode, recs: &mut Vec<FileRec>) -> bool {
-    sort_recs(opts, mode, recs);
-    if let Some(max) = collection_limit(opts)
-        && recs.len() > max
-    {
-        recs.truncate(max);
-        return true;
-    }
-    false
-}
-
 pub(super) fn sort_recs(opts: &TextSearchOptions, mode: Mode, recs: &mut [FileRec]) {
     if preserves_traversal_order(opts) {
         return;
@@ -156,15 +140,12 @@ pub(super) fn build_result(
         error_count,
         first_error,
         pattern_error_count,
+        test_code_excluded,
     } = collected;
-    // Workers retain a bounded, order-independent candidate set; the final
-    // sort + truncate keeps the first `max_collected_files` in result order.
-    let retained_truncated = sort_and_cap(opts, mode, &mut recs);
-    let cap_truncated = retained_truncated || files_matched > recs.len() as u64;
+    sort_recs(opts, mode, &mut recs);
 
     // Cap reasons in a fixed order, so equal results carry equal reasons.
     let cap_reasons: Vec<CapReason> = [
-        (cap_truncated, CapReason::MaxCollectedFiles),
         (span_capped, CapReason::MaxOnlyMatchingPerFile),
         (timed_out, CapReason::Pcre2Deadline),
         (size_skipped, CapReason::MaxFileSize),
@@ -177,19 +158,16 @@ pub(super) fn build_result(
     let capped = !cap_reasons.is_empty();
 
     let context = opts.context;
-    let max_snippet = opts.max_snippet_chars.unwrap_or(DEFAULT_MAX_SNIPPET_CHARS) as usize;
 
-    // Totals cover every kept file, including files the cap dropped from the
-    // returned list (see `maxCollectedFiles`).
-    let files_matched = saturate_u32(files_matched);
-    let total_submatches = saturate_u32(submatches);
-    let total_matched_lines = saturate_u32(matched_lines);
+    let files_matched = saturating_u32(files_matched);
+    let total_submatches = saturating_u32(submatches);
+    let total_matched_lines = saturating_u32(matched_lines);
 
     let spans = match opts.output {
         SearchOutput::Spans(spans) => Some(spans),
         _ => None,
     };
-    let bytes_searched = Some(bytes_as_i64(bytes_searched));
+    let bytes_searched = Some(saturating_i64(bytes_searched));
     // The returned files whose values are decoded text, in result order.
     let not_utf8_files = recs
         .iter()
@@ -209,12 +187,13 @@ pub(super) fn build_result(
                     };
                     TextSearchFile {
                         path: r.path,
-                        match_count: matches.len() as u32,
+                        match_count: saturating_u32(matches.len()),
                         matches,
                         source: None,
+                        term_counts: Vec::new(),
                     }
                 }
-                Mode::Normal => assemble_file(r.path, r.entry, context, max_snippet),
+                Mode::Normal => assemble_file(r.path, r.entry, context),
                 // files-only / files-without-match: path list, matchCount 1, no
                 // snippets.
                 Mode::FilesOnly | Mode::FilesWithoutMatch => TextSearchFile {
@@ -222,18 +201,21 @@ pub(super) fn build_result(
                     match_count: 1,
                     matches: Vec::new(),
                     source: None,
+                    term_counts: Vec::new(),
                 },
                 Mode::CountLines => TextSearchFile {
                     path: r.path,
                     match_count: r.matched_lines,
                     matches: Vec::new(),
                     source: None,
+                    term_counts: r.term_counts,
                 },
                 Mode::CountMatches => TextSearchFile {
                     path: r.path,
                     match_count: r.submatches,
                     matches: Vec::new(),
                     source: None,
+                    term_counts: r.term_counts,
                 },
             };
             file.source = source;
@@ -249,13 +231,14 @@ pub(super) fn build_result(
         match_count: (!matches!(mode, Mode::CountLines)).then_some(total_submatches),
         matched_lines: Some(total_matched_lines),
         files_matched: Some(files_matched),
-        files_searched: Some(saturate_u32(files_searched)),
+        files_searched: Some(saturating_u32(files_searched)),
         bytes_searched,
         capped: Some(capped),
         cap_reasons,
         error_count: Some(error_count),
         first_error,
         pattern_error_count: (pattern_error_count > 0).then_some(pattern_error_count),
+        test_code_excluded: opts.test_code.as_ref().map(|_| test_code_excluded),
         binary_files: (!binary_files.is_empty()).then_some(binary_files),
         binary_file_count: binary_quit.then_some(binary_file_count),
         not_utf8_files: (!not_utf8_files.is_empty()).then_some(not_utf8_files),

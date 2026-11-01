@@ -24,7 +24,7 @@ fn a_file_named_by_a_quoted_string_is_mentioned_not_an_orphan() {
         o.min_tier = Some(0);
     });
     let row = |subject: &str| {
-        issues.value["results"]
+        issues.value["rows"]
             .as_array()
             .into_iter()
             .flatten()
@@ -64,7 +64,7 @@ fn issues_name_the_manifest_above_a_subdirectory_snapshot() {
     };
     let below = notes(&src).to_string();
     assert!(
-        below.contains("package.json") && below.contains("graph ingest") && below.contains("app"),
+        below.contains("package.json") && below.contains("graphBuild") && below.contains("app"),
         "{below}"
     );
     assert!(

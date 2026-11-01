@@ -135,7 +135,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
         ))
         .expect("retry row");
     assert_row_contract(ToolId::LspSearch, &second);
-    assert_eq!(second["kind"], "hover", "{second}");
+    assert_eq!(second["operation"], "hover", "{second}");
     assert_eq!(second["hover"]["contents"], "ready", "{second}");
     assert!(second["lsp"].get("receipt").is_none(), "{second}");
     let pids = std::fs::read_to_string(root.join("pids.txt")).expect("server pid");

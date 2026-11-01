@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 /// file bodies here; readers declare the evidence their candidate view contains.
 pub(crate) fn apply_sanitized_rows(
     tool: ToolId,
+    output: &dyn crate::response::output::ToolOutput,
     structured: &mut Value,
     queries: &[crate::security::CheckedQuery],
     row_indices: &[usize],
@@ -139,7 +140,7 @@ pub(crate) fn apply_sanitized_rows(
                 crate::response::result::Continuation::continued(tool, next_query).build(),
             );
         }
-        tool.output().finish_selection(data, query, &hidden);
+        output.finish_selection(data, query, &hidden);
         crate::response::paging::push_warnings(
             data,
             provider

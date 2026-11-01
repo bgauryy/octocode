@@ -1,10 +1,9 @@
-use super::admission::{AdmittedRows, output_contract_error};
+use super::admission::AdmittedRows;
 use super::channel::{ChannelRun, OutputSettings};
-use super::page_replay::page_replay_key;
-use super::{Channel, LIGHT_FILE_BYTES, RuntimeError, ToolRuntime, runtime_execution_error};
+use super::page_replay::{Refusal, RefusalScope, page_replay_key, snapshot_expired};
+use super::{Channel, RuntimeError, ToolRuntime, runtime_execution_error};
 use crate::contracts;
-use crate::execution::Cost;
-use crate::id::{ToolFamily, ToolId};
+use crate::id::ToolId;
 use crate::response::outcome::ToolOutcome;
 use crate::response::page_model::ResponsePageOptions;
 use octocode_contract_types::ErrorCode;
@@ -88,7 +87,7 @@ impl ToolRuntime {
             Err(error) => {
                 if error.code == ErrorCode::MissingConfiguration
                     && let Some(id) = ToolId::from_name(&tool)
-                    && let Err(invalid) = self.admit_queries(id, &input, false)
+                    && let Err(invalid) = self.admit_queries(id, &input, false, mcp)
                     && invalid.code == ErrorCode::InvalidInput
                 {
                     return Err(invalid);
@@ -96,16 +95,18 @@ impl ToolRuntime {
                 return Err(error);
             }
         };
+        if id == ToolId::GhCloneRepo && input.get("cursor").is_some() {
+            return Err(RuntimeError::new(
+                ErrorCode::InvalidInput,
+                "ghCloneRepo does not retain saved responses; provide queries for a fresh checkout.",
+            ));
+        }
         let clasify = id.is_clasify();
         let access = page_replay_key("", mcp, &[], &[], admission.github_credential());
         let opened = if let Some(token) = input.get("cursor").and_then(Value::as_str) {
             contracts::validate(&tool, input.clone())
                 .map_err(|error| super::admission::invalid_input_error(&tool, error))?;
-            Some(
-                self.cursors
-                    .open(id, token, access)
-                    .ok_or_else(super::page_replay::snapshot_expired)?,
-            )
+            Some(self.open_cursor(id, token, mcp, admission.github_credential())?)
         } else {
             None
         };
@@ -113,26 +114,35 @@ impl ToolRuntime {
             .as_ref()
             .and_then(|opened| opened.github_identity().map(str::to_owned));
         let saved = opened.as_ref().map(super::cursors::Opened::member);
+        let fresh = saved.is_none();
         let normalized_input = saved.map_or(&input, |member| &member.input);
         let origin_index = saved.and_then(|member| match &member.work {
-            super::cursors::SavedWork::ToolResume { index } => *index,
-            super::cursors::SavedWork::ResponsePage(_) => None,
+            super::cursors::SavedWork::ToolResume { index }
+            | super::cursors::SavedWork::ResponsePage { index, .. } => *index,
+        });
+        let page = saved.and_then(|member| match &member.work {
+            super::cursors::SavedWork::ResponsePage { cursor, .. } => Some(cursor),
+            super::cursors::SavedWork::ToolResume { .. } => None,
         });
         let mut options = ResponsePageOptions::deserialize(normalized_input).unwrap_or_default();
-        let mut cursor_set = None;
+        // A saved page whose response is no longer retained re-executes its
+        // rows, pinned to the page: it answers only when its sources
+        // reproduce that response. A judgment is not reproducible, so
+        // clasify pages are never re-executed.
+        let retained = page.map(|cursor| self.page_replays.get(cursor));
+        let pinned = match (page, &retained) {
+            (Some(cursor), Some(None)) if !clasify => Some(cursor.clone()),
+            _ => None,
+        };
+        if let Some(cursor) = &pinned {
+            options.open(cursor);
+        }
         let (queries, rejected_rows, row_indices, response_query, replay_key, replayed) =
-            if let Some(super::cursors::Member {
-                work: super::cursors::SavedWork::ResponsePage(cursor),
-                ..
-            }) = saved
-            {
-                let replay = self
-                    .page_replays
-                    .get(cursor)
+            if let (Some(cursor), Some(replay)) = (page, retained.filter(|_| pinned.is_none())) {
+                let replay = replay
                     .filter(|replay| replay.access == access)
-                    .ok_or_else(super::page_replay::snapshot_expired)?;
+                    .ok_or_else(|| self.refuse(Refusal::OtherAccess, mcp))?;
                 options.open(cursor);
-                cursor_set = opened.as_ref().map(super::cursors::Opened::pending);
                 (
                     Vec::new(),
                     Vec::new(),
@@ -145,7 +155,7 @@ impl ToolRuntime {
                 let AdmittedRows {
                     queries,
                     rejected: rejected_rows,
-                } = self.admit_queries(id, normalized_input, saved.is_some())?;
+                } = self.admit_queries(id, normalized_input, saved.is_some(), mcp)?;
                 let mut response_query =
                     json!({"queries": queries.iter().map(|query| &**query).collect::<Vec<_>>()});
                 if let Some(chars) = normalized_input.get("responseChars") {
@@ -167,6 +177,9 @@ impl ToolRuntime {
                     ),
                     admission.github_credential(),
                 );
+                if pinned.as_ref().is_some_and(|cursor| cursor.key != key) {
+                    return Err(self.refuse(Refusal::RequestChanged, mcp));
+                }
                 (
                     queries,
                     rejected_rows,
@@ -176,7 +189,6 @@ impl ToolRuntime {
                     None,
                 )
             };
-        let cost = self.request_cost(id, &queries, replayed.is_some());
         let dispatcher = self.dispatcher();
         let run = ChannelRun {
             id,
@@ -186,6 +198,7 @@ impl ToolRuntime {
             rejected_rows,
             row_indices,
             origin_index,
+            fresh,
             response_query,
             clasify,
             dispatcher,
@@ -194,57 +207,22 @@ impl ToolRuntime {
                 auto_page_chars: self.limits.auto_page_chars,
             },
             replayed,
+            pinned,
             replays: (self.page_replays.clone(), replay_key),
             section_sessions: self.section_sessions.clone(),
             access,
-            cursor_set,
             cursors: self.cursors.clone(),
             resume_identity,
         };
         self.requests
-            .execute_blocking_admitted(admission.with_cost(cost), move |context| {
+            .execute_blocking_admitted(admission, move |context| {
                 if let Err(error) = run.check_replay_access(&context) {
                     return Ok(Err(error));
                 }
                 run.run(&context)
-                    .map(|result| result.map_err(|error| output_contract_error(&tool, error)))
             })
             .await
             .map_err(runtime_execution_error)?
-    }
-
-    /// The admission [`Cost`] of `queries`: light for a provider page the
-    /// memo serves (no dispatch, no source check) or for local rows the local
-    /// runner serves that each read one regular file of at most
-    /// [`LIGHT_FILE_BYTES`] and judge nothing. Anything else may walk a tree,
-    /// or wait on a provider (a `classification` or `selection` row asks the
-    /// classification provider) or a language server.
-    pub(super) fn request_cost(
-        &self,
-        id: ToolId,
-        queries: &[crate::security::CheckedQuery],
-        replayed: bool,
-    ) -> Cost {
-        if replayed {
-            return Cost::Light;
-        }
-        let light_row = |row: &Value| {
-            let judged = row.get("classification").is_some() || row.get("selection").is_some();
-            !judged
-                && row["path"].as_str().is_some_and(|path| {
-                    std::fs::metadata(self.paths.expand_and_resolve(std::path::Path::new(path)))
-                        .is_ok_and(|meta| meta.is_file() && meta.len() <= LIGHT_FILE_BYTES)
-                })
-        };
-        let light = match id.family() {
-            ToolFamily::GitHub | ToolFamily::Remote => replayed,
-            ToolFamily::Local => {
-                id != ToolId::LspSearch
-                    && !queries.is_empty()
-                    && queries.iter().all(|query| light_row(query))
-            }
-        };
-        if light { Cost::Light } else { Cost::Walk }
     }
 
     /// The domain execution path for this call's rows.
@@ -261,11 +239,44 @@ impl ToolRuntime {
             handle: tokio::runtime::Handle::current(),
             lsp_pool: self.lsp_pool.clone(),
             local_views: self.local_views.clone(),
+            source_views: self.source_views.clone(),
             lsp_execution_config: self.lsp_execution_config.clone(),
             availability: self.availability.clone(),
             selection_available: self.selection_available,
             evaluator: self.evaluator.clone(),
             artifact_cache: self.artifact_cache.clone(),
         }
+    }
+
+    /// The saved work `token` resumes for `id` on this surface. A handle
+    /// retained under another access identity is told apart: the same
+    /// credential on the other surface, else another credential.
+    fn open_cursor(
+        &self,
+        id: ToolId,
+        token: &str,
+        mcp: bool,
+        credential: Option<&octocode_github::ResolvedCredential>,
+    ) -> Result<super::cursors::Opened, RuntimeError> {
+        let access = |mcp| page_replay_key("", mcp, &[], &[], credential);
+        self.cursors
+            .open(id, token, access(mcp))
+            .map_err(|refusal| match refusal {
+                Refusal::OtherAccess if self.cursors.open(id, token, access(!mcp)).is_ok() => {
+                    self.refuse(Refusal::OtherSurface, mcp)
+                }
+                refusal => self.refuse(refusal, mcp),
+            })
+    }
+
+    /// The error for a cursor this runtime refuses, sent on the `mcp` surface.
+    fn refuse(&self, refusal: Refusal, mcp: bool) -> RuntimeError {
+        snapshot_expired(
+            refusal,
+            RefusalScope {
+                persistent: self.page_replays.persistent,
+                mcp,
+            },
+        )
     }
 }

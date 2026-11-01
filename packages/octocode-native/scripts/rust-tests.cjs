@@ -42,7 +42,20 @@ function cargo(args) {
   if (status !== 0) process.exit(status ?? 1);
 }
 
-if (require.main === module) {
+// Stale copies of our crates pile up in target/debug; agents run tests more often than builds.
+async function cleanOversizedCache() {
+  const { exceedsSize, NATIVE_DEBUG_LIMIT_BYTES, nativeDebugDir } = await import(
+    '../../../skills-dev/octocode-dev/scripts/lib/native-target.mjs'
+  );
+  if (!exceedsSize(nativeDebugDir(), NATIVE_DEBUG_LIMIT_BYTES)) return;
+  console.log('rust-tests: native target/debug is over 50 GiB, running clean:cache first');
+  const { status, error } = spawnSync('yarn', ['clean:cache'], { cwd: nodePath.join(__dirname, '..'), stdio: 'inherit' });
+  if (error) throw error;
+  if (status !== 0) process.exit(status ?? 1);
+}
+
+async function main() {
+  await cleanOversizedCache();
   const args = process.argv.slice(2);
   if (args[0] === '--coverage') {
     cargo(['llvm-cov', 'clean', '--workspace']);
@@ -55,6 +68,13 @@ if (require.main === module) {
     console.error('Usage: rust-tests.cjs [--coverage [cargo llvm-cov report args...]]');
     process.exit(2);
   }
+}
+
+if (require.main === module) {
+  main().catch(error => {
+    console.error(error);
+    process.exit(1);
+  });
 }
 
 module.exports = { SELECTIONS };

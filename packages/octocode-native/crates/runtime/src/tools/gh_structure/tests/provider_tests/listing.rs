@@ -184,9 +184,7 @@ async fn a_directory_past_the_contents_cap_is_listed_whole_and_paged() {
         for name in data["files"][0]["files"].as_array().expect("files") {
             listed.push(name.as_str().unwrap_or_default().to_owned());
         }
-        let next = data["next"]
-            .get("expandDates")
-            .or_else(|| data["next"].get("nextPage"));
+        let next = data["next"].get("nextPage");
         match next {
             Some(next) => row = next["input"]["queries"][0].clone(),
             None => {

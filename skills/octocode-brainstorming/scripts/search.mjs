@@ -2,10 +2,13 @@
 /**
  * Multi-provider web search for brainstorming: Tavily, Exa, and Serper in parallel, merged by canonical URL.
  * Results are leads, not evidence: read the page and record a verbatim quote before using a claim.
- * Keys come from the process environment only and are never printed.
+ * Keys are loaded from the process environment and trusted Octocode dotenv files, and are never printed.
  */
 import { fail } from './lib/fail.mjs';
 import { isMainModule } from './lib/entrypoint.mjs';
+import { loadOctocodeEnv } from './lib/config-env.mjs';
+
+loadOctocodeEnv();
 
 const PROVIDERS = {
   tavily: { env: 'TAVILY_API_KEY', base: process.env.TAVILY_BASE_URL || 'https://api.tavily.com' },
@@ -17,9 +20,8 @@ const PAPER_DOMAINS = ['arxiv.org', 'openreview.net', 'aclanthology.org', 'dl.ac
 const USAGE = `Usage: search.mjs --query <text> [--query <text>]... [--kind web|news|papers] [--providers tavily,exa,serper]
                  [--limit <1-20>] [--since YYYY-MM-DD] [--include-domain <host>]... [--exclude-domain <host>]...
 
-Searches every provider whose key is in the process environment (TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY)
+Searches every provider whose key is available in the process environment or Octocode dotenv files (TAVILY_API_KEY, EXA_API_KEY, SERPER_API_KEY)
 and merges results by canonical URL. Results seen by more providers or queries rank first.
-Pass keys without printing them, for example: EXA_API_KEY="$(npx octocode config get EXA_API_KEY)" node search.mjs ...
 Exit 0 with results, 1 when nothing was found or no provider could run, 2 for invalid input.`;
 
 

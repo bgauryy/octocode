@@ -19,13 +19,15 @@ use missing_patch::inventory_patch_flag;
 pub(super) use missing_patch::missing_patch_reason;
 pub(super) use review::review_selection;
 
-/// Largest patch-free inventory page allowed by private `pageSize` state.
+/// Largest patch-free inventory page allowed by private `pageSize` state:
+/// the contract's bound, else none.
 pub(super) fn max_inventory_page() -> usize {
     crate::contracts::query_schema_max(
         crate::id::ToolId::GhGetHistoryItem,
         Some("pullRequest"),
         "pageSize",
     )
+    .unwrap_or(usize::MAX)
 }
 
 /// Rendered chars budgeted per compact inventory row when sizing the default

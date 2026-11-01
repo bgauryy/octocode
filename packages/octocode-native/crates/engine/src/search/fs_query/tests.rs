@@ -4,8 +4,8 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use crate::error::ErrorKind;
-use crate::search::fs_resume::WalkCursor;
-use crate::search::walk::IgnorePolicy;
+use crate::types::IgnorePolicy;
+use crate::types::fs_resume::WalkCursor;
 use crate::types::{EntryType, FileKind};
 
 mod cursor;

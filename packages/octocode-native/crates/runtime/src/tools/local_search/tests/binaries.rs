@@ -28,6 +28,51 @@ fn a_match_inside_a_binary_header_yields_no_row_and_no_read() {
     );
 }
 
+/// The skipped-binary warning reads as a count and the files' extensions.
+#[test]
+fn the_binary_warning_names_counts_and_extensions_plainly() {
+    let group = |extension: &str, count: u32| octocode_engine::types::BinaryExtensionCount {
+        extension: extension.into(),
+        count,
+        names: Vec::new(),
+    };
+    let warning = crate::tools::local_search::binaries::leading_binary_warning;
+    assert_eq!(
+        warning(&[group("", 1)]),
+        "binarySkipped: 1 binary file not searched (no extension)."
+    );
+    assert_eq!(
+        warning(&[group("png", 2)]),
+        "binarySkipped: 2 binary files not searched (all .png)."
+    );
+    assert_eq!(
+        warning(&[group("woff2", 54), group("", 1)]),
+        "binarySkipped: 55 binary files not searched (54 .woff2, 1 with no extension)."
+    );
+}
+
+/// A binary file named alone searched nothing: refused as
+/// `binaryFileUnsupported` (as astSearch and localFetch refuse it), never
+/// an empty row that reads as absence.
+#[test]
+fn a_binary_file_named_alone_is_refused_not_empty() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    let logo = root.path().join("logo.png");
+    fs::write(&logo, b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").expect("png");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": logo.to_string_lossy().into_owned(), "matchString": ["PNG"]}),
+        None,
+    );
+    let error = search_in(&request, &policy, &security, None).expect_err("binary target");
+    assert_eq!(
+        error.code,
+        octocode_contract_types::ErrorCode::BinaryFileUnsupported,
+        "{error:?}"
+    );
+    assert!(error.message.contains("logo.png"), "{error:?}");
+}
+
 /// A page cut by a binary file (`binaryQuit`) is partial, but its shown
 /// text hits stay one read away.
 #[test]

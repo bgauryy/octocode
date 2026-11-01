@@ -236,7 +236,7 @@ pub async fn execute(
     }
     sanitize_provider_json(security, &mut output.data, Path::new(SCAN_PATH))?;
     remove_nulls(&mut output.data);
-    crate::tools::gh_shared::finish_calls(&mut output.data);
+    crate::response::result::finish_calls(&mut output.data);
     enforce_response_limit(&output.data, context.budget.max_body_bytes)?;
     Ok(output)
 }

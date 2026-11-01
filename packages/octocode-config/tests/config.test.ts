@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   applyOctocodeEnv,
@@ -12,6 +12,53 @@ import {
 } from '../src/index.js';
 import { isProtectedKey, PROTECTED_KEYS } from '../src/dotenv.js';
 import { CONFIG_FIELDS } from '../src/config/contract.generated.js';
+
+const tempDirs: string[] = [];
+
+function tempDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+const CANONICAL = [
+  'PATH',
+  'HOME',
+  'SHELL',
+  'USER',
+  'LOGNAME',
+  'PWD',
+  'TMPDIR',
+  'NODE_OPTIONS',
+  'PYTHON',
+  // A trusted-project .env must not relocate a child's config home.
+  'OCTOCODE_HOME',
+  // Home-only: a workspace .env must not redirect credentials, widen the
+  // sandbox, or pick or download executables.
+  'OCTOCODE_LSP_AUTO_INSTALL',
+  'OCTOCODE_LSP_CACHE_DIR',
+  'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
+  // Storage mode decides what persists on disk: home-trusted only.
+  'OCTOCODE_STORAGE_MODE',
+  'OCTOCODE_CARGO',
+  'GITHUB_API_URL',
+  'OCTOCODE_BETA',
+  'OCTOCODE_ENABLE_CLONE',
+  'ALLOWED_PATHS',
+  'WORKSPACE_ROOT',
+  'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
+  'OCTOCODE_LSP_CONFIG',
+  'OCTOCODE_CLASSIFICATION_API_HOST',
+  // The OAuth app a login or refresh uses: a repository must not choose it.
+  'OCTOCODE_GITHUB_CLIENT_ID',
+  // A workspace may narrow, never widen: local tools off, redaction on.
+  'OCTOCODE_ENABLE_LOCAL',
+  'OCTOCODE_REDACT_EMAILS',
+];
 
 describe('PROTECTED_KEYS', () => {
   it('matches protected keys case-insensitively only on Windows', () => {
@@ -58,6 +105,7 @@ describe('PROTECTED_KEYS', () => {
       'ALLOWED_PATHS',
       'WORKSPACE_ROOT',
       'OCTOCODE_BETA',
+      'OCTOCODE_ENABLE_CLONE',
       'OCTOCODE_CARGO',
       'OCTOCODE_LSP_AUTO_INSTALL',
       'OCTOCODE_LSP_CACHE_DIR',
@@ -72,44 +120,9 @@ describe('PROTECTED_KEYS', () => {
     expect(PROTECTED_KEYS.has('SERPER_API_KEY')).toBe(false);
   });
 
-  // Parity with the native runtime's canonical set
-  // (crates/runtime/src/config/types.rs `PROTECTED_KEYS`). The two lists must
-  // stay identical so a `.env` cannot bypass a protection on one side only;
-  // update both together when adding a key.
-  it('equals the native (Rust) PROTECTED_KEYS set exactly', () => {
-    const CANONICAL = [
-      'PATH',
-      'HOME',
-      'SHELL',
-      'USER',
-      'LOGNAME',
-      'PWD',
-      'TMPDIR',
-      'NODE_OPTIONS',
-      'PYTHON',
-      // A trusted-project .env must not relocate a child's config home.
-      'OCTOCODE_HOME',
-      // Home-only: a workspace .env must not redirect credentials, widen the
-      // sandbox, or pick or download executables.
-      'OCTOCODE_LSP_AUTO_INSTALL',
-      'OCTOCODE_LSP_CACHE_DIR',
-      'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
-      // Storage mode decides what persists on disk: home-trusted only.
-      'OCTOCODE_STORAGE_MODE',
-      'OCTOCODE_CARGO',
-      'GITHUB_API_URL',
-      'OCTOCODE_BETA',
-      'ALLOWED_PATHS',
-      'WORKSPACE_ROOT',
-      'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
-      'OCTOCODE_LSP_CONFIG',
-      'OCTOCODE_CLASSIFICATION_API_HOST',
-      // The OAuth app a login or refresh uses: a repository must not choose it.
-      'OCTOCODE_GITHUB_CLIENT_ID',
-      // A workspace may narrow, never widen: local tools off, redaction on.
-      'OCTOCODE_ENABLE_LOCAL',
-      'OCTOCODE_REDACT_EMAILS',
-    ];
+  // Lock the trust boundary generated for both runtimes from config-contract.json.
+  // A new protected setting requires an intentional expectation update here.
+  it('keeps the generated protected-key policy unchanged without an explicit update', () => {
     expect([...PROTECTED_KEYS].sort()).toEqual([...CANONICAL].sort());
   });
 });
@@ -200,7 +213,7 @@ describe('applyOctocodeEnv', () => {
 
 describe('loadOctocodeEnv', () => {
   it('skips blank values in the home .env', () => {
-    const home = mkdtempSync(join(tmpdir(), 'octo-blank-'));
+    const home = tempDir('octo-blank-');
     writeFileSync(join(home, '.env'), 'EMPTY=\nSET=v\n');
     expect(loadOctocodeEnv({ home }).map).toEqual({ SET: 'v' });
   });
@@ -210,7 +223,7 @@ describe('loadOctocodeEnv', () => {
   let cwd: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'octo-test-'));
+    tmpDir = tempDir('octo-test-');
     home = join(tmpDir, 'home');
     cwd = join(tmpDir, 'proj');
     mkdirSync(home, { recursive: true });
@@ -296,7 +309,7 @@ describe('propagateOctocodeEnv', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'octo-prop-'));
+    tmpDir = tempDir('octo-prop-');
   });
 
   it('loads and applies global .env into target env', () => {
@@ -339,7 +352,10 @@ describe('ENV_TOKEN_VARS', () => {
 function valueAt(config: unknown, path: string): unknown {
   let node = config;
   for (const key of path.split('.'))
-    node = typeof node === 'object' && node !== null ? Reflect.get(node, key) : undefined;
+    node =
+      typeof node === 'object' && node !== null
+        ? Reflect.get(node, key)
+        : undefined;
   return node;
 }
 
@@ -353,7 +369,9 @@ describe('DEFAULT_CONFIG', () => {
 
   it('an optional path setting defaults to unset', () => {
     expect(DEFAULT_CONFIG.lsp.cacheDir).toBeUndefined();
-    const field = CONFIG_FIELDS.find(field => field.path === 'lsp.cacheDir')!;
-    expect(field).toEqual(expect.objectContaining({ type: 'path', defaultValue: null }));
+    const field = CONFIG_FIELDS.find(field => field.path === 'lsp.cacheDir');
+    expect(field).toEqual(
+      expect.objectContaining({ type: 'path', defaultValue: null })
+    );
   });
 });

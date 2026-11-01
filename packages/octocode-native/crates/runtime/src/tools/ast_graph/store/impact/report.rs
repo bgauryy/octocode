@@ -21,8 +21,8 @@ pub(super) fn report(
     depth_limited: bool,
 ) -> Impact {
     let key = |id: u32| t.str(t.nodes[id as usize].key);
-    let n = t.nodes.len();
-    let mut files = (0..n as u32)
+    let mut files = t
+        .node_ids()
         .filter(|id| t.nodes[*id as usize].kind == NodeKind::File)
         .filter_map(|id| reach[id as usize].map(|r| (id, r)))
         .collect::<Vec<_>>();
@@ -53,7 +53,8 @@ pub(super) fn report(
     }
     // Test functions reached (inline Rust test modules, pytest functions,
     // functions in test files): the precise tests to run.
-    let mut test_functions = (0..n as u32)
+    let mut test_functions = t
+        .node_ids()
         .filter(|id| {
             let node = &t.nodes[*id as usize];
             node.kind == NodeKind::Symbol
@@ -75,14 +76,12 @@ pub(super) fn report(
         "configChanges": global.iter().map(|(dir, file)| json!({"file": file, "scope": if dir.is_empty() { "." } else { dir.as_str() }})).collect::<Vec<_>>(),
         "precision": if symbol_mode && global.is_empty() { "symbol" } else { "file" },
         "allAffected": global.iter().any(|(dir, _)| dir.is_empty()),
-        "affectedFiles": files.len(),
         "byDepth": by_depth,
         "affectedEntrypoints": entries,
         "testsToRun": tests,
         "testFunctions": test_functions.iter().map(|(_, k)| *k).collect::<Vec<_>>(),
         "components": components,
         "depthLimited": depth_limited,
-        "note": "syntax graph: dynamic dispatch, reflection, and string-based loading are invisible; low-confidence rows came through name-matched calls",
     });
     Impact { summary, rows }
 }
@@ -91,8 +90,11 @@ pub(super) fn report(
 pub(super) fn impact_row(t: &GraphTables, id: u32, r: &Reach) -> Value {
     let key = |id: u32| t.str(t.nodes[id as usize].key);
     let flags = t.nodes[id as usize].flags;
-    // GitNexus-style buckets: d1 will break, d2 likely affected, d3+ test.
+    // GitNexus-style buckets: d1 will break, d2 likely affected, d3+ test;
+    // a module-level candidate binds no linked changed name, so it is no
+    // breakage until a reference proves it.
     let risk = match r.depth {
+        _ if r.candidate => "candidate",
         0 => "changed",
         1 => "direct",
         2 => "likely",

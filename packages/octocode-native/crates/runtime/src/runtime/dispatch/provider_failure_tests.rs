@@ -117,7 +117,6 @@ fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
     let context = ExecutionContext {
         cancellation: tokio_util::sync::CancellationToken::new(),
         deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
-        walk_threads: None,
         response_window: None,
         github_credential: None,
     };
@@ -136,6 +135,8 @@ fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
             &query,
             &context,
             &LocalEnv {
+                memory_only: true,
+                source_views: &Default::default(),
                 cargo: None,
                 paths: &paths,
                 security: &security,
@@ -165,7 +166,6 @@ fn a_non_local_tool_is_a_routing_error() {
     let context = ExecutionContext {
         cancellation: tokio_util::sync::CancellationToken::new(),
         deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
-        walk_threads: None,
         response_window: None,
         github_credential: None,
     };
@@ -175,6 +175,8 @@ fn a_non_local_tool_is_a_routing_error() {
             &json!({}),
             &context,
             &LocalEnv {
+                memory_only: true,
+                source_views: &Default::default(),
                 cargo: None,
                 paths: &paths,
                 security: &ContentSecurity::new(),
@@ -283,12 +285,7 @@ fn http_status_is_carried_when_present_and_absent_when_not() {
         (ErrorCode::Authentication, Some(401), false, "credentials"),
         (ErrorCode::RateLimited, Some(429), true, "rate-limit reset"),
         (ErrorCode::HttpStatus, Some(408), true, "Retry once"),
-        (
-            ErrorCode::HttpStatus,
-            Some(404),
-            false,
-            "provider configuration",
-        ),
+        (ErrorCode::HttpStatus, Some(404), false, "httpStatus"),
         (ErrorCode::Timeout, None, true, "Retry once"),
         (
             ErrorCode::CapabilityUnavailable,

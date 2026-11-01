@@ -37,7 +37,7 @@ impl<'a> TypeScriptServerSearch<'a> {
 
 /// `true` when `workspace_root` is the directory octocode was invoked in, or
 /// inside it — the user's own project rather than an arbitrary scanned
-/// checkout (a clone under the clone cache, say). An invocation directory
+/// checkout (an Octocode clone, say). An invocation directory
 /// that is the filesystem root or the home directory proves nothing and
 /// never counts.
 pub(in crate::lsp::config) fn workspace_is_invocation_root(

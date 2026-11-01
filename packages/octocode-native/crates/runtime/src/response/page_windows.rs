@@ -1,6 +1,6 @@
 //! Page windows over a result set held whole: by a character budget (the
 //! default, so a page fills the response window like localSearch and
-//! structureSearch) or by a caller's explicit item count. The budget
+//! structureSearch), ending sooner at a caller's `limit` rows. The budget
 //! ([`page_budget`]) is the one page sizing owner: a default-layout page is
 //! cut so the whole response row fits the runtime's automatic response window
 //! (`auto_page_chars`); otherwise the response pager
@@ -18,41 +18,60 @@ use crate::response::pages::PageFacts;
 /// How a result set is cut into pages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Paging {
-    /// `n` items per page: the caller's explicit `pageSize`.
-    Count(usize),
     /// As many items as fit the character budget; at least one, so a walk
     /// always moves.
     Chars(usize),
+    /// The caller's `limit`: a page ends at `rows` rows or at the `chars`
+    /// budget, whichever comes first; at least one item.
+    Rows { rows: usize, chars: usize },
 }
 
 impl Paging {
-    /// The cut a request asks for: its explicit count, else the budget.
-    pub(crate) fn of(count: Option<usize>, budget: usize) -> Self {
-        count.map_or(Self::Chars(budget.max(1)), |count| {
-            Self::Count(count.max(1))
+    /// The cut a request asks for: its `limit` rows within the budget, else
+    /// the budget alone.
+    pub(crate) fn of(limit: Option<usize>, budget: usize) -> Self {
+        let chars = budget.max(1);
+        limit.map_or(Self::Chars(chars), |rows| Self::Rows {
+            rows: rows.max(1),
+            chars,
         })
     }
 
-    /// Every page's item range over `sizes` (each item's characters).
+    /// Every page's item range over `sizes` (each item's characters), each
+    /// item one row.
+    #[cfg(test)]
     pub(crate) fn windows(self, sizes: &[usize]) -> Vec<Range<usize>> {
+        self.weighted_windows(sizes, None)
+    }
+
+    /// [`Self::windows`] where item `i` counts `rows[i]` rows against the
+    /// row limit (a file entry holding several match rows). An item heavier
+    /// than the limit still takes a page alone, so a walk always moves.
+    pub(crate) fn weighted_windows(
+        self,
+        sizes: &[usize],
+        rows: Option<&[usize]>,
+    ) -> Vec<Range<usize>> {
+        let (budget, limit) = match self {
+            Self::Chars(budget) => (budget, usize::MAX),
+            Self::Rows { rows, chars } => (chars, rows),
+        };
+        let weight = |index: usize| rows.and_then(|rows| rows.get(index)).copied().unwrap_or(1);
         let mut windows = Vec::new();
         let mut start = 0;
         while start < sizes.len() {
-            let end = match self {
-                Self::Count(count) => start.saturating_add(count).min(sizes.len()),
-                Self::Chars(budget) => {
-                    let mut used = 0usize;
-                    let mut end = start;
-                    while let Some(size) = sizes.get(end) {
-                        if end > start && used.saturating_add(*size) > budget {
-                            break;
-                        }
-                        used = used.saturating_add(*size);
-                        end += 1;
-                    }
-                    end
+            let (mut used, mut counted, mut end) = (0usize, 0usize, start);
+            while let Some(size) = sizes.get(end) {
+                let row = weight(end);
+                if end > start
+                    && (used.saturating_add(*size) > budget || counted.saturating_add(row) > limit)
+                {
+                    break;
                 }
-            };
+                used = used.saturating_add(*size);
+                counted = counted.saturating_add(row);
+                end += 1;
+            }
             windows.push(start..end);
             start = end;
         }
@@ -100,21 +119,24 @@ pub(crate) struct PageCut {
 /// range, never clamped to the last page, which would repeat rows the caller
 /// has ([`PageFacts::past_end`] is the rule).
 pub(crate) fn select(paging: Paging, sizes: &[usize], page: usize) -> PageCut {
+    select_weighted(paging, sizes, None, page)
+}
+
+/// [`select`] with each item counting `rows[i]` rows against the row limit
+/// ([`Paging::weighted_windows`]).
+pub(crate) fn select_weighted(
+    paging: Paging,
+    sizes: &[usize],
+    rows: Option<&[usize]>,
+    page: usize,
+) -> PageCut {
     let total = sizes.len();
     let page = page.max(1);
-    let (range, pages) = match paging {
-        Paging::Count(size) => (count_window(page, size, total), count_pages(total, size)),
-        Paging::Chars(_) => {
-            let windows = paging.windows(sizes);
-            let range = nth_page(&windows, page).cloned().unwrap_or(total..total);
-            (range, windows.len().max(1))
-        }
-    };
+    let windows = paging.weighted_windows(sizes, rows);
+    let range = nth_page(&windows, page).cloned().unwrap_or(total..total);
+    let pages = windows.len().max(1);
     let more = page < pages;
-    let facts = match paging {
-        Paging::Count(size) => PageFacts::counted(page, size, total),
-        Paging::Chars(_) => PageFacts::sized(page, pages, total, more),
-    };
+    let facts = PageFacts::sized(page, pages, total, more);
     let past_end = facts.past_end().is_some();
     PageCut {
         range,
@@ -130,8 +152,8 @@ pub(crate) fn count_pages(total: usize, size: usize) -> usize {
 }
 
 /// Characters one page of a row may spend on its items: the response window
-/// less the row around them, which re-states the query in each continuation.
-pub(crate) fn page_budget(response_window: Option<usize>, _query: &serde_json::Value) -> usize {
+/// less the row around them (a fixed skeleton charge, whatever the query).
+pub(crate) fn page_budget(response_window: Option<usize>) -> usize {
     page_chars(response_window, ROW_SKELETON_CHARS)
 }
 

@@ -111,7 +111,10 @@ impl<'a> BoundSource<'a> {
         for input in &inputs {
             self.resolve_representation(input.0 as usize, state, resolved, budget, depth + 1)?;
         }
-        self.validate_template(RepresentationHandle(index as u32), template, budget)?;
+        let handle = RepresentationHandle(
+            u32::try_from(index).map_err(|_| SourceError::LimitExceeded("representations"))?,
+        );
+        self.validate_template(handle, template, budget)?;
         let mut input_ids = Vec::new();
         let mut source_ids = Vec::new();
         for input in inputs {
@@ -146,10 +149,10 @@ impl<'a> BoundSource<'a> {
                 input_ids.push("decoded-only:1".to_owned());
             }
         }
-        let byte_length = self.length(RepresentationHandle(index as u32), budget, 0)?;
+        let byte_length = self.length(handle, budget, 0)?;
         let mut hash = Sha256::new();
         self.chunks(
-            RepresentationHandle(index as u32),
+            handle,
             ByteRange::new(0, byte_length),
             &mut |chunk| hash.update(chunk.as_bytes()),
             budget,

@@ -18,8 +18,9 @@ pub(super) fn annotate_includes(
     anchor: &str,
     scope: &Scope,
     build_scripts: bool,
+    stopped: &dyn Fn() -> bool,
 ) {
-    let Some(includes) = package_includes(anchor) else {
+    let Some(includes) = package_includes(anchor, stopped) else {
         return;
     };
     if let Some(outside) = includes.outside.first() {
@@ -92,7 +93,7 @@ pub(super) fn annotate_includes(
     if !continues_a_page(query) && !outside && lists_reason(row, BUILD_SCRIPTS_REASON) {
         crate::response::result::attach_related(
             row,
-            super::super::failure::build_scripts_rerun(query),
+            super::super::failure::next_action(query, BUILD_SCRIPTS_REASON),
         );
     }
 }
@@ -105,28 +106,20 @@ pub(super) fn record_text_coverage(row: &mut Value, query: &LspSearchQuery, scop
     if lsp_search_query::op(query) == Op::WorkspaceSymbol {
         return;
     }
-    let Some(files) = lsp_search_query::symbol_name(query)
+    let Some((name, files)) = lsp_search_query::symbol_name(query)
         .filter(|name| !name.trim().is_empty())
-        .and_then(|name| scope.text_only_files(name))
+        .and_then(|name| Some((name, scope.text_only_files(name)?)))
     else {
         return;
     };
-    if let Some(payload) = row.as_object_mut() {
-        payload.entry("coverage").or_insert_with(|| json!({}))["textOnlyFiles"] =
-            json!(files.len());
-    }
+    super::super::failure::record_text_only(row, scope, name, files.len());
 }
 
-/// Bound of a package's include scan; a larger package reports what the
-/// scanned files include.
-pub(super) const MAX_INCLUDE_SCAN_FILES: usize = 5_000;
-
-/// The includes of the Cargo package `anchor` belongs to.
+/// The includes of the Cargo package `anchor` belongs to: every package
+/// file, until the request stops the scan (`has_more`).
 pub(in super::super) fn package_includes(
     anchor: &str,
+    stopped: &dyn Fn() -> bool,
 ) -> Option<octocode_engine::lsp::workspace::PackageIncludes> {
-    octocode_engine::lsp::workspace::cargo_package_includes(
-        Path::new(anchor),
-        MAX_INCLUDE_SCAN_FILES,
-    )
+    octocode_engine::lsp::workspace::cargo_package_includes(Path::new(anchor), stopped)
 }

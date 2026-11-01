@@ -14,7 +14,11 @@ fn builtin_rust_route_runs_rust_analyzer_headless_by_default() {
     );
     assert_eq!(options.pointer("/procMacro/enable"), Some(&json!(false)));
     assert_eq!(options.pointer("/checkOnSave"), Some(&json!(false)));
-    assert_eq!(options.pointer("/cachePriming/enable"), Some(&json!(false)));
+    assert_eq!(
+        options.pointer("/cachePriming"),
+        None,
+        "cache priming keeps rust-analyzer's default (on)"
+    );
     assert_eq!(options.pointer("/cargo/targetDir"), Some(&json!(true)));
 }
 

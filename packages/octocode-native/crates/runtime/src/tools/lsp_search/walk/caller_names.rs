@@ -9,7 +9,7 @@ use crate::tools::lsp_search::failure::LspFailure;
 use crate::tools::lsp_search::render::{decode_uri_path, uri_to_path};
 use crate::tools::lsp_search::source::SourceCache;
 use octocode_engine::lsp::client::NativeLspClient;
-use octocode_engine::lsp::symbol_kind;
+use octocode_engine::symbol_kind;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 

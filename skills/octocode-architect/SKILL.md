@@ -1,13 +1,13 @@
 ---
 name: octocode-architect
-description: "Load this skill first whenever the question is module dependencies, cycles, layering, boundaries, coupling, a split or refactor, an architecture review, or which style, pattern, or role a piece of code really is; good for proving consequences."
+description: "Review architecture, module dependencies, cycles, layering, coupling and boundaries; plan or implement a justified split or refactor, identify patterns and roles, and prove their consequences."
 ---
 
 # Octocode Architect
 
 Scale rigor to consequence; never invent layers, findings, or work.
 
-Tools: [shared MCP/CLI guide](references/octocode-usage.md). Topology: `npx -y octocode graph ingest <dir>`, then `graph query` (persisted snapshot; `graph --help`).
+Tools: [shared MCP/CLI guide](references/octocode-usage.md). Topology: `graphBuild` on `<dir>`, then `graphQuery` with the same `path` (persisted snapshot; `octocode schema graphQuery --view variants`).
 
 ```mermaid
 flowchart LR
@@ -73,11 +73,12 @@ Architect keeps the proof steps, [gates](#gates) and [change discipline](referen
 
 ## Related skills
 
-- `octocode-research`: repo, GitHub, package, symbol facts; owns tool choice and live schemas.
-- `octocode-rfc-generator`: reviewed decision document.
-- `octocode-clean-agentic-code`: behavior-preserving removal.
-- `octocode-workflows`: choose and compose sustained or coordinated execution; retains generic orchestration and verification.
-- `octocode-agents-communication`: transport identities, leases, and messages for a selected workflow.
+- Use `octocode-graph-view` when a saved graph brief or requested interactive view, with retained evidence, would help.
+- Use `octocode-research` when repo, GitHub, package or symbol facts or live tool schemas are needed.
+- Use `octocode-rfc-generator` when a decision needs a reviewed document.
+- Use `octocode-clean-agentic-code` when the change is behavior-preserving removal.
+- Use `octocode-workflows` when sustained or coordinated execution must be chosen and composed.
+- Use `octocode-agents-communication` when a selected workflow needs transport identities, leases or messages.
 
 ## Output
 

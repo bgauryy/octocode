@@ -40,6 +40,7 @@ fn a_fifo_is_not_a_file_named_by_its_path_with_nothing_to_retry() {
         &crate::execution::cancel::NeverCancel,
         None,
         None,
+        &Default::default(),
     );
     assert_eq!(result.error_code, Some(ErrorCode::NotAFile), "{result:?}");
     let message = result.error.as_deref().unwrap_or_default();

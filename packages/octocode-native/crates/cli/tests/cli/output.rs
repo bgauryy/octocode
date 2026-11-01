@@ -24,9 +24,10 @@ fn localsearch_emits_structured_results() {
     assert_eq!(data["files"][0]["matches"][0]["value"], "needle", "{data}");
 }
 
-/// Execution failures stay off the text data stream and retain a typed row.
+/// Execution failures stay off the text data stream and print every field of
+/// their row as text; `--json` keeps the typed row.
 #[test]
-fn text_mode_failed_rows_print_their_json_on_stderr() {
+fn text_mode_failed_rows_print_their_text_on_stderr() {
     let workspace = Workspace::new();
     let query = serde_json::json!({"queries":[{"path":"missing.rs"}]}).to_string();
     let output = workspace
@@ -36,13 +37,14 @@ fn text_mode_failed_rows_print_their_json_on_stderr() {
         .expect("missing read");
     assert_eq!(exit_code(&output), Some(3));
     assert!(stdout(&output).is_empty(), "{}", stdout(&output));
-    let value: serde_json::Value =
-        serde_json::from_str(stderr(&output).trim()).expect("one JSON document");
-    assert_eq!(value["results"][0]["index"], 0);
-    assert_eq!(
-        value["results"][0]["data"]["errorCode"], "pathNotFound",
-        "{value}"
+    let text = stderr(&output);
+    assert!(
+        serde_json::from_str::<serde_json::Value>(text.trim()).is_err(),
+        "{text}"
     );
+    for line in ["errorCode: pathNotFound\n", "# status: error"] {
+        assert!(text.contains(line), "{text}");
+    }
 }
 
 #[test]
@@ -150,7 +152,9 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
         .env("GITHUB_TOKEN", "invalid-fixture-token")
         .args([
             "ghGetFileContent",
-            r#"{"queries":[{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true}]}"#, "--json"]);
+            r#"{"queries":[{"owner":"fixture","repo":"fixture","path":"README","refresh":true}]}"#,
+            "--json",
+        ]);
     let output = tokio::task::spawn_blocking(move || command.output().expect("tool output"))
         .await
         .expect("tool worker");

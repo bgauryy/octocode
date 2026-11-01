@@ -29,19 +29,6 @@ pub struct SearchMatch {
     pub match_lines: Option<Vec<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
-    /// The value is clipped (`originalChars`, `returnedChars` say by how much).
-    /// Clipping a value leaves no row out, so it is not a partial result.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub clipped: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub original_chars: Option<usize>,
-    /// The clipped value's whole length in UTF-8 bytes, beside
-    /// `original_chars`: whether a line read of it passes one localFetch
-    /// page. Read by leads, never shown.
-    #[serde(skip)]
-    pub original_bytes: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub returned_chars: Option<usize>,
     /// Complete declaration around this hit, usable on every response page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enclosing: Option<Enclosing>,
@@ -104,6 +91,11 @@ pub struct SearchFile {
     pub total_occurrences: Option<u32>,
     #[serde(rename = "matchedLineCount", skip_serializing_if = "Option::is_none")]
     pub total_matched_lines: Option<u32>,
+    /// Count views over two or more `matchString` entries: per entry, in
+    /// order, its matches (`countMatches`) or the lines holding it
+    /// (`countLines`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub term_counts: Option<Vec<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pagination: Option<ItemPagination>,
 }
@@ -131,10 +123,11 @@ pub struct SearchStats {
     pub capped: Option<bool>,
     #[serde(skip)]
     pub cap_reasons: Vec<octocode_engine::types::CapReason>,
-    /// The limits that ended the scan early, one per reason (the engine's
-    /// [`octocode_engine::types::CapReason`] names).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub partial_reasons: Vec<String>,
+    /// The coverage gaps of the scan, one per reason: the limits that ended
+    /// it early ([`cap_partial_reason`]) and unchecked skipped paths. The
+    /// row writes them through [`LocalSearchResult::to_row`].
+    #[serde(skip)]
+    pub partial_reasons: Vec<crate::response::paging::PartialReason>,
     #[serde(skip)]
     pub error_count: Option<u32>,
     #[serde(skip)]
@@ -146,6 +139,9 @@ pub struct SearchStats {
     /// with hits (an empty page states it in `warnings`).
     #[serde(rename = "binarySkipped", skip_serializing_if = "Option::is_none")]
     pub binary_skipped: Option<u32>,
+    /// What a `testCode` scope left out.
+    #[serde(rename = "testCodeExcluded", skip_serializing_if = "Option::is_none")]
+    pub test_code_excluded: Option<crate::tools::test_code::Excluded>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -207,4 +203,31 @@ pub struct LocalSearchResult {
     pub skipped_paths: Option<octocode_contract_types::SkippedPaths>,
     #[serde(skip)]
     pub source_snapshot: Option<String>,
+}
+
+impl LocalSearchResult {
+    /// The result as its row, its partial reasons written by the one
+    /// partial writer ([`crate::response::paging::mark_partial`]).
+    pub fn to_row(&self) -> serde_json::Result<serde_json::Value> {
+        let mut row = serde_json::to_value(self)?;
+        for reason in &self.stats.partial_reasons {
+            crate::response::paging::mark_partial(&mut row, *reason, &[]);
+        }
+        Ok(row)
+    }
+}
+
+/// The declared partial reason of a limit that ended a text scan early.
+pub(crate) fn cap_partial_reason(
+    reason: octocode_engine::types::CapReason,
+) -> crate::response::paging::PartialReason {
+    use crate::response::paging::PartialReason;
+    use octocode_engine::types::CapReason;
+    match reason {
+        CapReason::MaxOnlyMatchingPerFile => PartialReason::MaxOnlyMatchingPerFile,
+        CapReason::Pcre2Deadline => PartialReason::Pcre2Deadline,
+        CapReason::MaxFileSize => PartialReason::MaxFileSize,
+        CapReason::Cancelled => PartialReason::Cancelled,
+        CapReason::BinaryQuit => PartialReason::BinaryQuit,
+    }
 }

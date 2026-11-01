@@ -50,7 +50,7 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":original})],
         &[None],
-        Some(ToolId::Clasify),
+        ToolId::Clasify,
     )
     .plan(1_800, &CancellationToken::new())
     .expect("valid plan");

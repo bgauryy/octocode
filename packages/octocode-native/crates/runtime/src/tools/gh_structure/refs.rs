@@ -4,10 +4,10 @@ use crate::response::paging::push_warnings;
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{NamedRef, RefKind, RefMatch};
 
-/// Refs per provider page, set by the core refs-page policy and bounded
-/// by GitHub's protocol maximum.
-const DEFAULT_REFS_PER_PAGE: usize = crate::id::gh_structure_policy::REFS_PAGE_SIZE;
-const _: () = assert!(DEFAULT_REFS_PER_PAGE <= MAX_PER_PAGE);
+/// Refs per provider page are the query's `limit`; the contract's largest
+/// is GitHub's own page maximum.
+const _: () =
+    assert!(crate::contracts::query_limits::gh_structure::refs::LIMIT_MAXIMUM <= MAX_PER_PAGE);
 
 /// The default branch and its head commit, one page of branches
 /// (`{name: sha}`), and tags ordered newest version first ([`super::tag_order`]).
@@ -74,7 +74,7 @@ pub(super) async fn refs(
         return Ok(ToolData::from(value));
     }
     let page = query.page.map_or(1, crate::num::usize_of);
-    let per_page = DEFAULT_REFS_PER_PAGE;
+    let per_page = crate::num::usize_of(query.limit);
     let transport = &provider.transport;
     let branches =
         transport.repository_refs(owner, repo, RefKind::Branches, page, per_page, context);
@@ -130,22 +130,14 @@ pub(super) async fn refs(
         value["pagination"] = pages.out_of_range(true).to_value();
     } else if more {
         value["pagination"] = pages.to_value();
-        if let Some(next_page) = crate::response::paging::next_cursor(
-            &mut value,
-            crate::id::ToolId::GhStructure,
-            None,
-            "page",
-            page + 1,
-        ) {
-            // The central continuation store seals this private page position.
-            continued["page"] = json!(next_page);
-            value["calls"]["nextPage"] = continuation(continued);
-        }
+        // The central continuation store seals this private page position.
+        continued["page"] = json!(page + 1);
+        value["calls"]["nextPage"] = continuation(continued);
     } else if page > 1 {
         // The last page of a paged listing says it is the last.
         value["pagination"] = pages.to_value();
     }
-    crate::tools::gh_shared::finish_calls(&mut value);
+    crate::response::result::finish_calls(&mut value);
     Ok(ToolData::from(value))
 }
 
@@ -222,6 +214,6 @@ pub(super) async fn languages(
     {
         push_warning_front(&mut value, warning);
     }
-    crate::tools::gh_shared::finish_calls(&mut value);
+    crate::response::result::finish_calls(&mut value);
     Ok(ToolData::from(value))
 }

@@ -3,27 +3,16 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { advancedContext } from './advanced-context.mjs';
 import { createDriver } from './driver.mjs';
-import { startSurfaces, withoutReadinessPings } from './surfaces.mjs';
+import { startSurfaces } from './surfaces.mjs';
 import { contract, contractValidators } from '../contract.mjs';
 import { FIXTURES } from '../paths.mjs';
 
 const tool = 'ghGetFileContent';
 const guide = { owner: 'octo', repo: 'demo-docs', path: 'guide.txt', ranges: [{ startLine: 1, endLine: 3 }] };
-
-test('tool-work accounting excludes only the declared startup readiness GET', () => {
-  const startup = { request: 'GET /v1/models', token: 'same-runtime' };
-  const work = [{ request: 'POST /v1/evaluate', token: 'same-runtime' },
-    { request: 'GET /api/v3/repos/octo/demo/contents/file', token: 'same-runtime' },
-    { request: 'GET /package', token: null }];
-  const raw = [startup, ...work];
-  assert.deepEqual(withoutReadinessPings(raw), work);
-  assert.deepEqual(raw, [startup, ...work], 'raw startup and execution evidence stays intact');
-});
-
 function context({ surfaces, server, cwd, records, timings }) {
   const validators = contractValidators();
   const driver = createDriver({ validate: validators.validateOutput, validateInput: validators.validateInput,
-    tools: new Set(contract.tools.map(entry => entry.name)), cliOnly: new Set(['ghCloneRepo']),
+    tools: new Set(contract.tools.map(entry => entry.name)),
     schemaOf: name => contract.tools.find(entry => entry.name === name).outputSchema });
   return advancedContext({ name: tool, cwd, advancedCalls: [], suite: { surfaces, driver, ...validators },
     record: (label, ok, detail) => records.push({ label, ok, detail }),

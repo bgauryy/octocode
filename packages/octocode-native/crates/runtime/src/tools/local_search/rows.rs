@@ -1,11 +1,11 @@
 //! Match rows: ranking, projection, and context-window merging.
 
 use super::types::*;
+use crate::num::u32_of_usize;
 use octocode_engine::types::SearchContext;
 
-/// Order one clipped file's rows for paging: by lexical hit rank, then
-/// distinct complete values before repeats, stable by line. Display clips
-/// never define duplicate identity: a wider expansion keeps the same order.
+/// Order a file's rows for paging: by lexical hit rank, then distinct
+/// complete values before repeats, stable by line.
 pub(super) fn rank_file_rows(matches: &mut Vec<octocode_engine::types::TextSearchMatch>) {
     matches.sort_by_key(|matched| std::cmp::Reverse(matched.rank.unwrap_or(1)));
     let mut seen = std::collections::HashSet::new();
@@ -16,11 +16,8 @@ pub(super) fn rank_file_rows(matches: &mut Vec<octocode_engine::types::TextSearc
     matches.extend(repeats);
 }
 
-pub(super) fn project_match(
-    matched: &octocode_engine::types::TextSearchMatch,
-    max_chars: Option<usize>,
-) -> SearchMatch {
-    let (mut row, value) = project_shape(matched, max_chars);
+pub(super) fn project_match(matched: &octocode_engine::types::TextSearchMatch) -> SearchMatch {
+    let (mut row, value) = project_shape(matched);
     row.value = value.to_owned();
     row
 }
@@ -29,46 +26,7 @@ pub(super) fn project_match(
 /// it shows: a page cut prices the row from both without copying the value.
 pub(super) fn project_shape(
     matched: &octocode_engine::types::TextSearchMatch,
-    max_chars: Option<usize>,
 ) -> (SearchMatch, &str) {
-    // matchOnly display cap: clip the exact span to the public display bound.
-    let cut = max_chars.and_then(|limit| {
-        matched
-            .value
-            .char_indices()
-            .nth(limit)
-            .map(|(byte, _)| (byte, limit))
-    });
-    if let Some((byte, chars)) = cut {
-        let row = SearchMatch {
-            line: matched.line,
-            column: Some(crate::num::one_based_column(matched.column)),
-            value: String::new(),
-            byte_offset: matched.byte_offset,
-            match_lines: spanned_lines(matched),
-            count: matched.count,
-            clipped: true,
-            // A value the engine already clipped keeps its full length.
-            original_chars: Some(
-                matched
-                    .original_chars
-                    .map_or_else(|| matched.value.chars().count(), |chars| chars as usize),
-            ),
-            original_bytes: Some(
-                matched
-                    .original_bytes
-                    .map_or_else(|| matched.value.len(), |bytes| bytes as usize),
-            ),
-            returned_chars: Some(chars),
-            enclosing: None,
-            declaration: None,
-        };
-        return (row, &matched.value[..byte]);
-    }
-    // Content-view path: the engine already clipped the assembled snippet to
-    // maxSnippetChars and reported the pre-truncation length via
-    // `original_chars`; surface it as the same truncation indicator.
-    let clipped = matched.original_chars.is_some();
     let row = SearchMatch {
         line: matched.line,
         column: Some(crate::num::one_based_column(matched.column)),
@@ -76,13 +34,7 @@ pub(super) fn project_shape(
         byte_offset: matched.byte_offset,
         match_lines: spanned_lines(matched),
         count: matched.count,
-        clipped,
-        original_chars: matched.original_chars.map(|chars| chars as usize),
-        original_bytes: matched.original_bytes.map(|bytes| bytes as usize),
-        returned_chars: clipped.then(|| matched.value.chars().count()),
         enclosing: None,
-        // The engine's lexical rank 3 is a declared name: the row an
-        // lspSearch anchor takes. Only those rows carry the mark.
         declaration: (matched.rank == Some(3)).then_some(true),
     };
     (row, &matched.value)
@@ -98,15 +50,14 @@ fn spanned_lines(matched: &octocode_engine::types::TextSearchMatch) -> Option<Ve
 }
 
 /// Source line range and lines of a content-view row's context window, or
-/// `None` when the value is not a plain, untruncated window (clipped,
-/// redacted, grouped, or a shape the window arithmetic cannot account for).
+/// `None` when the value is not a plain window (redacted, grouped, or a shape the window arithmetic cannot account for).
 /// The engine joins the requested contiguous lines before and after the match,
 /// clamped at the file start/end.
 pub(super) fn context_window(
     matched: &SearchMatch,
     context: SearchContext,
 ) -> Option<(u32, Vec<&str>)> {
-    if matched.clipped || matched.count.is_some() || matched.line == 0 {
+    if matched.count.is_some() || matched.line == 0 {
         return None;
     }
     let lines: Vec<&str> = matched.value.split('\n').collect();
@@ -125,10 +76,7 @@ pub(super) fn context_window(
 /// source line is emitted once, numbered. A merged block keeps the first row's
 /// `line`/`column`, and `matchedLines` lists every matched line it holds. Rows
 /// merge only when both windows are plain and their shared lines are
-/// byte-identical, so a clipped or redacted window is never spliced.
-/// Merges overlapping windows while the joined block stays within the
-/// `max_chars` (`matchContentLength`) budgets of the rows it joins, so a
-/// block is never larger than those rows returned separately.
+/// byte-identical, so a redacted window is never spliced.
 ///
 /// `hits` are every hit line of the file (sorted, any page): a window shows
 /// only the lines its hit owns ([`owned_lines`]), so a hit or context line
@@ -158,7 +106,6 @@ pub(super) fn owned_lines(line: u32, context: SearchContext, hits: &[u32]) -> (u
 pub(super) fn merge_context_windows(
     rows: Vec<SearchMatch>,
     context: SearchContext,
-    max_chars: usize,
     hits: &[u32],
 ) -> Vec<SearchMatch> {
     struct Block {
@@ -209,7 +156,7 @@ pub(super) fn merge_context_windows(
         }
         let (start, lines) = {
             let (low, high) = owned_lines(row.line, context, hits);
-            let end = start + lines.len() as u32; // exclusive
+            let end = start.saturating_add(u32_of_usize(lines.len())); // exclusive
             let from = low.max(start);
             let to = high.saturating_add(1).min(end).max(from);
             (
@@ -218,27 +165,12 @@ pub(super) fn merge_context_windows(
             )
         };
         if let Some(block) = open.as_mut() {
-            let end = block.start + block.lines.len() as u32; // exclusive
+            let end = block.start.saturating_add(u32_of_usize(block.lines.len())); // exclusive
             let last_match = block.match_lines.last().copied().unwrap_or(0);
-            let shared_agrees = (start..end.min(start + lines.len() as u32))
+            let shared_agrees = (start..end.min(start.saturating_add(u32_of_usize(lines.len()))))
                 .all(|n| block.lines[(n - block.start) as usize] == lines[(n - start) as usize]);
             let fresh = (end.saturating_sub(start) as usize).min(lines.len());
-            let grown: usize = block
-                .lines
-                .iter()
-                .map(|l| l.chars().count() + 1)
-                .sum::<usize>()
-                + lines
-                    .iter()
-                    .skip(fresh)
-                    .map(|l| l.chars().count() + 1)
-                    .sum::<usize>();
-            if row.line > last_match
-                && start >= block.start
-                && start <= end
-                && shared_agrees
-                && grown.saturating_sub(1) <= max_chars.saturating_mul(block.match_lines.len() + 1)
-            {
+            if row.line > last_match && start >= block.start && start <= end && shared_agrees {
                 block
                     .lines
                     .extend(lines.iter().skip(fresh).map(|l| (*l).to_owned()));

@@ -6,12 +6,15 @@
 //! entries), whatever the name. The walk is name-free, so it runs once per
 //! scope in the background, and each request then reads only the listed
 //! files for its name. The index holds while its workspace snapshot does
-//! (`snapshot`). A walk past its bounds keeps what it listed, says it is
-//! incomplete, and is rebuilt after [`INCOMPLETE_TTL`]. Nested repositories
+//! (`snapshot`). The walk runs to completion; one past the index memory
+//! bound ([`INDEX_BYTES`]) keeps what it listed, says it is incomplete, and
+//! is rebuilt after [`INCOMPLETE_TTL`]. Nested repositories
 //! (directories with their own `.git`) are other repositories: the walk
 //! does not enter them and names them.
 use super::*;
 use crate::tools::lsp_search::words::file_spells;
+#[cfg(test)]
+use snapshot::build_within;
 use snapshot::{Snapshot, build};
 use std::collections::HashSet;
 
@@ -23,11 +26,15 @@ const INCOMPLETE_TTL: Duration = Duration::from_secs(600);
 /// building.
 const WAIT_POLL: Duration = Duration::from_millis(20);
 
-/// Built indexes by scope key (`Scope::index_key`).
+/// The bytes of paths the held indexes keep together, and so the most one
+/// index walk keeps: a walk past it stops and its index is incomplete.
+const INDEX_BYTES: usize = 64 * 1024 * 1024;
+
+/// Built indexes by scope key (`Scope::index_key`), weighed in bytes.
 static INDEXES: octocode_io::memo::Memo<String, IgnoredIndex> =
     octocode_io::memo::Memo::new(octocode_io::memo::MemoLimits {
         max_entries: 16,
-        max_weight: 16,
+        max_weight: INDEX_BYTES,
         keep_newest: false,
     });
 
@@ -40,8 +47,10 @@ pub(super) struct IgnoredIndex {
     pub(super) files: Vec<String>,
     /// Nested repositories the walk did not enter, root-relative, sorted.
     pub(super) nested: Vec<String>,
-    /// Both walks finished within their bounds.
+    /// Both walks finished within the memory bound.
     pub(super) complete: bool,
+    /// The bytes of paths the index keeps (its weight in [`INDEXES`]).
+    pub(super) bytes: usize,
     /// The workspace snapshot the walk saw.
     snapshot: Snapshot,
 }
@@ -53,17 +62,15 @@ impl IgnoredIndex {
     }
 
     /// The listed files that spell `symbol` as a word, and whether every
-    /// listed file was read within `budget`.
+    /// listed file was read (only `stopped`, the request's end, cuts it).
     pub(super) fn mentions(
         &self,
         symbol: &str,
-        budget: Duration,
         stopped: &(dyn Fn() -> bool + Sync),
     ) -> (BTreeSet<String>, bool) {
-        let started = Instant::now();
         let mut found = BTreeSet::new();
         for file in &self.files {
-            if stopped() || started.elapsed() > budget {
+            if stopped() {
                 return (found, false);
             }
             // An unreadable file is not proven free of the name.
@@ -111,7 +118,8 @@ pub(super) fn start(key: String, root: PathBuf, include: Vec<String>, policy: Pa
         .spawn(move || {
             let index = build(&root, &include, &policy, &|| false);
             let ttl = (!index.complete).then_some(INCOMPLETE_TTL);
-            INDEXES.insert(mark.0.clone(), index, 1, ttl);
+            let weight = index.bytes.max(1);
+            INDEXES.insert(mark.0.clone(), index, weight, ttl);
             drop(mark);
         });
 }
@@ -126,12 +134,13 @@ fn building(key: &str) -> bool {
 
 impl Scope {
     /// This scope's index: a held one whose snapshot still holds, else the
-    /// one a background walk builds within `wait`; `None` past it.
+    /// one a background walk builds, waited for until it lands or the
+    /// request ends (cancelled or past its deadline: an error). `None` only
+    /// when no walk could start or it ended without an index.
     pub(super) async fn ignored_index(
         &self,
         policy: &PathPolicy,
         cancel: &dyn CancellationCheck,
-        wait: Duration,
     ) -> Result<Option<Arc<IgnoredIndex>>, LspFailure> {
         let key = self.index_key(policy);
         if let Some(held) = INDEXES.get(&key).map(|hit| hit.value) {
@@ -147,13 +156,13 @@ impl Scope {
             INDEXES.remove(&key);
         }
         self.warm_ignored_index(policy);
-        let deadline = Instant::now() + wait;
         loop {
             if let Some(hit) = INDEXES.get(&key) {
                 return Ok(Some(hit.value));
             }
-            if !building(&key) || Instant::now() >= deadline {
-                return Ok(None);
+            if !building(&key) {
+                // The walk inserts its index before it clears its mark.
+                return Ok(INDEXES.get(&key).map(|hit| hit.value));
             }
             cancel.check().map_err(LspFailure::cancelled)?;
             tokio::time::sleep(WAIT_POLL).await;

@@ -26,7 +26,7 @@ impl Candidates<'_> {
         let ids: Box<dyn Iterator<Item = u32> + '_> = match &self.matching {
             Match::Key(id) => Box::new(std::iter::once(*id)),
             Match::Name(lower) => Box::new(self.g.name_range(lower)),
-            _ => Box::new(0..self.g.t.nodes.len() as u32),
+            _ => Box::new(self.g.t.node_ids()),
         };
         for id in ids {
             check(cancel)?;
@@ -191,7 +191,7 @@ impl Query<'_> {
         if indices.total == 0 {
             let mut out = GraphOutput::error(
                 ErrorCode::NotFound,
-                format!("no node matches {reference:?}; try `octocode graph query find <text>`"),
+                format!("no node matches {reference:?}; locate it with graphQuery operation find"),
             );
             let suggestions = ranked(self.g, &matches.normalized, kind, self.cancel)?
                 .into_iter()
@@ -212,12 +212,13 @@ impl Query<'_> {
             ),
         );
         out.value["graph"] = self.g.summary();
-        out.value["total"] = json!(page.total);
         let shown = page.rows.len();
         out.value["candidates"] = json!(page.rows);
+        out.value["pagination"] = pagination(self.options, page.total, shown < page.total);
         if shown < page.total {
             let next = QueryOptions {
                 op: "candidates".into(),
+                path: self.options.path.clone(),
                 include_provenance: self.options.include_provenance,
                 target: Some(matches.normalized),
                 kind: kind.map(|kind| kind.as_str().to_owned()),
@@ -226,9 +227,8 @@ impl Query<'_> {
                 offset: Some(shown),
                 ..Default::default()
             };
-            out.value["truncated"] = json!(true);
-            out.value["next"] = json!(next_command(&next, &self.g.id, shown));
-            out.next_query = Some(Box::new(next));
+            out.next
+                .push((Channel::NextPage, Resume::Query(Box::new(next))));
         }
         Err(out)
     }

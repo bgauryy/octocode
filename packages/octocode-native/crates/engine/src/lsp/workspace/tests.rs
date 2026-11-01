@@ -183,10 +183,15 @@ fn package_includes_name_what_rust_analyzer_cannot_load() {
         b"include!(\"../../../contract/nested.rs\");\n",
     )
     .expect("nested lib");
-    let no_script = cargo_package_includes(&lib, 100).expect("package");
+    let no_script = cargo_package_includes(&lib, &|| false).expect("package");
     fs::write(package.join("build.rs"), b"fn main() {}").expect("build.rs");
-    let with_script = cargo_package_includes(&lib, 100).expect("package");
-    let capped = cargo_package_includes(&lib, 1).expect("package");
+    let with_script = cargo_package_includes(&lib, &|| false).expect("package");
+    let checks = std::cell::Cell::new(0);
+    let capped = cargo_package_includes(&lib, &|| {
+        checks.set(checks.get() + 1);
+        checks.get() > 1
+    })
+    .expect("package");
     let outside = vec![outer.join("contract/types.rs")];
     assert_eq!(no_script.generated, Vec::<PathBuf>::new());
     assert_eq!(no_script.outside, outside);
@@ -227,7 +232,7 @@ fn package_includes_name_the_files_declaring_the_anchor() {
     let b = package.join("src/a/b.rs");
     fs::write(&b, b"pub fn bee() {}\n").expect("b");
     let declared = |file: &Path| {
-        let mut found = cargo_package_includes(file, 100)
+        let mut found = cargo_package_includes(file, &|| false)
             .expect("package")
             .declared_by;
         found.sort();
@@ -328,4 +333,31 @@ fn multi_module_projects_root_at_their_top() {
     let resolved =
         resolve_workspace_root_for_file(py_file.to_string_lossy().into_owned()).expect("resolve");
     assert_eq!(PathBuf::from(resolved), python.0);
+}
+
+/// clangd reads a compilation database beside a file, in an ancestor, or in
+/// an ancestor's `build/`; `compile_flags.txt` and `.clangd` only beside the
+/// file or in an ancestor. A `build/.clangd` or `build/compile_flags.txt`
+/// configures nothing.
+#[test]
+fn clangd_config_sources_follow_clangd_search() {
+    let root = TmpDir::new();
+    let src = root.join("src");
+    fs::create_dir_all(root.join("build")).expect("build");
+    fs::create_dir_all(&src).expect("src");
+    if !clangd_config_sources(&src).is_empty() {
+        return; // an ancestor of the temp dir has one
+    }
+    fs::write(root.join("build/.clangd"), b"").expect("build .clangd");
+    fs::write(root.join("build/compile_flags.txt"), b"").expect("build flags");
+    assert!(clangd_config_sources(&src).is_empty());
+    fs::write(root.join("build/compile_commands.json"), b"[]").expect("db");
+    fs::write(src.join(".clangd"), b"").expect(".clangd");
+    assert_eq!(
+        clangd_config_sources(&src),
+        [
+            src.join(".clangd"),
+            root.join("build/compile_commands.json")
+        ]
+    );
 }

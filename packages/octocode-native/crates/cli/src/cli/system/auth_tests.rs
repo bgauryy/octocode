@@ -53,7 +53,7 @@ fn the_credential_host_is_derived_from_the_api_url_with_a_public_default() {
     ] {
         let env = api.map(|api| [("GITHUB_API_URL", api)]);
         let (_dir, runtime) = runtime_with(env.as_ref().map_or(&[], |env| env.as_slice()));
-        assert_eq!(configured_github_host(&runtime), host, "{api:?}");
+        assert_eq!(runtime.github_credential_host(), host, "{api:?}");
     }
 }
 

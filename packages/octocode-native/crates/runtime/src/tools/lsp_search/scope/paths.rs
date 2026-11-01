@@ -74,6 +74,24 @@ pub(super) fn search_root(anchor: &Path, server_root: &str, policy: &PathPolicy)
     widest_authorized_dir(start, policy).unwrap_or_else(|| start.to_string_lossy().into_owned())
 }
 
+/// The request's explicit `workspace_root` (canonical) when it is an
+/// authorized directory holding `anchor`; `None` otherwise, which leaves
+/// the default scope root.
+pub(super) fn explicit_root(
+    anchor: &Path,
+    workspace_root: &str,
+    policy: &PathPolicy,
+) -> Option<String> {
+    let root = policy
+        .validate(workspace_root)
+        .ok()
+        .filter(|valid| valid.canonical.is_dir())?
+        .canonical;
+    anchor
+        .starts_with(&root)
+        .then(|| root.to_string_lossy().into_owned())
+}
+
 /// The outermost directory of the unbroken run of authorized directories
 /// from `start` upward (canonical): the widest root the policy allows on
 /// `start`'s own path. `None` when `start` itself is not authorized.

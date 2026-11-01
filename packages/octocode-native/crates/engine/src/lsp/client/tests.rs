@@ -3,6 +3,7 @@ use crate::test_support::TmpDir;
 #[cfg(any(unix, windows))]
 use std::path::PathBuf;
 
+mod call_scope;
 mod document_sync;
 mod memory_cap;
 mod open_document_set;
@@ -12,6 +13,7 @@ mod process_environment;
 mod process_lifecycle;
 #[cfg(unix)]
 mod process_readiness;
+mod project_loads;
 mod protocol;
 mod readiness;
 mod response_cache;

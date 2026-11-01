@@ -19,7 +19,7 @@ pub(super) async fn owner_listing(
     context: &RequestContext,
 ) -> Result<(RepositorySearchPage, OwnerListing), ProviderError> {
     let mut items = Vec::new();
-    let mut archived = 0;
+    let mut filtered_out = 0;
     let mut provider_page = current;
     let mut pages_read = 0;
     let more = loop {
@@ -41,7 +41,7 @@ pub(super) async fn owner_listing(
             provider_page -= 1;
             break true;
         }
-        archived += read - kept.len();
+        filtered_out += read - kept.len();
         items.extend(kept);
         if !has_next || items.len() >= per || pages_read >= MAX_OWNER_LISTING_PAGES {
             break has_next;
@@ -58,7 +58,7 @@ pub(super) async fn owner_listing(
             last_page: provider_page,
             pages_read,
             more,
-            archived,
+            filtered_out,
         },
     ))
 }
@@ -73,6 +73,7 @@ pub(super) struct OwnerListing {
     pub(super) pages_read: usize,
     /// The last page carried a Link `rel="next"`.
     pub(super) more: bool,
-    /// Archived repositories skipped on the provider pages read.
-    pub(super) archived: usize,
+    /// Repositories the archive filter left out on the provider pages read:
+    /// archived ones under `exclude`, non-archived ones under `only`.
+    pub(super) filtered_out: usize,
 }

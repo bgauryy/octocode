@@ -124,17 +124,23 @@ fn local_rows_exit_by_outcome() {
 }
 
 #[test]
-fn disabled_tool_is_an_execution_failure() {
+fn cli_tool_executes_despite_mcp_local_and_tool_filters() {
     let workspace = Workspace::new();
+    let source = workspace.write("source.txt", "verified needle\n");
     let mut command = workspace.cli();
-    command.env("OCTOCODE_ENABLE_LOCAL", "false");
-    assert_exit(
-        &run(
-            command,
-            "localSearch",
-            &json!({"queries":[search(".", "x")]}),
-        ),
-        5,
+    command
+        .env("OCTOCODE_ENABLE_LOCAL", "false")
+        .env("TOOLS_TO_RUN", "ghSearchCode")
+        .env("DISABLE_TOOLS", "localSearch");
+    let output = run(
+        command,
+        "localSearch",
+        &json!({"queries":[search(source.to_str().expect("source path"), "needle")]}),
+    );
+    assert_exit(&output, 0);
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("verified needle"),
+        "{output:?}"
     );
 }
 
@@ -154,7 +160,7 @@ async fn github(status: u16, headers: &[(&str, &str)]) -> (Workspace, MockServer
         .env("GITHUB_API_URL", format!("{}/api/v3", server.uri()))
         .env("GITHUB_TOKEN", &workspace.token);
     let input = json!({"queries":[{"owner":"a","repo":"b","path":"x.rs",
-        "ref":"0123456789abcdef0123456789abcdef01234567","forceRefresh":true}]});
+        "ref":"0123456789abcdef0123456789abcdef01234567","refresh":true}]});
     let output = tokio::task::spawn_blocking(move || run(command, "ghGetFileContent", &input))
         .await
         .unwrap();

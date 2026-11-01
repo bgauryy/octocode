@@ -82,6 +82,9 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
         map,
         stop,
     };
+    // Raised once `stop` says the scan is cancelled: a file's extraction runs to
+    // completion unless then (no clock cuts a file; the pacer pages between files).
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let mut pacer = crate::scan_budget::ScanPacer::new(budget.filter(|_| timed));
     let mut kept: Vec<(String, T)> = Vec::new();
     let mut skipped = Vec::new();
@@ -97,12 +100,16 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
         rest = tail;
         evaluated += chunk.len();
         pacer.record(chunk.len());
-        for outcome in chunk
-            .par_iter()
-            .map(|entry| evaluator.evaluate(entry))
-            .collect::<Result<Vec<_>, GraphScanError>>()?
-            .into_iter()
-            .flatten()
+        for outcome in watch_stop(stop, &stopped, &|| {
+            chunk
+                .par_iter()
+                .map(|entry| {
+                    crate::deep_stack::while_stoppable(&stopped, || evaluator.evaluate(entry))
+                })
+                .collect::<Result<Vec<_>, GraphScanError>>()
+        })?
+        .into_iter()
+        .flatten()
         {
             match outcome {
                 GraphFactsScanOutcome::Entry(path, value) => {
@@ -113,14 +120,15 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
             }
         }
     }
-    // The walk cap of an unset `max_files` resumes where the walk stopped.
-    if timed && scan_resume.is_none() && truncated {
+    // Every cut resumes where it stopped: the walk cap of an unset
+    // `max_files`, and a caller's file window.
+    if scan_resume.is_none() && truncated {
         scan_resume = Some(u32::try_from(skip + evaluated).unwrap_or(u32::MAX));
     }
     let truncated = truncated || scan_resume.is_some();
     kept.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     skipped.sort_unstable_by(|left, right| left.relative_path.cmp(&right.relative_path));
-    let files_skipped = skipped.len() as u32;
+    let files_skipped = crate::num::saturating_u32(skipped.len());
 
     Ok(GraphFactsMappedScan {
         kept,
@@ -150,7 +158,7 @@ struct EntryEvaluator<'s, T> {
 
 struct MappedFacts<'a> {
     facts: &'a crate::graph::GraphFactsDocument,
-    reference_counts: &'a [crate::types::GraphReferenceCount],
+    reference_counts: &'a [crate::graph::GraphReferenceCount],
     reused: bool,
 }
 
@@ -185,9 +193,10 @@ impl<T> EntryEvaluator<'_, T> {
             Err(_) => return outcome("graph.scan.readFailed", "file could not be opened"),
         };
         let cancelled = || (self.stop)();
+        // Admission is bounded by the map limits and the scan's cancellation, not a clock.
         let mut map_budget = crate::text::analysis::MapBudget::new(
             self.map_limits,
-            std::time::Instant::now() + std::time::Duration::from_secs(30),
+            crate::signatures::extractor::whole_file_deadline(),
             &cancelled,
         );
         let admitted = match crate::text::analysis::AdmittedSource::from_bytes(
@@ -219,7 +228,9 @@ impl<T> EntryEvaluator<'_, T> {
         };
         // The digest and the settled stamp identify the file's bytes; the
         // decoded text only fixes the coordinates of its facts.
-        let content_digest = crate::digest::sha256(&source.bytes);
+        let content_digest = admitted
+            .source_digest()
+            .map_or_else(|| crate::digest::sha256(&source.bytes), str::to_owned);
         let source_stamp = self.source_stamp(&source.metadata, source.bytes.len());
         let extension = crate::text::extension_of(&relative_path, true, "");
         let grammar_extension = crate::text::file_extension::grammar_extension(content, &extension);
@@ -238,7 +249,7 @@ impl<T> EntryEvaluator<'_, T> {
         if let RegistryEntry::Facts(provider) = selected_entry {
             let Some((entry, reused)) = self.provider_facts(
                 provider,
-                content,
+                &admitted,
                 &relative_path,
                 parser,
                 &content_digest,
@@ -286,7 +297,7 @@ impl<T> EntryEvaluator<'_, T> {
             return mapped_outcome(relative_path, kept);
         }
         let Some((parsed, reused)) = self.cached_facts(
-            content,
+            &admitted,
             &relative_path,
             parser,
             selected_entry,
@@ -361,4 +372,29 @@ impl<T> EntryEvaluator<'_, T> {
             reused: mapped.reused,
         })))
     }
+}
+
+/// Run `work` while a scoped watcher raises `stopped` once `stop` reports the
+/// scan cancelled, so deep-stack jobs of the work stop with the scan.
+fn watch_stop<R>(
+    stop: &Stop<'_>,
+    stopped: &Arc<std::sync::atomic::AtomicBool>,
+    work: &dyn Fn() -> R,
+) -> R {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let done = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            while !done.load(Ordering::Relaxed) {
+                if stop() {
+                    stopped.store(true, Ordering::Relaxed);
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        });
+        let result = work();
+        done.store(true, Ordering::Relaxed);
+        result
+    })
 }

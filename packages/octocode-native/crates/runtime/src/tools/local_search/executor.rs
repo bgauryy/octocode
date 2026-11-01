@@ -11,6 +11,7 @@ use super::verify::{
     validate_matched, verify_shown,
 };
 use crate::execution::cancel::CancellationCheck;
+use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
@@ -31,22 +32,14 @@ pub fn execute_local_search(
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
-    walk_threads: Option<u32>,
     response_window: Option<usize>,
     selection: Option<&crate::tools::selection::Runtime>,
 ) -> Result<LocalSearchResult, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
+    let terms = local_search_query::term_patterns(query);
     let query = &*local_search_query::normalized(query)?;
-    let scan = scan_query(query, paths, cancel, walk_threads, response_window)?;
-    page_of(
-        query,
-        paths,
-        security,
-        cancel,
-        walk_threads,
-        scan,
-        selection,
-    )
+    let scan = scan_query(query, paths, cancel, (response_window, terms))?;
+    page_of(query, paths, security, cancel, scan, selection)
 }
 
 /// The page `query` asks for, cut from `scan` (fresh, or stored and proved
@@ -58,7 +51,6 @@ pub(super) fn page_of(
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
-    walk_threads: Option<u32>,
     mut scan: Scanned,
     selection: Option<&crate::tools::selection::Runtime>,
 ) -> Result<LocalSearchResult, ToolError> {
@@ -70,6 +62,7 @@ pub(super) fn page_of(
         None => super::sources::Expected::Fresh,
     };
     let root = &scan.validated.canonical;
+    refuse_binary_target(root, &scan.validated.display, &scan.parsed.stats)?;
     let output_root = if root.is_file() {
         root.parent().unwrap_or(root)
     } else {
@@ -82,7 +75,6 @@ pub(super) fn page_of(
         expected_digest: &expected_digest,
         security,
         cancel,
-        walk_threads,
     };
     let shaped = shape_page(
         &scope,
@@ -93,7 +85,7 @@ pub(super) fn page_of(
         selection,
         &scan.identity,
     )?;
-    let total_files = scan.parsed.files.len() as u32;
+    let total_files = u32_of_usize(scan.parsed.files.len());
     let reusable = scan
         .reusable
         .take()
@@ -169,6 +161,26 @@ pub(super) fn page_of(
     result.source_snapshot = Some(scan.identity);
     result.selection = shaped.selection.map(|selection| selection.outcome.receipt);
     Ok(result)
+}
+
+/// A search whose whole target is one file the scan skipped as binary from
+/// its leading bytes searched nothing: an empty row there would read as
+/// absence, so it is refused as astSearch and localFetch refuse it. A file
+/// cut at a later NUL (`binaryQuit`) was searched up to it and stays a row.
+fn refuse_binary_target(
+    root: &std::path::Path,
+    shown: &str,
+    scanned: &octocode_engine::types::TextSearchStats,
+) -> Result<(), ToolError> {
+    if root.is_file() && scanned.skipped_binary_count.unwrap_or(0) > 0 {
+        return Err(ToolError::policy(crate::policy::PolicyError::new(
+            crate::policy::PolicyErrorCode::BinaryContent,
+            format!(
+                "{shown} is binary content (a NUL in its leading bytes), not text; it was not searched."
+            ),
+        )));
+    }
+    Ok(())
 }
 
 /// A cut page whose shown values are verified.

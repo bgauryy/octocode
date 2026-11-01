@@ -34,7 +34,10 @@ async fn an_incomplete_last_page_offers_a_retry_not_a_terminal_limit() {
     assert!(data.get("terminalLimit").is_none(), "{data}");
     let retry = &data["next"]["retry"];
     assert_eq!(retry["tool"], "ghSearchHistory", "{data}");
-    assert_eq!(retry["input"]["queries"][0]["page"], 1, "{data}");
+    assert!(
+        retry["input"]["queries"][0].get("page").is_none(),
+        "page 1 is the default: {data}"
+    );
     assert_eq!(
         retry["input"]["queries"][0]["keywords"],
         json!(["fix"]),

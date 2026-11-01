@@ -40,7 +40,7 @@ pub(super) fn cursor(
                     && parsed
                         .files
                         .iter()
-                        .any(|f| f.matches.len() as u32 > layout.matches_per)))))
+                        .any(|f| u32_of_usize(f.matches.len()) > layout.matches_per)))))
     .then(|| result_identity.to_owned());
     if snapshot.is_some()
         && let Some(scan) = reusable
@@ -54,7 +54,7 @@ pub(super) fn cursor(
     let leftover_matches = !layout.list
         && !streamed
         && layout.shown.iter().any(|(index, _)| {
-            parsed.files[*index].matches.len() as u32
+            u32_of_usize(parsed.files[*index].matches.len())
                 > match_page.saturating_mul(layout.matches_per)
         });
     let next = build_next(
@@ -104,14 +104,7 @@ pub(super) fn build_next(
     if let Some(snapshot) = snapshot {
         base["snapshot"] = json!(snapshot);
     }
-    // A `nextPage` continuation is never emitted past the contract page
-    // maximum; callers must narrow the query to reach later results.
-    let cursor = |field: &str, current: u32| {
-        crate::response::paging::admitted(ToolId::LocalSearch, None, field, current as usize + 1)
-    };
-    let next_match_page = leftover_matches
-        .then(|| cursor("matchPage", match_page))
-        .flatten();
+    let next_match_page = leftover_matches.then(|| match_page as usize + 1);
     // Rows left in the shown files (`nextMatchPage`) and later files
     // (`nextPage`) are both offered on the page that opens a file group
     // (matchPage 1), so the caller goes depth-first or breadth-first. A
@@ -124,19 +117,15 @@ pub(super) fn build_next(
     let opens_file_group = match_page <= 1 || local_search_query::snapshot(q).is_none();
     if page < total_pages
         && (opens_file_group || next_match_page.is_none())
-        && let Some(n) = crate::response::paging::admitted_query(
+        && let Some(call) = crate::response::paging::next_page_call(
             ToolId::LocalSearch,
-            None,
-            &base,
+            base.clone(),
             "page",
-            page,
-            &[("matchPage", 1)],
+            page as usize + 1,
+            &[("matchPage", json!(1))],
         )
     {
-        map.insert(
-            "nextPage".into(),
-            Continuation::continued(ToolId::LocalSearch, n).build(),
-        );
+        map.insert("nextPage".into(), call);
     }
     if let Some(next_match_page) = next_match_page {
         let mut n = base;

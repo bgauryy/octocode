@@ -16,13 +16,12 @@ pub(super) fn collect(
     semantic: &Semantic<'_>,
     parsed: &oxc_parser::ParserReturn<'_>,
     positions: &SpanPositions<'_>,
-    source: &str,
+    (source, digest): (&str, &str),
     file: &str,
     declarations: &[GraphFactDeclaration],
     imports: &[GraphFactImport],
     calls: &[GraphFactCall],
 ) -> Vec<GraphFactArgumentSite> {
-    let digest = crate::digest::sha256(source.as_bytes());
     let by_name_span = declarations
         .iter()
         .filter_map(|d| {
@@ -129,11 +128,11 @@ pub(super) fn collect(
                 slots.push(GraphArgumentSlot {
                     id: argument_occurrence_id(
                         file,
-                        &digest,
+                        digest,
                         &source_range,
                         &format!("argument:0:{index}"),
                     ),
-                    index: index as u32,
+                    index: crate::num::saturating_u32(index),
                     label: None,
                     range: positions.range(span),
                     source_range,
@@ -150,7 +149,7 @@ pub(super) fn collect(
             },
         );
         sites.push(GraphFactArgumentSite {
-            id: argument_occurrence_id(file, &digest, &source_range, "recipient"),
+            id: argument_occurrence_id(file, digest, &source_range, "recipient"),
             caller: call
                 .map(|call| call.caller.clone())
                 .or_else(|| owner.map(|d| d.name.clone()))

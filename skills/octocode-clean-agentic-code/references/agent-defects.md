@@ -17,8 +17,8 @@ Load when cleaning or auditing code an agent wrote or edited.
 Before deleting either copy, verify the availability check that caused it.
 
 - Self-contained algorithm (distance, parser, retry, deep-clone, date math), no imports: `astSearch` the body → a dependency or internal module provides it.
-- Same names exported to disjoint consumers: `npx octocode graph query dependents <file>` (CLI; else `lspSearch` references) → `lspSearch` references prove which is live.
-- New file, zero dependents, few outgoing calls: `graph query dependents` + `issues --detector unreachable-file,unused-export` (CLI; else `lspSearch` + `localSearch`) → unreferenced, not only new.
+- Same names exported to disjoint consumers: graphQuery `dependents` of the file after `graphBuild` (tools per the [MCP/CLI guide](octocode-usage.md); else `lspSearch` references) → `lspSearch` references prove which is live.
+- New file, zero dependents, few outgoing calls: graphQuery `dependents` + `issues` with `detectors: ["unreachable-file","unused-export"]` (else `lspSearch` + `localSearch`) → unreferenced, not only new.
 - Third variant of one rule (validation, formatting, auth check): `localSearch` its literals → list all variants; choose canonical first.
 
 ## Residue to remove

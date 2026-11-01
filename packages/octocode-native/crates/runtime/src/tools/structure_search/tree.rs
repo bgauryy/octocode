@@ -7,7 +7,7 @@ use crate::response::result::ToolError;
 use octocode_contract_types::{
     StructureSearchQueryFilesSort, StructureSearchQueryTree, StructureSearchQueryTreeEntryType,
 };
-use octocode_engine::search::walk::IgnorePolicy;
+use octocode_engine::types::IgnorePolicy;
 use octocode_engine::types::{EntryType, FileSystemQueryOptions};
 
 // Engine-unit views over the generated `tree` query.
@@ -26,7 +26,7 @@ super::listing::listing_fields!(StructureSearchQueryTree {
     fn sort(&self) -> StructureSearchQueryFilesSort {
         StructureSearchQueryFilesSort::Variant1 { by: octocode_contract_types::StructureSearchQueryFilesSortVariant1By::Traversal, order: octocode_contract_types::StructureSearchQueryFilesSortVariant1Order::Asc }
     }
-    /// An outline walks to its ceiling, so it knows how many rows matched.
+    /// An outline walks its whole scope, so it knows how many rows matched.
     fn early_exit(&self) -> bool {
         false
     }

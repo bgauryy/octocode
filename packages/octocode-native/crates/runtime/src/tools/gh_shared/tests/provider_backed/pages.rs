@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use wiremock::MockServer;
 
 /// A row of the conformance table: the tool's answer as `data`.
-async fn page_data(server: &MockServer, tool: &str, row: Value) -> Value {
+pub(super) async fn page_data(server: &MockServer, tool: &str, row: Value) -> Value {
     let context = default_context();
     match tool {
         "ghSearchCode" => {

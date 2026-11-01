@@ -58,7 +58,8 @@ fn tiny_windows_price_a_large_chunk_without_allocating_each_closure_again() {
     let result = inspected(&text, NODE_CHUNK);
     assert_eq!(result.nodes.len(), NODE_CHUNK as usize);
     let stop = || false;
-    let mut maps = super::super::source::mapping_budget(&stop);
+    let mut maps =
+        super::super::source::mapping_budget(&crate::execution::cancel::NeverCancel, &stop);
     let admitted = octocode_engine::text::analysis::AdmittedSource::from_bytes(
         text.as_bytes(),
         "fixture.ts",
@@ -84,7 +85,8 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
     root.write("recovered.ts", &text);
     let path = root.0.join("recovered.ts");
     let stop = || false;
-    let mut maps = super::super::source::mapping_budget(&stop);
+    let mut maps =
+        super::super::source::mapping_budget(&crate::execution::cancel::NeverCancel, &stop);
     let admitted =
         super::super::source::admitted(&path, text.as_bytes(), &mut maps).expect("admitted");
     let source = Source {
@@ -103,7 +105,8 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
             "operation":"syntaxTree", "path":path, "page":page,
         }))
         .expect("query");
-        let mut maps = super::super::source::mapping_budget(&stop);
+        let mut maps =
+            super::super::source::mapping_budget(&crate::execution::cancel::NeverCancel, &stop);
         read_page(&query, &source, budget, &snapshot, &mut maps, &NeverCancel)
             .expect("continued tree");
         let walked = WALKS
@@ -145,7 +148,8 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
             .expect("late query");
             WALKS.evict(&snapshot);
             let priced_before = pricing::priced_nodes();
-            let mut maps = super::super::source::mapping_budget(&stop);
+            let mut maps =
+                super::super::source::mapping_budget(&crate::execution::cancel::NeverCancel, &stop);
             let cold = read_page(&late, &source, budget, &snapshot, &mut maps, &NeverCancel)
                 .expect("cold late page");
             assert_eq!(

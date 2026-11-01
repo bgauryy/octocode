@@ -267,7 +267,7 @@ fn hidden_entries_are_skipped_and_reported() {
     let (typed, skipped) = run(&|options| options.lang_type = Some("js".into()));
     assert_eq!(typed, [".eslintrc.js", "src/.local.js", "src/a.js"]);
     assert_eq!(skipped, [".github"]);
-    let (all, skipped) = run(&|options| options.ignore = crate::search::walk::IgnorePolicy::ALL);
+    let (all, skipped) = run(&|options| options.ignore = crate::types::IgnorePolicy::ALL);
     assert_eq!(
         all,
         [

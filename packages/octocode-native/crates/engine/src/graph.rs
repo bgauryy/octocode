@@ -1,5 +1,6 @@
 mod algorithms;
 mod arguments;
+mod diagnostics;
 mod evidence;
 mod model;
 mod test_identity;
@@ -9,6 +10,7 @@ pub use arguments::{
     GraphArgumentGroupObservation, GraphArgumentObservation, GraphArgumentSlot,
     GraphArgumentValueKind, GraphFactArgumentSite,
 };
+pub use diagnostics::{GraphFactCode, GraphFactDiagnostic};
 pub use test_identity::{GraphTestIdentity, GraphTestKind};
 
 pub use evidence::{
@@ -19,10 +21,10 @@ pub use algorithms::{
     Condensed, FileGraphNode, condense, scc, scc_filtered, strongly_connected_components,
 };
 pub use model::{
-    COMMONJS_WHOLE_EXPORT, GraphCallBinding, GraphCallBoundary, GraphFactCall, GraphFactCode,
-    GraphFactCommonJs, GraphFactCommonJsBinding, GraphFactDeclaration, GraphFactDiagnostic,
-    GraphFactEdge, GraphFactExport, GraphFactImport, GraphFactPath, GraphFactRustModule,
-    GraphFactsDocument, GraphFactsTypedEntry, GraphPosition, GraphRange,
+    COMMONJS_WHOLE_EXPORT, GraphCallBinding, GraphCallBoundary, GraphFactCall, GraphFactCommonJs,
+    GraphFactCommonJsBinding, GraphFactDeclaration, GraphFactEdge, GraphFactExport,
+    GraphFactImport, GraphFactPath, GraphFactRustModule, GraphFactsDocument, GraphFactsTypedEntry,
+    GraphPosition, GraphRange, GraphReceiverCall, GraphReferenceCount,
 };
 
 pub use crate::text::analysis::{ByteRange, ObservedSpan};

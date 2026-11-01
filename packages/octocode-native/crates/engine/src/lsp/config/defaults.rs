@@ -4,8 +4,14 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 /// rust-analyzer settings that keep it from running repository code: no
-/// build scripts (`build.rs`), no proc-macro expansion, no `cargo check` on
-/// save, and no cache priming. `cargo.targetDir: true` keeps any cargo work
+/// build scripts (`build.rs`), no proc-macro expansion, and no `cargo check`
+/// on save. Cache priming stays on (rust-analyzer's default): it indexes the
+/// workspace in-process on every core as soon as the project loads, so a
+/// prewarmed server answers its first workspace-wide request warm instead
+/// of building that index lazily, on one request, when the call arrives
+/// (measured on the octocode-native workspace: a 5-query references batch
+/// after a 30 s idle took 22.5 s with priming off, 4.4 s with it on).
+/// `cargo.targetDir: true` keeps any cargo work
 /// rust-analyzer still does out of the repository's own `target/`. Keys use
 /// the same shapes as the runtime's `rustContext` overlay, which sets
 /// `cargo.buildScripts`, `procMacro`, `checkOnSave`, and `cargo.targetDir` on
@@ -18,10 +24,9 @@ pub fn rust_analyzer_headless_options() -> Value {
         },
         "procMacro": { "enable": false },
         "checkOnSave": false,
-        "cachePriming": { "enable": false },
-        // The client sends no `workspace/didChangeWatchedFiles`: rust-analyzer
-        // watches the workspace itself, so an edit to a file no request
-        // opened still reaches its index.
+        // rust-analyzer watches the workspace itself and so registers for no
+        // client file events: an edit to a file no request opened still
+        // reaches its index without a scope walk per request.
         "files": { "watcher": "server" }
     })
 }

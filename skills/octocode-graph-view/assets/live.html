@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graph Live</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="live.css">
+<link rel="stylesheet" href="live-chat.css">
+<link rel="stylesheet" href="live-query.css">
+<link rel="stylesheet" href="live-wiki.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.80.1/dist/3d-force-graph.min.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo" aria-hidden="true"></span><span class="dot" id="conn" title="connection"></span><h1 id="title">Graph live</h1><span class="chip mono" id="rootPath"></span></div>
+  <div class="counters" id="counters"></div>
+  <div class="settings">
+    <label class="note">Open in <select id="editor" aria-label="editor for location links">
+      <option value="vscode">VS Code</option><option value="cursor">Cursor</option><option value="idea">JetBrains</option><option value="file">file://</option>
+    </select></label>
+    <button id="theme" title="toggle light / dark" aria-label="toggle light or dark theme">◐</button>
+    <button id="cancel" title="stop scheduling new work">Stop</button>
+  </div>
+</header>
+<nav class="phases" id="phases" aria-label="progress"></nav>
+<div class="bar" id="bar"><i id="overall"></i></div>
+<main>
+  <section id="stage" aria-label="graph">
+    <canvas id="canvas"></canvas>
+    <div class="toolbar">
+      <div class="search"><input id="q" placeholder="Find file or function  ( / )" aria-label="find file or function" autocomplete="off"><div id="suggest" class="suggest" hidden></div></div>
+      <div class="querybar" id="querybar"></div>
+      <div class="toggles" id="toggles"></div>
+      <button id="fit" title="fit graph (f)">Fit</button>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="feed" id="feed" aria-live="polite"></div>
+    <div class="tip" id="tip" hidden></div>
+    <div class="empty" id="empty">Waiting for the first files…</div>
+  </section>
+  <aside>
+    <div class="tabs" role="tablist">
+      <button data-tab="progress" role="tab">Progress</button><button data-tab="metrics" role="tab">Metrics</button><button data-tab="tools" role="tab">Tools</button><button data-tab="node" role="tab">Node</button>
+    </div>
+    <div id="panel" class="panel"></div>
+  </aside>
+</main>
+<section id="chat" class="chat" aria-label="chat with the agent" hidden></section>
+<section id="wiki" class="wiki" aria-label="wiki page" hidden></section>
+<script type="module" src="live.js"></script>
+</body>
+</html>

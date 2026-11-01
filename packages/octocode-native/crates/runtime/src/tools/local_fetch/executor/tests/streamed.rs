@@ -33,7 +33,7 @@ fn a_streamed_bare_read_states_the_span_it_returned() {
 
 // Past the whole-file ceiling a plain read streams a bounded line window:
 // exact whole-file totals, a digest-bound continuation that advances,
-// and matchString redirected to localSearch.
+// and matchString served from the streamed file.
 #[test]
 fn oversized_text_source_is_served_as_streamed_line_windows() {
     let temp = Fixture::new();
@@ -54,7 +54,7 @@ fn oversized_text_source_is_served_as_streamed_line_windows() {
         .next
         .as_ref()
         .and_then(|n| n.continue_window.clone())
-        .expect("continueWindow");
+        .expect("nextPage");
     assert!(local_fetch_query::snapshot(&next.query).is_some());
     let second = query(next.query);
     assert_eq!(second.status, ReadStatus::Success, "{second:?}");
@@ -92,22 +92,63 @@ fn oversized_text_source_is_served_as_streamed_line_windows() {
     assert!(tail.next.is_none());
 
     let matched = query(qj(&path, serde_json::json!({"matchString":["line 7 "]})));
-    assert_eq!(matched.error_code, Some(ErrorCode::LargeSourceWindowOnly));
-    // The localSearch is an executable lead, and the tip stays short.
-    let search = matched
-        .next
-        .as_ref()
-        .and_then(|next| next.text_search.clone())
-        .expect("findText lead");
-    assert_eq!(search["tool"], "localSearch", "{search}");
-    assert_eq!(
-        search["input"]["queries"][0]["matchString"],
-        serde_json::json!(["line 7 "])
-    );
+    assert_eq!(matched.error_code, None, "{matched:?}");
+    assert_eq!(matched.matched_lines, [7], "{matched:?}");
+    assert_eq!(matched.selected_match_count, Some(1));
+    assert_eq!(matched.total_lines, Some(lines));
     assert!(
-        matched.hints.iter().all(|hint| hint.len() <= 120),
+        matched
+            .content
+            .as_deref()
+            .is_some_and(|c| c == "line 7 payload payload payload payload\n"),
         "{matched:?}"
     );
+    assert!(matched.next.is_none(), "{matched:?}");
+}
+
+/// A read a streamed window cannot serve (a transformed view, a `block`
+/// match) publishes as a valid response: its leads are fresh public
+/// requests, never carrying private progress.
+#[test]
+fn an_oversized_refusal_publishes_only_public_leads() {
+    let temp = Fixture::new();
+    let dir = temp.0.clone();
+    let (path, _) = big_log(&dir, |n| {
+        if n == 7 {
+            "NEEDLE here\n".to_owned()
+        } else {
+            payload_line(n)
+        }
+    });
+    let context = serde_json::json!({"before":2,"after":20});
+    for fields in [
+        serde_json::json!({"matchString":["NEEDLE"],"contextLines":context,"block":true}),
+        serde_json::json!({"view":"symbols"}),
+    ] {
+        let row = fetch(&qj(&path, fields.clone()), &Paths(dir.clone()));
+        assert_eq!(
+            row.error_code,
+            Some(ErrorCode::LargeSourceWindowOnly),
+            "{fields}"
+        );
+        let wire = serde_json::to_value(&row).expect("row");
+        let output = crate::tools::test_support::published(crate::id::ToolId::LocalFetch, &wire);
+        crate::tools::test_support::checks::assert_output_contract("localFetch", &output);
+        let data = &output["results"][0]["data"];
+        let bounded =
+            crate::tools::test_support::checks::related_call(data, "localFetch", |input| {
+                input["queries"][0].get("ranges").is_none()
+            });
+        crate::contracts::validate_query("localFetch", bounded["input"]["queries"][0].clone())
+            .unwrap_or_else(|error| panic!("public lead {bounded}: {error:?}"));
+        // The block refusal's lead is the same match read without `block`.
+        if fields.get("matchString").is_some() {
+            let read = &bounded["input"]["queries"][0];
+            assert_eq!(read["matchString"], serde_json::json!(["NEEDLE"]), "{read}");
+            assert_eq!(read["contextLines"], context, "{read}");
+            assert!(read.get("block").is_none(), "{read}");
+        }
+    }
 }
 
 // Several `ranges` on an oversized source are each streamed window reads:

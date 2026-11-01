@@ -223,6 +223,7 @@ pub(super) fn serve_window(
             &streamed.window,
             path,
             &SourceFacts {
+                views: Default::default(),
                 modified: modified.clone(),
                 window: share,
                 beside: 0,
@@ -235,7 +236,7 @@ pub(super) fn serve_window(
         if result.status == ReadStatus::Error {
             return result;
         }
-        map_to_file(&mut result, &streamed, len);
+        map_to_file(&mut result, &streamed);
         if !chunked && requested_last > total {
             // The in-memory read states the same clamp.
             result.warnings.push(format!(

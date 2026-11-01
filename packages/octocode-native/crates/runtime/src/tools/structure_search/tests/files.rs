@@ -68,7 +68,7 @@ fn tree_and_files_summaries_count_symlinks_alike() {
 }
 
 /// Both operations' `summary` totals the listing (every page of it, within
-/// `maxEntries`), never entries the walk cut off.
+/// the walk window), never entries the walk cut off.
 #[test]
 fn summaries_total_the_listing_not_the_whole_walk() {
     let root = Fixture::new();
@@ -76,10 +76,12 @@ fn summaries_total_the_listing_not_the_whole_walk() {
         std::fs::write(root.0.join(name), "xy").expect("file");
     }
     for operation in ["tree", "files"] {
-        let out = run(
-            &root.0,
-            json!({"operation": operation, "path": root.0, "maxEntries": 2, "entryType": "file"}),
-        )
+        let out = with_window(2, || {
+            run(
+                &root.0,
+                json!({"operation": operation, "path": root.0, "entryType": "file"}),
+            )
+        })
         .expect("listing");
         assert_eq!(
             out["summary"],

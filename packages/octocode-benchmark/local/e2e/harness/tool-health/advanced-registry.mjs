@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { sourceLines, structureFiles } from '../responses.mjs';
 import { leadsIn } from './calls.mjs';
-import { tokenFor, withoutReadinessPings } from './surfaces.mjs';
+import { tokenFor } from './surfaces.mjs';
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const data = result => result.json?.results?.[0]?.data ?? {};
 const coordinate = (kind, name) => ({ maven: `org.proof:${name}`, go: `example.test/${name}`, packagist: `proof/${name}` })[kind] ?? name;
@@ -68,8 +68,8 @@ const packageRow = (ctx, packageName, fields = {}) => ({ operation: 'resolve', e
 const resultRows = report => report.responses.flatMap(response => response.result.json?.results ?? []);
 const artifactRows = report => resultRows(report).flatMap(row => row.data?.artifacts ?? []);
 const detailOf = report => `${report.responses.length} calls; ${JSON.stringify(report.failures)}`;
-const providerCalls = (ctx, surface) => withoutReadinessPings(ctx.mock.requestsFrom.filter(entry => entry.token === null
-  || entry.token === tokenFor('artifactSearch', surface))).length + ctx.registry.requests.length;
+const providerCalls = (ctx, surface) => ctx.mock.requestsFrom.filter(entry => entry.token === null
+  || entry.token === tokenFor('artifactSearch', surface)).length + ctx.registry.requests.length;
 
 function npmFixtures(ctx) {
   const large = {
@@ -193,7 +193,7 @@ async function npmAdmission(ctx, surface, record) {
     const before = providerCalls(ctx, surface);
     const result = await ctx.call(ctx.q(query), surface);
     const code = result.json?.errorCode ?? data(result).errorCode;
-    record(`npm.reject.${label}`, surface, ctx.validateInput('artifactSearch', ctx.q(query)) !== null
+    record(`npm.reject.${label}`, surface, ctx.validateExactInput('artifactSearch', ctx.q(query)) !== null
       && code === 'invalidInput' && providerCalls(ctx, surface) === before, JSON.stringify(result.json));
   }
 }

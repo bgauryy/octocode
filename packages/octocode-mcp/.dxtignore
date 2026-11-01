@@ -3,7 +3,6 @@
 .octocode/
 src/
 tests/
-sanity_tests/
 scripts/
 coverage/
 build.mjs

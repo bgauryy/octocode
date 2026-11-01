@@ -1,10 +1,12 @@
 //! One scanned blob: its keyword hits, their anchor, the listed lines and the declaration a hit names.
-use super::scoring::{covering_window, first_hit, goal_terms, hit_score};
-use super::{MAX_LINE_CHARS, MAX_LINES_PER_FILE};
+use super::scoring::{covering_window, goal_terms, hit_score};
 use crate::num::u32_of_usize;
 use crate::security::scan::ContentScan;
 use octocode_engine::graph::{GraphFactDeclaration, GraphFactsDocument};
 use std::path::Path;
+
+/// Bound an optional matchString anchor; hit evidence itself remains complete.
+const MAX_DECLARATION_ANCHOR_CHARS: usize = 200;
 
 /// One line holding a keyword.
 pub(super) struct Hit {
@@ -29,17 +31,9 @@ impl Hit {
 /// hit, as line numbers (0: none), and the covering window (hit indexes)
 /// when no line holds every keyword.
 pub(super) struct Anchor {
-    pub(super) window: Option<(usize, usize)>,
     pub(super) first: u32,
     pub(super) last: u32,
     pub(super) best: u32,
-}
-
-/// The listed hit lines of a file.
-pub(super) struct Listing {
-    pub(super) lines: Vec<String>,
-    pub(super) clipped: bool,
-    pub(super) resume_after: Option<u32>,
 }
 
 /// One scanned blob: its lines, as read and lowercased, the private-key
@@ -170,7 +164,6 @@ impl Blob<'_> {
         if let Some((start, end)) = window {
             let first = hits[start].number();
             return Anchor {
-                window,
                 first,
                 last: hits[end].number(),
                 best: first,
@@ -188,87 +181,28 @@ impl Blob<'_> {
             last = number;
         }
         Anchor {
-            window,
             first,
             last,
             best: best.0,
         }
     }
 
-    /// Listed: the lines holding every keyword; without one, each keyword's
-    /// first line and the anchoring window's first and last lines. The rest
-    /// stay counted for the whole-file read.
-    pub(super) fn listing(
-        &self,
-        hits: &[Hit],
-        needles: &[String],
-        window: Option<(usize, usize)>,
-        security: &impl ContentScan,
-    ) -> Listing {
-        let mut uncovered: Vec<&String> = if hits.iter().any(|hit| hit.every) {
-            Vec::new()
-        } else {
-            needles.iter().collect()
-        };
-        let in_window = |hit: usize| window.is_some_and(|(start, end)| hit == start || hit == end);
-        let mut listing = Listing {
-            lines: Vec::new(),
-            clipped: false,
-            resume_after: None,
-        };
-        let (mut shown_hits, mut prefix, mut last_shown) = (0, true, 0);
-        for (position, hit) in hits.iter().enumerate() {
-            if listing.lines.len() >= MAX_LINES_PER_FILE {
-                break;
-            }
-            let lower = &self.lowered[hit.index];
-            let before = uncovered.len();
-            uncovered.retain(|needle| !lower.contains(needle.as_str()));
-            if !hit.every && uncovered.len() == before && !in_window(position) {
-                continue;
-            }
-            let number = hit.number();
-            prefix &= position == shown_hits;
-            shown_hits += 1;
-            last_shown = number;
-            let line = self.raw[hit.index];
-            let shown = if self.in_key_block(number) {
-                crate::security::key_fragment_placeholder()
-            } else {
-                listing.clipped |= line.chars().count() > MAX_LINE_CHARS;
-                let at = octocode_engine::text::case_fold::Folded::of(line).char_index(hit.at);
-                // The window is cut from the line sanitized whole: a window
-                // of the raw line could split a secret past redaction. A
-                // redaction moves the keyword, so the window is placed on it
-                // again.
-                crate::security::cut::sanitize_then_cut(
-                    line,
-                    |raw| {
-                        security
-                            .sanitize(raw, Path::new(self.path))
-                            .map(|(clean, _)| clean)
-                    },
-                    |clean, changed| {
-                        octocode_engine::text::clip_around(
-                            clean,
-                            if changed {
-                                first_hit(clean, needles)
-                            } else {
-                                at
-                            },
-                            MAX_LINE_CHARS,
-                        )
-                    },
-                )
-                .unwrap_or_else(|_| "[REDACTED]".to_owned())
-            };
-            listing.lines.push(format!(
-                "{number}{}{shown}",
-                crate::response::numbered::SEPARATOR
-            ));
-        }
-        listing.resume_after = (prefix && !listing.clipped && last_shown > 0).then_some(last_shown);
-        listing
+    /// Every keyword line, sanitized whole before response pagination.
+    pub(super) fn listing(&self, hits: &[Hit], security: &impl ContentScan) -> Vec<String> {
+        hits.iter()
+            .map(|hit| {
+                let number = hit.number();
+                let shown = if self.in_key_block(number) {
+                    crate::security::key_fragment_placeholder()
+                } else {
+                    security
+                        .sanitize(self.raw[hit.index], Path::new(self.path))
+                        .map(|(clean, _)| clean)
+                        .unwrap_or_else(|_| "[REDACTED]".to_owned())
+                };
+                format!("{number}{}{shown}", crate::response::numbered::SEPARATOR)
+            })
+            .collect()
     }
 
     /// The best hit's declaration line, unless it sits in a private-key block.
@@ -293,7 +227,7 @@ impl Blob<'_> {
         self.declares(hit.index, hit.at)
             .filter(|declared| declared.range.end.line > declared.range.start.line)?;
         let head = self.raw[hit.index].trim();
-        if head.is_empty() || head.chars().count() > MAX_LINE_CHARS {
+        if head.is_empty() || head.chars().count() > MAX_DECLARATION_ANCHOR_CHARS {
             return None;
         }
         let needle = head.to_lowercase();

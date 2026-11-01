@@ -243,7 +243,7 @@ function printDryRun(args, plan) {
     console.log(`  ${r.reason}`);
   }
   console.log('\nTo apply when authorized:');
-  console.log(`  node ${join(HERE, 'skill-sync.mjs')} ${args.skillDir} --platforms ${args.platforms} --approve`);
+  console.log(`  node ${join(HERE, 'skill-sync.mjs')} ${args.skillDir} --platforms ${args.platforms}${args.projectRoot ? ` --project-root ${args.projectRoot}` : ''}${args.name ? ` --name ${args.name}` : ''} --approve`);
 }
 
 // Applies every row; returns how many were blocked or failed.
@@ -279,7 +279,13 @@ function main() {
   runInfoModes(args);
   const { sourcePath, fmName, skillName } = resolveSkill(args);
   const platformIds = resolvePlatformIds(args.platforms);
-  const rows = planRows(sourcePath, skillName, platformIds, args.projectRoot);
+  let rows;
+  try {
+    rows = planRows(sourcePath, skillName, platformIds, args.projectRoot);
+  } catch (error) {
+    console.error(`Cannot plan destinations: ${error.message}`);
+    process.exit(1);
+  }
 
   const plan = {
     mode: args.approve ? 'apply' : 'dry-run',

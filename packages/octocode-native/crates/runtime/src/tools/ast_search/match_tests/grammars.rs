@@ -90,7 +90,14 @@ fn a_match_discloses_files_whose_recovered_parse_could_hide_a_match() {
         json!(["parseRecovered"]),
         "{first}"
     );
-    let warnings = first["warnings"].as_array().expect("warnings");
+    // The recovered-parse notice, once; the multi-page set's narrowing
+    // notice rides beside it.
+    let warnings = first["notices"]
+        .as_array()
+        .expect("notices")
+        .iter()
+        .filter(|notice| !notice.as_str().unwrap_or_default().contains(" fill "))
+        .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1, "{first}");
     let warning = warnings[0].as_str().expect("warning");
     assert!(
@@ -148,7 +155,7 @@ fn a_single_file_match_discloses_its_recovered_parse() {
     )
     .expect("match runs");
     assert_eq!(out["partialReasons"], json!(["parseRecovered"]), "{out}");
-    let warning = out["warnings"][0].as_str().expect("warning");
+    let warning = out["notices"][0].as_str().expect("notice");
     assert!(
         warning.starts_with("1 file parsed with syntax errors"),
         "{warning}"

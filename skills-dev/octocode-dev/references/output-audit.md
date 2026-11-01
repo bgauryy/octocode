@@ -4,8 +4,8 @@ Load when evaluating what a tool returns through CLI and MCP, or whether an agen
 
 ## Completeness — nothing silently lost
 - A follow-up the requested result is complete without belongs in typed `related[]`, never in `next`. Required continuation chains must terminate without cycling through optional section or source reads.
-- No hard truncation without a marker and a continuation. Grep the tool module for `truncate`, `take(`, `.min(`, `[..`, byte/char caps, and clip constants; each must surface in output metadata.
-- Windows glued together need a gap marker; clipped lines or context need a flag.
+- Paginate before size reduction. Search the producer for `truncate`, `take(`, `.min(`, `[..`, byte/char caps and clip constants; verify complete selected values reach the shared response pager. A recovery read does not justify clipping an already selected value.
+- Selected disjoint windows need a gap marker. Resource or upstream terminal limits must disclose the unreachable scope. Keep oversized indivisible values whole and disclosed.
 
 ## Redundancy — nothing said twice
 - Duplicate metadata or summaries that repeat already returned evidence. Preserve independently readable rows; do not introduce a second hoisting or restoration format.

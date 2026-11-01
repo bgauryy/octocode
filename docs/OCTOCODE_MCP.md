@@ -43,27 +43,27 @@ octocode-mcp (Node launcher) → platform `octocode mcp` (same stdio, same exit 
 
 Native validates the same JSON input on CLI and MCP: `{ "queries": [...] }` with optional top-level `responseChars`, or `{ "cursor": "…" }` copied from an issued continuation. Types, field names, operation variants, and bounds are exact. Invalid input returns field paths and schema guidance; it is not rewritten into a guessed request. In a batch, valid rows run and each invalid row returns its own indexed error.
 
-Results use `results: [{index, data, status?, rowPart?}]`. Required work appears under `next` as `{kind:"continue", tool, input:{cursor}}`; optional exploration appears under `related` as `{kind:"related", tool, input:{queries:[...]}}`. Copy the call's `input` unchanged to its named tool. `hints` contain explanatory text.
+Results use `results: [{index, data, status?, rowPart?}]`. Required work appears under `next` as `{kind:"continue", tool, input:{cursor}}`; optional exploration appears under `related` as `{kind:"related", tool, input:{queries:[...]}}`, and may widen scope (hidden or ignored paths). Copy the call's `input` unchanged to its named tool. `hints` contain explanatory text. A failed row has `status:"error"` with `data.errorCode` (and `httpStatus` for provider failures); the process exit code is not per row. Paging keys and the completeness rule are in the [tools reference](OCTOCODE_TOOLS.md#results-evidence-partial-failures-and-continuations).
 
 ## Tool catalog
 
-The contract has 16 tools. With default settings MCP registers 12; `OCTOCODE_BETA=true` adds `graphBuild` and `graphQuery` (14). A classification credential and successful provider ping add `clasify` (15 with beta). Unavailable tools are left out of `tools/list`, not registered as failing calls.
+The contract has 16 tools. [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) owns the default MCP catalog, graph/clone/classification opt-ins, and additional tool filters. Tools excluded by configuration are omitted from `tools/list`. A configured provider can still fail when invoked; discovery does not probe its health.
 
 | Family | Tools |
 |--------|-------|
-| GitHub | `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` (CLI-only) |
-| Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch`, `graphBuild` and `graphQuery` (beta) |
+| GitHub | `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
+| Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch`, `graphBuild`, `graphQuery` |
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
 
-- `ghCloneRepo` is never registered on MCP, and no MCP description or lead names it. Run `npx octocode ghCloneRepo`. Graph tools share the native CLI implementation. Set `OCTOCODE_BETA=true` or `local.beta: true` in home configuration and restart MCP to expose them; CLI graph tools stay available without beta. `graphBuild` writes and prunes derived snapshots under workspace `.octocode/graph`; its MCP annotation is not read-only. `graphQuery` reads snapshots.
-- `clasify` needs a nonblank classification API credential and a successful provider ping; `classification` on four readers needs only the credential. See [availability](OCTOCODE_CLASIFY.md#availability).
+- `ghCloneRepo` writes a fresh checkout on every call; `graphBuild` writes and prunes derived snapshots under workspace `.octocode/graph`. Their MCP annotations reflect those writes. `graphQuery` reads snapshots. The implementations are shared with the CLI.
+- `clasify` and inline `classification` use a configured provider credential. Questions, source capture and recovery are covered by the [classification guide](OCTOCODE_CLASIFY.md); exposure is covered by the configuration matrix above.
 - Tools take up to 5 `queries` per call; `graphBuild` accepts one. MCP publishes input schemas, titles, and descriptions, not output schemas.
-- Server instructions are one prompt of at most 2,000 characters, as a project instruction-size budget; tool-specific parts follow the enabled tool set, and `<clasify>` follows classification availability. The CLI adds a `<cli>` line and the grammar inventory; MCP clients get schemas through `tools/list`.
+- Server instructions are one static prompt within the `MAX_MCP_INSTRUCTION_BYTES` UTF-8 limit in `@octocodeai/octocode-core/mcp`, a project instruction-size budget: cross-tool order, envelope, paging and evidence rules. Tool-specific rules, output (`Returns:`) notes and clasify guidance live in each tool's description, so they arrive only with the listed tool. The CLI adds a `<cli>` line and the grammar inventory; MCP clients get schemas through `tools/list`.
 
 ## Configuration
 
-Set per-client settings in the client `env` block ([example](CONFIGURATION.md#mcp-client-env-block)); env vars beat `.octocoderc` files. Every setting, with defaults and env names: [generated settings](generated/CONFIG_SETTINGS.md). Every tool result carries `structuredContent` and one text block holding its serialized JSON. Development override (`OCTOCODE_NATIVE_BIN`, a candidate binary): [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md#development-environment-variables).
+Start with [Configuration](CONFIGURATION.md) for setup, precedence and the complete settings reference. Its [client `env` example](CONFIGURATION.md#mcp-client-env-block) applies settings to one MCP process. Every tool result carries `structuredContent` and one text block holding its serialized JSON. Development override (`OCTOCODE_NATIVE_BIN`, a candidate binary): [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md#development-environment-variables).
 
 The server shares the CLI's cache under the Octocode home and runs the same best-effort 24-hour sweep at start ([cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle)). Unknown or removed tool names in `TOOLS_TO_RUN` and `DISABLE_TOOLS` are ignored with an `unknown_tool_name` config warning; if no `TOOLS_TO_RUN` name is valid, startup fails.
 

@@ -1,11 +1,11 @@
 mod admission;
+mod cache_control;
 mod channel;
 mod construction;
 mod cursors;
 mod execute;
 mod graph;
 mod page_replay;
-mod provider_check;
 
 use crate::config::{self, ConfigInput, ConfigOutput, RuntimeSurface};
 use crate::contracts;
@@ -87,15 +87,16 @@ pub struct ToolRuntime {
     /// Sanitized full views of recently paged local files (this runtime's
     /// security policy only), so each localFetch page skips a full rescan.
     local_views: Arc<crate::security::scan::SanitizedViewMemo>,
+    source_views: Arc<crate::tools::source_view::ViewCache>,
     /// Pre-paging envelopes of recent paged responses (this runtime's config
     /// and workspace only), so a later page skips re-executing the batch.
     page_replays: Arc<PageReplayMemo>,
     cursors: Arc<cursors::Registry>,
     section_sessions: Arc<crate::tools::clasify::sections::Sessions>,
-    /// Registry answers for artifactSearch; `None` under memory storage.
-    artifact_cache: Option<Arc<crate::providers::artifact::ArtifactCache>>,
-    /// Resolved from config, surface, and the startup provider ping. Later
-    /// provider failures are request-local and do not remove an advertised tool.
+    /// Registry answers for artifactSearch; disk persistence follows storage.mode.
+    artifact_cache: Arc<crate::providers::artifact::ArtifactCache>,
+    /// Resolved from config and surface without provider requests. Provider
+    /// failures are request-local and do not remove an advertised tool.
     availability: Arc<crate::execution::availability::ToolAvailability>,
     /// Provider settings and selection availability, resolved once.
     evaluator: crate::tools::judgment::Evaluator,
@@ -107,11 +108,8 @@ pub struct ToolRuntime {
     classification: &'static dyn crate::providers::classification::ClassificationProvider,
 }
 
-/// Largest file a [`Cost::Light`] local row reads.
-const LIGHT_FILE_BYTES: u64 = 1024 * 1024;
-
 /// Who makes one call. Both read the same JSON envelope; they differ in
-/// admission (MCP never runs a `cliOnly` tool) and in the saved-page store
+/// admission (MCP runs only the tools its availability settings enable) and in the saved-page store
 /// their continuations name.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Channel {
@@ -131,10 +129,12 @@ impl ToolRuntime {
     pub async fn close(&self) {
         self.begin_close();
         self.requests.close().await;
+        let _io = crate::cache::async_io::drain().await;
         if self.owns_lsp_pool {
             self.lsp_pool.clear_all().await;
         }
         self.github_cache.clear_memory();
+        self.source_views.clear_memory();
         self.page_replays.store.clear_memory();
         self.cursors.clear_memory();
         self.section_sessions.clear_memory();
@@ -256,6 +256,9 @@ fn runtime_execution_error(error: ExecutionError) -> RuntimeError {
 impl CancellationCheck for ExecutionContext {
     fn check(&self) -> Result<(), String> {
         Self::check(self).map_err(|error| error.to_string())
+    }
+    fn deadline(&self) -> Option<std::time::Instant> {
+        Some(self.deadline)
     }
 }
 

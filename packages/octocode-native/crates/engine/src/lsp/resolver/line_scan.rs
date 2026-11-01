@@ -1,7 +1,7 @@
 //! The lexical fallback: a symbol found by scanning lines, near a hinted
 //! line or across the file, outside comments and string literals.
 
-use super::{DEFAULT_RADIUS, check_budget, order_hint_error};
+use super::{DEFAULT_RADIUS, check_budget, hinted_line, line_delta, order_hint_error};
 use crate::error::{Error, Result};
 use crate::lsp::types::{LspExactPosition, LspResolvedSymbol};
 use crate::text::utf8_offsets::{byte_to_utf16_offset, hide_bom_in_line};
@@ -34,24 +34,22 @@ pub(super) fn scan_near_line(
     line_hint: u32,
     order_hint: usize,
 ) -> Result<LspResolvedSymbol> {
-    let target = line_hint as i32 - 1;
-    if target < 0 || target as usize >= lines.len() {
+    let target = hinted_line(line_hint);
+    let Some(&target_line) = lines.get(target).filter(|_| line_hint > 0) else {
         // The empty text after a final line break is no line of the file.
         let trailing = lines.len() > 1 && lines.last().is_some_and(|line| line.is_empty());
         return Err(Error::new(format!(
             "Line {line_hint} is out of range (file has {} lines)",
             lines.len() - usize::from(trailing)
         )));
-    }
+    };
 
-    if let Some(hit) = find_symbol_in_line(lines[target as usize], symbol_name, order_hint) {
-        return Ok(hit_for(lines[target as usize], target as usize, hit, 0));
+    if let Some(hit) = find_symbol_in_line(target_line, symbol_name, order_hint) {
+        return Ok(hit_for(target_line, target, hit, 0));
     }
     if order_hint > 0 {
         let count = (0..)
-            .take_while(|index| {
-                find_symbol_in_line(lines[target as usize], symbol_name, *index).is_some()
-            })
+            .take_while(|index| find_symbol_in_line(target_line, symbol_name, *index).is_some())
             .count();
         if count > 0 {
             return Err(order_hint_error(symbol_name, line_hint, count));
@@ -59,17 +57,19 @@ pub(super) fn scan_near_line(
     }
 
     for offset in 1..=DEFAULT_RADIUS {
-        for delta in [-offset, offset] {
-            let line_index = target + delta;
-            if line_index < 0 || line_index as usize >= lines.len() {
+        for line_index in [target.checked_sub(offset), target.checked_add(offset)]
+            .into_iter()
+            .flatten()
+        {
+            let Some(line) = lines.get(line_index) else {
                 continue;
-            }
-            if let Some(hit) = find_symbol_in_line(lines[line_index as usize], symbol_name, 0) {
+            };
+            if let Some(hit) = find_symbol_in_line(line, symbol_name, 0) {
                 return Ok(hit_for(
-                    lines[line_index as usize],
-                    line_index as usize,
+                    line,
+                    line_index,
                     hit,
-                    delta,
+                    line_delta(target, line_index),
                 ));
             }
         }
@@ -116,14 +116,14 @@ pub(super) fn hit_for(
     let (line, character) = hide_bom_in_line(line_index, line, character);
     LspResolvedSymbol {
         position: LspExactPosition {
-            line: line_index as u32,
+            line: crate::num::saturating_u32(line_index),
             // `character` arrives as a BYTE offset within `line` (tree-sitter
             // columns and `str::find`/`match_indices` are byte-based). LSP
             // `character` is UTF-16 code units, so convert — otherwise any line
             // with non-ASCII before the symbol mis-positions the cursor.
-            character: byte_to_utf16_offset(line, character) as u32,
+            character: crate::num::saturating_u32(byte_to_utf16_offset(line, character)),
         },
-        found_at_line: line_index as u32 + 1,
+        found_at_line: crate::num::saturating_u32(line_index).saturating_add(1),
         line_offset,
         line_content: line.to_owned(),
         occurrences_on_line: Vec::new(),
@@ -164,7 +164,7 @@ pub(super) fn find_symbol_in_line(
     let code = strip_line_comment(line);
     let mut seen = 0usize;
     for (index, _) in code.match_indices(symbol_name) {
-        if !has_word_boundaries(code, index, symbol_name.len()) {
+        if !crate::text::is_whole_word(code.as_bytes(), index, index + symbol_name.len()) {
             continue;
         }
         if seen == order_hint {
@@ -176,35 +176,7 @@ pub(super) fn find_symbol_in_line(
 }
 
 fn contains_word(text: &str, word: &str) -> bool {
-    text.match_indices(word)
-        .any(|(index, _)| has_word_boundaries(text, index, word.len()))
-}
-
-fn has_word_boundaries(text: &str, start: usize, len: usize) -> bool {
-    let before = if start == 0 {
-        None
-    } else {
-        text[..start].chars().next_back()
-    };
-    let after = text[start + len..].chars().next();
-    !is_ident(before) && !is_ident(after)
-}
-
-fn is_ident(ch: Option<char>) -> bool {
-    let Some(ch) = ch else { return false };
-    if ch.is_ascii() {
-        return ch == '_' || ch == '$' || ch.is_ascii_alphanumeric();
-    }
-    // Use a conservative cross-language identifier boundary, including combining
-    // marks and ECMAScript join controls. ASCII-only boundaries can bind a
-    // requested name to a different Unicode identifier.
-    // Constant pattern: compile failure is a build-time bug, so fail loud.
-    #[expect(clippy::expect_used, reason = "static pattern, valid by construction")]
-    static IDENT_CONTINUE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"^[\p{ID_Continue}\u{200C}\u{200D}]$")
-            .expect("valid Unicode identifier boundary")
-    });
-    IDENT_CONTINUE.is_match(ch.encode_utf8(&mut [0; 4]))
+    crate::text::whole_word_starts(text, word).next().is_some()
 }
 
 fn strip_line_comment(line: &str) -> &str {

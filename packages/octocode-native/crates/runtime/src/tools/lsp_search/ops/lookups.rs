@@ -97,7 +97,11 @@ impl Operation<'_, '_> {
                 .await
         };
         if !warnings.is_empty() {
-            crate::response::paging::mark_partial(&mut row, "definitionHopFailed", &warnings);
+            crate::response::paging::mark_partial(
+                &mut row,
+                crate::response::paging::PartialReason::DefinitionHopFailed,
+                &warnings,
+            );
         }
         Ok(row)
     }
@@ -118,7 +122,7 @@ impl Operation<'_, '_> {
             ),
             hover => json!({
                 "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
-                "kind": "hover",
+                "operation": "hover",
                 "hover": public_hover(hover)
             }),
         })
@@ -188,7 +192,7 @@ impl Operation<'_, '_> {
         }
         .map(str::to_owned);
         let mut row = items_payload(query, "symbols", json!(symbols), self.budget);
-        if self.root_only && row.pointer("/kind").and_then(Value::as_str) == Some("empty") {
+        if self.root_only && row.pointer("/status").and_then(Value::as_str) == Some("empty") {
             // A source directory (`src`) has no markers: name the languages
             // of the project root it was searched from.
             let mut languages = workspace_root_languages(self.path);
@@ -233,7 +237,7 @@ impl Operation<'_, '_> {
                             .map_or(file.as_str().into(), std::path::Path::to_string_lossy)
                     ),
                     None => format!(
-                        "workspaceRoot-only search found no {searched} source file to load a project; pass path for a file in the symbol's."
+                        "workspaceRoot-only search found no {searched} source file to load a project; pass path for a file in the symbol's project."
                     ),
                 }
             } else {
@@ -294,7 +298,7 @@ impl Operation<'_, '_> {
         if truncated {
             crate::response::paging::terminal_limit(
                 &mut row,
-                "diagnosticsTruncated",
+                crate::response::paging::PartialReason::DiagnosticsTruncated,
                 &["The server published more diagnostics than one report keeps (2000 items, 256 KiB); fix the listed ones and rerun.".to_owned()],
             );
         }

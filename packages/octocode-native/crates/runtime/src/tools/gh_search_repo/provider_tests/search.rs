@@ -316,11 +316,24 @@ async fn search_failures_lead_to_their_repair() {
     assert_eq!(repair["page"], 20, "{next}");
     assert_eq!(repair["keywords"], json!(["x"]), "{next}");
     let missing = fail(json!({"owner":"o","repo":"missing","operation":"get"})).await;
-    assert!(missing.hints.is_empty(), "{:?}", missing.hints);
+    // The shared hint labels the name search's rows as candidates under any
+    // owner, beside the owner's own listing.
+    assert_eq!(
+        missing.hints,
+        [crate::tools::gh_shared::repository_search_hint(
+            Some("o"),
+            "missing"
+        )]
+    );
     let next = missing.calls.expect("find");
     assert_eq!(
         next["findRepository"]["input"]["queries"][0],
         json!({"keywords":["missing"],"operation":"search"}),
+        "{next}"
+    );
+    assert_eq!(
+        next["findRepository2"]["input"]["queries"][0],
+        json!({"operation":"list","owner":"o"}),
         "{next}"
     );
 }

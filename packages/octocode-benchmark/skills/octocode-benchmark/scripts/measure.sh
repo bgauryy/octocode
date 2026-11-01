@@ -9,7 +9,7 @@
 #   ARM   arm id (octocode | rtk | headroom | gh)
 #   QID   question id, e.g. Q1
 #   LABEL short step label
-# Requires $CURRENT_RUN (a file holding the run dir) beside this script, or set
+# Requires a CURRENT_RUN file (holding the run dir) beside this script, or set
 # RUNDIR in the environment.
 set -uo pipefail
 ARM="$1"; QID="$2"; LABEL="$3"; shift 3; [ "${1:-}" = "--" ] && shift

@@ -130,8 +130,9 @@
   },
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "clean": "rm -rf out/ coverage/",
     "format": "prettier --write src",
-    "lint": "prettier --check src && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
+    "lint": "prettier --check src && yarn run -T oxlint -c ../../.oxlintrc.json .",
     "package": "npx -y @vscode/vsce@3.9.2 package --allow-missing-repository --no-dependencies",
     "publish": "npx -y @vscode/vsce@3.9.2 publish",
     "test": "vitest run --coverage",

@@ -30,11 +30,11 @@ fn importer_windows_cover_every_candidate_exactly_once() {
             assert_eq!(window.owner("/elsewhere.ts"), page, "non-candidates stay");
             reached.extend(window.files().iter().cloned());
             if !window.more() {
-                assert_eq!(window.pages, page);
+                assert_eq!(window.pages(), page);
                 break;
             }
             page += 1;
-            digest = Some(window.digest.clone());
+            digest = Some(window.digest().to_owned());
         }
         assert_eq!(reached, list, "{count} candidates: once each, in order");
         assert_eq!(page as usize, count.div_ceil(MAX_CANDIDATE_FILES).max(1));
@@ -52,7 +52,7 @@ fn a_changed_candidate_list_stales_a_later_window() {
     changed.insert(5, "/r/f004a.ts".into());
     let entering = WindowRequest {
         page: 2,
-        expected: Some(&first.digest),
+        expected: Some(first.digest()),
     };
     assert!(matches!(Window::cut(changed.clone(), entering), Cut::Stale));
     assert!(matches!(

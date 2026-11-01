@@ -18,15 +18,16 @@ pub(super) struct PageDates {
     /// Entries left undated, stated as one row warning.
     #[serde(skip)]
     pub(super) warning: Option<String>,
-    /// Page entries past the first [`DATED_PER_PAGE`], left to
-    /// `next.expandDates`.
+    /// Page entries past the first [`DATED_PER_PAGE`], left to the next
+    /// page (`next.nextPage`).
     #[serde(skip)]
     pub(super) undated: usize,
 }
 
 /// Entries one page dates inline: one GraphQL request's aliases. Spike
 /// 2026-10-06: 1×100 aliases ≈ 3.4 s, 1×300 ≈ 7.6 s (near the 10 s
-/// GraphQL timeout), so a larger page leads the rest via `expandDates`.
+/// GraphQL timeout), so a larger listing page shows that many entries and
+/// leads the rest as its next page.
 pub(super) const DATED_PER_PAGE: usize = octocode_github::MAX_PATHS_PER_REQUEST;
 
 /// The page's dates: its first [`DATED_PER_PAGE`] entries, one cached
@@ -108,9 +109,10 @@ pub(super) async fn page_dates(
     dates
 }
 
-/// Continue dating the same listing at its pinned SHA. Private `dateOffset`
-/// advances by [`DATED_PER_PAGE`] while the semantic scope and listing page
-/// stay fixed. The warning names the entries whose dates remain unread.
+/// The next page of a listing page longer than one dated batch: the same
+/// listing at its pinned SHA, private `dateOffset` advanced by
+/// [`DATED_PER_PAGE`]. It is the page's `nextPage` lead, `pagination`
+/// states that entries remain, and the warning names how many and why.
 pub(super) fn expand(
     value: &mut Value,
     pinned: &GhStructureQueryTree,
@@ -120,7 +122,7 @@ pub(super) fn expand(
     if undated == 0 {
         return Ok(());
     }
-    let offset = pinned.date_offset.map_or(0, crate::num::usize_of_signed);
+    let offset = pinned.date_offset.map_or(0, crate::num::usize_of);
     let next_offset = offset
         .saturating_add(DATED_PER_PAGE)
         .min(page.entries.len());
@@ -132,10 +134,25 @@ pub(super) fn expand(
     push_warnings(
         value,
         [format!(
-            "Last-commit dates remain for {undated} entries on this page."
+            "{} on the next page: a page lists at most {DATED_PER_PAGE}, the entries one last-commit-date request covers.",
+            crate::response::pages::more(
+                u64::try_from(undated).unwrap_or(u64::MAX),
+                "entry",
+                "entries"
+            )
         )],
     );
-    value["calls"]["expandDates"] =
+    // Listing pages past the first already state their page count; either
+    // way this page is not the end of the listing.
+    match value.get_mut("pagination") {
+        Some(pagination) => pagination["hasMore"] = json!(true),
+        None => {
+            value["pagination"] = crate::response::pages::PageFacts::open(page.current, None, true)
+                .with_items(page.total_entries)
+                .to_value();
+        }
+    }
+    value["calls"]["nextPage"] =
         crate::response::result::Continuation::continued(ToolId::GhStructure, row).build();
     Ok(())
 }

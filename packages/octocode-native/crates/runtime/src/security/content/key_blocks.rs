@@ -248,7 +248,7 @@ pub(crate) fn match_window_intersects_key_block(
     value: &str,
     ranges: &[(u32, u32)],
 ) -> bool {
-    let span = value.lines().count().max(1) as u32;
+    let span = crate::num::u32_of_usize(value.lines().count().max(1));
     let start = line.saturating_sub(span);
     let end = line.saturating_add(span);
     ranges.iter().any(|&(s, e)| start <= e && s <= end)

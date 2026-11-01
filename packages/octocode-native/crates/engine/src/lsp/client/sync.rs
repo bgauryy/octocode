@@ -2,7 +2,8 @@
 //! lifecycle, and keeping open documents in line with their files.
 
 use super::open_documents::{DiskCheck, content_digest};
-use super::{NativeLspClient, OPEN_READY_TIMEOUT_MS, OPEN_SETTLE_MS};
+use super::project_loads::{PendingLoad, project_key};
+use super::{CallId, NativeLspClient, OPEN_READY_TIMEOUT_MS, OPEN_SETTLE_MS};
 use crate::error::{Error, Result};
 use crate::lsp::transport::{JsonRpcConnection, Readiness};
 use crate::lsp::uri::path_to_uri;
@@ -34,26 +35,29 @@ impl NativeLspClient {
     /// `didOpen` is ignored or rejected by many servers and can make
     /// changed content resolve against the stale original.
     pub async fn open_document(&self, file_path: String, content: &str) -> Result<()> {
-        self.sync_document(&file_path, content).await.map(|_| ())
+        self.sync_document(&file_path, content).await
     }
 
-    /// [`Self::open_document`], then — only when this sync was the document's
-    /// first `didOpen` — wait for any project load the open triggered to go
-    /// idle before returning. Servers like `typescript-language-server` start
+    /// [`Self::open_document`], then — once per open document: at its first
+    /// `didOpen`, or at the first call here for a document
+    /// [`Self::open_document`] opened without the wait — wait for any project
+    /// load the open triggered to go idle before returning. Servers like `typescript-language-server` start
     /// loading the project only after a `didOpen` (`$/progress begin` arrives
     /// ~100 ms later); querying immediately races that load and returns
     /// incomplete references. `settle_ms` bounds how long to wait for such a
     /// wave to start (default [`OPEN_SETTLE_MS`]) and `timeout_ms` bounds the
     /// whole wait (default [`OPEN_READY_TIMEOUT_MS`], capped at 60 s).
     ///
-    /// The settle is not stacked on a startup readiness wait that already
-    /// confirmed the project loaded (`progressIdle`): that server announced
-    /// and finished its project load before this open, so only progress
-    /// already under way when the open was written is drained.
+    /// The settle is owed once per project (see `project_loads.rs`): not
+    /// for a later file of a project whose first open already waited, and
+    /// not on top of a startup readiness wait that confirmed the project
+    /// loaded (`progressIdle`). Without it, only progress already under way
+    /// when the open was written is drained. An explicit `settle_ms` follows
+    /// the same rule.
     ///
     /// Returns the readiness string (`progressIdle`, `settledWithoutProgress`, or
-    /// `timeout`) for a first open, and `None` for a re-sync of an already open
-    /// document, which does not wait.
+    /// `timeout`) for the wait, and `None` for a document already waited
+    /// for, which does not wait again.
     pub async fn open_document_and_wait(
         &self,
         file_path: String,
@@ -63,11 +67,25 @@ impl NativeLspClient {
     ) -> Result<Option<String>> {
         let _activity = self.lease();
         let observed = self.inner.progress.subscribe();
-        let version = self.sync_document(&file_path, content).await?;
-        if version != Some(1) {
+        let begins = self.inner.progress.begins();
+        self.sync_document(&file_path, content).await?;
+        let uri = path_to_uri(&file_path)?;
+        if !self
+            .inner
+            .open_docs
+            .lock()
+            .map_err(|_| Error::new("open_docs lock poisoned"))?
+            .wait_owed(&uri)
+        {
             return Ok(None);
         }
-        let settle_ms = if self.readiness_is(Readiness::ProgressIdle) {
+        let pending = PendingLoad::start(
+            &self.inner.project_loads,
+            &self.inner.progress,
+            project_key(&file_path),
+            begins,
+        );
+        let settle_ms = if pending.is_none() || self.readiness_is(Readiness::ProgressIdle) {
             0
         } else {
             self.settle_ms(u64::from(settle_ms.unwrap_or(OPEN_SETTLE_MS)))
@@ -87,19 +105,26 @@ impl NativeLspClient {
                 )
             })
             .await?;
+        if let Some(pending) = pending {
+            pending.finish(readiness);
+        }
+        self.inner
+            .open_docs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .mark_waited(&uri);
         Ok(Some(readiness.as_str().to_owned()))
     }
 
-    /// Sync `content` for `file_path` and return the version that was sent
-    /// (`1` means a fresh `didOpen`), or `None` when the server already holds
-    /// `content`.
-    async fn sync_document(&self, file_path: &str, content: &str) -> Result<Option<i32>> {
+    /// Sync `content` for `file_path`: nothing is sent when the server
+    /// already holds it.
+    async fn sync_document(&self, file_path: &str, content: &str) -> Result<()> {
         crate::lsp::diagnostics::Phase::DocumentSync
             .measure(self.sync_document_inner(file_path, content))
             .await
     }
 
-    async fn sync_document_inner(&self, file_path: &str, content: &str) -> Result<Option<i32>> {
+    async fn sync_document_inner(&self, file_path: &str, content: &str) -> Result<()> {
         let file_path = file_path.to_owned();
         let uri = path_to_uri(&file_path)?;
         let _activity = self.lease();
@@ -127,7 +152,7 @@ impl NativeLspClient {
             .unchanged(&uri, digest)
             .is_some()
         {
-            return Ok(None);
+            return Ok(());
         }
         // A content sync supersedes the push diagnostics of the prior
         // document version: the next diagnostic read waits for a fresh
@@ -190,7 +215,7 @@ impl NativeLspClient {
         if let Some(evicted_uri) = evicted {
             let _ = notify_close(&connection, &evicted_uri).await;
         }
-        notification.map(|()| Some(next_version))
+        notification
     }
 
     fn observe_project_config(&self, path: &Path) {
@@ -220,9 +245,34 @@ impl NativeLspClient {
             }
             watch.clone()
         };
-        tokio::task::spawn_blocking(move || watch.changed())
+        let changed = tokio::task::spawn_blocking(move || watch.changed())
             .await
-            .unwrap_or(false)
+            .unwrap_or(false);
+        if changed {
+            self.inner
+                .project_loads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clear();
+        }
+        changed
+    }
+
+    /// [`Self::sync_open_documents`] at the first request of `call` (every
+    /// request outside a call): within one call files do not change, and a
+    /// document the call itself synced holds the text it read.
+    pub(super) async fn sync_open_documents_for(&self, call: Option<CallId>) -> Result<()> {
+        let id = call.map(CallId::get);
+        if id.is_some_and(|id| self.inner.documents_checked_for.load(Ordering::Acquire) == id) {
+            return Ok(());
+        }
+        self.sync_open_documents().await?;
+        if let Some(id) = id {
+            self.inner
+                .documents_checked_for
+                .store(id, Ordering::Release);
+        }
+        Ok(())
     }
 
     /// Bring every open document back in line with its file before a

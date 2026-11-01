@@ -7,22 +7,25 @@ const response = (cursor, line) => ({ results: [{ index: 0, data: {
   path: 'src/a.ts', content: `${line}\tconst answer = 42;`,
   next: { more: { kind: 'continue', tool: 'localFetch', input: { cursor } } },
 } }] });
-const graphBuildReceipt = (totalMs, extra = {}) => ({ results: [{ index: 0, data: {
-  id: 'snapshot', sha256: 'digest', reused: true, counts: { nodes: 8, edges: 7 },
-  buildMs: 11, totalMs, ...extra,
+const graphBuildReceipt = (extra = {}) => ({ results: [{ index: 0, data: {
+  id: 'snapshot', reused: true, counts: { nodes: 8, edges: 7 }, ...extra,
 } }] });
 const timingEvidence = totalMs => ({ results: [{ index: 0, data: { content: JSON.stringify({ totalMs }) } }] });
+const cloneReceipt = (clonedAt, commitSha = 'a'.repeat(40)) => ({ results: [{ index: 0, data: {
+  location: { kind: 'repo', localPath: '/checkout', commitSha, resolvedRef: commitSha, clonedAt },
+} }] });
+const cloneTimingEvidence = clonedAt => ({ results: [{ index: 0, data: { content: JSON.stringify({ clonedAt }) } }] });
 
 test('surface comparison preserves source evidence while accepting independent issued handles', () => {
   assert.equal(firstDiff(parityView(response('cli', 4), 'localFetch'), parityView(response('mcp', 4), 'localFetch')), null);
   assert.match(firstDiff(parityView(response('cli', 4), 'localFetch'), parityView(response('mcp', 5), 'localFetch')), /content/);
 });
 
-test('graph build parity tolerates per-call duration but still compares snapshot evidence and reuse', () => {
-  const reference = parityView(graphBuildReceipt(9), 'graphBuild');
-  assert.equal(firstDiff(reference, parityView(graphBuildReceipt(5), 'graphBuild')), null);
-  for (const changed of [{ id: 'other' }, { sha256: 'other' }, { reused: false }, { counts: { nodes: 9, edges: 7 } }]) {
-    assert.ok(firstDiff(reference, parityView(graphBuildReceipt(5, changed), 'graphBuild')));
+test('graph build parity compares snapshot evidence and reuse, and elapsed text stays evidence', () => {
+  const reference = parityView(graphBuildReceipt(), 'graphBuild');
+  assert.equal(firstDiff(reference, parityView(graphBuildReceipt(), 'graphBuild')), null);
+  for (const changed of [{ id: 'other' }, { reused: false }, { counts: { nodes: 9, edges: 7 } }]) {
+    assert.ok(firstDiff(reference, parityView(graphBuildReceipt(changed), 'graphBuild')));
   }
   assert.ok(firstDiff(parityView(timingEvidence(9), 'localFetch'), parityView(timingEvidence(5), 'localFetch')));
 });
@@ -34,6 +37,13 @@ test('metadata normalization never rewrites arbitrary literal evidence', () => {
   const normalized = mapDeclared(json, schema, (value, path) => path.at(-1) === 'expiresAt' ? '<deadline>' : value);
   assert.deepEqual(normalized.content, literal);
   assert.equal(normalized.expiresAt, '<deadline>');
+});
+
+test('clone parity accepts separate completion times but preserves checkout identity and source text', () => {
+  const first = parityView(cloneReceipt('2026-10-30T11:00:00Z'), 'ghCloneRepo');
+  assert.equal(firstDiff(first, parityView(cloneReceipt('2026-10-30T11:00:01Z'), 'ghCloneRepo')), null);
+  assert.ok(firstDiff(first, parityView(cloneReceipt('2026-10-30T11:00:01Z', 'b'.repeat(40)), 'ghCloneRepo')));
+  assert.ok(firstDiff(parityView(cloneTimingEvidence('a'), 'localFetch'), parityView(cloneTimingEvidence('b'), 'localFetch')));
 });
 
 test('advanced calls cannot hide a failure behind a valid payload or a successful transport flag', () => {

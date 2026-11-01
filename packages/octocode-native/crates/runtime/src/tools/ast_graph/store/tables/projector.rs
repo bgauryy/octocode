@@ -57,7 +57,9 @@ impl<'a> Projector<'a> {
     }
 
     pub(super) fn push_file(&mut self, file: &'a str) {
-        let id = self.nodes.len() as u32;
+        // Node ids are `u32` columns: a table past its `u32` ids saturates here and the publication preflight
+        // (`validate_counts`) refuses it, so no wrapped id is ever published.
+        let id = crate::num::u32_of_usize(self.nodes.len());
         let name = file.rsplit('/').next().unwrap_or(file);
         let marks = self.built.facts.get(file).map(|facts| facts.marks);
         let mut flags = file_roles(&self.built.root, file, marks);
@@ -211,7 +213,7 @@ impl<'a> Projector<'a> {
             exports: HashMap::new(),
         };
         for (decl, key) in ordered.iter().zip(&keys) {
-            let id = self.nodes.len() as u32;
+            let id = crate::num::u32_of_usize(self.nodes.len());
             let flags = if decl.exported { FLAG_EXPORTED } else { 0 }
                 | if is_test_decl(decl) { FLAG_TEST } else { 0 }
                 | if facts.reference_counts.get(&decl.id).is_some_and(|n| *n > 0) {

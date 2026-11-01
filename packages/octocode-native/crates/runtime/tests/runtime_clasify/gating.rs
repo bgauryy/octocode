@@ -1,4 +1,4 @@
-//! Whether clasify is offered: key gating and provider readiness, and inputs rejected at validation before any work.
+//! Whether clasify is offered: MCP key gating and invocation prerequisites, and inputs rejected at validation before any work.
 
 use super::{content_row, noul, provider};
 use crate::support::{Run as _, Workspace, clasify_runtime, provider_env};
@@ -9,7 +9,23 @@ use serde_json::json;
 async fn retired_jev_vendor_key_does_not_enable_clasify() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("OCTOCODE_JEV_KEY", "jev-native-secret".into())]);
-    assert!(!runtime.is_available("clasify"));
+    assert!(runtime.is_available("clasify"));
+    let response = runtime
+        .run_mcp(
+            "retired-key".into(),
+            "clasify".into(),
+            json!({"queries":[{"operation":"models"}]}),
+        )
+        .await
+        .expect("MCP response");
+    assert_eq!(
+        response["structuredContent"]["errorCode"], "toolUnavailable",
+        "{response}"
+    );
+    assert!(
+        response.to_string().contains("OCTOCODE_CLASSIFICATION_API"),
+        "{response}"
+    );
     runtime.close().await;
 }
 
@@ -34,7 +50,19 @@ async fn public_clasify_requires_a_nonblank_key_regardless_of_beta() {
         ),
     ] {
         let runtime = workspace.runtime(&env);
-        assert!(!runtime.is_available("clasify"), "{env:?}");
+        assert!(runtime.is_available("clasify"), "CLI discovery: {env:?}");
+        let refused = runtime
+            .run_mcp(
+                "mcp-missing-key".into(),
+                "clasify".into(),
+                json!({"queries":[{"operation":"models"}]}),
+            )
+            .await
+            .expect("MCP refusal");
+        assert_eq!(
+            refused["structuredContent"]["errorCode"], "toolUnavailable",
+            "{refused}"
+        );
         let error = runtime
             .run(
                 "missing-gate".into(),
@@ -62,10 +90,14 @@ async fn configuration_resolution_does_not_contact_the_provider() {
 async fn a_disabled_reader_is_rejected_at_validation_before_any_work() {
     let server = provider(0).await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&provider_env(
+    let mut input = workspace.config(&provider_env(
         &server,
         &[("DISABLE_TOOLS", "localFetch".into())],
     ));
+    input.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;
+    let runtime =
+        octocode_native::runtime::ToolRuntime::with_limits(input, crate::support::FIXTURE_LIMITS)
+            .expect("MCP runtime");
     let error = runtime
         .run(
             "disabled-reader".into(),
@@ -108,4 +140,47 @@ async fn removed_matrix_input_is_rejected_not_converted() {
         assert_eq!(error.code, ErrorCode::InvalidInput, "{legacy}");
     }
     runtime.close().await;
+}
+
+async fn cli_host_mcp_rejects_disabled_source(setting: (&str, String)) {
+    let setting_name = setting.0;
+    let server = wiremock::MockServer::start().await;
+    let workspace = Workspace::new();
+    let source = workspace.write("source.rs", "fn source() {}\n");
+    let runtime = workspace.runtime(&provider_env(&server, &[setting]));
+    assert!(
+        runtime.is_available("localFetch"),
+        "CLI keeps reader available"
+    );
+    assert!(runtime.is_available("clasify"));
+    let response = runtime.run_mcp(
+        "mcp-disabled-source".into(), "clasify".into(),
+        json!({"queries":[{"operation":"evaluate","source":{"tool":"localFetch","query":{"path":source}},
+            "questions":{"q":noul("Does this source declare a function?")}}]}),
+    ).await.expect("MCP response");
+    runtime.close().await;
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "MCP reader restriction must reject before provider work: {response}"
+    );
+    assert_eq!(
+        response["structuredContent"]["errorCode"], "invalidInput",
+        "{response}"
+    );
+    let error = response["structuredContent"]["error"]
+        .as_str()
+        .expect("public error");
+    assert!(error.contains("queries.0.source"), "{response}");
+    assert!(error.contains("localFetch"), "{response}");
+    assert!(error.contains(setting_name), "{response}");
+}
+
+#[tokio::test]
+async fn cli_host_mcp_clasify_cannot_bypass_local_disabled_source() {
+    cli_host_mcp_rejects_disabled_source(("OCTOCODE_ENABLE_LOCAL", "false".into())).await;
+}
+
+#[tokio::test]
+async fn cli_host_mcp_clasify_cannot_bypass_disabled_source_tool() {
+    cli_host_mcp_rejects_disabled_source(("DISABLE_TOOLS", "localFetch".into())).await;
 }

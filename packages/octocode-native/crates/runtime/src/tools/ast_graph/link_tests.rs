@@ -1,5 +1,5 @@
-//! Linking across languages, asked the way a caller asks: `graph ingest`
-//! a fixture, then `graph query` its edges, cycles and import tallies.
+//! Linking across languages, asked the way a caller asks: build a fixture
+//! snapshot, then query its edges, cycles and import tallies.
 use super::test_support::*;
 use crate::tools::test_support::Fixture;
 use serde_json::{Value, json};
@@ -18,6 +18,7 @@ mod languages;
 mod python;
 mod rust;
 mod rust_idioms;
+mod rust_receivers;
 mod scala;
 mod scala_idioms;
 mod scala_scope;
@@ -46,7 +47,7 @@ fn call_rows(root: &Path, op: &str, node: &str) -> Vec<(String, String, String)>
         o.confidence = Some("low".into());
     });
     assert_eq!(out.get("error"), None, "{out}");
-    let mut rows = out["results"]
+    let mut rows = out["rows"]
         .as_array()
         .into_iter()
         .flatten()

@@ -29,10 +29,7 @@ pub(super) fn note_skipped(
     }
     let outlined = octocode_engine::signatures::graph_facts::graph_fact_extensions();
     let filter = ast_search_query_symbols::name_filter(q);
-    let budget = ast_search_query_symbols::max_files(q)
-        .map_or_else(octocode_engine::scan_budget::walk_ceiling, |files| {
-            files as usize
-        });
+    let budget = usize::MAX;
     let exclude = ast_search_query_symbols::exclude(q).unwrap_or_default();
     let discovery = paths.discovery_walk();
     let permits = |path: &std::path::Path| discovery.permits(path);

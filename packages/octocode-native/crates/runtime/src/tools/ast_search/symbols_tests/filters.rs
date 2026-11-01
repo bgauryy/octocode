@@ -125,3 +125,23 @@ fn a_name_search_finds_a_body_less_trait_method() {
         "{out}"
     );
 }
+
+/// `parser` names one file's grammar: a directory reads each file by
+/// `parserGlobs`, else its extension, and says it did not apply `parser`
+/// instead of accepting it silently.
+#[test]
+fn a_directory_outline_says_it_did_not_apply_parser() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.ts"), "export function a() {}\n").expect("ts");
+    std::fs::write(root.0.join("b.rs"), "pub fn b() {}\n").expect("rs");
+    let out = empty_outline(&root.0, json!({"parser":"rust"}));
+    let notes = out["notices"].to_string();
+    assert!(
+        notes.contains("parser \\\"rust\\\" applies to one file"),
+        "{out}"
+    );
+    let file = empty_outline(&root.0.join("b.rs"), json!({"parser":"rust"}));
+    assert!(file.get("notices").is_none(), "{file}");
+    let plain = empty_outline(&root.0, json!({}));
+    assert!(plain.get("notices").is_none(), "{plain}");
+}

@@ -59,7 +59,7 @@ super::listing::listing_fields!(StructureSearchQueryFiles {
             recursive: Some(true),
             max_depth: depth(self.max_depth),
             min_depth: depth(self.min_depth),
-            ignore: octocode_engine::search::walk::IgnorePolicy::new(
+            ignore: octocode_engine::types::IgnorePolicy::new(
                 self.include_ignored,
                 self.include_hidden,
             ),
@@ -81,6 +81,9 @@ super::listing::listing_fields!(StructureSearchQueryFiles {
             exclude: non_empty(&self.exclude),
             ..Default::default()
         }
+    }
+    fn test_code(&self) -> Option<octocode_contract_types::TestCode> {
+        self.test_code
     }
     fn broadening(&self) -> Self {
         self.clone()

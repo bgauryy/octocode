@@ -48,7 +48,7 @@ fn full_catalog_serves_the_core_instructions_then_the_cli_notes() {
         assert!(text.starts_with(shared), "{off:?}: {text}");
         assert!(
             text.ends_with(
-                "<cli>CLI only: ghCloneRepo. Graph tools also use MCP when OCTOCODE_BETA=true. Fields: schema <name> --view query. A next.* page still exits 0.</cli>"
+                "<cli>All tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE, clasify needs OCTOCODE_CLASSIFICATION_API. Fields: schema <name> --view query. A next.* page still exits 0.</cli>"
             ),
             "{text}"
         );
@@ -141,4 +141,19 @@ fn lsp_search_names_its_servers_at_the_end_of_when() {
         super::with_lsp_servers("<when>Resolve symbols.</when><workflow>x</workflow>", &[]),
         "<when>Resolve symbols. No language server found.</when><workflow>x</workflow>"
     );
+}
+
+/// `schema <tool>` states the input contract once: the query fields, never
+/// a second copy of them inside the call envelope (`--help` documents the
+/// envelope, `{"queries":[…]}` or `{"cursor":"…"}`).
+#[test]
+fn a_tool_schema_states_its_query_fields_once() {
+    let machine = machine(&[]);
+    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    for tool in presentation["tools"].as_array().expect("tools") {
+        let name = tool["name"].as_str().expect("name");
+        let value = tool_view(&machine, name, None, None).expect("tool schema");
+        assert!(value["querySchema"].is_object(), "{name}");
+        assert!(value.get("inputSchema").is_none(), "{name}: {value}");
+    }
 }

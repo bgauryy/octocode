@@ -168,6 +168,8 @@ fn flatten_symbols(
             owner: None,
             doc_line: None,
             prototype: false,
+            return_type: None,
+            try_type: None,
         });
         if let Some(parent_id) = parent {
             edges.push(GraphFactEdge {
@@ -199,7 +201,7 @@ pub(super) fn symbol_kind_name(kind: u8) -> &'static str {
     if kind == TYPE_ALIAS_KIND {
         return "type";
     }
-    crate::lsp::symbol_kind::name(u64::from(kind))
+    crate::symbol_kind::name(u64::from(kind))
         .filter(|name| crate::signatures::DECLARATION_KINDS.contains(name))
         .unwrap_or("symbol")
 }

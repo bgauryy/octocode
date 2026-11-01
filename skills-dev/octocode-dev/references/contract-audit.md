@@ -8,14 +8,14 @@ Load when judging a tool's input schema, descriptions, MCP/CLI instructions, con
 - Every `maximum`/`maxItems` maps to a runtime or provider limit. A bound the runtime never hits is noise; a runtime cap with no schema bound is a silent clamp.
 - Discriminators (`operation`, `type`, …) reject cross-variant fields. A field valid in one branch must not appear in the shared shape.
 - Required vs optional matches what execution needs; anything the runtime infers stays optional.
-- Names match the domain and sibling tools (`path`, `pageSize`, `page`, `matchPage`). Flag one-off spellings.
+- Names match the domain and sibling tools (`path`, `limit`, `cursor`, `responseChars`). Flag one-off spellings.
 
 ## Descriptions and instructions
 - The description is `<when>…</when><workflow>…</workflow>`: `<when>` names the triggers and when a sibling fits better; `<workflow>` says which outputs feed it, where results go, and what an empty result means. No `next.*` names.
 - A field description adds what the name cannot: unit, default effect, interaction. Delete descriptions that restate the name; add one only where the inventory flags an ambiguous undescribed field.
 - No claim the implementation cannot back (languages, views, limits). Verify each against code or a live call.
 - Instructions are one core string (`MCP_INSTRUCTIONS`); the native CLI appends its own `<cli>` notes. Flag tool guidance hand-written in `packages/octocode-mcp` or `packages/octocode`.
-- Each sentence changes an agent decision. Keep a rule at its narrowest owner, not in both instructions and descriptions. Rewrites go through `octocode-agentic-prompts`; measure context cost with core `agentContextBudgets.test.ts`.
+- Each sentence changes an agent decision. Keep a rule at its narrowest owner, not in both instructions and descriptions. Rewrites go through `octocode-agentic-prompts`; measure context cost with core `publishedSurfaceBudget.test.ts`.
 
 ## Config and docs
 Config source of truth: `packages/octocode-config/config-contract.json`; contributor rules: `docs/ADDING_CONFIG.md`.

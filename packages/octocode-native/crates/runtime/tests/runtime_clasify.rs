@@ -9,6 +9,7 @@ use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 mod failures;
 mod gating;
 mod judgments;
+mod pages;
 mod readiness;
 mod sources;
 

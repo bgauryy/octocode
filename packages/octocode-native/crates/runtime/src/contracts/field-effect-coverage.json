@@ -472,7 +472,7 @@
         "contextLines.before": [
           "view"
         ],
-        "forceRefresh": [
+        "refresh": [
           "execution"
         ],
         "matchString": [
@@ -918,15 +918,12 @@
     },
     "ghCloneRepo": {
       "evidence": [
-        "src/tools/gh_clone_repo/tests/caching.rs",
+        "src/tools/gh_clone_repo/tests/replacement.rs",
         "src/tools/gh_clone_repo/tests/sparse.rs",
         "src/tools/gh_clone_repo/tests/rows.rs",
-        "src/tools/gh_clone_repo/cache/tests.rs"
+        "src/tools/gh_clone_repo/storage/tests.rs"
       ],
       "fields": {
-        "forceRefresh": [
-          "execution"
-        ],
         "historyDepth": [
           "execution"
         ],
@@ -1061,7 +1058,7 @@
         "src/tools/structure_search/tests/pages.rs",
         "src/tools/structure_search/tests/read_leads.rs",
         "src/tools/structure_search/tests/skips.rs",
-        "src/tools/structure_search/tests/walk_ceiling.rs",
+        "src/tools/structure_search/tests/walk_windows.rs",
         "src/tools/structure_search/tests/scans.rs",
         "src/tools/structure_search/tests/summaries.rs",
         "src/tools/structure_search/tests/probes.rs",
@@ -1108,7 +1105,7 @@
         "maxDepth": [
           "filter"
         ],
-        "maxEntries": [
+        "limit": [
           "filter"
         ],
         "minDepth": [
@@ -1201,9 +1198,6 @@
           "navigation"
         ],
         "maxDepth": [
-          "filter"
-        ],
-        "maxFiles": [
           "filter"
         ],
         "namedOnly": [
@@ -1464,6 +1458,7 @@
         "src/tools/lsp_search/tests/server_context.rs",
         "src/tools/lsp_search/tests/servers.rs",
         "src/tools/lsp_search/tests/sources.rs",
+        "src/tools/lsp_search/tests/test_code.rs",
         "src/tools/lsp_search/tests/unresolved_anchors.rs",
         "tests/runtime_local/lsp_ast.rs"
       ],
@@ -1477,7 +1472,7 @@
         "contextLines.before": [
           "view"
         ],
-        "graphDepth": [
+        "depth": [
           "view"
         ],
         "includeDeclaration": [
@@ -1522,6 +1517,9 @@
         "symbolQuery": [
           "navigation"
         ],
+        "testCode": [
+          "filter"
+        ],
         "view": [
           "view"
         ],
@@ -1544,10 +1542,7 @@
         "exclude": [
           "filter"
         ],
-        "maxFiles": [
-          "filter"
-        ],
-        "force": [
+        "refresh": [
           "execution"
         ],
         "parserGlobs": [

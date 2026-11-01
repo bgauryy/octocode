@@ -20,7 +20,7 @@ fn reexport_callers_keep_high_confidence_across_aliases_and_stars() {
         o.confidence = Some("high".into());
     });
     assert_eq!(ids(&out), vec!["use.ts#run"], "{}", out.value);
-    assert_eq!(out.value["results"][0]["confidence"], "high");
+    assert_eq!(out.value["rows"][0]["confidence"], "high");
     assert_eq!(out.value["confidence"], "high");
 }
 

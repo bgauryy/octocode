@@ -58,7 +58,7 @@ impl Attempts<'_> {
             }
             Failure::Secondary { wait } => {
                 *self.failed = Some(CircuitCause::Secondary);
-                let cooldown_end = now_ms().saturating_add(wait.as_millis() as u64);
+                let cooldown_end = now_ms().saturating_add(crate::budget::millis(wait));
                 self.state.cool_down(cooldown_end);
                 error.kind = ProviderErrorKind::RateLimited;
                 error.retryable = true;

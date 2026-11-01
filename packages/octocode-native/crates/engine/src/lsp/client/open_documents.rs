@@ -3,8 +3,10 @@
 
 use super::snippets::read_bounded_regular_file;
 use crate::stamp::SourceStamp;
-use std::collections::{HashMap, VecDeque};
+use serde_json::Value;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
+use std::sync::Arc;
 
 /// Upper bound on documents kept in the `didOpen` lifecycle at once. Without a
 /// cap, `open_docs` (and the server-side document set it mirrors) grows
@@ -97,6 +99,13 @@ pub(super) struct OpenDocuments {
     versions: HashMap<String, i32>,
     /// What the last successful sync sent, per URI.
     synced: HashMap<String, Synced>,
+    /// The last full pull-diagnostic report with a `resultId`, per URI:
+    /// the next request names it, and an `unchanged` answer returns it.
+    diagnostics: HashMap<String, Arc<Value>>,
+    /// Open documents whose open a caller already waited after (see
+    /// [`NativeLspClient::open_document_and_wait`]); one opened without the
+    /// wait still owes it.
+    waited: HashSet<String>,
     /// Recency order, least-recently-synced at the front.
     lru: VecDeque<String>,
     cap: usize,
@@ -107,6 +116,8 @@ impl OpenDocuments {
         Self {
             versions: HashMap::new(),
             synced: HashMap::new(),
+            diagnostics: HashMap::new(),
+            waited: HashSet::new(),
             lru: VecDeque::new(),
             cap: cap.max(1),
         }
@@ -115,6 +126,8 @@ impl OpenDocuments {
     pub(super) fn clear(&mut self) {
         self.versions.clear();
         self.synced.clear();
+        self.diagnostics.clear();
+        self.waited.clear();
         self.lru.clear();
     }
 
@@ -162,6 +175,8 @@ impl OpenDocuments {
             }
             self.versions.remove(&candidate);
             self.synced.remove(&candidate);
+            self.diagnostics.remove(&candidate);
+            self.waited.remove(&candidate);
             return Some(candidate);
         }
         None
@@ -176,6 +191,8 @@ impl OpenDocuments {
         }
         if applied_version <= 1 {
             self.versions.remove(uri);
+            self.diagnostics.remove(uri);
+            self.waited.remove(uri);
             self.lru.retain(|candidate| candidate != uri);
         } else {
             self.versions.insert(uri.to_owned(), applied_version - 1);
@@ -230,7 +247,34 @@ impl OpenDocuments {
     /// Drop `uri` from the open set; `true` when it was open.
     pub(super) fn forget(&mut self, uri: &str) -> bool {
         self.synced.remove(uri);
+        self.diagnostics.remove(uri);
+        self.waited.remove(uri);
         self.lru.retain(|candidate| candidate != uri);
         self.versions.remove(uri).is_some()
+    }
+
+    /// Whether `uri` is open and no caller has waited after its open yet.
+    pub(super) fn wait_owed(&self, uri: &str) -> bool {
+        self.versions.contains_key(uri) && !self.waited.contains(uri)
+    }
+
+    /// A caller waited after `uri`'s open (kept only while it is open).
+    pub(super) fn mark_waited(&mut self, uri: &str) {
+        if self.versions.contains_key(uri) {
+            self.waited.insert(uri.to_owned());
+        }
+    }
+
+    /// The last full diagnostic report remembered for `uri`.
+    pub(super) fn diagnostic_report(&self, uri: &str) -> Option<Arc<Value>> {
+        self.diagnostics.get(uri).cloned()
+    }
+
+    /// Remember `report` for `uri` while it is open (a closed document's
+    /// report is not kept).
+    pub(super) fn remember_diagnostic_report(&mut self, uri: &str, report: Arc<Value>) {
+        if self.versions.contains_key(uri) {
+            self.diagnostics.insert(uri.to_owned(), report);
+        }
     }
 }

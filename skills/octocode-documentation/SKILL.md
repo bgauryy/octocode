@@ -1,6 +1,6 @@
 ---
 name: octocode-documentation
-description: "Load this skill first whenever you write, rewrite or review a README, guide, tutorial, runbook, ADR, docstring or code comment, even a short one; good for verifying claims against code."
+description: "Write, revise or review READMEs, guides, tutorials, runbooks, ADRs for settled decisions, docstrings and code comments. Verify technical claims against their owning source and keep documentation useful to its reader."
 ---
 
 # Octocode Documentation

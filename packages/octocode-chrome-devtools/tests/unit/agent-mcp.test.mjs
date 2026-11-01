@@ -83,13 +83,21 @@ test('MCP-to-CLI discovery and success retain structure; MCP failures retain evi
     assert.equal(ok, 0);
     assert(JSON.parse(output.join('')).structuredContent.ok);
     assert.equal(errors.length, 0);
-    const failure = await client.callTool({
+    // The typed plan refuses an empty plan before the engine runs.
+    const refused = await client.callTool({
       name: 'run',
       arguments: { plan: { steps: [] } },
     });
+    assert.equal(refused.isError, true);
+    assert.match(refused.content[0].text, /steps/);
+    // A typed plan the executor rejects keeps the engine's evidence.
+    const failure = await client.callTool({
+      name: 'run',
+      arguments: { plan: { steps: [{ op: 'waitEvent', listener: 'none' }] } },
+    });
     assert.equal(failure.isError, true);
     assert.equal(data(failure).exitCode, 2);
-    assert.match(data(failure).error, /non-empty steps/);
+    assert.match(data(failure).error, /earlier listener/);
   }));
 test('large MCP output is bounded and its continuation reconstructs every byte', async () =>
   fixture(async ({ client }) => {

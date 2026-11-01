@@ -148,30 +148,18 @@ impl Graph {
         }
     }
 
-    /// The snapshot every answer names. A scan cut (the `maxFiles` bound,
-    /// files skipped as unreadable or oversized) leaves every answer
-    /// partial: `partialReasons` names the cuts, and `reingest` the widened
-    /// ingest that lifts a file-scan cut (the other it cannot). A snapshot
-    /// bound is no cut: a build past one is refused, never published.
+    /// The snapshot every answer names. Files the scan skipped as
+    /// unreadable or oversized leave every answer partial: `partialReasons`
+    /// names the cut. A snapshot bound is no cut: a build past one is
+    /// refused, never published.
     pub(super) fn summary(&self) -> Value {
         let mut out = json!({"id": self.id, "root": self.manifest["root"], "createdAt": self.manifest["createdAt"]});
-        let scan = &self.manifest["scan"];
-        let truncated = scan["truncated"] == true;
-        let reasons = [
-            (truncated, "maxFiles"),
-            (
-                scan["filesSkipped"].as_u64().unwrap_or(0) > 0,
-                "filesSkipped",
-            ),
-        ]
-        .into_iter()
-        .filter_map(|(cut, reason)| cut.then_some(reason))
-        .collect::<Vec<_>>();
-        if !reasons.is_empty() {
-            out["partialReasons"] = json!(reasons);
-        }
-        if truncated {
-            out["reingest"] = json!(reingest_command(&self.manifest));
+        if self.manifest["scan"]["filesSkipped"].as_u64().unwrap_or(0) > 0 {
+            crate::response::paging::mark_partial(
+                &mut out,
+                crate::response::paging::PartialReason::FilesSkipped,
+                &[],
+            );
         }
         out
     }

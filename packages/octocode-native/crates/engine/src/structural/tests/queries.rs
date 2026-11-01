@@ -155,7 +155,7 @@ fn structural_review_rule_prefilter_preserves_directory_recall() {
             exclude: None,
             exclude_dir: None,
             default_exclude_dir: None,
-            ignore: crate::search::walk::IgnorePolicy::default(),
+            ignore: crate::types::IgnorePolicy::default(),
             max_depth: None,
             max_files: None,
             skip_files: None,

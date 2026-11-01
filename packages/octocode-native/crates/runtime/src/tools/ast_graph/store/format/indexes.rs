@@ -6,6 +6,24 @@ impl GraphTables {
         self.strings.get(id as usize).map_or("", String::as_str)
     }
 
+    /// Node ids in table order. Ids are `u32` columns; the reader's item
+    /// limit and the publication preflight keep every table within them.
+    pub(crate) fn node_ids(&self) -> impl Iterator<Item = u32> + use<> {
+        (0..=u32::MAX).take(self.nodes.len())
+    }
+
+    /// The node table's length: the exclusive bound of its `u32` ids.
+    pub(crate) fn node_bound(&self) -> Result<u32, String> {
+        u32::try_from(self.nodes.len())
+            .map_err(|_| "graph node table exceeds its u32 id space".into())
+    }
+
+    /// The string dictionary's length: the exclusive bound of its `u32` ids.
+    pub(crate) fn string_bound(&self) -> Result<u32, String> {
+        u32::try_from(self.strings.len())
+            .map_err(|_| "graph string dictionary exceeds its u32 id space".into())
+    }
+
     /// Recorded source stamps by file node.
     pub(crate) fn stamps_by_node(&self) -> HashMap<u32, octocode_engine::stamp::SourceStamp> {
         self.stamps.iter().copied().collect()
@@ -35,16 +53,17 @@ impl GraphTables {
         self.in_edges = vec![0; self.edges.len()];
         // Edges are sorted by src, so each node's incoming list is sorted by
         // (src, kind) as well: deterministic without a second sort.
-        for (index, edge) in self.edges.iter().enumerate() {
+        // Edge ids are `u32` columns; the publication preflight keeps every
+        // table within them, so the id range is never cut short.
+        for (index, edge) in (0..=u32::MAX).zip(&self.edges) {
             let slot = &mut cursor[edge.dst as usize];
-            self.in_edges[*slot as usize] = index as u32;
+            self.in_edges[*slot as usize] = index;
             *slot += 1;
         }
     }
 
     fn index_lookups(&mut self) {
-        let n = self.nodes.len();
-        let mut keys = (0..n as u32).collect::<Vec<_>>();
+        let mut keys = self.node_ids().collect::<Vec<_>>();
         keys.sort_by(|a, b| {
             self.str(self.nodes[*a as usize].key)
                 .cmp(self.str(self.nodes[*b as usize].key))
@@ -55,7 +74,7 @@ impl GraphTables {
             .iter()
             .map(|node| self.str(node.name).to_lowercase())
             .collect::<Vec<_>>();
-        let mut names = (0..n as u32).collect::<Vec<_>>();
+        let mut names = self.node_ids().collect::<Vec<_>>();
         names.sort_by(|a, b| lower[*a as usize].cmp(&lower[*b as usize]).then(a.cmp(b)));
         self.name_index = names;
     }

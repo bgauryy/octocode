@@ -7,7 +7,6 @@ fn context() -> ExecutionContext {
     ExecutionContext {
         cancellation: CancellationToken::new(),
         deadline: Instant::now() + Duration::from_secs(30),
-        walk_threads: None,
         response_window: None,
         github_credential: None,
     }

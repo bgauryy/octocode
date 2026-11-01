@@ -9,6 +9,8 @@ mod calls;
 pub(crate) mod extractor;
 pub mod graph_facts;
 pub(crate) mod js_oxc;
+pub use js_oxc::call_sites::{EnclosingCallable, ReferenceSite, reference_sites};
+pub(crate) mod node_kinds;
 mod nodes;
 mod visibility;
 
@@ -32,8 +34,14 @@ pub(crate) mod receiver_fields;
 /// decorator calls and `TYPE_CHECKING` imports; JS chained receivers and
 /// object-literal members; C# local functions; Scala `new` constructions.
 /// v13: missing argument names remain unsupported observations, without
-/// manufacturing references to an empty target.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 13;
+/// manufacturing references to an empty target. v14: JS/TS private-method
+/// calls (`this.#m()`, `this?.#m()`) are call sites. v15: each file is
+/// extracted to completion; no per-file clock cuts facts. v16: Rust
+/// declared return types, receiver-call references, and block-level and
+/// file-level `static`/`const` receiver types. v17: TS/JS receivers
+/// destructured from a call to the file's own function take the types of
+/// the object it returns (`const { s } = make()`).
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 17;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking
@@ -41,7 +49,8 @@ pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 13;
 pub const TYPE_DECLARATION_KINDS: &[&str] =
     &["class", "interface", "struct", "trait", "type", "enum"];
 
-/// An empty native syntax facts document for `file`, parsed as `language`.
+/// An empty native syntax facts document for `file`, parsed as `language`
+/// by oxc.
 #[expect(
     clippy::expect_used,
     reason = "OXC admission rejects input above MAX_PARSE_SIZE before this private constructor"
@@ -51,19 +60,34 @@ fn native_graph_facts(
     file: &str,
     content: &str,
 ) -> crate::graph::GraphFactsDocument {
+    let source_templates = crate::text::analysis::SourceTemplates::new(
+        content,
+        crate::text::analysis::Producer::new(format!("oxc-facts:{language}"), "6"),
+        crate::text::analysis::AnalysisOperation::GraphFacts,
+    )
+    .expect("parser input is bounded to MAX_PARSE_SIZE");
+    graph_facts_document(language, file, source_templates)
+}
+
+/// An empty facts document for `file` whose source correspondence is
+/// `source_templates`: the source digest is the one those templates hashed,
+/// so each extraction hashes its source once.
+fn graph_facts_document(
+    language: String,
+    file: &str,
+    source_templates: crate::text::analysis::SourceTemplates,
+) -> crate::graph::GraphFactsDocument {
     crate::graph::GraphFactsDocument {
         kind: "graphFacts".to_owned(),
         schema_version: GRAPH_FACTS_SCHEMA_VERSION,
         source: "native-ast".to_owned(),
-        source_templates: crate::text::analysis::SourceTemplates::new(
-            content,
-            crate::text::analysis::Producer::new(format!("oxc-facts:{language}"), "6"),
-            crate::text::analysis::AnalysisOperation::GraphFacts,
-        )
-        .expect("parser input is bounded to MAX_PARSE_SIZE"),
+        source_digest: source_templates
+            .root_digest()
+            .unwrap_or_default()
+            .to_owned(),
+        source_templates,
         language,
         file: file.to_owned(),
-        source_digest: crate::digest::sha256(content.as_bytes()),
         ..Default::default()
     }
 }
@@ -72,7 +96,7 @@ pub(crate) struct GraphFactsExtraction {
     pub facts: crate::graph::GraphFactsDocument,
     /// One syntax-aware value-reference count per declaration id, so the
     /// dead-code analysis can tell value escapes from declarations and calls.
-    pub reference_counts: Vec<crate::types::GraphReferenceCount>,
+    pub reference_counts: Vec<crate::graph::GraphReferenceCount>,
 }
 
 pub(crate) fn extract_graph_facts_with_metadata_inner(
@@ -150,7 +174,7 @@ pub fn extract_declarations_document_with_extension(
             content,
             file_path,
             extension,
-            std::time::Instant::now() + extractor::AST_EXECUTION_TIMEOUT,
+            extractor::whole_file_deadline(),
             true,
         )
     }))
@@ -187,7 +211,8 @@ fn signatures_with_declarations(
     if content.len() > MAX_PARSE_SIZE {
         return (Err(OutlineUnavailable::TooLarge), None);
     }
-    if let Some(mut declarations) = js_oxc::extract_declarations(content, file_path) {
+    // Already on the deep stack: oxc parses in place, without another copy.
+    if let Some(mut declarations) = js_oxc::extract_declarations_in_place(content, file_path) {
         if let Some(unit) = declarations.source_templates.units.first_mut() {
             unit.operation = crate::text::analysis::AnalysisOperation::Declarations;
         }
@@ -200,8 +225,8 @@ fn signatures_with_declarations(
         let ext = extension_of(file_path, true, "txt");
         let grammar = crate::text::file_extension::grammar_extension(content, &ext);
         let entry = languages::find_entry(grammar).ok_or(OutlineUnavailable::UnsupportedLanguage);
-        // Each reader keeps the deadline it has alone; only the parse is shared.
-        let deadline = || std::time::Instant::now() + extractor::AST_EXECUTION_TIMEOUT;
+        // Each reader reads the whole file; only the parse is shared.
+        let deadline = extractor::whole_file_deadline;
         let tree = entry
             .ok()
             .and_then(|entry| extractor::parse_before(content, &entry.language, deadline()));

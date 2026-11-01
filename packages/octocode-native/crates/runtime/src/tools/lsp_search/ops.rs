@@ -57,15 +57,18 @@ const SCAN_SOURCE: &str = "native-graph-facts";
 
 /// Partial reason of a heritage-scan answer standing in for a server that
 /// did not answer.
-const SERVER_UNANSWERED: &str = "serverUnanswered";
+const SERVER_UNANSWERED: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::ServerUnanswered;
 
 /// Partial reason of a heritage-scan answer missing the files it could not
 /// read.
-const HERITAGE_UNREAD: &str = "heritageUnread";
+const HERITAGE_UNREAD: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::HeritageUnread;
 
 /// Partial reason of a server answer beside which the heritage scan found
 /// declarations the server left out (listed, labelled, unverified).
-const SCAN_ONLY: &str = "scanOnlyImplementations";
+const SCAN_ONLY: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::ScanOnlyImplementations;
 
 /// How `textDocument/implementation` was answered.
 enum Implemented {
@@ -87,7 +90,11 @@ enum Implemented {
 /// the row is partial, and on its last result page `next.nextCandidatePage`
 /// walks the next window of candidates (each window checked exactly once).
 fn mark_more_candidates(row: &mut Value, query: &LspSearchQuery, digest: &str) {
-    crate::response::paging::mark_partial(row, "hierarchyCandidateLimit", &[]);
+    crate::response::paging::mark_partial(
+        row,
+        crate::response::paging::PartialReason::HierarchyCandidateLimit,
+        &[],
+    );
     if row.pointer("/pagination/hasMore").and_then(Value::as_bool) == Some(true) {
         return;
     }
@@ -97,9 +104,7 @@ fn mark_more_candidates(row: &mut Value, query: &LspSearchQuery, digest: &str) {
             .retain(|key, value| !value.is_null() && !matches!(key.as_str(), "page" | "snapshot"));
     }
     let Some(next_candidates) = crate::response::paging::next_page_call(
-        row,
         ToolId::LspSearch,
-        None,
         base,
         "candidatePage",
         crate::num::usize_of(lsp_search_query::candidate_page(query)).saturating_add(1),
@@ -207,6 +212,16 @@ impl<'a> Operation<'a, '_> {
 }
 
 impl Operation<'_, '_> {
+    /// Check the files the text scan found outside the answer for a code
+    /// use of the queried name, off the async workers, before a row counts
+    /// them (`textOnlyFiles`).
+    async fn check_code_uses(&self) -> Result<(), LspFailure> {
+        match lsp_search_query::symbol_name(self.query) {
+            Some(name) => self.scope.check_code_uses(name, self.cancel).await,
+            None => Ok(()),
+        }
+    }
+
     /// The operation's row; an empty answer at a position the server could
     /// not analyze is marked partial with that error (see
     /// `failure::mark_anchor_line_errors`).
@@ -219,7 +234,7 @@ impl Operation<'_, '_> {
         );
         let mut row = self.answer().await?;
         if anchored {
-            let empty = row.get("kind").and_then(Value::as_str) == Some("empty");
+            let empty = row.get("status").and_then(Value::as_str) == Some("empty");
             let diagnostics = anchor_diagnostics(client, path, cancel, empty).await?;
             if empty || diagnostics.is_some() {
                 super::analysis_context::annotate_diagnostics(

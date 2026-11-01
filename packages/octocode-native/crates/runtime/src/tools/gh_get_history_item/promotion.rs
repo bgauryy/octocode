@@ -19,12 +19,16 @@ fn hoist_provider_limit(out: &mut Value, row: &str) {
         .cloned();
     // A provider limit names its reason (the contract requires it).
     let Some((limit, reason)) = limit.and_then(|limit| {
-        let reason = limit.get("reason")?.as_str()?.to_owned();
+        let reason = limit
+            .get("reason")?
+            .as_str()?
+            .parse::<crate::response::paging::PartialReason>()
+            .ok()?;
         Some((limit, reason))
     }) else {
         return;
     };
-    crate::response::paging::terminal_limit(out, &reason, &[]);
+    crate::response::paging::terminal_limit(out, reason, &[]);
     out["providerLimit"] = limit;
 }
 

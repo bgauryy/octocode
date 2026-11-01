@@ -77,7 +77,7 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
         exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
-        ignore: crate::search::walk::IgnorePolicy::default(),
+        ignore: crate::types::IgnorePolicy::default(),
         max_depth: None,
         max_files: Some(10),
         skip_files: None,
@@ -215,9 +215,14 @@ fn every_demand_counts_the_same_matches_and_a_priced_file_rebuilds_them() {
         ..scan_options(&root, 0)
     };
     let scan = |demand| {
-        search_files(options(), demand, &|_| true, &|_| "rs".to_owned(), &|| {
-            false
-        })
+        search_files(
+            options(),
+            demand,
+            &|_| true,
+            &|_| "rs".to_owned(),
+            &|| false,
+            None,
+        )
         .expect("scan")
     };
     let held = scan(StructuralDemand::Matches);
@@ -316,4 +321,37 @@ fn a_rebuild_cut_by_a_limit_is_incomplete_not_changed() {
     }
     let whole = evaluate_source("fn a() {}\n", "a.rs", "rs", Some("fn $N() {}"), None);
     assert!(matches!(files::Rebuilt::of(whole), Rebuilt::Matches(matches) if matches.len() == 1));
+}
+
+/// A line scope keeps only the matches whose start line it admits, under
+/// every demand, and is asked about each match once.
+#[test]
+fn a_line_scope_keeps_admitted_matches_and_counts_the_rest() {
+    let root = TmpDir::new();
+    fs::write(root.join("a.rs"), "fn a() {}\n\nfn b() {}\n").unwrap();
+    let refused = std::sync::atomic::AtomicU32::new(0);
+    let keep = |_: &std::path::Path, line: u32| {
+        let kept = line != 3;
+        if !kept {
+            refused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        kept
+    };
+    for demand in [StructuralDemand::Matches, StructuralDemand::Count] {
+        let result = search_files(
+            StructuralSearchFilesOptions {
+                path: root.to_string_lossy().into_owned(),
+                pattern: Some("fn $N() {}".to_owned()),
+                ..StructuralSearchFilesOptions::default()
+            },
+            demand,
+            &|_| true,
+            &|_| "rs".to_owned(),
+            &|| false,
+            Some(&keep),
+        )
+        .expect("scan");
+        assert_eq!(result.files[0].matches.len(), 1);
+    }
+    assert_eq!(refused.into_inner(), 2);
 }

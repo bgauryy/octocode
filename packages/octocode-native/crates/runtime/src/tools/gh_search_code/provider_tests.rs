@@ -22,6 +22,7 @@ fn paths_of(out: &crate::response::result::ToolData) -> Vec<String> {
 
 mod backed;
 mod empty;
+mod empty_leads;
 mod owner_wide;
 mod pages;
 mod ref_commits;

@@ -7,7 +7,9 @@ import {
   chromePlanExamples,
   chromeInputExamples,
   chromeSessionStore,
-} from '@octocodeai/config/schema';
+  chromeDomActions,
+  chromeRecipeOptionNames,
+} from '@octocodeai/config/chrome';
 import { build } from 'esbuild';
 import {
   readFileSync,
@@ -76,6 +78,8 @@ files.set(
       chromePlanExamples,
       chromeInputExamples,
       chromeSessionStore,
+      chromeDomActions,
+      chromeRecipeOptionNames,
     })
       .map(
         ([name, value]) => `export const ${name} = ${JSON.stringify(value)};`

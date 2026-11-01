@@ -1,6 +1,6 @@
 // BENCHMARK, not a correctness test: run-all runs it only when named (LIVE: calls GitHub).
 // Deterministic competitor harness (beat-rg-gh PLAN): frozen tasks run as
-// an octocode recipe (MCP via the shared client; CLI for CLI-only tools) and
+// an octocode recipe (MCP via the shared client; CLI for `cli` steps) and
 // as the shell recipe an expert agent would run (rg/sed/git/gh/ast-grep/npm).
 // Both sides are judged by the same truth check; calls, measured UTF-8 payload bytes
 // (structuredContent JSON / stdout+stderr) and wall ms are recorded per side.
@@ -40,7 +40,6 @@
 //        RG_BIN                          ripgrep binary (else rg on PATH, else Claude Code's embedded rg)
 import fs from 'node:fs';
 import path from 'node:path';
-import { TOOL_POLICIES } from '@octocodeai/config/schema';
 import { RESULTS, ROOT } from './paths.mjs';
 import { checks, startServer, writeResults } from './mcp-client.mjs';
 import { nativeBinaryStamp } from './native-binary.mjs';
@@ -66,8 +65,6 @@ const { check, summary } = checks('competitors');
 
 // ---------- task runner ----------
 async function runTask(task) {
-  const disabled = (task.octocode ?? []).map(step => step.tool ?? step.cli).find(tool => TOOL_POLICIES[tool]?.disabled);
-  if (disabled) return { status: 'skipped', skipReason: `${disabled} is disabled by the current tool contract; refusal coverage belongs to tool-health` };
   const truth = liveTruth(task);
   if (!truth) return { status: 'skipped', skipReason: 'live truth unavailable' };
   if (task.kind === 'clasify' && process.env.OCTOCODE_COMPETITOR_CLASIFY !== '1') return { status: 'skipped', skipReason: 'paid provider calls (set OCTOCODE_COMPETITOR_CLASIFY=1)' };

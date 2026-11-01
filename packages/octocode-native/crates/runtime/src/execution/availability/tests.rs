@@ -2,15 +2,62 @@ use super::*;
 use crate::config::{ConfigInput, FileInput};
 use std::collections::BTreeMap;
 
-fn availability(env: &[(&str, &str)], surface: RuntimeSurface) -> ToolAvailability {
-    availability_with(env, surface, ToolId::is_disabled)
+#[test]
+fn cli_catalog_keeps_all_tools_when_mcp_settings_and_prerequisites_are_off() {
+    for env in [
+        vec![],
+        vec![
+            ("OCTOCODE_ENABLE_LOCAL", "false"),
+            ("OCTOCODE_BETA", "false"),
+        ],
+        vec![
+            ("TOOLS_TO_RUN", "localFetch"),
+            ("DISABLE_TOOLS", "localFetch,clasify"),
+        ],
+        vec![
+            ("OCTOCODE_STORAGE_MODE", "memory"),
+            ("OCTOCODE_CLASSIFICATION_API", "  "),
+            ("OCTOCODE_ENABLE_CLONE", "false"),
+        ],
+    ] {
+        let tools = availability(&env, RuntimeSurface::Cli);
+        for id in ToolId::ALL {
+            assert!(tools.is_available(id.as_str()), "{id}: {env:?}");
+        }
+    }
 }
 
-fn availability_with(
-    env: &[(&str, &str)],
-    surface: RuntimeSurface,
-    disabled: impl Fn(ToolId) -> bool,
-) -> ToolAvailability {
+#[test]
+fn mcp_clone_opt_in_is_independent_of_beta_key_and_storage() {
+    for enabled in ["false", "true"] {
+        for beta in ["false", "true"] {
+            for storage in ["memory", "persistent"] {
+                let tools = availability(
+                    &[
+                        ("OCTOCODE_ENABLE_CLONE", enabled),
+                        ("OCTOCODE_BETA", beta),
+                        ("OCTOCODE_STORAGE_MODE", storage),
+                        ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
+                    ],
+                    RuntimeSurface::Mcp,
+                );
+                assert_eq!(
+                    tools.is_available("ghCloneRepo"),
+                    enabled == "true",
+                    "{enabled} {beta} {storage}"
+                );
+                if enabled == "false" {
+                    assert_eq!(
+                        tools.get("ghCloneRepo").unwrap().env_vars(),
+                        ["OCTOCODE_ENABLE_CLONE"]
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn availability(env: &[(&str, &str)], surface: RuntimeSurface) -> ToolAvailability {
     let home = std::path::PathBuf::from("/synthetic/home");
     let mut vars: BTreeMap<String, String> = env
         .iter()
@@ -35,54 +82,7 @@ fn availability_with(
         },
         runtime_surface: surface,
     };
-    ToolAvailability::resolve_with(&crate::config::resolve_config(&input), surface, disabled)
-}
-
-/// A tool the contract parks is off on every surface, whatever the
-/// beta gate, local switch, or tool list says, and names why.
-#[test]
-fn a_disabled_tool_is_off_on_every_surface_whatever_the_configuration() {
-    let parked = |id: ToolId| id == ToolId::AstSearch;
-    for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
-        let tools = availability_with(
-            &[
-                ("OCTOCODE_BETA", "true"),
-                ("TOOLS_TO_RUN", "astSearch,localSearch"),
-            ],
-            surface,
-            parked,
-        );
-        let search = tools.get("astSearch").expect("known");
-        assert_eq!(search, &Availability::Disabled, "{surface:?}");
-        assert!(!tools.is_available("astSearch"));
-        assert!(!tools.available().contains(&"astSearch"));
-        assert_eq!(search.reason_code(), Some("disabled"));
-        assert_eq!(search.reason_text(), "it is disabled in this build.");
-        assert!(search.env_vars().is_empty());
-        assert!(!search.needs_opt_in());
-        assert!(tools.is_available("localSearch"));
-    }
-}
-
-/// The generated policy and the contract agree tool by tool.
-#[test]
-fn the_generated_disabled_policy_follows_the_contract() {
-    for id in ToolId::ALL {
-        let tool = crate::contracts::tool_contract(id).expect("tool contract");
-        assert_eq!(
-            id.is_disabled(),
-            tool.get("disabled").and_then(serde_json::Value::as_bool) == Some(true),
-            "{id}"
-        );
-        if id.is_disabled() {
-            let tools = availability(&[("OCTOCODE_BETA", "true")], RuntimeSurface::Cli);
-            assert_eq!(
-                tools.get(id.as_str()),
-                Some(&Availability::Disabled),
-                "{id}"
-            );
-        }
-    }
+    ToolAvailability::resolve(&crate::config::resolve_config(&input), surface)
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn each_tool_has_one_reason_with_its_variables() {
             ("OCTOCODE_ENABLE_LOCAL", "false"),
             ("DISABLE_TOOLS", "ghSearchRepo"),
         ],
-        RuntimeSurface::Cli,
+        RuntimeSurface::Mcp,
     );
     let local = cli.get("localSearch").expect("known");
     assert_eq!(local.reason_code(), Some("missingConfiguration"));
@@ -110,7 +110,6 @@ fn each_tool_has_one_reason_with_its_variables() {
     assert_eq!(listed.env_vars(), ["DISABLE_TOOLS"]);
     let clasify = cli.get("clasify").expect("known");
     assert_eq!(clasify.env_vars(), ["OCTOCODE_CLASSIFICATION_API"]);
-    assert!(clasify.needs_opt_in());
     assert!(cli.get("noSuchTool").is_none());
     assert!(!cli.is_available("noSuchTool"));
 }
@@ -129,15 +128,15 @@ fn the_tool_list_outranks_the_surface_and_settings() {
         Some("tools.enabled (TOOLS_TO_RUN) does not list it.")
     );
     let all = availability(&[], RuntimeSurface::Mcp);
-    assert_eq!(all.get("ghCloneRepo"), Some(&Availability::CliOnly));
+    assert_eq!(
+        all.get("ghCloneRepo").unwrap().env_vars(),
+        ["OCTOCODE_ENABLE_CLONE"]
+    );
     assert!(!all.is_available("ghCloneRepo"));
     let cli = availability(&[], RuntimeSurface::Cli);
     assert!(cli.is_available("ghCloneRepo"));
     let memory = availability(&[("OCTOCODE_STORAGE_MODE", "memory")], RuntimeSurface::Cli);
-    assert_eq!(
-        memory.get("ghCloneRepo").map(Availability::env_vars),
-        Some(vec!["OCTOCODE_STORAGE_MODE"])
-    );
+    assert!(memory.is_available("ghCloneRepo"));
 }
 
 #[test]
@@ -147,7 +146,7 @@ fn a_blank_classification_key_opts_out() {
             ("OCTOCODE_BETA", "true"),
             ("OCTOCODE_CLASSIFICATION_API", "  "),
         ],
-        RuntimeSurface::Cli,
+        RuntimeSurface::Mcp,
     );
     assert!(!blank.is_available("clasify"));
     let set = availability(
@@ -155,7 +154,7 @@ fn a_blank_classification_key_opts_out() {
             ("OCTOCODE_BETA", "false"),
             ("OCTOCODE_CLASSIFICATION_API", "k"),
         ],
-        RuntimeSurface::Cli,
+        RuntimeSurface::Mcp,
     );
     assert!(set.is_available("clasify"));
 }
@@ -189,8 +188,14 @@ fn beta_graph_tools_preserve_cli_access_and_require_opt_in_on_mcp() {
     ] {
         for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
             let tools = availability(&env, surface);
-            assert!(!tools.is_available("graphBuild"));
-            assert!(!tools.is_available("graphQuery"));
+            assert_eq!(
+                tools.is_available("graphBuild"),
+                surface == RuntimeSurface::Cli
+            );
+            assert_eq!(
+                tools.is_available("graphQuery"),
+                surface == RuntimeSurface::Cli
+            );
         }
     }
 }

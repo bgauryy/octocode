@@ -56,15 +56,13 @@ pub async fn run(
     let (owner, repo) = repository(query);
     let failure = with_ref_recovery(search_failure(error), owner, repo);
     let failure = with_default_branch(provider, failure, ToolId::GhStructure, query, context).await;
-    Err(crate::tools::gh_shared::with_owner_listing(
-        crate::tools::gh_shared::with_search_repair(
-            failure,
-            ToolId::GhStructure,
-            query,
-            1,
-            Some(repo),
-        ),
-        owner,
+    Err(crate::tools::gh_shared::with_search_repair(
+        failure,
+        ToolId::GhStructure,
+        query,
+        1,
+        Some(owner),
+        Some(repo),
     ))
 }
 
@@ -144,15 +142,13 @@ async fn run_tree(
         let failure = with_ref_recovery(search_failure(error), at.owner, at.repo);
         let failure =
             with_default_branch(provider, failure, ToolId::GhStructure, query, context).await;
-        return Err(crate::tools::gh_shared::with_owner_listing(
-            crate::tools::gh_shared::with_search_repair(
-                failure,
-                ToolId::GhStructure,
-                query,
-                1,
-                Some(at.repo),
-            ),
-            at.owner,
+        return Err(crate::tools::gh_shared::with_search_repair(
+            failure,
+            ToolId::GhStructure,
+            query,
+            1,
+            Some(at.owner),
+            Some(at.repo),
         ));
     }
     let found = locate_path(provider, &at, context).await;
@@ -174,16 +170,7 @@ fn listed_at(query: &GhStructureQueryTree) -> Result<Option<GhStructureQueryTree
     }))
 }
 
-/// Largest listing page, bounded by the core maximum-entry policy. Path-only rows stay
-/// compact: 500 entries of a deep tree render in about 13k chars.
-fn max_entries_per_page() -> usize {
-    crate::id::gh_structure_policy::MAX_ENTRIES
-}
 const CONTENTS_LIMIT: usize = 1000;
-/// Upper bound on Contents API directory reads for one fallback walk (git
-/// trees API truncated or unavailable). Past it the listing is a typed
-/// terminal limit instead of an unbounded request fan-out.
-pub(crate) const MAX_DIRECTORY_FETCHES: usize = 200;
 /// GitHub reads one listing step (a walk level, a materialize chunk) sends
 /// at once; the global request semaphore still bounds the total.
 const READ_CONCURRENCY: usize = 8;
@@ -204,9 +191,6 @@ struct Traversal {
     entries: Vec<TreeEntry>,
     failed_subtrees: usize,
     contents_limit: bool,
-    /// Fallback walk stopped at [`MAX_DIRECTORY_FETCHES`].
-    #[serde(default)]
-    fetch_limit: bool,
     /// What the listing does not show, as `"<repo-relative path> (<kind>)"`:
     /// symlinks and submodules, which have no listable content. Every
     /// committed directory is listed and walked: a tree holds only tracked
@@ -273,10 +257,6 @@ impl Scope {
         })
     }
 }
-
-/// This tool's output facts for the shared response stages.
-pub(crate) struct Output;
-impl crate::response::output::ToolOutput for Output {}
 
 #[cfg(test)]
 mod tests;

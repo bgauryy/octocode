@@ -28,8 +28,8 @@ fn a_scan_stamps_only_settled_files() {
 }
 
 /// A walk cut at its file cap names the first candidate it left out, and
-/// every file before it is in the walk: a lowered walk ceiling cuts an
-/// unbounded scan the same way an explicit `max_files` does.
+/// every file before it is in the walk; an unbounded walk has no cap and
+/// lists every candidate.
 #[test]
 fn a_capped_walk_names_the_first_candidate_it_left_out() {
     let fixture = tempfile::tempdir().expect("fixture");
@@ -55,28 +55,9 @@ fn a_capped_walk_names_the_first_candidate_it_left_out() {
     let frontier = capped.first_unlisted.expect("a cut walk has a frontier");
     assert_eq!(names(&[frontier]), ["entry-3.ts"]);
     assert_eq!(walk(options(Some(5))).first_unlisted, None);
-    let _ceiling = crate::scan_budget::lower_walk_ceiling(2);
     let unbounded = walk(options(None));
-    assert_eq!(unbounded.entries.len(), 2);
-    assert_eq!(
-        names(&[unbounded.first_unlisted.expect("frontier")]),
-        ["entry-2.ts"]
-    );
-    let scanned = scan_with_budget(
-        options(None),
-        &|_, _| true,
-        &|_| true,
-        &|view| Some(view.relative_path.to_owned()),
-        &|| false,
-        None,
-    )
-    .expect("scan");
-    assert!(scanned.truncated);
-    assert_eq!(scanned.scan_resume, Some(2));
-    assert_eq!(
-        names(&[scanned.scan_frontier.expect("scan frontier")]),
-        ["entry-2.ts"]
-    );
+    assert_eq!(unbounded.entries.len(), 5);
+    assert_eq!(unbounded.first_unlisted, None);
 }
 
 /// An unset `max_files` caps nothing but the time: a tree past the old

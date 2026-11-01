@@ -163,7 +163,7 @@ fn top(ranked: Vec<(&str, usize)>, prefix: &str) -> Vec<(String, usize)> {
         .collect()
 }
 
-/// The hints of a too-broad scan of `root`: one paste-ready ingest per
+/// The hints of a too-broad scan of `root`: one graphBuild call per
 /// narrower scope.
 pub(crate) fn narrower_scope_hints<'a>(
     root: &Path,
@@ -171,18 +171,16 @@ pub(crate) fn narrower_scope_hints<'a>(
 ) -> Vec<String> {
     let scopes = narrower_scopes(files);
     if scopes.is_empty() {
-        return vec![
-            "Ingest a narrower directory, or pass --exclude for generated or vendored trees."
-                .into(),
-        ];
+        return vec!["Build a narrower directory, or exclude generated or vendored trees.".into()];
     }
     let mut hints = vec![
-        "Ingest a narrower directory (files per directory, largest first), or pass --exclude for generated or vendored trees:".to_owned(),
+        "Build a narrower directory (files per directory, largest first), or exclude generated or vendored trees:".to_owned(),
     ];
     hints.extend(scopes.into_iter().map(|(dir, count)| {
+        let path = root.join(&dir).to_string_lossy().into_owned();
         format!(
-            "octocode graph ingest {}  # {count} files",
-            octocode_io::shell::quote(&root.join(&dir).to_string_lossy())
+            "graphBuild {}  # {count} files",
+            serde_json::json!({"path": path})
         )
     }));
     hints
@@ -244,6 +242,6 @@ mod tests {
         assert!(narrower_scopes(["a.ts", "b.ts"]).is_empty());
         let hints = narrower_scope_hints(Path::new("/w"), ["a.ts"]);
         assert_eq!(hints.len(), 1, "{hints:?}");
-        assert!(hints[0].contains("--exclude "), "{hints:?}");
+        assert!(hints[0].contains("exclude "), "{hints:?}");
     }
 }

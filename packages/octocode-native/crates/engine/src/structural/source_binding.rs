@@ -5,6 +5,33 @@ use crate::text::analysis::{
 };
 use std::{sync::Arc, time::Instant};
 
+/// Projects `$matched`'s spans and captures through its templates' frame:
+/// one body for both match types, which carry the same source fields.
+macro_rules! bind_origins {
+    ($binder:ident, $matched:ident) => {{
+        let key = $binder.frame(&$matched.source_templates)?;
+        let frame = &$binder.frames[key].1;
+        $matched.source_origin = Some(
+            frame
+                .source
+                .project($matched.source_span, &mut $binder.budget)?,
+        );
+        $matched.header_origin = $matched
+            .header_span
+            .map(|span| frame.source.project(span, &mut $binder.budget))
+            .transpose()?;
+        for capture in $matched.metavar_ranges.values_mut().flatten() {
+            capture.source_origin = Some(
+                frame
+                    .source
+                    .project(capture.source_span, &mut $binder.budget)?,
+            );
+        }
+        $matched.source_descriptors = Some(Arc::clone(&frame.descriptors));
+        Ok(())
+    }};
+}
+
 struct Frame<'a> {
     source: BoundSource<'a>,
     descriptors: Arc<SourceDescriptors>,
@@ -43,7 +70,7 @@ impl<'a> SourceBinder<'a> {
                 self.budget
                     .allocate(templates.units.len() * std::mem::size_of::<UnitHandle>())?;
                 let units: Vec<_> = (0..templates.units.len())
-                    .map(|i| UnitHandle(i as u32))
+                    .map(|i| UnitHandle(crate::num::saturating_u32(i)))
                     .collect();
                 self.budget.allocate(
                     std::mem::size_of::<SourceDescriptors>() + 2 * std::mem::size_of::<usize>(),
@@ -65,50 +92,12 @@ impl<'a> SourceBinder<'a> {
         }
     }
     pub fn bind_match(&mut self, matched: &mut StructuralDetailedMatch) -> Result<(), SourceError> {
-        let key = self.frame(&matched.source_templates)?;
-        let frame = &self.frames[key].1;
-        matched.source_origin = Some(
-            frame
-                .source
-                .project(matched.source_span, &mut self.budget)?,
-        );
-        matched.header_origin = matched
-            .header_span
-            .map(|span| frame.source.project(span, &mut self.budget))
-            .transpose()?;
-        for capture in matched.metavar_ranges.values_mut().flatten() {
-            capture.source_origin = Some(
-                frame
-                    .source
-                    .project(capture.source_span, &mut self.budget)?,
-            );
-        }
-        matched.source_descriptors = Some(Arc::clone(&frame.descriptors));
-        Ok(())
+        bind_origins!(self, matched)
     }
     pub(super) fn bind_raw_match(
         &mut self,
         matched: &mut StructuralMatch,
     ) -> Result<(), SourceError> {
-        let key = self.frame(&matched.source_templates)?;
-        let frame = &self.frames[key].1;
-        matched.source_origin = Some(
-            frame
-                .source
-                .project(matched.source_span, &mut self.budget)?,
-        );
-        matched.header_origin = matched
-            .header_span
-            .map(|span| frame.source.project(span, &mut self.budget))
-            .transpose()?;
-        for capture in matched.metavar_ranges.values_mut().flatten() {
-            capture.source_origin = Some(
-                frame
-                    .source
-                    .project(capture.source_span, &mut self.budget)?,
-            );
-        }
-        matched.source_descriptors = Some(Arc::clone(&frame.descriptors));
-        Ok(())
+        bind_origins!(self, matched)
     }
 }

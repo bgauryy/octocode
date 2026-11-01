@@ -13,6 +13,26 @@ pub(super) struct EvidenceStrings {
 }
 
 impl SnapshotReader {
+    /// Whether per-node degrees are loaded ([`Self::degrees`]).
+    pub(crate) fn has_degrees(&self) -> bool {
+        !self.degrees.is_empty()
+    }
+
+    /// Per-node degrees from the lookup section, read on first use: tables
+    /// without an edge index (evidence, candidates) still rank a reference.
+    pub(crate) fn load_degrees(
+        &mut self,
+        t: &GraphTables,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<(), String> {
+        if self.has_degrees() {
+            return Ok(());
+        }
+        let (_, degrees) = lookup::read_lookup(&self.section(*b"LOOK", cancel)?, t, true)?;
+        self.degrees = degrees;
+        Ok(())
+    }
+
     /// The tables an evidence page needs: record strings, every node,
     /// the lookup indexes, the per-file tables and the requested occurrence
     /// section. Occurrences are checked structurally; their evidence strings
@@ -42,7 +62,7 @@ impl SnapshotReader {
                 files.insert(tag, std::borrow::Cow::Owned(self.section(tag, cancel)?));
             }
         }
-        let records = t.strings.len() as u32;
+        let records = t.string_bound()?;
         read_file_tables(&Sections(files), &mut t, records)?;
         let strings = u32::try_from(self.blocks[b"STRE"].0)
             .ok()

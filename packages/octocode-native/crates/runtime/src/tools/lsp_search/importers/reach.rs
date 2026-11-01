@@ -55,10 +55,11 @@ pub(super) struct AnchorModule {
     symbol: String,
 }
 
-/// Graph facts of a parsed file; `None` when the file cannot be parsed or
-/// its parse recovered from errors (facts may miss an import).
-fn clean_facts(content: &str, file: &str) -> Option<GraphFactsDocument> {
-    let facts = octocode_engine::signatures::extract_graph_facts(content, file)?;
+/// Graph facts of a parsed file (CommonJS loads included; parsed once per
+/// source version); `None` when the file cannot be parsed or its parse
+/// recovered from errors (facts may miss an import).
+fn clean_facts(content: &str, file: &str) -> Option<Arc<GraphFactsDocument>> {
+    let facts = crate::tools::declarations_cache::graph_facts(content, file)?;
     facts_are_clean(&facts).then_some(facts)
 }
 
@@ -318,9 +319,10 @@ impl AnchorModule {
         ) {
             return false;
         }
-        let Some(content) = crate::tools::source::read_bounded(target, CODE_CHECK_MAX_BYTES)
-            .ok()
-            .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
+        let Some(content) =
+            crate::tools::source::read_bounded(target, octocode_engine::signatures::MAX_PARSE_SIZE)
+                .ok()
+                .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
         else {
             return true;
         };
@@ -369,7 +371,11 @@ pub(super) async fn split_reachable(
 /// read or decoded.
 pub(super) fn read_checked(policy: &PathPolicy, file: &str) -> Option<String> {
     let valid = policy.validate_read(file).ok()?;
-    let bytes = crate::tools::source::read_bounded(&valid.canonical, CODE_CHECK_MAX_BYTES).ok()?;
+    let bytes = crate::tools::source::read_bounded(
+        &valid.canonical,
+        octocode_engine::signatures::MAX_PARSE_SIZE,
+    )
+    .ok()?;
     super::super::source::admitted_text(&bytes).ok()
 }
 

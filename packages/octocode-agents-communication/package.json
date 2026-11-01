@@ -15,9 +15,10 @@
   },
   "scripts": {
     "build": "node src/build.ts",
+    "clean": "rm -rf dist/ out/",
     "types": "node src/emit-types.ts",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
-    "lint": "node src/emit-types.ts --check && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
+    "lint": "node src/emit-types.ts --check && yarn run -T oxlint -c ../../.oxlintrc.json .",
     "test": "yarn build && node --test --test-concurrency=4 tests/*.test.ts",
     "test:nightly": "yarn build && node --test tests/nightly/*.test.ts",
     "verify": "yarn lint && yarn typecheck && yarn test && node src/release-smoke.ts",

@@ -37,6 +37,7 @@ fn context_read_replays_selected_plan_and_rejects_source_drift() {
             &NeverCancel,
             Some(1200),
             Some(&runtime),
+            &Default::default(),
         )
     };
     let first = read(&query);
@@ -84,6 +85,7 @@ fn context_read_with_no_matches_reports_empty_selection_scope() {
         &NeverCancel,
         None,
         Some(&runtime),
+        &Default::default(),
     );
     let receipt = result.selection.expect("receipt");
     assert_eq!(
@@ -114,7 +116,15 @@ fn a_refused_classified_read_restarts_its_unfiltered_selection() {
             &mut query,
             serde_json::json!({"classification":{"predicates":["Does this explain ownership?"]}}),
         );
-        let row = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, None);
+        let row = execute_local_fetch(
+            &query,
+            &paths,
+            &Safe,
+            &NeverCancel,
+            None,
+            None,
+            &Default::default(),
+        );
         assert_eq!(
             row.error_code,
             Some(ErrorCode::InvalidInput),
@@ -188,7 +198,15 @@ fn selection_provider_sees_workspace_relative_path_and_complete_evidence() {
         &mut query,
         serde_json::json!({"classification":serde_json::json!({"predicates":["find evidence"]})}),
     );
-    let result = execute_local_fetch(&query, &policy, &Safe, &NeverCancel, None, Some(&selection));
+    let result = execute_local_fetch(
+        &query,
+        &policy,
+        &Safe,
+        &NeverCancel,
+        None,
+        Some(&selection),
+        &Default::default(),
+    );
     assert_eq!(result.error_code, None);
     assert_eq!(result.content.as_deref(), Some(source.as_str()));
 }

@@ -13,7 +13,22 @@ pub(super) fn validate_array(
     let array = match value {
         Value::Array(array) => array,
         received => {
-            let message = "Expected a JSON array";
+            // A speculative probe reads only pass/fail: no repair text.
+            let message = if union::speculative() {
+                "Expected a JSON array".to_owned()
+            } else {
+                let items = schema.get("items");
+                // Wrapping is the repair only when the value is one item.
+                let fits = items.is_none_or(|items| {
+                    let _speculation = union::Speculation::enter();
+                    let mut candidate = received.clone();
+                    let result =
+                        validate_with_mode(root, items, &mut candidate, &mut path.clone(), mode);
+                    super::probe(result).unwrap_or(false)
+                });
+                let shape = items.and_then(|items| super::object::object_shape(root, items, 0));
+                super::super::repair::array(received, fits, shape.as_deref())
+            };
             return Err(schema_issue(
                 "schema.type",
                 path.clone(),
@@ -78,10 +93,11 @@ pub(super) fn validate_string(
     path: &[String],
 ) -> Result<(), ContractValidationError> {
     let string = value.as_str().ok_or_else(|| {
+        let row_field = path.len() == 3 && path[0] == "queries";
         schema_issue(
             "schema.type",
             path.to_vec(),
-            "Expected string",
+            super::super::repair::string(value, row_field),
             schema,
             value,
         )
@@ -187,14 +203,16 @@ pub(super) fn check_size(
 ) -> Result<(), ContractValidationError> {
     let minimum = schema.get(keys.0).and_then(Value::as_u64);
     let maximum = schema.get(keys.1).and_then(Value::as_u64);
-    if let Some(bound) = minimum.filter(|bound| length < *bound as usize) {
+    // A length past u64 exceeds every bound a schema can state.
+    let length = u64::try_from(length).unwrap_or(u64::MAX);
+    if let Some(bound) = minimum.filter(|bound| length < *bound) {
         return Err(issue(
             "schema.size",
             path.to_vec(),
             format!("Value length {length} is below the minimum of {bound}"),
         ));
     }
-    if let Some(bound) = maximum.filter(|bound| length > *bound as usize) {
+    if let Some(bound) = maximum.filter(|bound| length > *bound) {
         return Err(issue(
             "schema.size",
             path.to_vec(),

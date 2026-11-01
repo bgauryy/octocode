@@ -44,7 +44,7 @@ function sectionInterfaceName(sectionPath: string, sections: Record<string, Sect
 
 function enumType(field: Field): string {
   if (field.typeName) return field.typeName;
-  return field.values!.map(value => JSON.stringify(value)).join(' | ');
+  return (field.values ?? []).map(value => JSON.stringify(value)).join(' | ');
 }
 
 function resolvedFieldType(field: Field): string {
@@ -60,19 +60,20 @@ function renderInterfaces(contract: Contract): string {
   for (const section of Object.values(sections)) {
     for (const field of Object.values(section.fields)) {
       if (field.type === 'enum' && field.typeName) {
-        enumAliases.set(field.typeName, field.values!.map(value => JSON.stringify(value)).join(' | '));
+        enumAliases.set(field.typeName, (field.values ?? []).map(value => JSON.stringify(value)).join(' | '));
       }
     }
   }
 
-  const root = sections['']!;
+  const root = sections[''];
+  if (!root) throw new Error('The config contract has no root section.');
   const requiredInterfaces = Object.entries(sections)
     .filter(([path, section]) => path !== '' && section.resolved)
     .map(([sectionPath, section]) => {
       const members = Object.entries(section.fields)
         .filter(([, field]) => !field.credential)
         .map(([key, field]) => `  ${key}: ${resolvedFieldType(field)};`);
-      for (const child of directChildren(sectionPath, sections).filter(path => sections[path]!.resolved)) {
+      for (const child of directChildren(sectionPath, sections).filter(path => sections[path]?.resolved)) {
         const key = child.slice(sectionPath.length + 1);
         members.push(`  ${key}: ${sectionInterfaceName(child, sections)};`);
       }
@@ -85,7 +86,7 @@ function renderInterfaces(contract: Contract): string {
       .filter(([, field]) => !field.credential)
       .map(([key, field]) => `  ${key}: ${resolvedFieldType(field)};`),
     ...directChildren('', sections)
-      .filter(path => sections[path]!.resolved)
+      .filter(path => sections[path]?.resolved)
       .map(path => `  ${path}: ${sectionInterfaceName(path, sections)};`),
   ];
 
@@ -172,6 +173,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = ${JSON.stringify(metada
 export const RUNTIME_SURFACES = ${JSON.stringify(contract.config.runtimeSurfaces)} as const;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const ENV_TOKEN_VARS = ${JSON.stringify(environment.tokenNames)} as const;
+export const ENV_CREDENTIAL_VARS = ${JSON.stringify(environment.credentialNames)} as const;
 export const PROTECTED_KEY_NAMES = ${JSON.stringify(environment.protectedNames)} as const;
 export const HOME_TRUSTED_ENV_KEYS = ${JSON.stringify(environment.homeTrusted)} as const;
 /** Home-trusted switches a workspace may set only to this narrowing value. */

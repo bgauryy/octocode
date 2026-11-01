@@ -112,4 +112,5 @@ mod calls;
 mod commonjs;
 mod graph_occurrences;
 mod module_facts;
+mod nested_callers;
 mod outline;

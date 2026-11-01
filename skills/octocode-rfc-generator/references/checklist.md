@@ -9,6 +9,7 @@ Load when finding or closing questions that could block the decision, or a secti
 - Goal and scope: user outcome changed? Exclusions? Could the status quo meet acceptance?
 - Current state: source or test showing the problem? Revisions, environment, affected callers known?
 - Contracts: changes to consumers, stored data, errors, defaults, permissions, compatibility? Owner of each boundary?
+- Agent-facing text: instruction sections, role files, tool descriptions or promptGuidelines changed? File that owns each, test that pins it?
 - Failure and recovery: partial failure, cancellation, retry, duplicate work? What cannot roll back?
 - Alternatives: evidence that would make another option win? Assumptions all options share?
 - Delivery: prerequisites first? Who runs migration, rollout, monitoring, rollback, on what trigger?

@@ -191,14 +191,17 @@ fn json_argument_errors_keep_the_whole_clap_message() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["graph", "query", "notAnOp", "--json"])
+        .args(["schema", "localSearch", "--view", "notAView", "--json"])
         .output()
-        .expect("graph query");
+        .expect("schema view");
     assert_eq!(output.status.code(), Some(2));
     assert!(stderr(&output).is_empty(), "{}", stderr(&output));
     let envelope = compact_line(stdout(&output));
     assert_eq!(envelope["errorCode"], "invalidInput");
-    assert_eq!(envelope["error"], "invalid value 'notAnOp' for '<OP>'");
+    assert_eq!(
+        envelope["error"],
+        "invalid value 'notAView' for '--view <VIEW>'"
+    );
     let details: Vec<&str> = envelope["details"]
         .as_array()
         .expect("details")
@@ -208,7 +211,7 @@ fn json_argument_errors_keep_the_whole_clap_message() {
     assert!(
         details
             .iter()
-            .any(|line| line.starts_with("[possible values: stats, ")),
+            .any(|line| line.starts_with("[possible values: query, ")),
         "{envelope}"
     );
     assert!(
@@ -235,3 +238,70 @@ fn json_argument_errors_keep_the_whole_clap_message() {
 
 #[cfg(unix)]
 mod terminal;
+
+const BUILD_APP: &str = r#"{"queries":[{"path":"app"}]}"#;
+
+/// `graphBuild` reports each stage on stderr as it goes; stdout stays the
+/// one JSON result, so a pipe reads it unchanged.
+#[test]
+fn graph_build_reports_progress_on_stderr_and_the_result_on_stdout() {
+    let workspace = Workspace::new();
+    workspace.write(".git/HEAD", "ref: refs/heads/main\n");
+    workspace.write(
+        "app/lib.ts",
+        "export function f() { return g(); }\nfunction g() {}\n",
+    );
+    workspace.write(
+        "app/main.ts",
+        "import { f } from './lib';\nexport const main = () => f();\n",
+    );
+    let output = workspace
+        .cli()
+        .args(["graphBuild", "--json", BUILD_APP])
+        .output()
+        .expect("graphBuild");
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let receipt = compact_line(stdout(&output));
+    let id = receipt
+        .pointer("/results/0/data/id")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("snapshot id: {receipt}"));
+    let lines = stderr(&output).lines().collect::<Vec<_>>();
+    assert!(
+        lines.iter().all(|line| line.starts_with("graphBuild: ")),
+        "{lines:?}"
+    );
+    // Progress names the scope like every output path: workspace-relative.
+    assert!(lines.contains(&"graphBuild: scanning app"), "{lines:?}");
+    let mut after = 0;
+    for stage in [
+        "scanning ",
+        "parsing 2 files",
+        "parsed 2/2 files",
+        "linked 2 files",
+        "encoding snapshot",
+        "published ",
+    ] {
+        let at = lines[after..]
+            .iter()
+            .position(|line| line.contains(stage))
+            .unwrap_or_else(|| panic!("stage {stage:?} after line {after} in {lines:?}"));
+        after += at + 1;
+    }
+    assert!(
+        lines.last().is_some_and(|line| line.contains(id)),
+        "{lines:?}"
+    );
+    let again = workspace
+        .cli()
+        .args(["graphBuild", "--json", BUILD_APP])
+        .output()
+        .expect("graphBuild again");
+    let again_result = compact_line(stdout(&again));
+    assert_eq!(
+        again_result.pointer("/results/0/data/reused"),
+        Some(&Value::Bool(true)),
+        "{again_result}"
+    );
+    assert!(stderr(&again).contains("reused "), "{}", stderr(&again));
+}

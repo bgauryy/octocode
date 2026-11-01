@@ -12,7 +12,11 @@ waiting? This package measures every Octocode version, and the GitHub CLI (`gh`)
 
 ## Results
 
-Every setup answered the same [30 GitHub questions](compare/github-questions/). The newest Octocode version is on top, and each new version adds a row.
+Campaign questions, wrappers and raw results under `compare/` are local, gitignored artifacts.
+The paths below document that local campaign; a clean checkout does not contain them.
+Reproducing its commands requires the campaign files.
+
+Every setup answered the same `compare/github-questions/`. The newest Octocode version is on top, and each new version adds a row.
 
 | Setup | Run | Correctness (of 10) | Characters per question, mean | Characters per question, median | Characters vs Octocode v20 (95% CI) | Questions where v20 used fewer characters | Speed in a session vs v18 | Speed of a cold call vs v18 | Verdict |
 |---|---|---:|---:|---:|---:|---:|---|---|---|
@@ -52,7 +56,7 @@ The `gh` ratios are large for two reasons:
 
 1. Run the 30 questions with the new build, following [Run the CLI matchup](#run-the-cli-matchup), into a new run folder such as `compare/github-questions_v21/`.
 2. Add a row at the top of the table. Rename the ratio column to the new version (for example, *Characters vs Octocode v21*), and recompute every row's ratio and confidence interval against it.
-3. Rerun [`compare/bin/version_timing.mjs`](compare/bin/version_timing.mjs) against the previous version to fill the speed columns.
+3. Rerun `compare/bin/version_timing.mjs` against the previous version to fill the speed columns.
 4. Keep the older rows; they are the history.
 
 ## Evaluation
@@ -86,7 +90,7 @@ flowchart LR
   L --> S
 ```
 
-- **Characters** are counted by the call wrappers in [`compare/bin/`](compare/bin/), never self-reported. The fixed tool primer each agent gets is excluded.
+- **Characters** are counted by the call wrappers in `compare/bin/`, never self-reported. The fixed tool primer each agent gets is excluded.
 - **Re-judging:** a question whose two answers differ by 2 or more points is judged again by a fresh judge, with the answer order swapped. All 8 such v20 questions kept their result.
 - **Fairness:** every tool takes its leanest legitimate path: targeted reads, snippets, minimal fields. Dumping a whole tree or file where a targeted read would answer invalidates the comparison.
 
@@ -101,8 +105,8 @@ flowchart LR
 ### Characters and correctness
 
 - **Totals:** 467,696 characters over all 30 questions, against v18's 663,319.
-- **Per-question numbers:** [github-questions/README.md](compare/github-questions/README.md#per-question-results-v18-vs-v20).
-- **The full v20 run** (answers, judge verdicts, logs): [REPORT.md](compare/github-questions_v20/REPORT.md).
+- **Per-question numbers:** `compare/github-questions/README.md#per-question-results-v18-vs-v20`.
+- **The full v20 run** (answers, judge verdicts, logs): `compare/github-questions_v20/REPORT.md`.
 
 ### Speed
 
@@ -150,7 +154,7 @@ Single calls, v20 warm against v18:
 > [!NOTE]
 > **Part of the GitHub speedup is caching.** Warm GitHub times include v20's response cache, which v18 does not have. For example, the outline task re-read files the previous task had just fetched: 65 ms vs 852 ms.
 
-Raw data: [timing/v18-vs-v20.json](compare/github-questions_v20/timing/v18-vs-v20.json) and [the log](compare/github-questions_v20/timing/v18-vs-v20.log). To rerun the timing:
+Raw data: `compare/github-questions_v20/timing/v18-vs-v20.json` and `compare/github-questions_v20/timing/v18-vs-v20.log`. To rerun the timing:
 
 ```bash
 npm install --prefix /tmp/octo18 octocode@18.2.2
@@ -193,8 +197,8 @@ to design and assess a comparison. Before launching agents, freeze the following
 
 | Comparison | Follow | Runs with |
 |---|---|---|
-| Octocode CLI vs `gh` setups, or one Octocode build vs another | [Benchmark skill](skills/octocode-benchmark/SKILL.md) + [`compare/`](compare/) | A fresh agent per question through the `compare/bin/` wrappers; blind X/Y judge |
-| Speed, v18 vs v20 | [`compare/bin/version_timing.mjs`](compare/bin/version_timing.mjs) | Fresh CLI processes, interleaved; v20 timed cold and warm |
+| Octocode CLI vs `gh` setups, or one Octocode build vs another | [Benchmark skill](skills/octocode-benchmark/SKILL.md) + `compare/` | A fresh agent per question through the `compare/bin/` wrappers; blind X/Y judge |
+| Speed, v18 vs v20 | `compare/bin/version_timing.mjs` | Fresh CLI processes, interleaved; v20 timed cold and warm |
 | GitHub research, scripted | [External cookbook](external/README.md) | Claude or Pi for MCP vs `gh`/shell; Codex for MCP arms |
 | Pinned local repositories | [Local cookbook](local/README.md) | Fresh Codex MCP workers; existing Claude/Pi local shell arms |
 | Installed local models with the native tools | [Local model cookbook](local/README.md#compare-installed-local-models-with-the-native-tools) | FreeLlama MCP inference and six native local tools |
@@ -228,7 +232,7 @@ The protocol, step by step:
 - **Runner brief:** [RUNNER.md](skills/octocode-benchmark/references/RUNNER.md) plus the arm's primer from [RUNNER_TOOL_CONTEXT.md](skills/octocode-benchmark/references/RUNNER_TOOL_CONTEXT.md).
 - **Judging:** [JUDGING.md](skills/octocode-benchmark/references/JUDGING.md).
 - **Write-up:** [REPORT_TEMPLATE.md](skills/octocode-benchmark/references/REPORT_TEMPLATE.md).
-- **Reusing stored answers:** copy a stored campaign's answers and logs rather than rerunning that tool; [github-questions_v20](compare/github-questions_v20/) shows the layout.
+- **Reusing stored answers:** copy a stored campaign's answers and logs rather than rerunning that tool; `compare/github-questions_v20/` shows the layout.
 - **Comparing against v18 itself:** run the published pin `compare/bin/octoc-npm` (`OCTO_SPEC`, with [primer-octocode-18.md](skills/octocode-benchmark/references/primer-octocode-18.md)).
 
 <details>
@@ -295,7 +299,7 @@ More detail: [method and isolation](docs/method.md), [runner configuration](docs
 
 | Where | What |
 |---|---|
-| [`compare/github-questions_v20/`](compare/github-questions_v20/) | The v20 run: answers, per-call logs, blind packet, verdicts, timing, REPORT.md |
+| `compare/github-questions_v20/` | The v20 run: answers, per-call logs, blind packet, verdicts, timing, REPORT.md |
 | `results/README.md` | Index of campaign write-ups, one directory and README per result |
 | `results/overview/README.md` | Default matrix, dashboard and historical aggregate data |
 | `campaigns/<name>/` | Raw transcripts, sealed answers, receipts and judge attempts (gitignored) |
@@ -304,7 +308,7 @@ Preserve existing reports and raw records. For a separate question set, pass `--
 
 ## Add a question
 
-A GitHub question goes in the shared [`compare/github-questions/`](compare/github-questions/) folder, which every tool uses. A corpus-local question goes in that corpus's `questions/` folder. Create `Q<n>.md` with exactly:
+A GitHub question goes in the shared `compare/github-questions/` folder, which every tool uses. A corpus-local question goes in that corpus's `questions/` folder. Create `Q<n>.md` with exactly:
 
 ```markdown
 # Q<n> — Short title
