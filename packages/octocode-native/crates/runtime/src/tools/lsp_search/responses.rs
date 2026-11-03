@@ -7,6 +7,26 @@
 use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Flag a non-error row partial when the open wait that preceded it timed
+/// out (`readiness` is `timeout`): the server was still loading the project.
+pub(super) fn flag_still_loading(
+    result: &mut Value,
+    query: &LspSearchQuery,
+    readiness: Option<&str>,
+) {
+    if readiness == Some("timeout") && result.get("status") != Some(&"error".into()) {
+        partial_with_related_rerun(
+            result,
+            query,
+            crate::response::paging::PartialReason::LanguageServerIndexing,
+            &[format!(
+                "The language server was still loading the project after {} ms; results may be incomplete.",
+                octocode_engine::lsp::client::OPEN_READY_TIMEOUT_MS
+            )],
+        );
+    }
+}
+
 /// Incoming relation answers depend on the scope as well as the anchor.
 pub(super) const SCOPED_OPERATIONS: [Op; 3] = [Op::References, Op::Callers, Op::Callees];
 
@@ -166,19 +186,7 @@ pub(super) fn annotate(
     resolved_symbol: Option<Value>,
     stopped: &dyn Fn() -> bool,
 ) {
-    if session.open_readiness.as_deref() == Some("timeout")
-        && result.get("status") != Some(&"error".into())
-    {
-        partial_with_related_rerun(
-            result,
-            query,
-            crate::response::paging::PartialReason::LanguageServerIndexing,
-            &[format!(
-                "The language server was still loading the project after {} ms; results may be incomplete.",
-                octocode_engine::lsp::client::OPEN_READY_TIMEOUT_MS
-            )],
-        );
-    }
+    flag_still_loading(result, query, session.open_readiness.as_deref());
     if let Some(reason) = &session.fell_back_from {
         crate::response::paging::push_warnings(
             result,
@@ -190,7 +198,7 @@ pub(super) fn annotate(
     crate::response::paging::push_warnings(result, disclose_waits(&session.config, session.waits));
     let language_id = target.config.language_id.as_deref();
     inferred_project::annotate(result, query, language_id, &target.path, scope);
-    inferred_project::annotate_compile_database(result, query, language_id, &target.path, scope);
+    inferred_project::annotate_compile_database(result, query, &target.config, &target.path, scope);
     let rust = receipt::RustAnalysis::of(&session.config);
     failure::annotate_empty_includes(result, query, rust.build_scripts, stopped);
     server_coverage::annotate(

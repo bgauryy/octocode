@@ -63,6 +63,7 @@ const TASKS = {
   setup: ['Local dev resolutions (--dry-run, --install, --reset); then yarn install', [script('dev-setup.mjs')]],
   prepublish: ['Local-resolution check (--fix strips local resolutions, --dry-run previews)', [script('prepublish.mjs')]],
   'brew:formula': ['Render the Homebrew formula from the published native npm packages ([version] [--out FILE])', [script('brew-formula.mjs')]],
+  'lsp:lock': ['Generate the managed language-server lock from GitHub release digests ([--check] diffs it, [--bump] moves to the latest releases)', [script('lsp-lock.mjs')]],
   // Opt-in Rust quality tools, pinned in packages/octocode-native/dev-tools.json; none runs in CI or installs anything.
   'rust:tools': ['Pinned Rust dev tools vs installed; prints install commands ([--json])', [script('rust-quality.mjs', 'tools')]],
   'fuzz:smoke': ['Every libFuzzer target for 60 s on the pinned nightly ([--seconds N] [target...])', [script('rust-quality.mjs', 'fuzz', '--smoke')]],

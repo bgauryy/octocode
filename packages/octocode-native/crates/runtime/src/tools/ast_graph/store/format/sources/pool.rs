@@ -2,7 +2,9 @@ use super::*;
 use budget::{Budget, Input, invalid};
 use octocode_engine::text::analysis::SourceCatalog;
 mod codec;
+mod packed;
 mod parallel;
+pub(crate) use packed::PackedOrigins;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct OriginIndex {

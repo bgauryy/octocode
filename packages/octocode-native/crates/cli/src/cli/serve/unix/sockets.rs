@@ -108,6 +108,21 @@ pub(super) fn remove_stale_sockets(own: &Path) {
     drop(live_servers(dir, Some(own)));
 }
 
+/// Mark `socket` as just asked: its modification time says when the server
+/// on it last read a request. It orders nothing here; it is the signal of
+/// demand for whoever lists the socket directory.
+pub(super) fn touch(socket: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(path) = std::ffi::CString::new(socket.as_os_str().as_bytes()) else {
+        return;
+    };
+    // SAFETY: `path` is NUL-terminated and outlives the call; null times
+    // set both times to now.
+    unsafe {
+        libc::utimes(path.as_ptr(), std::ptr::null());
+    }
+}
+
 /// Stop warm servers and require an acknowledgement after their work drains.
 /// A failure leaves cache deletion to a later retry after the server stops.
 pub(in crate::cli) async fn stop_all_and_wait() -> Result<(), String> {

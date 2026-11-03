@@ -54,7 +54,7 @@ fn uninstall_removes_only_within_cache_root() {
         &bin,
         &b"bytes"[..],
         MAX_EXTRACTED_BYTES,
-        pinned_asset_sha("rust-analyzer", "linux-x64"),
+        &locked_identity("rust-analyzer", "linux-x64"),
     )
     .expect("install");
     assert!(resolve_cached_server(root, "rust-analyzer", "linux-x64").is_some());

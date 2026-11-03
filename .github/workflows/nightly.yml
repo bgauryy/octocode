@@ -44,3 +44,18 @@ jobs:
         run: cargo nextest run --locked -p octocode-native --run-ignored only -E 'test(/full_matrix/)'
         env:
           NEXTEST_PROFILE: ci
+
+  # A managed language-server asset replaced upstream after its lock was
+  # generated shows here as a digest difference.
+  lsp-lock:
+    name: Managed LSP lock (lsp:lock --check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: node skills-dev/octocode-dev/scripts/dev.mjs lsp:lock --check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

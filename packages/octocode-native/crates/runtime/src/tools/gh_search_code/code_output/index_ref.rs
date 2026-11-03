@@ -68,7 +68,6 @@ pub(in crate::tools::gh_search_code) async fn disclose_index_ref(
         .zip(at_ref.as_deref().unwrap_or(reference).try_into().ok())
         .map(
             |(((include, owner), repo), reference)| GhStructureQueryTree {
-                date_offset: None,
                 include,
                 limit: NonZeroU64::new(300).unwrap_or(NonZeroU64::MIN),
                 main_goal: None,

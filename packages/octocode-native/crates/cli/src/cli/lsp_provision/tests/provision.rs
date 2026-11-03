@@ -73,7 +73,7 @@ async fn an_installed_binary_resolves_without_another_download() {
         &bin,
         &b"rust-analyzer-bytes"[..],
         MAX_EXTRACTED_BYTES,
-        pinned_asset_sha("rust-analyzer", platform),
+        &locked_identity("rust-analyzer", platform),
     )
     .expect("install");
     assert_eq!(
@@ -113,41 +113,46 @@ async fn an_installed_binary_resolves_without_another_download() {
         Some(bin.clone())
     );
     // provision_server short-circuits to already-present (fetch must not run).
-    let again =
-        provision_server(root, "rust-analyzer", platform, LspAutoInstall::Auto, never).await;
+    let again = provision_server(
+        root,
+        "rust-analyzer",
+        platform,
+        LspAutoInstall::Auto,
+        &Fake::never(),
+    )
+    .await;
     assert_eq!(again.source, Some("already-present"));
 }
 
 /// Each refusal fails the outcome and names its reason.
 #[tokio::test(flavor = "current_thread")]
 async fn provision_refusals_name_their_reason() {
-    type Fetch = fn(&'static str, tokio::fs::File) -> Spooled;
-    let cases: [(&str, &str, LspAutoInstall, Fetch, &str); 3] = [
+    let cases: [(&str, &str, LspAutoInstall, Fake, &str); 3] = [
         (
             "rust-analyzer",
             "linux-x64",
             LspAutoInstall::Auto,
-            tampered,
+            tampered(),
             "Checksum mismatch",
         ),
         (
             "clangd",
             "linux-x64",
             LspAutoInstall::Off,
-            never,
+            Fake::never(),
             "Auto-install is off",
         ),
         (
             "clangd",
             "linux-arm64",
             LspAutoInstall::Auto,
-            never,
+            Fake::never(),
             "no linux-arm64 release asset",
         ),
     ];
     for (name, platform, mode, fetch, reason) in cases {
         let dir = tempfile::tempdir().expect("tempdir");
-        let outcome = provision_server(dir.path(), name, platform, mode, fetch).await;
+        let outcome = provision_server(dir.path(), name, platform, mode, &fetch).await;
         assert!(!outcome.ok, "{reason}");
         let error = outcome.error.expect("error should be set");
         assert!(error.contains(reason), "{reason}: {error}");
@@ -169,7 +174,7 @@ async fn no_download_outlives_its_install() {
         "rust-analyzer",
         "linux-x64",
         LspAutoInstall::Auto,
-        tampered,
+        &tampered(),
     )
     .await;
     assert!(outcome.error.expect("error").contains("Checksum mismatch"));
@@ -187,7 +192,7 @@ async fn install_runs_on_the_current_thread_runtime() {
         vec!["rust-analyzer".to_owned()],
         LspAutoInstall::Auto,
         true,
-        tampered,
+        &tampered(),
     )
     .await;
     assert_eq!(code, 3);
@@ -206,7 +211,7 @@ async fn a_panicking_install_releases_its_lock() {
         "rust-analyzer",
         "linux-x64",
         LspAutoInstall::Auto,
-        never,
+        &Fake::never(),
     ))
     .catch_unwind()
     .await;
@@ -219,7 +224,7 @@ async fn a_panicking_install_releases_its_lock() {
         "rust-analyzer",
         "linux-x64",
         LspAutoInstall::Auto,
-        tampered,
+        &tampered(),
     )
     .await;
     assert!(retry.error.expect("error").contains("Checksum mismatch"));

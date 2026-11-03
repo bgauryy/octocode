@@ -34,16 +34,6 @@ impl std::ops::Index<&str> for FlatSymbol<'_> {
 /// DocumentSymbol trees (and flat SymbolInformation lists) as one flat list
 /// of borrowed symbols, in one pass.
 pub(in super::super) fn flatten_symbols<'a>(value: &'a Value, out: &mut Vec<FlatSymbol<'a>>) {
-    let point = |range: &Value, edge: &str| {
-        let at = |field: &str| {
-            range
-                .get(edge)
-                .and_then(|point| point.get(field))
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-        };
-        (at("line"), at("character"))
-    };
     for symbol in value.as_array().into_iter().flatten() {
         if let Some(range) = symbol
             .get("range")
@@ -65,6 +55,31 @@ pub(in super::super) fn flatten_symbols<'a>(value: &'a Value, out: &mut Vec<Flat
             flatten_symbols(children, out);
         }
     }
+}
+
+/// The `(line, character)` of a range's `edge` (`start` or `end`).
+fn point(range: &Value, edge: &str) -> (u64, u64) {
+    let at = |field: &str| {
+        range
+            .get(edge)
+            .and_then(|point| point.get(field))
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    };
+    (at("line"), at("character"))
+}
+
+/// Whether `start..end` is a symbol's own name (its `selectionRange`): a
+/// declaration site, never a use. A flat `SymbolInformation` list has no
+/// selection range, so its whole-declaration range matches no reference.
+pub(in super::super) fn is_declaration_name(
+    symbols: &[FlatSymbol<'_>],
+    start: (u64, u64),
+    end: (u64, u64),
+) -> bool {
+    symbols.iter().any(|symbol| {
+        point(symbol.selection, "start") == start && point(symbol.selection, "end") == end
+    })
 }
 
 /// Innermost callable symbol whose range contains the position.

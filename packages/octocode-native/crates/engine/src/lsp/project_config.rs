@@ -38,6 +38,11 @@ pub(crate) struct ProjectConfigWatch {
     /// empty for a server that re-reads its own configuration.
     names: &'static [&'static str],
     seen: BTreeMap<PathBuf, Vec<FileStamp>>,
+    /// Absolute files the server reads whatever the document (a clangd
+    /// `--compile-commands-dir` database, see `lsp::clangd_database`).
+    fixed: Vec<PathBuf>,
+    /// Their stamps at the first observation; `None` until then.
+    fixed_baseline: Option<Vec<FileStamp>>,
 }
 
 impl ProjectConfigWatch {
@@ -45,7 +50,15 @@ impl ProjectConfigWatch {
         Self {
             names,
             seen: BTreeMap::new(),
+            fixed: Vec::new(),
+            fixed_baseline: None,
         }
+    }
+
+    /// Also watch `files`, absolute paths every document resolves through.
+    pub(crate) fn with_files(mut self, files: Vec<PathBuf>) -> Self {
+        self.fixed = files;
+        self
     }
 
     /// `false` for a server with nothing to watch.
@@ -56,6 +69,7 @@ impl ProjectConfigWatch {
     /// Forget every baseline (a new server process starts from a clean one).
     pub(crate) fn clear(&mut self) {
         self.seen.clear();
+        self.fixed_baseline = None;
     }
 
     /// Record `path` (a file or a directory): its directory and every
@@ -65,6 +79,9 @@ impl ProjectConfigWatch {
     pub(crate) fn observe(&mut self, path: &Path) {
         if !self.is_active() {
             return;
+        }
+        if self.fixed_baseline.is_none() {
+            self.fixed_baseline = Some(self.fixed.iter().map(|file| FileStamp::of(file)).collect());
         }
         let start = if path.is_dir() {
             Some(path)
@@ -81,9 +98,17 @@ impl ProjectConfigWatch {
     /// Whether any watched config file was created, changed or deleted since
     /// its directory was first observed.
     pub(crate) fn changed(&self) -> bool {
-        self.seen
-            .iter()
-            .any(|(dir, baseline)| self.stamps(dir) != *baseline)
+        let fixed_changed = self.fixed_baseline.as_ref().is_some_and(|baseline| {
+            self.fixed
+                .iter()
+                .map(|file| FileStamp::of(file))
+                .ne(baseline.iter().cloned())
+        });
+        fixed_changed
+            || self
+                .seen
+                .iter()
+                .any(|(dir, baseline)| self.stamps(dir) != *baseline)
     }
 
     fn stamps(&self, dir: &Path) -> Vec<FileStamp> {
@@ -188,5 +213,36 @@ mod tests {
         watch.observe(&source);
         assert!(!watch.is_active());
         assert!(!watch.changed());
+    }
+
+    /// Issue #482: clangd started with `--compile-commands-dir=build/debug`
+    /// reads that database for every file; rebuilding it reloads clangd.
+    #[test]
+    fn a_configured_database_directory_is_watched() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let debug = root.path().join("build/debug");
+        std::fs::create_dir_all(&debug).expect("debug");
+        let source = root.path().join("src/a.cpp");
+        std::fs::create_dir_all(source.parent().expect("src")).expect("src");
+        std::fs::write(&source, "").expect("source");
+        let config = crate::lsp::types::LspLanguageServerConfig {
+            command: "clangd".into(),
+            args: Some(vec!["--compile-commands-dir=build/debug".into()]),
+            workspace_root: root.path().to_string_lossy().into_owned(),
+            language_id: Some("cpp".into()),
+            initialization_options: None,
+            env: None,
+            max_memory_mb: None,
+            source: crate::lsp::types::ServerSource::Path,
+        };
+        let mut watch = ProjectConfigWatch::new(NAMES)
+            .with_files(crate::lsp::clangd_database::fixed_database_files(&config));
+        watch.observe(&source);
+        assert!(!watch.changed(), "nothing changed yet");
+        std::fs::write(debug.join("compile_commands.json"), "[]").expect("database");
+        assert!(watch.changed(), "the configured database was created");
+        watch.clear();
+        watch.observe(&source);
+        assert!(!watch.changed(), "a new baseline after clear");
     }
 }

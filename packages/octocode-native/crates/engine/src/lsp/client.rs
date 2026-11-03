@@ -181,7 +181,15 @@ impl NativeLspClient {
         // safe defaults; user-supplied options still win key by key.
         let mut config = config;
         crate::lsp::config::apply_server_default_options(&mut config, None);
-        let config_command = config.command.clone();
+        let project_config = {
+            let names = crate::lsp::config::project_config_files(&config.command);
+            let fixed = if names.is_empty() {
+                Vec::new()
+            } else {
+                crate::lsp::clangd_database::fixed_database_files(&config)
+            };
+            ProjectConfigWatch::new(names).with_files(fixed)
+        };
         Self {
             inner: Arc::new(NativeLspClientInner {
                 config,
@@ -199,9 +207,7 @@ impl NativeLspClient {
                 sync_lock: Mutex::new(()),
                 open_docs: StdMutex::new(OpenDocuments::new(MAX_OPEN_DOCUMENTS)),
                 documents_checked_for: AtomicU64::new(0),
-                project_config: StdMutex::new(ProjectConfigWatch::new(
-                    crate::lsp::config::project_config_files(&config_command),
-                )),
+                project_config: StdMutex::new(project_config),
                 memory_cap_guard: StdMutex::new(None),
                 memory_watchdog: StdMutex::new(None),
                 resident_bytes: Arc::new(AtomicU64::new(0)),

@@ -1,0 +1,49 @@
+{
+  "tag_name": "22.1.0",
+  "immutable": false,
+  "published_at": "2026-03-01T09:40:54Z",
+  "assets": [
+    {
+      "name": "clangd-debug-symbols-windows-22.1.0.7z",
+      "digest": "sha256:61b16464d16fc3da381eebc964c66a8fa6d30091d666c3e23becb61bef7573b5",
+      "size": 89348097,
+      "browser_download_url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-debug-symbols-windows-22.1.0.7z"
+    },
+    {
+      "name": "clangd-linux-22.1.0.zip",
+      "digest": "sha256:c54e57dbff3ccc9e8352367ddb7030ad3f624073ec58c7477424e7919f578572",
+      "size": 96066963,
+      "browser_download_url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-linux-22.1.0.zip"
+    },
+    {
+      "name": "clangd-mac-22.1.0.zip",
+      "digest": "sha256:71eddc5303da9a5bc5e8b509488b5b2c5acf45f20e33b8394e71a12a56d67198",
+      "size": 49574285,
+      "browser_download_url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-mac-22.1.0.zip"
+    },
+    {
+      "name": "clangd-windows-22.1.0.zip",
+      "digest": "sha256:e31e271fe11f6dcd7cf87ca74be4a12788ff8ce5a0b07762583e335c058e939a",
+      "size": 20740190,
+      "browser_download_url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-windows-22.1.0.zip"
+    },
+    {
+      "name": "clangd_indexing_tools-linux-22.1.0.zip",
+      "digest": "sha256:ed9dc9ba0156739dab0ec8f47c7a8325b1eb1069c9c2ccb8dd22527b756827e8",
+      "size": 127976958,
+      "browser_download_url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd_indexing_tools-linux-22.1.0.zip"
+    },
+    {
+      "name": "clangd_indexing_tools-mac-22.1.0.zip",
+      "digest": "sha256:a9fa4139c52c039289d602d8a3dcc23e26ba4804cca4ef3d466e185c5c738410",
+      "size": 52829864,
+      "browser_download_url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd_indexing_tools-mac-22.1.0.zip"
+    },
+    {
+      "name": "clangd_indexing_tools-windows-22.1.0.zip",
+      "digest": "sha256:fe1539b88755bafff758eea467132dcba04b24f99b1a2446e9e489639ccff2a9",
+      "size": 21981579,
+      "browser_download_url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd_indexing_tools-windows-22.1.0.zip"
+    }
+  ]
+}

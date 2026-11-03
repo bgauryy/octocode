@@ -166,7 +166,11 @@ async fn first_open_after_a_confirmed_project_load_skips_the_settle() {
         )
         .await
         .expect("open");
-    assert_eq!(readiness.as_deref(), Some("settledWithoutProgress"));
+    assert_eq!(
+        readiness.as_deref(),
+        Some("progressIdle"),
+        "a wait owed nothing keeps the startup wait's confirmation, not a silent-server label"
+    );
     assert_eq!(
         started.elapsed(),
         Duration::ZERO,

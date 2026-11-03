@@ -2,44 +2,112 @@ use super::*;
 use crate::test_support::TmpDir;
 
 fn install(root: &Path, name: &str, platform: &str, bytes: &[u8]) -> PathBuf {
-    let bin = cached_server_bin_path(root, name, platform).expect("bin path");
-    std::fs::create_dir_all(bin.parent().expect("parent")).expect("dir");
-    std::fs::write(&bin, bytes).expect("bin");
-    let asset_sha = manifest_server(name).expect("server").platforms[platform]
-        .sha256
-        .expect("pinned asset");
-    install_with_asset(root, name, platform, bytes, asset_sha)
+    let identity = AssetIdentity::locked(name, platform).expect("locked asset");
+    install_with_identity(root, name, platform, bytes, &identity)
 }
 
-fn install_with_asset(
+fn install_with_identity(
     root: &Path,
     name: &str,
     platform: &str,
     bytes: &[u8],
-    asset_sha: &str,
+    identity: &AssetIdentity,
 ) -> PathBuf {
     let bin = cached_server_bin_path(root, name, platform).expect("bin path");
     std::fs::create_dir_all(bin.parent().expect("parent")).expect("dir");
     std::fs::write(&bin, bytes).expect("bin");
-    let marker = serde_json::json!({
-        "assetSha256": asset_sha,
-        "binarySha256": crate::digest::sha256(bytes),
-        "size": bytes.len(),
-    });
+    let marker = cache_marker(identity, &crate::digest::sha256(bytes), bytes.len() as u64);
     std::fs::write(marker_path(&bin), marker.to_string()).expect("marker");
     bin
 }
 
-/// A binary installed from a different asset than the one the
-/// manifest now pins (same release-tag path) is not trusted.
+/// A binary whose marker names another asset identity than the manifest and
+/// lock name now (same release-tag path) is not trusted, whichever part
+/// differs: the bytes, the file name, the tag, or the repository.
 #[test]
-fn resolve_rejects_marker_for_a_different_asset() {
+fn resolve_rejects_a_marker_for_another_asset_identity() {
+    let locked = AssetIdentity::locked("rust-analyzer", "linux-x64").expect("locked");
+    let others = [
+        AssetIdentity {
+            sha256: "0".repeat(64),
+            ..locked.clone()
+        },
+        AssetIdentity {
+            asset: format!("{}.old", locked.asset),
+            ..locked.clone()
+        },
+        AssetIdentity {
+            tag: format!("{}-1", locked.tag),
+            ..locked.clone()
+        },
+        AssetIdentity {
+            repo: "someone/fork".into(),
+            ..locked.clone()
+        },
+    ];
+    for other in others {
+        let root = TmpDir::new();
+        install_with_identity(&root, "rust-analyzer", "linux-x64", b"ra", &other);
+        assert_eq!(
+            resolve_cached_server(&root, "rust-analyzer", "linux-x64"),
+            None,
+            "{other:?}"
+        );
+    }
     let root = TmpDir::new();
-    install_with_asset(&root, "rust-analyzer", "linux-x64", b"ra", &"0".repeat(64));
+    let bin = install_with_identity(&root, "rust-analyzer", "linux-x64", b"ra", &locked);
     assert_eq!(
         resolve_cached_server(&root, "rust-analyzer", "linux-x64"),
-        None
+        Some(bin)
     );
+}
+
+/// The embedded lock covers every asset the manifest names, for the
+/// manifest's own repository and tag (`dev.mjs lsp:lock` keeps it so).
+#[test]
+fn the_lock_covers_every_manifest_asset() {
+    for (name, server) in manifest() {
+        assert!(
+            server.release_lock.is_some(),
+            "{name}: lock names another release"
+        );
+        for (platform, asset) in &server.platforms {
+            let lock = asset
+                .lock
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name} {platform}: {} is not in the lock", asset.asset));
+            assert!(
+                lock.url.ends_with(&format!("/{}", asset.asset)),
+                "{}",
+                lock.url
+            );
+            assert!(
+                lock.url.contains(&format!("/{}/", server.release_tag)),
+                "{}",
+                lock.url
+            );
+            assert!(lock.size > 0);
+        }
+    }
+}
+
+/// A lock entry recorded for another tag than the manifest declares locks
+/// nothing, so an install is refused rather than verified against it.
+#[test]
+fn a_lock_for_another_release_locks_nothing() {
+    let text = lock::embedded_text().replace(
+        &format!("\"tag\": \"{}\"", manifest()["clangd"].release_tag),
+        "\"tag\": \"0.0.0\"",
+    );
+    let servers = build_manifest(&lock::Lock::parse(&text));
+    assert!(servers["clangd"].release_lock.is_none());
+    assert!(
+        servers["clangd"]
+            .platforms
+            .values()
+            .all(|a| a.lock.is_none())
+    );
+    assert!(servers["rust-analyzer"].release_lock.is_some());
 }
 
 /// Review M7: an unchanged binary is hashed once per process, not on

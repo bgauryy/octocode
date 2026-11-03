@@ -5,7 +5,9 @@ use super::*;
 /// starts one only then); wait for it so queries do not race it. An
 /// outline (`documentSymbols`) is the file's own syntax, answered without
 /// the project (typescript-language-server routes it to its syntax server),
-/// so it syncs without that wait and reports no open readiness.
+/// so it syncs without that wait and reports no open readiness. The document
+/// still owes the wait: an empty outline of a file with text pays it and asks
+/// once more (`NativeLspClient::get_document_symbols_settled`).
 pub(in crate::tools::lsp_search) async fn sync_document(
     query: &LspSearchQuery,
     target: &Target,

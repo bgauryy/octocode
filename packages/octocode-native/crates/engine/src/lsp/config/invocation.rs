@@ -7,6 +7,7 @@ use crate::lsp::types::{LspLanguageServerConfig, ServerSource};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+pub(super) mod rustup;
 mod typescript_cli;
 
 pub(in crate::lsp) use typescript_cli::current_node_command;
@@ -46,7 +47,8 @@ pub(super) fn config_from_spec(
     config
 }
 
-/// Resolve a spec's command + args, and where they came from: a managed
+/// Resolve a spec's command + args, and where they came from: a rustup
+/// toolchain that ships the command for this workspace, else a managed
 /// install, else the command on `PATH`; Python prefers an installed
 /// pyright-family server. Any other server (e.g. `tsgo`) is a user
 /// `lsp-servers.json` entry.
@@ -91,7 +93,18 @@ fn resolve_spec_invocation(
         );
     }
 
-    let managed = options.managed_server(spec.command);
+    // A toolchain-matched rustup component is an official build for this
+    // project's Rust version: the rustup proxy on PATH runs it, ahead of a
+    // managed download.
+    let toolchain_component = rustup::toolchain_component(
+        &rustup::RustupView::current(),
+        Path::new(workspace_root),
+        spec.command,
+    );
+    let managed = toolchain_component
+        .is_none()
+        .then(|| options.managed_server(spec.command))
+        .flatten();
     let command = managed
         .as_ref()
         .map(|path| path.to_string_lossy().into_owned())

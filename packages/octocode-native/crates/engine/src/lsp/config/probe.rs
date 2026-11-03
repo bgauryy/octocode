@@ -130,16 +130,7 @@ pub fn server_command_resolves(config: &LspLanguageServerConfig) -> bool {
 /// fail. Treat it as available only when some toolchain has the binary. Any
 /// other executable is the real server.
 pub(super) fn rustup_proxy_component_installed(program: &Path, rustup_home: Option<&Path>) -> bool {
-    let target = std::fs::read_link(program).ok();
-    let is_proxy = target
-        .as_deref()
-        .and_then(Path::file_stem)
-        .is_some_and(|name| {
-            name.to_string_lossy()
-                .to_ascii_lowercase()
-                .starts_with("rustup")
-        });
-    if !is_proxy {
+    if !super::invocation::rustup::is_rustup_proxy(program) {
         return true;
     }
     let Some(binary) = program.file_name() else {

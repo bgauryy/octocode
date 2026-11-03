@@ -1,7 +1,7 @@
 use octocode_engine::text::lexical;
 use std::path::{Path, PathBuf};
 
-use super::discovery::{is_sensitive_path, withheld_message};
+use super::discovery::{EntryKind, is_sensitive_path, withheld_message};
 use super::{PolicyError, PolicyErrorCode};
 
 mod messages;
@@ -162,14 +162,15 @@ impl PathPolicy {
                 PolicyError::new(code, message).with_path(self.display_requested(input, lexical))
             );
         }
-        if is_sensitive_path(lexical) {
+        // Read time re-checks with the kind on disk (fail-closed when unknown).
+        if is_sensitive_path(lexical, EntryKind::stat(lexical)) {
             return Err(PolicyError::new(
                 PolicyErrorCode::IgnoredPath,
                 withheld_message(&self.redact(lexical), lexical),
             )
             .with_path(self.redact(lexical)));
         }
-        if is_sensitive_path(&real) {
+        if is_sensitive_path(&real, EntryKind::stat(&real)) {
             return Err(PolicyError::new(
                 PolicyErrorCode::IgnoredPath,
                 format!(

@@ -1,14 +1,21 @@
 use super::*;
-use octocode_engine::text::analysis::{
-    MapBudget, MapLimits, ObservedSpan, OriginProjection, SourceDescriptors,
-};
+use crate::tools::ast_graph::store::PackedOrigins;
+use octocode_engine::text::analysis::{MapBudget, MapLimits, ObservedSpan, SourceDescriptors};
 
 type SpanKey = (u32, u32, u32);
 
+/// One file's source correspondence, held from capture until the snapshot's
+/// source table is built. Origins stay encoded against the file's own
+/// descriptors: decoded, each range repeats its unit's and source's ids.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CapturedSource {
+    /// The units, representations and sources the origins cite, each
+    /// sorted by id.
     pub descriptors: SourceDescriptors,
-    pub origins: BTreeMap<SpanKey, OriginProjection>,
+    /// The span key of each packed origin, ascending.
+    pub keys: Vec<SpanKey>,
+    pub origins: PackedOrigins,
+    admission: (usize, usize),
 }
 
 impl CapturedSource {
@@ -19,15 +26,7 @@ impl CapturedSource {
     ///
     /// [`read_charge`]: super::super::limits::read_charge
     pub(crate) fn admission(&self) -> (usize, usize) {
-        self.origins
-            .values()
-            .fold((0, 0), |(bytes, items), origin| {
-                let (more_bytes, more_items) = super::super::limits::read_charge(origin);
-                (
-                    bytes.saturating_add(more_bytes),
-                    items.saturating_add(more_items),
-                )
-            })
+        self.admission
     }
 }
 
@@ -63,12 +62,29 @@ pub(super) fn capture(
                 .map_err(ToolError::source)?,
         );
     }
-    let descriptors = view
+    let mut descriptors = view
         .source
         .descriptors(&projections, &mut budget)
         .map_err(ToolError::source)?;
+    descriptors.snapshots.sort_by(|a, b| a.id.cmp(&b.id));
+    descriptors.representations.sort_by(|a, b| a.id.cmp(&b.id));
+    descriptors.units.sort_by(|a, b| a.id.cmp(&b.id));
+    let admission = projections
+        .iter()
+        .fold((0_usize, 0_usize), |(bytes, items), origin| {
+            let (more_bytes, more_items) = super::super::limits::read_charge(origin);
+            (
+                bytes.saturating_add(more_bytes),
+                items.saturating_add(more_items),
+            )
+        });
+    let origins =
+        PackedOrigins::pack(&projections, &descriptors, cancel).map_err(ToolError::source)?;
+    keys.shrink_to_fit();
     Ok(CapturedSource {
         descriptors,
-        origins: keys.into_iter().zip(projections).collect(),
+        keys,
+        origins,
+        admission,
     })
 }

@@ -57,7 +57,10 @@ impl NativeLspClient {
     ///
     /// Returns the readiness string (`progressIdle`, `settledWithoutProgress`, or
     /// `timeout`) for the wait, and `None` for a document whose wait completed.
-    /// A timed-out load still owes a wait on the next call.
+    /// A wait that was owed nothing (no settle, and no progress under way)
+    /// confirmed nothing itself, so it reports the client's startup readiness
+    /// instead of `settledWithoutProgress`: a confirmed load stays
+    /// `progressIdle`. A timed-out load still owes a wait on the next call.
     pub async fn open_document_and_wait(
         &self,
         file_path: String,
@@ -117,7 +120,12 @@ impl NativeLspClient {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .mark_waited(&uri);
         }
-        Ok(Some(readiness.as_str().to_owned()))
+        let owed_nothing = settle_ms == 0 && readiness == Readiness::SilentServer;
+        let reported = owed_nothing
+            .then(|| self.readiness())
+            .flatten()
+            .unwrap_or_else(|| readiness.as_str().to_owned());
+        Ok(Some(reported))
     }
 
     /// Sync `content` for `file_path`: nothing is sent when the server

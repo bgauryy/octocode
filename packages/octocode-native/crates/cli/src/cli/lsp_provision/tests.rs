@@ -1,14 +1,18 @@
 use super::commands::{run_clean, run_install, run_status};
 use super::download::{download_client, download_error};
 use super::install::install_binary;
+use super::upstream::{Attestation, GitHub, Upstream};
 use super::*;
 use flate2::{Compression, write::GzEncoder};
 use octocode_engine::lsp::config::LspDiscoveryOptions;
-use octocode_engine::lsp::managed::{ArchiveKind, ManifestAsset, marker_path};
+use octocode_engine::lsp::managed::{
+    ArchiveKind, AssetIdentity, AssetLock, ManifestAsset, marker_path,
+};
 mod commands;
 mod downloads;
 mod install;
 mod provision;
+mod three_way;
 
 fn parse(args: &[&str]) -> Result<LspServerCommand, clap::Error> {
     #[derive(clap::Parser)]
@@ -20,11 +24,10 @@ fn parse(args: &[&str]) -> Result<LspServerCommand, clap::Error> {
         .map(|cli| cli.command)
 }
 
-/// The asset digest the manifest pins; resolve only trusts markers naming it.
-fn pinned_asset_sha(name: &str, platform: &str) -> &'static str {
-    manifest_server(name).expect("server").platforms[platform]
-        .sha256
-        .expect("pinned asset")
+/// The asset identity the manifest and lock name; resolve only trusts
+/// markers naming it.
+fn locked_identity(name: &str, platform: &str) -> AssetIdentity {
+    AssetIdentity::locked(name, platform).expect("locked asset")
 }
 
 use std::io::Write;
@@ -53,11 +56,21 @@ fn zip_with(entries: &[(&str, &[u8])]) -> Vec<u8> {
 
 fn asset(archive: ArchiveKind, bin_path: Option<&'static str>) -> ManifestAsset {
     ManifestAsset {
-        url: "https://github.com/example/tool",
+        asset: "tool.bin".to_owned(),
         archive,
-        bin_name: "tool",
-        bin_path,
-        sha256: None,
+        bin_name: "tool".to_owned(),
+        bin_path: bin_path.map(str::to_owned),
+        lock: None,
+    }
+}
+
+/// An identity for `download` itself, as a lock generated for it would name.
+fn identity_of(download: &[u8]) -> AssetIdentity {
+    AssetIdentity {
+        repo: "example/tool".to_owned(),
+        tag: "v1".to_owned(),
+        asset: "tool.bin".to_owned(),
+        sha256: octocode_engine::digest::sha256(download),
     }
 }
 
@@ -72,8 +85,7 @@ fn install_download(
     let spool = dir.path().join("asset.download");
     std::fs::write(&spool, download).expect("spool");
     let bin = dir.path().join("cache").join("tool");
-    let pinned = octocode_engine::digest::sha256(download);
-    let result = verify_and_install("tool", asset, &spool, &bin, &pinned, limit)
+    let result = verify_and_install("tool", asset, &spool, &bin, &identity_of(download), limit)
         .map(|()| std::fs::read(&bin).expect("installed binary"));
     (result, dir)
 }
@@ -125,20 +137,94 @@ fn status(file: Option<&str>, json: bool) -> u8 {
     )
 }
 
-type Spooled = futures_util::future::BoxFuture<'static, Result<tokio::fs::File, String>>;
-
-fn never(_url: &'static str, _file: tokio::fs::File) -> Spooled {
-    panic!("must not fetch")
+/// GitHub as a test needs it: the live digest from `live` (a real
+/// [`GitHub`] against a local fixture, or the lock's own digest when
+/// `None`), the bytes in `bytes` (`None` = must not download), and a fixed
+/// attestation answer.
+struct Fake {
+    live: Option<GitHub>,
+    bytes: Option<Vec<u8>>,
+    attestation: Attestation,
 }
 
-/// Serves an asset whose digest is not the pinned one.
-fn tampered(_url: &'static str, mut file: tokio::fs::File) -> Spooled {
-    Box::pin(async move {
-        tokio::io::AsyncWriteExt::write_all(&mut file, &gz(b"tampered"))
+impl Fake {
+    /// Agrees with the lock and serves `bytes`.
+    fn serving(bytes: Vec<u8>) -> Self {
+        Self {
+            live: None,
+            bytes: Some(bytes),
+            attestation: Attestation::NotChecked("test".into()),
+        }
+    }
+    /// Agrees with the lock and panics on download.
+    fn never() -> Self {
+        Self {
+            bytes: None,
+            ..Self::serving(Vec::new())
+        }
+    }
+}
+
+/// Serves an asset whose digest is not the locked one.
+fn tampered() -> Fake {
+    Fake::serving(gz(b"tampered"))
+}
+
+impl Upstream for Fake {
+    async fn live_digest(
+        &self,
+        repo: &str,
+        tag: &str,
+        asset: &str,
+    ) -> Result<Option<String>, String> {
+        if let Some(github) = &self.live {
+            return github.live_digest(repo, tag, asset).await;
+        }
+        Ok(octocode_engine::lsp::managed::manifest()
+            .values()
+            .filter(|server| server.repo == repo && server.release_tag == tag)
+            .flat_map(|server| server.platforms.values())
+            .find(|entry| entry.asset == asset)
+            .and_then(|entry| entry.lock.as_ref())
+            .map(|lock| lock.sha256.clone()))
+    }
+    async fn download(
+        &self,
+        _url: &str,
+        mut file: tokio::fs::File,
+    ) -> Result<tokio::fs::File, String> {
+        let bytes = self.bytes.as_ref().expect("must not fetch");
+        tokio::io::AsyncWriteExt::write_all(&mut file, bytes)
             .await
             .map_err(|e| e.to_string())?;
         Ok(file)
-    })
+    }
+    async fn attest(&self, _repo: &str, _tag: &str, _file: &std::path::Path) -> Attestation {
+        self.attestation.clone()
+    }
+}
+
+/// A local HTTP server answering every request with `status` and `body`
+/// (the GitHub API as a fixture); its base URL.
+fn serve(status: u16, body: String) -> String {
+    use std::io::{BufRead, BufReader};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(&stream);
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok_and(|n| n > 0) && line != "\r\n" {
+                line.clear();
+            }
+            let response = format!(
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = (&stream).write_all(response.as_bytes());
+        }
+    });
+    base
 }
 
 /// Entries left in the per-target install directory, the lock aside.

@@ -394,4 +394,43 @@ mod tests {
         );
         assert!(started.elapsed() >= Duration::from_millis(450));
     }
+
+    /// A project load much longer than the settle window is a progress wait,
+    /// not a settle: `wait_until_idle` lasts as long as the load and reports
+    /// `ProgressIdle`, never `SilentServer`.
+    #[tokio::test(start_paused = true)]
+    async fn a_load_that_outlasts_the_settle_window_is_not_a_silent_server() {
+        let tracker = ProgressTracker::new();
+        let server = Arc::clone(&tracker);
+        tokio::spawn(async move {
+            server.on_begin("load".to_owned()).await;
+            tokio::time::sleep(Duration::from_millis(9_300)).await;
+            server.on_end("load").await;
+        });
+        let started = Instant::now();
+        assert_eq!(
+            tracker.wait_until_idle(60_000, STARTUP_SETTLE_MS).await,
+            Readiness::ProgressIdle
+        );
+        assert!(started.elapsed() >= Duration::from_millis(9_300));
+    }
+
+    /// A wait owed nothing (`settle_ms` 0 after a load the startup wait
+    /// already confirmed) returns at once as `SilentServer`: "not confirmed
+    /// by this wait", not "the server never reported progress". A caller
+    /// must not report it as the server's readiness over the startup
+    /// wait's `ProgressIdle`.
+    #[tokio::test(start_paused = true)]
+    async fn a_wait_owed_nothing_returns_at_once_without_confirming() {
+        let tracker = ProgressTracker::new();
+        tracker.on_begin("load".to_owned()).await;
+        tracker.on_end("load").await;
+        let observed = tracker.subscribe();
+        let started = Instant::now();
+        assert_eq!(
+            tracker.wait_until_idle_after(observed, 0, 60_000).await,
+            Readiness::SilentServer
+        );
+        assert_eq!(started.elapsed(), Duration::ZERO);
+    }
 }

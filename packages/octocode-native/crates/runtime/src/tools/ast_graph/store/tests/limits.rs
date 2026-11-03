@@ -193,20 +193,22 @@ fn row_counts_are_checked_before_redaction() {
     ]);
     let dir = dir.0.as_path();
     let (paths, security) = (workspace_policy(dir), ContentSecurity::new());
-    let built = build(dir, &paths, &security);
+    let mut built = build(dir, &paths, &security);
     let limits = Limits {
         table_items: 2,
         ..LIMITS
     };
     let redacted = redactions();
-    let Err(out) = project_graph(&built, &paths, &security, &NeverCancel, &limits) else {
+    let Err(out) = project_graph(&mut built, &paths, &security, &NeverCancel, &limits) else {
         panic!("three witnesses pass a two-row bound");
     };
     assert_eq!(out.value["errorCode"], json!(ErrorCode::ScopeTooBroad));
     let message = out.value["error"].as_str().unwrap_or_default();
     assert!(message.contains("WITN"), "{message}");
     assert_eq!(redactions(), redacted, "refused before redaction");
-    let Ok(_) = project_graph(&built, &paths, &security, &NeverCancel, &LIMITS) else {
+    // Projection moves a build's captured sources: project a fresh build.
+    let mut built = build(dir, &paths, &security);
+    let Ok(_) = project_graph(&mut built, &paths, &security, &NeverCancel, &LIMITS) else {
         panic!("the default bounds hold it");
     };
     assert_eq!(redactions(), redacted + 1);
@@ -249,8 +251,9 @@ fn the_build_tally_is_a_lower_bound_of_the_projection() {
     for dir in fixtures {
         let dir = dir.0.as_path();
         let (paths, security) = (workspace_policy(dir), ContentSecurity::new());
-        let built = build(dir, &paths, &security);
-        let Ok(projection) = project_graph(&built, &paths, &security, &NeverCancel, &LIMITS) else {
+        let mut built = build(dir, &paths, &security);
+        let Ok(projection) = project_graph(&mut built, &paths, &security, &NeverCancel, &LIMITS)
+        else {
             panic!("projection");
         };
         let tables = &projection.tables;

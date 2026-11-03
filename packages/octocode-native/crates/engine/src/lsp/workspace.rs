@@ -153,22 +153,6 @@ pub fn typescript_project_dir(directory: &Path) -> Option<&Path> {
     })
 }
 
-/// The clangd configuration files that apply to a file in `directory`,
-/// nearest first: each `CLANGD_PROJECT_CONFIG_FILES` entry in the directory
-/// and every ancestor. Presence does not prove clangd selected one or that
-/// its compile command is valid.
-pub fn clangd_config_sources(directory: &Path) -> Vec<PathBuf> {
-    directory
-        .ancestors()
-        .flat_map(|dir| {
-            crate::lsp::config::CLANGD_PROJECT_CONFIG_FILES
-                .iter()
-                .map(move |name| dir.join(name))
-        })
-        .filter(|path| path.is_file())
-        .collect()
-}
-
 /// The nearest ancestor of `directory` (itself included) holding a
 /// `Cargo.toml`: the Cargo package (or virtual workspace) a Rust file
 /// belongs to.

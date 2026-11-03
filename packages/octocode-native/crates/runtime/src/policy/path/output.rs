@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::{PathPolicy, ValidatedPath, reject_nul};
-use crate::policy::discovery::{is_sensitive_path, withheld_message};
+use crate::policy::discovery::{EntryKind, is_sensitive_path, withheld_message};
 use crate::policy::{PolicyError, PolicyErrorCode};
 
 impl PathPolicy {
@@ -84,7 +84,7 @@ impl PathPolicy {
         }
         if let Some(sensitive) = [&absolute, &real_ancestor, &resolved]
             .into_iter()
-            .find(|path| is_sensitive_path(path))
+            .find(|path| is_sensitive_path(path, EntryKind::stat(path)))
         {
             return Err(PolicyError::new(
                 PolicyErrorCode::IgnoredPath,

@@ -198,6 +198,34 @@ jobs:
           cargo nextest run --locked -p octocode-native --lib
           -E 'test(/bounded_process::(held_pipe_tests|gated::tests)::/) | test(/discovery::containment_tests::/)'
 
+  # The managed language-server lock still matches GitHub's release digests:
+  # only when the manifest, its lock or the generator changed (the nightly
+  # schedule runs it every day to catch an asset replaced upstream).
+  lsp-lock:
+    name: Managed LSP lock (lsp:lock --check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Changed managed files
+        id: changed
+        run: |
+          base=${{ github.event.pull_request.base.sha || github.event.before }}
+          if git diff --quiet "$base" HEAD -- 'packages/octocode-native/crates/engine/src/lsp/managed*' skills-dev/octocode-dev/scripts/lsp-lock.mjs 2>/dev/null; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.run == 'true'
+        run: node skills-dev/octocode-dev/scripts/dev.mjs lsp:lock --check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
   # The native package's TypeScript check and script tests (platform map,
   # build/publication, platform packages, registry fallback): plain Node, no Rust build.
   native-scripts:

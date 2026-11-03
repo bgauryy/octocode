@@ -154,11 +154,34 @@ const SENSITIVE_FRAGMENTS: &[(&str, &str)] = &[
     ("/Library/Keychains/", "Library/Keychains/"),
 ];
 
-pub(crate) fn is_sensitive_path(path: &Path) -> bool {
+/// What a path is, as its caller knows it, for [`is_sensitive_path`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EntryKind {
+    Dir,
+    File,
+    /// Not on disk (yet), unreadable, or not looked at: file rules apply.
+    Unknown,
+}
+
+impl EntryKind {
+    /// The kind on disk, following symlinks; `Unknown` when it cannot be read.
+    pub(crate) fn stat(path: &Path) -> Self {
+        match std::fs::metadata(path) {
+            Ok(meta) if meta.is_dir() => Self::Dir,
+            Ok(_) => Self::File,
+            Err(_) => Self::Unknown,
+        }
+    }
+}
+
+/// Whether the policy withholds `path`, a `kind` entry. Only a known
+/// directory bypasses file-name rules (a `credentials/` folder is source);
+/// unknown paths and prospective output files stay withheld, and a sensitive
+/// ancestor always wins.
+pub(crate) fn is_sensitive_path(path: &Path, kind: EntryKind) -> bool {
     let aliases = octocode_engine::text::slash_path(path);
-    // Only a confirmed directory bypasses filename rules. Unknown paths and
-    // prospective output files remain withheld; sensitive ancestors always win.
-    sensitive_directory(&aliases).is_some() || (is_sensitive_file(&aliases) && !path.is_dir())
+    sensitive_directory(&aliases).is_some()
+        || (kind != EntryKind::Dir && is_sensitive_file(&aliases))
 }
 
 /// The policy directory a path lies in or is (`.ssh`, `.aws`,

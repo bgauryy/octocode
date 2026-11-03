@@ -230,11 +230,61 @@ impl NativeLspClient {
 
     /// Read one method's answer from this operation's selected evidence, or
     /// ask the server and retain it for this operation's later pages.
+    /// The outline of a document [`Self::open_document`] synced, asked first
+    /// without waiting for a project load: an outline is usually the file's
+    /// own syntax. A server may answer an empty outline until its project
+    /// loads, so when the answer is empty, `content` has text, and the
+    /// document still owes its open wait, this pays only that owed wait
+    /// ([`Self::open_document_and_wait`]) and asks once more, recording the
+    /// new answer in place of the empty one. Returns the outline and the
+    /// readiness of a wait it paid.
+    pub async fn get_document_symbols_settled(
+        &self,
+        file_path: String,
+        content: &str,
+    ) -> Result<(Arc<Value>, Option<String>)> {
+        let symbols = self.get_document_symbols(file_path.clone()).await?;
+        let empty = symbols.is_null() || symbols.as_array().is_some_and(Vec::is_empty);
+        let uri = path_to_uri(&file_path)?;
+        let owed = self
+            .inner
+            .open_docs
+            .lock()
+            .map_err(|_| Error::new("open_docs lock poisoned"))?
+            .wait_owed(&uri);
+        if !empty || content.trim().is_empty() || !owed {
+            return Ok((symbols, None));
+        }
+        let readiness = self
+            .open_document_and_wait(file_path, content, None, None)
+            .await?;
+        let symbols = self
+            .provider_answer(
+                "textDocument/documentSymbol",
+                json!({ "textDocument": { "uri": uri } }),
+                None,
+                Reuse::Fresh,
+            )
+            .await?;
+        Ok((symbols, readiness))
+    }
+
     async fn provider_request(
         &self,
         method: &str,
         params: Value,
         settle: Option<Duration>,
+    ) -> Result<Arc<Value>> {
+        self.provider_answer(method, params, settle, Reuse::Recorded)
+            .await
+    }
+
+    async fn provider_answer(
+        &self,
+        method: &str,
+        params: Value,
+        settle: Option<Duration>,
+        reuse: Reuse,
     ) -> Result<Arc<Value>> {
         let (call, answers) = RESPONSE_SCOPE
             .try_with(|scope| {
@@ -257,14 +307,16 @@ impl NativeLspClient {
             .to_string()
             .as_bytes(),
         );
-        if let Some(value) = answers.as_ref().and_then(|answers| {
-            answers
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .0
-                .get(&key)
-                .cloned()
-        }) {
+        if reuse == Reuse::Recorded
+            && let Some(value) = answers.as_ref().and_then(|answers| {
+                answers
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .0
+                    .get(&key)
+                    .cloned()
+            })
+        {
             return Ok(value);
         }
         if let Some(settle) = settle {
@@ -326,6 +378,14 @@ impl NativeLspClient {
             }
         }
     }
+}
+
+/// Whether a provider request may answer from the response scope's recorded
+/// answers, or must ask the server and record the new answer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reuse {
+    Recorded,
+    Fresh,
 }
 
 /// Which location request [`NativeLspClient::get_locations`] sends.

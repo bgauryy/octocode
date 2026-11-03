@@ -1,11 +1,11 @@
-use super::{fetch_allowlisted, provision_server, uninstall_server};
+use super::upstream::{GitHub, Upstream};
+use super::{provision_server, uninstall_server};
 use octocode_engine::lsp::config::{
     LspDiscoveryOptions, default_server_for_file, detect_language_id, is_command_available,
 };
 use octocode_engine::lsp::managed::{manifest, platform_id, resolve_cached_server};
 use octocode_native::config::LspAutoInstall;
 use octocode_native::runtime::ToolRuntime;
-use std::future::Future;
 use std::path::{Path, PathBuf};
 
 /// The runtime's resolved language-server discovery settings, so status and
@@ -184,7 +184,8 @@ pub(in super::super) async fn run(
             } else {
                 runtime.config().resolved.lsp.auto_install
             };
-            run_install(&root, &platform, targets, mode, json, fetch_allowlisted).await
+            let github = GitHub::new(runtime.github_com_token().await);
+            run_install(&root, &platform, targets, mode, json, &github).await
         }
         LspServerCommand::Uninstall { names } => run_uninstall(&root, &platform, names, json),
         LspServerCommand::Clean { yes } => run_clean(&root, yes, json),
@@ -225,18 +226,14 @@ pub(super) fn run_list(root: &Path, platform: &str, json: bool) -> u8 {
     0
 }
 
-pub(super) async fn run_install<F, Fut>(
+pub(super) async fn run_install(
     root: &Path,
     platform: &str,
     targets: Vec<String>,
     mode: LspAutoInstall,
     json: bool,
-    fetch: F,
-) -> u8
-where
-    F: Fn(&'static str, tokio::fs::File) -> Fut,
-    Fut: Future<Output = Result<tokio::fs::File, String>>,
-{
+    upstream: &impl Upstream,
+) -> u8 {
     if targets.is_empty() {
         eprintln!("Specify a server to install, or use --all.");
         return 2;
@@ -244,7 +241,7 @@ where
     let mut results = Vec::new();
     let mut worst: u8 = 0;
     for name in targets {
-        let outcome = provision_server(root, &name, platform, mode, &fetch).await;
+        let outcome = provision_server(root, &name, platform, mode, upstream).await;
         if outcome.ok {
             if !json {
                 println!(
@@ -252,6 +249,9 @@ where
                     outcome.source.unwrap_or("ok"),
                     outcome.path.clone().unwrap_or_default()
                 );
+                if let Some(verification) = &outcome.verification {
+                    println!("  verified: {verification}");
+                }
             }
         } else {
             worst = 3;
@@ -265,6 +265,7 @@ where
             "source": outcome.source,
             "path": outcome.path,
             "error": outcome.error,
+            "verification": outcome.verification,
         }));
     }
     if json {

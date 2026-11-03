@@ -25,6 +25,7 @@ mod staleness;
 pub(super) mod tables;
 pub(crate) mod tools;
 mod workspace;
+pub(super) use format::sources::PackedOrigins;
 
 use super::graph::GraphScan;
 use super::types::ImportOutcome;

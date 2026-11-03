@@ -12,6 +12,7 @@ pub(super) use codec::{decode, encode};
 #[cfg(test)]
 use codec::{decode_admitted, decode_with_budget};
 pub(super) use codec::{encode_parts, read, read_catalog};
+pub(crate) use pool::PackedOrigins;
 #[cfg(test)]
 mod tests;
 
@@ -74,6 +75,7 @@ fn map_budget<'a>(
 }
 
 impl SourceTable {
+    #[cfg(test)]
     pub(crate) fn from_origins<'a>(
         descriptors: SourceDescriptors,
         origins: impl IntoIterator<Item = &'a OriginProjection>,
@@ -88,6 +90,25 @@ impl SourceTable {
         output
             .origins
             .extend(&origins, &output.descriptors, &mut budget)?;
+        output.validate_with_cancel(cancel)?;
+        Ok(output)
+    }
+
+    /// [`Self::from_origins`] over each file's packed origins and the
+    /// descriptors they were packed with, in order.
+    pub(crate) fn from_packed<'a>(
+        descriptors: SourceDescriptors,
+        files: impl IntoIterator<Item = (&'a PackedOrigins, &'a SourceDescriptors)>,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<Self, SourceError> {
+        let mut output = Self {
+            descriptors,
+            ..Default::default()
+        };
+        let mut budget = budget::Budget::new(cancel, &LIMITS);
+        output
+            .origins
+            .extend_packed(files, &output.descriptors, &mut budget)?;
         output.validate_with_cancel(cancel)?;
         Ok(output)
     }

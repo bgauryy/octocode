@@ -94,6 +94,19 @@ impl ToolRuntime {
             .map(|selection| selection.source_label().to_owned())
     }
 
+    /// The active token, only when the configured GitHub is github.com, for
+    /// a request to the public `api.github.com` (such as a managed language
+    /// server's release metadata); `None` for an Enterprise host or no token.
+    pub async fn github_com_token(&self) -> Option<String> {
+        let host = self.github_credential_host();
+        if host != "github.com" {
+            return None;
+        }
+        self.auth_selection(&host)
+            .await
+            .map(|selection| selection.token().to_owned())
+    }
+
     /// The active token and GitHub's answer for it.
     pub async fn auth_status(&self) -> AuthStatus {
         let host = self.github_credential_host();

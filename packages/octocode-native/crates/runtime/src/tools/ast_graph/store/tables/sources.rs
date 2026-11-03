@@ -4,9 +4,13 @@ use crate::response::result::ToolError;
 use crate::tools::ast_graph::graph::capture;
 use octocode_engine::text::analysis::{ObservedSpan, SourceDescriptors};
 
+/// One file's origins: its first origin reference and their span keys,
+/// ascending; the origin at position `n` is reference `first + n`.
+type FileOrigins = (u32, Vec<(u32, u32, u32)>);
+
 pub(super) struct Sources {
     pub table: super::super::format::sources::SourceTable,
-    indexes: BTreeMap<String, BTreeMap<(u32, u32, u32), u32>>,
+    indexes: BTreeMap<String, FileOrigins>,
 }
 
 impl Sources {
@@ -35,12 +39,12 @@ impl Sources {
         })
         .into_iter()
         .collect::<Result<(), _>>()?;
-        let captured = built
+        let mut captured = built
             .facts
             .iter_mut()
             .map(|(file, facts)| (file.as_str(), std::mem::take(&mut facts.source)))
             .collect::<Vec<_>>();
-        for (file, source) in &captured {
+        for (file, source) in &mut captured {
             cancel.check().map_err(ToolError::cancelled)?;
             let descriptors = &source.descriptors;
             for source in &descriptors.snapshots {
@@ -52,33 +56,33 @@ impl Sources {
             for unit in &descriptors.units {
                 insert(&mut units, &unit.id, unit)?;
             }
-            let mut index = BTreeMap::new();
-            for span in source.origins.keys() {
-                cancel.check().map_err(ToolError::cancelled)?;
-                let id = u32::try_from(origin_count)
-                    .ok()
-                    .filter(|id| *id != NONE)
-                    .ok_or_else(|| {
-                        ToolError::new(
-                            octocode_contract_types::ErrorCode::ScopeTooBroad,
-                            "graph has too many source origins",
-                        )
-                    })?;
-                index.insert(*span, id);
-                origin_count += 1;
+            let too_many = || {
+                ToolError::new(
+                    octocode_contract_types::ErrorCode::ScopeTooBroad,
+                    "graph has too many source origins",
+                )
+            };
+            let first = u32::try_from(origin_count).map_err(|_| too_many())?;
+            origin_count = origin_count.saturating_add(source.keys.len());
+            // Every reference this file takes stays below `NONE`.
+            if !source.keys.is_empty() && origin_count > NONE as usize {
+                return Err(too_many());
             }
-            output.indexes.insert((*file).to_owned(), index);
+            output.indexes.insert(
+                (*file).to_owned(),
+                (first, std::mem::take(&mut source.keys)),
+            );
         }
         let descriptors = SourceDescriptors {
             snapshots: snapshots.into_values().cloned().collect(),
             representations: representations.into_values().cloned().collect(),
             units: units.into_values().cloned().collect(),
         };
-        output.table = super::super::format::sources::SourceTable::from_origins(
+        output.table = super::super::format::sources::SourceTable::from_packed(
             descriptors,
             captured
                 .iter()
-                .flat_map(|(_, source)| source.origins.values()),
+                .map(|(_, source)| (&source.origins, &source.descriptors)),
             cancel,
         )
         .map_err(ToolError::source)?;
@@ -86,8 +90,12 @@ impl Sources {
     }
 
     pub(super) fn origin(&self, file: &str, span: Option<ObservedSpan>) -> u32 {
-        span.and_then(|span| self.indexes.get(file)?.get(&capture::key(span)).copied())
-            .unwrap_or(NONE)
+        span.and_then(|span| {
+            let (first, keys) = self.indexes.get(file)?;
+            let at = keys.binary_search(&capture::key(span)).ok()?;
+            Some(first + u32::try_from(at).ok()?)
+        })
+        .unwrap_or(NONE)
     }
 
     pub(super) fn digest(&self, origin: u32) -> Option<&str> {

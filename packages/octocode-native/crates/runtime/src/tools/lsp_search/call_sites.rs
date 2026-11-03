@@ -5,8 +5,10 @@
 //!
 //! A JS/TS importer is parsed once (oxc): its sites are calls by
 //! TypeScript's own call-hierarchy rule, and their callers come from the
-//! same parse. A file oxc cannot parse falls back to the text rule (`(`
-//! follows the name) and the server's `documentSymbol` outline.
+//! same parse. A file oxc cannot parse, or a site oxc does not decide, falls
+//! back to the text rule (`(` follows the name, and the site is not a
+//! declaration's own name in the server's `documentSymbol` outline), and the
+//! outline gives the callers.
 
 use super::failure::{LspFailure, RequestFailures};
 use super::importers::{Anchor, CONCURRENT_FILE_VERIFICATIONS, Importers, ordered_concurrently};
@@ -17,7 +19,7 @@ use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use octocode_engine::graph::{GraphPosition, GraphRange};
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
-use octocode_engine::lsp::types::LspCodeSnippet;
+use octocode_engine::lsp::types::{LspCodeSnippet, LspRange};
 use octocode_engine::signatures::{EnclosingCallable, ReferenceSite};
 use octocode_engine::symbol_kind;
 use octocode_engine::text::LineIndex;
@@ -27,6 +29,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 mod symbols;
+use symbols::{FlatSymbol, is_declaration_name};
 pub(super) use symbols::{enclosing_callable, flatten_symbols};
 
 /// LSP `SymbolKind`s that own call sites: method, constructor, function.
@@ -155,23 +158,33 @@ async fn file_calls(
             character: snippet.range.start.character,
         })
         .collect();
-    let lines = LineIndex::new(&source.content);
-    let text_call = |snippet: &LspCodeSnippet| {
-        is_call_at(
-            &source.content,
-            &lines,
-            snippet.range.end.line,
-            snippet.range.end.character,
-        )
+    let classified = classify_sites(cancel, &source, &anchor.path, starts).await?;
+    // The text rule needs the outline (a declaration's own name is no call);
+    // fetched once, only when the rule decides a site.
+    let needs_text_rule = classified
+        .as_ref()
+        .is_none_or(|sites| sites.iter().any(|site| site.is_call.is_none()));
+    let (symbols, failure) = if needs_text_rule {
+        match client.get_document_symbols(anchor.path.clone()).await {
+            Ok(symbols) => (symbols, None),
+            Err(error) => (Arc::default(), Some(LspFailure::from_engine(&error))),
+        }
+    } else {
+        (Arc::default(), None)
     };
+    let mut flat = Vec::new();
+    flatten_symbols(&symbols, &mut flat);
+    let lines = LineIndex::new(&source.content);
+    let text_call =
+        |snippet: &LspCodeSnippet| is_text_call(&source.content, &lines, &flat, &snippet.range);
     let site = |snippet: &LspCodeSnippet| {
         json!({
             "start": {"line": snippet.range.start.line, "character": snippet.range.start.character},
             "end": {"line": snippet.range.end.line, "character": snippet.range.end.character}
         })
     };
-    if let Some(sites) = classify_sites(cancel, &source, &anchor.path, starts).await? {
-        let calls = own
+    if let Some(sites) = classified {
+        let calls: Vec<_> = own
             .into_iter()
             .zip(sites)
             .filter(|(snippet, classified)| {
@@ -185,10 +198,9 @@ async fn file_calls(
                 (node, site(snippet))
             })
             .collect();
-        return Ok(FileCalls {
-            calls,
-            failure: None,
-        });
+        // Without the outline the text rule kept declaration names too.
+        let failure = failure.filter(|_| !calls.is_empty());
+        return Ok(FileCalls { calls, failure });
     }
     let calls = own
         .into_iter()
@@ -199,12 +211,6 @@ async fn file_calls(
     }
     // Without the outline each call is attributed to the file itself:
     // the call sites stay listed, and the failure is disclosed.
-    let (symbols, failure) = match client.get_document_symbols(anchor.path.clone()).await {
-        Ok(symbols) => (symbols, None),
-        Err(error) => (Arc::default(), Some(LspFailure::from_engine(&error))),
-    };
-    let mut flat = Vec::new();
-    flatten_symbols(&symbols, &mut flat);
     let calls = calls
         .into_iter()
         .map(|call| {
@@ -305,6 +311,23 @@ fn own_file_policy(paths: &PathPolicy, file: &str) -> SnippetReadPolicy {
     })
 }
 
+/// The text rule for a site oxc does not decide: `(` follows the reference
+/// and the reference is not a declaration's own name in `outline` (a
+/// method signature `read(at: number) {` is followed by `(` too). Language
+/// neutral: the outline is the server's.
+fn is_text_call(
+    content: &str,
+    lines: &LineIndex,
+    outline: &[FlatSymbol<'_>],
+    range: &LspRange,
+) -> bool {
+    let point = |at: &octocode_engine::lsp::types::LspExactPosition| {
+        (u64::from(at.line), u64::from(at.character))
+    };
+    !is_declaration_name(outline, point(&range.start), point(&range.end))
+        && is_call_at(content, lines, range.end.line, range.end.character)
+}
+
 /// The text rule of a file oxc cannot parse: `(` (after optional spaces)
 /// follows the UTF-16 position on its line. `lines` indexes `content`.
 pub(super) fn is_call_at(content: &str, lines: &LineIndex, line: u32, character: u32) -> bool {
@@ -342,5 +365,42 @@ mod tests {
         // The rule reads the site's own line, never the next one.
         assert!(!text_call("stage\n(1);", 0, 5));
         assert!(text_call("a;\nstage(1);", 1, 5));
+    }
+
+    /// Issue #480: an implementing method's own name is followed by `(`, but
+    /// the outline names it a declaration; the call inside it stays.
+    #[test]
+    fn a_declaration_name_is_no_call_by_the_text_rule() {
+        let content = "class Ledger {\n  read(at: number): string {\n    return this.port.read(at);\n  }\n}\n";
+        let range = |line: u32, start: u32, end: u32| -> LspRange {
+            serde_json::from_value(json!({
+                "start": {"line": line, "character": start},
+                "end": {"line": line, "character": end}
+            }))
+            .expect("range")
+        };
+        let outline = json!([{
+            "name": "Ledger", "kind": 5,
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 4, "character": 1}},
+            "selectionRange": {"start": {"line": 0, "character": 6}, "end": {"line": 0, "character": 12}},
+            "children": [{
+                "name": "read", "kind": 6,
+                "range": {"start": {"line": 1, "character": 2}, "end": {"line": 3, "character": 3}},
+                "selectionRange": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 6}}
+            }]
+        }]);
+        let mut flat = Vec::new();
+        flatten_symbols(&outline, &mut flat);
+        let lines = LineIndex::new(content);
+        let declaration = range(1, 2, 6);
+        let call = range(2, 21, 25);
+        assert!(
+            is_call_at(content, &lines, 1, 6),
+            "the bare text rule is fooled"
+        );
+        assert!(!is_text_call(content, &lines, &flat, &declaration));
+        assert!(is_text_call(content, &lines, &flat, &call));
+        // Without an outline (it failed) the text rule alone decides.
+        assert!(is_text_call(content, &lines, &[], &declaration));
     }
 }

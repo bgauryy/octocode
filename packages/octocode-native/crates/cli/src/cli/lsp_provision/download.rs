@@ -1,13 +1,13 @@
 use super::{CONNECT_TIMEOUT, DOWNLOAD_DEADLINE, MAX_DOWNLOAD_BYTES, MAX_REDIRECTS, READ_TIMEOUT};
 use std::time::Duration;
 
-/// GitHub / HashiCorp release hosts permitted for downloads and every
-/// redirect hop.
-pub(super) const ALLOWED_HOSTS: [&str; 4] = [
+/// GitHub release hosts permitted for downloads and every redirect hop. The
+/// API host is not among them: it serves release metadata only
+/// (`upstream::GITHUB_API`).
+pub(super) const ALLOWED_HOSTS: [&str; 3] = [
     "github.com",
     "objects.githubusercontent.com",
     "release-assets.githubusercontent.com",
-    "releases.hashicorp.com",
 ];
 
 /// True when `url` is https and its host is on the release allowlist.
@@ -35,7 +35,7 @@ pub(super) fn download_client(read_timeout: Duration) -> Result<reqwest::Client,
 /// the host allowlist on every hop, within `DOWNLOAD_DEADLINE`. Signed
 /// release-asset query tokens are never echoed into errors.
 pub(super) async fn fetch_allowlisted(
-    url: &'static str,
+    url: &str,
     file: tokio::fs::File,
 ) -> Result<tokio::fs::File, String> {
     tokio::time::timeout(DOWNLOAD_DEADLINE, fetch_following_redirects(url, file))
@@ -55,7 +55,7 @@ pub(super) fn download_error(error: reqwest::Error) -> String {
 }
 
 pub(super) async fn fetch_following_redirects(
-    url: &'static str,
+    url: &str,
     mut file: tokio::fs::File,
 ) -> Result<tokio::fs::File, String> {
     let client = download_client(READ_TIMEOUT)?;

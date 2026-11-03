@@ -91,7 +91,6 @@ fn b64(text: &str) -> String {
 }
 
 mod ascii_boundaries;
-mod bounded_cache;
 mod credential_values;
 mod large_input;
 mod prescan;

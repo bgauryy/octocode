@@ -334,30 +334,3 @@ fn multi_module_projects_root_at_their_top() {
         resolve_workspace_root_for_file(py_file.to_string_lossy().into_owned()).expect("resolve");
     assert_eq!(PathBuf::from(resolved), python.0);
 }
-
-/// clangd reads a compilation database beside a file, in an ancestor, or in
-/// an ancestor's `build/`; `compile_flags.txt` and `.clangd` only beside the
-/// file or in an ancestor. A `build/.clangd` or `build/compile_flags.txt`
-/// configures nothing.
-#[test]
-fn clangd_config_sources_follow_clangd_search() {
-    let root = TmpDir::new();
-    let src = root.join("src");
-    fs::create_dir_all(root.join("build")).expect("build");
-    fs::create_dir_all(&src).expect("src");
-    if !clangd_config_sources(&src).is_empty() {
-        return; // an ancestor of the temp dir has one
-    }
-    fs::write(root.join("build/.clangd"), b"").expect("build .clangd");
-    fs::write(root.join("build/compile_flags.txt"), b"").expect("build flags");
-    assert!(clangd_config_sources(&src).is_empty());
-    fs::write(root.join("build/compile_commands.json"), b"[]").expect("db");
-    fs::write(src.join(".clangd"), b"").expect(".clangd");
-    assert_eq!(
-        clangd_config_sources(&src),
-        [
-            src.join(".clangd"),
-            root.join("build/compile_commands.json")
-        ]
-    );
-}

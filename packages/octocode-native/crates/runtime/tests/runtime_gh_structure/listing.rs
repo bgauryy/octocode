@@ -139,7 +139,6 @@ async fn caller_supplied_progress_is_rejected_before_provider_dispatch() {
     for (operation, field) in [
         ("tree", "page"),
         ("tree", "pageSize"),
-        ("tree", "dateOffset"),
         ("tree", "materializeOffset"),
         ("refs", "page"),
     ] {

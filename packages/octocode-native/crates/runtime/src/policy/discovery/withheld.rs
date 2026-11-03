@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{is_sensitive_path, sensitive_directory};
+use super::{EntryKind, is_sensitive_path, sensitive_directory};
 
 /// What a walk's path policy withheld: each security-policy directory name
 /// with how many directories it matched, how many credential files, how
@@ -19,7 +19,7 @@ pub struct Withheld {
 impl Withheld {
     /// Count one entry the path policy denied.
     pub fn record(&mut self, path: &Path, is_dir: bool) {
-        if !is_sensitive_path(path) {
+        if !is_sensitive_path(path, EntryKind::stat(path)) {
             if path.is_symlink() {
                 self.symlinks += 1;
             } else {

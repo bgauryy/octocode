@@ -1,5 +1,5 @@
 use octocode_engine::lsp::managed::{
-    ArchiveKind, ManifestAsset, cached_server_bin_path, marker_path,
+    ArchiveKind, AssetIdentity, ManifestAsset, cache_marker, cached_server_bin_path, marker_path,
 };
 use std::io::{BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
@@ -12,24 +12,25 @@ pub(super) const MAX_DOWNLOAD_BYTES: u64 = 256 * 1024 * 1024;
 /// Suffix of the file a download is spooled into, beside the binary it becomes.
 pub(super) const SPOOL_SUFFIX: &str = "download";
 
-/// Check the spooled download of `name` against `expected_sha`, then extract
-/// the executable from it straight into the cache. The download is read from
-/// disk twice and never held in memory.
+/// Check the spooled download of `name` against the locked digest, then
+/// extract the executable from it straight into the cache. The download is
+/// read from disk twice and never held in memory.
 pub(super) fn verify_and_install(
     name: &str,
     asset: &ManifestAsset,
     download: &Path,
     bin_path: &Path,
-    expected_sha: &str,
+    identity: &AssetIdentity,
     limit: u64,
 ) -> Result<(), String> {
     let read_error = |e: std::io::Error| format!("Reading the download failed: {e}");
     let mut file = std::fs::File::open(download).map_err(read_error)?;
     let (_, actual) =
         octocode_engine::digest::copy_hashed(&mut file, std::io::sink()).map_err(read_error)?;
-    if actual != expected_sha {
+    if actual != identity.sha256 {
         return Err(format!(
-            "Checksum mismatch for {name}: expected {expected_sha}, got {actual}."
+            "Checksum mismatch for {name}: the downloaded {} is corrupted or substituted (the lock has sha256 {}, the bytes hash to {actual}).",
+            identity.asset, identity.sha256
         ));
     }
     file.rewind().map_err(read_error)?;
@@ -39,11 +40,12 @@ pub(super) fn verify_and_install(
             bin_path,
             flate2::read::GzDecoder::new(file),
             limit,
-            expected_sha,
+            identity,
         ),
         ArchiveKind::Zip => {
             let target = asset
                 .bin_path
+                .as_deref()
                 .ok_or_else(|| "zip asset is missing binPath in manifest".to_string())?;
             let corrupt =
                 |e: zip::result::ZipError| format!("Downloaded zip archive is corrupt: {e}");
@@ -54,7 +56,7 @@ pub(super) fn verify_and_install(
                 )
             })?;
             let entry = archive.by_index(index).map_err(corrupt)?;
-            install_binary(bin_path, entry, limit, expected_sha)
+            install_binary(bin_path, entry, limit, identity)
         }
     }
 }
@@ -99,7 +101,7 @@ pub(super) fn install_binary(
     bin_path: &Path,
     binary: impl Read,
     limit: u64,
-    asset_sha256: &str,
+    identity: &AssetIdentity,
 ) -> Result<(), String> {
     let dir = bin_path
         .parent()
@@ -119,11 +121,7 @@ pub(super) fn install_binary(
         })
         .map_err(|e| format!("installing {bin_path:?}: {e}"))?;
 
-    let marker = serde_json::json!({
-        "assetSha256": asset_sha256,
-        "binarySha256": binary_sha256,
-        "size": size,
-    });
+    let marker = cache_marker(identity, &binary_sha256, size);
     octocode_io::atomic::write_atomic_mode(
         &marker_path(bin_path),
         marker.to_string().as_bytes(),

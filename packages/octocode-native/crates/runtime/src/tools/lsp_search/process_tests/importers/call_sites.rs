@@ -31,8 +31,13 @@ function result(msg) {
     case 'textDocument/prepareCallHierarchy':
       if (p.textDocument.uri !== declUri) return [];
       return [{ name: 'read', kind: 6, uri: declUri, range: at(0, 24, 25), selectionRange: decl.range }];
-    case 'callHierarchy/incomingCalls':
     case 'textDocument/documentSymbol':
+      if (p.textDocument.uri !== ledgerUri) return [];
+      return [
+        { name: 'read', kind: 6, range: at(2, 2, 40), selectionRange: at(2, 2, 4) },
+        { name: 'useLedger', kind: 12, range: { start: { line: 4, character: 0 }, end: { line: 6, character: 1 } }, selectionRange: at(4, 16, 9) },
+      ];
+    case 'callHierarchy/incomingCalls':
       return [];
     default:
       return null;
@@ -58,22 +63,16 @@ process.stdin.on('data', (d) => {
 });
 "#;
 
-#[test]
-fn an_implementing_declaration_is_not_a_caller() {
-    if !require_node() {
-        return;
-    }
+/// The callers of `Port.read` as `(caller, sites)`, with `ledger.ts`
+/// holding `ledger`.
+fn ledger_callers(ledger: &str) -> Vec<(String, serde_json::Value)> {
     let (_dir, root, execution) = importer_fixture_serving(&[], LEDGER_SERVER);
     std::fs::write(
         root.join("port.ts"),
         "export interface Port { read(at: number): string; }\n",
     )
     .expect("port");
-    std::fs::write(
-        root.join("ledger.ts"),
-        "import { Port } from \"./port\";\nexport class Ledger implements Port {\n  read(at: number): string { return String(at); }\n}\nexport function useLedger(p: Port): string {\n  return p.read(2);\n}\n",
-    )
-    .expect("ledger");
+    std::fs::write(root.join("ledger.ts"), ledger).expect("ledger");
     let pool = fake_server_pool();
     let query = serde_json::from_value(serde_json::json!({
         "operation": "callers", "path": root.join("port.ts").to_string_lossy(),
@@ -94,7 +93,7 @@ fn an_implementing_declaration_is_not_a_caller() {
         ))
         .expect("row");
     assert_row_contract(ToolId::LspSearch, &row);
-    let callers = row["files"]
+    row["files"]
         .as_array()
         .into_iter()
         .flatten()
@@ -105,13 +104,33 @@ fn an_implementing_declaration_is_not_a_caller() {
                 caller["sites"].clone(),
             )
         })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        callers,
-        vec![(
-            "useLedger".to_owned(),
-            serde_json::json!([{"line": 6, "column": 12}])
-        )],
-        "{row}"
-    );
+        .collect()
+}
+
+const LEDGER: &str = "import { Port } from \"./port\";\nexport class Ledger implements Port {\n  read(at: number): string { return String(at); }\n}\nexport function useLedger(p: Port): string {\n  return p.read(2);\n}\n";
+
+fn only_the_call() -> Vec<(String, serde_json::Value)> {
+    vec![(
+        "useLedger".to_owned(),
+        serde_json::json!([{"line": 6, "column": 12}]),
+    )]
+}
+
+#[test]
+fn an_implementing_declaration_is_not_a_caller() {
+    if !require_node() {
+        return;
+    }
+    assert_eq!(ledger_callers(LEDGER), only_the_call());
+}
+
+/// oxc rejects the whole file (a syntax error on the last line), so the
+/// text rule decides every site: the declaration `read(` must still go.
+#[test]
+fn an_implementing_declaration_is_not_a_caller_in_a_file_oxc_rejects() {
+    if !require_node() {
+        return;
+    }
+    let broken = format!("{LEDGER}const broken = ;\n");
+    assert_eq!(ledger_callers(&broken), only_the_call());
 }

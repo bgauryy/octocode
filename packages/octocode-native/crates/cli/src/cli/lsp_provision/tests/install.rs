@@ -99,13 +99,12 @@ fn a_download_that_does_not_match_its_pin_is_never_extracted() {
     let spool = dir.path().join("asset.download");
     std::fs::write(&spool, gz(b"tampered")).expect("spool");
     let bin = dir.path().join("cache").join("tool");
-    let pinned = octocode_engine::digest::sha256(&gz(b"genuine"));
     let error = verify_and_install(
         "tool",
         &asset(ArchiveKind::Gz, None),
         &spool,
         &bin,
-        &pinned,
+        &identity_of(&gz(b"genuine")),
         1024,
     )
     .expect_err("mismatch");

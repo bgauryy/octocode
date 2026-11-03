@@ -1,4 +1,5 @@
 mod bundled_tsgo;
+pub mod clangd_database;
 pub mod client;
 mod commands;
 pub mod config;

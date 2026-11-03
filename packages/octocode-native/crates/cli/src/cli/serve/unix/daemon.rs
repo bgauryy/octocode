@@ -4,7 +4,7 @@
 use super::frames::{forward, progress_scope};
 use super::identity::{call_identity, env_digest};
 pub(super) use super::served::Served;
-use super::sockets::remove_stale_sockets;
+use super::sockets::{remove_stale_sockets, touch};
 use super::{read_line_bounded, same_dir_form};
 use crate::cli::Printed;
 use crate::cli::serve::runs_on_server;
@@ -93,6 +93,10 @@ pub(super) type RuntimeKey = (PathBuf, String);
 /// A server's state: one language-server pool, and the runtimes of the
 /// directories and environments it serves.
 pub(super) struct Daemon {
+    /// The socket this server answers on; its modification time is when it
+    /// was last asked ([`touch`]), readable by anything that lists the
+    /// socket directory.
+    pub(super) socket: PathBuf,
     pub(super) lsp_pool: std::sync::Arc<octocode_engine::lsp::pool::LspClientPool>,
     pub(super) runtimes: std::cell::RefCell<Recent<RuntimeKey, std::rc::Rc<Served>>>,
     /// One build per key at a time: a call that waited finds it built.
@@ -104,12 +108,16 @@ pub(super) struct Daemon {
 }
 
 impl Daemon {
-    pub(super) fn new() -> Self {
-        Self::with_build(octocode_native::runtime::ToolRuntime::from_host_with_lsp_pool)
+    pub(super) fn new(socket: PathBuf) -> Self {
+        Self::with_build(
+            socket,
+            octocode_native::runtime::ToolRuntime::from_host_with_lsp_pool,
+        )
     }
 
-    pub(super) fn with_build(build: Build) -> Self {
+    pub(super) fn with_build(socket: PathBuf, build: Build) -> Self {
         Self {
+            socket,
             lsp_pool: std::sync::Arc::default(),
             runtimes: std::cell::RefCell::new(Recent::new(MAX_RUNTIMES)),
             building: octocode_io::flight::KeyedFlight::transient(),
@@ -177,7 +185,7 @@ pub(super) async fn serve(socket: PathBuf) -> u8 {
     let ours = socket_identity(&socket);
     let _ = std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600));
     remove_stale_sockets(&socket);
-    let daemon = std::rc::Rc::new(Daemon::new());
+    let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
     // Remove the socket only while it is still ours.
     serve_on(listener, &daemon, IDLE_EXIT, || {
         remove_if_ours(&socket, ours);
@@ -334,6 +342,7 @@ pub(super) async fn handle(daemon: &Daemon, stream: tokio::net::UnixStream, id: 
     let Some(line) = read_line_bounded(&mut reader, MAX_REQUEST_BYTES).await else {
         return false;
     };
+    touch(&daemon.socket);
     let reply = match serde_json::from_str::<Value>(&line) {
         Ok(request) if request["stop"] == true => {
             if request["drain"] == true {

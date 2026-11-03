@@ -28,7 +28,10 @@
 //!   the calls taken. A starting server never stops another, so one
 //!   agent's warm language servers survive another's first call; the
 //!   language servers themselves are bounded by the shared pool's idle
-//!   timeout and memory budget.
+//!   timeout and memory budget. A server marks its socket's modification
+//!   time (`touch`) on each request it reads.
+//!   Windows has no server (every call runs in process), so no count or
+//!   expiry applies there.
 //! - A failed exchange falls back to an in-process call and says so; no
 //!   reply within `REPLY_DEADLINE` answers `timeout`, never a second run.
 //!   Ctrl-C half-closes the client's side, which cancels the call on the

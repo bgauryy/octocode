@@ -1,0 +1,115 @@
+{
+  "tag_name": "2026-06-22",
+  "immutable": false,
+  "published_at": "2026-06-22T03:32:49Z",
+  "assets": [
+    {
+      "name": "rust-analyzer-aarch64-apple-darwin.gz",
+      "digest": "sha256:c8cdf6d5e488752b907d5ee15e31768b59a78d992e9a54b9f9660e1bfdf39f27",
+      "size": 14503860,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-aarch64-apple-darwin.gz"
+    },
+    {
+      "name": "rust-analyzer-aarch64-pc-windows-msvc.zip",
+      "digest": "sha256:30f873713ea3663db10999c23e95b74fe19968c893d5c0e9b8a896b31dbf8cf8",
+      "size": 16171682,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-aarch64-pc-windows-msvc.zip"
+    },
+    {
+      "name": "rust-analyzer-aarch64-unknown-linux-gnu.gz",
+      "digest": "sha256:9602ca5b24dcaa07a5a021274763bed367d8a32da9a226fe3e139de3306569cb",
+      "size": 14775115,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-aarch64-unknown-linux-gnu.gz"
+    },
+    {
+      "name": "rust-analyzer-alpine-x64.vsix",
+      "digest": "sha256:e60922f468c1cfcc776fe7c2face0bb529ff6f8800d3400ca1f57d7443966faa",
+      "size": 16534342,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-alpine-x64.vsix"
+    },
+    {
+      "name": "rust-analyzer-arm-unknown-linux-gnueabihf.gz",
+      "digest": "sha256:bd823478536789694450a1b29367ba6d8ed890a69bc240587a7b5f09cc1534ae",
+      "size": 13664269,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-arm-unknown-linux-gnueabihf.gz"
+    },
+    {
+      "name": "rust-analyzer-darwin-arm64.vsix",
+      "digest": "sha256:bb24eccba94b427548de012e6f4082002e11ca7da8a8dca50dd00368da5d5133",
+      "size": 15946119,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-darwin-arm64.vsix"
+    },
+    {
+      "name": "rust-analyzer-darwin-x64.vsix",
+      "digest": "sha256:3eb92b8e369094972c7eb350a9ca113fd7e0dcfc78eee8d5015c4726e1c23ed6",
+      "size": 16550494,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-darwin-x64.vsix"
+    },
+    {
+      "name": "rust-analyzer-i686-pc-windows-msvc.zip",
+      "digest": "sha256:1806b376a46013b1bb03afe8b4738137738dec5e0245fc11961cd25b9ae9aeed",
+      "size": 15721352,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-i686-pc-windows-msvc.zip"
+    },
+    {
+      "name": "rust-analyzer-linux-arm64.vsix",
+      "digest": "sha256:9e319182805af47f9fe31d8606ce5f6eb12ae23781d3b9172153779fd0d83f26",
+      "size": 16232293,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-linux-arm64.vsix"
+    },
+    {
+      "name": "rust-analyzer-linux-armhf.vsix",
+      "digest": "sha256:8cf9ff06fe662947d8ea04797033f70f3f5d9a0e13a91666d5179cbd7e0481e1",
+      "size": 15010325,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-linux-armhf.vsix"
+    },
+    {
+      "name": "rust-analyzer-linux-x64.vsix",
+      "digest": "sha256:e549f998ab54a6c8dfc13b2f56667566d912ec80659af70f446f32c948538852",
+      "size": 16782137,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-linux-x64.vsix"
+    },
+    {
+      "name": "rust-analyzer-no-server.vsix",
+      "digest": "sha256:84c3312d893523ab5c7a7f8451dffff6157ce0540d06e1fb819e0b86cf08ad99",
+      "size": 921423,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-no-server.vsix"
+    },
+    {
+      "name": "rust-analyzer-win32-arm64.vsix",
+      "digest": "sha256:9512bea1287e0b1bda8a7fb0f9c6fc63793b3a2263cd77b596285956b5eeb6c5",
+      "size": 17823918,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-win32-arm64.vsix"
+    },
+    {
+      "name": "rust-analyzer-win32-x64.vsix",
+      "digest": "sha256:7e369fb0d7dec8b2a45a09ed0fd7f043c2137d23bf4c839ce5659abb27bed185",
+      "size": 19570893,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-win32-x64.vsix"
+    },
+    {
+      "name": "rust-analyzer-x86_64-apple-darwin.gz",
+      "digest": "sha256:bf65b0d4586f127ab11bf33476dd6aac82dad173946c5d3b1cede19d63ae85ed",
+      "size": 15356326,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-apple-darwin.gz"
+    },
+    {
+      "name": "rust-analyzer-x86_64-pc-windows-msvc.zip",
+      "digest": "sha256:6071dc5b28aa6d22c715f63c08d75b827c066be4ea866796587e52ed48b2922f",
+      "size": 18058267,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-pc-windows-msvc.zip"
+    },
+    {
+      "name": "rust-analyzer-x86_64-unknown-linux-gnu.gz",
+      "digest": "sha256:feb7c170d2c1a2e4b8a88ac73f937eddb576828e3821b0a63ee0e64bd0bc9440",
+      "size": 15529408,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-unknown-linux-gnu.gz"
+    },
+    {
+      "name": "rust-analyzer-x86_64-unknown-linux-musl.gz",
+      "digest": "sha256:fe1d7b0e9733f7a439e4b6f27b8c4cc7afd87ae28fc5b496eb8df31d674b78dd",
+      "size": 15518365,
+      "browser_download_url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-unknown-linux-musl.gz"
+    }
+  ]
+}

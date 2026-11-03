@@ -44,7 +44,7 @@ async fn notices_reach_the_client_as_an_in_process_call_says_them() {
 
     let socket = fixture.home.path().join("n.sock");
     let listener = tokio::net::UnixListener::bind(&socket).expect("bind");
-    let daemon = std::rc::Rc::new(Daemon::new());
+    let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
     tokio::task::LocalSet::new()
         .run_until(async {
             let server_daemon = std::rc::Rc::clone(&daemon);
@@ -80,7 +80,7 @@ async fn the_server_answers_byte_for_byte_like_an_in_process_call() {
     let mut fixture = Fixture::new();
     let socket = fixture.home.path().join("s.sock");
     let listener = tokio::net::UnixListener::bind(&socket).expect("bind");
-    let daemon = std::rc::Rc::new(Daemon::new());
+    let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async {
@@ -167,7 +167,7 @@ async fn a_slow_runtime_build_holds_up_no_other_call() {
     let slow = fixture.slow_dir();
     let socket = fixture.home.path().join("b.sock");
     let listener = tokio::net::UnixListener::bind(&socket).expect("bind");
-    let daemon = std::rc::Rc::new(Daemon::with_build(slow_build));
+    let daemon = std::rc::Rc::new(Daemon::with_build(socket.clone(), slow_build));
     tokio::task::LocalSet::new()
         .run_until(async {
             let server_daemon = std::rc::Rc::clone(&daemon);
@@ -212,7 +212,7 @@ async fn connections_that_ask_nothing_do_not_keep_a_server_alive() {
     let fixture = Fixture::new();
     let socket = fixture.home.path().join("serve-idle.sock");
     let listener = tokio::net::UnixListener::bind(&socket).expect("bind");
-    let daemon = std::rc::Rc::new(Daemon::new());
+    let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
     tokio::task::LocalSet::new()
         .run_until(async {
             let server_daemon = std::rc::Rc::clone(&daemon);
@@ -247,7 +247,7 @@ async fn a_stopped_server_finishes_the_calls_it_took() {
     // Named as a server's socket, so a stop request reaches it.
     let socket = fixture.home.path().join("serve-t.sock");
     let listener = tokio::net::UnixListener::bind(&socket).expect("bind");
-    let daemon = std::rc::Rc::new(Daemon::with_build(slow_build));
+    let daemon = std::rc::Rc::new(Daemon::with_build(socket.clone(), slow_build));
     let left = std::rc::Rc::new(std::cell::Cell::new(false));
     tokio::task::LocalSet::new()
         .run_until(async {
@@ -281,7 +281,7 @@ async fn a_stopped_server_finishes_the_calls_it_took() {
 async fn drain_acknowledgement_is_sent_only_after_shutdown() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let (mut client, server) = tokio::net::UnixStream::pair().unwrap();
-    let daemon = Daemon::new();
+    let daemon = Daemon::new(std::path::PathBuf::new());
     client
         .write_all(b"{\"stop\":true,\"drain\":true}\n")
         .await

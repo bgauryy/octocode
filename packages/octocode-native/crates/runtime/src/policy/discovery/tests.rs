@@ -1,5 +1,35 @@
 use super::*;
 
+/// A path not looked at on disk: the file rules apply.
+fn is_sensitive_path(path: &Path) -> bool {
+    super::is_sensitive_path(path, EntryKind::Unknown)
+}
+
+/// Issue #477: only a directory the caller knows is one bypasses the
+/// file-name rules; a sensitive ancestor withholds whatever the kind.
+#[test]
+fn the_entry_kind_decides_file_name_rules() {
+    let folder = Path::new("/tmp/work/src/credentials");
+    assert!(!super::is_sensitive_path(folder, EntryKind::Dir));
+    assert!(super::is_sensitive_path(folder, EntryKind::File));
+    assert!(super::is_sensitive_path(folder, EntryKind::Unknown));
+    assert!(super::is_sensitive_path(
+        Path::new("/tmp/work/.ssh"),
+        EntryKind::Dir
+    ));
+    assert!(super::is_sensitive_path(
+        Path::new("/tmp/work/.aws/config"),
+        EntryKind::Dir
+    ));
+    let dir = tempfile::tempdir().expect("tempdir");
+    let on_disk = dir.path().join("credentials");
+    assert_eq!(EntryKind::stat(&on_disk), EntryKind::Unknown);
+    std::fs::create_dir(&on_disk).expect("dir");
+    assert_eq!(EntryKind::stat(&on_disk), EntryKind::Dir);
+    std::fs::write(on_disk.join("x.pem"), "").expect("file");
+    assert_eq!(EntryKind::stat(&on_disk.join("x.pem")), EntryKind::File);
+}
+
 #[test]
 fn discovery_and_access_lists_cover_sensitive_paths() {
     assert!(crate::policy::prune::defaults().any(|name| name == ".ssh"));

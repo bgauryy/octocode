@@ -7,7 +7,7 @@ use octocode_engine::text::analysis::{MapBudget, MapUsage};
 
 /// Origins encoded per window: bounds the records held before they join
 /// the pool.
-const WINDOW: usize = 1 << 16;
+pub(super) const WINDOW: usize = 1 << 16;
 
 /// One origin's encoded record, with its unit, its range and what decoding
 /// it costs (the index entry's admission charge).

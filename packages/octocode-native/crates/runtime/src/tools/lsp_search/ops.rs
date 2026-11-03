@@ -272,24 +272,26 @@ impl Operation<'_, '_> {
             Op::Implementation => self.implementation().await,
             Op::Hover => self.hover().await,
             Op::DocumentSymbols => {
-                let mut symbols = std::sync::Arc::unwrap_or_clone(
-                    cancellable(
-                        self.cancel,
-                        self.client.get_document_symbols(self.path.to_owned()),
-                    )
-                    .await??,
-                );
+                // The document synced without the open wait (see
+                // `session::sync`); an empty outline of a file with text pays
+                // that owed wait and asks once more.
+                let source = self.sources.get(self.path).await;
+                let content = source.as_ref().map_or("", |source| source.content.as_str());
+                let (symbols, readiness) = cancellable(
+                    self.cancel,
+                    self.client
+                        .get_document_symbols_settled(self.path.to_owned(), content),
+                )
+                .await??;
+                let mut symbols = std::sync::Arc::unwrap_or_clone(symbols);
                 if octocode_engine::lsp::family::is_typescript_family(self.language_id)
-                    && let Some(source) = self.sources.get(self.path).await
+                    && let Some(source) = &source
                 {
                     super::render::name_type_aliases(&mut symbols, &source.content);
                 }
-                Ok(items_payload(
-                    query,
-                    "documentSymbols",
-                    symbols,
-                    self.budget,
-                ))
+                let mut payload = items_payload(query, "documentSymbols", symbols, self.budget);
+                super::responses::flag_still_loading(&mut payload, query, readiness.as_deref());
+                Ok(payload)
             }
             Op::WorkspaceSymbol => self.workspace_symbol().await,
             Op::Diagnostic => self.diagnostic().await,

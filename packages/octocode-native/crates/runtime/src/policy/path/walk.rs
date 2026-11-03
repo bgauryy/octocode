@@ -3,7 +3,7 @@ use std::path::{Component, Path, PathBuf};
 
 use super::PathPolicy;
 use crate::policy::PolicyErrorCode;
-use crate::policy::discovery::is_sensitive_path;
+use crate::policy::discovery::{EntryKind, is_sensitive_path};
 
 impl PathPolicy {
     /// Discovery prunes denied subtrees. Let the walker account for ordinary
@@ -170,9 +170,16 @@ impl DiscoveryWalk<'_> {
         // Under a parent with no symlink the real path is the lexical one:
         // check it once.
         let moved = !matches!(parent_real, Real::Same);
+        // The listing type is the entry's own (never a symlink here), so it
+        // is the real path's kind too: no stat.
+        let entry = if kind.is_dir() {
+            EntryKind::Dir
+        } else {
+            EntryKind::File
+        };
         let permitted = self.policy.allowed(&real)
-            && !is_sensitive_path(lexical)
-            && (!moved || !is_sensitive_path(&real));
+            && !is_sensitive_path(lexical, entry)
+            && (!moved || !is_sensitive_path(&real, entry));
         // An admitted directory that is no link seeds its entries' real
         // path: its parent's plus its own name.
         if permitted

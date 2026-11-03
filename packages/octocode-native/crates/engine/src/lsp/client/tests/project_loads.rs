@@ -196,3 +196,90 @@ async fn a_document_opened_without_the_wait_in_a_settled_project_waits_nothing()
         .expect("outline open");
     assert_eq!(open(&client, path).await, Duration::ZERO);
 }
+
+/// Outline `path` (opened without the wait, holding `content`) in one
+/// response scope, answering its `documentSymbol` requests with `answers`
+/// in order. Returns the outline, the readiness of a wait it paid, what a
+/// second ask in the same scope returns, the time spent, and the number of
+/// requests the server saw.
+async fn outline(
+    content: &str,
+    answers: Vec<serde_json::Value>,
+) -> (Arc<Value>, Option<String>, Arc<Value>, Duration, usize) {
+    let (_tmp, dirs) = projects(&["p"]);
+    let (client, mut reader, mut writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    let path = file(&dirs[0], "a.ts");
+    std::fs::write(&path, content).expect("source");
+    client
+        .open_document(path.clone(), content)
+        .await
+        .expect("outline open");
+    let expected = answers.len();
+    let server = tokio::spawn(async move {
+        assert_eq!(
+            read_client_frame(&mut reader).await["method"],
+            "textDocument/didOpen"
+        );
+        for answer in answers {
+            let request = read_client_frame(&mut reader).await;
+            assert_eq!(request["method"], "textDocument/documentSymbol");
+            send(
+                &mut writer,
+                json!({"jsonrpc":"2.0","id":request["id"],"result":answer}),
+            )
+            .await;
+        }
+        (reader, writer)
+    });
+    let started = Instant::now();
+    let content = content.to_owned();
+    let (symbols, readiness, again) = RESPONSE_SCOPE
+        .scope(
+            std::cell::RefCell::new(ResponseScope {
+                call: None,
+                ..Default::default()
+            }),
+            async {
+                let (symbols, readiness) = client
+                    .get_document_symbols_settled(path.clone(), &content)
+                    .await
+                    .expect("outline");
+                let again = client.get_document_symbols(path).await.expect("again");
+                (symbols, readiness, again)
+            },
+        )
+        .await;
+    let elapsed = started.elapsed();
+    let _keep_open = server.await.expect("server");
+    (symbols, readiness, again, elapsed, expected)
+}
+
+/// Issue #479: a server that answers an empty outline until its project
+/// loads gets the owed settle and one more ask; the scope records the
+/// second answer, so a later page reads the same outline.
+#[tokio::test(start_paused = true)]
+async fn an_empty_outline_pays_the_owed_wait_and_asks_once_more() {
+    let symbol = json!([{"name":"f","kind":12}]);
+    let (symbols, readiness, again, elapsed, _) =
+        outline("export function f() {}\n", vec![json!([]), symbol.clone()]).await;
+    assert_eq!(*symbols, symbol);
+    assert_eq!(*again, symbol, "the recorded answer is the retry's");
+    assert!(readiness.is_some(), "the paid wait reports its readiness");
+    assert_eq!(elapsed, Duration::from_millis(u64::from(OPEN_SETTLE_MS)));
+}
+
+/// The fast path stays fast: a non-empty outline, or an empty one for a
+/// blank file, is answered by one request with no wait.
+#[tokio::test(start_paused = true)]
+async fn an_outline_with_symbols_or_of_a_blank_file_waits_nothing() {
+    let symbol = json!([{"name":"f","kind":12}]);
+    let (symbols, readiness, again, elapsed, requests) =
+        outline("export function f() {}\n", vec![symbol.clone()]).await;
+    assert_eq!((*symbols).clone(), symbol);
+    assert_eq!(*again, symbol);
+    assert_eq!((readiness, elapsed, requests), (None, Duration::ZERO, 1));
+    let (symbols, readiness, _, elapsed, _) = outline("  \n", vec![json!([])]).await;
+    assert_eq!(*symbols, json!([]));
+    assert_eq!((readiness, elapsed), (None, Duration::ZERO));
+}

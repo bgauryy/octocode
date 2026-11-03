@@ -147,7 +147,10 @@ pub(super) fn spread_mentioned_liveness(v: &View, findings: &mut [Finding]) {
     }
 }
 
-/// Dedupe by subject: the strongest finding leads, others corroborate it.
+/// Corroborates by subject: the strongest finding on a subject leads, and
+/// each other detector flagging that subject is recorded on the leader and
+/// raises its score. Every finding stays listed, so `byDetector` counts
+/// each detector's findings.
 pub(super) fn corroborate(mut findings: Vec<Finding>) -> Vec<Finding> {
     findings.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
     let mut merged: Vec<Finding> = Vec::new();

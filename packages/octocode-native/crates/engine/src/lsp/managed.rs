@@ -1,7 +1,17 @@
-//! Managed language-server installs: the pinned auto-download manifest and the
-//! verified cache layout `<root>/<server>/<releaseTag>/<binName>` with its
-//! `.ok` completion marker. Discovery reads installs from here; the CLI
-//! provisioner downloads, verifies, and writes them.
+//! Managed language-server installs: the auto-download manifest, the lock
+//! that records GitHub's release digests, and the verified cache layout
+//! `<root>/<server>/<releaseTag>/<binName>` with its `.ok` completion marker.
+//! Discovery reads installs from here; the CLI provisioner downloads,
+//! verifies, and writes them.
+//!
+//! The manifest holds only what a person decides: the repository, the release
+//! tag, each platform's asset name, and where the executable sits in it. No
+//! hash is typed here. `managed.lock.json` is generated from the GitHub
+//! release API by `node skills-dev/octocode-dev/scripts/dev.mjs lsp:lock`,
+//! which also reads [`SERVERS`] below: keep one string literal per field.
+mod lock;
+
+pub use lock::{AssetLock, ReleaseLock};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -15,15 +25,17 @@ pub enum ArchiveKind {
 }
 
 /// One platform's downloadable asset for a server.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManifestAsset {
-    pub url: &'static str,
+    /// The release asset's exact file name.
+    pub asset: String,
     pub archive: ArchiveKind,
-    pub bin_name: &'static str,
+    pub bin_name: String,
     /// Path of the executable inside a zip archive; `None` for gz.
-    pub bin_path: Option<&'static str>,
-    /// SHA-256 of the downloaded asset; download is refused while this is `None`.
-    pub sha256: Option<&'static str>,
+    pub bin_path: Option<String>,
+    /// What the lock recorded from GitHub for this asset; `None` while the
+    /// lock was not regenerated for this release, and download is refused.
+    pub lock: Option<AssetLock>,
 }
 
 /// A manifest server entry keyed by its bare command name.
@@ -34,143 +46,197 @@ pub struct ManifestServer {
     pub release_tag: &'static str,
     pub platforms: BTreeMap<&'static str, ManifestAsset>,
     pub unsupported_platforms: BTreeMap<&'static str, &'static str>,
+    /// The release as the lock recorded it; `None` when the lock names another
+    /// repository or tag than the manifest.
+    pub release_lock: Option<ReleaseLock>,
 }
 
-/// The canonical auto-download manifest.
+/// One platform's asset as a person declares it. `{tag}` in `asset` and
+/// `bin_path` stands for the server's release tag.
+struct AssetDecl {
+    platform: &'static str,
+    asset: &'static str,
+    archive: ArchiveKind,
+    bin_path: Option<&'static str>,
+}
+
+const fn zip(platform: &'static str, asset: &'static str, bin_path: &'static str) -> AssetDecl {
+    AssetDecl {
+        platform,
+        asset,
+        archive: ArchiveKind::Zip,
+        bin_path: Some(bin_path),
+    }
+}
+
+const fn gz(platform: &'static str, asset: &'static str) -> AssetDecl {
+    AssetDecl {
+        platform,
+        asset,
+        archive: ArchiveKind::Gz,
+        bin_path: None,
+    }
+}
+
+struct ServerDecl {
+    name: &'static str,
+    language_id: &'static str,
+    repo: &'static str,
+    release_tag: &'static str,
+    assets: &'static [AssetDecl],
+    unsupported: &'static [(&'static str, &'static str)],
+}
+
+/// The auto-download manifest as declared. `lsp:lock --bump` rewrites a
+/// `release_tag` literal here; every other field is a person's decision.
+const SERVERS: &[ServerDecl] = &[
+    ServerDecl {
+        name: "clangd",
+        language_id: "cpp",
+        repo: "clangd/clangd",
+        release_tag: "22.1.0",
+        assets: &[
+            zip(
+                "darwin-arm64",
+                "clangd-mac-{tag}.zip",
+                "clangd_{tag}/bin/clangd",
+            ),
+            zip(
+                "darwin-x64",
+                "clangd-mac-{tag}.zip",
+                "clangd_{tag}/bin/clangd",
+            ),
+            zip(
+                "linux-x64",
+                "clangd-linux-{tag}.zip",
+                "clangd_{tag}/bin/clangd",
+            ),
+            zip(
+                "win32-x64",
+                "clangd-windows-{tag}.zip",
+                "clangd_{tag}/bin/clangd.exe",
+            ),
+        ],
+        unsupported: &[(
+            "linux-arm64",
+            "clangd publishes no linux-arm64 release asset; install via the system package manager.",
+        )],
+    },
+    ServerDecl {
+        name: "rust-analyzer",
+        language_id: "rust",
+        repo: "rust-lang/rust-analyzer",
+        release_tag: "2026-06-22",
+        assets: &[
+            gz("darwin-arm64", "rust-analyzer-aarch64-apple-darwin.gz"),
+            gz("darwin-x64", "rust-analyzer-x86_64-apple-darwin.gz"),
+            gz("linux-arm64", "rust-analyzer-aarch64-unknown-linux-gnu.gz"),
+            gz("linux-x64", "rust-analyzer-x86_64-unknown-linux-gnu.gz"),
+            gz(
+                "linux-x64-musl",
+                "rust-analyzer-x86_64-unknown-linux-musl.gz",
+            ),
+            zip(
+                "win32-arm64",
+                "rust-analyzer-aarch64-pc-windows-msvc.zip",
+                "rust-analyzer.exe",
+            ),
+            zip(
+                "win32-x64",
+                "rust-analyzer-x86_64-pc-windows-msvc.zip",
+                "rust-analyzer.exe",
+            ),
+        ],
+        unsupported: &[],
+    },
+];
+
+/// The canonical auto-download manifest, joined with the embedded lock.
 pub fn manifest() -> &'static BTreeMap<&'static str, ManifestServer> {
     static MANIFEST: OnceLock<BTreeMap<&'static str, ManifestServer>> = OnceLock::new();
-    MANIFEST.get_or_init(build_manifest)
+    MANIFEST.get_or_init(|| build_manifest(lock::embedded()))
 }
 
-fn build_manifest() -> BTreeMap<&'static str, ManifestServer> {
-    let mut servers = BTreeMap::new();
+fn build_manifest(lock: &lock::Lock) -> BTreeMap<&'static str, ManifestServer> {
+    SERVERS
+        .iter()
+        .map(|decl| {
+            let release = lock.release(decl.name, decl.repo, decl.release_tag);
+            let expand = |template: &str| template.replace("{tag}", decl.release_tag);
+            let platforms = decl
+                .assets
+                .iter()
+                .map(|asset| {
+                    let name = expand(asset.asset);
+                    let bin_path = asset.bin_path.map(expand);
+                    let bin_name = bin_path
+                        .as_deref()
+                        .and_then(|path| path.rsplit('/').next())
+                        .unwrap_or(decl.name)
+                        .to_owned();
+                    let entry = ManifestAsset {
+                        lock: release.and_then(|release| release.asset(&name)).cloned(),
+                        asset: name,
+                        archive: asset.archive,
+                        bin_name,
+                        bin_path,
+                    };
+                    (asset.platform, entry)
+                })
+                .collect();
+            let server = ManifestServer {
+                language_id: decl.language_id,
+                repo: decl.repo,
+                release_tag: decl.release_tag,
+                platforms,
+                unsupported_platforms: decl.unsupported.iter().copied().collect(),
+                release_lock: release.map(|release| release.summary.clone()),
+            };
+            (decl.name, server)
+        })
+        .collect()
+}
 
-    let mut clangd = BTreeMap::new();
-    for (platform, url, sha) in [
-        (
-            "darwin-arm64",
-            "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-mac-22.1.0.zip",
-            "e31e271fe11f6dcd7cf87ca74be4a12788ff8ce5a0b07762583e335c058e939a",
-        ),
-        (
-            "darwin-x64",
-            "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-mac-22.1.0.zip",
-            "e31e271fe11f6dcd7cf87ca74be4a12788ff8ce5a0b07762583e335c058e939a",
-        ),
-        (
-            "linux-x64",
-            "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-linux-22.1.0.zip",
-            "71eddc5303da9a5bc5e8b509488b5b2c5acf45f20e33b8394e71a12a56d67198",
-        ),
-    ] {
-        clangd.insert(
-            platform,
-            ManifestAsset {
-                url,
-                archive: ArchiveKind::Zip,
-                bin_name: "clangd",
-                bin_path: Some("clangd_22.1.0/bin/clangd"),
-                sha256: Some(sha),
-            },
-        );
+/// The locked identity of one platform's asset: what an install verifies the
+/// download against and what its `.ok` marker records.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetIdentity {
+    pub repo: String,
+    pub tag: String,
+    pub asset: String,
+    pub sha256: String,
+}
+
+impl AssetIdentity {
+    /// The identity the manifest and lock name now for `name` on `platform`;
+    /// `None` for an unknown server or platform, or an asset not in the lock.
+    pub fn locked(name: &str, platform: &str) -> Option<Self> {
+        let server = manifest_server(name)?;
+        Self::of(server, server.platforms.get(platform)?)
     }
-    clangd.insert(
-        "win32-x64",
-        ManifestAsset {
-            url: "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-windows-22.1.0.zip",
-            archive: ArchiveKind::Zip,
-            bin_name: "clangd.exe",
-            bin_path: Some("clangd_22.1.0/bin/clangd.exe"),
-            sha256: Some("c54e57dbff3ccc9e8352367ddb7030ad3f624073ec58c7477424e7919f578572"),
-        },
-    );
-    let mut clangd_unsupported = BTreeMap::new();
-    clangd_unsupported.insert(
-        "linux-arm64",
-        "clangd publishes no linux-arm64 release asset; install via the system package manager.",
-    );
-    servers.insert(
-        "clangd",
-        ManifestServer {
-            language_id: "cpp",
-            repo: "clangd/clangd",
-            release_tag: "22.1.0",
-            platforms: clangd,
-            unsupported_platforms: clangd_unsupported,
-        },
-    );
 
-    let mut ra = BTreeMap::new();
-    for (platform, url, sha) in [
-        (
-            "darwin-arm64",
-            "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-aarch64-apple-darwin.gz",
-            "c8cdf6d5e488752b907d5ee15e31768b59a78d992e9a54b9f9660e1bfdf39f27",
-        ),
-        (
-            "darwin-x64",
-            "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-apple-darwin.gz",
-            "feb7c170d2c1a2e4b8a88ac73f937eddb576828e3821b0a63ee0e64bd0bc9440",
-        ),
-        (
-            "linux-arm64",
-            "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-aarch64-unknown-linux-gnu.gz",
-            "bf65b0d4586f127ab11bf33476dd6aac82dad173946c5d3b1cede19d63ae85ed",
-        ),
-        (
-            "linux-x64",
-            "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-unknown-linux-gnu.gz",
-            "9602ca5b24dcaa07a5a021274763bed367d8a32da9a226fe3e139de3306569cb",
-        ),
-        (
-            "linux-x64-musl",
-            "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-unknown-linux-musl.gz",
-            "fe1d7b0e9733f7a439e4b6f27b8c4cc7afd87ae28fc5b496eb8df31d674b78dd",
-        ),
-    ] {
-        ra.insert(
-            platform,
-            ManifestAsset {
-                url,
-                archive: ArchiveKind::Gz,
-                bin_name: "rust-analyzer",
-                bin_path: None,
-                sha256: Some(sha),
-            },
-        );
+    /// The identity of `asset` of `server`; `None` when it is not locked.
+    pub fn of(server: &ManifestServer, asset: &ManifestAsset) -> Option<Self> {
+        Some(Self {
+            repo: server.repo.to_owned(),
+            tag: server.release_tag.to_owned(),
+            asset: asset.asset.clone(),
+            sha256: asset.lock.as_ref()?.sha256.clone(),
+        })
     }
-    ra.insert(
-        "win32-arm64",
-        ManifestAsset {
-            url: "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-aarch64-pc-windows-msvc.zip",
-            archive: ArchiveKind::Zip,
-            bin_name: "rust-analyzer.exe",
-            bin_path: Some("rust-analyzer.exe"),
-            sha256: Some("30f873713ea3663db10999c23e95b74fe19968c893d5c0e9b8a896b31dbf8cf8"),
-        },
-    );
-    ra.insert(
-        "win32-x64",
-        ManifestAsset {
-            url: "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-pc-windows-msvc.zip",
-            archive: ArchiveKind::Zip,
-            bin_name: "rust-analyzer.exe",
-            bin_path: Some("rust-analyzer.exe"),
-            sha256: Some("6071dc5b28aa6d22c715f63c08d75b827c066be4ea866796587e52ed48b2922f"),
-        },
-    );
-    servers.insert(
-        "rust-analyzer",
-        ManifestServer {
-            language_id: "rust",
-            repo: "rust-lang/rust-analyzer",
-            release_tag: "2026-06-22",
-            platforms: ra,
-            unsupported_platforms: BTreeMap::new(),
-        },
-    );
+}
 
-    servers
+/// The `.ok` marker for a binary installed from `identity`: its asset identity
+/// plus the hash and size of exactly the bytes written.
+pub fn cache_marker(identity: &AssetIdentity, binary_sha256: &str, size: u64) -> serde_json::Value {
+    serde_json::json!({
+        "repo": identity.repo,
+        "tag": identity.tag,
+        "asset": identity.asset,
+        "assetSha256": identity.sha256,
+        "binarySha256": binary_sha256,
+        "size": size,
+    })
 }
 
 /// The manifest entry for a server, keyed by its bare command name.
@@ -241,7 +307,7 @@ pub fn cached_server_bin_path(root: &Path, name: &str, platform: &str) -> Option
     Some(
         root.join(bare_name(name))
             .join(server.release_tag)
-            .join(asset.bin_name),
+            .join(&asset.bin_name),
     )
 }
 
@@ -252,9 +318,9 @@ pub fn marker_path(bin_path: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// The asset digest, binary hash and size, as the `.ok` marker records them.
+/// The asset identity, binary hash and size, as the `.ok` marker records them.
 struct CacheMarker {
-    asset_sha256: String,
+    identity: AssetIdentity,
     binary_sha256: String,
     size: u64,
 }
@@ -264,10 +330,17 @@ fn read_cache_marker(marker_path: &Path) -> Option<CacheMarker> {
     let value: serde_json::Value = serde_json::from_str(&text).ok()?;
     let digest = |key: &str| {
         let hex = value.get(key)?.as_str()?;
-        (hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| hex.to_string())
+        (hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| hex.to_ascii_lowercase())
     };
+    let text = |key: &str| value.get(key)?.as_str().map(str::to_owned);
     Some(CacheMarker {
-        asset_sha256: digest("assetSha256")?,
+        identity: AssetIdentity {
+            repo: text("repo")?,
+            tag: text("tag")?,
+            asset: text("asset")?,
+            sha256: digest("assetSha256")?,
+        },
         binary_sha256: digest("binarySha256")?,
         size: value.get("size")?.as_u64()?,
     })
@@ -292,15 +365,15 @@ fn verified_binaries()
 }
 
 /// The installed binary for `name`, only when it is present AND its `.ok`
-/// marker names the asset the manifest pins now and matches the binary's
-/// current hash and size. Read-only.
+/// marker names the asset identity the manifest and lock name now and matches
+/// the binary's current hash and size. Read-only.
 pub fn resolve_cached_server(root: &Path, name: &str, platform: &str) -> Option<PathBuf> {
-    let pinned_asset = manifest_server(name)?.platforms.get(platform)?.sha256?;
+    let locked = AssetIdentity::locked(name, platform)?;
     let bin_path = cached_server_bin_path(root, name, platform)?;
     let marker = read_cache_marker(&marker_path(&bin_path))?;
-    // A binary from another asset (manifest bumped at the same release-tag
-    // path) is stale, even when its own hash still matches.
-    if !marker.asset_sha256.eq_ignore_ascii_case(pinned_asset) {
+    // A binary from another asset (another repository, tag, file, or bytes
+    // at the same release-tag path) is stale, even when its own hash matches.
+    if marker.identity != locked {
         return None;
     }
     let metadata = std::fs::metadata(&bin_path).ok()?;
