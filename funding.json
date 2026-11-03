@@ -1,0 +1,58 @@
+{
+  "$schema": "https://fundingjson.org/schema/v1.1.0.json",
+  "version": "v1.1.0",
+  "entity": {
+    "type": "individual",
+    "role": "maintainer",
+    "name": "Guy Bary",
+    "email": "bgauryy@gmail.com",
+    "description": "I'm Guy Bary, creator and sole maintainer of Octocode, an MIT-licensed code research platform for AI agents and developers. LinkedIn: https://www.linkedin.com/in/bgauryy\n\nNote: I'm using an AI assistant to help me with outreach and drafting. I review everything that goes out under my name.",
+    "webpageUrl": {
+      "url": "https://github.com/bgauryy"
+    }
+  },
+  "projects": [
+    {
+      "guid": "octocode",
+      "name": "Octocode",
+      "description": "Octocode is an MIT-licensed code research platform for AI agents and developers. Available as an MCP server and CLI backed by a Rust engine, it researches local code, GitHub and npm with exact, citable context and fewer tokens. The main package gets about 5,000 npm downloads a week.",
+      "webpageUrl": {
+        "url": "https://github.com/bgauryy/octocode"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/bgauryy/octocode"
+      },
+      "licenses": [
+        "spdx:MIT"
+      ],
+      "tags": [
+        "ai",
+        "mcp",
+        "developer-tools"
+      ]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "github-sponsors",
+        "type": "payment-provider",
+        "address": "https://github.com/sponsors/bgauryy"
+      }
+    ],
+    "plans": [
+      {
+        "guid": "maintenance-yearly",
+        "status": "active",
+        "name": "Full-time maintenance and the next major release",
+        "amount": 10000,
+        "currency": "USD",
+        "frequency": "yearly",
+        "description": "Sustains solo maintenance of Octocode (about 5,000 weekly npm downloads of the main package): releases, issue and PR triage, and the token cost of AI-assisted review, testing and benchmarking.",
+        "channels": [
+          "github-sponsors"
+        ]
+      }
+    ]
+  }
+}
