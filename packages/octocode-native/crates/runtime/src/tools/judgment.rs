@@ -47,14 +47,35 @@ impl EvaluationInput<'_> {
 /// Whether `key` occurs in a value of `value` (a state or a question), never
 /// a property name. An asset is sent only where a value names it: capture
 /// refuses an unreferenced one before reading it, and a single-question
-/// request carries only the assets that question or the state names.
+/// request carries only the assets that question or the state names. A key
+/// is cited as a whole token: asset names are runs of `[A-Za-z0-9._-]`, so a
+/// neighbouring letter, digit or `_` (or a `.`/`-` that joins one) makes the
+/// occurrence part of a longer word or name, not a citation.
 pub(crate) fn referenced(value: &Value, key: &str) -> bool {
     match value {
-        Value::String(text) => text.contains(key),
+        Value::String(text) => cites(text, key),
         Value::Array(values) => values.iter().any(|value| referenced(value, key)),
         Value::Object(values) => values.values().any(|value| referenced(value, key)),
         _ => false,
     }
+}
+
+fn cites(text: &str, key: &str) -> bool {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    // Whether the characters next to an occurrence, nearest first, end the
+    // token: none, a non-name character, or a `.`/`-` that closes a sentence
+    // or phrase rather than joining a longer name.
+    let ends = |next: &mut dyn Iterator<Item = char>| match next.next() {
+        None => true,
+        Some(c) if word(c) => false,
+        Some('.' | '-') => !next.next().is_some_and(word),
+        Some(_) => true,
+    };
+    !key.is_empty()
+        && text.match_indices(key).any(|(start, matched)| {
+            ends(&mut text[..start].chars().rev())
+                && ends(&mut text[start + matched.len()..].chars())
+        })
 }
 
 /// A validated evaluation: one provider answer per question, in question

@@ -224,3 +224,92 @@ async fn invalid_box_is_not_cached_and_retries_preserve_media_payload() {
         )
     );
 }
+
+fn window_exceeded() -> ResponseTemplate {
+    ResponseTemplate::new(400).set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}))
+}
+
+/// A provider whose window holds at most `limit` image questions per request:
+/// the group is split by the provider's own refusals and every question is
+/// answered once; a question that still exceeds the window alone fails the
+/// evaluation as `classificationStateTooLarge`.
+#[tokio::test]
+async fn a_media_group_the_provider_window_rejects_is_split_until_each_part_fits() {
+    let questions = [
+        json!({"type":"noul","instructions":"Is image visible?"}),
+        json!({"type":"box","instructions":"Locate image"}),
+        json!({"type":"noul","instructions":"Is image blank?"}),
+    ];
+    let state = json!("image");
+    let assets = json!({"image":{"type":"image","format":"png","data_base64":"bytes"}});
+    for (limit, expected_requests) in [(1_usize, 4_usize), (3, 1)] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/systemone"))
+            .respond_with(move |request: &Request| {
+                let body = request.body_json::<Value>().unwrap();
+                if body["questions"].as_object().unwrap().len() > limit {
+                    window_exceeded()
+                } else {
+                    response(request)
+                }
+            })
+            .mount(&server)
+            .await;
+        let evaluator = evaluator(&server);
+        let budget = evaluation_budget(&evaluator);
+        let judged = evaluator
+            .evaluate_prepared(
+                EvaluationInput {
+                    state: &state,
+                    questions: &questions,
+                    assets: Some(&assets),
+                    long_context: false,
+                },
+                None,
+                &budget,
+                &evaluator.gate(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("limit {limit}: {error:?}"));
+        assert_eq!(judged.answers.len(), questions.len(), "limit {limit}");
+        assert_eq!(judged.answers[1]["type"], "box");
+        let sent = server.received_requests().await.unwrap();
+        assert_eq!(sent.len(), expected_requests, "limit {limit}");
+        // Every question reaches the provider in an accepted request once.
+        let answered: usize = sent
+            .iter()
+            .map(|request| {
+                request.body_json::<Value>().unwrap()["questions"]
+                    .as_object()
+                    .unwrap()
+                    .len()
+            })
+            .filter(|count| *count <= limit)
+            .sum();
+        assert_eq!(answered, questions.len(), "limit {limit}");
+    }
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(|_: &Request| window_exceeded())
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let budget = evaluation_budget(&evaluator);
+    let error = evaluator
+        .evaluate_prepared(
+            EvaluationInput {
+                state: &state,
+                questions: &questions,
+                assets: Some(&assets),
+                long_context: false,
+            },
+            None,
+            &budget,
+            &evaluator.gate(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::ClassificationStateTooLarge);
+}

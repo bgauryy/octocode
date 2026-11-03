@@ -158,7 +158,7 @@ pub(crate) fn capture(
 /// A local capture failure with the recovery a direct read gives: a missing
 /// path leads to its nearest existing directory's tree, and a failure that
 /// brings no recovery of its own carries its code's shared hint.
-fn local_recovery(
+pub(super) fn local_recovery(
     mut error: ClassificationError,
     query: &Value,
     dispatcher: &dyn SourceReader,

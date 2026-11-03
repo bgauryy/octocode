@@ -7,8 +7,12 @@ pub(super) struct Publish<'a> {
     pub options: &'a IngestOptions,
     pub home: &'a Path,
     pub workspace: &'a Path,
+    /// The build; its linked facts are already freed ([`Self::files`]).
     pub built: &'a super::super::super::types::BuiltGraph,
+    /// The scanned files, root-relative.
+    pub files: &'a [String],
     pub projection: &'a tables::Projection,
+    pub argument_coverage: &'a Value,
     pub inputs: &'a BTreeMap<String, String>,
     pub build_ms: u64,
     pub registry: RegistryView<'a>,
@@ -17,12 +21,12 @@ pub(super) struct Publish<'a> {
 }
 
 /// Names the narrower scopes to ingest on a budget the scan could not bound.
-pub(super) fn too_broad(
-    built: &super::super::super::types::BuiltGraph,
+pub(super) fn too_broad<'a>(
+    root: &Path,
+    files: impl Iterator<Item = &'a str>,
     mut output: GraphOutput,
 ) -> GraphOutput {
-    let files = built.facts.keys().map(String::as_str);
-    super::super::super::graph::scope::hint_narrower_scopes(&mut output.value, &built.root, files);
+    super::super::super::graph::scope::hint_narrower_scopes(&mut output.value, root, files);
     output
 }
 
@@ -50,7 +54,11 @@ pub(super) fn publish_snapshot(
     ) {
         Ok(encoded) => encoded,
         Err(error) => {
-            return too_broad(job.built, GraphOutput::error(error.code, error.message));
+            return too_broad(
+                &job.built.root,
+                job.files.iter().map(String::as_str),
+                GraphOutput::error(error.code, error.message),
+            );
         }
     };
     let slug = scope_slug(&job.built.root, job.workspace);
@@ -67,7 +75,9 @@ pub(super) fn publish_snapshot(
         created_at: &created_at,
         workspace: job.workspace,
         built: job.built,
+        files_scanned: job.files.len(),
         projection: job.projection,
+        argument_coverage: job.argument_coverage,
         bytes,
         digest: &digest,
         exclude_dir: &job.options.exclude_dir,

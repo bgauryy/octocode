@@ -1,6 +1,6 @@
 use super::patterns::{PATTERN_COUNT, PATTERNS};
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use std::sync::{LazyLock, OnceLock};
 
 mod credential_values;
@@ -39,6 +39,19 @@ fn ascii_word_boundaries(pattern: &str) -> String {
     out
 }
 
+/// Bytes of lazy-DFA cache one pattern keeps per scanning thread (the regex
+/// crate's `dfa_size_limit`, 2 MiB by default). Every pattern a text reaches
+/// holds a cache on every worker that scans, so the default sums to hundreds
+/// of megabytes across a repository scan. A cache that outgrows the limit
+/// makes the engine fall back to a slower one: matches are the same.
+const PATTERN_CACHE_BYTES: usize = 256 << 10;
+
+fn compile(pattern: &str) -> Result<Regex, regex::Error> {
+    RegexBuilder::new(pattern)
+        .dfa_size_limit(PATTERN_CACHE_BYTES)
+        .build()
+}
+
 /// Get (compiling at most once) the Regex for pattern `idx`.
 fn pattern_regex(idx: usize) -> &'static Regex {
     // Built-in pattern strings are constants validated by the pattern tests; a
@@ -48,7 +61,7 @@ fn pattern_regex(idx: usize) -> &'static Regex {
         reason = "built-in patterns are valid by construction"
     )]
     PATTERN_REGEX_CELLS[idx].get_or_init(|| {
-        Regex::new(&ascii_word_boundaries(PATTERNS[idx].regex)).expect(PATTERNS[idx].name)
+        compile(&ascii_word_boundaries(PATTERNS[idx].regex)).expect(PATTERNS[idx].name)
     })
 }
 
@@ -70,7 +83,7 @@ fn file_context_regex(idx: usize) -> Option<&'static Regex> {
         reason = "built-in patterns are compile-time constants; an invalid one is a build bug"
     )]
     Some(CELLS[idx].get_or_init(|| {
-        Regex::new(context)
+        compile(context)
             .unwrap_or_else(|e| panic!("invalid file_context regex '{context}': {e}"))
     }))
 }

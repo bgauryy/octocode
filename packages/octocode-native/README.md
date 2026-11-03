@@ -217,10 +217,12 @@ starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
   (`OCTOCODE_STORAGE_MODE=memory`), on Windows, or for `ghCloneRepo`. A server that cannot be reached, refuses a call, or fails
   mid-call is named on stderr and the call runs in process; a server that
   sends no reply within the request budget answers `timeout`.
-- **Bounded.** At most `MAX_SERVERS` servers per user: a starting server asks
-  the least recently used ones past the cap to stop, and a stopping server
-  finishes the calls it has. A server exits after `IDLE_EXIT` without a
-  request.
+- **Bounded by demand.** There is no cap on servers per user, and a starting
+  server never stops another: a server exits after `IDLE_EXIT` without a
+  request (a connection that sends none does not count), and its language
+  servers stop earlier on the pool's idle timeout and memory budget. A server
+  asked to stop (`auth login`/`logout`, cache clear) finishes the calls it
+  has.
 
 The named limits are constants in
 [`crates/cli/src/cli/serve.rs`](crates/cli/src/cli/serve.rs), whose module

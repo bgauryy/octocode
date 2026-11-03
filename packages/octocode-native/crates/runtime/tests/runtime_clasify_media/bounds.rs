@@ -112,7 +112,7 @@ async fn image_asset_admission_respects_disabled_reader_and_path_policy() {
     std::fs::write(&file, png()).unwrap();
     let out = clasify(&enabled, vec![row(file.to_str().unwrap())]).await;
     assert_eq!(
-        out["results"][0]["data"]["errorCode"], "securityValidationFailed",
+        out["results"][0]["data"]["errorCode"], "outsideAllowedRoots",
         "{out}"
     );
     assert!(requests(&server).await.is_empty());

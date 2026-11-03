@@ -4,7 +4,7 @@
 use super::frames::{forward, progress_scope};
 use super::identity::{call_identity, env_digest};
 pub(super) use super::served::Served;
-use super::sockets::{prune_siblings, touch};
+use super::sockets::remove_stale_sockets;
 use super::{read_line_bounded, same_dir_form};
 use crate::cli::Printed;
 use crate::cli::serve::runs_on_server;
@@ -14,7 +14,11 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// The server exits after this long without a request.
+/// The server exits after this long without a request. This is what bounds
+/// the servers a user has: demand keeps one alive, and one nobody asks
+/// (an older build, a finished session) leaves by itself, while a server
+/// with calls or recent calls is never stopped by another server starting.
+/// Its language servers leave earlier, on the pool's own idle timeout.
 pub(super) const IDLE_EXIT: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// Largest request line a client may send; longer lines are refused unbuffered.
@@ -86,12 +90,9 @@ pub(super) type Build =
 /// environment it runs with.
 pub(super) type RuntimeKey = (PathBuf, String);
 
-/// A server's state: its socket, one language-server pool, and the
-/// runtimes of the directories and environments it serves.
+/// A server's state: one language-server pool, and the runtimes of the
+/// directories and environments it serves.
 pub(super) struct Daemon {
-    /// The socket this server answers on; its modification time is the
-    /// last request ([`touch`]).
-    pub(super) socket: PathBuf,
     pub(super) lsp_pool: std::sync::Arc<octocode_engine::lsp::pool::LspClientPool>,
     pub(super) runtimes: std::cell::RefCell<Recent<RuntimeKey, std::rc::Rc<Served>>>,
     /// One build per key at a time: a call that waited finds it built.
@@ -103,16 +104,12 @@ pub(super) struct Daemon {
 }
 
 impl Daemon {
-    pub(super) fn new(socket: PathBuf) -> Self {
-        Self::with_build(
-            socket,
-            octocode_native::runtime::ToolRuntime::from_host_with_lsp_pool,
-        )
+    pub(super) fn new() -> Self {
+        Self::with_build(octocode_native::runtime::ToolRuntime::from_host_with_lsp_pool)
     }
 
-    pub(super) fn with_build(socket: PathBuf, build: Build) -> Self {
+    pub(super) fn with_build(build: Build) -> Self {
         Self {
-            socket,
             lsp_pool: std::sync::Arc::default(),
             runtimes: std::cell::RefCell::new(Recent::new(MAX_RUNTIMES)),
             building: octocode_io::flight::KeyedFlight::transient(),
@@ -179,8 +176,8 @@ pub(super) async fn serve(socket: PathBuf) -> u8 {
     };
     let ours = socket_identity(&socket);
     let _ = std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600));
-    prune_siblings(&socket);
-    let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
+    remove_stale_sockets(&socket);
+    let daemon = std::rc::Rc::new(Daemon::new());
     // Remove the socket only while it is still ours.
     serve_on(listener, &daemon, IDLE_EXIT, || {
         remove_if_ours(&socket, ours);
@@ -205,8 +202,11 @@ pub(super) async fn shut_down(daemon: &Daemon) {
 }
 
 /// Accept connections until nothing has been asked for `idle`, or a
-/// [`STOP`](super::sockets::STOP) request arrives. Then `leave` runs (the socket goes, so the next
-/// call starts another server) and the calls taken finish.
+/// [`STOP`](super::sockets::STOP) request arrives. Only a connection that
+/// sends a request counts as asking: a probe that closes without one (a
+/// starting server looking for stale sockets) does not renew the server.
+/// Then `leave` runs (the socket goes, so the next call starts another
+/// server) and the calls taken finish.
 pub(super) async fn serve_on(
     listener: tokio::net::UnixListener,
     daemon: &std::rc::Rc<Daemon>,
@@ -218,12 +218,14 @@ pub(super) async fn serve_on(
     let state = Rc::new(std::cell::Cell::new((0usize, std::time::Instant::now())));
     let slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
     let poll = idle.min(std::time::Duration::from_secs(15));
+    // A fixed schedule: connections arriving between checks do not move it.
+    let mut check = tokio::time::interval_at(tokio::time::Instant::now() + poll, poll);
     let mut next_id = 0u64;
     loop {
         let accepted = tokio::select! {
             accepted = listener.accept() => accepted,
             () = daemon.stop.notified() => break,
-            () = tokio::time::sleep(poll) => {
+            _ = check.tick() => {
                 let (active, last) = state.get();
                 if active == 0 && last.elapsed() >= idle {
                     break;
@@ -244,11 +246,16 @@ pub(super) async fn serve_on(
         let (daemon, state) = (Rc::clone(daemon), Rc::clone(&state));
         tokio::task::spawn_local(async move {
             let _permit = permit;
-            let (active, _) = state.get();
-            state.set((active + 1, std::time::Instant::now()));
-            handle(&daemon, stream, id).await;
-            let (active, _) = state.get();
-            state.set((active.saturating_sub(1), std::time::Instant::now()));
+            let (active, last) = state.get();
+            state.set((active + 1, last));
+            let asked = handle(&daemon, stream, id).await;
+            let (active, last) = state.get();
+            let last = if asked {
+                std::time::Instant::now()
+            } else {
+                last
+            };
+            state.set((active.saturating_sub(1), last));
         });
     }
     // A connection not yet accepted is refused, so its client runs in
@@ -318,21 +325,22 @@ pub(super) async fn unless_left<T>(
 /// write the printed call back. A request this server cannot answer as the
 /// client would run it gets a `fallback` reply, so the client runs it in
 /// process. A [`STOP`](super::sockets::STOP) request stops the server.
-pub(super) async fn handle(daemon: &Daemon, stream: tokio::net::UnixStream, id: String) {
+/// Whether the client asked anything: `false` for a connection that closed
+/// without a request line.
+pub(super) async fn handle(daemon: &Daemon, stream: tokio::net::UnixStream, id: String) -> bool {
     use tokio::io::{AsyncWriteExt, BufReader};
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
     let Some(line) = read_line_bounded(&mut reader, MAX_REQUEST_BYTES).await else {
-        return;
+        return false;
     };
-    touch(&daemon.socket);
     let reply = match serde_json::from_str::<Value>(&line) {
         Ok(request) if request["stop"] == true => {
             if request["drain"] == true {
                 daemon.stopped.borrow_mut().push(write);
             }
             daemon.stop.notify_one();
-            return;
+            return true;
         }
         Ok(mut request) => match served(daemon, &mut request).await {
             Ok((served, tool, json_out, input)) => {
@@ -357,7 +365,7 @@ pub(super) async fn handle(daemon: &Daemon, stream: tokio::net::UnixStream, id: 
                             runtime.requests.cancel(&id);
                         };
                         let Some(result) = unless_left(execution, &mut reader, cancel).await else {
-                            return;
+                            return true;
                         };
                         Printed::finish(&tool, result, json_out, &query, cwd.as_deref())
                     }
@@ -373,6 +381,7 @@ pub(super) async fn handle(daemon: &Daemon, stream: tokio::net::UnixStream, id: 
     let mut line = reply.to_string();
     line.push('\n');
     let _ = write.write_all(line.as_bytes()).await;
+    true
 }
 
 /// The runtime, tool, output mode and input of `request`, or why this

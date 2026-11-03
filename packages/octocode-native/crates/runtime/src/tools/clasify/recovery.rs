@@ -5,6 +5,10 @@ use crate::tools::source_capture;
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
+/// What cuts an image row the provider window rejects: each image question
+/// re-reads its images.
+const IMAGE_WINDOW_HINT: &str = "Each image question re-reads its images: ask fewer image questions per call, or crop the image.";
+
 /// Recovery for a failed row. A captured source failed in classification:
 /// its exact read is the way back to the evidence. A source that was never
 /// captured failed in its reader: that error and its own hints say what
@@ -45,6 +49,9 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
     let mut tips = vec![json!(hint)];
     if row.assets.is_some() {
         tips.push(json!(notice("imageInspection")));
+        if crate::id::error_code_of(failure) == Some(ErrorCode::ClassificationStateTooLarge) {
+            tips.push(json!(IMAGE_WINDOW_HINT));
+        }
     }
     if let Some(existing) = failure["hints"].as_array() {
         tips.extend(
@@ -148,6 +155,31 @@ mod tests {
             assert!(failure.get("next").is_none(), "{failure}");
             assert!(failure.get("related").is_none(), "{failure}");
         }
+    }
+
+    /// A provider window an image row exceeds is cut by asking fewer image
+    /// questions per call; a text row keeps only the provider's own advice.
+    #[test]
+    fn an_image_row_over_the_provider_window_says_to_ask_fewer_image_questions() {
+        let mut row = source_row();
+        row.input = Input::Judge(Target::Content(json!("literal")));
+        let failure =
+            || json!({"errorCode":"classificationStateTooLarge","hints":["Provider guidance."]});
+        let mut text = failure();
+        add(&row, None, &mut text);
+        assert!(!text.to_string().contains(IMAGE_WINDOW_HINT), "{text}");
+        row.assets = Some(json!({"image":{}}));
+        let mut image = failure();
+        add(&row, None, &mut image);
+        let hints = image["hints"].as_array().unwrap();
+        assert!(hints.contains(&json!(IMAGE_WINDOW_HINT)), "{image}");
+        assert!(hints.contains(&json!("Provider guidance.")), "{image}");
+        let once = image.clone();
+        add(&row, None, &mut image);
+        assert_eq!(image, once);
+        let mut other = json!({"errorCode":"classificationProviderError"});
+        add(&row, None, &mut other);
+        assert!(!other.to_string().contains(IMAGE_WINDOW_HINT), "{other}");
     }
 
     #[test]

@@ -146,6 +146,19 @@ pub(crate) struct FileFacts {
 }
 
 impl FileFacts {
+    /// Drops the growth slack of the lists linking pushed to: every scanned
+    /// file's facts stay in memory until the snapshot is projected.
+    pub(crate) fn shrink_to_fit(&mut self) {
+        self.file_edges.shrink_to_fit();
+        self.declarations.shrink_to_fit();
+        self.imports.shrink_to_fit();
+        self.commonjs.shrink_to_fit();
+        self.reexports.shrink_to_fit();
+        self.reexport_lines.shrink_to_fit();
+        self.calls.shrink_to_fit();
+        self.heritage.shrink_to_fit();
+    }
+
     /// Whether `line` lies in code compiled only under test.
     pub(crate) fn test_scoped(&self, line: u32) -> bool {
         self.test_lines

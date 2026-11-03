@@ -216,11 +216,15 @@ impl Query<'_> {
         {
             // byDetector counts before this filter, so its sum is not the
             // page's totalItems: say by how much and why.
+            let filters = options.min_score.map_or_else(
+                || format!("minTier {min_tier}"),
+                |score| format!("minTier {min_tier} and minScore {score}"),
+            );
             notes.push(json!({
                 "filter": "minTier",
                 "hidden": hidden,
                 "explanation": format!(
-                    "byDetector counts all {total_before} findings the detectors raised; minTier {min_tier} and minScore hid {hidden}, so {} are listed (pagination.totalItems). Lower minTier or minScore to list the rest.",
+                    "byDetector counts all {total_before} findings the detectors raised; {filters} hid {hidden}, so {} are listed (pagination.totalItems). Lower them to list the rest.",
                     findings.len()
                 ),
             }));

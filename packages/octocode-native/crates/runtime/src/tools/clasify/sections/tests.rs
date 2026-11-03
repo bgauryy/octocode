@@ -142,6 +142,29 @@ fn a_later_batch_repeats_only_resources_with_new_sections_or_coverage() {
     );
 }
 
+/// The row's `model` is the one that answered; the requested alias of a
+/// plan nothing was judged under is not an answering model.
+#[test]
+fn a_plan_no_model_answered_reports_no_model() {
+    let mut session = session();
+    session.resolved_model = None;
+    let output = emit(&mut session, &ClassificationUsage::default(), None);
+    assert!(output.get("model").is_none(), "{output}");
+    session.resolved_model = Some("jev-1.14.0".into());
+    let output = emit(&mut session, &ClassificationUsage::default(), None);
+    assert_eq!(output["model"], "jev-1.14.0");
+}
+
+/// Every page of a sections response carries the same row fields: the
+/// request's own operation and questions are echoes, never repeated by a
+/// later batch the first one lacks.
+#[test]
+fn a_batch_does_not_echo_the_requests_operation_and_questions() {
+    let output = emit(&mut session(), &ClassificationUsage::default(), None);
+    assert!(output.get("operation").is_none(), "{output}");
+    assert!(output.get("questions").is_none(), "{output}");
+}
+
 #[test]
 fn terminal_outcome_preserves_answer_and_explains_every_unassessed_cell() {
     let mut session = session();

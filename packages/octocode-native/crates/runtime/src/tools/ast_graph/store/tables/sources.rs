@@ -10,8 +10,12 @@ pub(super) struct Sources {
 }
 
 impl Sources {
+    /// The snapshot's source table, built from each file's captured source.
+    /// The captured sources move out of `built` and are freed once their
+    /// origins are encoded into the table: nothing after projection reads
+    /// them, and they would otherwise stay decoded until publication.
     pub(super) fn capture(
-        built: &BuiltGraph,
+        built: &mut BuiltGraph,
         cancel: &dyn CancellationCheck,
     ) -> Result<Self, ToolError> {
         let mut output = Self {
@@ -31,9 +35,14 @@ impl Sources {
         })
         .into_iter()
         .collect::<Result<(), _>>()?;
-        for (file, facts) in &built.facts {
+        let captured = built
+            .facts
+            .iter_mut()
+            .map(|(file, facts)| (file.as_str(), std::mem::take(&mut facts.source)))
+            .collect::<Vec<_>>();
+        for (file, source) in &captured {
             cancel.check().map_err(ToolError::cancelled)?;
-            let descriptors = &facts.source.descriptors;
+            let descriptors = &source.descriptors;
             for source in &descriptors.snapshots {
                 insert(&mut snapshots, &source.id, source)?;
             }
@@ -44,7 +53,7 @@ impl Sources {
                 insert(&mut units, &unit.id, unit)?;
             }
             let mut index = BTreeMap::new();
-            for span in facts.source.origins.keys() {
+            for span in source.origins.keys() {
                 cancel.check().map_err(ToolError::cancelled)?;
                 let id = u32::try_from(origin_count)
                     .ok()
@@ -58,7 +67,7 @@ impl Sources {
                 index.insert(*span, id);
                 origin_count += 1;
             }
-            output.indexes.insert(file.clone(), index);
+            output.indexes.insert((*file).to_owned(), index);
         }
         let descriptors = SourceDescriptors {
             snapshots: snapshots.into_values().cloned().collect(),
@@ -67,10 +76,9 @@ impl Sources {
         };
         output.table = super::super::format::sources::SourceTable::from_origins(
             descriptors,
-            built
-                .facts
-                .values()
-                .flat_map(|facts| facts.source.origins.values()),
+            captured
+                .iter()
+                .flat_map(|(_, source)| source.origins.values()),
             cancel,
         )
         .map_err(ToolError::source)?;

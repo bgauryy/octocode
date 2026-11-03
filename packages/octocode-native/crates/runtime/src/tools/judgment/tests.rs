@@ -152,3 +152,35 @@ fn references_are_value_occurrences_including_criteria_not_property_names() {
     ));
     assert!(!referenced(&json!(null), "opaque_asset_1"));
 }
+
+/// A key is cited as a whole token (the asset-name charset `[A-Za-z0-9._-]`),
+/// never matched inside a longer word or name.
+#[test]
+fn references_match_whole_asset_keys_not_substrings() {
+    let cited = |text: &str, key: &str| referenced(&json!(text), key);
+    for text in ["a", "Is a blank?", "see (a), then b", "a.", "x: a-"] {
+        assert!(cited(text, "a"), "{text}");
+    }
+    for text in [
+        "image_a.",
+        "Does image_a, image_b differ?",
+        "\"image_a\"",
+        "image_a",
+    ] {
+        assert!(cited(text, "image_a"), "{text}");
+    }
+    for text in [
+        "image_ab",
+        "my_image_a",
+        "image_a-b",
+        "x.image_a",
+        "image_a.b",
+    ] {
+        assert!(!cited(text, "image_a"), "{text}");
+    }
+    for text in ["blank", "table", "a1", "x_a", "a-b"] {
+        assert!(!cited(text, "a"), "{text}");
+    }
+    assert!(!cited("Is it blank, table or data?", "a"));
+    assert!(!cited("an a-b pair", "a-b-c"));
+}

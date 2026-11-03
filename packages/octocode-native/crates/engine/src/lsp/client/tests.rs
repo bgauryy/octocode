@@ -20,6 +20,7 @@ mod provider_answers;
 mod readiness;
 mod snippet_reads;
 mod stderr_ring;
+mod waits;
 
 fn ts_config() -> LspLanguageServerConfig {
     LspLanguageServerConfig {

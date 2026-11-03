@@ -3,14 +3,12 @@
 use super::*;
 
 /// A marker inside a snapshot directory: its modification time is the last
-/// time a reader used the snapshot.
+/// time a reader used the snapshot. A snapshot that retention would remove
+/// stays queryable for as long as the continuations of a walk over it do
+/// ([`crate::cache::CONTINUATION_IDLE`] after that read): a rebuild by
+/// another agent must not end that walk. Past it, the snapshot is idle and
+/// the next build prunes it; its ID then names its successor.
 pub(super) const READ_LEASE_FILE: &str = "last-read";
-
-/// How long after its last read a snapshot that retention would remove stays
-/// queryable: a reader pages through one snapshot across tool calls, and a
-/// rebuild by another agent must not end that walk. Past it, the snapshot is
-/// idle and the next build prunes it; its ID then names its successor.
-pub(super) const READ_LEASE: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// `<workspace>/.octocode/graph`. The workspace is the caller's: the
 /// runtime names one ([`default_workspace`] of its own working directory)
@@ -84,13 +82,14 @@ pub(super) fn renew_lease(dir: &Path) -> std::io::Result<()> {
         .set_modified(std::time::SystemTime::now())
 }
 
-/// Whether a reader used the snapshot in `dir` within [`READ_LEASE`].
+/// Whether a reader used the snapshot in `dir` within
+/// [`crate::cache::CONTINUATION_IDLE`].
 fn leased(dir: &Path) -> bool {
     std::fs::metadata(dir.join(READ_LEASE_FILE))
         .and_then(|meta| meta.modified())
         .ok()
         .and_then(|time| time.elapsed().ok())
-        .is_some_and(|idle| idle < READ_LEASE)
+        .is_some_and(|idle| idle < crate::cache::CONTINUATION_IDLE)
 }
 
 /// The newest snapshot of `root` when `id` is an ID this build allocates for
@@ -105,7 +104,8 @@ pub(super) fn successor(home: &Path, workspace: &Path, root: &Path, id: &str) ->
     }
     let root = root.to_string_lossy();
     list_snapshots(home).into_iter().rev().find(|candidate| {
-        read_manifest(&home.join(candidate)).is_some_and(|manifest| manifest["root"] == root.as_ref())
+        read_manifest(&home.join(candidate))
+            .is_some_and(|manifest| manifest["root"] == root.as_ref())
     })
 }
 
@@ -174,7 +174,7 @@ pub(crate) fn list_snapshots(home: &Path) -> Vec<String> {
 }
 
 /// Removes older snapshots of `root` beyond `keep` that no reader used within
-/// [`READ_LEASE`] (a rebuild never ends a walk in progress), snapshots of any root
+/// [`crate::cache::CONTINUATION_IDLE`] (a rebuild never ends a walk in progress), snapshots of any root
 /// in an older format (no query of this build can read them; a newer
 /// format belongs to a newer build and stays), and abandoned temp dirs.
 /// Snapshots are grouped by the root they scanned, never by their scope

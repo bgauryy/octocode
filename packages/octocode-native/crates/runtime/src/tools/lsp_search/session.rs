@@ -151,6 +151,9 @@ pub(super) struct Session {
     /// The post-didOpen readiness (timeout when the project load was
     /// still running).
     pub(super) open_readiness: Option<String>,
+    /// What this call waited on at the server: its start, its project load.
+    /// Set by [`open_session`] once the session is open.
+    pub(super) waits: octocode_engine::lsp::client::ServerWaits,
 }
 
 /// Lease a pooled client for the whole operation and synchronize the anchor
@@ -166,12 +169,39 @@ pub(super) async fn open_session(
     cancel: &dyn CancellationCheck,
     pool: &LspClientPool,
 ) -> Result<Session, Exit> {
+    let began = tokio::time::Instant::now();
+    let leased = acquire_leased_client(query, target, pool, cancel).await?;
+    let (client, config) = (leased.client.clone(), leased.config.clone());
+    // Whatever ends the session, the call says what it waited on.
+    match open_leased(query, target, document, sources, cancel, leased).await {
+        Ok(mut session) => {
+            session.waits = client.waits_since(began);
+            Ok(session)
+        }
+        Err(exit) => Err(waits::disclose_exit(
+            exit,
+            &config,
+            client.waits_since(began),
+        )),
+    }
+}
+
+/// [`open_session`] once the client is leased: the readiness and capability
+/// checks, then the anchor document's sync.
+async fn open_leased(
+    query: &LspSearchQuery,
+    target: &Target,
+    document: Option<&source::Source>,
+    sources: &mut SourceCache<'_>,
+    cancel: &dyn CancellationCheck,
+    leased: Leased,
+) -> Result<Session, Exit> {
     let Leased {
         client,
         lease,
         config,
         fell_back_from,
-    } = acquire_leased_client(query, target, pool, cancel).await?;
+    } = leased;
     let advertises = |capability: &str| client.has_capability(capability.to_owned());
     let note = |readiness| {
         octocode_engine::lsp::diagnostics::Trace::note_server(|| {
@@ -232,6 +262,7 @@ pub(super) async fn open_session(
         config,
         fell_back_from,
         open_readiness,
+        waits: Default::default(),
     })
 }
 
@@ -352,4 +383,6 @@ pub(super) fn start_failure(
 }
 
 mod sync;
+mod waits;
 pub(in crate::tools::lsp_search) use sync::{root_representative, sync_document};
+pub(in crate::tools::lsp_search) use waits::disclose_waits;

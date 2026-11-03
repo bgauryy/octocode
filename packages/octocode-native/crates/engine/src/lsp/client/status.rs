@@ -21,6 +21,7 @@ impl NativeLspClient {
         crate::lsp::diagnostics::Phase::Readiness
             .measure(async {
                 let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
+                let began = tokio::time::Instant::now();
                 let readiness = self
                     .inner
                     .progress
@@ -28,6 +29,7 @@ impl NativeLspClient {
                     .await
                     .as_str()
                     .to_owned();
+                self.record_wait(super::waits::WaitKind::Indexing, began);
                 {
                     let mut slot = self
                         .inner

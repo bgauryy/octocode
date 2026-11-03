@@ -92,13 +92,13 @@ sequenceDiagram
     participant O as Octocode
     participant R as Reader
     participant J as Jev
-    A->>O: questions and where to read
-    O->>R: read with path, GitHub and URL policy
-    R-->>O: text pinned to a snapshot or commit
-    Note over O: sanitize secrets, refuse an oversized source
-    O->>J: text, questions and your context
-    J-->>O: typed answers and token usage
-    O-->>A: answers, usage and a read handle
+    A->>O: questions + where to read
+    O->>R: read under its policy
+    R-->>O: pinned text
+    Note over O: sanitize, size check
+    O->>J: text + questions
+    J-->>O: typed answers
+    O-->>A: answers + read handle
 ```
 
 - **The reader** is the same one a normal call uses: `localFetch` for local files,
@@ -156,9 +156,7 @@ flowchart TD
     U --> J["Jev judges up to 64 units per page<br/>one call per unit, all predicates"]
     J --> K{"Any predicate over 0.5<br/>on direct evidence?"}
     K -- "yes" --> S["selected<br/>returned to you"]
-    K -- "near miss" --> RL["related<br/>counted, hidden"]
-    K -- "no" --> X["excluded<br/>counted, hidden"]
-    K -- "undecided" --> UN["unknown<br/>counted, hidden"]
+    K -- "no, near miss or undecided" --> H["excluded, related or unknown<br/>counted in the receipt, hidden"]
 ```
 
 The receipt (`selection`) counts every group, and continuations reach the rest:
@@ -199,8 +197,9 @@ flowchart TD
     P --> F["3. Freeze<br/>sections × questions"]
     F --> A["4. Assess a batch<br/>one Jev call per section"]
     A --> E["5. Emit<br/>completed sections once"]
-    E -- "next.nextPage" --> A
-    E -- "no sections remain" --> D["Read the hits"]
+    E --> M{"Sections remain?"}
+    M -- "yes: next.nextPage" --> A
+    M -- "no" --> D["Read the hits"]
 ```
 
 1. **Capture.** Each resource is read by its own reader and pinned. A source repeated across
@@ -222,19 +221,24 @@ stateDiagram-v2
     accTitle: Lifecycle of one answer cell
     accDescr: A cell starts open when the plan is frozen. It becomes unsupported if its section is too large or the question needs an image. Admitted to a batch, it becomes answered or error, or returns to open if the budget ended before the call. Cells still open when the run ends become unassessed.
     [*] --> Open: plan frozen
-    Open --> Unsupported: section too large or box question
-    Open --> InFlight: admitted to a batch
-    InFlight --> Answered: Jev answered
-    InFlight --> Error: provider error, other model or process stopped
-    InFlight --> Open: budget ended before the call
-    Open --> Unassessed: the run ended with work left
-    Answered --> [*]
-    Error --> [*]
-    Unsupported --> [*]
-    Unassessed --> [*]
+    Open --> Unsupported: too large or box
+    Open --> InFlight: admitted
+    InFlight --> Answered: answered
+    InFlight --> Error: failed
+    InFlight --> Open: budget ended
+    Open --> Unassessed: run ended
 ```
 
-Coverage counts these states per resource: `answered`, `error`, `unsupported` and `unassessed`,
+| Transition | When |
+|---|---|
+| Open → Unsupported | The section exceeds the model's input limit, or the question is `box` (text sections have no image) |
+| Open → InFlight | The batch's character budget admits the section |
+| InFlight → Answered | Jev returned a typed answer |
+| InFlight → Error | The provider failed, a different model answered, or the process stopped with the outcome unknown |
+| InFlight → Open | The time budget ended before the request was sent; a later batch retries it |
+| Open → Unassessed | The run ended with work left; `terminalReason` says why |
+
+Coverage counts these states per resource (`answered`, `error`, `unsupported`, `unassessed`),
 plus `totalSections`, `completedSections` and `remainingSections`.
 
 > [!IMPORTANT]
@@ -271,23 +275,23 @@ sequenceDiagram
     participant O as Octocode
     participant S as Plan store
     participant J as Jev
-    A->>O: clasify sections with resources and questions
-    O->>O: capture, sanitize and plan sections
-    O->>S: save the frozen plan
+    A->>O: sections: resources + questions
+    O->>O: capture and plan
+    O->>S: save frozen plan
     loop until no sections remain
-        O->>S: mark the batch in flight
-        O->>J: one request per section, all open questions
-        J-->>O: typed answers, usage and model
-        O->>S: save the cells and the emitted batch
-        O-->>A: completed sections, coverage, next.nextPage
-        A->>O: next.nextPage, unchanged
+        O->>S: mark batch in flight
+        O->>J: one request per section
+        J-->>O: typed answers
+        O->>S: save cells and batch
+        O-->>A: sections + next.nextPage
+        A->>O: next.nextPage
     end
-    A->>O: resources.key.read
-    O-->>A: the judged lines at the same snapshot
-    A->>O: clasify evaluate, one atomic question on those lines
-    O->>J: those lines and the question
-    J-->>O: typed answer
-    O-->>A: the answer, for example noul 0.95
+    A->>O: read a hit
+    O-->>A: judged lines, same snapshot
+    A->>O: evaluate: one atomic question
+    O->>J: those lines + question
+    J-->>O: answer
+    O-->>A: noul 0.95
 ```
 
 | State | Where | How long | Holds |

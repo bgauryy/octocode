@@ -124,6 +124,7 @@ astSearch	tools/ast_search/symbols/page.rs	0 declarations {named}in {files_scann
 astSearch	tools/ast_search/symbols/page.rs	named {} 
 shared	tools/bounded_process/capture.rs	[stderr cut: {error}]
 shared	tools/bounded_process/capture.rs	[stderr truncated at {STDERR_BYTES} bytes]
+clasify	tools/clasify/recovery.rs	Each image question re-reads its images: ask fewer image questions per call, or crop the image.
 clasify	tools/clasify/sections.rs	Copy nextPage unchanged, or start a fresh sections request.
 clasify	tools/clasify/sections.rs	Use persistent storage across CLI calls or a long-lived MCP runtime; start a fresh sections request explicitly if the saved plan expired.
 clasify	tools/clasify/sections/assess.rs	Use the pinned raw reader to inspect the complete target.
@@ -224,6 +225,8 @@ lspSearch	tools/lsp_search/output.rs	Use the advertised LSP operations, or fall 
 lspSearch	tools/lsp_search/output.rs	Use the related source read or text search; semantic results remain unavailable. Retry LSP only after configuring a server for this file.
 lspSearch	tools/lsp_search/server_coverage.rs	Files that import the name are missing from the answer: the server did not resolve their import here.
 lspSearch	tools/lsp_search/server_coverage.rs	workspace/symbol has no completeness marker: declarations the server did not index or return are unknown, and no page of this list completes it; confirm with a localSearch of the name.
+lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to start; later calls reuse the running server without that wait.
+lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to load the project; later calls reuse the loaded server without that wait.
 lspSearch	tools/lsp_search/walk/outcome.rs	{out_of_policy} hierarchy items outside the allowed read roots were omitted.
 shared	tools/selection/judge.rs	Use the explicit unfiltered continuation to inspect this evidence.
 shared	tools/source_capture.rs	Correct the source query; it is the reader's own row.
@@ -234,7 +237,6 @@ shared	tools/source_capture.rs	Read an allowed path.
 shared	tools/source_capture.rs	Retry with longContext:true for a {long}-character state limit.
 shared	tools/source_capture/assets.rs	Check the file path and permissions.
 shared	tools/source_capture/assets.rs	Enable the referenced reader before classifying its images.
-shared	tools/source_capture/assets.rs	Read an allowed regular image file.
 shared	tools/source_capture/assets.rs	Reference an explicit PNG or JPEG image by its asset key.
 shared	tools/source_capture/assets.rs	Retry once the image is stable.
 shared	tools/source_capture/assets.rs	Use a smaller image or fewer assets; images are never resized or truncated silently.

@@ -123,11 +123,22 @@ async fn answer_inner(
     check_key(connection.key)?;
     let provider = connection.provider;
     // One question is one plain request; several share one when they fit.
+    let mut refused_calls = 0_u64;
     if questions.len() > 1
         && let Some((request, body)) = grouped(input, model, provider)
     {
-        let (response, calls) = send(body, input, connection, budget, gate).await?;
-        return grouped_outcomes(&request, &response, calls, provider);
+        match send(body, input, connection, budget, gate).await {
+            Ok((response, calls)) => return grouped_outcomes(&request, &response, calls, provider),
+            // Each image question re-reads its images, so the provider's
+            // window, not a byte count, decides whether a group fits: its
+            // refusal splits the group into the per-question requests below.
+            Err(error)
+                if input.images() && error.code == ErrorCode::ClassificationStateTooLarge =>
+            {
+                refused_calls = error.provider_calls;
+            }
+            Err(error) => return Err(error),
+        }
     }
     // One request per question, concurrently; the gate bounds them.
     let singles = stream::iter(questions.iter())
@@ -169,7 +180,12 @@ async fn answer_inner(
         .buffered(questions.len())
         .collect::<Vec<_>>()
         .await;
-    Ok(fold_singles(singles, questions.len()))
+    let mut outcomes = fold_singles(singles, questions.len());
+    match &mut outcomes.complete {
+        Ok(judged) => judged.provider_calls = judged.provider_calls.saturating_add(refused_calls),
+        Err(error) => error.provider_calls = error.provider_calls.saturating_add(refused_calls),
+    }
+    Ok(outcomes)
 }
 
 fn fold_singles(

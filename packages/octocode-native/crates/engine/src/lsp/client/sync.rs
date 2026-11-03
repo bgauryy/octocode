@@ -95,6 +95,7 @@ impl NativeLspClient {
                 .unwrap_or(OPEN_READY_TIMEOUT_MS)
                 .min(MAX_OPEN_READY_TIMEOUT_MS),
         );
+        let waiting_since = tokio::time::Instant::now();
         let readiness = crate::lsp::diagnostics::Phase::OpenReadiness
             .measure(async {
                 Ok::<_, crate::error::Error>(
@@ -105,6 +106,7 @@ impl NativeLspClient {
                 )
             })
             .await?;
+        self.record_wait(super::waits::WaitKind::Indexing, waiting_since);
         if let Some(pending) = pending {
             pending.finish(readiness);
         }

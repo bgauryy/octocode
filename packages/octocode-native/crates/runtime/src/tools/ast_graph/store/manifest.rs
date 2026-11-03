@@ -30,7 +30,9 @@ pub(super) struct ManifestInput<'a> {
     pub(super) created_at: &'a str,
     pub(super) workspace: &'a Path,
     pub(super) built: &'a super::super::types::BuiltGraph,
+    pub(super) files_scanned: usize,
     pub(super) projection: &'a tables::Projection,
+    pub(super) argument_coverage: &'a Value,
     pub(super) bytes: usize,
     pub(super) digest: &'a str,
     pub(super) exclude_dir: &'a [String],
@@ -89,7 +91,7 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         "graph": {"file": GRAPH_FILE, "bytes": input.bytes, "sha256": input.digest},
         "evidence": "syntax: imports are linked by module resolution; calls are name-resolved candidates tagged with resolution and confidence — confirm identity with lspSearch",
         "scan": {
-            "filesScanned": input.built.facts.len(),
+            "filesScanned": input.files_scanned,
             "filesSkipped": input.built.files_skipped,
             "excludeDir": input.exclude_dir,
         },
@@ -108,7 +110,7 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
             "unscanned": imports[ImportOutcome::Unscanned as usize],
         },
         "calls": input.projection.calls,
-        "argumentCoverage": argument_coverage::coverage(input.built, tables),
+        "argumentCoverage": input.argument_coverage,
         "extraction": {
             "parsedFiles": input.built.parsed_files,
             "reusedFiles": input.built.reused_files,

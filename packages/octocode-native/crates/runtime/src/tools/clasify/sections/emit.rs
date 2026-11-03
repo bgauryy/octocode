@@ -92,8 +92,11 @@ pub(super) fn emit(
         metadata["sections"] = json!(sections);
         resources.insert(resource.key.clone(), metadata);
     }
-    let mut output = json!({"operation":"sections","questions":session.questions,"resources":resources,"usage":usage.output()});
-    if let Some(model) = session.resolved_model.as_ref().or(session.model.as_ref()) {
+    // The request's own operation and questions are never echoed: the
+    // response layer drops them from a first page, so a continuation page
+    // that repeated them would differ from page one.
+    let mut output = json!({"resources":resources,"usage":usage.output()});
+    if let Some(model) = &session.resolved_model {
         output["model"] = json!(model);
     }
     output

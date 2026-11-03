@@ -204,7 +204,7 @@ async fn a_minified_file_walks_to_its_end_through_next_continue() {
 }
 
 #[tokio::test]
-async fn oversized_full_content_is_partial_not_empty() {
+async fn oversized_full_content_pages_inline_not_empty() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     mount_json(&server, "/api/v3/repos/a/b/contents/big.txt", 200, serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("line of text\n".repeat(6000))})).await;
@@ -230,7 +230,9 @@ async fn oversized_full_content_is_partial_not_empty() {
             .as_deref()
             .is_some_and(|text| !text.is_empty())
     );
-    assert_eq!(file.content.is_partial, Some(true));
+    // More pages show as next.nextPage, not as isPartial (core output
+    // schema: isPartial is for scope pagination does not already state).
+    assert_eq!(file.content.is_partial, None);
     // The continuation resumes exactly where the page ends: no line of
     // the file falls between the two.
     let window = &file.calls.as_ref().expect("next")["nextPage"]["input"]["queries"][0];

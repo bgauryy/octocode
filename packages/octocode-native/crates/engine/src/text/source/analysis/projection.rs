@@ -296,6 +296,9 @@ impl BoundSource<'_> {
         for _ in &result {
             budget.branch()?;
         }
+        // `reserve` grows by doubling from four. A projection is stored for
+        // every observed span of a scan, so its list keeps no slack.
+        result.shrink_to_fit();
         Ok(result)
     }
 }

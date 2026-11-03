@@ -80,7 +80,6 @@ fn superseded_snapshot(id: &str, successor: &str, path: &str) -> GraphOutput {
         ErrorCode::NotFound,
         format!("snapshot {id} was replaced by a newer graphBuild of this path: {successor}"),
     );
-    out.value["supersededBy"] = json!(successor);
     out.value["hints"] = json!([format!(
         "Repeat the query with graph {successor}, or omit graph for the newest snapshot of this path. Offsets and pages of {id} do not carry over to a rebuilt snapshot."
     )]);
@@ -114,9 +113,7 @@ impl Snapshots<'_> {
             .then(|| successor(self.home, self.workspace, self.root, id))
             .flatten()
             .map_or_else(
-                || {
-                    missing_snapshot("snapshot ID does not exist in this workspace", self.root)
-                },
+                || missing_snapshot("snapshot ID does not exist in this workspace", self.root),
                 |newer| superseded_snapshot(id, &newer, self.path),
             ))
     }

@@ -25,11 +25,13 @@ mod stderr;
 mod sync;
 #[cfg(test)]
 mod tests;
+mod waits;
 mod watched;
 
 use open_documents::{MAX_OPEN_DOCUMENTS, OpenDocuments};
 pub use requests::LocationRequest;
 pub use snippets::{SNIPPET_CONTENT_WITHHELD, SnippetPathAuthorizer, SnippetReadPolicy};
+pub use waits::ServerWaits;
 
 pub(super) const REQUEST_TIMEOUT_MS: u32 = 30_000;
 /// After the first `didOpen` of a document, how long
@@ -79,6 +81,8 @@ struct NativeLspClientInner {
     capabilities: StdMutex<Option<Value>>,
     server_info: StdMutex<Option<Value>>,
     readiness: StdMutex<Option<String>>,
+    /// What callers waited on here: the start and the project loads.
+    waits: StdMutex<waits::Waits>,
     progress: Arc<ProgressTracker>,
     /// Projects whose first open already waited (see `project_loads.rs`).
     project_loads: StdMutex<project_loads::ProjectLoads>,
@@ -188,6 +192,7 @@ impl NativeLspClient {
                 capabilities: StdMutex::new(None),
                 server_info: StdMutex::new(None),
                 readiness: StdMutex::new(None),
+                waits: StdMutex::default(),
                 progress: ProgressTracker::new(),
                 project_loads: StdMutex::default(),
                 activity: Arc::new(AtomicUsize::new(0)),

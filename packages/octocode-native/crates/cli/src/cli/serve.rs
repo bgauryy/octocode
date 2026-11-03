@@ -22,9 +22,13 @@
 //!   The call's progress lines (quota waits, language-server start) are
 //!   not in the reply: the server writes each as a frame line while the
 //!   call runs and the client prints it at once (`unix/frames.rs`).
-//! - `MAX_SERVERS` per socket directory, least recently asked (`touch`)
-//!   stopped first; a `STOP` request drains the calls taken. The server
-//!   exits after `IDLE_EXIT` without a request.
+//! - No count cap on servers: a server leaves only on `IDLE_EXIT` without a
+//!   request (a connection that sends none does not count) or a `STOP`
+//!   request (`octocode auth login`/`logout`, cache clear), which drains
+//!   the calls taken. A starting server never stops another, so one
+//!   agent's warm language servers survive another's first call; the
+//!   language servers themselves are bounded by the shared pool's idle
+//!   timeout and memory budget.
 //! - A failed exchange falls back to an in-process call and says so; no
 //!   reply within `REPLY_DEADLINE` answers `timeout`, never a second run.
 //!   Ctrl-C half-closes the client's side, which cancels the call on the

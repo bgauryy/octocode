@@ -108,10 +108,17 @@ fn acquire(
                 .paths()
                 .validate_read(Path::new(query["path"].as_str().unwrap_or_default()))
                 .map_err(|error| {
-                    ClassificationError::new(
-                        ErrorCode::SecurityValidationFailed,
-                        error.to_string(),
-                        "Read an allowed regular image file.",
+                    // The policy's failure keeps its shared code (a missing
+                    // image is `pathNotFound`, one outside the roots
+                    // `outsideAllowedRoots`) and a direct read's recovery.
+                    super::resource::local_recovery(
+                        ClassificationError::with_hints(
+                            error.shared_code(),
+                            error.to_string(),
+                            Vec::new(),
+                        ),
+                        query,
+                        dispatcher,
                     )
                 })?;
             let mut options = std::fs::OpenOptions::new();

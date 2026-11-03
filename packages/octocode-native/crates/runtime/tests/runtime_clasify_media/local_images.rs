@@ -179,3 +179,40 @@ async fn invalid_missing_oversized_and_private_images_never_reach_provider() {
     assert!(requests(&server).await.is_empty());
     runtime.close().await;
 }
+
+/// A missing image fails as the missing path every local reader reports
+/// (`pathNotFound`, with the reader's recovery), and one outside the
+/// allowed roots as the shared `outsideAllowedRoots`: never as a security
+/// validation failure that tells the caller to "read an allowed file".
+#[tokio::test]
+async fn a_missing_or_outside_local_image_fails_with_the_shared_path_code() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let runtime = runtime(&workspace, &server, &[]);
+    let outside = tempfile::tempdir().unwrap();
+    let file = outside.path().join("private.png");
+    std::fs::write(&file, png()).unwrap();
+    let out = clasify(
+        &runtime,
+        vec![row("missing.png"), row(file.to_str().unwrap())],
+    )
+    .await;
+    let missing = &out["results"][0]["data"];
+    assert_eq!(missing["errorCode"], "pathNotFound", "{out}");
+    assert!(
+        missing["next"].is_object() || missing["related"].is_array(),
+        "a missing image carries the reader's recovery: {missing}"
+    );
+    assert!(
+        !missing
+            .to_string()
+            .contains("Read an allowed regular image file"),
+        "{missing}"
+    );
+    assert_eq!(
+        out["results"][1]["data"]["errorCode"], "outsideAllowedRoots",
+        "{out}"
+    );
+    assert!(requests(&server).await.is_empty());
+    runtime.close().await;
+}

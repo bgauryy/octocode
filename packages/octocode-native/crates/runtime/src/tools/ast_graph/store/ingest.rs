@@ -88,14 +88,17 @@ pub(super) fn ingest_with_registry(
         });
         format!("scanning {scope}")
     });
-    let built = match build_for_ingest(options, paths, security, cancel, &scan) {
+    let mut built = match build_for_ingest(options, paths, security, cancel, &scan) {
         Ok(built) => built,
         Err(output) => return output,
     };
     let build_ms = crate::num::millis_of(started.elapsed());
-    let projection = match project_graph(&built, paths, security, cancel, limits) {
+    let projection = match project_graph(&mut built, paths, security, cancel, limits) {
         Ok(projection) => projection,
-        Err(output) => return snapshot::too_broad(&built, output),
+        Err(output) => {
+            let files = built.facts.keys().map(String::as_str);
+            return snapshot::too_broad(&built.root, files, output);
+        }
     };
     progress::emit(|| {
         let tables = &projection.tables;
@@ -109,6 +112,13 @@ pub(super) fn ingest_with_registry(
         Ok(inputs) => inputs,
         Err(output) => return output,
     };
+    let argument_coverage = argument_coverage::coverage(&built, &projection.tables);
+    // The tables hold everything publication reads of the linked facts, the
+    // largest part of a build: they are freed before encoding, keeping only
+    // the scanned files' names.
+    let files = std::mem::take(&mut built.facts)
+        .into_keys()
+        .collect::<Vec<_>>();
     #[cfg(test)]
     hooks::reach(hooks::Point::Publish, &home);
     // Staging, ids, publication and retention: one process at a time.
@@ -122,7 +132,9 @@ pub(super) fn ingest_with_registry(
             home: &home,
             workspace: &workspace,
             built: &built,
+            files: &files,
             projection: &projection,
+            argument_coverage: &argument_coverage,
             inputs: &inputs,
             build_ms,
             registry,
@@ -136,9 +148,10 @@ pub(super) fn ingest_with_registry(
 
 /// Projects `built` into snapshot tables and redacts them. Row counts are
 /// checked first: redaction rewrites strings, never rows, so a projection
-/// past a bound is refused before that pass.
+/// past a bound is refused before that pass. The build's captured sources
+/// move into the tables ([`tables::project`]).
 pub(super) fn project_graph(
-    built: &super::super::types::BuiltGraph,
+    built: &mut super::super::types::BuiltGraph,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,

@@ -67,12 +67,16 @@ struct FileIndex<'a> {
     exports: HashMap<&'a str, Vec<u32>>,
 }
 
+/// Projects `built` into snapshot tables. Each file's captured source moves
+/// into the tables' source table ([`sources::Sources::capture`]), so a build
+/// is projected once.
 pub(crate) fn project(
-    built: &BuiltGraph,
+    built: &mut BuiltGraph,
     workspace: &Workspace,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<Projection, crate::response::result::ToolError> {
     let sources = sources::Sources::capture(built, cancel)?;
+    let built = &*built;
     let mut projector = Projector::new(built, workspace, sources);
     let symbols = projector.symbols();
     let (externals, package_nodes) = projector.externals();

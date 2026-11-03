@@ -25,7 +25,7 @@ fn stale_sockets_are_pruned_and_live_ones_kept() {
     drop(std::os::unix::net::UnixListener::bind(&stale).expect("bind"));
     let other = dir.path().join("notes.txt");
     std::fs::write(&other, "x").expect("write");
-    prune_siblings(&own);
+    remove_stale_sockets(&own);
     assert!(live.exists() && other.exists());
     assert!(!stale.exists());
 }
@@ -39,42 +39,55 @@ fn received(listener: &std::os::unix::net::UnixListener) -> Vec<u8> {
     sent
 }
 
-/// A starting server keeps [`MAX_SERVERS`] in all: the least recently
-/// asked live ones past the cap are asked to stop, the others are left
-/// alone.
+/// A starting server never asks a live sibling to stop: how long a server
+/// lives is its own idle expiry, which demand (calls) renews. A count
+/// quota stopped a warm server, and its language servers, for another
+/// agent's new one.
+#[tokio::test]
+async fn a_warm_server_survives_new_servers_starting() {
+    let dir = tempfile::tempdir().expect("dir");
+    // More servers than any plausible per-user count.
+    let sockets: Vec<_> = (0..8)
+        .map(|at| dir.path().join(format!("serve-{at}.sock")))
+        .collect();
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut servers = Vec::new();
+            for socket in &sockets {
+                servers.push(tokio::task::spawn_local(serve(socket.clone())));
+                until("the server bound its socket", || socket.exists()).await;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            // A stop request would have reached the earlier ones by now.
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            for (socket, server) in sockets.iter().zip(&servers) {
+                assert!(!server.is_finished(), "{} stopped", socket.display());
+                assert!(socket.exists(), "{} removed", socket.display());
+            }
+            stop_in(dir.path());
+            for server in servers {
+                server.await.expect("server");
+            }
+        })
+        .await;
+}
+
+/// A starting server removes only the sockets nobody answers on, and a
+/// live server is not asked anything by it.
 #[test]
-fn a_starting_server_stops_the_least_recently_asked_past_the_cap() {
+fn a_starting_server_asks_live_siblings_nothing() {
     let dir = tempfile::tempdir().expect("dir");
     let own = dir.path().join("serve-own.sock");
-    let servers: Vec<_> = (0..=MAX_SERVERS)
-        .map(|at| {
-            let path = dir.path().join(format!("serve-{at}.sock"));
-            let listener = std::os::unix::net::UnixListener::bind(&path).expect("bind");
-            std::thread::sleep(Duration::from_millis(20));
-            (path, listener)
-        })
-        .collect();
-    // The first one bound was asked last, so it is the most recent.
-    touch(&servers[0].0);
-    prune_siblings(&own);
-    // Kept: the first, then the newest bound, up to the cap with `own`;
-    // asked to stop: the oldest bound after the first.
-    let stopped = servers.len() - (MAX_SERVERS - 1);
-    for (at, (path, listener)) in servers.iter().enumerate() {
-        let asked_to_stop = (1..=stopped).contains(&at);
-        assert_eq!(
-            received(listener) == STOP,
-            asked_to_stop,
-            "{}",
-            path.display()
-        );
-    }
+    let live = dir.path().join("serve-live.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&live).expect("bind");
+    remove_stale_sockets(&own);
+    // The probe connection closes without a request, so a server reads end
+    // of stream, not a stop.
+    assert!(received(&listener).is_empty());
     // Stop requests go to every live server, and none is removed.
     stop_in(dir.path());
-    for (path, listener) in &servers {
-        assert_eq!(received(listener), STOP, "{}", path.display());
-        assert!(path.exists());
-    }
+    assert_eq!(received(&listener), STOP);
+    assert!(live.exists());
 }
 
 /// The socket's place does not depend on the Octocode home, so a

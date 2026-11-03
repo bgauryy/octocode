@@ -1,10 +1,13 @@
 //! The per-user socket directory: socket paths, the live servers in it,
-//! stopping them, and pruning past [`MAX_SERVERS`].
+//! stopping them, and removing the sockets nobody answers on.
+//!
+//! There is no cap on live servers. A server's life is its own idle expiry
+//! (`daemon::IDLE_EXIT`), which only requests renew, and the language
+//! servers it holds are bounded by their pool (idle timeout and memory
+//! budget). A count quota stopped a warm server, and with it the language
+//! servers another agent had loaded, only to make room for a new one.
 
 use std::path::{Path, PathBuf};
-
-/// Servers one user keeps running in one socket directory.
-pub(super) const MAX_SERVERS: usize = 4;
 
 /// The request line that asks a server to stop.
 pub(super) const STOP: &[u8] = b"{\"stop\":true}\n";
@@ -97,37 +100,12 @@ pub(super) fn ask_to_stop(mut stream: std::os::unix::net::UnixStream) {
     let _ = stream.write_all(STOP);
 }
 
-/// When a server starts: remove the sibling sockets nobody answers on, and
-/// ask the least recently asked live servers past [`MAX_SERVERS`] (this one
-/// counted) to stop.
-pub(super) fn prune_siblings(own: &Path) {
+/// When a server starts: remove the sibling sockets nobody answers on.
+/// A live sibling is only probed (the connection closes without a request,
+/// which a server does not count as being asked).
+pub(super) fn remove_stale_sockets(own: &Path) {
     let Some(dir) = own.parent() else { return };
-    let mut live = live_servers(dir, Some(own));
-    live.sort_by_cached_key(|(path, _)| std::cmp::Reverse(last_asked(path)));
-    for (_, stream) in live.into_iter().skip(MAX_SERVERS.saturating_sub(1)) {
-        ask_to_stop(stream);
-    }
-}
-
-/// When the server on `socket` was last asked anything ([`touch`]).
-pub(super) fn last_asked(socket: &Path) -> Option<std::time::SystemTime> {
-    std::fs::symlink_metadata(socket)
-        .and_then(|meta| meta.modified())
-        .ok()
-}
-
-/// Mark `socket` as just asked: its modification time orders servers for
-/// [`prune_siblings`].
-pub(super) fn touch(socket: &Path) {
-    use std::os::unix::ffi::OsStrExt;
-    let Ok(path) = std::ffi::CString::new(socket.as_os_str().as_bytes()) else {
-        return;
-    };
-    // SAFETY: `path` is NUL-terminated and outlives the call; null times
-    // set both times to now.
-    unsafe {
-        libc::utimes(path.as_ptr(), std::ptr::null());
-    }
+    drop(live_servers(dir, Some(own)));
 }
 
 /// Stop warm servers and require an acknowledgement after their work drains.

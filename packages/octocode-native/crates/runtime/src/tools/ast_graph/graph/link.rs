@@ -144,9 +144,10 @@ pub(super) fn link_file(
         b,
         file,
         node,
-        facts,
+        mut facts,
         ..
     } = linker;
+    facts.shrink_to_fit();
     b.facts.insert(file.clone(), facts);
     b.nodes.insert(file, node);
 }

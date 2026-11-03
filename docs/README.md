@@ -10,7 +10,7 @@ For setup, start with [Configuration](CONFIGURATION.md): it owns the CLI/MCP ava
 | [Tool flow](../skills/octocode-research/references/tool-flow.md) | Research-tool routing: which tool, how little to ask for, when to judge instead of read, how to carry evidence across, recovery and measured cost |
 | [OCTOCODE_TOOLS.md](OCTOCODE_TOOLS.md) | Every tool's fields, defaults, limits, results, and continuations |
 | [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md) | The shared request and result envelope: rows, result shapes, `next` continuations, `related` calls, and prose `hints` |
-| [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md) | `classification` on search and fetch, and the `clasify` tool: main-agent token benchmarks, how each route works, examples, recovery and limits |
+| [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md) | Research with Jev: `classification` on search and fetch and the `clasify` tool; the research loop, routes, how each works, state, examples, main-agent token benchmarks, recovery and limits |
 | [OCTOCODE_MCP.md](OCTOCODE_MCP.md) | The MCP server: client setup, registered tools, instructions, lifecycle |
 | [OCTOCODE_CLI.md](OCTOCODE_CLI.md) | The CLI: commands, flags, output, exit codes |
 | [CONFIGURATION.md](CONFIGURATION.md) | Setup entrypoint: CLI/MCP availability, feature opt-ins, config files and precedence, storage and caches, fixed internal limits, troubleshooting |
