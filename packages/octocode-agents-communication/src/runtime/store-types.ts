@@ -1,7 +1,7 @@
 /**
  * The surface of the bound store that delivery and host hooks consume, and the pure helpers several store modules share.
  *
- * `Store` (store.ts) implements `StoreHost`. The capability modules (leases, documents, protocols, peers, health, …) are
+ * `Store` (store.ts) implements `StoreHost`. The capability modules (leases, documents, peers, health, …) are
  * free functions over this host, as `records.ts` is; they never import `store.ts`.
  */
 import { isAbsolute, relative } from 'node:path';
@@ -42,7 +42,7 @@ function isEnvelope(value: object): boolean {
   return ['path', 'from', 'type', 'timestamp', 'data'].every(key => key in value);
 }
 
-/** Removes null (and undefined) object members everywhere, in place, except inside record envelopes. Returns `value`. */
+/** Removes null (and undefined) object members everywhere, in place, except inside record envelopes and message parts. Returns `value`. */
 export function stripNulls<T>(value: T): T {
   strip(value);
   return value;
@@ -56,7 +56,7 @@ function strip(value: unknown): void {
     for (const key of Object.keys(value)) {
       const item: unknown = Reflect.get(value, key);
       if (item === null || item === undefined) Reflect.deleteProperty(value, key);
-      else strip(item);
+      else if (key !== 'parts') strip(item);
     }
   }
 }

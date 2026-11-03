@@ -105,6 +105,7 @@ pub(super) fn ast_chain(
         let input = crate::tools::test_support::opened_input(ToolId::AstSearch, call);
         let row = &input["queries"][0];
         let out = run(root, row.clone()).expect("page");
+        assert_no_repeated_continuation(&out);
         let page = out["next"].get("nextPage");
         let expand = out["next"].get("expandScan");
         assert!(
@@ -122,6 +123,23 @@ pub(super) fn ast_chain(
         walked
     });
     pages
+}
+
+/// One required call is offered on one channel of a response: no continuation
+/// call appears twice in it.
+pub(super) fn assert_no_repeated_continuation(out: &Value) {
+    let mut seen = std::collections::BTreeSet::new();
+    for lead in crate::tools::test_support::checks::leads(out)
+        .into_iter()
+        .filter(|lead| lead.kind == "continue")
+    {
+        assert!(
+            seen.insert(lead.query.to_string()),
+            "{} {} repeats a call in one response: {out}",
+            lead.channel,
+            lead.name
+        );
+    }
 }
 
 /// Every `(file, row)` a page lists: match rows under `files[].matches`,

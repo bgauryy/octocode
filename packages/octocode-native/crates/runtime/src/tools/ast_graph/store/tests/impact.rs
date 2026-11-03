@@ -218,7 +218,11 @@ fn impact_summary_is_sent_once_and_does_not_repeat_the_rows() {
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
     let first = ask(root, "impact", Some("src/lib.ts"), |o| o.limit = Some(1));
-    assert_eq!(first.value["pagination"]["hasMore"], true, "{}", first.value);
+    assert_eq!(
+        first.value["pagination"]["hasMore"], true,
+        "{}",
+        first.value
+    );
     let summary = &first.value["summary"];
     assert!(summary["byDepth"].is_object(), "{summary}");
     for repeated in [

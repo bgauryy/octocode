@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   applyOctocodeEnv,
   DEFAULT_CONFIG,
-  ENV_TOKEN_VARS,
   loadOctocodeEnv,
   propagateOctocodeEnv,
 } from '../src/index.js';
@@ -74,53 +73,8 @@ describe('PROTECTED_KEYS', () => {
     }
   });
 
-  it('covers all infrastructure keys', () => {
-    for (const k of [
-      'PATH',
-      'HOME',
-      'SHELL',
-      'USER',
-      'LOGNAME',
-      'PWD',
-      'TMPDIR',
-      'NODE_OPTIONS',
-      'PYTHON',
-    ]) {
-      expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
-    }
-  });
-
-  it('allows both auth token vars as trusted file fallbacks', () => {
-    for (const k of ['GH_TOKEN', 'GITHUB_TOKEN']) {
-      expect(PROTECTED_KEYS.has(k)).toBe(false);
-    }
-  });
-
-  it('keeps endpoints, sandbox roots, and executables out of a workspace .env', () => {
-    for (const k of [
-      'GITHUB_API_URL',
-      'OCTOCODE_CLASSIFICATION_API_HOST',
-      'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
-      'OCTOCODE_LSP_CONFIG',
-      'ALLOWED_PATHS',
-      'WORKSPACE_ROOT',
-      'OCTOCODE_BETA',
-      'OCTOCODE_ENABLE_CLONE',
-      'OCTOCODE_CARGO',
-      'OCTOCODE_LSP_AUTO_INSTALL',
-      'OCTOCODE_LSP_CACHE_DIR',
-    ]) {
-      expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
-    }
-    expect(PROTECTED_KEYS.has('OCTOCODE_LSP_PREWARM')).toBe(false);
-  });
-
-  it('does not protect tool API keys (they go in .env)', () => {
-    expect(PROTECTED_KEYS.has('TAVILY_API_KEY')).toBe(false);
-    expect(PROTECTED_KEYS.has('SERPER_API_KEY')).toBe(false);
-  });
-
-  // Lock the trust boundary generated for both runtimes from config-contract.json.
+  // The one lock on the trust boundary generated for both runtimes from config-contract.json:
+  // it names every protected key, so what stays unprotected (auth tokens, tool API keys) is implied.
   // A new protected setting requires an intentional expectation update here.
   it('keeps the generated protected-key policy unchanged without an explicit update', () => {
     expect([...PROTECTED_KEYS].sort()).toEqual([...CANONICAL].sort());
@@ -297,12 +251,6 @@ describe('loadOctocodeEnv', () => {
     });
     expect(map).toEqual({});
   });
-
-  it('returns empty map when called with no arguments', () => {
-    const { map } = loadOctocodeEnv();
-    // Won't throw, may or may not find keys depending on actual home dir
-    expect(typeof map).toBe('object');
-  });
 });
 
 describe('propagateOctocodeEnv', () => {
@@ -339,12 +287,6 @@ describe('propagateOctocodeEnv', () => {
     writeFileSync(join(tmpDir, '.env'), 'SECRET=hunter2\n');
     const res = propagateOctocodeEnv({ home: tmpDir, env: {} });
     expect(JSON.stringify(res)).not.toContain('hunter2');
-  });
-});
-
-describe('ENV_TOKEN_VARS', () => {
-  it('lists both token vars in priority order', () => {
-    expect(ENV_TOKEN_VARS).toEqual(['GH_TOKEN', 'GITHUB_TOKEN']);
   });
 });
 

@@ -157,7 +157,7 @@ impl ClassFacts {
                     // The parse is shared with outline pages and search hits:
                     // one parse per file version.
                     tokio::task::spawn_blocking(move || {
-                        crate::tools::declarations_cache::file_document(&source.content, &file)
+                        crate::tools::declarations::file_document(&source.content, &file)
                     })
                     .await
                     .ok()

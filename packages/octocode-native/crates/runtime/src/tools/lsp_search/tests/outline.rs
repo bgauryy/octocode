@@ -94,7 +94,7 @@ fn document_symbols_are_compact_outline_rows() {
     assert_eq!(read["tool"], "localFetch", "{envelope}");
     assert_eq!(
         read["input"]["queries"][0],
-        serde_json::json!({"path": "file:///repo/src/lib.rs", "ranges": [{"startLine":3,"endLine":9}]}),
+        serde_json::json!({"path": "file:///repo/src/lib.rs", "ranges": [{"startLine":3,"endLine":9}], "view": "content"}),
         "{envelope}"
     );
 }
@@ -243,10 +243,11 @@ fn long_declaration_content_is_capped_with_a_marker_naming_the_omitted_lines() {
         "… 140 more lines omitted (source lines 486-625)."
     );
     // The omitted lines are one executable read, each line once.
+    let rest = rest.build();
     assert_eq!(rest["tool"], "localFetch");
     assert_eq!(
         rest["input"]["queries"][0],
-        serde_json::json!({"path": "/repo/a.ts", "ranges": [{"startLine":486,"endLine":625}]})
+        serde_json::json!({"path": "/repo/a.ts", "ranges": [{"startLine":486,"endLine":625}], "view": "content"})
     );
     let short = "a\nb\nc";
     let mut small =
@@ -291,7 +292,8 @@ fn capped_declaration_content_numbers_lines_but_not_the_marker() {
         "content": body,
         "displayRange": {"startLine": 10, "endLine": 79}
     });
-    super::super::locations::cap_declaration_content(&mut location).expect("read of the rest");
+    let _read =
+        super::super::locations::cap_declaration_content(&mut location).expect("read of the rest");
     let public = public_location(location);
     let content = public["content"].as_str().expect("content");
     assert!(content.starts_with("10\tline 1\n"), "{content}");

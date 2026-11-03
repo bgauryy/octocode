@@ -8,8 +8,8 @@
 //! no-proc-macros defaults), and the file is opened so a project load starts
 //! too. The later `lspSearch` then acquires the warm pooled client.
 //!
-//! A host that knows its workspace before any call (`octocode mcp` after
-//! `initialize`) warms the workspace's servers instead
+//! Under `all`, a host that knows its workspace before any call (`octocode
+//! mcp` after `initialize`) also warms the workspace's servers
 //! ([`workspace::schedule_workspace`]).
 //!
 //! Bounded: at most [`MAX_PREWARM_KEYS`] simultaneous starts per runtime,

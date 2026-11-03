@@ -1,9 +1,13 @@
 use super::*;
+use crate::id::ToolId;
 use crate::tools::test_support::{Fixture, workspace_policy};
+
+mod impact_paging;
+mod leases;
 
 fn context() -> ExecutionContext {
     ExecutionContext {
-        cancellation: tokio_util::sync::CancellationToken::new(),
+        cancellation: octocode_io::cancellation::Cancellation::new(),
         deadline: Instant::now() + std::time::Duration::from_secs(60),
         response_window: None,
         github_credential: None,
@@ -29,7 +33,7 @@ fn execute(
             false,
         )
     } else {
-        execute_query(row, &paths, context)
+        execute_query(row, &paths, context, None)
     }
 }
 
@@ -106,77 +110,6 @@ fn argument_evidence_variants_and_continuations_match_the_generated_contract() {
             "missing {expected}: {reasons:?}"
         );
     }
-}
-
-#[test]
-fn build_reuse_pages_and_freshness_are_workspace_scoped() {
-    let dir = Fixture::new();
-    dir.write(
-        "app/a.ts",
-        "export function first() { return 1; }\nexport function final() { return first(); }\n",
-    );
-    dir.write("other/a.ts", "export const other = 2;\n");
-    let built = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
-    // The snapshot lives in the workspace; its receipt names the scope relative to it.
-    assert!(
-        dir.0
-            .join(".octocode/graph")
-            .join(built["id"].as_str().expect("id"))
-            .is_dir(),
-        "{built}"
-    );
-    assert_eq!(built["root"], "app", "{built}");
-    let reused = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
-    assert_eq!(built["id"], reused["id"]);
-    assert_eq!(reused["reused"], true);
-    let stats = call(
-        &dir.0,
-        ToolId::GraphQuery,
-        built["related"][0]["input"]["queries"][0].clone(),
-    );
-    assert_eq!(stats["graph"]["id"], built["id"]);
-    let callers = call(
-        &dir.0,
-        ToolId::GraphQuery,
-        json!({"operation":"callers", "path":"app", "target":"a.ts#first"}),
-    );
-    assert_eq!(
-        callers["confidence"], "high",
-        "the core contract supplies the default"
-    );
-    assert_eq!(callers["rows"][0]["id"], "a.ts#final");
-    call(&dir.0, ToolId::GraphBuild, json!({"path":"other"}));
-    let mut row = json!({"operation":"find", "path":"app", "target":"f", "limit":1});
-    let mut keys = BTreeSet::new();
-    loop {
-        let page = call(&dir.0, ToolId::GraphQuery, row);
-        assert_eq!(page["graph"]["id"], built["id"]);
-        assert_eq!(page["freshness"]["fresh"], true);
-        for item in page["rows"].as_array().expect("results") {
-            assert!(keys.insert(item.to_string()), "duplicate row");
-        }
-        match page.pointer("/next/nextPage/input/queries/0") {
-            Some(next) => row = next.clone(),
-            None => {
-                assert_eq!(keys.len() as u64, page["pagination"]["totalItems"]);
-                break;
-            }
-        }
-    }
-    assert!(keys.len() >= 2);
-    dir.write("app/a.ts", "export function first() { return 3; }\n");
-    let stale = call(
-        &dir.0,
-        ToolId::GraphQuery,
-        json!({"operation":"stats", "path":"app", "graph":built["id"]}),
-    );
-    assert_eq!(stale["freshness"]["fresh"], false);
-    let wrong = call(
-        &dir.0,
-        ToolId::GraphQuery,
-        json!({"operation":"stats", "path":"other", "graph":built["id"]}),
-    );
-    assert_eq!(wrong["errorCode"], "invalidInput");
 }
 
 #[test]
@@ -280,23 +213,6 @@ fn cycle_member_continuations_validate_without_hiding_public_target_inputs() {
     assert_eq!(unique.len(), 51);
 }
 
-#[test]
-fn simultaneous_builds_publish_one_snapshot_and_reuse_it() {
-    let dir = Fixture::new();
-    dir.write("a.ts", "export const a = 1;");
-    let outputs = std::thread::scope(|scope| {
-        let tasks = (0..3)
-            .map(|_| scope.spawn(|| call(&dir.0, ToolId::GraphBuild, json!({}))))
-            .collect::<Vec<_>>();
-        tasks
-            .into_iter()
-            .map(|task| task.join().expect("build"))
-            .collect::<Vec<_>>()
-    });
-    assert!(outputs.iter().all(|out| out["id"] == outputs[0]["id"]));
-    assert_eq!(list_snapshots(&dir.0.join(".octocode/graph")).len(), 1);
-}
-
 #[cfg(unix)]
 #[test]
 fn storage_symlink_cannot_escape_workspace() {
@@ -321,6 +237,8 @@ fn build_lock_symlink_cannot_create_an_outside_file() {
     assert!(out["errorCode"].is_string());
     assert!(!target.exists());
 }
+
+mod builds;
 
 mod candidates;
 
@@ -353,6 +271,21 @@ fn a_build_leads_its_stats_by_the_callers_path() {
     // An uncut scan with no excludes states only its file count.
     let scan = &built["scan"];
     assert_eq!(scan, &json!({"filesScanned": 1}), "{built}");
+}
+
+/// `stats` states the scan as the build receipt does: zero counts, empty
+/// lists and false flags carry no information and are left out.
+#[test]
+fn stats_states_only_the_scan_facts_that_carry_information() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;");
+    call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let stats = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stats","path":"app"}),
+    );
+    assert_eq!(stats["scan"], json!({"filesScanned": 1}), "{stats}");
 }
 
 /// `impact` takes any depth: core bounds none, so a deep request runs

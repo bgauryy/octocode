@@ -3,7 +3,7 @@
 //! cuts pages (today's pages); a walk reaches every row exactly once.
 use super::*;
 
-/// Every page of `first` (copying `next.nextPage` unchanged): each page's
+/// Every page of `first` (copying `pagination.next.nextPage` unchanged): each page's
 /// row names, in order.
 fn pages(first: &LspSearchQuery, items: &[serde_json::Value], budget: usize) -> Vec<Vec<String>> {
     let mut q = first.clone();
@@ -22,7 +22,7 @@ fn pages(first: &LspSearchQuery, items: &[serde_json::Value], budget: usize) -> 
             .filter_map(|item| item["name"].as_str().map(str::to_owned))
             .collect::<Vec<_>>();
         pages.push(names);
-        let Some(next) = row.pointer("/next/nextPage/input/queries/0") else {
+        let Some(next) = row.pointer("/pagination/next/nextPage/input/queries/0") else {
             break;
         };
         assert_eq!(

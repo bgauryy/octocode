@@ -45,7 +45,7 @@ impl Query<'_> {
         let destination = self.evidence_scope(self.options.to.as_deref())?;
         let destination = destination.as_slice();
         let mut reasons = std::collections::HashMap::new();
-        let mut window = Window::budgeted(self.window(), self.g.page_budget);
+        let mut window = Window::budgeted(self.window(), self.g.row_budget());
         let mut keep = |row: &dyn Fn() -> Result<Value, GraphOutput>| -> Result<(), GraphOutput> {
             window.try_push(row)
         };

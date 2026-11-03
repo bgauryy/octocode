@@ -154,7 +154,7 @@ for (const [signal, code] of interruptions) {
     t.after(() => { for (const socket of sockets) socket.destroy(); server.close(); });
     const grok = f.call('join', { name: 'grok', vendor: 'grok' }).id;
     f.call('attach', { transport: 'grok', endpoint, vendorSession }, grok);
-    f.call('send_message', { to: 'grok', body: 'Question requiring one answer', wake: 'action', reasoning: 'Keep one delivery in flight' }, f.a);
+    f.call('send_message', {parts: [{ text: 'Question requiring one answer' }],  to: 'grok', wake: 'action', reasoning: 'Keep one delivery in flight' }, f.a);
     const command = f.start(['dispatch', '{}', '--session', grok], { ready: () => prompted });
     const ended = await interrupt(command, signal);
     assert.deepEqual(ended, { code: 1, signal: null }, command.stderr);

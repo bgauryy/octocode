@@ -40,7 +40,9 @@ function leafFields(schema, prefix = '', out = new Map(), root = schema, seen = 
   if (!schema || schema['x-cursor']) return out;
   if (schema.$ref) {
     if (seen.has(schema.$ref)) return out;
-    const target = schema.$ref.slice(2).split('/').reduce((value, key) => value?.[key.replace(/~1/g, '/').replace(/~0/g, '~')], root);
+    const parts = schema.$ref.slice(2).split('/').map(key => key.replace(/~1/g, '/').replace(/~0/g, '~'));
+    const target = parts.reduce((value, key) => value?.[key], root)
+      ?? parts.reduce((value, key) => value?.[key], contract);
     return leafFields(target, prefix, out, root, new Set([...seen, schema.$ref]));
   }
   for (const [name, child] of Object.entries(schema.properties ?? {})) {

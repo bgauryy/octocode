@@ -40,7 +40,7 @@ test('CLI typed history, subscriptions, delivery status and generic resume',t=>{
  assert.throws(()=>call('entity','set','session',b.id,'{"name":"bad"}'));
  call('subscribe','{"topics":["build","build"]}');
  assert.equal(call('fetch','{"type":"subscription.added"}').items[0].data.topic,'build');
- const sent=call('send_message',JSON.stringify({to:b.id,body:'hello',key:'one'}));
+ const sent=call('send_message',JSON.stringify({parts: [{ text: 'hello' }], to:b.id,key:'one'}));
  assert.equal(call('fetch',JSON.stringify({type:'message',from:a.id})).items.length,1);
  assert.equal(call('fetch',JSON.stringify({type:'delivery.acknowledged',where:{messageId:sent.id}})).items.length,0);
  invoke(f,['complete',JSON.stringify({message:sent.id}),'--session',b.id]);
@@ -75,16 +75,16 @@ test('MCP binds identity and survives malformed frames',async t=>{
  const frames=[null,'INVALID',...[
   {jsonrpc:'2.0',id:1,method:'initialize'},
   {jsonrpc:'2.0',id:2,method:'tools/list'},
-  {jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'lock',arguments:{path:'file',reasoning:'Reserve a fixture path to verify bound identity'}}},
-  {jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'lock',arguments:{path:'file',owner:'other'}}},
+  {jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'leases',arguments:{type:'acquire',input:{paths:[{path:'file'}],reasoning:'Reserve a fixture path to verify bound identity'}}}},
+  {jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'leases',arguments:{type:'acquire',input:{paths:[{path:'file'}],owner:'other'}}}},
   {jsonrpc:'2.0',id:5,method:'tools/call',params:{name:'join',arguments:{name:'hidden',vendor:'bad'}}},
-  {jsonrpc:'2.0',id:6,method:'tools/call',params:{name:'context',arguments:{path:'.'}}},
-  {jsonrpc:'2.0',id:7,method:'tools/call',params:{name:'locks',arguments:{}}},
+  {jsonrpc:'2.0',id:6,method:'tools/call',params:{name:'documents',arguments:{type:'find',input:{path:'.'}}}},
+  {jsonrpc:'2.0',id:7,method:'tools/call',params:{name:'leases',arguments:{type:'list',input:{}}}},
  ].map(frame=>JSON.stringify(frame))].map(v=>v===null?'null':v).join('\n')+'\n';
  const result=await start(f,['mcp','--session',a.id],frames);assert.equal(result.code,0,result.stderr);
  const rows=result.stdout.trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
  assert.equal(rows[0].error.code,-32600);assert.equal(rows[1].error.code,-32700);
- assert.deepEqual(names(rows[3].result.tools),names(runtimeCatalog.selectedTools()));assert.equal(JSON.parse(rows[4].result.content[0].text).lease.path,'file');assert.equal(invoke(f,['locks','{"path":"file"}','--session',a.id]).items[0].owner,a.id);
+ assert.deepEqual(names(rows[3].result.tools),names(runtimeCatalog.selectedTools()));assert.equal(JSON.parse(rows[4].result.content[0].text).leases[0].path,'file');assert.equal(invoke(f,['locks','{"path":"file"}','--session',a.id]).items[0].owner,a.id);
  const catalog=invoke(f,['schema']);
  assert.deepEqual(rows[3].result.tools,catalog.tools);
  for(const tool of catalog.tools){
@@ -99,7 +99,7 @@ test('MCP binds identity and survives malformed frames',async t=>{
 test('CLI wait receives a message and acknowledges only when requested',async t=>{
  const f=fixture(t),a=joinAgent(f),b=joinAgent(f,'b');
  const waiting=start(f,['inbox','wait','{"timeoutMs":3000}','--session',b.id]);
- const sent=invoke(f,['send_message',JSON.stringify({to:b.id,body:'wake'}),'--session',a.id]);
+ const sent=invoke(f,['send_message',JSON.stringify({to:b.id,parts:[{text:'wake'}],reasoning:'Wake the peer'}),'--session',a.id]);
  const result=await waiting;assert.equal(result.code,0,result.stderr);assert.equal(JSON.parse(result.stdout).items[0].id,sent.id);
  assert.equal(invoke(f,['inbox','--session',b.id]).items.length,1);
 });

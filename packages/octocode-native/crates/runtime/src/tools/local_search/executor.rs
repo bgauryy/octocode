@@ -11,11 +11,11 @@ use super::verify::{
     validate_matched, verify_shown,
 };
 use crate::execution::cancel::CancellationCheck;
-use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
 use octocode_contract_types::LocalSearchQuery;
+use octocode_engine::num::saturating_u32;
 use projection::annotate_rows;
 pub(super) use projection::order_files;
 #[cfg(test)]
@@ -85,7 +85,7 @@ pub(super) fn page_of(
         selection,
         &scan.identity,
     )?;
-    let total_files = u32_of_usize(scan.parsed.files.len());
+    let total_files = saturating_u32(scan.parsed.files.len());
     let reusable = scan
         .reusable
         .take()
@@ -102,7 +102,7 @@ pub(super) fn page_of(
         .selection
         .as_ref()
         .map(super::selection::Selected::token);
-    let (next, leftover_matches) = cursor(
+    let (next, match_next, leftover_matches) = cursor(
         query,
         &scan.parsed,
         &shaped.layout,
@@ -111,7 +111,7 @@ pub(super) fn page_of(
         std::mem::take(&mut scan.policy_key),
         selection_token,
         &|| cancel.check().is_err(),
-    );
+    )?;
     cancel.check().map_err(ToolError::cancelled)?;
     let rows = annotate_rows(
         &scope,
@@ -131,9 +131,17 @@ pub(super) fn page_of(
         unverified: shaped.unverified,
         leftover_matches,
     };
-    let mut result = settle_row(&scope, &page, rows, next)?;
+    let continuation_missing = next.is_none() && match_next.is_none();
+    let mut result = settle_row(&scope, &page, rows, next, continuation_missing)?;
+    if let Some(call) = match_next {
+        for file in &mut result.files {
+            if let Some(pagination) = file.pagination.as_mut().filter(|page| page.has_more) {
+                pagination.next = Some(json!({"nextPage":call.clone()}));
+            }
+        }
+    }
     if let Some(selected) = &shaped.selection {
-        let leads = selected.leads(query, &scan.identity, !root.is_file());
+        let leads = selected.leads(query, &scan.identity, !root.is_file())?;
         if !leads.is_empty() {
             let next = result.next.get_or_insert_with(|| json!({}));
             for (name, lead) in leads {
@@ -185,7 +193,7 @@ fn refuse_binary_target(
 
 /// A cut page whose shown values are verified.
 pub(super) struct Shaped {
-    pub(super) packed: Option<super::packed::Packed>,
+    pub(super) packed: Option<super::packed::Encoded>,
     pub(super) layout: Layout,
     pub(super) redacted: Redacted,
     /// What redacting the scan changed, for a stored scan's later pages.
@@ -219,15 +227,22 @@ pub(super) fn shape_page(
         output_root,
         ..
     } = *scope;
-    let (mut redacted, redaction) = redact_scan(scope, parsed, stored_redaction)?;
+    let (mut redacted, withheld, redaction) = redact_scan(scope, parsed, stored_redaction)?;
+    // Encoded before the page reorders and fills it; deflated only if the
+    // page's cursor keeps it (see `manifest::put_checked`).
     let packed = if stored_redaction.is_none() {
-        super::manifest::pack_checked(parsed, &|| scope.cancel.check().is_err())
+        super::manifest::encode_checked(parsed, &|| scope.cancel.check().is_err())
     } else {
         None
     };
     order_files(query, &mut parsed.files);
-    let selection =
-        super::selection::select_hits(scope, parsed, selection, identity, &mut redacted)?;
+    let selection = super::selection::select_hits(
+        scope,
+        parsed,
+        selection,
+        identity,
+        (&mut redacted, &withheld),
+    )?;
     let mut cut = CutOutlines::new();
     let mut outline = |files: &[(usize, &octocode_engine::types::TextSearchFile)]| {
         outline_for_cut(scope, files, &mut cut)
@@ -243,7 +258,7 @@ pub(super) fn shape_page(
         scope,
         parsed,
         &layout,
-        &mut redacted,
+        (&mut redacted, &withheld),
         (&mut cut, &mut outlines),
     )?;
     Ok(Shaped {

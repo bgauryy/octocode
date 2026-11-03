@@ -44,12 +44,13 @@ fn terminal_room_preserves_mixed_query_identity_and_nested_order() {
     for budget in [600, 900, 1_300] {
         let pages = walk_tool("structureSearch", &input, budget);
         let mut seen = [Vec::new(), Vec::new()];
+        let mut snapshots = [Vec::new(), Vec::new()];
         for page in &pages {
             assert!(page.to_string().encode_utf16().count() <= budget);
             for row in page["results"].as_array().unwrap() {
                 let index = row["index"].as_u64().unwrap() as usize;
                 assert_eq!(row["data"]["path"], rows[index]["data"]["path"]);
-                assert_eq!(row["data"]["snapshot"], rows[index]["data"]["snapshot"]);
+                snapshots[index].extend(row["data"].get("snapshot").cloned());
                 for group in row["data"]["files"].as_array().unwrap() {
                     assert_eq!(group["dir"], rows[index]["data"]["files"][0]["dir"]);
                     seen[index].extend(group["files"].as_array().unwrap().iter().cloned());
@@ -57,6 +58,8 @@ fn terminal_room_preserves_mixed_query_identity_and_nested_order() {
             }
         }
         for index in 0..2 {
+            // Evidence that describes the row arrives once, not on every part.
+            assert_eq!(snapshots[index], [rows[index]["data"]["snapshot"].clone()]);
             assert_eq!(
                 &seen[index],
                 rows[index]["data"]["files"][0]["files"].as_array().unwrap()

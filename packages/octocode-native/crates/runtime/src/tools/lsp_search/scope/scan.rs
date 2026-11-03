@@ -51,16 +51,28 @@ pub(super) async fn scan_text(
     if symbol.trim().is_empty() {
         return Ok(None);
     }
+    // The walk follows no symlink, so a file it reaches under a canonical
+    // root is canonical: the root is resolved once, not each file.
+    #[cfg(test)]
+    if let Some(work) = super::probe::current() {
+        work.canonicalized
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    let base = canonical(root);
     let options = TextSearchOptions {
-        path: root.to_owned(),
+        path: base.clone(),
         pattern: word_pattern(symbol),
         output: octocode_engine::types::SearchOutput::FilesWithMatch,
-        include: (!include.is_empty()).then(|| include.to_vec()),
+        include: crate::tools::variant_field::non_empty(include),
         ..TextSearchOptions::default()
     };
     let filter: Arc<dyn octocode_engine::search::text_search::TextSearchPathFilter> =
         Arc::new(crate::policy::path::DiscoveryWalk::owned(policy.clone()));
-    let base = root.to_owned();
+    #[cfg(test)]
+    if let Some(work) = super::probe::current() {
+        work.text_scans
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
     let scanned = blocking_cancellable(cancel, move |stopped| {
         let parsed = search_cancellable(options, filter, stopped).ok()?;
         if parsed
@@ -77,9 +89,9 @@ pub(super) async fn scan_text(
                 .map(|file| {
                     let path = Path::new(&file.path);
                     if path.is_absolute() {
-                        canonical(&file.path)
+                        file.path
                     } else {
-                        canonical(&Path::new(&base).join(path).to_string_lossy())
+                        Path::new(&base).join(path).to_string_lossy().into_owned()
                     }
                 })
                 .collect::<BTreeSet<_>>(),
@@ -106,90 +118,19 @@ pub(super) struct FingerprintScope<'a> {
     pub(super) include: &'a [String],
 }
 
-/// The flight key of a scope.
-type FlightKey = (PathBuf, Option<PathBuf>, Vec<String>);
-
-impl FingerprintScope<'_> {
-    fn key(&self) -> FlightKey {
-        (
-            self.root.to_path_buf(),
-            self.server_root.map(Path::to_path_buf),
-            self.include.to_vec(),
-        )
-    }
-}
-
-/// One fingerprint walk in flight per scope: the walks a batch's queries
-/// start at once over one scope share it.
-type Flight = Arc<std::sync::OnceLock<Option<Fingerprint>>>;
-/// The walks in flight, by scope.
-type Flights = Mutex<HashMap<FlightKey, Flight>>;
-
-fn flights() -> &'static Flights {
-    static FLIGHTS: std::sync::LazyLock<Flights> = std::sync::LazyLock::new(Mutex::default);
-    &FLIGHTS
-}
-
-/// [`fingerprint`] of `scope`, shared by the requests that ask while one
-/// walk of that scope is running: a batch's queries over one scope (they
-/// start together) walk it once, and each takes the digest of the files as
-/// that walk found them. A request asking after the walk ends walks again,
-/// so no edit made since is missed. A request whose shared walk was stopped
-/// by the request that ran it walks for itself.
-pub(super) fn shared_fingerprint(
-    scope: &FingerprintScope<'_>,
-    stopped: &(dyn Fn() -> bool + Sync),
-) -> Option<Fingerprint> {
-    let key = scope.key();
-    let flight = Arc::clone(
-        flights()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .entry(key.clone())
-            .or_default(),
-    );
-    let mut ran = false;
-    let found = flight
-        .get_or_init(|| {
-            ran = true;
-            let found = fingerprint(scope, stopped);
-            let mut flights = flights()
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if flights
-                .get(&key)
-                .is_some_and(|held| Arc::ptr_eq(held, &flight))
-            {
-                flights.remove(&key);
-            }
-            found
-        })
-        .clone();
-    match found {
-        None if !ran && !stopped() => fingerprint(scope, stopped),
-        found => found,
-    }
-}
-
-/// The requests holding the walk of `scope` now (the flight table's own
-/// reference included); 0 when none is in flight.
-#[cfg(test)]
-pub(super) fn flight_holders(scope: &FingerprintScope<'_>) -> usize {
-    flights()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(&scope.key())
-        .map_or(0, Arc::strong_count)
-}
-
 /// The digest of every file `scope` covers ([`FingerprintScope`]), with
-/// the entries it covers (path relative to the scope root → stamp). The
-/// walks cover the whole scope, however long they take: only `stopped`
-/// (the request's cancellation or deadline) ends them early, and then, or
-/// when a file cannot be stamped, there is no fingerprint (responses are
-/// not reused across requests: correct, only slower).
+/// the entries it covers (path relative to the scope root → stamp), as of
+/// `observed`: a file modified within [`FRESH_MTIME`] before it (or after
+/// it) also digests its content. The digest depends on the files and
+/// `observed` alone, never on when the walk runs, so a later walk at the
+/// same `observed` gives unchanged files the same digest. The walks cover
+/// the whole scope, however long they take: only `stopped` (the request's
+/// cancellation or deadline) ends them early. Then, or when a file cannot
+/// be stamped or an unsettled one is too large to digest, there is no
+/// fingerprint, and the revision covers the anchor text alone.
 pub(super) fn fingerprint(
     scope: &FingerprintScope<'_>,
+    observed: SystemTime,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Option<Fingerprint> {
     let lines = Mutex::new(Vec::new());
@@ -201,11 +142,15 @@ pub(super) fn fingerprint(
     let walks = match scope.server_root {
         // The server's root is the scope: one walk, ignored files included.
         Some(server) if server == scope.root => vec![(scope.root, lifted)],
+        // The server's walk (ignored files included) already reaches every
+        // file under the scope with the same line: walking the scope too
+        // would stamp, and hash, each of them twice.
+        Some(server) if scope.root.starts_with(server) => vec![(server, lifted)],
         Some(server) => vec![(scope.root, honored), (server, lifted)],
         None => vec![(scope.root, honored)],
     };
     for (dir, policy) in walks {
-        if !walk_lines(scope, dir, policy, stopped, &lines) {
+        if !walk_lines(scope, dir, policy, observed, stopped, &lines) {
             return None;
         }
     }
@@ -213,7 +158,15 @@ pub(super) fn fingerprint(
     entries.sort_unstable();
     // A file both walks reach is one entry.
     entries.dedup();
-    let digest = octocode_engine::digest::sha256(entries.join("\n").as_bytes());
+    // The digest of the lines joined by newlines, hashed without the join.
+    let mut hasher = octocode_engine::digest::HashWriter::default();
+    for (index, line) in entries.iter().enumerate() {
+        if index > 0 {
+            hasher.update(b"\n");
+        }
+        hasher.update(line.as_bytes());
+    }
+    let digest = hex::encode(hasher.finalize());
     let stamps = entries
         .into_iter()
         .filter_map(|line| {
@@ -224,14 +177,71 @@ pub(super) fn fingerprint(
     Some((digest, Arc::new(stamps)))
 }
 
+/// Whether `before` and `after`, two stamps of the file at `path` from walks
+/// observed at different instants, describe the same file. A stamp carries
+/// the content hash only when its mtime was near its walk's instant, so a
+/// file that settled between the walks lost its hash without changing: the
+/// metadata decides, and a hash it had is checked against its content now
+/// (a same-tick edit on a coarse-mtime filesystem keeps the metadata).
+pub(in super::super) fn same_file(path: &Path, before: &str, after: &str) -> bool {
+    let ((metadata, hashed), (current, hash)) = (split_stamp(before), split_stamp(after));
+    if metadata != current {
+        return false;
+    }
+    match (hashed.is_empty(), hash.is_empty()) {
+        (false, false) => hashed == hash,
+        (false, true) => crate::tools::source::read_bounded(path, FRESH_CONTENT_MAX_BYTES)
+            .is_ok_and(|bytes| octocode_engine::digest::sha256(&bytes) == hashed),
+        (true, _) => true,
+    }
+}
+
+/// Whether any file of a walk was last written after `started`: a page
+/// that began then may have read it before the write, so a revision built
+/// from this walk cannot prove the page's rows. A file's last write is the
+/// later of its mtime and ctime. A timestamp of whole seconds comes from a
+/// coarse clock, where a write after `started` can carry a time before it:
+/// the write must then be [`SourceStamp::SETTLE`] older than `started`, as
+/// for any settled stamp. A stamp that does not parse proves nothing.
+pub(in super::super) fn written_since(
+    entries: &BTreeMap<String, String>,
+    started: SystemTime,
+) -> bool {
+    const SECOND_NS: u64 = 1_000_000_000;
+    let Some(started_ns) = started
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|since| u64::try_from(since.as_nanos()).ok())
+    else {
+        return true;
+    };
+    let settle =
+        u64::try_from(octocode_engine::stamp::SourceStamp::SETTLE.as_nanos()).unwrap_or(u64::MAX);
+    entries.values().any(|stamp| {
+        let mut fields = stamp.split('\u{0}').skip(1).map(str::parse::<u64>);
+        let (Some(Ok(modified)), Some(Ok(changed))) = (fields.next(), fields.next()) else {
+            return true;
+        };
+        let last_write = modified.max(changed);
+        let coarse = last_write % SECOND_NS == 0;
+        last_write.saturating_add(if coarse { settle } else { 0 }) > started_ns
+    })
+}
+
+/// A stamp's metadata and its content hash (empty for a settled file).
+fn split_stamp(stamp: &str) -> (&str, &str) {
+    stamp.rsplit_once('\u{0}').unwrap_or((stamp, ""))
+}
+
 /// Add one digest line per family or project file under `dir` (walked
 /// under `policy`) to `lines`: path relative to the scope root, length,
-/// mtime, and the content hash of a freshly modified file. False when the
-/// walk was stopped or a file could not be stamped.
+/// mtime, and the content hash of a file modified near `observed`. False
+/// when the walk was stopped or a file could not be stamped.
 fn walk_lines(
     scope: &FingerprintScope<'_>,
     dir: &Path,
     policy: octocode_engine::types::IgnorePolicy,
+    observed: SystemTime,
     stopped: &(dyn Fn() -> bool + Sync),
     lines: &Mutex<Vec<String>>,
 ) -> bool {
@@ -242,10 +252,9 @@ fn walk_lines(
         .iter()
         .filter_map(|glob| glob.strip_prefix("*."))
         .collect::<Vec<_>>();
-    let now = SystemTime::now();
     let abandoned = AtomicBool::new(false);
     // One digest line per family or project file: relative path, length,
-    // mtime, and the content hash of a freshly modified file.
+    // mtime, and the content hash of a file modified near `observed`.
     let line = |entry: ignore::DirEntry| -> Option<String> {
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
             return None;
@@ -264,8 +273,11 @@ fn walk_lines(
             return None;
         };
         let modified = meta.modified().ok();
-        let fresh = modified
-            .is_none_or(|time| !now.duration_since(time).is_ok_and(|age| age >= FRESH_MTIME));
+        let fresh = modified.is_none_or(|time| {
+            !observed
+                .duration_since(time)
+                .is_ok_and(|age| age >= FRESH_MTIME)
+        });
         let content = if fresh {
             match crate::tools::source::read_bounded(path, FRESH_CONTENT_MAX_BYTES) {
                 Ok(bytes) => octocode_engine::digest::sha256(&bytes),
@@ -311,4 +323,49 @@ fn walk_lines(
             })
         });
     !abandoned.load(Ordering::Relaxed)
+}
+
+#[cfg(test)]
+mod walks {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Entries a fingerprint of `root` (server at `server`) visits.
+    fn visited(root: &Path, server: &Path) -> (usize, Vec<String>) {
+        let include = ["*.rs".to_owned()];
+        let scope = FingerprintScope {
+            root,
+            server_root: Some(server),
+            include: &include,
+        };
+        let visits = AtomicUsize::new(0);
+        let stopped = || {
+            visits.fetch_add(1, Ordering::Relaxed);
+            false
+        };
+        let (_, entries) = fingerprint(&scope, SystemTime::now(), &stopped).expect("fingerprint");
+        (visits.into_inner(), entries.keys().cloned().collect())
+    }
+
+    /// A scope inside the server's root is covered by the server's walk:
+    /// each of its files is visited, stamped and hashed once per request.
+    #[test]
+    fn a_scope_under_the_server_root_is_walked_once() {
+        let dir = tempfile::tempdir().expect("dir");
+        let server = dir.path();
+        for file in ["a.rs", "sub/b.rs", "sub/deep/c.rs"] {
+            let path = server.join(file);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("dir");
+            std::fs::write(path, "pub fn f() {}\n").expect("file");
+        }
+        let (server_walk, _) = visited(server, server);
+        let (visits, entries) = visited(&server.join("sub"), server);
+        assert_eq!(visits, server_walk, "one walk of the server's root");
+        assert!(
+            ["b.rs", "deep/c.rs"]
+                .iter()
+                .all(|file| entries.iter().any(|entry| entry == file)),
+            "{entries:?}"
+        );
+    }
 }

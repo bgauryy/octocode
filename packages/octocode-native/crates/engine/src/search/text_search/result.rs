@@ -1,4 +1,4 @@
-//! The final result: ordering, the collection cap, span collapsing, and stats.
+//! The final result: ordering, span collapsing, and stats.
 
 use super::mode::{Mode, lists_match_density, only_matching};
 use super::state::{CollectResult, FileRec};
@@ -10,8 +10,7 @@ use crate::types::{
 };
 use std::collections::HashMap;
 
-/// Sort `recs` into the final result order and truncate to the collection cap.
-/// Returns whether any records were dropped by the cap.
+/// Sort `recs` into the final result order; every record is kept.
 pub(super) fn sort_recs(opts: &TextSearchOptions, mode: Mode, recs: &mut [FileRec]) {
     if preserves_traversal_order(opts) {
         return;
@@ -31,11 +30,10 @@ fn rank_weight(opts: &TextSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
 }
 
 /// Total order over collected files, including `sort_reverse`. Every key ends
-/// with the path so a cap always retains the same records.
+/// with the path so the order is repeatable.
 ///
 /// * `modified` / `accessed` / `created`: ascending timestamp.
-/// * `matchCount`: descending [`rank_weight`] (the most-matched files survive
-///   the collection cap).
+/// * `matchCount`: descending [`rank_weight`] (the most-matched files first).
 /// * `relevance`: an [`identifier_search`](super::mode::identifier_search) first ranks source files whose hit
 ///   declares the name (the definition answers "where is X"), then descending
 ///   [`rank_weight`], then source paths before test, generated, and vendored

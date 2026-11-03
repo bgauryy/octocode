@@ -88,7 +88,10 @@ fn an_empty_listing_whose_probe_timed_out_still_leads_to_skipped_paths() {
     // partial.
     assert_eq!(
         out["warnings"],
-        json!(["Skipped paths (build/) were not checked in time, so absence there is unproven."]),
+        json!([format!(
+            "Skipped paths (build/) were not checked in time, so absence there is unproven. {}",
+            crate::tools::leads::skipped::WALKS_ALL_SKIPPED
+        )]),
         "{out}"
     );
     assert_eq!(

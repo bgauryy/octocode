@@ -90,6 +90,33 @@ fn deeply_nested_receiver_lookups_stay_inside_the_deadline() {
 }
 
 #[test]
+fn deeply_nested_call_assessments_stay_inside_the_deadline() {
+    // Calls are not declarations. Looking up each expression statement's
+    // parent, or a call's declaration wrapper, still searches from the root.
+    let depth = 3_000;
+    let source = format!(
+        "fn main() {{ {}{} }}",
+        "{ work(); ".repeat(depth),
+        "} ".repeat(depth)
+    );
+    let (graph, elapsed) =
+        crate::test_cpu::cpu_time_of(|| facts_with_load_proof_deadline(&source, "deep_calls.rs"));
+    let graph = serde_json::to_value(graph).expect("graph facts value");
+    assert!(
+        !codes(&graph).iter().any(|code| code.ends_with("Deadline")),
+        "{:?}",
+        graph["diagnostics"]
+    );
+    let calls = graph["calls"].as_array().unwrap();
+    assert_eq!(calls.len(), depth);
+    assert!(calls.iter().all(|call| call["callee"] == "work"));
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "took {elapsed:?}"
+    );
+}
+
+#[test]
 fn receiver_facts_are_unchanged_on_an_ordinary_file() {
     // Pinned output of the receiver lane on a normal file: locals,
     // shadowing, nested fns, `self.field`, and a constructor binding.

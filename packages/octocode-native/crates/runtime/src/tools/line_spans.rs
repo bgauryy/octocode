@@ -1,7 +1,7 @@
 //! 1-based inclusive line spans: merging, run compression, the `a-b` range
 //! text, and the bounded `moreLines` list localSearch writes.
 
-use crate::num::u32_of_usize;
+use octocode_engine::num::saturating_u32;
 
 /// A line number type the span helpers accept.
 pub(crate) trait LineNumber: Copy + Ord + std::fmt::Display {
@@ -54,7 +54,7 @@ pub(crate) fn file_lines(path: &std::path::Path) -> Option<u32> {
             Err(_) => return None,
         }
     }
-    Some(u32_of_usize(
+    Some(saturating_u32(
         lines + usize::from(last.is_some_and(|byte| byte != b'\n')),
     ))
 }
@@ -81,7 +81,7 @@ pub(crate) fn more_lines(lines: &[u32], max_lines: usize) -> (Vec<u32>, Option<u
     distinct.dedup();
     let unlisted = distinct.len().saturating_sub(max_lines);
     distinct.truncate(max_lines);
-    (distinct, (unlisted > 0).then(|| u32_of_usize(unlisted)))
+    (distinct, (unlisted > 0).then(|| saturating_u32(unlisted)))
 }
 
 #[cfg(test)]

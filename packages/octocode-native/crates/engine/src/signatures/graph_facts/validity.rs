@@ -4,7 +4,7 @@ use crate::num::saturating_u32;
 use tree_sitter::Node;
 
 use crate::graph::{GraphParseAssessment, GraphParseScope, ObservedSpan};
-use crate::signatures::nodes::declaration_extent;
+use crate::signatures::nodes::declaration_extent_from_parents;
 
 use super::positions::NodePositions;
 
@@ -18,12 +18,12 @@ pub(super) fn byte_range(node: Node<'_>) -> ObservedSpan {
 /// A clean child can belong to a recovered header. Inspect the carried
 /// ancestor path up to a body boundary, excluding the document root so an
 /// unrelated malformed sibling cannot taint a healthy declaration.
-pub(super) fn assess(
-    node: Node<'_>,
-    ancestors: &[Node<'_>],
+pub(super) fn assess<'t>(
+    node: Node<'t>,
+    ancestors: &[Node<'t>],
     positions: &NodePositions<'_>,
 ) -> GraphParseAssessment {
-    let extent = declaration_extent(node);
+    let extent = declaration_extent_from_parents(node, ancestors.iter().rev().copied());
     if ancestors.first().is_some_and(|root| !root.has_error()) {
         return GraphParseAssessment::parsed(positions.range(extent));
     }
@@ -34,8 +34,10 @@ pub(super) fn assess(
         );
     }
     let mut child = node;
-    for &parent in ancestors.iter().rev() {
-        if parent.parent().is_none() {
+    for (index, &parent) in ancestors.iter().enumerate().rev() {
+        // Macro bodies can be walked from an interior node. Only a true
+        // document root is excluded; inspect its parent once, not every hop.
+        if index == 0 && parent.parent().is_none() {
             break;
         }
         if parent.is_error() || parent.is_missing() {

@@ -46,8 +46,12 @@ fn continuation_pages_reuse_the_settled_scan_with_identical_output() {
     );
     let mut offering = first.clone();
     let mut file_page_query = Value::Null;
-    for name in ["nextMatchPage", "nextPage"] {
-        let query = next_query(&offering, name);
+    for name in ["matchPage", "nextPage"] {
+        let query = if name == "matchPage" {
+            offering["next"]["nextPage"]["input"]["queries"][0].clone()
+        } else {
+            next_query(&offering, name)
+        };
         assert!(query.is_object(), "{name}: {offering}");
         if name == "nextPage" {
             file_page_query = query.clone();

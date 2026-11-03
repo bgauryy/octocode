@@ -121,9 +121,63 @@ async fn materialize_leads_into_the_local_copy_of_the_listed_directory() {
         .to_owned();
     assert!(local.ends_with("/src"), "{}", out.data);
     assert!(std::path::Path::new(&local).join("lib.rs").exists());
-    // No lead re-lists the tree this response just returned.
+    // No lead re-lists the tree this response just returned; the lead reads
+    // the best-ranked written file from the local copy.
     assert!(
         out.data.pointer("/next/exploreClone").is_none(),
+        "{}",
+        out.data
+    );
+    let read = crate::tools::test_support::checks::related_call(&out.data, "localFetch", |_| true);
+    let row = &read["input"]["queries"][0];
+    assert_eq!(
+        row["path"],
+        std::path::Path::new(&local)
+            .join("lib.rs")
+            .to_string_lossy()
+            .as_ref(),
+        "{}",
+        out.data
+    );
+    assert_eq!(row["view"], "symbols", "{}", out.data);
+}
+
+/// The materialize lead names only a file this page wrote: a skipped
+/// (oversized) file is never the lead, and a page that wrote no readable
+/// file has none.
+#[tokio::test]
+async fn materialize_lead_skips_files_it_did_not_write() {
+    let server = MockServer::builder().start().await;
+    let big_size = crate::tools::gh_structure::materialize::MATERIALIZE_FILE_BYTES + 1;
+    mount_listing(
+        &server,
+        "src",
+        json!([
+            {"name":"lib.rs","path":"src/lib.rs","type":"file","size":big_size},
+            {"name":"util.rs","path":"src/util.rs","type":"file","size":8}
+        ]),
+    )
+    .await;
+    mount_content(&server, "src/util.rs", "fn u(){}").await;
+    let home = crate::tools::test_support::Fixture::new();
+    let out = run_at(
+            &server,
+            json!({"operation":"tree","owner":"a","repo":"b","ref":SHA,"path":"src","materialize":true}),
+            &home.0,
+        )
+        .await
+        .expect("materialize");
+    assert_eq!(
+        out.data["location"]["skipped"],
+        json!(["src/lib.rs"]),
+        "{}",
+        out.data
+    );
+    let read = crate::tools::test_support::checks::related_call(&out.data, "localFetch", |_| true);
+    assert!(
+        read["input"]["queries"][0]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("/src/util.rs")),
         "{}",
         out.data
     );

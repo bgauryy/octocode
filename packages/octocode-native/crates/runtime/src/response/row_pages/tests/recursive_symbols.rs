@@ -1,7 +1,7 @@
 use super::*;
 use crate::id::ToolId;
 use crate::tools::test_support::assert_row_contract;
-use tokio_util::sync::CancellationToken;
+use octocode_io::cancellation::Cancellation;
 
 fn collect_symbols(symbols: &Value, aliases: &mut Vec<String>, leaves: &mut Vec<Value>) {
     for symbol in symbols.as_array().expect("symbols") {
@@ -49,7 +49,7 @@ fn deeply_nested_symbols_page_every_alias_and_preserve_required_identity() {
         &[None],
         ToolId::AstSearch,
     )
-    .plan(700, &CancellationToken::new())
+    .plan(700, &Cancellation::new())
     .expect("valid plan");
     assert!(
         plan.total_pages > 2,
@@ -58,7 +58,7 @@ fn deeply_nested_symbols_page_every_alias_and_preserve_required_identity() {
     let (mut seen_aliases, mut seen_leaves) = (Vec::new(), Vec::new());
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &CancellationToken::new())
+            .build_page(page, &[None], &[], &Cancellation::new())
             .expect("valid build_page")
         {
             assert_row_contract(ToolId::AstSearch, &row["data"]);

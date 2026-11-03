@@ -8,6 +8,7 @@ mod identity;
 mod pages;
 mod per_binding;
 mod recovery;
+mod scope_work;
 mod windows;
 
 /// A TypeScript-like server whose project sees only the anchor file (an
@@ -171,7 +172,7 @@ struct Walked {
 /// Run `start` and every page lead its pages offer (`checks::Walker`: each
 /// call once, each match row once, every output and lead within the
 /// contract). Every page of a window with windows left offers
-/// `next.nextImporterPage`, the same continuation on each: a published
+/// `next.nextPage`, the same continuation on each: a published
 /// cursor names its content, so a reader follows it once (the test
 /// publisher numbers its cursors, so the walk drops a repeated one here).
 /// Also returns every continuation offered, by name.
@@ -205,12 +206,15 @@ async fn walk_pages(
             &paths,
             execution,
             budget,
+            crate::tools::lsp_search::test_answers(),
         )
         .await
         .expect("page");
         assert_ne!(result["status"], "error", "{result}");
-        let page = next_row(&result, "nextPage");
-        let importer = next_row(&result, "nextImporterPage");
+        let page = result
+            .pointer("/pagination/next/nextPage/input/queries/0")
+            .cloned();
+        let importer = next_row(&result, "nextPage");
         let mut offered = result.clone();
         if let Some(call) = &importer
             && followed.contains(call)
@@ -218,10 +222,10 @@ async fn walk_pages(
                 .get_mut("next")
                 .and_then(serde_json::Value::as_object_mut)
         {
-            next.remove("nextImporterPage");
+            next.remove("nextPage");
         }
         followed.extend(importer.clone().filter(|call| !followed.contains(call)));
-        for (name, call) in [("nextPage", page), ("nextImporterPage", importer)] {
+        for (name, call) in [("locationPage", page), ("nextPage", importer)] {
             if let Some(call) = call {
                 continuations.push((name.to_owned(), call));
             }
@@ -241,10 +245,8 @@ async fn walk_pages(
 
 /// `(file name, line, column)` of every reference row on a page.
 fn reference_rows(row: &serde_json::Value) -> Vec<(String, u64, u64)> {
-    row["matches"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    location_rows(row)
+        .iter()
         .map(|site| {
             let name = Path::new(site["path"].as_str().expect("path"))
                 .file_name()

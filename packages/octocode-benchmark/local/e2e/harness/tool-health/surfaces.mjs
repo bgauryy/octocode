@@ -71,12 +71,9 @@ function cliRecord({ status, stdout, stderr, ms }) {
 
 async function mcpCall(server, tool, input) {
   const entry = await server.raw(tool, input, '', { keepRaw: true });
-  let raw = entry.raw;
-  if (!raw) {
-    try { raw = JSON.parse(entry.text); } catch { raw = undefined; }
-  }
+  const raw = entry.raw;
   const json = raw;
-  return { surface: 'mcp', isError: entry.isError, raw, json, sc: json, text: entry.text, ms: entry.ms, responseBytes: entry.responseBytes };
+  return { surface: 'mcp', isError: entry.isError, raw, wire: entry.wire, json, sc: json, text: entry.text, ms: entry.ms, responseBytes: entry.responseBytes };
 }
 
 /**
@@ -112,10 +109,12 @@ export async function startSurfaces(fixture) {
     cliCall: (tool, input, { credentialTool = tool, ...opts } = {}) => cliArgs([tool, JSON.stringify(input), '--json'], { tool: credentialTool, ...opts }),
     mcpServer: (tool, cwd) => startServer({ cwd, env: envFor(tool, 'mcp'), replaceEnv: true, timeoutMs: 60_000 }),
     mcpCall: (server, tool, input) => mcpCall(scenario.getStore()?.server ?? server, tool, input),
+    // A scenario owns a fresh credential (its own GitHub quota and classification
+    // provider account); the callback receives it to observe that account.
     scenario: async ({ tool, surface, cwd = fixture, name }, callback) => {
       const scopedEnv = envFor(`${tool}-${name}-${++scenarioIndex}`, surface);
       const server = surface === 'mcp' ? await startServer({ cwd, env: scopedEnv, replaceEnv: true, timeoutMs: 60_000 }) : null;
-      try { return await scenario.run({ surface, env: scopedEnv, server }, callback); }
+      try { return await scenario.run({ surface, env: scopedEnv, server }, callback, { token: scopedEnv.GITHUB_TOKEN }); }
       finally { server?.close(); }
     },
     needs: {

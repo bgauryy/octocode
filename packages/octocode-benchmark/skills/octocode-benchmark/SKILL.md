@@ -1,84 +1,26 @@
 ---
 name: octocode-benchmark
-description: "Plan, run, grade or report the package-specific Octocode research benchmark: isolated pairwise comparisons against gh, RTK or Headroom, blind correctness-first judging, and instrumented character accounting."
+description: "Run the Octocode package research benchmark. Compare one CLI build with another or with gh, RTK or Headroom, then blind-grade correctness and measure characters from instrumented logs."
 compatibility: "Requires the Octocode benchmark package checkout and its compare/bin tooling."
 ---
 
 # Octocode benchmark
 
-Plain-markdown, run-by-hand CLI research comparison. Octocode is the **anchor**; each baseline
-is a **separate pairwise matchup** (`octocode` vs `rtk` | `headroom` | `gh`). Per question,
-per pass: two isolated runners answer, one blind judge grades them **X / Y** (randomized per
-question). Run ≥3 passes; the rollup shows every matchup together. Human reports are Markdown; instrumented evidence remains JSONL.
+Run from `packages/octocode-benchmark/`. Compare Octocode with one baseline per matchup. Use the [design](references/BENCHMARK.md) for scope or the [execution checklist](references/INSTRUCTIONS.md) to run it. For general experiment design or skill activation, use `octocode-eval-benchmark`.
 
-Paths below are relative to the package root `packages/octocode-benchmark/`. Shared tooling
-lives in `compare/bin/`; questions in `compare/github-questions/`; new run artifacts follow [output.md](output.md); existing published results stay in `results/`.
+## Run a matchup
 
-## Flow (4 phases)
+1. **Preflight.** Pin and verify each arm with [check-prereqs.sh](scripts/check-prereqs.sh). A failed preflight invalidates the comparison. Diagnose Headroom with its [check](scripts/_hr_check.py) and [import probe](scripts/_hr_import.py). The [quickstart](references/quickstart.md) and [agent runbook](references/run-with-agents.md) give commands and directories.
+2. **Answer.** For every question, arm and pass, give a fresh runner the same question, revision and budget, plus only the [runner brief](references/RUNNER.md) and its [arm primer](references/RUNNER_TOOL_CONTEXT.md). Keep transcripts separate and the answer key inaccessible. Use the leanest legal read that answers the question. Each runner appends `## Q<n>` to `answers/<arm>-p<pass>.md` and records the answer with `compare/bin/record_answer.py`.
+3. **Judge.** When both answers exist, use `compare/bin/build_blind_packet.py` to randomize X/Y. A separate [blind judge](references/JUDGING.md) establishes ground truth before scoring correctness. Calibrate with the [example verdict](references/example-verdict.md). A smaller answer cannot rescue incorrect research.
+4. **Summarize.** Validate the explicit campaign with `compare/bin/validate_campaign.py` and recompute Unicode character totals with `compare/bin/sumlog.py --strict`. Inspect each `FAIRNESS:` flag for an avoidable dump. Resolve a violation before counting the pairing. Report after at least three passes using [scoring](references/SCORING.md) and [paired statistics](references/aggregation-and-stats.md). Give the geometric mean of per-question ratios and a bootstrap interval. Count unresolved cases. The public question set supports orientation.
 
-```mermaid
-flowchart LR
-  P[0 Preflight] -- fail --> X[Fix the arm] --> P
-  P -- pass --> A[1 Answer: 2 isolated runners]
-  A --> J[2 Judge: blind X/Y]
-  J --> S[3 Summarize]
-  S -- fairness or validation violation --> A
-  S -- passes complete --> R[Report]
-```
-
-0. **Preflight** — verify + pin every arm; a failure invalidates the run.
-1. **Answer** — 2 isolated runners (anchor + baseline) per question/pass, leanest-legal path, each appends a `## Q<n>` section to `answers/<arm>-p<pass>.md`.
-2. **Judge** — after both sections exist, one blind judge reasons to a verdict, then scores.
-3. **Summarize** — validate logs, aggregate paired stats, update the rollup.
-
-## Validity requirements
-
-- **Isolation** — a fresh agent per (question, arm, pass) + a separate judge; no shared transcript, no answer key. Batch dispatch within an arm only if every question still gets a fresh runner context; never mix arms.
-- **Fairness** — leanest-legal path on every arm; no whole-tree/whole-file dump where a targeted read/search answers (inflates chars, invalidates the ratio). `sumlog.py` emits advisory `FAIRNESS:` lines for `recursive=1` dumps / oversized reads — review them.
-- **Blind + reasoned** — grade X/Y in randomized order; the judge reasons before scoring, correctness-first; a confidently-wrong answer never wins.
-- **Measured, not self-reported** — `total_chars = model-in + model-out` from the instrumented log; recompute, never hand-count.
-- **Honest stats** — geometric-mean char ratio (never a pooled sum) + bootstrap CI; ≥3 passes; the public set is orientation, not a shipping gate.
-
-## Resources
-
-| When | Read | Why |
-|---|---|---|
-| understand the design | [BENCHMARK.md](references/BENCHMARK.md) | Pairwise scope |
-| run a matchup | [INSTRUCTIONS.md](references/INSTRUCTIONS.md) | Execution order |
-| brief a runner | [RUNNER.md](references/RUNNER.md) | Isolation and tool context |
-| judge a question | [JUDGING.md](references/JUDGING.md) | Blind scoring |
-| score + aggregate | [SCORING.md](references/SCORING.md) | Paired statistics |
-| write the report | [REPORT_TEMPLATE.md](references/REPORT_TEMPLATE.md) | Result contract |
-| author a matchup README | [matchup-readme.md](references/matchup-readme.md) | Reader entry point |
-| Instrument calls or interpret scores | [Measurement](references/measurement.md) | Exact metrics, wrappers, scoring and limits |
-| Run command examples | [Quickstart](references/quickstart.md), [run with agents](references/run-with-agents.md) | Setup and phase-specific guides |
-| Supply runner tools and examples | [Tool context](references/RUNNER_TOOL_CONTEXT.md), [example verdict](references/example-verdict.md), [aggregation](references/aggregation-and-stats.md) | Arm isolation, grading and statistics |
-| Diagnose Headroom prerequisites | [_hr_check.py](scripts/_hr_check.py), [_hr_import.py](scripts/_hr_import.py) | Helpers used by the prerequisite check |
-
-## Scripts + tooling
-
-- `scripts/check-prereqs.sh` — Phase 0 gate (all arms + questions + primers).
-- `scripts/measure.sh` — fallback char wrapper for an arm without a dedicated `bin/` wrapper.
-- `compare/bin/`: `octoc` · `octoc-npm` · `rtkm` · `ghc` · `ghm` (arm wrappers) ·
-  `instrument_command.py` / `hr_compress.py` (char capture) · `record_answer.py` ·
-  `sumlog.py` (per-question total, `--strict`) · `build_blind_packet.py` (X/Y packet) ·
-  `validate_campaign.py` (byte-faithful campaign check) · `per_question_summary.py`
-  (per-question + overall chars & correctness across all 4 arms) · `test_instrumentation.py`.
-
-## Stop when
-
-The matchup's questions are answered, judged, and aggregated across ≥3 passes with CIs — or a
-preflight/fairness violation blocks the run; fix before continuing.
+For wrappers and exact input/output accounting, read [measurement](references/measurement.md). Use [measure.sh](scripts/measure.sh) for an arm without a dedicated wrapper. Instrumented JSONL owns measured characters. Historical rollup scripts have fixed campaign names.
 
 ## Add a question
 
-Copy an existing `Q<n>.md`, bump the number, edit title / `id` / `## Question` only. GitHub →
-`compare/github-questions/`; corpus-local → that matchup's `questions/`; add its README row.
-
-## Related skills
-
-Use `octocode-eval-benchmark` for a general experiment or skill activation study; this skill owns the package's specific research comparison.
+Copy a `Q<n>.md` and change its number, title, `id` and `## Question`. GitHub questions belong in `compare/github-questions/`, corpus-local questions in the matchup’s `questions/`. Add its [matchup README row](references/matchup-readme.md).
 
 ## Output
 
-Follow [output.md](output.md) for artifacts, complete evidence and optional HTML.
+Write the [report](references/REPORT_TEMPLATE.md) and preserve the complete campaign under the [output contract](output.md). Retain published `results/` unless a change was requested.

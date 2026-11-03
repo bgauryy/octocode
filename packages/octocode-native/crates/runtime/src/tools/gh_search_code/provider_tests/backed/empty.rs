@@ -95,8 +95,7 @@ async fn empty_code_search_hints_are_cause_specific() {
     )
     .await
     .expect("search");
-    // Beside the clone lead (dropped where clone is unavailable), the
-    // root listing is a route every surface runs.
+    // A miss leads to the root listing, never to an unscoped whole-repo clone.
     assert_eq!(
         crate::tools::test_support::checks::related_call(&existing.data, "ghStructure", |input| {
             input["queries"][0]["operation"] == "tree"
@@ -111,7 +110,7 @@ async fn empty_code_search_hints_are_cause_specific() {
             "ghCloneRepo",
             |_| true
         )
-        .is_some(),
+        .is_none(),
         "{}",
         existing.data
     );

@@ -39,7 +39,7 @@ async fn content_413_falls_back_to_parent_directory_and_blob() {
     let result = provider(&server)
         .await
         .get_file_bytes(
-            &main_file("dir/large.txt", false),
+            &main_file("dir/large.txt"),
             &with_token("secret", Duration::from_secs(2), 4096),
         )
         .await
@@ -81,7 +81,7 @@ async fn content_encoding_none_for_large_file_fetches_blob() {
     let result = provider(&server)
         .await
         .get_file_bytes(
-            &main_file("big.txt", true),
+            &main_file("big.txt"),
             &with_token("secret", Duration::from_secs(2), 4096),
         )
         .await
@@ -131,13 +131,13 @@ async fn a_file_read_takes_the_raw_bytes_in_one_request() {
     let provider = provider(&server).await;
     let context = with_token("secret", Duration::from_secs(2), 4096);
     let result = provider
-        .get_file_bytes(&main_file("big.txt", true), &context)
+        .get_file_bytes(&main_file("big.txt"), &context)
         .await
         .expect("raw read");
     assert_eq!(result.bytes, &b"large body"[..]);
     assert_eq!(result.blob.as_deref(), Some(blob));
     let binary = provider
-        .get_file_bytes(&main_file("image.bin", true), &context)
+        .get_file_bytes(&main_file("image.bin"), &context)
         .await
         .expect("binary bytes");
     assert_eq!(binary.bytes, &b"\0binary"[..]);
@@ -145,7 +145,7 @@ async fn a_file_read_takes_the_raw_bytes_in_one_request() {
 }
 
 #[tokio::test]
-async fn raw_content_keeps_binary_bytes_through_every_acquisition_and_cache_path() {
+async fn raw_content_keeps_binary_bytes_through_every_acquisition_path() {
     let commit = "0123456789abcdef0123456789abcdef01234567";
     let blob = "89abcdef0123456789abcdef0123456789abcdef";
     let bytes = b"\x89PNG\r\n\x1a\n\0binary";
@@ -193,20 +193,18 @@ async fn raw_content_keeps_binary_bytes_through_every_acquisition_and_cache_path
             .expect(route);
         assert_eq!(response.bytes, &bytes[..], "{route}");
         assert_eq!(response.resolved_ref, commit);
-        assert!(!response.from_cache);
-        let cached = provider
+        let repeated = provider
             .get_file_bytes(&request, &context)
             .await
-            .expect("cached bytes");
-        assert_eq!(cached.bytes, response.bytes);
-        assert!(cached.from_cache);
+            .expect("fresh bytes");
+        assert_eq!(repeated.bytes, response.bytes);
         assert_eq!(response.blob.as_deref(), Some(blob), "{route}");
         assert_eq!(
             server.received_requests().await.unwrap().len(),
             match route {
-                "inline" => 1,
-                "blob" => 2,
-                _ => 3,
+                "inline" => 2,
+                "blob" => 4,
+                _ => 6,
             }
         );
     }
@@ -252,7 +250,7 @@ async fn content_directory_symlink_and_submodule_get_clear_errors() {
         async move {
             provider
                 .get_file_bytes(
-                    &main_file(p, true),
+                    &main_file(p),
                     &with_token("secret", Duration::from_secs(2), 4096),
                 )
                 .await

@@ -263,24 +263,25 @@ fn text_search_lead(q: &AstSearchQuerySymbols, canonical: &std::path::Path) -> O
         .iter()
         .map(|entry| entry.text.as_str())
         .collect();
-    let mut query = json!({"path": canonical.to_string_lossy(), "matchString": names});
+    let mut query = crate::tools::source_view::extraction::text_search_query(
+        &canonical.to_string_lossy(),
+        &names,
+    )?;
     if filter.entries.iter().all(|entry| entry.fold) {
-        query["caseMode"] = json!("insensitive");
+        query.case_mode = octocode_contract_types::CaseMode::Insensitive;
     }
-    Some(crate::response::result::Continuation::related(ToolId::LocalSearch, query).build())
+    Some(crate::response::result::Continuation::related_query(query).build())
 }
 
 /// The read of one declaration's lines.
 fn read_lead(canonical: &std::path::Path, row: &Value) -> Option<Value> {
     let start = row["line"].as_u64()?;
     let end = row["endLine"].as_u64().unwrap_or(start);
-    Some(
-        crate::response::result::Continuation::related(
-            ToolId::LocalFetch,
-            json!({"path": canonical.to_string_lossy(), "ranges": [{"startLine":start,"endLine":end}]}),
-        )
-        .build(),
-    )
+    let read = crate::tools::source_view::local_fetch_query::ranges_lead(
+        &canonical.to_string_lossy(),
+        &[(start, end)],
+    )?;
+    Some(crate::response::result::Continuation::related_query(read).build())
 }
 
 /// Every declaration of one symbols query, before paging.
@@ -323,7 +324,7 @@ pub(crate) struct SymbolSet {
     pub(super) directory: bool,
     /// What a `testCode` scope left out.
     #[serde(default)]
-    pub(super) test_code_excluded: crate::tools::test_code::Excluded,
+    pub(super) test_code_excluded: octocode_engine::types::TestCodeExcluded,
     /// Entries the walk could not read, and how many for want of
     /// permission: absence below them is unproven.
     #[serde(default)]

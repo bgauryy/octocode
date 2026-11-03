@@ -1,6 +1,6 @@
 //! Comparison pagination preserves source identity and every requested row.
 use super::{BASE_SHA, HEAD_SHA};
-use crate::support::{self, Workspace, call, row_data};
+use crate::support::{self, Run as _, Workspace, call, row_data};
 use serde_json::json;
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -67,15 +67,64 @@ async fn compare_cursors_deliver_each_requested_file_and_commit_once_in_batches(
     runtime.close().await;
 }
 
+/// Comparison reads made so far: every one names the pinned `BASE...HEAD`.
+async fn compare_reads(server: &MockServer) -> usize {
+    let requests = server.received_requests().await.unwrap();
+    let reads = requests
+        .iter()
+        .filter(|request| request.url.path().contains("/compare/"))
+        .collect::<Vec<_>>();
+    for read in &reads {
+        assert!(
+            read.url
+                .path()
+                .ends_with(&format!("/compare/{BASE_SHA}...{HEAD_SHA}")),
+            "{}",
+            read.url
+        );
+    }
+    reads.len()
+}
+
+/// Only the first call reads the comparison: a saved response page replays
+/// its saved rows, and a file-page continuation answers from the provider
+/// evidence its cursor owns, so no continuation reaches GitHub. Every
+/// changed file arrives exactly once.
 #[tokio::test]
-async fn compare_file_continuations_reuse_the_pinned_provider_read() {
+async fn compare_file_continuations_answer_from_cursor_owned_evidence() {
     let server = MockServer::start().await;
     mount_compare(&server).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
-    let walked = support::walk(&runtime, "ghGetHistoryItem", json!({"queries":[{"operation":"compare","owner":"a","repo":"b","baseRef":BASE_SHA,"headRef":HEAD_SHA,"sections":["files"]}],"responseChars":2500}), |output| {
-        output["results"].as_array().into_iter().flatten().flat_map(|row| super::file_paths(&row["data"]["files"])).collect()
-    }).await;
+    let start = json!({"queries":[{"operation":"compare","owner":"a","repo":"b","baseRef":BASE_SHA,"headRef":HEAD_SHA,"sections":["files"]}],"responseChars":2500});
+    let mut walker = support::checks::Walker::new("ghGetHistoryItem", start);
+    let (mut replays, mut continued) = (0, 0);
+    while let Some(query) = walker.next_query() {
+        let first = query.get("cursor").is_none();
+        let before = compare_reads(&server).await;
+        let output = runtime
+            .run("walk".into(), "ghGetHistoryItem".into(), query.clone())
+            .await
+            .unwrap_or_else(|error| panic!("{query}: {error:?}"))
+            .structured_content
+            .into_value();
+        let replayed = output["responsePagination"]["replayed"] == true;
+        let sent = compare_reads(&server).await - before;
+        assert_eq!(sent, usize::from(first), "{query}: {output}");
+        if replayed {
+            replays += 1;
+        } else if !first {
+            continued += 1;
+        }
+        let rows = output["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|row| super::file_paths(&row["data"]["files"]))
+            .collect();
+        walker.accept(support::checks::Page { output, rows });
+    }
+    let walked = walker.finish();
     assert_eq!(walked.rows.len(), 250);
     assert!(
         walked
@@ -84,14 +133,13 @@ async fn compare_file_continuations_reuse_the_pinned_provider_read() {
             .skip(1)
             .all(|input| input["cursor"].is_string())
     );
-    let requests = server.received_requests().await.unwrap();
-    assert_eq!(
-        requests
-            .iter()
-            .filter(|request| request.url.path().contains("/compare/"))
-            .count(),
-        1
+    assert!(replays > 0, "a saved page replays: {:?}", walked.queries);
+    assert!(
+        continued > 0,
+        "a file-page continuation ran: {:?}",
+        walked.queries
     );
+    assert_eq!(compare_reads(&server).await, 1);
     runtime.close().await;
 }
 

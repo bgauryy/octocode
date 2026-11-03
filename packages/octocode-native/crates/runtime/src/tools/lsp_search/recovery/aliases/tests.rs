@@ -35,8 +35,8 @@ fn renaming_imports_come_from_the_declarations_parse() {
             vec![],
         ),
     ] {
-        let document = crate::tools::declarations_cache::file_document(source, file)
-            .expect("declarations parse");
+        let document =
+            crate::tools::declarations::file_document(source, file).expect("declarations parse");
         let full =
             octocode_engine::signatures::extract_graph_facts(source, file).expect("graph facts");
         assert_eq!(

@@ -32,7 +32,7 @@ function fixtureContext(cwd, defect) {
       if (defect === 'duplicateCell') tail.push(sections[0]);
       const page = rows => ({ questions: input.queries[0].questions, resources: { local: resource(rows), github: { status: 'ready' }, missing: { status: 'error' } } });
       const initial = page(first);
-      initial.next = { nextSectionPage: { kind: 'continue', tool: 'clasify', input: { cursor: 'tail' } } };
+      initial.next = { nextPage: { kind: 'continue', tool: 'clasify', input: { cursor: 'tail' } } };
       last = page(tail);
       return { failures: [], responses: [{ tool, input, result: result(initial) }, { tool, input: { cursor: 'tail' }, result: result(last) }] };
     },

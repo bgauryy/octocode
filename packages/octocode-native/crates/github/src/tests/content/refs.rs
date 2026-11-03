@@ -1,8 +1,8 @@
-//! Ref resolution: the default branch, memoized SHAs, missing refs and tag refs.
+//! Ref resolution: the default branch, fresh SHAs, missing refs and tag refs.
 use super::*;
 
 #[tokio::test]
-async fn default_branch_resolves_with_one_sha_request_and_is_memoized_per_batch() {
+async fn default_branch_resolves_with_one_sha_request_per_read() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     // No repository-metadata round trip: HEAD resolves the default branch.
@@ -16,7 +16,7 @@ async fn default_branch_resolves_with_one_sha_request_and_is_memoized_per_batch(
         .and(path("/api/v3/repos/acme/repo/commits/HEAD"))
         .and(header("accept", "application/vnd.github.sha"))
         .respond_with(ResponseTemplate::new(200).set_body_string(sha))
-        .expect(1)
+        .expect(3)
         .mount(&server)
         .await;
     for name in ["a.rs", "b.rs"] {
@@ -26,12 +26,12 @@ async fn default_branch_resolves_with_one_sha_request_and_is_memoized_per_batch(
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "type":"file","encoding":"base64","content":STANDARD.encode("x\n")
             })))
-            .expect(1)
+            .expect(if name == "a.rs" { 2 } else { 1 })
             .mount(&server)
             .await;
     }
     let base = provider(&server).await;
-    let provider = GitHubProvider::new(base.transport, KeyedCache::default());
+    let provider = GitHubProvider::new(base.transport);
     let context = with_token("secret", Duration::from_secs(2), 1024);
     for name in ["a.rs", "b.rs", "a.rs"] {
         let result = provider
@@ -41,7 +41,6 @@ async fn default_branch_resolves_with_one_sha_request_and_is_memoized_per_batch(
                     repo: "repo".into(),
                     path: name.into(),
                     reference: None,
-                    force_refresh: false,
                 },
                 &context,
             )
@@ -53,24 +52,23 @@ async fn default_branch_resolves_with_one_sha_request_and_is_memoized_per_batch(
 }
 
 #[tokio::test]
-async fn a_resolved_full_sha_is_cached_per_credential() {
+async fn a_full_sha_access_check_uses_each_requests_credential() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/o/r/commits/{sha}")))
         .respond_with(ResponseTemplate::new(200).set_body_string(sha))
-        .expect(2)
+        .expect(3)
         .mount(&server)
         .await;
-    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
-    transport.cache = Arc::new(PartitionedCache::default());
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let context = |token: &str| {
         RequestContext::new(
             RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20),
             Some(ResolvedCredential::new(token, CredentialSource::Storage)),
         )
     };
-    // alice twice (one request), bob once (his own partition): two requests.
+    // Every call checks access, including repeat credentials.
     for token in ["alice", "alice", "bob"] {
         let resolved = transport
             .commit_sha("o", "r", sha, &context(token))

@@ -71,7 +71,11 @@ fn storage_failure_and_invalid_private_state_never_publish_a_handle() {
         json!({"queries":[{"operation":"tree","path":"src","page":2}]}),
         json!({"queries":[{"operation":"tree","path":"src","page":-1}]}),
     ] {
-        let mut output = json!({"results":[{"index":0,"data":{"next":{"nextPage":Continuation::continued_input(ToolId::StructureSearch,request).build()}}}]});
+        // Raw, as publication receives it: the builder already rejects the
+        // invalid one where it is built, and publication stays the gate.
+        let call =
+            json!({"kind":"continue","tool":ToolId::StructureSearch.as_str(),"input":request});
+        let mut output = json!({"results":[{"index":0,"data":{"next":{"nextPage":call}}}]});
         assert!(
             finalize(
                 &mut output,

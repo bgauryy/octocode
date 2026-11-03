@@ -1,7 +1,10 @@
 //! The scanning seam every read passes through: [`ContentScan`] (implemented by
-//! [`super::ContentSecurity`] and test doubles) and the memo that lets paged
-//! reads of one large view reuse a single scan.
+//! [`super::ContentSecurity`] and test doubles). Each read scans its own
+//! source; derived scanner results are never reused by a fresh request. Only
+//! a continuation page replays the scanned view its cursor's first page
+//! built from the same bytes (`tools::source_view::retained`).
 use octocode_contract_types::ErrorCode;
+use std::borrow::Cow;
 use std::path::Path;
 
 pub(crate) trait ContentScan {
@@ -15,21 +18,17 @@ pub(crate) trait ContentScan {
     /// anchored full-block patterns cannot catch. The default applies to every
     /// implementer (including test mocks); see
     /// [`crate::security::redact_private_key_blocks`].
-    fn redact_key_blocks(&self, content: &str) -> (String, bool) {
+    fn redact_key_blocks<'a>(&self, content: &'a str) -> (Cow<'a, str>, bool) {
         crate::security::redact_private_key_blocks(content)
     }
     /// `source` sanitized whole with its line structure kept, so match line
     /// numbers stay source-accurate, and whether it changed (see
-    /// [`redact_lines`]). `digest` is the SHA-256 the caller holds of the
-    /// bytes `source` was derived from, by a pure decode and key-block
-    /// redaction: a memoizing scanner keys on it rather than hashing the
-    /// text again.
-    fn redact_source_lines(
+    /// [`redact_lines`]). Unchanged text borrows the request's source buffer.
+    fn redact_source_lines<'a>(
         &self,
-        source: &str,
+        source: &'a str,
         path: &Path,
-        _digest: &str,
-    ) -> Result<(String, bool), (ErrorCode, String)> {
+    ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
         redact_lines(self, source, path)
     }
 }
@@ -37,15 +36,24 @@ pub(crate) trait ContentScan {
 /// `source` sanitized with its line structure kept: one whole-source scan,
 /// or line by line when the whole scan changes the line count (a multi-line
 /// pattern) or exceeds the scanner's size limit.
-pub(crate) fn redact_lines(
+pub(crate) fn redact_lines<'a>(
     scan: &(impl ContentScan + ?Sized),
-    source: &str,
+    source: &'a str,
     path: &Path,
-) -> Result<(String, bool), (ErrorCode, String)> {
+) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
+    redact_with(source, |text| {
+        scan.sanitize(text, path).map(|(text, _)| text.into())
+    })
+}
+
+fn redact_with<'a>(
+    source: &'a str,
+    sanitize: impl Fn(&'a str) -> Result<Cow<'a, str>, (ErrorCode, String)>,
+) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
     let lines = |text: &str| text.split_inclusive('\n').count();
-    if let Ok((whole, _)) = scan.sanitize(source, path) {
+    if let Ok(whole) = sanitize(source) {
         if whole == source {
-            return Ok((whole, false));
+            return Ok((source.into(), false));
         }
         if lines(&whole) == lines(source) {
             return Ok((whole, true));
@@ -56,12 +64,12 @@ pub(crate) fn redact_lines(
         let (body, newline) = segment
             .strip_suffix('\n')
             .map_or((segment, ""), |body| (body, "\n"));
-        let (clean, _) = scan.sanitize(body, path)?;
+        let clean = sanitize(body)?;
         out.push_str(&clean.replace('\n', " "));
         out.push_str(newline);
     }
     let changed = out != source;
-    Ok((out, changed))
+    Ok((out.into(), changed))
 }
 
 /// [`ContentScan::sanitize`] of provider text: the redacted text, or the
@@ -114,163 +122,39 @@ impl ContentScan for super::ContentSecurity {
         text: &str,
         path: &Path,
     ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
-        let result = self.sanitize_text(text, Some(path));
-        if result
-            .secrets_detected
-            .iter()
-            .any(|name| name == "content-size-exceeded")
-        {
-            return Err((
-                ErrorCode::ContentSecurityLimit,
-                "The selected content view exceeds the secret scanner size limit.".into(),
-            ));
-        }
-        Ok((result.content, Vec::new()))
-    }
-}
-
-/// Remembers the secret-scanner output for recently read views so paging one
-/// large file does not rescan the whole blob on every `next.nextPage`.
-///
-/// A line/byte page is cut from the sanitized full view, so each page
-/// otherwise re-runs `sanitize` over the entire file (~1.6 ms release for a
-/// 75 KB file, measured 2026-10-23, the largest cost of a cache-hit read). Entries are keyed by a SHA-256
-/// of the scanned text and path, so a hit needs the exact bytes in hand and
-/// returns exactly what the scanner produced for them; redaction is unchanged.
-/// One memo must only ever wrap one scanner (the owning runtime's policy).
-pub(crate) struct SanitizedViewMemo {
-    entries: octocode_io::memo::Memo<[u8; 32], ScanOutcome>,
-    /// One whole-source line redaction per key at a time: rows redacting
-    /// one source concurrently wait for the first and take its outcome
-    /// from the slot. Turns are blocking and held in synchronous code only.
-    redacting: octocode_io::flight::KeyedFlight<[u8; 32], Option<ScanOutcome>>,
-}
-
-type ScanOutcome = Result<(String, Vec<String>), (ErrorCode, String)>;
-
-impl SanitizedViewMemo {
-    /// Small views are cheap to rescan; memoizing them only churns entries.
-    const MIN_TEXT_BYTES: usize = 16 * 1024;
-
-    pub fn new() -> Self {
-        Self {
-            entries: octocode_io::memo::Memo::new(octocode_io::memo::MemoLimits {
-                max_entries: 8,
-                max_weight: 32 * 1024 * 1024,
-                keep_newest: false,
-            }),
-            redacting: octocode_io::flight::KeyedFlight::transient(),
-        }
+        checked_content(self.sanitize_text(text, Some(path)))
+            .map(|text| (text.into_owned(), Vec::new()))
     }
 
-    /// Key of a scan: what it is (`purpose`), the path, and the text, or a
-    /// digest that names the text for the caller.
-    fn key(purpose: &str, path: &Path, text: &[u8]) -> [u8; 32] {
-        use sha2::{Digest, Sha256};
-        let mut digest = Sha256::new();
-        let path = path.to_string_lossy();
-        for part in [purpose.as_bytes(), path.as_bytes(), text] {
-            digest.update((part.len() as u64).to_le_bytes());
-            digest.update(part);
-        }
-        digest.finalize().into()
-    }
-
-    /// [`redact_lines`] of `source`, remembered per path and source digest
-    /// (with the text's length as a guard), so every page of a matchString
-    /// read, and every concurrent row reading the source, redacts the whole
-    /// source once instead of once each.
-    fn redact_source_lines(
+    fn redact_source_lines<'a>(
         &self,
-        source: &str,
+        source: &'a str,
         path: &Path,
-        digest: &str,
-        inner: &impl ContentScan,
-    ) -> Result<(String, bool), (ErrorCode, String)> {
-        if source.len() < Self::MIN_TEXT_BYTES {
-            return redact_lines(inner, source, path);
-        }
-        let named = format!("{digest}:{}", source.len());
-        let key = Self::key("sourceLines", path, named.as_bytes());
-        // The scan holds no cancellation: a waiter waits for the one scan.
-        let Ok(outcome) = self.redacting.memoized_blocking(
-            key,
-            |key| self.entries.get(key).map(|hit| hit.value.as_ref().clone()),
-            |key| {
-                let outcome = redact_lines(inner, source, path).map(|(text, _)| (text, Vec::new()));
-                self.store(key, source.len(), outcome)
-            },
-            || Ok::<(), std::convert::Infallible>(()),
-        );
-        outcome.map(|(text, _)| {
-            let changed = text != source;
-            (text, changed)
+    ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
+        redact_with(source, |text| {
+            checked_content(self.sanitize_text(text, Some(path)))
         })
     }
-
-    /// Store `outcome` of a `scanned`-byte text, weighed by both, and hand
-    /// it back.
-    fn store(&self, key: [u8; 32], scanned: usize, outcome: ScanOutcome) -> ScanOutcome {
-        let bytes = scanned.saturating_add(match &outcome {
-            Ok((safe, warnings)) => safe.len() + warnings.iter().map(String::len).sum::<usize>(),
-            Err((code, message)) => crate::id::error_codes::as_str(*code).len() + message.len(),
-        });
-        let stored = self.entries.insert(key, outcome, bytes, None);
-        std::sync::Arc::try_unwrap(stored).unwrap_or_else(|shared| shared.as_ref().clone())
-    }
-
-    /// The scan of `text`, remembered for large views. The caller owns the
-    /// returned outcome, so a hit copies it once, outside the memo's lock.
-    fn scan(&self, text: &str, path: &Path, inner: &impl ContentScan) -> ScanOutcome {
-        if text.len() < Self::MIN_TEXT_BYTES {
-            return inner.sanitize(text, path);
-        }
-        let key = Self::key("view", path, text.as_bytes());
-        if let Some(hit) = self.entries.get(&key) {
-            return hit.value.as_ref().clone();
-        }
-        self.store(key, text.len(), inner.sanitize(text, path))
-    }
 }
 
-impl Default for SanitizedViewMemo {
-    fn default() -> Self {
-        Self::new()
+fn checked_content<'a>(
+    result: octocode_engine::security::types::SanitizationResult<'a>,
+) -> Result<Cow<'a, str>, (ErrorCode, String)> {
+    if result
+        .secrets_detected
+        .iter()
+        .any(|name| name == "content-size-exceeded")
+    {
+        return Err((
+            ErrorCode::ContentSecurityLimit,
+            "The selected content view exceeds the secret scanner size limit.".into(),
+        ));
     }
+    Ok(result.content)
 }
 
-/// `ContentScan` adapter that routes `sanitize` and the whole-source line
-/// redaction through a [`SanitizedViewMemo`] and forwards everything else
-/// (full-file key-block redaction still runs on every read) to the wrapped
-/// scanner.
-pub(crate) struct MemoizedScan<'a, S> {
-    inner: &'a S,
-    memo: &'a SanitizedViewMemo,
-}
-
-impl<'a, S: ContentScan> MemoizedScan<'a, S> {
-    pub fn new(inner: &'a S, memo: &'a SanitizedViewMemo) -> Self {
-        Self { inner, memo }
-    }
-}
-
-impl<S: ContentScan> ContentScan for MemoizedScan<'_, S> {
-    fn sanitize(&self, text: &str, path: &Path) -> ScanOutcome {
-        self.memo.scan(text, path, self.inner)
-    }
-    fn redact_key_blocks(&self, content: &str) -> (String, bool) {
-        self.inner.redact_key_blocks(content)
-    }
-    fn redact_source_lines(
-        &self,
-        source: &str,
-        path: &Path,
-        digest: &str,
-    ) -> Result<(String, bool), (ErrorCode, String)> {
-        self.memo
-            .redact_source_lines(source, path, digest, self.inner)
-    }
-}
+#[cfg(test)]
+type ScanOutcome = Result<(String, Vec<String>), (ErrorCode, String)>;
 
 #[cfg(test)]
 mod tests {
@@ -316,38 +200,32 @@ mod tests {
         text
     }
 
-    /// The whole-source line redaction of one source is scanned once per
-    /// path and digest: a later page reuses it, and another digest or path
-    /// scans again.
+    /// Repeated reads and changed sources independently pass the same scanner.
     #[test]
-    fn whole_source_line_redaction_is_memoized_per_path_and_digest() {
+    fn whole_source_line_redaction_scans_each_read() {
         let scanner = Counting(AtomicUsize::new(0));
-        let memo = SanitizedViewMemo::new();
-        let scan = MemoizedScan::new(&scanner, &memo);
+        let scan = &scanner;
         let source = source();
         let path = Path::new("/w/a.env.example");
-        let first = scan
-            .redact_source_lines(&source, path, "d1")
-            .expect("redacted");
+        let first = scan.redact_source_lines(&source, path).expect("redacted");
         assert!(first.1 && first.0.ends_with("key = [R]\n"));
         assert_eq!(scanner.0.load(Ordering::Relaxed), 1);
-        assert_eq!(scan.redact_source_lines(&source, path, "d1"), Ok(first));
+        assert_eq!(scan.redact_source_lines(&source, path), Ok(first));
         assert_eq!(
             scanner.0.load(Ordering::Relaxed),
-            1,
-            "a page reuses the scan"
+            2,
+            "each read independently applies the scanner"
         );
-        scan.redact_source_lines(&source, path, "d2")
+        scan.redact_source_lines(&source, path)
             .expect("other bytes");
-        scan.redact_source_lines(&source, Path::new("/w/b"), "d1")
+        scan.redact_source_lines(&source, Path::new("/w/b"))
             .expect("other path");
-        assert_eq!(scanner.0.load(Ordering::Relaxed), 3);
+        assert_eq!(scanner.0.load(Ordering::Relaxed), 4);
     }
 
-    /// Rows redacting one source at once scan it once: the others wait for
-    /// the first scan and share its outcome.
+    /// Concurrent reads own their scan work and retain identical redaction.
     #[test]
-    fn concurrent_line_redactions_of_one_source_scan_it_once() {
+    fn concurrent_line_redactions_are_independent() {
         struct Slow(AtomicUsize);
         impl ContentScan for Slow {
             fn sanitize(&self, text: &str, _: &Path) -> ScanOutcome {
@@ -357,8 +235,7 @@ mod tests {
             }
         }
         let scanner = Slow(AtomicUsize::new(0));
-        let memo = SanitizedViewMemo::new();
-        let scan = MemoizedScan::new(&scanner, &memo);
+        let scan = &scanner;
         let source = source();
         let gate = std::sync::Barrier::new(8);
         let outcomes = std::thread::scope(|scope| {
@@ -366,7 +243,7 @@ mod tests {
                 .map(|_| {
                     scope.spawn(|| {
                         gate.wait();
-                        scan.redact_source_lines(&source, Path::new("/w/a.env"), "d1")
+                        scan.redact_source_lines(&source, Path::new("/w/a.env"))
                     })
                 })
                 .collect::<Vec<_>>();
@@ -374,13 +251,25 @@ mod tests {
                 .map(|row| row.join().expect("row"))
                 .collect::<Vec<_>>()
         });
-        assert_eq!(scanner.0.load(Ordering::SeqCst), 1, "one scan for the wave");
+        assert_eq!(scanner.0.load(Ordering::SeqCst), outcomes.len());
         assert!(outcomes.iter().all(|outcome| outcome == &outcomes[0]));
         assert!(
             outcomes[0]
                 .as_ref()
                 .is_ok_and(|(text, changed)| { *changed && text.ends_with("key = [R]\n") })
         );
+    }
+
+    #[test]
+    fn repeated_reads_do_not_retain_scanner_results() {
+        let scanner = Counting(AtomicUsize::new(0));
+        let scan = &scanner;
+        let text = source();
+        let path = Path::new("/w/repeated.env");
+        let first = scan.redact_source_lines(&text, path).unwrap();
+        let second = scan.redact_source_lines(&text, path).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(scanner.0.load(Ordering::Relaxed), 2);
     }
 
     /// A whole scan that changes the line count falls back to line by line,
@@ -394,6 +283,6 @@ mod tests {
             }
         }
         let (text, changed) = redact_lines(&Joining, "a\nb\nc\n", Path::new("x")).expect("ok");
-        assert_eq!((text.as_str(), changed), ("a\nb\nc\n", false));
+        assert_eq!((text.as_ref(), changed), ("a\nb\nc\n", false));
     }
 }

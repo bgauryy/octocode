@@ -235,6 +235,7 @@ fn scans_cancel_inside_nonmatching_and_ranked_populations() {
         options: &options,
         flags: Flags::parse(&options).unwrap(),
         cancel: &c,
+        pending: Default::default(),
     };
     assert_eq!(
         query.candidates().err().unwrap().value["errorCode"],

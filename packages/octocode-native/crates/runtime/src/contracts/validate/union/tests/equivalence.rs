@@ -174,7 +174,8 @@ fn output_with_call(call: Value, related: bool) -> Value {
 /// expected verdict, so two validators rejecting everything cannot pass.
 #[test]
 fn fast_union_acceptance_matches_the_reference_on_current_output_envelopes() {
-    let tools: Vec<&str> = crate::contracts::parsed_contract().expect("contract")["tools"]
+    let contract = crate::contracts::parsed_contract().expect("contract");
+    let tools: Vec<&str> = contract["tools"]
         .as_array()
         .expect("tools")
         .iter()
@@ -232,11 +233,12 @@ fn fast_union_acceptance_matches_the_reference_on_current_output_envelopes() {
             cases.push((tool.clone(), malformed, false));
         }
 
-        // A row can lead to another tool, but a whole-response cursor must
-        // return to the tool whose response was saved.
+        // Related calls may target any tool. A retry must target its own tool,
+        // even when another channel delegates reads to a different owner.
+        // A whole-response cursor must always return to its own tool.
         let other =
             tools[(tools.iter().position(|name| *name == tool).expect("tool") + 1) % tools.len()];
-        cases.push((other.to_owned(), output, true));
+        cases.push((other.to_owned(), output, related));
         if !related {
             let mut page = json!({"results":[],"responsePagination":{"hasMore":true,
                 "next":{"kind":"continue","tool":tool,"input":fixture["input"]}}});

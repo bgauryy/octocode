@@ -36,7 +36,14 @@ impl Attempts<'_> {
                     .and_then(|value| value.to_str().ok())
                     .unwrap_or(resource.bucket())
                     .to_owned();
-                self.state.exhaust(&bucket, reset);
+                // `retry-after` wins over the reset header: the bucket stays
+                // blocked until the moment GitHub says a retry may run.
+                let blocked_until = provider_retry_after(headers).map_or(reset, |after| {
+                    now_ms()
+                        .saturating_add(crate::budget::millis(after))
+                        .div_ceil(1000)
+                });
+                self.state.exhaust(&bucket, blocked_until);
                 error.kind = ProviderErrorKind::RateLimited;
                 error.retryable = true;
                 error.rate_limit =
@@ -159,7 +166,7 @@ fn classify_failure(
         });
         return Failure::Primary {
             reset,
-            wait: config.reset_wait(reset),
+            wait: requested.unwrap_or_else(|| config.reset_wait(reset)),
         };
     }
     if classify_status(code).is_retryable() {

@@ -11,7 +11,7 @@ async fn output(runtime: &ToolRuntime, mcp: bool, tool: &str, input: Value) -> V
             .await
             .expect("MCP call");
         assert_ne!(value["isError"], true, "{value}");
-        value["structuredContent"].clone()
+        support::mcp_payload(&value)
     } else {
         runtime
             .run("walk".into(), tool.into(), input)
@@ -81,7 +81,7 @@ async fn search_walks_reach_every_hit_once_with_source_coordinates() {
                 for result in value["results"].as_array().expect("results") {
                     for file in result["data"]["files"].as_array().into_iter().flatten() {
                         for matched in file["matches"].as_array().expect("matches") {
-                            let owner=matched.get("enclosing").unwrap_or_else(||panic!("each hit retains enclosing evidence: {matched}, {file}"));
+                            let owner=matched.get("enclosing").and_then(serde_json::Value::as_u64).and_then(|owner|file["declarations"].get(usize::try_from(owner).ok()?)).unwrap_or_else(||panic!("each hit retains enclosing evidence: {matched}, {file}"));
                             assert!(owner["symbolName"].as_str().expect("name").starts_with("holder_"));
                             let line=matched["line"].as_u64().expect("line");
                             assert!(owner["line"].as_u64().expect("start")<=line&&owner["endLine"].as_u64().expect("end")>=line);

@@ -15,7 +15,7 @@ import { isObject, objectOrEmpty, type JsonObject } from './validation.js';
 import { VERSION } from './version.js';
 import type { Wire } from './wire.js';
 
-const PROXY_INSTRUCTIONS = 'The host manages your identity, presence, live lease renewal and delivery. Use bound tools for the user task. Initiate messages, broadcasts or subscriptions only when the task authorizes them. Follow the supplied skill for leases, replies and completion; unfinished work stays pending. Call inbox only for requested recovery. When no actionable work remains, end the turn. The host waits for mail and starts the next turn; do not sleep or poll to remain active.';
+const PROXY_INSTRUCTIONS = 'The host manages your identity, presence, live lease renewal and delivery. Use bound tools for the user task. Initiate messages, broadcasts or subscriptions only when the task authorizes them. Follow the supplied instructions for leases, replies and completion; unfinished work stays pending. Use messages type read only for requested recovery. When no actionable work remains, end the turn. The host waits for mail and starts the next turn; do not sleep or poll to remain active.';
 
 export interface ProxyArgs {
   vendor?: string;

@@ -49,7 +49,7 @@ fn copied_match_pages_reject_same_count_source_edits() {
                     file.as_path()
                 };
                 let first = run_row(&query(scope, rule), &paths, &security);
-                let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
+                let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
                 assert!(next.is_object(), "{first}");
                 let copied = run_row(&next, &paths, &security);
                 assert_eq!(copied["files"][0]["matches"][0]["value"], "target(\"v1\")");
@@ -96,7 +96,7 @@ fn same_runtime_match_memo_rejects_restored_mtime_edits() {
             if cfg!(unix) {
                 assert!(SCANS.holds(snapshot), "settled scan must exercise the memo");
             }
-            let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
+            let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
             let copied = run_row(&next, &paths, &security);
             assert_eq!(copied["files"][0]["matches"][0]["value"], "target(\"v1\")");
             let modified = std::fs::metadata(&file)

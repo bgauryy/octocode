@@ -29,25 +29,17 @@ use crate::tools::source::Link;
 use octocode_engine::stamp::SourceStamp;
 #[cfg(test)]
 use std::path::{Path, PathBuf};
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
-
-const MAX_ENTRIES: usize = 8;
-/// Estimated bytes one stored scan may hold; a larger scan is not stored, so
-/// its continuations rescan instead.
-const MAX_BYTES: usize = 16 * 1024 * 1024;
-/// Estimated bytes all stored scans may hold together; the oldest go first.
-const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
-const TTL: Duration = Duration::from_secs(60);
+use std::{sync::Arc, time::SystemTime};
 
 struct Stored<T> {
     proof: Proof,
     scan: Arc<T>,
 }
 
-/// One store per scan type (the executor keeps one).
+/// One store per scan type (the executor keeps one), weighed in estimated
+/// bytes against the one process budget ([`crate::cache::MEMORY`]). One scan
+/// may use all of it, since a scan that is not stored costs a whole scan per
+/// page, which outweighs the entries it would displace.
 pub(super) struct ScanMemo<T> {
     store: PageMemo<Stored<T>>,
 }
@@ -55,7 +47,7 @@ pub(super) struct ScanMemo<T> {
 impl<T: Send + Sync + 'static> ScanMemo<T> {
     pub(super) const fn new() -> Self {
         Self {
-            store: PageMemo::new(TTL, MAX_ENTRIES, MAX_TOTAL_BYTES),
+            store: PageMemo::new(),
         }
     }
 
@@ -73,7 +65,7 @@ impl<T: Send + Sync + 'static> ScanMemo<T> {
     /// Keep `scan` for the pages after the first, stamped by what it
     /// [`Watch`]es: the source and discovery paths it observed and their
     /// directories, the ignore rules outside the walk, and the repository
-    /// markers' presence. Not stored when it is over budget, or when any
+    /// markers' presence. Not stored when it alone outweighs the store, or when any
     /// stamped entry was written within the settle window before `started`
     /// (or is gone).
     pub(super) fn put(
@@ -84,9 +76,6 @@ impl<T: Send + Sync + 'static> ScanMemo<T> {
         scan: Arc<T>,
         bytes: usize,
     ) {
-        if bytes > MAX_BYTES {
-            return;
-        }
         let Some(proof) = watch.capture(Link::Follow, Some(started)) else {
             return;
         };
@@ -111,6 +100,7 @@ impl<T: Send + Sync + 'static> ScanMemo<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     /// A watch of `root` and `sources` alone.
     fn watch<'a>(root: &'a Path, sources: &'a [PathBuf]) -> Watch<'a> {
@@ -224,6 +214,27 @@ mod tests {
         assert!(memo.store.contents().0.is_empty());
     }
 
+    /// A scan far larger than any per-store share, yet within the process
+    /// budget, is stored: refusing it would cost a whole scan on every later
+    /// page.
+    #[test]
+    fn one_scan_may_use_a_large_share_of_the_budget() {
+        let dir = tempfile::tempdir().expect("fixture");
+        let source = dir.path().join("a.ts");
+        std::fs::write(&source, "x").expect("fixture");
+        let memo = ScanMemo::<u32>::new();
+        memo.put(
+            ("whole".into(), "k".into()),
+            watch(dir.path(), std::slice::from_ref(&source)),
+            SystemTime::now()
+                + octocode_engine::stamp::SourceStamp::SETTLE
+                + std::time::Duration::from_secs(1),
+            Arc::new(3),
+            crate::cache::MEMORY.limit() / 4,
+        );
+        assert!(memo.get("whole", "k").is_some());
+    }
+
     impl ScanMemo<u32> {
         fn put_over_budget_is_skipped(
             &self,
@@ -236,7 +247,7 @@ mod tests {
                 watch(root, sources),
                 started,
                 Arc::new(3),
-                MAX_BYTES + 1,
+                crate::cache::MEMORY.limit() + 1,
             );
             self.get("big", "k").is_none()
         }

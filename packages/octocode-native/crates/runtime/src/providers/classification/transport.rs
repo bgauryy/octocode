@@ -236,7 +236,7 @@ pub(crate) async fn get(
 
 pub fn budget(
     deadline: Instant,
-    cancellation: tokio_util::sync::CancellationToken,
+    cancellation: octocode_io::cancellation::Cancellation,
 ) -> RequestBudget {
     RequestBudget::new(deadline, cancellation, MAX_BODY_BYTES)
 }

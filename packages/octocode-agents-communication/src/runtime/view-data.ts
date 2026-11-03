@@ -88,10 +88,10 @@ export function page(store: StoreHost, entity: string, after: string | null = nu
     if (key === 'q') {
       args.push(value);
       const n = args.length;
-      conditions.push(`(instr(lower(body),lower(?${n}))>0 OR instr(lower(senderName),lower(?${n}))>0 OR instr(lower(targetName),lower(?${n}))>0 OR instr(lower(conversationId),lower(?${n}))>0 OR CAST(id AS TEXT)=?${n})`);
+      conditions.push(`(instr(lower(parts),lower(?${n}))>0 OR instr(lower(senderName),lower(?${n}))>0 OR instr(lower(targetName),lower(?${n}))>0 OR instr(lower(contextId),lower(?${n}))>0 OR CAST(id AS TEXT)=?${n})`);
     } else if (key === 'conversation') {
       args.push(value);
-      conditions.push(`conversationId=?${args.length}`);
+      conditions.push(`contextId=?${args.length}`);
     } else if (key === 'status') {
       if (value !== 'pending' && value !== 'handled') throw new ValidationError('Unknown message status');
       conditions.push(value === 'pending' ? 'pending>0' : 'pending=0 AND recipients>0');
@@ -132,7 +132,7 @@ export function page(store: StoreHost, entity: string, after: string | null = nu
   const items = found.slice(0, count).map((row): ViewItem => {
     if (entity === 'records') return envelope(row);
     const item: Record<string, Json | undefined> = { ...row };
-    for (const field of ['data', 'topics']) {
+    for (const field of ['data', 'topics', 'parts']) {
       const column = row[field];
       if (typeof column === 'string') item[field] = JSON.parse(column);
     }

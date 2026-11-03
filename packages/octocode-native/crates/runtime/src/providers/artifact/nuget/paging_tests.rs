@@ -48,7 +48,7 @@ impl ArtifactHttp for SearchMock {
 async fn nuget_tail_pages_respect_page_size_past_the_skip_limit() {
     let http = SearchMock(Default::default());
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let q = artifact_query(
         json!({"operation":"search","ecosystem": ArtifactType::Nuget, "keywords": ["json"]}),
         None,
@@ -142,7 +142,7 @@ async fn latest_reads_past_any_number_of_prerelease_only_pages() {
         ),
     ]);
     let b = super::super::test_http::test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let q = super::super::query::artifact_query(
         json!({"operation":"resolve","ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json"}),
         None,

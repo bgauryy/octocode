@@ -2,8 +2,8 @@
 //! walk's diagnostics and partial reasons, pagination and the next page.
 use super::{TreePage, ast_search_query_syntax_tree};
 use crate::id::ToolId;
-use crate::num::usize_of;
 use octocode_contract_types::{AstSearchQuerySyntaxTree, ErrorCode};
+use octocode_engine::num::saturating_usize;
 use serde_json::json;
 
 /// The row of one read page: its nodes and diagnostics, pagination and the
@@ -51,11 +51,10 @@ pub(super) fn render_tree_page(
             .and_then(|diagnostic| diagnostic["message"].as_str())
             .unwrap_or("The syntax tree could not be built.");
         let mut out = json!({"operation":"syntaxTree","path":display_path,"status":"error","errorCode":code,"error":message});
-        if code == ErrorCode::LanguageUnsupported {
-            crate::response::result::attach_related(
-                &mut out,
-                super::super::output::unsupported_read(q.path.as_str()),
-            );
+        if code == ErrorCode::LanguageUnsupported
+            && let Some(read) = super::super::output::unsupported_read(q.path.as_str())
+        {
+            crate::response::result::attach_related(&mut out, read);
         }
         return out;
     }
@@ -72,7 +71,7 @@ pub(super) fn render_tree_page(
             ToolId::AstSearch,
             crate::response::result::query_row(q, &[]),
             "page",
-            usize_of(page) + 1,
+            saturating_usize(page) + 1,
             &[("snapshot", json!(snapshot))],
         ) {
             out["calls"] = json!({ "nextPage": lead });

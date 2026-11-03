@@ -5,6 +5,7 @@
 mod handler;
 mod listing;
 mod progress;
+mod resources;
 
 use handler::Handler;
 use octocode_native::config::RuntimeSurface;

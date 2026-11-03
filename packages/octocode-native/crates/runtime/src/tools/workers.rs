@@ -55,6 +55,30 @@ pub(crate) fn each_parallel<T: Send, R: Send>(
     done.into_iter().map(|(_, outcome)| outcome).collect()
 }
 
+/// [`each_parallel`] for fallible jobs: the outcomes in item order, or the
+/// first error by item index among the jobs that ran. Once a job fails,
+/// workers stop taking new items.
+pub(crate) fn try_each_parallel<T: Send, R: Send, E: Send>(
+    items: &mut [T],
+    workers: usize,
+    job: impl Fn(&mut T) -> Result<R, E> + Sync,
+) -> Result<Vec<R>, E> {
+    let failed = std::sync::atomic::AtomicBool::new(false);
+    each_parallel(items, workers, |item| {
+        if failed.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        let outcome = job(item);
+        if outcome.is_err() {
+            failed.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        Some(outcome)
+    })
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,6 +107,32 @@ mod tests {
             assert_eq!(out, (100..150).map(|n| n * 2).collect::<Vec<_>>());
             assert_eq!(items, (100..150).collect::<Vec<_>>());
         }
+    }
+
+    /// A failed job fails the fan-out with the lowest-index error that ran,
+    /// and a run without failures returns every outcome in item order.
+    #[test]
+    fn try_each_parallel_returns_outcomes_or_the_first_error() {
+        for threads in [1, 2, 7] {
+            let mut items = (0..50).collect::<Vec<u32>>();
+            let ok = try_each_parallel(&mut items, threads, |item| Ok::<_, u32>(*item + 1));
+            assert_eq!(ok, Ok((1..51).collect::<Vec<_>>()));
+            let mut items = (0..50).collect::<Vec<u32>>();
+            let failed = try_each_parallel(&mut items, threads, |item| {
+                if *item >= 10 { Err(*item) } else { Ok(*item) }
+            });
+            assert!(matches!(failed, Err(at) if at >= 10), "{failed:?}");
+        }
+        let mut items = (0..50).collect::<Vec<u32>>();
+        assert_eq!(
+            try_each_parallel(&mut items, 1, |item| if *item >= 10 {
+                Err(*item)
+            } else {
+                Ok(*item)
+            }),
+            Err(10),
+            "one worker stops at the first failure"
+        );
     }
 
     /// Concurrent calls' fan-outs draw on one process budget: while six

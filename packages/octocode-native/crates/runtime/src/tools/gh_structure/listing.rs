@@ -16,14 +16,14 @@ pub(super) async fn resolve_listing_ref(
     match query.ref_.as_deref() {
         Some(branch) => {
             let sha = provider
-                .resolve_reference(owner, repo, Some(branch), false, context)
+                .resolve_reference(owner, repo, Some(branch), context)
                 .await
                 .map_err(|error| missing_ref(error, owner, repo, branch))?;
             Ok((branch.to_owned(), sha))
         }
         None => Ok(tokio::try_join!(
             default_branch(provider, owner, repo, context),
-            provider.resolve_reference(owner, repo, None, false, context),
+            provider.resolve_reference(owner, repo, None, context),
         )?),
     }
 }
@@ -32,6 +32,8 @@ pub(super) async fn resolve_listing_ref(
 pub(super) struct ListingPage<'a> {
     pub(super) current: usize,
     pub(super) per_page: usize,
+    /// The caller's `limit`, when a dated page lists fewer entries than it.
+    pub(super) capped_from: Option<usize>,
     pub(super) total_entries: usize,
     pub(super) total_pages: usize,
     pub(super) entries: &'a [TreeEntry],
@@ -39,10 +41,21 @@ pub(super) struct ListingPage<'a> {
 
 impl<'a> ListingPage<'a> {
     pub(super) fn of(query: &GhStructureQueryTree, all: &'a [TreeEntry]) -> Self {
-        let current = query.page.map_or(1, crate::num::usize_of);
+        let current = query
+            .page
+            .map_or(1, |page| octocode_engine::num::saturating_usize(page.get()));
         // Entries per page: the query's `limit` (its contract default when
-        // omitted); the tree is held whole, so any size pages it losslessly.
-        let per_page = crate::num::usize_of(query.limit);
+        // omitted); each page reads the tree afresh at the pinned commit, so
+        // any size pages it losslessly. A dated page lists at most one date
+        // request's entries ([`dates::DATED_PER_PAGE`]): every page is one
+        // call, so `page` and `totalPages` count the calls of the walk. A
+        // materialized page is not dated and keeps the whole `limit`.
+        let limit = octocode_engine::num::saturating_usize(query.limit.get());
+        let per_page = if query.materialize == Some(true) {
+            limit
+        } else {
+            limit.min(dates::DATED_PER_PAGE)
+        };
         let total_entries = all.len();
         let total_pages = crate::response::page_windows::count_pages(total_entries, per_page);
         let start = current
@@ -53,6 +66,7 @@ impl<'a> ListingPage<'a> {
         Self {
             current,
             per_page,
+            capped_from: (per_page < limit).then_some(limit),
             total_entries,
             total_pages,
             entries: &all[start..end],
@@ -165,24 +179,7 @@ pub(super) fn entry_read(
     entries: &[TreeEntry],
     commit_sha: &str,
 ) -> Option<Value> {
-    let files = entries
-        .iter()
-        .filter(|entry| entry.kind == EntryKind::File)
-        .collect::<Vec<_>>();
-    let words = bare_words(query.include.iter().map(|word| word.as_str()));
-    let base_depth = query.path.as_deref().map_or(0, |path| {
-        path.split('/').filter(|part| !part.is_empty()).count()
-    });
-    let small = files.len() <= crate::tools::OUTLINE_LEAD_MAX_FILES;
-    let path = files
-        .iter()
-        .filter_map(|entry| {
-            let depth = entry.path.matches('/').count().saturating_sub(base_depth);
-            let rank = read_rank(&entry.path, depth, &words).or(small.then_some(RANK_ANY))?;
-            Some(((rank, depth, entry.path.as_str()), entry))
-        })
-        .min_by(|left, right| left.0.cmp(&right.0))
-        .map(|(_, entry)| entry.path.clone())?;
+    let path = entry_path(query, entries.iter())?;
     let mut read = json!({
         "owner": query.owner.as_str(),
         "repo": query.repo.as_str(),
@@ -193,6 +190,48 @@ pub(super) fn entry_read(
         read["view"] = json!("symbols");
     }
     Some(crate::response::result::Continuation::related(ToolId::GhGetFileContent, read).build())
+}
+
+/// The read a materialized listing leads to: [`entry_path`] over the entries
+/// the page wrote, read with localFetch from the local copy at `local`
+/// (`location.localPath`, the listed directory), outlined like the remote read.
+pub(super) fn local_entry_read<'a>(
+    query: &GhStructureQueryTree,
+    written: impl Iterator<Item = &'a TreeEntry>,
+    scope: &Scope,
+    local: &std::path::Path,
+) -> Option<Value> {
+    let path = entry_path(query, written)?;
+    let file = local.join(relative(&path, &scope.path));
+    let mut read = json!({"path": file.to_string_lossy()});
+    if crate::tools::outlines(&path) {
+        read["view"] = json!("symbols");
+    }
+    Some(crate::response::result::Continuation::related(ToolId::LocalFetch, read).build())
+}
+
+/// The best-ranked file of `entries` to read first (see [`entry_read`]).
+fn entry_path<'a>(
+    query: &GhStructureQueryTree,
+    entries: impl Iterator<Item = &'a TreeEntry>,
+) -> Option<String> {
+    let files = entries
+        .filter(|entry| entry.kind == EntryKind::File)
+        .collect::<Vec<_>>();
+    let words = bare_words(query.include.iter().map(|word| word.as_str()));
+    let base_depth = query.path.as_deref().map_or(0, |path| {
+        path.split('/').filter(|part| !part.is_empty()).count()
+    });
+    let small = files.len() <= crate::tools::OUTLINE_LEAD_MAX_FILES;
+    files
+        .iter()
+        .filter_map(|entry| {
+            let depth = entry.path.matches('/').count().saturating_sub(base_depth);
+            let rank = read_rank(&entry.path, depth, &words).or(small.then_some(RANK_ANY))?;
+            Some(((rank, depth, entry.path.as_str()), entry))
+        })
+        .min_by(|left, right| left.0.cmp(&right.0))
+        .map(|(_, entry)| entry.path.clone())
 }
 
 /// `include` entries that are bare words (no glob metacharacter or `/`),
@@ -278,14 +317,14 @@ pub(super) fn attach_continuations(
         })
     });
     if let Some(resume) = materialize_resume {
-        let mut next_query = query_row(query, &["dateOffset"]);
+        let mut next_query = query_row(query, &[]);
         next_query["page"] = json!(resume.page);
         next_query["materialize"] = json!(true);
         next_query["materializeOffset"] = json!(resume.offset);
         value["calls"]["continueMaterialize"] = continuation(next_query);
         mark_materialize_partial(value);
     } else if has_more && !materialize {
-        let mut next_query = query_row(query, &["dateOffset"]);
+        let mut next_query = query_row(query, &[]);
         next_query["page"] = json!(current + 1);
         value["calls"]["nextPage"] = continuation(next_query);
     }

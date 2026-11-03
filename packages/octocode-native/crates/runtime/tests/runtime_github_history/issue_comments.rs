@@ -54,7 +54,7 @@ async fn issue_comment_pages_fit_the_response_with_one_cursor() {
 /// its comments get less of the page than a comments-only hop would: the
 /// hop must still stop where the first window stopped, or it shows comments
 /// first at a later offset (their opening text never read) and its
-/// `nextCommentPage` skips them. Every lead of every response is followed;
+/// comment page skips them. Every lead of every response is followed;
 /// every body (the issue's and each comment's) arrives contiguous and
 /// exactly once, and no finished comment is listed again.
 #[tokio::test]
@@ -166,18 +166,16 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
         if let Some(next) = content["responsePagination"]["next"]["input"].as_object() {
             queue.push_back(serde_json::Value::Object(next.clone()));
         }
-        for (_, lead) in data["next"]
+        for page in data["issues"][0]["contentPagination"]
             .as_object()
             .into_iter()
             .flatten()
-            .filter(|(name, _)| {
-                matches!(
-                    name.as_str(),
-                    "continueBody" | "continueCommentBody" | "nextCommentPage"
-                )
-            })
+            .map(|(_, page)| page)
         {
-            queue.push_back(lead["input"].clone());
+            let lead = &page["next"]["nextPage"];
+            if lead.is_object() {
+                queue.push_back(lead["input"].clone());
+            }
         }
     }
     assert_eq!(relisted, 0, "finished comments listed again");

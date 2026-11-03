@@ -130,7 +130,8 @@ fn root_tree_leads_to_manifest() {
             .is_some_and(|path| path.ends_with("package.json")),
         "{out}"
     );
-    assert!(query.get("view").is_none(), "{out}");
+    // A plain read: the typed query names the `content` view it runs.
+    assert_eq!(query.get("view"), Some(&json!("content")), "{out}");
 }
 
 /// A tree ranks its read lead with the rule ghStructure uses
@@ -161,7 +162,7 @@ fn tree_read_lead_ranks_like_ghstructure() {
     leads(&["mm.mjs", "AGENTS.md"], "AGENTS.md");
     let (path, view) = lead(&["README.md", "package.json"]);
     assert!(path.ends_with("/package.json"), "{path}");
-    assert_eq!(view, None);
+    assert_eq!(view, Some(json!("content")));
     // Docs outline like ghStructure's read of the same file.
     let (path, view) = lead(&["README.md"]);
     assert!(path.ends_with("/README.md"), "{path}");

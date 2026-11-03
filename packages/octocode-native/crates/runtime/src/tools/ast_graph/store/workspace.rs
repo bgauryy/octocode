@@ -203,7 +203,10 @@ impl Workspace {
         self.all()
             .filter(|c| c.ecosystem == "go")
             .flat_map(|c| c.deps.iter())
-            .filter(|module| spec == module.as_str() || spec.starts_with(&format!("{module}/")))
+            .filter(|module| {
+                spec.strip_prefix(module.as_str())
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+            })
             .max_by_key(|module| module.len())
             .map(String::as_str)
     }

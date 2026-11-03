@@ -2,7 +2,9 @@
 //! assets, and judge the state.
 use super::{Row, RowOutcome, Target, max_state_chars};
 use crate::execution::ExecutionContext;
-use crate::tools::judgment::{ClassificationError, EvaluationInput, Evaluator};
+use crate::tools::judgment::{
+    ClassificationError, EvaluationInput, Evaluator, shared::Evaluations,
+};
 use crate::tools::source_capture::{self, Captured, SourceReader};
 
 fn rejected(error: ClassificationError, captured: Option<Box<Captured>>) -> RowOutcome {
@@ -15,6 +17,7 @@ fn rejected(error: ClassificationError, captured: Option<Box<Captured>>) -> RowO
 
 pub(super) fn evaluate_row(
     evaluator: &Evaluator,
+    evaluations: &Evaluations,
     row: &Row,
     target: &Target,
     dispatcher: &dyn SourceReader,
@@ -70,7 +73,8 @@ pub(super) fn evaluate_row(
         crate::tools::selection::serialized_chars(&state) > max_state_chars(false)
     });
     let state = super::rows::contextual_state(&state, row.context.as_deref());
-    let judged = dispatcher.handle().block_on(evaluator.evaluate_prepared(
+    let judged = dispatcher.handle().block_on(evaluator.evaluate_once(
+        evaluations,
         EvaluationInput {
             state: &state,
             questions: &row.questions,

@@ -26,12 +26,15 @@
   "scripts": {
     "build": "node scripts/build.ts",
     "clean": "rm -rf plugin.json mcp.json assets skills LICENSE",
-    "lint": "prettier --check package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md && yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint:own": "prettier --check package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
     "format": "prettier --write package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "test": "node --test tests/package.test.ts",
     "test:smoke": "node scripts/smoke.ts",
-    "verify": "yarn build && yarn lint && yarn typecheck && yarn test",
+    "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test",
+    "verify": "yarn verify:own && yarn lint:oxlint",
     "prepack": "yarn build && yarn typecheck && yarn test"
   },
   "devDependencies": {

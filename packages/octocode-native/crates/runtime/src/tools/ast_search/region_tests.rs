@@ -28,7 +28,7 @@ fn scoped_matches_keep_parent_context_and_page_all_counts_with_the_same_scope() 
                 seen.push(matched["line"].as_u64().expect("line"));
             }
         }
-        let Some(next) = result["next"]["nextMatchPage"]["input"].as_object() else {
+        let Some(next) = result["next"]["nextPage"]["input"].as_object() else {
             break;
         };
         next_query = Value::Object(next.clone());

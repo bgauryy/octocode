@@ -1,8 +1,10 @@
-//! Snapshot format, reuse, selection and pruning.
+//! Snapshot format, fresh builds, selection and pruning.
 use super::*;
 
+mod builds;
+
 #[test]
-fn older_analysis_is_readable_but_stale_and_never_reused() {
+fn older_analysis_is_readable_but_stale_and_rebuilt() {
     let dir = fixture();
     let first = ingest_fixture(dir.0.as_path(), None);
     let graph_dir = PathBuf::from(first.value["dir"].as_str().expect("dir"));
@@ -21,10 +23,9 @@ fn older_analysis_is_readable_but_stale_and_never_reused() {
     assert_eq!(stale.value["fresh"], false);
     let rebuilt = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(rebuilt.class, ExitClass::Success);
-    assert_ne!(rebuilt.value["reused"], true, "{}", rebuilt.value);
+    assert_fresh_build(&rebuilt);
     assert_ne!(rebuilt.value["id"], first.value["id"]);
-    let reused = ingest_fixture(dir.0.as_path(), None);
-    assert_eq!(reused.value["reused"], true);
+    assert_fresh_build(&ingest_fixture(dir.0.as_path(), None));
 }
 
 #[test]
@@ -134,32 +135,6 @@ fn same_second_retention_never_reuses_a_pruned_id_or_prunes_the_newest() {
     }
 }
 
-#[test]
-fn plan_9_unchanged_tree_reuses_the_latest_snapshot() {
-    let dir = fixture();
-    let first = ingest_fixture(dir.0.as_path(), None);
-    assert_eq!(first.class, ExitClass::Success);
-    let second = ingest_fixture(dir.0.as_path(), None);
-    assert_eq!(second.value["reused"], true, "{}", second.value);
-    assert_eq!(second.value["id"], first.value["id"]);
-    dir.write("app/src/a.ts", "export const a = 5;\n");
-    let third = ingest_fixture(dir.0.as_path(), None);
-    assert_ne!(third.value["reused"], true, "{}", third.value);
-    let forced = ingest(
-        &IngestOptions {
-            path: dir.0.as_path().join("app"),
-            workspace: Some(dir.0.as_path().to_path_buf()),
-            refresh: true,
-            ..Default::default()
-        },
-        &workspace_policy(dir.0.as_path()),
-        &ContentSecurity::new(),
-        &NeverCancel,
-        None,
-    );
-    assert_ne!(forced.value["reused"], true);
-}
-
 /// A snapshot of an older format (here v4, before diagnostics named their
 /// target file) is never reused: the next ingest rebuilds it, and queries
 /// answer from the rebuilt snapshot.
@@ -188,7 +163,7 @@ fn an_older_format_snapshot_is_rebuilt_not_reused() {
     );
     let second = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(second.class, ExitClass::Success, "{}", second.value);
-    assert_ne!(second.value["reused"], true, "{}", second.value);
+    assert_fresh_build(&second);
     assert_ne!(second.value["id"], first.value["id"]);
     let stats = ask(dir.0.as_path(), "stats", None, |_| {});
     assert_eq!(stats.class, ExitClass::Success, "{}", stats.value);
@@ -197,7 +172,7 @@ fn an_older_format_snapshot_is_rebuilt_not_reused() {
 /// A settled file records its stamp, an equal stamp proves the bytes
 /// without a read, and a same-size rewrite (new times) still rebuilds.
 #[test]
-fn settled_sources_reuse_by_stamp_and_a_same_size_edit_still_rebuilds() {
+fn settled_sources_prove_freshness_and_a_same_size_edit_is_detected() {
     let dir = fixture();
     octocode_engine::stamp::settle_written_so_far();
     let first = ingest_fixture(dir.0.as_path(), None);
@@ -207,7 +182,7 @@ fn settled_sources_reuse_by_stamp_and_a_same_size_edit_still_rebuilds() {
     let (tables, _) = format::decode(&bytes).expect("decode");
     assert_eq!(tables.digests.len(), 4);
     assert_eq!(tables.stamps.len(), 4, "every settled source is stamped");
-    // The unchanged-tree check decodes only the file index, the same one.
+    // The files-only oracle decodes the same persisted file index.
     let (files, files_digest) = format::decode_files(&bytes).expect("decode files");
     assert_eq!(files_digest, first.value["sha256"].as_str().expect("sha"));
     // Record strings only: their ids prefix the full dictionary, which adds
@@ -242,7 +217,7 @@ fn settled_sources_reuse_by_stamp_and_a_same_size_edit_still_rebuilds() {
     );
 
     let second = ingest_fixture(dir.0.as_path(), None);
-    assert_eq!(second.value["reused"], true, "{}", second.value);
+    assert_fresh_build(&second);
     // Same length, new content: the stamp moves, so the hash decides.
     let before = std::fs::read_to_string(&a).expect("a.ts");
     let after = before.replace("b()", "c()");
@@ -251,7 +226,7 @@ fn settled_sources_reuse_by_stamp_and_a_same_size_edit_still_rebuilds() {
     assert_eq!(source_matches(&a, digest, Some(stamp)), Some(false));
     let third = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(third.class, ExitClass::Success, "{}", third.value);
-    assert_ne!(third.value["reused"], true, "{}", third.value);
+    assert_fresh_build(&third);
     let stale = ask(dir.0.as_path(), "stale", None, |_| {});
     assert_eq!(stale.value["fresh"], true, "{}", stale.value);
 }

@@ -31,7 +31,7 @@ const HERMETIC = {
   'classification-retry': script('classification-retry'),
   'tool-health': script('tool-health'),
 };
-const LIVE_SUITES = { remote: script('remote'), 'lsp-importers': script('lsp-importers'), 'process-tree': ['--test', path.join(TESTING, 'harness', 'mcp-client.integration.mjs')] };
+const LIVE_SUITES = { remote: script('remote'), 'grammar-live': script('grammar-live'), 'lsp-importers': script('lsp-importers'), 'process-tree': ['--test', path.join(TESTING, 'harness', 'mcp-client.integration.mjs')] };
 const ALL = { ...HERMETIC, ...LIVE_SUITES };
 
 const named = process.argv[2]?.split(',');

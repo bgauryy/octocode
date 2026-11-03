@@ -85,7 +85,7 @@ async fn attestation_requests_keep_fake_credentials_on_the_registry_origin() {
             ),
         )]);
         let budget = test_budget();
-        let client = RegistryClient::uncached(&http, &budget);
+        let client = RegistryClient::new(&http, &budget);
         let registry = npmrc_registry(
             "https://registry.npmjs.org/",
             "//registry.npmjs.org/:_authToken=fake-test-token",
@@ -140,7 +140,7 @@ async fn npm_path_scoped_credentials_do_not_reach_sibling_attestations() {
             ),
         )]);
         let budget = test_budget();
-        let client = RegistryClient::uncached(&http, &budget);
+        let client = RegistryClient::new(&http, &budget);
         let registry = npmrc_registry(
             "https://registry.npmjs.org/api/npm/",
             &format!("//registry.npmjs.org{scope}:_authToken=fake-path-test-token"),
@@ -190,7 +190,7 @@ async fn npm_path_scoped_credentials_authorize_metadata_requests() {
         ),
     ]);
     let budget = test_budget();
-    let client = RegistryClient::uncached(&http, &budget);
+    let client = RegistryClient::new(&http, &budget);
     let registry = npmrc_registry(
         "https://registry.npmjs.org/api/npm/",
         "//registry.npmjs.org/api/npm/:_authToken=fake-metadata-token",

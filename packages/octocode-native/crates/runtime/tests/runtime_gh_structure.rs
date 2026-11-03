@@ -11,6 +11,7 @@ use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, path_regex, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod date_chunks;
 mod dates;
 mod listing;
 mod materialize;

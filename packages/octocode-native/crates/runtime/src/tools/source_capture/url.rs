@@ -174,7 +174,7 @@ impl Redaction<'_> {
         if self.emails {
             self.security.redact_emails(&text)
         } else {
-            text
+            text.into_owned()
         }
     }
 }

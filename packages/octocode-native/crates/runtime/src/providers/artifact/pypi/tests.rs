@@ -37,7 +37,6 @@ async fn pypi_version_lookups_pin_exact_and_specifier_forms() {
     let client = RegistryClient {
         http: &http,
         budget: &b,
-        cache: None,
         tags: Some(&tags),
     };
     let exact = pypi(
@@ -125,7 +124,7 @@ async fn pypi_pins_select_yanked_releases_and_ranges_name_them() {
         ("/pypi/requests/2.32.0/json", yanked),
     ]);
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     for pin in ["==2.32.0", "===2.32.0", "== 2.32.0"] {
         let page = pypi(&versioned(ArtifactType::Pypi, "requests", pin), &client)
             .await
@@ -182,7 +181,7 @@ async fn pypi_license_is_short_never_the_license_text() {
         }
         let http = RouteHttp::routes(vec![("/pypi/requests/2.31.0/json", release)]);
         let b = test_budget();
-        let client = RegistryClient::uncached(&http, &b);
+        let client = RegistryClient::new(&http, &b);
         let page = pypi(
             &versioned(ArtifactType::Pypi, "requests", "2.31.0"),
             &client,
@@ -212,7 +211,6 @@ async fn a_monorepo_pypi_release_is_pinned_to_its_prefixed_tag() {
     let client = RegistryClient {
         http: &http,
         budget: &b,
-        cache: None,
         tags: Some(&tags),
     };
     let page = pypi(
@@ -251,18 +249,16 @@ fn pypi_requirements_gated_by_an_extra_are_optional() {
 /// A found release tag is a release fact: the same release looked up
 /// again checks no tag on GitHub.
 #[tokio::test]
-async fn found_release_tags_are_remembered() {
+async fn release_tags_are_checked_for_each_lookup() {
     let http = RouteHttp::routes(vec![
         ("/pypi/requests/json", pypi_project()),
         ("/pypi/requests/2.31.0/json", pypi_release("2.31.0")),
     ]);
     let tags = KnownTags::new(vec!["psf/requests@v2.31.0"]);
-    let cache = super::super::ArtifactCache::new(None);
     let b = test_budget();
     let client = RegistryClient {
         http: &http,
         budget: &b,
-        cache: Some(&cache),
         tags: Some(&tags),
     };
     let query = versioned(ArtifactType::Pypi, "requests", "2.31.0");
@@ -273,7 +269,12 @@ async fn found_release_tags_are_remembered() {
     }
     assert_eq!(
         tags.seen(),
-        ["psf/requests@v2.31.0", "psf/requests@2.31.0"],
-        "one round of tag checks"
+        [
+            "psf/requests@v2.31.0",
+            "psf/requests@2.31.0",
+            "psf/requests@v2.31.0",
+            "psf/requests@2.31.0"
+        ],
+        "one round per lookup"
     );
 }

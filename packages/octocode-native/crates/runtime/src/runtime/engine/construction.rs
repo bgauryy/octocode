@@ -43,6 +43,10 @@ impl ToolRuntime {
     /// that answers a call from another process's runtime (the CLI's warm
     /// server client) prints its own configuration's, as an in-process
     /// start would.
+    #[expect(
+        clippy::print_stderr,
+        reason = "startup diagnostics go to stderr; stdout carries results and JSON-RPC"
+    )]
     pub fn print_startup_diagnostics(config: &ConfigOutput) {
         for diagnostic in startup_diagnostics(&config.diagnostics) {
             eprintln!("{diagnostic}");
@@ -157,21 +161,7 @@ impl ToolRuntime {
         let security = ContentSecurity::new();
         let requests =
             RequestRuntime::new(RequestLimits::default()).map_err(runtime_execution_error)?;
-        // Each response cache owns its directory, so one cache's budget or
-        // clear never touches the other's entries.
         let persistent = config::is_persistent_storage_enabled(&config.resolved);
-        let response_dir =
-            persistent.then(|| crate::cache::Directory::Response.path(&octocode_home));
-        let source_views = Arc::new(crate::tools::source_view::ViewCache::new(
-            persistent.then(|| crate::cache::Directory::Outline.path(&octocode_home)),
-        ));
-        let github_cache = super::super::github_cache::GitHubContentCache::new(
-            crate::cache::CacheConfig::default(),
-            response_dir,
-        );
-        let artifact_cache = Arc::new(crate::providers::artifact::ArtifactCache::new(
-            persistent.then(|| crate::cache::Directory::Artifact.path(&octocode_home)),
-        ));
         let lsp_execution_config = Arc::new(crate::tools::lsp_search::LspExecutionConfig {
             config_path: config.resolved.lsp.config_path.clone(),
             trust_project_config: config.resolved.lsp.trust_project_config,
@@ -193,11 +183,10 @@ impl ToolRuntime {
                 .collect(),
             octocode_home: Some(octocode_home),
             invocation_dir: Some(input.cwd.clone()),
-            lead_cache: std::sync::Arc::default(),
             prewarm_state: std::sync::Arc::default(),
         });
         let classification = crate::providers::classification::provider();
-        let evaluator = evaluator(&config, &limits, classification, persistent);
+        let evaluator = evaluator(&config, &limits, classification);
         let availability = Arc::new(crate::execution::availability::ToolAvailability::resolve(
             &config,
             input.runtime_surface,
@@ -205,13 +194,23 @@ impl ToolRuntime {
         let selection_available = selection_available(&config, &availability);
         let page_replays = Arc::new(PageReplayMemo::new(&config, &input.cwd));
         let cursors = Arc::new(super::cursors::Registry::new(
-            PageReplayMemo::cache_config(),
+            crate::cache::CacheConfig::derived(),
             persistent.then(|| crate::cache::Directory::Continuations.path(&config.home)),
             page_replays.policy.clone(),
         ));
         let section_sessions = Arc::new(crate::tools::clasify::sections::Sessions::new(
-            PageReplayMemo::cache_config(),
+            crate::cache::CacheConfig::derived(),
             persistent.then(|| crate::cache::Directory::SectionAssessments.path(&config.home)),
+            page_replays.policy.clone(),
+        ));
+        let lsp_answers = Arc::new(crate::tools::lsp_search::ContinuationAnswers::new(
+            crate::cache::CacheConfig::derived(),
+            persistent.then(|| crate::cache::Directory::LspAnswers.path(&config.home)),
+            page_replays.policy.clone(),
+        ));
+        let graph_rows = Arc::new(crate::tools::ast_graph::store::SavedRows::new(
+            crate::cache::CacheConfig::derived(),
+            persistent.then(|| crate::cache::Directory::GraphRows.path(&config.home)),
             page_replays.policy.clone(),
         ));
         // Notices reach stderr and the warm-server reply outside any
@@ -229,30 +228,27 @@ impl ToolRuntime {
             selection_available,
             paths: Arc::new(paths),
             security: Arc::new(security),
-            github_cache,
             github_services: Arc::new(std::sync::OnceLock::new()),
             owns_lsp_pool: lsp_pool.is_none(),
             lsp_pool: lsp_pool.unwrap_or_default(),
-            local_views: Arc::default(),
-            source_views,
             page_replays,
             cursors,
             section_sessions,
-            artifact_cache,
             lsp_execution_config,
+            lsp_answers,
+            graph_rows,
             workspace_root,
         })
     }
 }
 
 /// The one classification evaluator of a runtime: public clasify and every
-/// ranked read share its client, judgment cache and accounting. Judgments
-/// persist across processes only under persistent storage.
+/// ranked read share its client and accounting. Every assessment executes
+/// against the current source; derived judgments are not retained.
 fn evaluator(
     config: &ConfigOutput,
     limits: &RuntimeLimits,
     provider: &'static dyn crate::providers::classification::ClassificationProvider,
-    persistent: bool,
 ) -> crate::tools::judgment::Evaluator {
     crate::tools::judgment::Evaluator::new(
         crate::execution::availability::classification_key(config)
@@ -275,7 +271,6 @@ fn evaluator(
         limits.network_timeout,
         u32::from(limits.max_retries),
         limits.classification_concurrency,
-        persistent.then(|| crate::cache::Directory::Judgment.path(&config.home)),
         config::is_stats_enabled(&config.resolved).then(|| config.home.clone()),
     )
 }

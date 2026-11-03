@@ -14,7 +14,9 @@ pub(super) fn str_at<'a>(value: &'a Value, pointer: &str) -> Option<&'a str> {
     value.pointer(pointer).and_then(Value::as_str)
 }
 pub(super) fn usize_at(value: &Value, pointer: &str) -> usize {
-    crate::num::usize_of(value.pointer(pointer).and_then(Value::as_u64).unwrap_or(0))
+    octocode_engine::num::saturating_usize(
+        value.pointer(pointer).and_then(Value::as_u64).unwrap_or(0),
+    )
 }
 pub(super) fn nonzero(value: Option<&Value>) -> Option<u64> {
     value.and_then(Value::as_u64).filter(|v| *v > 0)

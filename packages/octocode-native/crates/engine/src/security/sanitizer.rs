@@ -2,10 +2,10 @@ use super::detector;
 use super::detector::{CONTENT_SIZE_LIMIT_PLACEHOLDER, MAX_CONTENT_SIZE, Scope};
 use super::types::SanitizationResult;
 
-pub fn sanitize_content(
-    content: &str,
+pub fn sanitize_content<'a>(
+    content: &'a str,
     file_path: Option<&str>,
-) -> crate::error::Result<SanitizationResult> {
+) -> crate::error::Result<SanitizationResult<'a>> {
     sanitize_in(content, file_path.map_or(Scope::Pathless, Scope::File))
 }
 
@@ -26,12 +26,15 @@ pub fn sanitize_leaf(
     })
 }
 
-fn sanitize_in(content: &str, scope: Scope<'_>) -> crate::error::Result<SanitizationResult> {
+fn sanitize_in<'a>(
+    content: &'a str,
+    scope: Scope<'_>,
+) -> crate::error::Result<SanitizationResult<'a>> {
     guarded(|| {
         // Redact oversized content before running any pattern detector.
         if content.len() > MAX_CONTENT_SIZE {
             return SanitizationResult {
-                content: CONTENT_SIZE_LIMIT_PLACEHOLDER.to_string(),
+                content: CONTENT_SIZE_LIMIT_PLACEHOLDER.into(),
                 has_secrets: true,
                 secrets_detected: vec!["content-size-exceeded".to_string()],
                 warnings: vec![format!(
@@ -42,14 +45,14 @@ fn sanitize_in(content: &str, scope: Scope<'_>) -> crate::error::Result<Sanitiza
         }
         let Some(result) = detector::redact(content, scope) else {
             return SanitizationResult {
-                content: content.to_owned(),
+                content: content.into(),
                 has_secrets: false,
                 secrets_detected: Vec::new(),
                 warnings: Vec::new(),
             };
         };
         SanitizationResult {
-            content: result.sanitized,
+            content: result.sanitized.into(),
             has_secrets: true,
             warnings: vec![format!(
                 "{} secret(s) redacted",
@@ -69,6 +72,15 @@ fn guarded<T>(scan: impl FnOnce() -> T + std::panic::UnwindSafe) -> crate::error
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clean_source_is_borrowed_without_copying_bytes() {
+        let content = "ordinary source line\n".repeat(4096);
+        let result = sanitize_content(&content, Some("src/plain.rs")).expect("scanned");
+        assert_eq!(result.content.as_ptr(), content.as_ptr());
+        assert_eq!(result.content, content);
+        assert!(!result.has_secrets);
+    }
 
     #[test]
     fn sanitize_content_redacts_oversized_content() {
@@ -124,7 +136,7 @@ mod tests {
                 sanitize_content(&token, None)
                     .expect("sanitized")
                     .content
-                    .as_str()
+                    .as_ref()
             )
         );
         assert!(!redacted.expect("redacted").contains("ghp_"));

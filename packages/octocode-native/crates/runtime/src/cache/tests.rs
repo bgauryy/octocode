@@ -14,13 +14,6 @@ fn key(resource: &str, credential: &str) -> CacheKey {
     }
 }
 
-/// A listing fresh for `seconds`, and a search page living as long.
-fn revalidate(seconds: u64) -> CacheClass {
-    CacheClass::Revalidate {
-        fresh: Duration::from_secs(seconds),
-    }
-}
-
 fn volatile(seconds: u64) -> CacheClass {
     CacheClass::Volatile {
         ttl: Duration::from_secs(seconds),

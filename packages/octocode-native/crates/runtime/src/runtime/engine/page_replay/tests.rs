@@ -2,8 +2,8 @@ use super::*;
 use crate::execution::ExecutionContext;
 use crate::id::ToolId;
 use crate::runtime::engine::cursors::{Pending, Registry, SavedWork};
-use std::time::Instant;
-use tokio_util::sync::CancellationToken;
+use octocode_io::cancellation::Cancellation;
+use std::time::{Duration, Instant};
 
 #[tokio::test]
 async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_reopen() {
@@ -14,7 +14,7 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
     );
     let access = page_replay_key("", true, &[], &[], None);
     let context = ExecutionContext {
-        cancellation: CancellationToken::new(),
+        cancellation: Cancellation::new(),
         deadline: Instant::now() + Duration::from_secs(30),
         response_window: None,
         github_credential: None,
@@ -33,7 +33,7 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
     assert_eq!(current, runtime.page_replays.policy);
     let make = |policy| {
         Registry::new(
-            PageReplayMemo::cache_config(),
+            crate::cache::CacheConfig::derived(),
             Some(runtime.config.home.join("tmp").join("continuations")),
             policy,
         )
@@ -92,7 +92,7 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
 }
 #[test]
 fn expired_response_guidance_uses_the_retained_page_lifetime() {
-    let lifetime = format!("{} seconds", super::RETENTION_IDLE.as_secs());
+    let lifetime = format!("{} seconds", super::CONTINUATION_IDLE.as_secs());
     for persistent in [true, false] {
         for mcp in [true, false] {
             let scope = RefusalScope { persistent, mcp };
@@ -125,15 +125,15 @@ fn expired_response_guidance_uses_the_retained_page_lifetime() {
 /// the walk an agent is still reading.
 #[test]
 fn a_burst_of_small_saved_work_never_evicts_an_active_walk() {
-    let store = crate::cache::Store::<usize>::new(PageReplayMemo::cache_config(), None);
+    let store = crate::cache::Store::<usize>::new(crate::cache::CacheConfig::derived(), None);
     let key = |index: usize| crate::cache::CacheKey {
         namespace: "burst".into(),
         scope: "policy".into(),
         resource: index.to_string(),
     };
-    store.put(key(0), 0, 1024, RETENTION);
+    store.put_confirmed(key(0), 0, 1024, CONTINUATION_RETENTION);
     for index in 1..=1024 {
-        store.put(key(index), index, 1024, RETENTION);
+        store.put_confirmed(key(index), index, 1024, CONTINUATION_RETENTION);
     }
     assert!(
         store.get(&key(0)).is_some(),

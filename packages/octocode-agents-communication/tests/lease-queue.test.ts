@@ -5,7 +5,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { JsonRecord } from './json-record.ts';
-import { binary, jsonCall, tempWorkspace, withReasoning, only } from './helpers.ts';
+import { binary, jsonCall, tempWorkspace, withReasoning, only, messageText } from './helpers.ts';
 
 function fixture(t: TestContext) {
   const workspace = tempWorkspace(t, 'communication-queue-', { real: true }), database = join(workspace, 'queue.sqlite');
@@ -15,7 +15,7 @@ function fixture(t: TestContext) {
   const join_ = (name: string) => call('join', { name, vendor: 'generic' }).id;
   const db = new DatabaseSync(database); t.after(() => db.close());
   const holder = (path: string) => db.prepare("SELECT s.name FROM leases l JOIN sessions s ON s.id=l.owner WHERE l.path LIKE ? AND l.expiresAt>?").get('%/' + path, Date.now())?.name;
-  const mail = (session: string): string[] => call('inbox', {}, session).items.map((item: JsonRecord) => item.body);
+  const mail = (session: string): string[] => call('inbox', {}, session).items.map((item: JsonRecord) => messageText(item.parts));
   return { call, join: join_, db, holder, mail, workspace };
 }
 
@@ -27,12 +27,12 @@ test('a conflict suggests queueing; a queued waiter is granted on unlock and wok
   assert.deepEqual(conflict.next, { command: 'lock', input: { path: 'a.ts', reasoning: conflict.next.input.reasoning, wait: true } });
   const queued = f.call(conflict.next.command, conflict.next.input, b);
   assert.equal(queued.queued, true);
-  assert.match(f.mail(a)[0], /^SBAR\nSituation: b is queued for a\.ts/);
+  assert.match(f.mail(a)[0], /^b is queued for a\.ts/);
   assert.equal(f.holder('a.ts'), 'a');
   assert.equal(f.call('unlock', { leaseId: lease.id }, a).released, true);
   assert.equal(f.holder('a.ts'), 'b');
   const [granted] = f.call('inbox', {}, b).items;
-  assert.match(granted.body, /^Delta update\nChanges:\n- Lease granted: a\.ts \(lease \d+\)/);
+  assert.match(messageText(granted.parts), /Lease granted: a\.ts \(lease \d+\)/);
   assert.equal(granted.wake, 'action');
   assert.equal(granted.replyRequired, false);
   assert.equal(only(f.db.prepare('SELECT count(*) n FROM lease_waits').get()).n, 0);
@@ -98,7 +98,7 @@ test('a queued set wait reserves its paths: a third agent cannot take one as it 
   assert.deepEqual([f.holder('a.ts'), f.holder('b.ts')], ['alice', 'alice']);
   const lastMail = f.mail(alice).at(-1);
   assert.ok(lastMail, 'alice has mail');
-  assert.match(lastMail, /^Delta update\nChanges:\n- Lease granted: a\.ts \(lease \d+\), b\.ts/);
+  assert.match(lastMail, /Lease granted: a\.ts \(lease \d+\), b\.ts/);
 });
 
 test('the reservation is first-come: later waiters queue behind it and unrelated paths stay free', t => {
@@ -147,5 +147,5 @@ test('leave, a direct lock and own overlapping leases end or refuse waits; an ow
   assert.match(f.call('lock', { path: 'a.ts', wait: true }, a).guidance, /You hold an overlapping lease/);
   f.call('leave', {}, a);
   assert.equal(f.holder('a.ts'), 'c', 'the owner leaving grants its lease to the waiter');
-  assert.match(f.mail(c).at(-1) ?? '', /^Delta update\nChanges:\n- Lease granted: a\.ts \(lease \d+\)/);
+  assert.match(f.mail(c).at(-1) ?? '', /^Lease granted: a\.ts \(lease \d+\)/);
 });

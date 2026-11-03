@@ -1,4 +1,4 @@
-//! Maven exact lookups: POM repositories, dependencies, release days, pinned versions and caching.
+//! Maven exact lookups: POM repositories, dependencies, release days and pinned versions.
 use super::super::query::artifact_query;
 use super::super::test_http::test_budget;
 use super::super::test_http::{KnownTags, RouteHttp};
@@ -29,7 +29,7 @@ fn guava_query() -> ArtifactSearchQuery {
 
 async fn exact_with(http: &RouteHttp) -> ArtifactItem {
     let b = test_budget();
-    let client = RegistryClient::uncached(http, &b);
+    let client = RegistryClient::new(http, &b);
     let page = maven(&guava_query(), &ArtifactProviderState::default(), &client)
         .await
         .expect("maven exact");
@@ -178,7 +178,7 @@ async fn maven_parses_exact_xml_lookup() {
         xml,
     );
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let q = artifact_query(
         json!({"operation":"resolve","ecosystem": ArtifactType::Maven, "packageName": "com.fasterxml.jackson.core:jackson-databind"}),
         None,
@@ -226,7 +226,6 @@ async fn maven_exact_version_reads_that_release_and_its_tag() {
     let client = RegistryClient {
         http: &http,
         budget: &b,
-        cache: None,
         tags: Some(&tags),
     };
     let page = maven(
@@ -306,17 +305,12 @@ async fn maven_dependency_properties_resolve_or_are_named() {
     assert_eq!(item.unresolved_properties, ["${failureaccess.version}"]);
 }
 
-/// Maven metadata and POMs are XML answers cached like JSON ones: a
-/// repeated exact lookup asks the registry nothing.
+/// Each exact lookup reads current metadata and POM XML.
 #[tokio::test]
-async fn maven_xml_answers_are_cached() {
+async fn maven_xml_answers_are_fetched_for_each_lookup() {
     let http = guava("<project><url>https://github.com/google/guava</url></project>");
-    let cache = super::super::ArtifactCache::new(None);
     let b = test_budget();
-    let client = RegistryClient {
-        cache: Some(&cache),
-        ..RegistryClient::uncached(&http, &b)
-    };
+    let client = RegistryClient::new(&http, &b);
     for _ in 0..2 {
         let page = maven(&guava_query(), &ArtifactProviderState::default(), &client)
             .await
@@ -331,5 +325,5 @@ async fn maven_xml_answers_are_cached() {
         .iter()
         .filter(|seen| seen.accept == "application/xml")
         .count();
-    assert_eq!(xml, 2, "metadata and POM once each");
+    assert_eq!(xml, 4, "metadata and POM for each lookup");
 }

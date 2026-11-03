@@ -330,3 +330,50 @@ fn a_match_with_hits_and_nothing_skipped_has_no_skipped_notice() {
     assert!(out.get("warnings").is_none(), "{out}");
     assert!(super::test_rows::skipped_call(&out).is_none(), "{out}");
 }
+
+/// A pattern that spells no body is the grammar's signature form: it hits
+/// the body-less signatures and none of the definitions, which the hint
+/// says (with the fuller kind to ask for). Spelling the body is no miss.
+#[test]
+fn a_bodiless_pattern_hints_at_the_fuller_declaration() {
+    let root = Fixture::new();
+    root.write(
+        "a.rs",
+        "trait T { fn sig(&self); }\nfn define(x: u8) { let _ = x; }\n",
+    );
+    let signature = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn $N($$$A)"}}),
+    );
+    assert_eq!(signature["matchCount"], json!(1), "{signature}");
+    let hints = signature["hints"].to_string();
+    assert!(hints.contains("function_item"), "{hints}");
+    assert!(hints.contains("function_signature_item"), "{hints}");
+    let definition = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn $N($$$A) { $$$ }"}}),
+    );
+    assert!(definition["matchCount"].as_u64() >= Some(1), "{definition}");
+    assert!(definition.get("hints").is_none(), "{definition}");
+}
+
+/// A cut probe proves a prefix of the skipped paths at most, so the lead is
+/// not narrowed to them; its disclosure says it walks all they hide.
+#[test]
+fn a_cut_probe_discloses_that_its_lead_walks_everything_the_causes_hide() {
+    let root = Fixture::new();
+    root.write("a.ts", "hit(1);\n");
+    for index in 0..50 {
+        root.write(&format!("dist/f{index}.ts"), "hit(2);\n");
+    }
+    let request = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}});
+    let out = crate::tools::empty_walk::with_probe_budget(std::time::Duration::ZERO, || {
+        run(&root.0, request)
+    });
+    let warnings = out["warnings"].to_string();
+    assert!(warnings.contains("not checked in time"), "{out}");
+    assert!(
+        warnings.contains(crate::tools::leads::skipped::WALKS_ALL_SKIPPED),
+        "{out}"
+    );
+}

@@ -1,9 +1,6 @@
 //! octocode-github's tests, grouped by concern; the shared fixtures live here.
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{header, method, path, query_param},
@@ -30,9 +27,6 @@ fn with_token(token: &str, timeout: Duration, max_body_bytes: usize) -> RequestC
     )
 }
 
-#[derive(Default)]
-struct MemoryCache(Mutex<Option<CachedContent>>);
-
 /// A 403 secondary rate limit, with `retry-after` when given.
 fn secondary_limit(retry_after: Option<&str>) -> ResponseTemplate {
     let response = ResponseTemplate::new(403)
@@ -48,78 +42,6 @@ fn secondary_limit(retry_after: Option<&str>) -> ResponseTemplate {
 
 fn ok_json() -> ResponseTemplate {
     ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": true}))
-}
-
-impl ConditionalCache for MemoryCache {
-    // Single-slot body cache: ref memo entries (`github-ref:`) are not stored
-    // so each test controls ref resolution through its mocks.
-    fn get<'a>(
-        &'a self,
-        _: &'a Partition,
-        key: &'a str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<CachedContent>> + Send + 'a>>
-    {
-        Box::pin(async move {
-            if key.starts_with("github-ref:") {
-                return None;
-            }
-            self.0.lock().expect("cache lock").clone()
-        })
-    }
-    fn put<'a>(
-        &'a self,
-        _: &'a Partition,
-        key: String,
-        value: CachedContent,
-        _: Retention,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            if !key.starts_with("github-ref:") {
-                *self.0.lock().expect("cache lock") = Some(value);
-            }
-        })
-    }
-}
-
-/// A keyed in-memory cache that honors partitions, for transport-level reads.
-#[derive(Default)]
-struct PartitionedCache(Mutex<std::collections::HashMap<(String, String), CachedContent>>);
-
-impl ConditionalCache for PartitionedCache {
-    fn get<'a>(
-        &'a self,
-        partition: &'a Partition,
-        key: &'a str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<CachedContent>> + Send + 'a>>
-    {
-        Box::pin(async move {
-            let mut value = self
-                .0
-                .lock()
-                .expect("cache lock")
-                .get(&(partition.identity().to_owned(), key.to_owned()))
-                .cloned()?;
-            // Pinned commits are fresh; everything else revalidates.
-            if key.starts_with("github-commit:") {
-                value.etag = None;
-            }
-            Some(value)
-        })
-    }
-    fn put<'a>(
-        &'a self,
-        partition: &'a Partition,
-        key: String,
-        value: CachedContent,
-        _: Retention,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            self.0
-                .lock()
-                .expect("cache lock")
-                .insert((partition.identity().to_owned(), key), value);
-        })
-    }
 }
 
 /// The GitHub endpoint `server` serves.
@@ -139,13 +61,12 @@ fn anonymous_transport(endpoint: &GitHubEndpoint) -> GitHubTransport {
 }
 
 /// A read of `path` in `a/b` at `main`.
-fn main_file(path: &str, force_refresh: bool) -> ContentRequest {
+fn main_file(path: &str) -> ContentRequest {
     ContentRequest {
         owner: "a".into(),
         repo: "b".into(),
         path: path.into(),
         reference: Some("main".into()),
-        force_refresh,
     }
 }
 
@@ -172,12 +93,11 @@ async fn provider(server: &MockServer) -> GitHubProvider {
             max_attempts: 2,
             base_delay: Duration::from_millis(1),
             max_retry_after: Duration::from_secs(1),
-            max_rate_limit_wait: Duration::from_secs(1),
         },
         GitHubBudget::relaxed(),
     )
     .expect("transport");
-    GitHubProvider::new(transport, MemoryCache::default())
+    GitHubProvider::new(transport)
 }
 
 fn breaker_budget(circuit_failures: u32) -> Arc<GitHubBudget> {
@@ -193,6 +113,16 @@ fn epoch_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock")
         .as_secs()
+}
+
+/// `template` reporting 1000 requests left, resetting 1000 × `spacing` + 10 s
+/// from now (under zero reset grace). Covered admissions burst; `spacing` is
+/// the reference interval for tests contrasting that with even spreading.
+fn reporting_quota_spacing(template: ResponseTemplate, spacing: Duration) -> ResponseTemplate {
+    let reset = epoch_secs() + 10 + u64::try_from(spacing.as_millis()).expect("spacing");
+    template
+        .insert_header("x-ratelimit-remaining", "1000")
+        .insert_header("x-ratelimit-reset", reset.to_string().as_str())
 }
 
 // ── Keyed executor: Octokit throttling/retry parity ─────────────────────────
@@ -225,7 +155,6 @@ fn short_retry() -> RetryPolicy {
         max_attempts: 3,
         base_delay: Duration::from_millis(1),
         max_retry_after: Duration::from_secs(5),
-        max_rate_limit_wait: Duration::from_secs(5),
     }
 }
 

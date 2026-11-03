@@ -9,7 +9,7 @@ use serde_json::json;
 /// The exact `Newtonsoft.Json` lookup against `http`.
 async fn newtonsoft_exact(http: &RouteHttp) -> ArtifactProviderPage {
     let b = test_budget();
-    let client = RegistryClient::uncached(http, &b);
+    let client = RegistryClient::new(http, &b);
     let q = artifact_query(
         serde_json::json!({"operation":"resolve","ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
         None,
@@ -142,7 +142,7 @@ async fn nuget_exact_version_reads_the_page_that_holds_it() {
         ("/v3/index.json", service_index()),
     ]);
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let lookup = |version: &str| {
         artifact_query(
             json!({"operation":"resolve","ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json", "version": version}),
@@ -274,7 +274,7 @@ async fn nuget_prefers_repository_object_over_project_url() {
         ("/v3/index.json", service_index()),
     ]);
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let q = artifact_query(
         serde_json::json!({"operation":"resolve","ecosystem": ArtifactType::Nuget, "packageName": "Serilog".to_string()}),
         None,

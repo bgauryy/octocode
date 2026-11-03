@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { toolResult } from './run-tool.mjs';
+import { createRun, toolResult } from './run-tool.mjs';
 
 function run(performanceCheck) {
   return {
@@ -23,4 +23,13 @@ test('explicit performance mode retains the latency oracle with supplied measure
   assert.equal(result.status, 'FAIL');
   assert.equal(result.checks.find(c => c.check === 'latency').ok, false);
   assert.equal(result.budgetMs, 25_000);
+});
+
+test('saved checks retain complete Unicode diagnostics and parseable evidence', () => {
+  const state = createRun({ surfaces: { ctx: {} } }, { name: 'localFetch', spec: {} });
+  const evidence = { missing: Array.from({ length: 100 }, (_, index) => `${index}: source 界😀`) };
+  const detail = JSON.stringify(evidence);
+  state.record('evidence', false, detail);
+  assert.equal(state.checks[0].detail, detail);
+  assert.deepEqual(JSON.parse(state.checks[0].detail), evidence);
 });

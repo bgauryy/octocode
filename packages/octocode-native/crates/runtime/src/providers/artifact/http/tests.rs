@@ -1,14 +1,10 @@
-//! Registry status classification and the answer cache.
+//! Registry status classification and independent fresh reads.
 use super::client::response_body;
-use super::{
-    ArtifactCache, ArtifactHttpResponse, JSON, REGISTRY_ANSWER, RegistryClient, cache_key,
-};
+use super::{ArtifactHttpResponse, JSON, RegistryClient};
 use crate::providers::artifact::ArtifactError;
+use crate::providers::artifact::test_http::SequenceHttp;
 use crate::providers::artifact::test_http::test_budget;
-use crate::providers::artifact::test_http::{NoHttp, SequenceHttp};
-use crate::tools::test_support::Fixture;
 use octocode_contract_types::{ArtifactType, ErrorCode};
-use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use url::Url;
 
@@ -47,7 +43,7 @@ fn malformed_requests_are_invalid_input_with_status() {
 fn registry_statuses_map_to_the_codes_github_reports() {
     for (status, code) in [
         (401u16, ErrorCode::Authentication),
-        (403, ErrorCode::Permission),
+        (403, ErrorCode::PermissionDenied),
         (410, ErrorCode::NotFound),
         (400, ErrorCode::InvalidInput),
         (422, ErrorCode::InvalidInput),
@@ -125,17 +121,16 @@ fn server_errors_say_retry_later() {
     );
 }
 
-/// No cache must bypass the in-process cache on both reads
+/// Every independent read reaches the registry.
 /// and writes: consecutive anonymous calls for the same URL always reach
 /// the HTTP layer.
 #[tokio::test]
-async fn cache_disabled_skips_cache_for_reads_and_writes() {
+async fn independent_reads_fetch_current_answers() {
     let http = SequenceHttp::new(vec![b"{\"name\":\"test\"}".to_vec()]);
     let budget = test_budget();
     let client = RegistryClient {
         http: &http,
         budget: &budget,
-        cache: None,
         tags: None,
     };
     let url = Url::parse("https://cache-disabled-test.invalid/pkg").expect("test URL");
@@ -144,24 +139,21 @@ async fn cache_disabled_skips_cache_for_reads_and_writes() {
         .json(ArtifactType::Npm, url.clone(), false, None, None, JSON)
         .await;
     assert_eq!(http.calls(), 1, "first call must hit HTTP");
-    // Second call with the same URL — must hit HTTP again (nothing written to cache).
+    // The second call with the same URL also reaches HTTP.
     let _ = client
         .json(ArtifactType::Npm, url, false, None, None, JSON)
         .await;
     assert_eq!(http.calls(), 2, "second call must hit HTTP without a cache");
 }
 
-/// A token-authorized read is cached under that credential only: the
-/// same token reads it once, another token or no token reads again.
+/// Every authorized read reaches the provider with its own credential.
 #[tokio::test]
-async fn authorized_reads_are_cached_per_credential() {
+async fn every_authorized_read_uses_its_current_credential() {
     let http = SequenceHttp::new(vec![b"{\"name\":\"private\"}".to_vec()]);
-    let cache = ArtifactCache::new(None);
     let budget = test_budget();
     let client = RegistryClient {
         http: &http,
         budget: &budget,
-        cache: Some(&cache),
         tags: None,
     };
     let url = Url::parse("https://authorized-cache-test.invalid/pkg").expect("test URL");
@@ -179,20 +171,17 @@ async fn authorized_reads_are_cached_per_credential() {
             .await
             .expect("read");
     }
-    assert_eq!(http.calls(), 3, "a, b and anonymous read once each");
+    assert_eq!(http.calls(), 5, "each independent call reaches HTTP");
 }
 
-/// A malformed registry body is never cached: the retry asks the
-/// registry again, succeeds, and the valid answer is what is cached.
+/// A malformed body fails, and each retry reads the provider again.
 #[tokio::test]
 async fn a_malformed_body_is_not_cached_and_the_retry_reads_again() {
     let http = SequenceHttp::new(vec![b"{\"name\":".to_vec(), b"{\"name\":\"ok\"}".to_vec()]);
-    let cache = ArtifactCache::new(None);
     let budget = test_budget();
     let client = RegistryClient {
         http: &http,
         budget: &budget,
-        cache: Some(&cache),
         tags: None,
     };
     let url = Url::parse("https://malformed-cache-test.invalid/pkg").expect("test URL");
@@ -202,96 +191,6 @@ async fn a_malformed_body_is_not_cached_and_the_retry_reads_again() {
         ErrorCode::ProviderError
     );
     assert_eq!(read().await.expect("retry").expect("body")["name"], "ok");
-    assert_eq!(read().await.expect("cached").expect("body")["name"], "ok");
-    assert_eq!(http.calls(), 2, "malformed, retry, then cache");
-}
-
-/// An invalid entry already in the cache reads as a miss and is replaced.
-#[tokio::test]
-async fn an_invalid_cached_entry_is_a_miss_and_is_replaced() {
-    let http = SequenceHttp::new(vec![b"{\"name\":\"fresh\"}".to_vec()]);
-    let dir = Fixture::new();
-    ArtifactCache::new(Some(dir.0.clone())).0.put(
-        cache_key(
-            &Url::parse("https://poisoned-cache-test.invalid/pkg").expect("URL"),
-            JSON,
-            None,
-        ),
-        serde_json::json!({"name": "stale"}),
-        16,
-        REGISTRY_ANSWER,
-    );
-    for file in crate::cache::tests::entry_files(&dir.0) {
-        std::fs::write(file, b"not json").expect("corrupt the entry");
-    }
-    let cache = ArtifactCache::new(Some(dir.0.clone()));
-    let budget = test_budget();
-    let client = RegistryClient {
-        http: &http,
-        budget: &budget,
-        cache: Some(&cache),
-        tags: None,
-    };
-    let url = Url::parse("https://poisoned-cache-test.invalid/pkg").expect("test URL");
-    for _ in 0..2 {
-        let value = client
-            .json(ArtifactType::Npm, url.clone(), false, None, None, JSON)
-            .await
-            .expect("read")
-            .expect("body");
-        assert_eq!(value["name"], "fresh");
-    }
-    assert_eq!(http.calls(), 1);
-}
-
-/// Immutable release facts are remembered by key while the cache is on.
-#[tokio::test]
-async fn release_facts_are_remembered_only_with_the_cache_on() {
-    let budget = test_budget();
-    let key = "crates:fact-test@1.0.0";
-    let fact = serde_json::json!({"sha": "abc"});
-    let off = RegistryClient::uncached(&NoHttp, &budget);
-    off.remember_fact(key, &fact).await;
-    assert_eq!(off.fact(key).await, None);
-    let cache = ArtifactCache::new(None);
-    let on = RegistryClient {
-        cache: Some(&cache),
-        tags: None,
-        ..off
-    };
-    assert_eq!(on.fact(key).await, None);
-    on.remember_fact(key, &fact).await;
-    assert_eq!(on.fact(key).await, Some(fact));
-}
-
-/// Each runtime owns its cache: a fact remembered under one home is not
-/// seen under another, while a later runtime on the same home reads it
-/// from disk.
-#[tokio::test]
-async fn runtimes_with_different_homes_do_not_share_registry_answers() {
-    let budget = test_budget();
-    let (first, second) = (Fixture::new(), Fixture::new());
-    let fact = serde_json::json!({"sha": "abc"});
-    fn client<'a>(cache: &'a ArtifactCache, budget: &'a RequestBudget) -> RegistryClient<'a> {
-        RegistryClient {
-            cache: Some(cache),
-            ..RegistryClient::uncached(&NoHttp, budget)
-        }
-    }
-    let one = ArtifactCache::new(Some(first.0.clone()));
-    client(&one, &budget)
-        .remember_fact("crates:isolated@1.0.0", &fact)
-        .await;
-    let other = ArtifactCache::new(Some(second.0.clone()));
-    assert_eq!(
-        client(&other, &budget).fact("crates:isolated@1.0.0").await,
-        None
-    );
-    let reopened = ArtifactCache::new(Some(first.0.clone()));
-    assert_eq!(
-        client(&reopened, &budget)
-            .fact("crates:isolated@1.0.0")
-            .await,
-        Some(fact)
-    );
+    assert_eq!(read().await.expect("fresh").expect("body")["name"], "ok");
+    assert_eq!(http.calls(), 3, "malformed, retry, independent fresh read");
 }

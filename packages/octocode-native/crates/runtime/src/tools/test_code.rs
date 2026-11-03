@@ -11,6 +11,7 @@
 //! leaves out is left out as a file in every view and tool.
 use crate::policy::path::PathPolicy;
 use octocode_contract_types::TestCode;
+use octocode_engine::types::TestCodeExcluded;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -148,7 +149,7 @@ impl TestCodeIndex {
         path: &Path,
         content: &str,
     ) -> Option<Arc<octocode_engine::graph::GraphFactsDocument>> {
-        crate::tools::declarations_cache::file_document(content, &path.to_string_lossy())
+        crate::tools::declarations::file_document(content, &path.to_string_lossy())
     }
 
     /// Whether the Rust file `path` is a module its parent mounts only under
@@ -277,9 +278,9 @@ impl Scoped {
     }
 
     /// What the scope left out so far.
-    pub(crate) fn excluded(&self) -> Excluded {
-        let whole = crate::num::u32_of_usize(lock(&self.whole).len());
-        Excluded {
+    pub(crate) fn excluded(&self) -> TestCodeExcluded {
+        let whole = octocode_engine::num::saturating_u32(lock(&self.whole).len());
+        TestCodeExcluded {
             files: self
                 .files
                 .load(std::sync::atomic::Ordering::Relaxed)
@@ -287,28 +288,6 @@ impl Scoped {
             lines: self.lines.load(std::sync::atomic::Ordering::Relaxed),
         }
     }
-}
-
-/// What a scope left out (`testCodeExcluded`): files left out whole (unread
-/// by where they lie, or read and wholly on the other side), and hit lines
-/// (listings: entries) inside the other searched files.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct Excluded {
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub(crate) files: u32,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub(crate) lines: u32,
-}
-
-impl Excluded {
-    /// The disclosure of a scope that left something out; `None` otherwise.
-    pub(crate) fn stated(self) -> Option<Self> {
-        (self.files > 0 || self.lines > 0).then_some(self)
-    }
-}
-
-fn is_zero(count: &u32) -> bool {
-    *count == 0
 }
 
 /// The engine text search's scope for `keep`, reading spans through `index`.
@@ -328,7 +307,7 @@ pub(crate) fn text_scope(
 /// `spans` of `content`, or [`WHOLE_FILE`] when one covers every line
 /// (`#![cfg(test)]` spans the file).
 fn whole_or(spans: Vec<[u32; 2]>, content: &str) -> Vec<[u32; 2]> {
-    let last = crate::num::u32_of_usize(content.lines().count().max(1));
+    let last = octocode_engine::num::saturating_u32(content.lines().count().max(1));
     if spans.iter().any(|[start, end]| *start <= 1 && *end >= last) {
         vec![WHOLE_FILE]
     } else {

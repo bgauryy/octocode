@@ -6,11 +6,11 @@ use super::super::walked::Walked;
 use super::super::{Resumes, Walking, end_window, rows, walk_error};
 use super::Listing;
 use crate::execution::cancel::CancellationCheck;
-use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
-use octocode_contract_types::StructureSearchQueryFilesSortVariant0By as SortKey;
+use octocode_contract_types::StructureSearchSortAnyOrderBy as SortKey;
+use octocode_engine::num::saturating_u32;
 use octocode_engine::types::{FileKind, FileSystemQueryOptions};
 
 /// Walk once: rows ranked by the query's sort and cut to `requested`,
@@ -52,9 +52,9 @@ pub(super) fn walk_listing<Q: Listing>(
     // any other listing walks its whole scope, bounded only by time, so
     // its sort ranks every entry.
     let walk_limit = if bound.is_some() {
-        Some(u32_of_usize(requested))
+        Some(saturating_u32(requested))
     } else if q.early_exit() {
-        Some(u32_of_usize(window_end))
+        Some(saturating_u32(window_end))
     } else {
         None
     };
@@ -88,7 +88,7 @@ pub(super) fn walk_listing<Q: Listing>(
     // from the count's start so a walk that spent its own budget still ranks
     // what it walked. Counting is part of the walk: a budget spent before
     // every file is counted cuts the walk at the first uncounted one
-    // ([`cut_walk_before`]), and `next.continueWalk` resumes there.
+    // ([`cut_walk_before`]), and `next.nextPage` resumes there.
     let mut lines = if sort_key(&sort) == Some(SortKey::LineCount) && bound.is_none() {
         let (lines, cut) = rows::count_lines(
             &native
@@ -163,15 +163,17 @@ impl TestCodeLeft {
     }
 
     /// The entries left out at walk positions through `through`.
-    fn through(self, through: usize) -> crate::tools::test_code::Excluded {
+    fn through(self, through: usize) -> octocode_engine::types::TestCodeExcluded {
         let left = self
             .left
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        crate::tools::test_code::Excluded {
-            files: crate::num::u32_of_usize(
+        octocode_engine::types::TestCodeExcluded {
+            files: saturating_u32(
                 left.iter()
-                    .filter(|position| crate::num::usize_of(**position) <= through)
+                    .filter(|position| {
+                        octocode_engine::num::saturating_usize(**position) <= through
+                    })
                     .count(),
             ),
             lines: 0,
@@ -181,7 +183,7 @@ impl TestCodeLeft {
 
 /// End the walk before `native.entries[at]`, as its time budget does: the
 /// entry and every one after it in walk order are uninspected, and
-/// `next.continueWalk` resumes there.
+/// `next.nextPage` resumes there.
 fn cut_walk_before(native: &mut octocode_engine::types::FileSystemQueryResult, at: usize) {
     let Some(first) = native.entries.get(at) else {
         return;

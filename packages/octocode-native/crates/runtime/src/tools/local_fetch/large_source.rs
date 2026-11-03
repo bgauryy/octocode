@@ -5,18 +5,21 @@
 //! file before cutting a window. A larger source (logs, dumps, generated
 //! code) is instead streamed once: the whole-file SHA-256 and line count are
 //! computed on the fly, only the requested line window is kept (byte-capped,
-//! so even one multi-GB line cannot allocate unbounded), and every window
+//! so even one multi-GB line cannot allocate unbounded; a match scan slides
+//! a bounded text window over the source the same way), and every window
 //! line inside a private-key block is replaced before the window reaches the
 //! regular sanitizer, whichever side of the window the block's markers fall
 //! on. The window then goes through the normal pipeline, and its positions,
 //! totals, digest, and continuations are mapped back to the whole file.
 
 use crate::tools::source_view::local_fetch_query;
+mod edges;
 mod held;
-mod index;
 mod matches;
 mod page;
+mod proven;
 mod ranges;
+mod scan;
 mod stream;
 mod window;
 
@@ -41,6 +44,26 @@ pub(super) const WINDOW_BYTES: usize = 4 * 1024 * 1024;
 const BYTE_LOOKBEHIND: usize = 1024 * 1024;
 /// Line prefix kept for private-key marker detection outside the window.
 const MARKER_PREFIX_BYTES: usize = 256;
+
+#[cfg(test)]
+thread_local! {
+    /// Source bytes this thread's streamed reads took in.
+    static SOURCE_BYTES_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Count `bytes` read from a streamed source.
+fn count_read(bytes: usize) {
+    #[cfg(test)]
+    SOURCE_BYTES_READ.with(|read| read.set(read.get() + bytes));
+    #[cfg(not(test))]
+    let _ = bytes;
+}
+
+/// Source bytes this thread's streamed reads took in so far.
+#[cfg(test)]
+fn source_bytes_read() -> usize {
+    SOURCE_BYTES_READ.with(std::cell::Cell::get)
+}
 
 struct Streamed {
     digest: String,
@@ -96,16 +119,11 @@ pub(super) fn fetch_window(
     cancel: &impl CancellationCheck,
 ) -> LocalFetchResult {
     let len = meta.len();
-    // Taken before any byte is read: a write during the pass changes it.
-    let stamp = crate::tools::source::cache_stamp(meta).filter(|_| {
-        octocode_engine::stamp::SourceStamp::settled(meta, octocode_engine::stamp::settle_clock())
-            .is_some()
-    });
     let source = Opened {
         file: source,
         path,
-        stamp,
         len,
+        proven: None,
     };
     if local_fetch_query::view(q) == ReadView::Content
         && local_fetch_query::block(q)

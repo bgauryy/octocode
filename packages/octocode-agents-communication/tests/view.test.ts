@@ -33,9 +33,9 @@ async function fixture(t:TestContext){
 
 test('view exposes live workspace entities read-only, with bounded complete pagination',async t=>{
  const f=await fixture(t),db=new DatabaseSync(f.database);t.after(()=>db.close());
- for(let i=0;i<115;i++)f.call('send_message',{to:f.b,body:`message ${i} <script>not executable</script>`,conversationId:i<60?'older-thread':'recent-thread',reasoning:'Exercise observer pagination'},f.a);
- const request=f.call('send_message',{to:f.a,question:'Please review',reasoning:'Verify request and completion visibility'},f.b);
- const answer=f.call('complete',{message:request.id,outcome:'done',reply:{conclusion:'Reviewed'}},f.a);
+ for(let i=0;i<115;i++)f.call('send_message',{parts: [{ text: `message ${i} <script>not executable</script>` }], to:f.b,contextId:i<60?'older-thread':'recent-thread',reasoning:'Exercise observer pagination'},f.a);
+ const request=f.call('send_message',{parts: [{ text: 'Please review' }], replyRequired: true, to:f.a,reasoning:'Verify request and completion visibility'},f.b);
+ const answer=f.call('complete',{message:request.id,outcome:"completed",reply:[{ text:'Reviewed' }]},f.a);
  f.call('lock',{path:'active.rs',reasoning:'Owned edit',ttlMs:600000},f.a);
  const old=f.call('lock',{path:'expired.rs',reasoning:'Old edit',ttlMs:1000},f.b);
  db.prepare('UPDATE leases SET expiresAt=0 WHERE id=?').run(old.lease.id);
@@ -61,10 +61,11 @@ test('view exposes live workspace entities read-only, with bounded complete pagi
  f.call('set_status',{status:'blocked',task:'Waiting for review'},f.a);
  assert.equal((await f.get('api/session?agent='+f.a)).items[0].status,'blocked','Existing observer reads fresh committed state');
  const oldest=await f.get('api/message?q='+encodeURIComponent('message 0 <script>'));
- assert.equal(oldest.items.length,1);assert.equal(oldest.items[0].body,'message 0 <script>not executable</script>');
+ assert.equal(oldest.items.length,1);assert.deepEqual(oldest.items[0].parts,[{text:'message 0 <script>not executable</script>'}]);
  assert.ok(oldest.items[0].createdAt>0);assert.equal(oldest.items[0].senderVendor,'codex');
  assert.equal((await f.get('api/summary')).counts.messages,117);
  let thread=await f.get('api/message?conversation=older-thread');const threadIds=thread.items.map((r:JsonRecord)=>r.id);
+ assert.ok(thread.items.every((r:JsonRecord)=>r.contextId==='older-thread'));
  assert.equal(thread.items.length,50);assert.match(thread.next,/^[A-Za-z0-9_-]+$/,'a base64url cursor');
  const tail=await f.get('api/message?conversation=older-thread&after='+thread.next);threadIds.push(...tail.items.map((r:JsonRecord)=>r.id));
  assert.equal(threadIds.length,60);assert.equal(new Set(threadIds).size,60);assert.equal(tail.next,null);
@@ -73,7 +74,7 @@ test('view exposes live workspace entities read-only, with bounded complete pagi
  assert.ok((await f.get('api/message?status=pending')).items.every((r:JsonRecord)=>r.pending>0));
  assert.equal((await f.get('api/message?agent='+f.b+'&q='+encodeURIComponent('Please review'))).items.length,1,'Agent filter includes sent messages');
  assert.equal((await f.get('api/message?agent='+f.a+'&q='+encodeURIComponent('Please review'))).items.length,1,'Agent filter includes received messages');
- f.call('send_message',{to:f.b,body:'Résumé + 100% & history',reasoning:'UTF-8 literal search'},f.a);
+ f.call('send_message',{parts: [{ text: 'Résumé + 100% & history' }], to:f.b,reasoning:'UTF-8 literal search'},f.a);
  assert.equal((await f.get('api/message?q='+encodeURIComponent('Résumé + 100% &'))).items.length,1);
  assert.equal((await f.get('api/message?q='+encodeURIComponent("' OR 1=1 --"))).items.length,0);
  db.prepare('UPDATE sessions SET expiresAt=0 WHERE id=?').run(f.a);

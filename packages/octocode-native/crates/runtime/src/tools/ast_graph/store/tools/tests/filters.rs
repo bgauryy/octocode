@@ -147,7 +147,14 @@ fn engine_continuations_carry_sources_reasons_and_the_provenance_choice() {
     use crate::tools::ast_graph::store::{Channel, Resume};
     assert!(matches!(
         page.next.as_slice(),
-        [(Channel::NextPage, Resume::Row { list: None, cycle: None, .. })]
+        [(
+            Channel::NextPage,
+            Resume::Row {
+                list: None,
+                cycle: None,
+                ..
+            }
+        )]
     ));
     assert!(page.value["rows"][0]["derivation"].is_object());
     let lean = ask(&|o| o.targets = vec!["a.ts".into()]);

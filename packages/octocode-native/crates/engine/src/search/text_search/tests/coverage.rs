@@ -52,7 +52,7 @@ fn collection_errors_preserve_successful_files() {
 #[test]
 fn oversize_file_is_skipped_with_diagnostic_and_normal_file_still_matches() {
     // A file above the byte ceiling is skipped before it is searched and
-    // surfaced as a `maxFileSize` diagnostic; a normal file still matches.
+    // surfaced as a `fileTooLarge` diagnostic; a normal file still matches.
     let t = TmpDir::new();
     t.write("small.txt", "needle\n"); // 7 bytes, under the ceiling
     t.write("big.txt", "needle ".repeat(50)); // 350 bytes, over the ceiling

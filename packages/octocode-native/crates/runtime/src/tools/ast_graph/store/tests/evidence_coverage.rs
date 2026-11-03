@@ -206,7 +206,10 @@ fn aggregate_evidence_capability_uses_snapshot_values_and_survives_paging() {
                     }
                     assert_eq!(page.value["pagination"]["totalItems"], 2);
                     assert_eq!(page.value["rows"].as_array().unwrap().len(), 1);
-                    assert_eq!(crate::tools::ast_graph::test_support::next_offset(&page).is_some(), offset == 0);
+                    assert_eq!(
+                        crate::tools::ast_graph::test_support::next_offset(&page).is_some(),
+                        offset == 0
+                    );
                 }
             }
         }

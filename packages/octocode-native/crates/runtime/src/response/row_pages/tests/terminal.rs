@@ -4,12 +4,19 @@ use crate::id::ToolId;
 
 fn pages(data: Value, tool: ToolId, ordinary: usize, terminal: Option<usize>) -> Vec<Value> {
     let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
-        .plan_with_terminal(ordinary, terminal, &CancellationToken::new())
+        .plan_with_terminal(
+            PageBudget {
+                rows: ordinary,
+                terminal,
+                envelope: 0,
+            },
+            &Cancellation::new(),
+        )
         .unwrap();
     (0..plan.total_pages)
         .map(|page| {
             json!(
-                plan.build_page(page, &[None], &[], &CancellationToken::new())
+                plan.build_page(page, &[None], &[], &Cancellation::new())
                     .unwrap()
             )
         })

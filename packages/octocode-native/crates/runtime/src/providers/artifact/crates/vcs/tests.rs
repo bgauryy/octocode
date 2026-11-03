@@ -48,9 +48,9 @@ fn an_oversized_wanted_or_long_name_entry_is_never_buffered() {
     assert_eq!(archive_entry(&bytes, "x"), None);
 }
 
-/// A published crate's VCS info is read from its archive once.
+/// Each lookup streams the published crate's VCS info from its archive.
 #[tokio::test]
-async fn crate_vcs_info_is_downloaded_once() {
+async fn crate_vcs_info_is_read_for_each_lookup() {
     let name = "vcs-once";
     let info = br#"{"git":{"sha1":"b6a77c4413f902523646be0d7f5520631df53ff6"},"path_in_vcs":"x"}"#;
     let entry = format!("{name}-1.0.0/.cargo_vcs_info.json");
@@ -60,11 +60,9 @@ async fn crate_vcs_info_is_downloaded_once() {
         b'0',
     )])]);
     let budget = crate::providers::artifact::test_http::test_budget();
-    let cache = crate::providers::artifact::ArtifactCache::new(None);
     let client = RegistryClient {
         http: &http,
         budget: &budget,
-        cache: Some(&cache),
         tags: None,
     };
     let expected = Some((
@@ -73,7 +71,7 @@ async fn crate_vcs_info_is_downloaded_once() {
     ));
     assert_eq!(crate_vcs(name, "1.0.0", &client).await, expected);
     assert_eq!(crate_vcs(name, "1.0.0", &client).await, expected);
-    assert_eq!(http.calls(), 1);
+    assert_eq!(http.calls(), 2);
 }
 
 /// The archive streams in and the download stops at the VCS entry:
@@ -109,7 +107,7 @@ async fn crate_vcs_info_stops_the_download_at_its_entry() {
         };
         let http =
             crate::providers::artifact::test_http::ChunkedHttp::new(test_archive(&entries), 4096);
-        let client = RegistryClient::uncached(&http, &budget);
+        let client = RegistryClient::new(&http, &budget);
         assert_eq!(
             crate_vcs(name, "1.0.0", &client).await,
             Some(("b6a77c4413f902523646be0d7f5520631df53ff6".to_owned(), None))

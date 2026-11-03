@@ -3,6 +3,7 @@ mod auth;
 mod dates;
 pub mod login;
 
+pub(crate) use auth::CallSelection;
 pub use auth::{
     AuthMode, AuthSelection, Authentication, CredentialStore, OAuthToken, StoredCredentials,
     configured_credential_host,

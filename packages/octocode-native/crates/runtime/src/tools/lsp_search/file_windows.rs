@@ -6,7 +6,7 @@
 //! instead of skipping or repeating items. Each owner computes its own
 //! digest (its snapshot salt).
 
-use crate::num::u32_of_usize;
+use octocode_engine::num::saturating_u32;
 use std::ops::Range;
 
 #[derive(Debug)]
@@ -41,7 +41,7 @@ impl<T> FileWindows<T> {
 
     /// Window count; an empty list has one (empty) window.
     pub(super) fn pages(&self) -> u32 {
-        u32_of_usize(crate::response::page_windows::count_pages(
+        saturating_u32(crate::response::page_windows::count_pages(
             self.items.len(),
             self.size,
         ))
@@ -55,7 +55,7 @@ impl<T> FileWindows<T> {
 
     /// The window that holds item `index`, one-based.
     pub(super) fn page_of(&self, index: usize) -> u32 {
-        u32_of_usize(index / self.size + 1)
+        saturating_u32(index / self.size + 1)
     }
 
     /// Whether one-based `page` is a window of this list and `expected` (the

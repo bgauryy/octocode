@@ -10,8 +10,8 @@ use serde_json::Value;
 use std::error::Error;
 use tool_channels::render_error_codes;
 pub(super) use tool_listing_roles::render_listing_roles;
+use tool_query_limits::query_variants;
 pub(super) use tool_query_limits::render_query_limits;
-use tool_query_limits::{query_variants, resolve_schema_ref};
 
 /// `ToolId` identity and policy, generated from the contract's `tools[]`
 /// (`name`, `family`, `beta` are authored once in core
@@ -23,7 +23,7 @@ pub(super) fn render_tool_ids(contract: &Value) -> Result<String, Box<dyn Error>
         .ok_or_else(|| invalid("tool contract has no tools[]"))?;
     let mut arms = ToolArms::default();
     for (index, tool) in tools.iter().enumerate() {
-        arms.push(tool, &format!("tools[{index}]"))?;
+        arms.push(tool, &format!("tools[{index}]"), contract)?;
     }
     let mut policy = render_limits(contract)?;
     policy.push_str(&render_semantic_policies(tools)?);
@@ -41,11 +41,14 @@ struct ToolArms {
     titles: String,
     beta: Vec<String>,
     github: Vec<String>,
+    lsp_servers: Vec<String>,
+    row_page_window: Vec<String>,
+    output_defaults: Vec<bool>,
 }
 
 impl ToolArms {
     /// Add the rows of `tool`, the contract entry at `path`.
-    fn push(&mut self, tool: &Value, path: &str) -> Result<(), Box<dyn Error>> {
+    fn push(&mut self, tool: &Value, path: &str, contract: &Value) -> Result<(), Box<dyn Error>> {
         let name = string(
             tool.get("name")
                 .ok_or_else(|| invalid(format!("{path} has no name")))?,
@@ -68,7 +71,37 @@ impl ToolArms {
         if bool_value(tool.get("beta"), false, &format!("{path}.beta"))? {
             self.beta.push(format!("Self::{variant}"));
         }
+        if bool_value(
+            tool.get("rowPageWindow"),
+            false,
+            &format!("{path}.rowPageWindow"),
+        )? {
+            self.row_page_window.push(format!("Self::{variant}"));
+        }
+        let facts = match tool.get("hostFacts") {
+            None => &[][..],
+            Some(value) => value
+                .as_array()
+                .map(Vec::as_slice)
+                .ok_or_else(|| invalid(format!("{path}.hostFacts is not an array")))?,
+        };
+        // A host fact native does not render fails the build, never a silent omission.
+        for fact in facts {
+            match fact.as_str() {
+                Some("lspServers") => self.lsp_servers.push(format!("Self::{variant}")),
+                _ => {
+                    return Err(invalid(format!(
+                        "{path}.hostFacts: unknown host fact {fact}"
+                    )));
+                }
+            }
+        }
         self.variants.push(variant);
+        self.output_defaults
+            .push(super::schema_defaults::has_default(
+                &tool["outputSchema"],
+                contract,
+            ));
         Ok(())
     }
 
@@ -102,6 +135,11 @@ impl ToolArms {
              \x20   /// in that order, so a per-tool table indexes by it.\n\
              \x20   #[must_use]\n\
              \x20   pub const fn index(self) -> usize {{\n        self as usize\n    }}\n\n\
+             \x20   /// Whether output validation may insert a declared default.\n\
+             \x20   /// Build-time contract facts: no per-request map or lock.\n\
+             \x20   pub const fn output_has_defaults(self) -> bool {{\n\
+             \x20       const DECLARED: [bool; {count}] = {output_defaults:?};\n\
+             \x20       DECLARED[self.index()]\n    }}\n\n\
              \x20   /// The wire name exactly as it appears in the contract and in tool-call envelopes.\n\
              \x20   #[must_use]\n\
              \x20   pub const fn as_str(self) -> &'static str {{\n        match self {{\n{names}        }}\n    }}\n\n\
@@ -115,6 +153,15 @@ impl ToolArms {
              \x20   /// Tools requiring the shared beta gate on MCP; CLI access remains available (contract `beta`).\n\
              \x20   #[must_use]\n\
              \x20   pub const fn is_beta(self) -> bool {{\n        {beta}\n    }}\n\n\
+             \x20   /// Tools whose listed description names the language servers found on\n\
+             \x20   /// this host (contract `hostFacts`: `lspServers`).\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn lists_lsp_servers(self) -> bool {{\n        {lsp_servers}\n    }}\n\n\
+             \x20   /// Tools whose pages continue by offset and fit the row's share of the\n\
+             \x20   /// response page (contract `rowPageWindow`); the others cut pages at the\n\
+             \x20   /// automatic window every call of a walk shares.\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn pages_by_row_window(self) -> bool {{\n        {row_page_window}\n    }}\n\n\
              \x20   /// The GitHub-family identity, so GitHub routing matches only its own tools.\n\
              \x20   #[must_use]\n\
              \x20   pub const fn github(self) -> Option<GitHubTool> {{\n        match self {{\n{github_arms}            _ => None,\n        }}\n    }}\n\
@@ -136,12 +183,15 @@ impl ToolArms {
                 .map(|v| format!("    {v},\n"))
                 .collect::<String>(),
             count = variants.len(),
+            output_defaults = self.output_defaults,
             all = variants
                 .iter()
                 .map(|v| format!("Self::{v}"))
                 .collect::<Vec<_>>()
                 .join(", "),
             beta = set(&self.beta),
+            lsp_servers = set(&self.lsp_servers),
+            row_page_window = set(&self.row_page_window),
             github_arms = github
                 .iter()
                 .map(|v| format!("            Self::{v} => Some(GitHubTool::{v}),\n"))

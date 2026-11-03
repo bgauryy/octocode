@@ -82,7 +82,7 @@ pub(super) fn scan_file(
         super::super::region::select(region, source, &mut r.matches)?;
     }
     // A test-code scope keeps one side of a single file's matches too.
-    let mut test_code_excluded = crate::tools::test_code::Excluded::default();
+    let mut test_code_excluded = octocode_engine::types::TestCodeExcluded::default();
     if let Some(scoped) = crate::tools::test_code::Scoped::of(q.test_code(), paths) {
         r.matches
             .retain(|matched| scoped.keeps(canonical, matched.start_line));
@@ -301,6 +301,15 @@ pub(super) fn parser_extension(scope: &Scope, path: &std::path::Path) -> String 
 pub(super) static DIRECTORY_SCANS: std::sync::Mutex<Vec<std::path::PathBuf>> =
     std::sync::Mutex::new(Vec::new());
 
+/// Files in the walk's own order: by path component, so a directory's files
+/// precede its siblings that share its name as a prefix (`a/x.rs` before
+/// `a-b.rs`, as text order would not). A scan cut into windows lists each
+/// window in walk order; only this order makes their concatenation the
+/// order of the whole scan.
+fn walk_order(a: &ScannedFile, b: &ScannedFile) -> std::cmp::Ordering {
+    std::path::Path::new(&a.path).cmp(std::path::Path::new(&b.path))
+}
+
 pub(super) fn sort_files(q: MatchQuery<'_>, files: &mut [ScannedFile]) {
     let by_count = q.sort() == Some("matchCount");
     let descending = q.reverse().unwrap_or(false);
@@ -308,13 +317,13 @@ pub(super) fn sort_files(q: MatchQuery<'_>, files: &mut [ScannedFile]) {
         let ordering = if by_count {
             a.matches.len().cmp(&b.matches.len())
         } else {
-            a.path.cmp(&b.path)
+            walk_order(a, b)
         };
         let ordering = if descending {
             ordering.reverse()
         } else {
             ordering
         };
-        ordering.then_with(|| a.path.cmp(&b.path))
+        ordering.then_with(|| walk_order(a, b))
     });
 }

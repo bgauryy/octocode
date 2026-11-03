@@ -5,58 +5,6 @@ use octocode_engine::lsp::config::{
 use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde_json::{Value, json};
 use std::path::Path;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-type ProbeKey = (String, String, u64);
-const MAX_PROBES: usize = 128;
-const NEGATIVE_TTL: Duration = Duration::from_secs(5);
-const POSITIVE_TTL: Duration = Duration::from_secs(300);
-
-/// Server availability per probe: a positive answer lives
-/// [`POSITIVE_TTL`], a negative one [`NEGATIVE_TTL`].
-pub(crate) struct LeadProbeCache(octocode_io::memo::Memo<ProbeKey, bool>);
-
-impl Default for LeadProbeCache {
-    fn default() -> Self {
-        Self(octocode_io::memo::Memo::new(
-            octocode_io::memo::MemoLimits {
-                max_entries: MAX_PROBES,
-                max_weight: MAX_PROBES,
-                keep_newest: false,
-            },
-        ))
-    }
-}
-
-impl std::fmt::Debug for LeadProbeCache {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LeadProbeCache")
-            .field("probes", &self.0.len())
-            .finish()
-    }
-}
-
-impl LeadProbeCache {
-    fn get(&self, key: &ProbeKey) -> Option<bool> {
-        self.0.get(key).map(|hit| *hit.value)
-    }
-
-    fn insert(&self, key: ProbeKey, available: bool, observed: Instant) {
-        let ttl = if available {
-            POSITIVE_TTL
-        } else {
-            NEGATIVE_TTL
-        };
-        self.0
-            .insert_full(key, available, (), 1, Some(ttl), observed);
-    }
-
-    #[cfg(test)]
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-}
 
 /// What a lead asks about the declaration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -110,11 +58,9 @@ pub fn verify_query(path: &str, symbol: &str, line: u64, verify: Verify) -> Opti
     })
 }
 
-/// Whether the server discovered for `path` resolves to an executable, once
-/// per extension, workspace and discovery settings. A failed probe is not
-/// cached, so the next lead asks again.
+/// Whether the server discovered for this lead resolves to an executable.
+/// Installation and removal are observed immediately.
 fn server_available(path: &str) -> bool {
-    let extension = octocode_engine::text::extension_of(path, true, "");
     let workspace = resolve_workspace_root_for_file(path.to_owned()).unwrap_or_else(|_| {
         Path::new(path)
             .parent()
@@ -122,28 +68,8 @@ fn server_available(path: &str) -> bool {
             .unwrap_or_else(|| ".".into())
     });
     let discovery = discovery();
-    let settings = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        format!("{discovery:?}").hash(&mut hasher);
-        hasher.finish()
-    };
-    let key = (extension, workspace, settings);
-    let cache = LEAD_CACHE.with(|cell| cell.borrow().clone());
-    if let Some(available) = cache.as_ref().and_then(|cache| cache.get(&key)) {
-        return available;
-    }
-    let available = match default_server_for_file(path, &key.1, &discovery) {
-        Some(config) => match is_command_available(&config.command) {
-            Ok(available) => available,
-            Err(_) => return false,
-        },
-        None => false,
-    };
-    if let Some(cache) = cache {
-        cache.insert(key, available, Instant::now());
-    }
-    available
+    default_server_for_file(path, &workspace, &discovery)
+        .is_some_and(|config| is_command_available(&config.command).unwrap_or(false))
 }
 
 thread_local! {
@@ -151,31 +77,21 @@ thread_local! {
     /// thread (see [`with_lead_discovery`]).
     static LEAD_DISCOVERY: std::cell::RefCell<Option<LspDiscoveryOptions>> =
         const { std::cell::RefCell::new(None) };
-    static LEAD_CACHE: std::cell::RefCell<Option<Arc<LeadProbeCache>>> =
-        const { std::cell::RefCell::new(None) };
 }
 
 /// Run `run` (one local tool row, on the calling thread) with the runtime's
 /// resolved LSP settings, `options`, as the discovery every lead in it probes,
-/// and `cache` as the probe cache it shares. The caller authorizes
+/// with no cross-request availability reuse. The caller authorizes
 /// `options.config_path` against the path policy, as `lspSearch` itself does.
-pub fn with_lead_discovery<R>(
-    options: LspDiscoveryOptions,
-    cache: Arc<LeadProbeCache>,
-    run: impl FnOnce() -> R,
-) -> R {
-    struct Restore(Option<LspDiscoveryOptions>, Option<Arc<LeadProbeCache>>);
+pub fn with_lead_discovery<R>(options: LspDiscoveryOptions, run: impl FnOnce() -> R) -> R {
+    struct Restore(Option<LspDiscoveryOptions>);
     impl Drop for Restore {
         fn drop(&mut self) {
             let previous = self.0.take();
             LEAD_DISCOVERY.with(|cell| *cell.borrow_mut() = previous);
-            LEAD_CACHE.with(|cell| *cell.borrow_mut() = self.1.take());
         }
     }
-    let _restore = Restore(
-        LEAD_DISCOVERY.with(|cell| cell.borrow_mut().replace(options)),
-        LEAD_CACHE.with(|cell| cell.borrow_mut().replace(cache)),
-    );
+    let _restore = Restore(LEAD_DISCOVERY.with(|cell| cell.borrow_mut().replace(options)));
     run()
 }
 
@@ -193,20 +109,35 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    #[cfg(unix)]
     #[test]
-    fn negative_probe_expires_and_cache_stays_bounded() {
-        let cache = LeadProbeCache::default();
-        let old = std::time::Instant::now() - NEGATIVE_TTL - std::time::Duration::from_secs(1);
-        cache.insert(("rs".into(), "old".into(), 1), false, old);
-        assert_eq!(cache.get(&("rs".into(), "old".into(), 1)), None);
-        for i in 0..(MAX_PROBES + 1) {
-            cache.insert(
-                ("rs".into(), format!("workspace-{i}"), 1),
-                true,
-                std::time::Instant::now(),
+    fn each_lead_observes_server_installation_and_removal_immediately() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("directory");
+        let command = dir.path().join("fixture-lsp");
+        let config = dir.path().join("lsp.json");
+        std::fs::write(&config, serde_json::json!({"languageServers":{".fixture":{"command":command,"args":[],"languageId":"fixture"}}}).to_string()).expect("config");
+        let file = dir.path().join("source.fixture");
+        std::fs::write(&file, "target").expect("source");
+        let options = LspDiscoveryOptions {
+            config_path: Some(config),
+            ..Default::default()
+        };
+        with_lead_discovery(options, || {
+            assert!(!server_available(file.to_str().expect("path")));
+            std::fs::write(&command, "#!/bin/sh\nexit 0\n").expect("server");
+            std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755))
+                .expect("executable");
+            assert!(
+                server_available(file.to_str().expect("path")),
+                "newly installed server is immediately discoverable"
             );
-        }
-        assert!(cache.len() <= MAX_PROBES);
+            std::fs::remove_file(&command).expect("remove server");
+            assert!(
+                !server_available(file.to_str().expect("path")),
+                "removed server no longer produces a lead"
+            );
+        });
     }
 
     #[test]
@@ -215,7 +146,7 @@ mod tests {
             env: BTreeMap::from([("OCTOCODE_LEAD_PROBE".to_owned(), "resolved".to_owned())]),
             ..LspDiscoveryOptions::default()
         };
-        let inside = with_lead_discovery(options, Arc::default(), discovery);
+        let inside = with_lead_discovery(options, discovery);
         assert_eq!(
             inside.env.get("OCTOCODE_LEAD_PROBE").map(String::as_str),
             Some("resolved")
@@ -228,25 +159,43 @@ mod tests {
     /// A declaration lead runs `callers` for a callable and `references`
     /// otherwise, and is withheld when no language server would start for the
     /// file.
+    #[cfg(unix)]
     #[test]
     fn verify_query_picks_the_operation_and_needs_a_server() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().expect("fixture");
-        let file = dir.path().join("a.ts");
-        std::fs::write(&file, "export function a() {}\n").expect("file");
+        // A fixture server for `.fixture`, so the test never depends on the
+        // language servers installed on this machine.
+        let command = dir.path().join("fixture-lsp");
+        std::fs::write(&command, "#!/bin/sh\nexit 0\n").expect("server");
+        std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+        let config = dir.path().join("lsp.json");
+        std::fs::write(&config, serde_json::json!({"languageServers":{".fixture":{"command":command,"args":[],"languageId":"fixture"}}}).to_string()).expect("config");
+        let options = LspDiscoveryOptions {
+            config_path: Some(config),
+            ..Default::default()
+        };
+        let file = dir.path().join("a.fixture");
+        std::fs::write(&file, "function a() {}\n").expect("file");
         let path = file.to_string_lossy().into_owned();
-        let callers = verify_query(&path, "a", 1, Verify::for_kind("function")).expect("ts server");
-        assert_eq!(
-            callers,
-            serde_json::json!({"path": path, "operation": "callers", "symbolName": "a", "line": 1})
-        );
-        let references = verify_query(&path, "A", 3, Verify::for_kind("class")).expect("ts server");
-        assert_eq!(references["operation"], "references");
         let unknown = dir.path().join("a.unknownext");
         std::fs::write(&unknown, "a\n").expect("file");
-        assert_eq!(
-            verify_query(&unknown.to_string_lossy(), "a", 1, Verify::Callers),
-            None,
-            "no server for the extension: no lead"
-        );
+        with_lead_discovery(options, || {
+            let callers =
+                verify_query(&path, "a", 1, Verify::for_kind("function")).expect("fixture server");
+            assert_eq!(
+                callers,
+                serde_json::json!({"path": path, "operation": "callers", "symbolName": "a", "line": 1})
+            );
+            let references =
+                verify_query(&path, "A", 3, Verify::for_kind("class")).expect("fixture server");
+            assert_eq!(references["operation"], "references");
+            assert_eq!(
+                verify_query(&unknown.to_string_lossy(), "a", 1, Verify::Callers),
+                None,
+                "no server for the extension: no lead"
+            );
+        });
     }
 }

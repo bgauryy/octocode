@@ -95,6 +95,9 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
     decode_with_cancel(bytes, &crate::execution::cancel::NeverCancel)
 }
 
+/// The whole-file decode: queries read selectively, so only the test oracle
+/// decodes a snapshot at once.
+#[cfg(test)]
 pub(crate) fn decode_with_cancel(
     bytes: &[u8],
     cancel: &dyn crate::execution::cancel::CancellationCheck,
@@ -102,10 +105,11 @@ pub(crate) fn decode_with_cancel(
     decode_with(bytes, Scope::Full, cancel)
 }
 
-/// Decodes what an unchanged-tree check reads: record strings, nodes and the
+/// Independent files-only oracle: record strings, nodes and the
 /// per-file tables (digests, stamps). Edges, adjacency and the lookup
 /// indexes are not decoded; all stored blocks are still verified, so a corrupt
 /// file is still rejected.
+#[cfg(test)]
 pub(crate) fn decode_files(bytes: &[u8]) -> Result<(GraphTables, String), String> {
     decode_with(bytes, Scope::Files, &crate::execution::cancel::NeverCancel)
 }
@@ -114,14 +118,16 @@ pub(crate) fn decode_files(bytes: &[u8]) -> Result<(GraphTables, String), String
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Scope {
     /// Record strings, nodes and the per-file tables.
+    #[cfg(test)]
     Files,
-    /// Every table but occurrence witnesses, unresolved sites and the strings
-    /// only they reference (`STRE`).
+    /// Nodes, edges, lookup indexes and file metadata. Declaration and source
+    /// evidence is read by the file-backed reader when an answer renders it.
     Topology,
     /// Every table.
     Full,
 }
 
+#[cfg(test)]
 pub(super) fn decode_with(
     bytes: &[u8],
     scope: Scope,
@@ -150,7 +156,7 @@ pub(super) fn decode_with(
     let directory = body
         .get(..directory_len)
         .ok_or("graph directory is truncated")?;
-    let digest = Sha256::digest(directory);
+    let digest = octocode_engine::digest::sha256_digest(directory);
     if digest.as_slice() != stored {
         return Err(
             "graph checksum mismatch (file is corrupt or truncated); rebuild it with graphBuild"
@@ -173,26 +179,25 @@ pub(super) fn decode_tables(
     // evidence may also reference the `STRE` strings that follow them.
     let records = tables.string_bound()?;
     read_nodes(&mut sections.get(b"NODE", "NODE")?, &mut tables)?;
+    #[cfg(test)]
     if scope == Scope::Files {
         read_file_tables(sections, &mut tables, records)?;
         return Ok(tables);
     }
     read_edges(&mut sections.get(b"EDGE", "EDGE")?, &mut tables, records)?;
-    // Topology validates an origin when it renders one; a full decode
-    // admits every origin.
-    let admission = if scope == Scope::Full {
-        super::sources::Admission::Every
-    } else {
-        super::sources::Admission::Accessed
-    };
-    super::sources::read(sections, &mut tables, admission, cancel)?;
-    tables.declarations = super::evidence::read_declarations(
-        &mut sections.get(b"DECL", "DECL")?,
-        &tables,
-        &tables.sources,
-        records,
-    )?;
     if scope == Scope::Full {
+        super::sources::read(
+            sections,
+            &mut tables,
+            super::sources::Admission::Every,
+            cancel,
+        )?;
+        tables.declarations = super::evidence::read_declarations(
+            &mut sections.get(b"DECL", "DECL")?,
+            &tables,
+            &tables.sources,
+            records,
+        )?;
         read_strings(&mut sections.get(b"STRE", "STRE")?, &mut tables, &LIMITS)?;
         let strings = tables.string_bound()?;
         super::evidence::read_occurrences(sections, &mut tables, strings)?;
@@ -230,6 +235,7 @@ impl Sections<'_> {
     }
 }
 
+#[cfg(test)]
 pub(super) fn read_section_table(
     body: &[u8],
     section_count: usize,

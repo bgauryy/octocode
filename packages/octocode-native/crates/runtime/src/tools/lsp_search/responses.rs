@@ -1,92 +1,158 @@
-//! Response scoping across operations that reuse one server answer, and the
-//! project-load and provider annotations on a result.
+//! The source revision each page proves (the anchor text and, for a scoped
+//! operation, the scope as of one instant), and the project-load and
+//! provider annotations on a result. The scope is walked for a revision
+//! only by a page that proves one: a continuation re-proving its first
+//! page's, or a page that issues one ([`seal_scope_revision`]); a fresh
+//! answer that issues none walks it for nothing.
 use super::*;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Operations whose first page may reuse server responses from an earlier
-/// request: their answers depend only on the files the scope fingerprint
-/// covers. Diagnostics and hover always ask the server.
-pub(super) const REUSED_OPERATIONS: [Op; 3] = [Op::References, Op::Callers, Op::Callees];
+/// Incoming relation answers depend on the scope as well as the anchor.
+pub(super) const SCOPED_OPERATIONS: [Op; 3] = [Op::References, Op::Callers, Op::Callees];
 
-/// The page's response scope. Every cached key carries the anchor content
-/// digest; for [`REUSED_OPERATIONS`] it also carries the scope fingerprint
-/// (any edit, addition, or removal of a family or project file misses), so
-/// a first page may reuse an earlier request's answers. Without a
-/// fingerprint (walk past its bounds) only continuation pages reuse, as the
-/// snapshot check proves they belong to the same result set. A later
-/// importer window is a continuation too: reusing the anchor's answer keeps
-/// its candidate list (and so the window) the one its digest names, even
-/// after earlier windows opened files the server now also searches. Every
-/// page is its own call: within it, a repeated request reuses the answer
-/// even without a fingerprint.
+/// Separates a scoped revision's instant (Unix nanoseconds) from its digest;
+/// an unscoped revision (the anchor digest, hex) never holds it.
+const OBSERVED_AT: char = '@';
+
+/// A fresh operation owns its provider answers. The revision only proves
+/// whether an issued continuation still describes the same source scope:
+/// the anchor digest and, for a scoped operation, the scope fingerprint as
+/// of `observed` (none when that walk proved none), with that instant, so a
+/// later page observes the scope in the same shape at the same instant.
 pub(super) fn response_scope(
     query: &LspSearchQuery,
     content_digest: String,
+    observed: SystemTime,
     fingerprint: Option<&str>,
 ) -> octocode_engine::lsp::client::ResponseScope {
-    let continuation = (lsp_search_query::page(query).is_some_and(|page| page > 1)
-        || lsp_search_query::importer_page(query) > 1)
-        && lsp_search_query::snapshot(query).is_some();
-    let call = Some(octocode_engine::lsp::client::CallId::next());
-    match fingerprint {
-        Some(fingerprint) if REUSED_OPERATIONS.contains(&lsp_search_query::op(query)) => {
-            octocode_engine::lsp::client::ResponseScope {
-                reuse: true,
-                generation: octocode_engine::digest::sha256(
-                    format!("{content_digest}\u{0}{fingerprint}").as_bytes(),
-                ),
-                call,
-            }
-        }
-        _ => octocode_engine::lsp::client::ResponseScope {
-            reuse: continuation,
-            generation: content_digest,
-            call,
-        },
+    let generation = if SCOPED_OPERATIONS.contains(&lsp_search_query::op(query)) {
+        let nanos = observed
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos());
+        let digest = fingerprint.map_or(content_digest.clone(), |fingerprint| {
+            octocode_engine::digest::sha256(
+                format!("{content_digest}\u{0}{fingerprint}").as_bytes(),
+            )
+        });
+        format!("{nanos}{OBSERVED_AT}{digest}")
+    } else {
+        content_digest
+    };
+    octocode_engine::lsp::client::ResponseScope {
+        generation,
+        ..Default::default()
     }
 }
 
-/// Set this page's response scope from the anchor text and, for a
-/// [`REUSED_OPERATIONS`] query, the scope fingerprint (one bounded walk).
 pub(super) async fn scope_responses(
     query: &LspSearchQuery,
     scope: &scope::Scope,
     document: Option<&source::Source>,
     cancel: &dyn CancellationCheck,
+) -> Result<bool, LspFailure> {
+    let Some(document) = document else {
+        return Ok(true);
+    };
+    let digest = octocode_engine::digest::sha256(document.content.as_bytes());
+    // A continuation observes the scope as of its first page: the
+    // fingerprint digests a recently modified file's content, so observing
+    // it at another instant would change the revision of an unchanged scope
+    // once that file ages.
+    let pinned_observed = octocode_engine::lsp::client::RESPONSE_SCOPE
+        .try_with(|scope| observed_at(&scope.borrow().generation))
+        .ok()
+        .flatten();
+    let observed = pinned_observed.unwrap_or_else(SystemTime::now);
+    // Only a continuation (a generation that names its instant) re-proves
+    // the scope here; a fresh page seals it when it issues one.
+    let fingerprint =
+        if SCOPED_OPERATIONS.contains(&lsp_search_query::op(query)) && pinned_observed.is_some() {
+            scope
+                .walked(observed, cancel)
+                .await?
+                .fingerprint
+                .map(|(digest, _)| digest)
+        } else {
+            None
+        };
+    let next = response_scope(query, digest, observed, fingerprint.as_deref());
+    Ok(octocode_engine::lsp::client::RESPONSE_SCOPE
+        .try_with(|scope| {
+            let mut scope = scope.borrow_mut();
+            if !scope.generation.is_empty() && scope.generation != next.generation {
+                return false;
+            }
+            scope.generation = next.generation;
+            true
+        })
+        .unwrap_or(true))
+}
+
+/// A sealed revision no later page can match: the scope changed while the
+/// page that sealed it ran, so its rows may not describe the source it pins.
+/// A digest is hex, never this.
+const UNSETTLED: &str = "unsettled";
+
+/// Pin the revision a fresh page that issues a continuation proves: the
+/// anchor text and the scope fingerprint, from the request's one scope walk
+/// ([`scope::Scope::walked`]). A walk made before the page's reads (a
+/// watching server's) proves it. A walk made now, after them, proves it only
+/// if no file it covers was written since `started`, the instant the page
+/// began ([`scope::written_since`]); otherwise the revision is
+/// [`UNSETTLED`], and the next page answers `staleSnapshot` with its restart
+/// lead, the refusal of any changed scope. A file the answer cites that is
+/// gone by then ([`scope::Scope::answered_removed`]) leaves no stamp, so it
+/// unsettles the revision too.
+pub(super) async fn seal_scope_revision(
+    query: &LspSearchQuery,
+    scope: &scope::Scope,
+    document: Option<&source::Source>,
+    started: SystemTime,
+    cancel: &dyn CancellationCheck,
 ) -> Result<(), LspFailure> {
     let Some(document) = document else {
         return Ok(());
     };
-    let digest = octocode_engine::digest::sha256(document.content.as_bytes());
-    let fingerprint = if REUSED_OPERATIONS.contains(&lsp_search_query::op(query)) {
-        scope
-            .walk_fingerprint(cancel)
-            .await?
-            .map(|(digest, entries)| {
-                scope.set_walk_entries(entries);
-                digest
-            })
-    } else {
-        None
-    };
-    if let Some(fingerprint) = &fingerprint {
-        scope.set_fingerprint(fingerprint.clone());
+    if !SCOPED_OPERATIONS.contains(&lsp_search_query::op(query)) {
+        return Ok(());
     }
-    let next = response_scope(query, digest, fingerprint.as_deref());
-    let _ =
-        octocode_engine::lsp::client::RESPONSE_SCOPE.try_with(|scope| *scope.borrow_mut() = next);
+    let before_reads = scope.is_walked();
+    let walked = scope.walked(SystemTime::now(), cancel).await?;
+    let digest = octocode_engine::digest::sha256(document.content.as_bytes());
+    let mut sealed = response_scope(
+        query,
+        digest,
+        walked.observed,
+        walked
+            .fingerprint
+            .as_ref()
+            .map(|(digest, _)| digest.as_str()),
+    );
+    if !before_reads
+        && (walked
+            .fingerprint
+            .as_ref()
+            .is_some_and(|(_, entries)| scope::written_since(entries, started))
+            || scope.answered_removed(cancel).await?)
+    {
+        let nanos = walked
+            .observed
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos());
+        sealed.generation = format!("{nanos}{OBSERVED_AT}{UNSETTLED}");
+    }
+    let _ = octocode_engine::lsp::client::RESPONSE_SCOPE.try_with(|scope| {
+        scope.borrow_mut().generation = sealed.generation;
+    });
     Ok(())
 }
 
-/// Responses read while the project was still loading may be incomplete:
-/// key them apart, so no later request (in this call or another) reuses
-/// them.
-pub(super) fn quarantine_responses() {
-    let _ = octocode_engine::lsp::client::RESPONSE_SCOPE.try_with(|scope| {
-        let mut scope = scope.borrow_mut();
-        scope.reuse = false;
-        scope.call = None;
-        scope.generation.push_str("\u{0}loading");
-    });
+/// The instant a scoped revision observed its scope at; `None` for a
+/// fresh request or an unscoped revision (the anchor digest alone).
+fn observed_at(generation: &str) -> Option<SystemTime> {
+    let (nanos, _) = generation.split_once(OBSERVED_AT)?;
+    let nanos = u64::try_from(nanos.parse::<u128>().ok()?).ok()?;
+    UNIX_EPOCH.checked_add(std::time::Duration::from_nanos(nanos))
 }
 
 /// Disclose an unfinished project load, the inferred-project and compile
@@ -146,8 +212,9 @@ pub(super) fn annotate(
 /// without a watcher of its own, a file no request opened (a new
 /// importer, a deleted module, regenerated output) would never reach its
 /// index. The first request of a server process records the snapshot
-/// only (the process indexed the disk itself). The walk is the scope
-/// fingerprint's, reused when the request already made it.
+/// only (the process indexed the disk itself). The walk is the request's
+/// one scope walk ([`scope::Scope::walked`]): a server that watches no
+/// files makes none.
 pub(super) async fn sync_watched_files(
     scope: &scope::Scope,
     client: &octocode_engine::lsp::client::NativeLspClient,
@@ -156,23 +223,17 @@ pub(super) async fn sync_watched_files(
     if !client.watches_files().await {
         return Ok(());
     }
-    let entries = match scope.walk_entries() {
-        Some(entries) => entries,
-        None => {
-            let Some((digest, entries)) = scope.walk_fingerprint(cancel).await? else {
-                // The request stopped the walk or a file could not be
-                // stamped (the trace counts it): no snapshot, no events.
-                return Ok(());
-            };
-            scope.set_fingerprint(digest);
-            scope.set_walk_entries(entries.clone());
-            entries
-        }
-    };
-    let Some(changes) = client.watched_files_diff(&entries) else {
+    let Some((_, entries)) = scope.walked(SystemTime::now(), cancel).await?.fingerprint else {
+        // The request stopped the walk or a file could not be stamped (the
+        // trace counts it): no snapshot, no events.
         return Ok(());
     };
     let root = std::path::Path::new(&scope.root);
+    let Some(changes) = client.watched_files_diff(&entries, |relative, before, after| {
+        scope::same_file(&root.join(relative), before, after)
+    }) else {
+        return Ok(());
+    };
     let changes = changes
         .into_iter()
         .filter_map(|(relative, kind)| {
@@ -199,27 +260,51 @@ mod tests {
     }
 
     #[test]
-    fn every_page_is_its_own_call_whatever_its_reuse() {
+    fn every_page_is_its_own_call_whatever_its_revision() {
         let query = callers();
-        let unbounded = response_scope(&query, "content".into(), None);
-        let fingerprinted = response_scope(&query, "content".into(), Some("fp"));
+        let unbounded = response_scope(&query, "content".into(), SystemTime::now(), None);
+        let fingerprinted = response_scope(&query, "content".into(), SystemTime::now(), Some("fp"));
         assert!(unbounded.call.is_some(), "a page past the walk bounds");
         assert!(fingerprinted.call.is_some());
         assert_ne!(unbounded.call, fingerprinted.call, "pages are not one call");
     }
 
-    #[tokio::test]
-    async fn a_quarantined_page_reuses_nothing_even_within_its_call() {
-        let scope = response_scope(&callers(), "content".into(), Some("fp"));
-        let generation = scope.generation.clone();
-        let quarantined = octocode_engine::lsp::client::RESPONSE_SCOPE
-            .scope(std::cell::RefCell::new(scope), async {
-                quarantine_responses();
-                octocode_engine::lsp::client::RESPONSE_SCOPE.with(|scope| scope.borrow().clone())
-            })
-            .await;
-        assert!(!quarantined.reuse);
-        assert_eq!(quarantined.call, None);
-        assert_ne!(quarantined.generation, generation);
+    /// A scoped revision names the instant it observed its scope at, with
+    /// or without a fingerprint, which a continuation page observes again;
+    /// an unscoped revision names none.
+    #[test]
+    fn a_scoped_revision_carries_its_fingerprint_instant() {
+        let observed = UNIX_EPOCH + std::time::Duration::from_nanos(1_700_000_000_123_456_789);
+        let scoped = response_scope(&callers(), "content".into(), observed, Some("fp"));
+        assert_eq!(observed_at(&scoped.generation), Some(observed));
+        let later = response_scope(
+            &callers(),
+            "content".into(),
+            observed + std::time::Duration::from_secs(1),
+            Some("fp"),
+        );
+        assert_ne!(later.generation, scoped.generation);
+        let unfingerprinted = response_scope(&callers(), "content".into(), observed, None);
+        assert_eq!(observed_at(&unfingerprinted.generation), Some(observed));
+        assert_ne!(unfingerprinted.generation, scoped.generation);
+        let hover = serde_json::from_value(serde_json::json!({
+            "operation": "hover", "path": "/repo/a.ts", "symbolName": "f", "line": 1
+        }))
+        .expect("lsp query");
+        let unscoped = response_scope(&hover, "content".into(), observed, Some("fp"));
+        assert_eq!(unscoped.generation, "content");
+        assert_eq!(observed_at(&unscoped.generation), None);
+    }
+
+    #[test]
+    fn fresh_pages_own_independent_provider_evidence() {
+        let observed = SystemTime::now();
+        let first = response_scope(&callers(), "content".into(), observed, Some("fp"));
+        let next = response_scope(&callers(), "content".into(), observed, Some("fp"));
+        assert_eq!(first.generation, next.generation);
+        assert!(!std::sync::Arc::ptr_eq(
+            first.answers.as_ref().expect("answers"),
+            next.answers.as_ref().expect("answers")
+        ));
     }
 }

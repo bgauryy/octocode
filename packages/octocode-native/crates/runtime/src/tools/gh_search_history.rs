@@ -1,7 +1,6 @@
 //! GitHub history *search* — pull requests, issues, and commits.
 //!
-//! The transport revalidates mutable REST listings and caches complete indexed
-//! search pages within its volatile TTL. Incomplete search pages are not cached.
+//! The transport reads current REST listings and indexed search pages.
 mod failures;
 mod fetch;
 mod filters;
@@ -156,7 +155,7 @@ pub async fn execute(
     let redirected = !searching
         && gh_search_history_query::owner(&query)
             .zip(gh_search_history_query::repo(&query))
-            .is_some_and(|(owner, repo)| transport.followed_rename(owner, repo));
+            .is_some_and(|(owner, repo)| context.followed_rename(owner, repo));
     if redirected && let Some(warnings) = follow_rename(provider, &mut query, context).await? {
         rename_warnings = warnings;
     }

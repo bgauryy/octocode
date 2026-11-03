@@ -16,6 +16,10 @@ const names = rows => (rows ?? []).map(row => row.repo);
 const paths = rows => (rows ?? []).map(row => row.path).toSorted();
 const numbers = rows => (rows ?? []).map(row => row.number);
 const readerRequests = (ctx, surface) => ctx.mock.requestsFrom.filter(entry => entry.token === tokenFor('ghGetFileContent', surface));
+// A continuation replays the evidence its cursor owns: it issues no provider request at all, not
+// even a contents read at the pinned commit or a ref resolution.
+const noProviderReads = requests => requests.length === 0;
+const requestList = requests => `${requests.length}, distinct ${JSON.stringify([...new Set(requests.map(entry => entry.request))])}`;
 const sourceEvidence = result => !result?.isError && result?.json?.results?.[0]?.status === undefined
   && !data(result).errorCode && sourceLines(data(result)).length > 0;
 const checks = async (ctx, cases) => {
@@ -70,10 +74,18 @@ async function structure(ctx) {
     ['tree.missingRef', { ...REPO, operation: 'tree', ref: 'missing-branch' }, error('notFound')],
   ]);
   for (const surface of ctx.surfaces) {
-    const result = await ctx.call(ctx.q({ ...REPO, operation: 'tree', include: ['src/greeter.ts'], materialize: true }), surface);
+    const query = { ...REPO, operation: 'tree', include: ['src/greeter.ts'], materialize: true };
+    const result = await ctx.call(ctx.q(query), surface);
     const location = data(result).location;
     const target = location?.localPath && path.join(location.localPath, 'src/greeter.ts');
     out.push([`advanced.materialize.content.${surface}`, !!target && fs.existsSync(target) && fs.readFileSync(target, 'utf8').includes('return { text: `hello ${name}` };'), JSON.stringify(data(result))]);
+    const before = ctx.mock.requestsFrom.length;
+    const repeated = await ctx.call(ctx.q(query), surface);
+    const reads = ctx.mock.requestsFrom.slice(before).filter(entry => entry.token === tokenFor('ghStructure', surface)
+      && decodeURIComponent(entry.request).includes('/contents/src/greeter.ts'));
+    out.push([`advanced.materialize.fresh.${surface}`, reads.length === 1 && !data(repeated).errorCode
+      && data(repeated).location?.localPath === location?.localPath && !!target && fs.existsSync(target)
+      && fs.readFileSync(target, 'utf8').includes('return { text: `hello ${name}` };'), JSON.stringify({ reads, data: data(repeated) })]);
   }
   return out;
 }
@@ -91,21 +103,24 @@ async function reader(ctx) {
     ['path.missing', { ...REPO, path: 'src/missing.ts' }, error('notFound')],
   ]);
   for (const surface of ctx.surfaces) {
-    const report = await ctx.explore('ghGetFileContent', { queries: [{ owner: 'octo', repo: 'demo-docs', path: 'guide.txt', refresh: true }], responseChars: 4000 }, surface);
+    const report = await ctx.explore('ghGetFileContent', { queries: [{ owner: 'octo', repo: 'demo-docs', path: 'guide.txt' }], responseChars: 4000 }, surface);
     const records = report.responses.filter(row => row.tool === 'ghGetFileContent').flatMap(row => row.result.json?.results?.flatMap(item => sourceLines(item.data)) ?? []);
     const expected = Array.from({ length: 1500 }, (_, i) => [i + 1, `Line ${i + 1}: the greeter guide repeats this sentence to fill a long document.`]);
     out.push([`advanced.cursor.exactEvidence.${surface}`, !report.failures.length && equal(records, expected), `${records.length} lines, ${report.responses.length} calls; ${JSON.stringify(report.failures)}`]);
     const first = report.responses[0]?.result;
     const lead = first && nextHints(first.json).find(call => call.kind === 'continue');
     if (lead) {
-      const before = readerRequests(ctx, surface).filter(entry => entry.request.includes('/contents/guide.txt')).length;
+      const before = readerRequests(ctx, surface).length;
       const a = await ctx.callOn(surface)(lead.tool, lead.input);
       const b = await ctx.callOn(surface)(lead.tool, lead.input);
-      const after = readerRequests(ctx, surface).filter(entry => entry.request.includes('/contents/guide.txt')).length;
+      const replayReads = readerRequests(ctx, surface).slice(before);
       const original = report.responses.find(row => row.tool === lead.tool && equal(row.input, lead.input))?.result;
+      const pin = data(first).commitSha;
       const exact = sourceEvidence(original) && sourceEvidence(a) && sourceEvidence(b)
         && equal(sourceLines(data(a)), sourceLines(data(original))) && equal(sourceLines(data(b)), sourceLines(data(original)));
-      out.push([`advanced.cursor.immutableReplay.${surface}`, exact && before === after, `original page ${sourceLines(data(original)).length} lines; statuses ${[original,a,b].map(result => result?.json?.results?.[0]?.status).join(",")}; provider content calls ${before}→${after}`]);
+      const pinned = typeof pin === 'string' && [original, a, b].every(result => data(result).commitSha === pin) && noProviderReads(replayReads);
+      // Successful evidence rows omit `status`; an absent status is shown as ok.
+      out.push([`advanced.cursor.immutableReplay.${surface}`, exact && pinned, `original page ${sourceLines(data(original)).length} lines; statuses ${[original, a, b].map(result => result?.json?.results?.[0]?.status ?? 'ok').join(',')}; pin ${pin}; replay requests ${requestList(replayReads)}`]);
     } else out.push([`advanced.cursor.issued.${surface}`, false, 'large source did not issue a continuation']);
   }
   return [...out, ...await readerForms(ctx), ...await readerFlows(ctx)];
@@ -242,15 +257,16 @@ async function readerPinned(ctx, surface, out, sources) {
     if (request.p === '/repos/octo/demo/commits/reader-moving') return { body: commits[Number(moved)] };
     return readFixtureReply(request, { 'flow-pinned.txt': request.url.searchParams.get('ref') === commits[0] ? original : changed });
   });
-  const query = { ...REPO, path: 'flow-pinned.txt', ref: 'reader-moving', refresh: true };
+  const query = { ...REPO, path: 'flow-pinned.txt', ref: 'reader-moving' };
   const first = await ctx.call({ queries: [query], responseChars: 500 }, surface);
   const continuation = nextHints(first.json).find(call => call.kind === 'continue');
   moved = true;
   const before = readerRequests(ctx, surface).length;
   const report = continuation && await ctx.explore(continuation.tool, continuation.input, surface);
   const originalRows = [first.json.results[0], ...(report ? readRows(report) : [])];
-  out.push([`advanced.flow.refPinned.${surface}`, !!report && !report.failures.length && data(first).commitSha === commits[0] && readText(originalRows) === original && readerRequests(ctx, surface).length === before, `${originalRows.length} rows; provider calls ${before}→${readerRequests(ctx, surface).length}`]);
-  const fresh = await exactRead(ctx, surface, out, { label: 'refreshMoves', query, expected: changed, responseChars: 500 });
+  const continued = readerRequests(ctx, surface).slice(before);
+  out.push([`advanced.flow.refPinned.${surface}`, !!report && !report.failures.length && data(first).commitSha === commits[0] && readText(originalRows) === original && noProviderReads(continued), `${originalRows.length} rows; continuation requests ${requestList(continued)}`]);
+  const fresh = await exactRead(ctx, surface, out, { label: 'freshReadMoves', query, expected: changed, responseChars: 500 });
   out.push([`advanced.flow.newCommit.${surface}`, data(fresh.responses[0]?.result).commitSha === commits[1], JSON.stringify(data(fresh.responses[0]?.result))]);
 }
 

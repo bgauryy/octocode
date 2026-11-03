@@ -67,24 +67,15 @@ pub(super) struct ToolCommand {
     pub args: ToolArgs,
 }
 
-/// `(name, about)` for every tool in the embedded contract: its
-/// `title`, with the MCP opt-in setting for a beta tool. Both come from
-/// generated constants, so building the argument parser never parses the
-/// multi-megabyte contract.
+/// `(name, about)` for every tool in the embedded contract: when to use it,
+/// since a CLI agent chooses from this list and never reads the MCP
+/// instructions. Both come from generated constants, so building the argument
+/// parser never parses the multi-megabyte contract.
 fn contract_tools() -> impl Iterator<Item = (&'static str, String)> {
     ToolId::ALL.into_iter().map(|tool| {
-        let about = tool.title();
-        let about = if tool.is_beta() {
-            let beta = octocode_native::config::field::LOCAL_BETA;
-            format!(
-                "MCP beta (set {}=true or {}:true); available in CLI. {about}",
-                beta.env_name().unwrap_or(beta.path),
-                beta.path
-            )
-        } else {
-            about.to_owned()
-        };
-        (tool.as_str(), about)
+        let about = octocode_native::contracts::cli_tool_trigger(tool.as_str())
+            .unwrap_or_else(|| tool.title());
+        (tool.as_str(), about.to_owned())
     })
 }
 

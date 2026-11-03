@@ -79,6 +79,7 @@ fn references(extra: &[(&str, &str)]) -> (Fixture, serde_json::Value) {
             &paths,
             &execution,
             None,
+            crate::tools::lsp_search::test_answers(),
         ))
         .expect("row");
     assert_row_contract(ToolId::LspSearch, &row);

@@ -95,7 +95,8 @@ function leaves(value, out = []) {
 
 function matchEvidence(ev, file, match) {
   if (Array.isArray(match.sites)) for (const site of match.sites) pair(ev, file, site.line);
-  else pair(ev, file, match.line);
+  // lspSearch location rows cite their range; every other row its `line`.
+  else pair(ev, file, match.line ?? match.displayRange?.startLine);
   ev.text += `${match.value ?? match.content ?? match.symbolName ?? ''}\n`;
 }
 

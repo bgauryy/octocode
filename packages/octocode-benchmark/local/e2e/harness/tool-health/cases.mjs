@@ -2,13 +2,13 @@
 // followed from results. Tiny display budgets exercise transport pagination.
 import fs from 'node:fs';
 import path from 'node:path';
-import { declarations, lspLocations, structureFiles, sourceView, inventoryRows, unchangedContext } from '../responses.mjs';
+import { declarations, lspLocations, structureFiles, sourceView, unchangedContext } from '../responses.mjs';
 import { canon } from './calls.mjs';
+import { historyFileRows } from './history-evidence.mjs';
 
 const files = data => (data?.files ?? []).flatMap(file => (file.matches ?? []).map(m => `${file.path}:${m.line}:${m.column ?? 0}`));
 const numbered = text => sourceView({ content: text ?? '' }).ranges.flatMap(r => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i));
 const lineNumbers = text => Array.from({ length: text.split('\n').length - Number(text.endsWith('\n')) }, (_, i) => i + 1);
-const fileRows = data => (data?.pullRequests ?? []).flatMap(pr => inventoryRows(pr.files).map(f => `${pr.number}:${f.path}:${f.status}`));
 const treeRows = data => structureFiles(data.files ?? []).map(f => f.path);
 const page = (query, responseChars = 150) => ({ input: { queries: [query], responseChars }, lead: 'responsePagination.next' });
 const LOCAL = 6000, REMOTE = 6000;
@@ -59,13 +59,13 @@ async function prepareGraph({ call }) {
 export const CASES = {
   graphBuild: {
     budgetMs: LOCAL,
-    // Parallel surfaces share a snapshot; isolated advanced cases cover fresh builds.
+    // Each surface's build publishes its own snapshot; isolated advanced cases cover extraction and refresh.
     prepare: prepareGraph,
-    happy: { query: { path: '.' }, fields: ['id', 'counts', 'scan'], rows: data => [data.id].filter(Boolean), min: 1, check: data => data.reused === true ? null : 'prepared snapshot must be reused on both surfaces' },
+    happy: { query: { path: '.' }, fields: ['id', 'counts', 'scan'], rows: data => [data.id].filter(Boolean), min: 1, check: data => Object.hasOwn(data, 'reused') ? 'a build receipt must not state snapshot reuse' : null },
     page: { na: 'a build receipt has no result collection' },
-    empty: { na: 'a snapshot is built, reused or fails' },
+    empty: { na: 'a snapshot is built or the build fails' },
     invalid: { query: { keep: 0 } },
-    explore: [{ label: 'reuse', query: { path: '.' } }],
+    explore: [{ label: 'repeat', query: { path: '.' } }],
   },
   graphQuery: {
     budgetMs: LOCAL,
@@ -117,7 +117,7 @@ export const CASES = {
   },
   lspSearch: {
     budgetMs: 25000, needs: 'lsp', workspace: lspWorkspace,
-    happy: { query: { path: 'src/greeter.ts', symbolName: 'greet', line: 6, operation: 'references' }, fields: ['matches', 'matchCount'], rows: data => lspLocations({ sc: { results: [{ data }] } }).map(l => `${l.path}:${l.displayRange.startLine}:${l.displayRange.startCharacter}`), min: 6 },
+    happy: { query: { path: 'src/greeter.ts', symbolName: 'greet', line: 6, operation: 'references' }, fields: ['files', 'matchCount'], rows: data => lspLocations({ sc: { results: [{ data }] } }).map(l => `${l.path}:${l.displayRange.startLine}:${l.displayRange.startCharacter}`), min: 6 },
     page: {
       ...page({ path: 'src/paging.ts', symbolName: 'pagingTarget', line: 1, operation: 'references' }),
       expect: () => ['src/paging.ts:1:17', ...Array.from({ length: LSP_PAGE_CALLS }, (_, i) => `src/paging.ts:${i + 2}:1`)],
@@ -167,8 +167,8 @@ export const CASES = {
   },
   ghGetHistoryItem: {
     budgetMs: REMOTE,
-    happy: { query: { ...repo, operation: 'pullRequest', number: 1, sections: ['files'] }, fields: ['pullRequests'], rows: fileRows, min: 2 },
-    page: { query: { ...repo, operation: 'pullRequest', number: 4, sections: ['files'] }, lead: 'nextFilePage', expect: ctx => ctx.mock.model.pulls.find(pr => pr.number === 4).head.added.map(p => `4:${p}:added`) },
+    happy: { query: { ...repo, operation: 'pullRequest', number: 1, sections: ['files'] }, fields: ['pullRequests'], rows: historyFileRows, min: 2 },
+    page: { query: { ...repo, operation: 'pullRequest', number: 4, sections: ['files'] }, lead: 'nextPage', expect: ctx => ctx.mock.model.pulls.find(pr => pr.number === 4).head.added.map(p => `4:${p}:added`) },
     empty: { query: { ...repo, operation: 'pullRequest', number: 1, sections: ['patches'], matchString: ['zzzNoSuchText'] } },
     invalid: { query: { ...repo, operation: 'pullRequest' } },
     explore: [{ label: 'issue', query: { ...repo, operation: 'issue', number: 2, sections: ['body', 'comments'] } }],

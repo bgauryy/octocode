@@ -14,7 +14,7 @@ async function pair(t: TestContext, vendor = 'generic') {
   const f = fixture(t);
   const sender = await f.join('sender');
   const receiver = (await f.call('', 'join', { name: 'receiver', vendor })).id;
-  return { ...f, sender, receiver, send: (body: string, extra: Record<string, unknown> = {}) => f.call(sender, 'send_message', { to: 'receiver', body, ...extra }) };
+  return { ...f, sender, receiver, send: (body: string, extra: Record<string, unknown> = {}) => f.call(sender, 'send_message', {parts: [{ text: body }],  to: 'receiver', ...extra }) };
 }
 
 const rows = (f: Pick<ReturnType<typeof fixture>, 'store'>, sql: string, ...params: SqlValue[]) => f.store.db.all(sql, params);
@@ -193,7 +193,7 @@ test('host hooks: session start binds an identity, tool events deliver mail once
   assert.deepEqual(rows(f, "SELECT data FROM records WHERE type='host.inbound'").map(row => JSON.parse(String(row.data))), [{ vendor: 'claude', permissionMode: 'default' }]);
   assert.deepEqual(await hookEvent(f, 'claude', { ...base, hook_event_name: 'UserPromptSubmit' }), {});
   assert.deepEqual(await hookEvent(f, 'claude', { ...base, hook_event_name: 'PostToolUse' }), {}, 'nothing to deliver');
-  await f.call(f.sender, 'send_message', { to: identity.id, body: 'hook-delivered peer' });
+  await f.call(f.sender, 'send_message', {parts: [{ text: 'hook-delivered peer' }],  to: identity.id, });
   const delivered = await hookEvent(f, 'claude', { ...base, hook_event_name: 'PostToolUse' });
   assert.equal(delivered.hookSpecificOutput.hookEventName, 'PostToolUse');
   assert.match(delivered.hookSpecificOutput.additionalContext, /hook-delivered peer/);
@@ -225,8 +225,8 @@ test('host context budgets: oversized bodies become fetch references; released r
   await f.send('x'.repeat(7900));
   const items = f.store.stage(f.receiver, 'hook:claude');
   const small = hostHooks.hostContext('identity', items, hostHooks.HOST_CONTEXT_LIMIT);
-  assert.match(small, /Peer bodies exceed the host context budget/);
-  assert.match(small, /"bodyOmitted":true/);
+  assert.match(small, /Peer content exceeds the host context budget/);
+  assert.match(small, /"contentOmitted":true/);
   assert.equal(small.includes('xxxxxxxxxx'), false);
   assert.equal(hostHooks.hostContext('identity', [], 10), 'identity');
   f.store.releaseDispatch(f.receiver, items, dispatchOutcomes.BUDGET_DEFERRAL);

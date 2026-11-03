@@ -30,7 +30,7 @@ export async function sectionChecks(ctx, surface, provider) {
   const first = pages[0], before = provider.sent.length;
   const captured = await readCaptured(ctx, surface, first.resources.local.read);
   checks.push(['sections.exactRead', provider.sent.length === before && same(captured.flatMap(row => sourceLines(row)), source.trimEnd().split('\n').map((line, i) => [i + 1, line])), captured.length]);
-  const continuation = pages.find(row => row.next?.nextSectionPage)?.next.nextSectionPage;
+  const continuation = pages.find(row => row.next?.nextPage)?.next.nextPage;
   assert.ok(continuation, 'section fixture must require assessment continuation');
   const original = report.responses.find(entry => entry.tool === 'clasify' && same(entry.input, continuation.input));
   assert.ok(original, 'issued assessment continuation must have been executed');

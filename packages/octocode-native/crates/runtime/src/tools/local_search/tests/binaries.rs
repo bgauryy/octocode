@@ -139,3 +139,32 @@ fn binary_warning_never_names_a_capped_lead() {
     );
     crate::tools::test_support::checks::assert_absent(&body["warnings"], "hints.binarySkipped");
 }
+
+/// The listing lead reaches the same scope the search walked: a binary
+/// skipped under `includeHidden` is one the lead lists with it, not an
+/// empty listing that contradicts `binarySkipped`.
+#[test]
+fn binary_listing_lead_walks_the_hidden_scope_the_search_did() {
+    for hidden in [false, true] {
+        let body = search_fixture(
+            &[
+                ("a.rs", "fn needle() {}\nneedle();\n"),
+                (".img.png", "\u{0}\u{1}needle"),
+            ],
+            ls_query(
+                serde_json::json!({"matchString": ["needle"], "includeHidden": hidden}),
+                None,
+            ),
+        );
+        let skipped = body["binarySkipped"].as_u64().unwrap_or(0);
+        assert_eq!(skipped, u64::from(hidden), "{body}");
+        let lead =
+            crate::tools::test_support::checks::find_related_call(&body, "structureSearch", |_| {
+                true
+            });
+        assert_eq!(lead.is_some(), hidden, "{body}");
+        if let Some(lead) = lead {
+            assert_eq!(lead["input"]["queries"][0]["includeHidden"], true, "{body}");
+        }
+    }
+}

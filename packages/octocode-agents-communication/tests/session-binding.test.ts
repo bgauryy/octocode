@@ -11,7 +11,7 @@ test('identity updates cannot bypass staged-delivery or native attach checks', t
   const workspace = tempWorkspace(t, 'communication-binding-'), database = join(workspace, 'db.sqlite');
   const call = (command: string, input: Record<string, unknown>, session?: string): JsonRecord => JSON.parse(execFileSync(binary, [...command.split(' '), JSON.stringify(input), '--workspace', workspace, '--database', database, ...(session ? ['--session',session] : [])], {encoding:'utf8', stdio:'pipe', timeout:10000}));
   const a = call('join', {name:'sender',vendor:'raw'}).id, b = call('join', {name:'receiver',vendor:'raw',vendorSession:'original'}).id;
-  const message = call('send_message', {to:b,body:'Handle request',reasoning:'Test identity binding'}, a);
+  const message = call('send_message', {parts: [{ text: 'Handle request' }], to:b,reasoning:'Test identity binding'}, a);
   const db = new DatabaseSync(database); t.after(() => db.close());
   db.prepare("INSERT INTO dispatches(message,recipient,token,transport,state,attemptedAt) VALUES(?,?,?,'raw','staged',?)").run(message.id,b,'test-staged',Date.now());
   assert.throws(() => call('attach', {transport:'raw'}, b), /staged delivery/, 'first attach must not bypass in-flight managed delivery');

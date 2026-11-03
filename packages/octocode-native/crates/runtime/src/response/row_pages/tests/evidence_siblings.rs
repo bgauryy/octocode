@@ -38,7 +38,7 @@ fn short_peer_evidence_is_priced_with_its_large_descriptor_and_delivered_once() 
                 .attach_evidence(
                     &fragment,
                     &mut value,
-                    &tokio_util::sync::CancellationToken::new(),
+                    &octocode_io::cancellation::Cancellation::new(),
                 )
                 .expect("closure");
             assert!(

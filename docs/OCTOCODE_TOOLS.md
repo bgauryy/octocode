@@ -1,16 +1,20 @@
 # Octocode tools reference
 
-The catalog has 16 tools, all listed and enabled in the CLI. MCP exposes a configured subset. [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) owns defaults, graph/clone/classification opt-ins and catalog filters. Listing a tool does not guarantee its provider or language server is ready; invocation reports those failures.
+For a reader who needs each tool's **result behavior**: what a call returns, what a result proves, and the engine rules (language servers, Rust context, root selection, clone and graph handling) the schema does not carry. It does not repeat the other owners:
+
+| Topic | Owner |
+|---|---|
+| Field names, defaults, ranges and field descriptions | the published schema: `octocode schema <tool> --view query` (generated from core) |
+| Request and result envelope, rows, `next`, `related`, `hints`, paging | [Tool data contract](TOOL_DATA_CONTRACT.md) |
+| Research routing, shape, recovery and measured cost | [Tool flow](../skills/octocode-research/references/tool-flow.md) |
+| Availability, opt-ins, storage and caches | [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) |
+| `classification` and `clasify` | [Classification guide](OCTOCODE_CLASIFY.md) |
+
+The catalog has 16 tools, all listed and enabled in the CLI; MCP exposes a configured subset. Listing a tool does not guarantee its provider or language server is ready; invocation reports those failures.
 
 ## How every tool call works
 
-### Base call envelope
-
-Start work with `{"queries":[query,...],"responseChars":20000}`. `responseChars` is optional. Batch up to five independent queries of the same tool; `graphBuild` accepts one. Resume saved work with only `{"cursor":"…"}`, copied from an emitted call. CLI and MCP use the same envelope; tool names and fields are case-sensitive.
-
-A query selects an explicit operation or view when required by that tool's schema. Unknown fields, cross-operation fields and malformed values fail validation. The runtime does not guess intent, coerce aliases or rewrite the query.
-
-### Schema discovery, variants, defaults, and hints
+[Tool data contract](TOOL_DATA_CONTRACT.md) owns the envelope: `{"queries":[...],"responseChars":20000}` to start, `{"cursor":"…"}` alone to resume, indexed result rows, `next.*`, `related[]`, `hints[]` and the rule to execute emitted inputs unchanged. Discovery commands:
 
 ```bash
 octocode schema
@@ -18,7 +22,7 @@ octocode schema localSearch --view query
 octocode schema localSearch --view variants
 ```
 
-The query view describes authored fields. The variants view lists each operation shape with its required fields and one example. The catalog form `octocode schema --view full` prints every tool with envelope and rules. Core owns all schemas, descriptions, defaults and limits; use discovery for the exact field inventory instead of constructing private progress fields.
+`schema --view full` prints every tool with the envelope and rules. Core owns all schemas, descriptions, defaults and limits; use discovery for the exact field inventory instead of constructing private progress fields. The same concept has one canonical form in every tool:
 
 | Concept | Canonical form |
 |---|---|
@@ -33,18 +37,14 @@ The query view describes authored fields. The variants view lists each operation
 
 ### Results, evidence, partial failures, and continuations
 
-Each result has its input `index` and `data`. Check row status and partial-coverage facts even when the enclosing request succeeds: a failed row has `status:"error"` with `errorCode` (and `httpStatus` for provider failures), and the exit code is not per row. `next.*` and `responsePagination.next` contain `{kind:"continue",tool,input:{cursor}}`; `related[]` contains `{kind:"related",tool,input:{queries:[...]}}`, optional ready-made calls that may widen scope (hidden or ignored paths). Execute the supplied `input` unchanged. `hints[]` contains prose only. See the [data contract](TOOL_DATA_CONTRACT.md).
-
-Pages use these literal keys:
+Check row status and partial-coverage facts even when the enclosing request succeeds: the exit code is not per row. See the [data contract](TOOL_DATA_CONTRACT.md#executable-continuations); a claim that rests on absence follows [tool flow](../skills/octocode-research/references/tool-flow.md). Pages use these literal keys:
 
 | Key | Pages | Follow |
 |---|---|---|
-| `responsePagination{page,totalPages,hasMore,next}` | One response split across calls (`responseChars`, default 20,000) | `responsePagination.next` first |
+| `responsePagination{page,totalPages,hasMore,next}` | One response split across calls (`responseChars`) | `responsePagination.next` first |
 | `rowPart{part,of}` | One row split across response pages | Read every part before using the row |
 | `pagination{hasMore,…}` | A row's own list | The row's `next.<name>`, such as `next.nextPage` |
 | `contentPagination.<section>` | One `ghGetHistoryItem` collection; `countScope` says what `totalItems` counts | That section's `next.*` |
-
-A claim about what a `next.<name>` covers needs that call. A result is complete for a claim when nothing reports `hasMore:true` and no `next` covers the claim, whether or not a paging object appears. `isPartial`, `warnings` or `totalItemsCapped` (then `totalItems` is the reachable count) mean incomplete. Absence also needs the unfiltered preset: `includeHidden:true`, `includeIgnored:true`, `defaultExcludes:false` and no `classification`. `status:"empty"` with skipped paths or `unknownItems>0` is not absence.
 
 ## Internal, external, and hybrid tools
 
@@ -52,24 +52,23 @@ Local research tools read authorized files; `graphBuild` also writes derived sna
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
-Use text search for exact spelling, AST for code patterns and connections expressed in syntax, LSP for resolved definitions and references, and history for changes. Three structural sources answer different questions:
+Three structural sources answer different questions; [tool flow](../skills/octocode-research/references/tool-flow.md) routes between them. Graph edges and AST matches are candidates: confirm callers or references with LSP before claiming code is unused.
 
 | Source | Answers | Scope |
 |---|---|---|
 | Graph (`graphBuild`, `graphQuery`) | Whole-repository structure: imports, calls, cycles, change impact, ranked issues | Every file of one snapshot, from syntax; edges are candidates |
 | LSP (`lspSearch`) | Exact per-symbol identity: definition, references, call hierarchy as the language server resolves them | One symbol at a time |
 | AST (`astSearch`) | Per-pattern syntax: every place a code shape occurs | Matching source, no cross-file resolution |
- AST rules can find calls inside methods, imports, inheritance clauses, and containment or ordering relationships. They return matching source, not a resolved graph of callers. Graph edges and AST matches are candidates; confirm callers or references with LSP before claiming code is unused. [Research flows](OCTOCODE_WORKFLOWS.md) connect these tools.
+
+AST rules can find calls inside methods, imports, inheritance clauses, and containment or ordering relationships. They return matching source, not a resolved graph of callers.
 
 ## GitHub tools reference
 
-### Shared GitHub rules
-
-Use separate `owner` and `repo` names. A `ref` selects a revision where the tool supports it; use a returned immutable commit identity for reproducible reads. GitHub's code index and provider result caps constrain search coverage. Follow every continuation needed for the claim, and retain terminal-limit disclosures.
+Fields: `octocode schema <tool> --view query`. Use a returned immutable commit identity for reproducible reads; GitHub's code index and provider result caps constrain search coverage, so follow every continuation the claim needs and keep terminal-limit disclosures.
 
 ### `ghSearchRepo`
 
-Find repositories with `operation:"search"`, list an owner with `"list"`, or inspect one repository with `"get"`. Search filters belong in the typed `filters` object. Use a returned repository identity for code, tree and history calls.
+Use a returned repository identity for code, tree and history calls.
 
 ```json
 {"queries":[{"filters":{"language":"TypeScript"},"keywords":["code research"],"operation":"search"}]}
@@ -77,7 +76,7 @@ Find repositories with `operation:"search"`, list an owner with `"list"`, or ins
 
 ### `ghSearchCode`
 
-Search GitHub’s code index with `keywords`. Scope with owner/repository and typed filters. Hits always come from the default-branch index: `ref` never widens the search, it re-reads those hits at that revision, and `atRef:false` marks a row whose path or hit is not there. For a symbol at a tag or commit, find its path with `ghStructure` at that ref, then read it with `ghGetFileContent`. Read continuations reach evidence omitted from the displayed hit window.
+Hits always come from the default-branch index: `ref` re-reads them at that revision and never widens the search. Read continuations reach evidence omitted from the displayed hit window.
 
 ```json
 {"queries":[{"keywords":["localSearch"],"owner":"bgauryy","repo":"octocode"}]}
@@ -85,15 +84,13 @@ Search GitHub’s code index with `keywords`. Scope with owner/repository and ty
 
 ### `ghStructure`
 
-Inspect a repository tree, refs or language inventory using `operation:"tree"`, `"refs"` or `"languages"`. Tree depth bounds the requested view. `include` is an array of repository-relative globs, also when `path` is set (`**/name.ts` or `path/**/name.ts`; a bare name matches only that exact repository-relative path); `path` names an exact directory.
-
 ```json
 {"queries":[{"maxDepth":2,"operation":"tree","owner":"bgauryy","path":"packages","repo":"octocode"}]}
 ```
 
 ### `ghGetFileContent`
 
-Read a known GitHub path. A path-only request reads source content; `ranges` selects inclusive spans and `matchString` selects matched regions. `view:"compact"` transforms content; `view:"symbols"` outlines declarations. Match selection and view combinations are explicit schema variants. Copy emitted cursors to finish large reads.
+Copy emitted cursors to finish large reads. Local and GitHub file reads share the view behavior described under [`localFetch`](#localfetch).
 
 ```json
 {"queries":[{"owner":"bgauryy","path":"src/index.ts","repo":"octocode"}]}
@@ -101,7 +98,7 @@ Read a known GitHub path. A path-only request reads source content; `ranges` sel
 
 ### `ghSearchHistory`
 
-Find pull requests, issues or commits with `operation`. `keywords` searches text, `filters` holds typed provider filters, and `sort` has `by` and `order`. Use `pathPrefix` for commit path scope. Read a selected item with `ghGetHistoryItem`; search rows are an index, not a complete discussion or patch.
+Search rows are an index, not a complete discussion or patch; read a selected item with `ghGetHistoryItem`.
 
 ```json
 {"queries":[{"keywords":["schema"],"operation":"pullRequest","owner":"bgauryy","repo":"octocode"}]}
@@ -109,7 +106,7 @@ Find pull requests, issues or commits with `operation`. `keywords` searches text
 
 ### `ghGetHistoryItem`
 
-Read a pull request or issue by `number`, a commit by `ref`, or a comparison by `baseRef` and `headRef`. `sections` selects the evidence needed. Files, comments, reviews, commits and patches can have independent continuations; complete each requested collection. Inline review comments are `reviewComments`; review bodies are `reviews`. A `files` row reads `M +5 -1 path` (status letter, additions, deletions). Each collection's `contentPagination.<section>.countScope` is `complete` (the whole collection), `loaded` (rows so far; more pages remain) or `partial` (a provider limit ended it). Matcher fields have the same meaning as in other text tools.
+Files, comments, reviews, commits and patches can have independent continuations; complete each requested collection.
 
 ```json
 {"queries":[{"number":1,"operation":"pullRequest","owner":"bgauryy","repo":"octocode"}]}
@@ -117,7 +114,7 @@ Read a pull request or issue by `number`, a commit by `ref`, or a comparison by 
 
 ### `ghCloneRepo`
 
-Fetch a fresh checkout for local tools on every call. Execution requires persistent storage; MCP exposure has a separate [clone opt-in](CONFIGURATION.md#tool-availability-cli-and-mcp). Use the returned local path for search, AST and LSP. A sparse checkout covers only its requested paths; retain that scope and the returned commit identity in local coverage claims. Checkouts live under `<OCTOCODE_HOME>/clones/`. The same commit, sparse selection and history depth replace a clean destination atomically; tracked edits, untracked or ignored files, local commits or Git refs (including branches, tags and stashes) prevent replacement. Clone has no cache lookup, TTL, eviction, cache metadata, or `refresh` field. It bypasses shared provider caches and returns complete receipts even beyond `responseChars`, without saving response pages. Existing checkouts from older versions remain untouched.
+Execution requires persistent storage; MCP exposure has a separate [clone opt-in](CONFIGURATION.md#tool-availability-cli-and-mcp). A sparse checkout covers only its requested paths; retain that scope and the returned commit identity in local coverage claims. Checkouts live under `<OCTOCODE_HOME>/clones/`. The same commit, sparse selection and history depth replace a clean destination atomically; tracked edits, untracked or ignored files, local commits or Git refs (including branches, tags and stashes) prevent replacement. Clone has no cache lookup, TTL, eviction, cache metadata, or `refresh` field. Existing checkouts from older versions remain untouched. Storage and retained-work ownership: [configuration](CONFIGURATION.md#cache-storage-and-lifecycle).
 
 ```json
 {"queries":[{"owner":"bgauryy","repo":"octocode"}]}
@@ -125,7 +122,7 @@ Fetch a fresh checkout for local tools on every call. Execution requires persist
 
 ### `artifactSearch`
 
-Resolve a named package with `operation:"resolve"`, `ecosystem` and `packageName`; use `version` separately when supported. Discover packages with `operation:"search"` and `keywords`. `registryUrl` selects a registry. Provider-native package coordinates remain values, not hidden operation selectors. Results use `packageName` and may offer related source/release reads.
+Provider-native package coordinates remain values, not hidden operation selectors. Results use `packageName` and may offer related source/release reads.
 
 ```json
 {"queries":[{"ecosystem":"npm","operation":"resolve","packageName":"zod"}]}
@@ -133,13 +130,11 @@ Resolve a named package with `operation:"resolve"`, `ecosystem` and `packageName
 
 ## Local code tools reference
 
-### Shared local rules
-
-Paths resolve against the workspace and must satisfy the read policy. Search tools share scope filters. Default exclusions and ignored paths are disclosed when relevant; a related broader search is a new scope, not proof that the first was complete. Returned paths are workspace-relative when possible.
+Fields: `octocode schema <tool> --view query`. Paths resolve against the workspace and must satisfy the read policy. Default exclusions and ignored paths are disclosed when relevant; a related broader search is a new scope, not proof that the first was complete.
 
 ### `localSearch`
 
-Search authorized local text with `matchString` as an array. Choose the advertised regex engine and case mode explicitly when defaults are unsuitable. Views include content, files, filesWithout, countLines, countMatches and matchOnly. `unique` applies to matchOnly; `multiline` is off, on or dotall. Every shown match keeps its source coordinates and complete enclosing declaration when available. Count and scope disclosures describe what was actually searched.
+Every shown match keeps its source coordinates. Count and scope disclosures describe what was actually searched.
 
 ```json
 {"queries":[{"matchString":["registerHandler"],"path":"src"}]}
@@ -147,7 +142,7 @@ Search authorized local text with `matchString` as an array. Choose the advertis
 
 ### `astSearch`
 
-Use `operation:"match"` with a typed `rule` object, `"symbols"` for declarations, or `"syntaxTree"` for parse structure. `parser` chooses a parser when required. `symbolFilter` is a typed mode/terms filter. A syntax match does not prove a runtime call or reference. Declaration nodes own their evidence fields; each result path resolves against the workspace or is an admitted absolute path. A scan cut by its time budget continues with `next.expandScan` after the files it evaluated; no file count or walk ceiling ends a scan.
+A syntax match does not prove a runtime call or reference. A scan cut by its time budget continues with `next.expandScan` after the files it evaluated; no file count or walk ceiling ends a scan.
 
 ```json
 {"queries":[{"operation":"match","parser":"typescript","path":"src","rule":{"pattern":"eval($X)"}}]}
@@ -155,7 +150,7 @@ Use `operation:"match"` with a typed `rule` object, `"symbols"` for declarations
 
 ### `structureSearch`
 
-Use `operation:"tree"` to inspect a directory scope or `"files"` to discover paths. Shared include/exclude globs and explicit metadata filters control the walk. `entryType` uses descriptive enum values such as `file` and `directory`. A listing groups file entries by directory; read source separately. `view:"paths"` requests names with directory and symlink markers, omitting size, time and line-count details. The default `view:"details"` retains those details. Sorting by `lineCount` still reads file content in either view. `limit` bounds one window of the listing (the entries it walks, sorts and lists; default 10,000); `responseChars` sets each page's size, `next.nextPage` pages the window and `next.continueWalk` lists the next window, so no walk ceiling ends a listing. `sort` orders the whole window before paging, so page 1 starts the global order. Resolve a shorthand path here (`nameRegex`, `view:"paths"`) before other local tools, and ask when several candidates match.
+`next.nextPage` continues through every page and internal scan window, so no walk ceiling ends a listing; `sort` orders each scan window before paging, so follow every continuation to finish the selected scope. A listing groups file entries by directory; read source separately.
 
 ```json
 {"queries":[{"maxDepth":2,"operation":"tree","path":".","view":"paths"}]}
@@ -163,19 +158,9 @@ Use `operation:"tree"` to inspect a directory scope or `"files"` to discover pat
 
 ### `localFetch`
 
-Read a known local file using a workspace-relative or absolute path. Path-only reads source content. Choose a view before choosing selectors:
+A symbols outline describes syntax, not resolved identity, and data outlines summarize containers rather than list every nested scalar. Inspect `viewFallback` when a symbols read cannot produce a useful outline. Markdown outlines recognize ATX (`#`) headings; underline-style Setext headings require content reads. A binary source produces a typed error. Secret scanning happens before projection, including range reads.
 
-| View | Use it for | Selectors |
-|---|---|---|
-| `content` (default) | Source evidence and quotations | Whole file, inclusive `ranges`, or `matchString` with optional ranges and `contextLines` |
-| `symbols` | Preview code declarations, Markdown `#` headings, or data keys and containers | Whole file; use displayed source lines or spans for a content range read |
-| `compact` | Reduce comments and whitespace where safe | Whole file or `ranges` |
-
-Reuse a search's `matchString`, `regexEngine`, `caseMode` and `wholeWord` to read its hits in context. Copy source text, not line-numbered snippets; literal matching is the default. `contextLines` defaults to zero before and after each match. `block:true` expands each match to its whole enclosing declaration, body included; use `contextLines` for a signature only. If any match hits a multiline declaration head, only head hits expand; other matches retain their context windows. Without a head hit, body matches can expand their containing declaration. Use LSP to resolve a call's definition.
-
-In a symbols outline, `13-17` marks a declaration spanning lines 13–17 inclusive, a single number one line, and `… (lines 4-9)` folded lines; attributes and doc comments print on their own lines above the range. `totalLines` is the file's length, while `pagination.total` counts only the units the read selected. Symbol outlines describe syntax, not resolved identity, and data outlines summarize containers rather than list every nested scalar. Markdown outlines recognize ATX (`#`) headings; underline-style Setext headings require content reads. Inspect `viewFallback` when a symbols read cannot produce a useful outline. A binary source produces a typed error. Secret scanning happens before projection, including range reads.
-
-Compact reads preserve literal content and source-line citations. YAML compact reads retain the selected text, including comments and blank lines, because those bytes can belong to scalar values; `view:"symbols"` still outlines YAML keys. If a transformed view cannot be mapped to source lines, the reader keeps the original selected text. Local and GitHub file reads share this behavior.
+Compact reads preserve literal content and source-line citations. YAML compact reads retain the selected text, including comments and blank lines, because those bytes can belong to scalar values; `view:"symbols"` still outlines YAML keys. If a transformed view cannot be mapped to source lines, the reader keeps the original selected text. Use LSP to resolve a call's definition.
 
 ```json
 {"queries":[{"path":"src/index.ts"}]}
@@ -185,7 +170,7 @@ Compact reads preserve literal content and source-line citations. YAML compact r
 
 ### `lspSearch`
 
-Use observed `path`, `line` and `symbolName` anchors for definitions, references, callers, callees, hover and type navigation. `occurrence` distinguishes repeated names on one line (zero-based). `workspaceSymbol` takes `symbolQuery` and a path or workspaceRoot; document operations take a path. Location output uses `view:"content"` or `"files"`. Follow importer, hierarchy and result continuations. Missing or indexing servers do not prove absence. References rows carry `role` (`call`, `import` or `reference`). `coverage.importerScan` (`complete`, `capped` or `failed`) reports the scan for importing files the server missed, and `verifiedImporterFiles` how many it added: `complete` with 0 means none were missed. Row paths are workspace-relative whatever the result's `workspaceRoot`. `workspaceSymbol` has no completeness marker; confirm a missing name with `localSearch`.
+Fields: `octocode schema lspSearch --view query`. A missing or still-indexing server does not prove absence. A row's `role` is `declaration`, `call`, `import` or `reference`. Follow importer, hierarchy and result continuations.
 
 ```json
 {"queries":[{"line":10,"path":"src/index.ts","symbolName":"run"}]}
@@ -195,7 +180,7 @@ Use observed `path`, `line` and `symbolName` anchors for definitions, references
 
 ### `clasify`
 
-Evaluate supplied `content` or an unread `source`, discover models, or assess sections of keyed `resources`. Questions request typed answers. Text sources and image assets keep evidence provenance without returning their provider payloads. Use inline `classification` on search/read when selecting retrieved evidence is the task. A `score` question lists up to 11 levels, so a 0–10 rubric fits; a score is a model judgment, so ground it with a source search before reporting it. `next.read` is the read needed to cite an answer's lines. See the [classification guide](OCTOCODE_CLASIFY.md).
+Evaluate supplied `content` or an unread `source`, discover models, or assess sections of keyed `resources`. Text sources and image assets keep evidence provenance without returning their provider payloads. A score is a model judgment: ground it with a source search before reporting it. `next.read` is the read needed to cite an answer's lines. Routes, limits and recovery: [classification guide](OCTOCODE_CLASIFY.md).
 
 ```json
 {"queries":[{"content":"Create a replacement credential, then restart the service.","operation":"evaluate","questions":{"restart":{"instructions":"Does rotating the credential require restarting the service?","type":"noul"}}}]}
@@ -203,23 +188,16 @@ Evaluate supplied `content` or an unread `source`, discover models, or assess se
 
 ### Context selection
 
-`classification` is supported by localSearch, localFetch, ghSearchCode and ghGetFileContent. The receipt distinguishes selected, related, excluded and unknown units. A unit is kept when any predicate puts more than 0.5 on direct evidence; each page judges up to 64 units, one model call each. `next.nextCandidatePage` completes a selected list; `next.unfiltered` (the whole view) or `next.unfilteredUnknown` (the unknown units) is needed before an absence or count claim, including after an empty classified result. Unknown is never a negative decision.
+`classification` is supported by localSearch, localFetch, ghSearchCode and ghGetFileContent. The receipt distinguishes selected, related, excluded and unknown units; unknown is never a negative decision. Paging and absence rules (`next.nextCandidatePage`, `next.unfiltered`, `next.unfilteredUnknown`): [tool flow](../skills/octocode-research/references/tool-flow.md#scout-judge-what-you-have-not-read); the 64-unit page budget and the 0.5 keep threshold are in the schema.
 
 ### Rust build context
 
-| `rustContext` field | Default in an explicit context | Meaning |
-|---|---|---|
-| `features` | `[]` | Cargo features, or `"all"`; deduplicated and sorted for identity. |
-| `noDefaultFeatures` | `false` | Disable default features. |
-| `target` | unset (the server's Cargo environment) | Target triple, 1–256 chars. |
-| `cfgs` | `[]` | ≤100 cfg settings added to the effective list (`"custom"`, `"mode=fast"`); `"!custom"` disables one. |
-| `buildScripts` | `false` | Run build scripts and load their cfg and generated sources. |
-| `procMacros` | `false` | Expand procedural macros; requires `buildScripts: true`. |
+`rustContext` fields and limits are in the schema. A field left out keeps the effective value (the configured server options, else rust-analyzer's default); `features` are deduplicated and sorted for identity, and `target` is otherwise the server's Cargo environment.
 
 - In a crate with a build script that did not run, an incoming answer missing files that spell the name is partial (`buildScriptsOff`) and offers a `related[]` lead with `rustContext.buildScripts:true`: the same query in that context. One note states the cost: it executes the workspace's build scripts (repository code) in a separate rust-analyzer (~2 GB).
 - rust-analyzer loads only the package directory, so an `include!` of a file outside it never resolves: an answer missing files that spell the name through such an include is partial (`includeOutsidePackage`) with a warning naming the file; no `rustContext` recovers it; check those uses lexically with `localSearch`.
 - A file that several files declare as a module (`#[path = "support/x.rs"] mod x;` in a bench and a test) is compiled once per declaring crate, and rust-analyzer answers for one copy: an incoming answer missing files that spell the name is partial (`sharedModuleFile`) with a warning naming the declaring files; check the other copies' uses lexically with `localSearch`.
-- A context is an overlay: it changes only the fields it sets, and only where the value differs from the effective one (the configured server options, else rust-analyzer's default). Everything else, `cfg(test)` code included, stays as the default server analyzes it, so `{}` or a context equal to the defaults reuses the default server. Build scripts and proc macros run only when `buildScripts`/`procMacros` is true; enabled providers run workspace code, and the context is not a sandbox.
+- A context is an overlay: it changes only the fields it sets, and only where the value differs from the effective one. Everything else, `cfg(test)` code included, stays as the default server analyzes it, so `{}` or a context equal to the defaults reuses the default server. Build scripts and proc macros run only when `buildScripts`/`procMacros` is true; enabled providers run workspace code, and the context is not a sandbox.
 - rust-analyzer supplies cfg-selected definitions, declarative macro expansion, and enabled build-script or proc-macro results; `astSearch` gets no compiler expansion. A disabled provider can explain an empty answer for a declaration a normal Cargo build generates.
 - Different effective settings use different pooled clients. `rustContext.fingerprint` identifies the normalized requested settings and is part of pagination, so a changed context restarts pagination. It does not pin sources, Cargo configuration, toolchain, environment, or generated artifacts, and is not a reproducible-build identifier. See the [engine lifecycle contract](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#rust-context) and [rust-analyzer configuration](https://rust-analyzer.github.io/book/configuration.html).
 
@@ -229,7 +207,7 @@ Without `workspaceRoot`, the root is the nearest ancestor of the file holding a 
 
 ### Server fidelity and the no-fallback contract
 
-Every `lspSearch` operation, including `documentSymbols`, needs a real server. Without one, Octocode returns `status:"error"`, `errorCode:"serverUnavailable"`, and recovery through `localSearch` or `localFetch`. Markdown has no built-in server route: configure a Markdown server for LSP, or use `localFetch view:"symbols"` for syntax-only heading outlines. There is no same-file-only `references` path. `diagnostic` on a server without pull diagnostics waits up to 1.5 s for a push after the document sync; a server that publishes only when its diagnostics change (typescript-language-server) keeps its last report, which is returned with a warning that it predates the last edit. See [LSP server lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md).
+Every `lspSearch` operation, including `documentSymbols`, needs a real server; without one the row is `serverUnavailable` with recovery through `localSearch` or `localFetch` ([semantic boundary](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#semantic-boundary)). Markdown has no built-in server route: configure one, or use `localFetch view:"symbols"` for syntax-only heading outlines. There is no same-file-only `references` path. `diagnostic` on a server without pull diagnostics waits up to 1.5 s for a push after the document sync; a server that publishes only when its diagnostics change (typescript-language-server) keeps its last report, which is returned with a warning that it predates the last edit.
 
 ### Subtypes and implementations without an answer in time
 
@@ -245,47 +223,25 @@ Definition locations stay server output; import targets are never rewritten. LSP
 
 ### Language servers
 
-The built-in server per language is the one table in [Supported languages and features](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md); TypeScript routing is in [TypeScript backends](#typescript-backends). Assembly has no built-in server. Rust and C/C++ support managed downloads (`octocode lsp-server install <name>`); others use installed executables, and a missing one's error names its install command.
-
-Built-in servers start headless and read-only (user arguments and options win): rust-analyzer runs no build scripts, proc macros, or `cargo check`; clangd runs `--background-index=false --clang-tidy=false --log=error --pch-storage=memory`; jdtls keeps `-data` under the Octocode home with `java.autobuild.enabled:false`; Metals starts with `isHttpEnabled:false`. Each server tree is capped at 25% of host RAM, between 4096 and 8192 MiB (a per-server `maxMemoryMb` in lsp-servers.json overrides it; `0` disables); on macOS and Linux an RSS watchdog enforces it on the whole server tree ("language server exceeded memory cap").
+The built-in server per language is the one table in [Supported languages and features](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md); TypeScript routing is in [TypeScript backends](#typescript-backends). Assembly has no built-in server. Rust and C/C++ support managed downloads (`octocode lsp-server install <name>`); others use installed executables, and a missing one's error names its install command. Headless start options, the memory cap and its watchdog, pooling and tracing: [LSP server lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md).
 
 Lines end at `\r\n`, `\n`, or a lone `\r` (the LSP rule). A location in an allowed file that cannot be read (too large, not UTF-8) is kept, with `content` stating why.
 
 #### Custom / bring-your-own servers
 
-An `lsp-servers.json` entry adds an extension or replaces a built-in server (another `rust-analyzer`, `tsgo`, a pinned `clangd`); an entry for one TypeScript or JavaScript spelling (`.ts`) routes the whole family (`.mts`, `.cts`, `.tsx`), each file keeping its built-in language id, so one project is not split across two servers; a relative command with a path separator resolves against the workspace root when the process directory has none. Load order: `lsp.configPath` / `$OCTOCODE_LSP_CONFIG`; `<workspace>/.octocode/lsp-servers.json` (only with `lsp.trustProjectConfig`); `~/.octocode/lsp-servers.json`.
+An `lsp-servers.json` entry (format, load order and trust: [lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#custom-configuration), [configuration](CONFIGURATION.md)) adds an extension or replaces a built-in server. An entry for one TypeScript or JavaScript spelling (`.ts`) routes the whole family (`.mts`, `.cts`, `.tsx`), each file keeping its built-in language id, so one project is not split across two servers. The server answers what it advertises; an extension with no entry and no built-in route returns `serverUnavailable`.
 
 <!-- example: configuration -->
 ```jsonc
 {"languageServers": {".php": {"command": "intelephense", "args": ["--stdio"], "languageId": "php"}}}
 ```
 
-`command` and `languageId` are required; `args` (default `[]`) and `initializationOptions` (sent verbatim in `initialize`) are optional. The server answers what it advertises; an extension with no entry and no built-in route returns `serverUnavailable`. See [`LSP_SERVER_LIFECYCLE.md`](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#custom-configuration).
-
-
 ## Clone and local tools workflow
 
 Clone a verified repository/ref, then use the returned path with localSearch, structureSearch, astSearch or lspSearch. Keep the materialization scope in the claim.
 
-### Cache behavior
-
-Storage and cache ownership are documented in [configuration](CONFIGURATION.md#cache-storage-and-lifecycle). A cursor belongs to its issuing tool, access context and saved state. Expiry requires an explicit fresh request.
-
 ### `graphBuild` and `graphQuery`
 
-Build or reuse a syntax graph with `graphBuild`, then explore the exact scope with
-`graphQuery`. Both use `{queries:[...]}`; use `--json` for CLI machine output. They
-are the only graph surface: the CLI has no separate graph command.
-Both are always available as CLI commands; [configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) controls MCP exposure.
-`graphBuild` writes snapshots and prunes older retained snapshots; `graphQuery` is read-only. Query the build's exact path even when pinning its ID.
-Snapshots live under the current workspace's `.octocode/graph`. `keep` defaults
-to three per scope; increase it when retaining comparison baselines. Query
-continuations pin the snapshot, and every successful query reports freshness.
-Call traversal defaults to high confidence. Verify consequential findings with
-LSP and source reads: `impact` rows reached through imports are module-level
-candidates, so confirm a symbol change breaks them with `lspSearch` references.
-Run `graphBuild` when the user asked for graph analysis; otherwise ask first. For bulk evidence, send `responseChars: 50000`, list up to
-the schema's maximum of sources as `witnesses`/`unresolved`/`symbols` `target`, and filter
-`unresolved` with `reasons` before paging. See [code graph architecture](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli-and-beta-mcp).
+Build or reuse a syntax graph with `graphBuild`, then explore the exact scope with `graphQuery`; use `--json` for CLI machine output. They are the only graph surface: the CLI has no separate graph command. Both are always available as CLI commands; [configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) controls MCP exposure. `graphBuild` writes snapshots and prunes older retained ones; `graphQuery` is read-only. Query continuations pin the snapshot, and every successful query reports freshness.
 
-`includeProvenance` (default `false`) is defined once in [Minimal by default](TOOL_DATA_CONTRACT.md#minimal-by-default).
+Call traversal defaults to high confidence. Verify consequential findings with LSP and source reads: `impact` rows reached through imports are module-level candidates, so confirm a symbol change breaks them with `lspSearch` references. For bulk evidence, send `responseChars: 50000`, list up to the schema's maximum of sources as `witnesses`/`unresolved`/`symbols` `target`, and filter `unresolved` with `reasons` before paging. Scope, snapshot and coverage rules: [tool flow](../skills/octocode-research/references/tool-flow.md#graph); architecture: [code graph](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli-and-beta-mcp). `includeProvenance` is defined once in [Minimal by default](TOOL_DATA_CONTRACT.md#minimal-by-default).

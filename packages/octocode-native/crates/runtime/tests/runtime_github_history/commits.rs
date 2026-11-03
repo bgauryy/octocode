@@ -203,9 +203,10 @@ async fn path_scoped_commit_labels_whole_commit_totals() {
 }
 
 /// Patch gutters number each line on the side of its sign (` `/`+`: the
-/// commit, `-`: its first parent); `readAtCommit` reads the top file whole
-/// at the commit and `readParent` reads its old-side hunk windows at the
-/// parent, so a gutter number is a direct `ranges` entry on its side.
+/// commit, `-`: its first parent); `readAtCommit` reads the top file's
+/// new-side hunk windows at the commit and `readParent` its old-side hunk
+/// windows at the parent, so a gutter number is a direct `ranges` entry on
+/// its side.
 #[tokio::test]
 async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
     let server = MockServer::builder().start().await;
@@ -239,7 +240,7 @@ async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
         "{data}"
     );
     use base64::Engine as _;
-    for (pinned, marker) in [(sha, "new"), (parent, "old")] {
+    for (pinned, marker, hunk_line) in [(sha, "new", 61), (parent, "old", 41)] {
         let content = (1..=100)
             .map(|line| format!("{marker} line {line}\n"))
             .collect::<String>();
@@ -256,7 +257,8 @@ async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
         assert_eq!(row_status(&read), "success", "{}", read.structured_content);
         let file = row_data(&read);
         assert!(
-            file.to_string().contains(&format!("{marker} line 41")),
+            file.to_string()
+                .contains(&format!("{marker} line {hunk_line}")),
             "{file}"
         );
     }

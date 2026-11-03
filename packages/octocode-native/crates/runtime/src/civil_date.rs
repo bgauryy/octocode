@@ -125,7 +125,7 @@ pub(crate) fn parse_rfc3339(value: &str) -> Option<(i64, u32)> {
         }
         let precision = digits.min(9);
         nanos = fraction[..precision].parse::<u32>().ok()?
-            * 10_u32.pow(9 - crate::num::u32_of_usize(precision));
+            * 10_u32.pow(9 - octocode_engine::num::saturating_u32(precision));
         rest = &fraction[digits..];
     }
     let offset = match rest.as_bytes() {

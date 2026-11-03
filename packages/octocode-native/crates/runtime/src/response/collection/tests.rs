@@ -29,17 +29,14 @@ fn every_declared_collection_pages_by_its_pagination_next_page() {
             tool.as_str()
         );
         let mut pagination = json!({"page": 1, "hasMore": false});
-        let call = Continuation::continued(tool, json!({"page": 2}));
+        let row = crate::tools::test_support::accepted_row(tool, &json!({}));
+        let expected = Continuation::continued(tool, row.clone()).build();
+        let call = Continuation::continued(tool, row);
         set_next_page(&mut pagination, tool, &collection, Some(call));
         assert_eq!(pagination["hasMore"], true, "{pagination}");
         let next = pagination["next"].as_object().expect("next");
         assert_eq!(next.keys().collect::<Vec<_>>(), [NEXT_PAGE], "{pagination}");
-        assert_eq!(next[NEXT_PAGE]["kind"], "continue", "{pagination}");
-        assert_eq!(next[NEXT_PAGE]["tool"], tool.as_str(), "{pagination}");
-        assert_eq!(
-            next[NEXT_PAGE]["input"]["queries"][0]["page"], 2,
-            "{pagination}"
-        );
+        assert_eq!(next[NEXT_PAGE], expected, "{pagination}");
     }
 }
 

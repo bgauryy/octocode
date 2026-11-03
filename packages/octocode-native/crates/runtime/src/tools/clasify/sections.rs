@@ -42,6 +42,11 @@ struct Resource {
     metadata: Value,
     units: Vec<Unit>,
     local_check: Option<Value>,
+    /// The resource row (without sections) last emitted. A later batch
+    /// repeats the resource only when it carries new sections or this row
+    /// changed, so continuation pages never resend unchanged metadata.
+    #[serde(default)]
+    shown: Option<Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -77,7 +82,7 @@ fn bad_token(message: &str) -> ClassificationError {
     ClassificationError::new(
         ErrorCode::ClassificationContextUnavailable,
         message,
-        "Copy nextSectionPage unchanged, or start a fresh sections request.",
+        "Copy nextPage unchanged, or start a fresh sections request.",
     )
 }
 
@@ -183,7 +188,7 @@ pub(super) fn run(
                 input,
                 dispatcher,
                 context,
-                runtime.sessions.max_bytes,
+                crate::cache::MEMORY.limit(),
                 &shared.captures,
             )?,
             0,

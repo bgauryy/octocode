@@ -43,7 +43,7 @@ pub(super) fn scan_page(
     cut: &PageWindow<'_>,
     source_path: &std::path::Path,
     security: &impl ContentScan,
-    source: &Source,
+    source: &Source<'_>,
     first_line: Option<usize>,
 ) -> Result<ScannedPage, Box<LocalFetchResult>> {
     let PageWindow {
@@ -120,7 +120,7 @@ pub(super) fn scan_page(
 fn security_limit(
     q: &LocalFetchQuery,
     code: ErrorCode,
-    source: &Source,
+    source: &Source<'_>,
     first_line: Option<usize>,
 ) -> LocalFetchResult {
     let mut result = LocalFetchResult::error(
@@ -174,7 +174,7 @@ pub(super) fn warn_redacted(
 /// so it is left out.
 pub(super) fn warn_unmatchable(
     q: &LocalFetchQuery,
-    source: &Source,
+    source: &Source<'_>,
     ext: &super::extraction::Extraction,
     warnings: &mut Vec<String>,
 ) {

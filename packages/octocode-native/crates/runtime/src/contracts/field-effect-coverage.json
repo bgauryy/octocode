@@ -35,7 +35,7 @@
       "evidence": [
         "src/tools/clasify/tests.rs",
         "src/tools/judgment/batch/tests.rs",
-        "src/tools/judgment/cache.rs",
+        "src/tools/judgment/tests.rs",
         "src/providers/classification/transport/tests/retries.rs",
         "src/providers/classification/transport/tests/failures.rs",
         "src/providers/classification/transport/endpoint_policy_tests.rs",
@@ -472,9 +472,6 @@
         "contextLines.before": [
           "view"
         ],
-        "refresh": [
-          "execution"
-        ],
         "matchString": [
           "matcher"
         ],
@@ -617,7 +614,25 @@
         "filters.committedAt": [
           "filter"
         ],
+        "filters.committedAt.exclude": [
+          "filter"
+        ],
+        "filters.committedAt.exclude[].from": [
+          "filter"
+        ],
+        "filters.committedAt.exclude[].to": [
+          "filter"
+        ],
         "filters.committedAt.from": [
+          "filter"
+        ],
+        "filters.committedAt.include": [
+          "filter"
+        ],
+        "filters.committedAt.include[].from": [
+          "filter"
+        ],
+        "filters.committedAt.include[].to": [
           "filter"
         ],
         "filters.committedAt.to": [
@@ -1539,7 +1554,7 @@
         "path": [
           "source"
         ],
-        "exclude": [
+        "excludeDirs": [
           "filter"
         ],
         "refresh": [

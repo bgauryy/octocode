@@ -115,12 +115,11 @@ fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
     .expect("path policy");
     let security = ContentSecurity::new();
     let context = ExecutionContext {
-        cancellation: tokio_util::sync::CancellationToken::new(),
+        cancellation: octocode_io::cancellation::Cancellation::new(),
         deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
         response_window: None,
         github_credential: None,
     };
-    let views = crate::security::scan::SanitizedViewMemo::default();
     for (tool, query) in [
         (ToolId::LocalFetch, json!({"path": 5})),
         (ToolId::LocalSearch, json!({"path": path, "matchString": 5})),
@@ -136,12 +135,11 @@ fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
             &context,
             &LocalEnv {
                 memory_only: true,
-                source_views: &Default::default(),
                 cargo: None,
                 paths: &paths,
                 security: &security,
-                views: &views,
                 selection: None,
+                graph_rows: None,
             },
         )
         .unwrap_or_else(|_| panic!("{tool} returns a row"));
@@ -164,7 +162,7 @@ fn a_non_local_tool_is_a_routing_error() {
     })
     .expect("path policy");
     let context = ExecutionContext {
-        cancellation: tokio_util::sync::CancellationToken::new(),
+        cancellation: octocode_io::cancellation::Cancellation::new(),
         deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
         response_window: None,
         github_credential: None,
@@ -176,12 +174,11 @@ fn a_non_local_tool_is_a_routing_error() {
             &context,
             &LocalEnv {
                 memory_only: true,
-                source_views: &Default::default(),
                 cargo: None,
                 paths: &paths,
                 security: &ContentSecurity::new(),
-                views: &crate::security::scan::SanitizedViewMemo::default(),
                 selection: None,
+                graph_rows: None,
             },
         );
         assert!(

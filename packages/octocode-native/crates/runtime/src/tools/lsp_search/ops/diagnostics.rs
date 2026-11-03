@@ -11,17 +11,23 @@ pub(super) async fn anchor_diagnostics(
     cancel: &dyn CancellationCheck,
     wait: bool,
 ) -> Result<Option<(Value, bool)>, LspFailure> {
-    let report = if wait && client.has_capability("diagnosticProvider".to_owned()) {
+    let pulls = client.has_capability("diagnosticProvider".to_owned());
+    let pull = async {
         let wait = std::time::Duration::from_millis(ANCHOR_DIAGNOSTICS_WAIT_MS.into());
-        cancellable(
-            cancel,
-            tokio::time::timeout(wait, client.get_diagnostics(path.to_owned())),
+        Ok::<_, LspFailure>(
+            cancellable(
+                cancel,
+                tokio::time::timeout(wait, client.get_diagnostics(path.to_owned())),
+            )
+            .await?
+            .ok()
+            .and_then(Result::ok),
         )
-        .await?
-        .ok()
-        .and_then(Result::ok)
+    };
+    let report = if wait && pulls {
+        pull.await?
     } else {
-        cancellable(
+        let pushed = cancellable(
             cancel,
             client.get_push_diagnostics(
                 path.to_owned(),
@@ -30,11 +36,29 @@ pub(super) async fn anchor_diagnostics(
         )
         .await?
         .ok()
-        .flatten()
+        .flatten();
+        // An answer read without waiting cannot rest on a report that predates
+        // the last change: it would mark a correct answer partial. Ask again,
+        // or claim nothing until the server publishes.
+        match pushed {
+            Some(report) if !wait && report_is_superseded(&report) => {
+                if pulls {
+                    pull.await?
+                } else {
+                    None
+                }
+            }
+            other => other,
+        }
     };
     Ok(report
         .filter(|report| report.get("kind").and_then(Value::as_str) != Some("unchanged"))
         .map(|report| diagnostic_items(Some(report))))
+}
+
+/// Whether a cached push report predates the last document or file change.
+fn report_is_superseded(report: &Value) -> bool {
+    report.get("superseded").and_then(Value::as_bool) == Some(true)
 }
 
 /// rust-analyzer codes for macros it did not expand. The engine starts it

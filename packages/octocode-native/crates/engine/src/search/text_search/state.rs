@@ -45,9 +45,7 @@ pub(super) struct FileRec {
     pub(super) term_counts: Vec<u32>,
 }
 
-/// Everything one search accumulated. Totals (`files_matched`, `submatches`,
-/// `matched_lines`) count every kept file, including files the collection cap
-/// later drops from `recs`.
+/// Everything one search accumulated: every matched file is kept in `recs`.
 pub(super) struct CollectResult {
     pub(super) recs: Vec<FileRec>,
     pub(super) files_searched: u64,
@@ -59,7 +57,7 @@ pub(super) struct CollectResult {
     pub(super) span_capped: bool,
     /// The PCRE2 wall-clock deadline was hit (`pcre2Deadline`).
     pub(super) timed_out: bool,
-    /// At least one file exceeded the byte ceiling and was skipped (`maxFileSize`).
+    /// At least one file exceeded the byte ceiling and was skipped (`fileTooLarge`).
     pub(super) size_skipped: bool,
     /// At least one file was quit as binary (`binaryQuit`); coverage is partial.
     pub(super) binary_quit: bool,

@@ -5,56 +5,25 @@ description: "Evaluate whether code, prompts, models, workflows or skills improv
 
 # Octocode eval benchmark
 
-Match the evidence to the claim; reserve sealed comparisons for behavioral gains.
-
-```mermaid
-flowchart LR
-  C{Claim} -- editorial --> R[Review structure and intent]
-  C -- regression --> T[Reproduce failure and verify fix]
-  C -- comparison --> F[Freeze metric, cases and access]
-  F --> D[Develop and select] --> S[Run sealed comparison once]
-  S --> V[Apply verdict and report limits]
-```
-
-## Pick the depth
-
-| Claim | Evidence |
+| Claim | Check |
 |---|---|
-| Editorial or structural | Review intent, links, examples, checks; editorial result, behavior unmeasured |
-| Deterministic regression | TDD: a check fails before the fix, passes after; verify affected contracts; no sealed benchmark |
-| Comparative or reliability | Safeguards below on representative cases; sample and budget scale with consequence, uncertainty |
+| Editorial or structural | Review intent, links, examples and checks. Report behavior as unmeasured. |
+| Deterministic regression | Reproduce the failure, pass the same check after the fix and verify affected contracts. |
+| Comparative gain or reliability | Use a representative comparison below. Scale sample and budget to consequence and uncertainty. |
+| The host activates the right skill | Follow the [skill activation procedure](references/skill-activation.md). Record which skill the target host loads first, including none. A description-only check measures routing. |
 
-## Comparative evaluation safeguards
+## Run a comparison
 
-- Freeze the [KPI contract](references/design.md#kpi-contract) before comparing; a harness, suite, or grader change is a new version, so rerun both arms.
-- Isolate workers; no evaluator material or hints reach solvers ([harness](references/harness.md#roles-and-access)).
-- Development iterates, validation selects, the sealed test confirms once with both arms under identical conditions ([splits](references/design.md#splits-and-exposure)); pick the candidate before opening final results.
-- Prefer deterministic outcome checks; test graders and calibrate judges before freezing ([grading](references/grading.md)).
-- Failures, Unknowns, errors, retries, and cost stay in the denominator and report.
-- The deployment instruction is the subject; answer-specific coaching is leakage.
-- `Keep` is provisional, `Discard` not final ([loop](references/loop.md#keepdiscard-loop)); final verdicts: `Accept`, `Revert`, `Inconclusive`, `Invalid` ([verdict](references/design.md#verdict)).
-- Stop condition: a second Inconclusive or Invalid final run on fresh or unexposed tasks; then report the limit and the next measurement needed.
-- Public benchmarks orient; representative private tasks decide ([public benchmarks](references/design.md#public-benchmarks)).
-
-## Resources
-
-| When | Read | Why |
-|---|---|---|
-| Repository evidence needs Octocode | [MCP/CLI guide](references/octocode-usage.md) | Discovery, invocation, complete reads, recovery |
-| Planning a comparison | [design](references/design.md) | KPI, cases, splits, verdicts |
-| Choosing graders or judges | [grading](references/grading.md) | pass@k, judge calibration |
-| Runner, suite or run-folder layout, leakage, multi-agent subject | [harness](references/harness.md) | Folders, run identity, access, clean lab |
-| Iterating, diagnosing, claiming | [loop](references/loop.md) | Keep/Discard, diagnosis |
-| Does a host load the right skill? | [skill-activation](references/skill-activation.md) | Host runs, scoring |
-| Rendering or listing reports | [render-report.mjs](scripts/render-report.mjs), per [output.md](output.md) | HTML, manifest |
+1. Freeze the [KPI contract](references/design.md#kpi-contract) and [splits](references/design.md#splits-and-exposure) before comparing. [Public benchmarks](references/design.md#public-benchmarks) orient. Decide on representative private tasks. Version harness, suite or grader changes and reassess both arms. Only a grader-only fix may reuse sealed outputs with all required evidence.
+2. Isolate solvers from evaluation material using the [harness and access rules](references/harness.md). Give both arms their deployment instructions. Answer-specific coaching leaks the answer.
+3. Prefer deterministic outcome checks. [Test graders and calibrate judges](references/grading.md) before freezing them. Account for failures, Unknowns, errors and retries in the denominator and report their cost.
+4. Iterate on development tasks using the [Keep/Discard loop](references/loop.md#keepdiscard-loop). Both labels are provisional. Select on validation before opening the sealed test. Confirm the selected candidate once, with both arms under identical conditions.
+5. Assign the [final verdict](references/design.md#verdict) of `Accept`, `Revert`, `Inconclusive` or `Invalid`. Stop after a second Inconclusive or Invalid final run on fresh or unexposed tasks. Report the limit and the next measurement needed.
 
 ## Related skills
 
-- `octocode-research`: behavior and data behind a measurement.
-- `octocode-agentic-prompts`: instruction fixes after an observed failure.
-- `octocode-skills`: skill structure, descriptions; activation tests stay here.
-- For an orchestrated multi-actor evaluation: [octocode-workflows composition](../octocode-workflows/references/composition.md).
+Use `octocode-research` and the [MCP/CLI guide](references/octocode-usage.md) for repository evidence, `octocode-agentic-prompts` for instruction failures, `octocode-skills` for skill structure or descriptions and [workflow composition](../octocode-workflows/references/composition.md) for a coordinated evaluation.
 
 ## Output
 
-Follow [output.md](output.md) for the response, run folder, and rendering.
+Follow [output.md](output.md) for responses and run folders. Save every measured run, including smoke tests. Use [render-report.mjs](scripts/render-report.mjs) to render or list reports.

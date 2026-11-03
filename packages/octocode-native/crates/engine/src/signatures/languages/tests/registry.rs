@@ -295,3 +295,21 @@ fn c_family_extensions_are_the_enabled_c_cpp_and_cuda_grammars() {
         assert!(!is_c_family_extension(extension), ".{extension}");
     }
 }
+
+/// Script-bearing markup is the registry's complement: a grammar for one of
+/// its extensions makes the entry redundant, and `may_reference_code` is the
+/// union of both, so no consumer keeps its own list.
+#[test]
+fn script_bearing_markup_is_the_registrys_complement() {
+    for ext in SCRIPT_BEARING_MARKUP {
+        assert!(
+            find_entry(ext).is_none(),
+            ".{ext} has a grammar: drop it from SCRIPT_BEARING_MARKUP"
+        );
+        assert!(may_reference_code(ext), ".{ext}");
+    }
+    for ext in supported_extensions() {
+        assert!(may_reference_code(ext), ".{ext}");
+    }
+    assert!(!may_reference_code("md"));
+}

@@ -5,7 +5,9 @@
 //! `(api host, short token digest | "anon")`. Per key it owns the Octokit
 //! throttling groups (global, search, graphql, write, auth, git), the
 //! per-resource primary buckets learned from every response
-//! (`x-ratelimit-resource/remaining/reset`), a shared secondary-limit
+//! (`x-ratelimit-resource/limit/remaining/reset`; search groups space their
+//! starts by the quota their bucket reports, code search by the documented
+//! default until the first answer reports one), a shared secondary-limit
 //! cooldown, and a circuit breaker fed only by secondary limits and 5xx.
 //! Blocking facts are optionally mirrored to
 //! `~/.octocode/tmp/ratelimit/<host>-<token>.json` so short-lived CLI
@@ -16,6 +18,7 @@ mod config;
 mod key_state;
 mod persist;
 mod slots;
+mod waits;
 
 pub(crate) use circuit::CircuitCause;
 pub(crate) use classify::{is_primary_rate_limit, is_secondary_rate_limit};
@@ -26,6 +29,7 @@ pub(crate) use key_state::{Admission, KeyState};
 
 use super::{ProviderError, ProviderErrorKind, RateLimit};
 use octocode_io::budget::BudgetStop;
+use octocode_io::cancellation::Cancellation;
 use std::{
     collections::HashMap,
     path::Path,
@@ -33,7 +37,6 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tokio_util::sync::CancellationToken;
 use url::Url;
 
 pub(crate) fn rate_limited_error(message: &str, rate_limit: RateLimit) -> ProviderError {
@@ -63,7 +66,7 @@ pub(crate) fn ceil_secs(duration: Duration) -> u64 {
 async fn acquire(
     semaphore: &Arc<Semaphore>,
     deadline: Instant,
-    cancellation: &CancellationToken,
+    cancellation: &Cancellation,
 ) -> Result<OwnedSemaphorePermit, ProviderError> {
     let remaining = deadline.saturating_duration_since(Instant::now());
     tokio::select! {
@@ -77,8 +80,8 @@ async fn acquire(
 
 /// How a runtime paces its GitHub requests. `Octokit` is production;
 /// `Unpaced` is the test seam (through the runtime's internal limits): the
-/// limits GitHub's headers report still hold, the client-side spacing and
-/// code-search window do not.
+/// limits GitHub's headers report still hold, the client-side search pacing
+/// does not.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum GitHubPacing {
     #[default]
@@ -132,23 +135,15 @@ impl GitHubBudget {
     pub async fn admit_auth(
         &self,
         origin: &Url,
-        cap: Duration,
         deadline: Instant,
-        cancellation: &CancellationToken,
+        cancellation: &Cancellation,
     ) -> Result<AuthAdmission, ProviderError> {
         let state = self.key_state(&LimiterKey::for_url(origin, None), None);
         state
-            .wait_unblocked("auth", &self.config, cap, deadline, cancellation)
+            .wait_unblocked("auth", &self.config, deadline, cancellation)
             .await?;
         let admission = state
-            .admit(
-                Some(Group::Auth),
-                &self.config,
-                false,
-                cap,
-                deadline,
-                cancellation,
-            )
+            .admit(Some(Group::Auth), &self.config, deadline, cancellation)
             .await?;
         Ok(AuthAdmission {
             _admission: admission,

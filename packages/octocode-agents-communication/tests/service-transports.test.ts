@@ -24,7 +24,7 @@ function fixture(t: TestContext) {
   const call = jsonCall(binary, workspace, database, { stdio: 'pipe' });
   const asyncCall = async (command: string, input?: unknown, session?: string, env: NodeJS.ProcessEnv = {}): Promise<JsonRecord> => JSON.parse((await exec(binary, args(command, input, session), { env: { ...process.env, ...env }, timeout: 10000 })).stdout);
   const a = call('join', { name: 'sender', vendor: 'generic' }), b = call('join', { name: 'receiver', vendor: 'opencode' });
-  const send = (body: string, wake = 'passive', key?: string) => call('send_message', { to: b.id, body, wake, key, reasoning: 'Verify native transport boundaries without a sender model' }, a.id);
+  const send = (body: string, wake = 'passive', key?: string) => call('send_message', {parts: [{ text: body }],  to: b.id, wake, key, reasoning: 'Verify native transport boundaries without a sender model' }, a.id);
   const db = new DatabaseSync(database); t.after(() => db.close());
   return { workspace, database, args, call, asyncCall, a, b, send, db };
 }

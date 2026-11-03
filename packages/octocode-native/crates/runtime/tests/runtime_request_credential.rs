@@ -185,20 +185,43 @@ async fn rejected_request_token_never_falls_back_or_echoes() {
                 )
                 .await,
         )
-        .unwrap()
-        .into_value();
-        let text = result.to_string();
+        .unwrap();
+        let text = result.text;
         assert!(!text.contains(&bad), "token echoed: {text}");
         assert!(!text.contains("ambient body"), "fell back: {text}");
         assert!(!text.contains("auth login"), "local-only hint: {text}");
-        let data = &result["structuredContent"]["results"][0]["data"];
+        let payload: Value = serde_json::from_str(&text).expect("MCP JSON text");
+        let data = &payload["results"][0]["data"];
         assert_eq!(data["errorCode"], "authentication", "{text}");
         assert!(text.contains("supplied with this request"), "{text}");
     }
+    // Each call sends the supplied token on its content read and on the
+    // contract's concurrent first-page last-change request, and nothing else.
+    let bearer = format!("Bearer {bad}");
+    let requests = server.received_requests().await.unwrap();
+    let by_bad = requests
+        .iter()
+        .filter(|request| {
+            request
+                .headers
+                .get("authorization")
+                .is_some_and(|value| value == bearer.as_str())
+        })
+        .map(|request| request.url.path())
+        .collect::<Vec<_>>();
+    let reads = by_bad
+        .iter()
+        .filter(|path| **path == "/api/v3/repos/a/b/contents/x.txt")
+        .count();
+    let dates = by_bad
+        .iter()
+        .filter(|path| **path == "/api/graphql")
+        .count();
+    assert_eq!((reads, dates), (2, 2), "{by_bad:?}");
     assert_eq!(
         sends_by(&server, &bad).await,
-        2,
-        "the supplied token, every time"
+        reads + dates,
+        "the supplied token, every time, on nothing else"
     );
     assert_eq!(
         sends_by(&server, &workspace.token).await,

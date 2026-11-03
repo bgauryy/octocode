@@ -15,16 +15,7 @@ use super::super::page_memo::{
     PageMemo, Proof, Watch, directory_ignore_inputs, repository_markers,
 };
 use crate::tools::source::Link;
-use std::{
-    any::Any,
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
-
-const MAX_ENTRIES: usize = 16;
-/// Listed rows all stored walks may hold together; the oldest go first.
-const MAX_TOTAL_ROWS: usize = 400_000;
-const TTL: Duration = Duration::from_secs(60);
+use std::{any::Any, sync::Arc, time::SystemTime};
 
 /// A listed entry's size and modification time as `symlink_metadata` reads
 /// them now (a directory's size is 0).
@@ -119,8 +110,9 @@ struct Walk {
     walk: Arc<dyn Any + Send + Sync>,
 }
 
-/// Stored walks, weighed by listed rows.
-static STORE: PageMemo<Walk> = PageMemo::new(TTL, MAX_ENTRIES, MAX_TOTAL_ROWS);
+/// Stored walks, weighed by the bytes of their listed rows against the one
+/// process budget: a walk too large for all of it is not kept.
+static STORE: PageMemo<Walk> = PageMemo::new();
 
 /// The stored walk for `snapshot` when its entries are unchanged; a changed
 /// one is evicted.
@@ -151,15 +143,16 @@ pub(super) fn put<T: Listed>(
     walk: &Arc<T>,
 ) {
     let listed = walk.sources();
-    let rows = listed.len();
-    if rows > MAX_TOTAL_ROWS {
-        return;
-    }
+    // Each listed row's path and its stamp, what the stored walk holds per row.
+    let bytes = listed
+        .iter()
+        .map(|seen| seen.path.as_os_str().len() + std::mem::size_of::<Seen<'_>>())
+        .sum::<usize>();
     let Some(proof) = proof(root, paths, listed, &[]) else {
         return;
     };
     let walk: Arc<dyn Any + Send + Sync> = Arc::clone(walk) as _;
-    STORE.put(snapshot, policy, rows, Walk { proof, walk });
+    STORE.put(snapshot, policy, bytes, Walk { proof, walk });
 }
 
 pub(super) fn evict(snapshot: &str) {
@@ -171,6 +164,7 @@ mod tests {
     use super::*;
     use crate::tools::source::StampSet;
     use std::path::PathBuf;
+    use std::time::Duration;
 
     /// A walk that listed one file.
     struct One(PathBuf);

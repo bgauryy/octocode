@@ -1,5 +1,4 @@
 use super::held::Want;
-use super::index::{VIEW_POINT_BYTES, read_windows};
 use super::stream::stream;
 use super::*;
 use crate::execution::cancel::NeverCancel;
@@ -19,7 +18,6 @@ fn temp(content: &[u8]) -> tempfile::NamedTempFile {
 fn stream_one(path: &Path, first: usize, last: usize) -> Streamed {
     stream(&opened(path), &[Want::lines(first, last)], &NeverCancel)
         .expect("stream")
-        .0
         .pop()
         .expect("window")
 }
@@ -58,7 +56,9 @@ fn query(json: serde_json::Value) -> LocalFetchQuery {
 }
 
 mod byte_pages;
+mod edges;
 mod reads;
+mod scans;
 
 /// One stream re-reads its handle from the start, wherever an earlier
 /// read left it.
@@ -67,7 +67,7 @@ fn a_stream_reads_its_handle_from_the_start() {
     let file = temp(b"a\nb\n");
     let source = opened(file.path());
     std::io::Read::read(&mut &source, &mut [0_u8; 3]).expect("sample");
-    let (windows, ..) = stream(&source, &[Want::lines(1, 2)], &NeverCancel).expect("stream");
+    let windows = stream(&source, &[Want::lines(1, 2)], &NeverCancel).expect("stream");
     assert_eq!(windows[0].window, b"a\nb\n");
 }
 
@@ -77,7 +77,7 @@ fn a_stream_reads_its_handle_from_the_start() {
 fn one_stream_holds_every_requested_window() {
     let file =
         temp(b"a\n-----BEGIN RSA PRIVATE KEY-----\nSECRET\n-----END RSA PRIVATE KEY-----\nb\nc\n");
-    let (windows, ..) = stream(
+    let windows = stream(
         &opened(file.path()),
         &[Want::lines(1, 1), Want::lines(3, 3), Want::lines(5, 6)],
         &NeverCancel,
@@ -183,12 +183,10 @@ fn unterminated_key_redacts_its_body_run_and_leaves_later_code_readable() {
     assert_eq!(streamed.key_lines, 4);
 }
 
-/// A later page of an indexed source streams from the checkpoint before
-/// its window, not the whole file, and holds the same window: the
-/// digest and totals of the whole pass, and a private-key block open
-/// across the checkpoint still redacted.
+/// Every request proves the full source again and preserves selected windows,
+/// digest, totals and key blocks that start before those windows.
 #[test]
-fn an_indexed_source_streams_a_later_window_from_its_checkpoint() {
+fn every_streamed_request_reads_and_proves_its_source() {
     let mut text = String::new();
     for line in 1..=40_000 {
         match line {
@@ -200,18 +198,14 @@ fn an_indexed_source_streams_a_later_window_from_its_checkpoint() {
     }
     let file = temp(text.as_bytes());
     let source = opened(file.path());
-    let meta = source.metadata().expect("meta");
-    let stamp = crate::tools::source::cache_stamp(&meta);
-    assert!(stamp.is_some(), "the platform stamps files");
-    let path = file.path().canonicalize().expect("canonical");
     let spans = [Want::lines(4_100, 4_120), Want::lines(39_990, 40_000)];
     let whole = Blocks(Default::default());
-    let first = read_windows(&source, &path, stamp, &spans, &whole).expect("first");
-    let indexed = Blocks(Default::default());
-    let again = read_windows(&source, &path, stamp, &spans, &indexed).expect("again");
+    let first = stream(&source, &spans, &whole).expect("first");
+    let second = Blocks(Default::default());
+    let again = stream(&source, &spans, &second).expect("again");
     let full = whole.0.into_inner();
-    let partial = indexed.0.into_inner();
-    assert!(partial < full, "indexed {partial} blocks vs whole {full}");
+    let second_reads = second.0.into_inner();
+    assert_eq!(second_reads, full, "each request reads the source once");
     for (a, b) in first.iter().zip(&again) {
         assert_eq!(a.window, b.window);
         assert_eq!(
@@ -225,14 +219,10 @@ fn an_indexed_source_streams_a_later_window_from_its_checkpoint() {
     assert!(held.contains("line 4112\n"), "{held}");
     // The body lines in the window and the END marker.
     assert_eq!(again[0].key_lines, 12);
-    // Another stamp is another version: the whole file streams again.
-    let other = Blocks(Default::default());
-    let moved = stamp.map(|stamp| octocode_engine::stamp::SourceStamp {
-        size: stamp.size + 1,
-        ..stamp
-    });
-    read_windows(&source, &path, moved, &spans, &other).expect("other");
-    assert_eq!(other.0.into_inner(), full);
+    // There is no metadata-keyed result to reuse: a third request reads again.
+    let third = Blocks(Default::default());
+    stream(&source, &spans, &third).expect("third");
+    assert_eq!(third.0.into_inner(), full);
 }
 
 #[test]

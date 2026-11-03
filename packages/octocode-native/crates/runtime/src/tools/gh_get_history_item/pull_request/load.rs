@@ -1,7 +1,6 @@
 //! The provider loads of one pull-request read: the PR itself and its
 //! collections (GraphQL first page or REST windows), concurrently.
 use super::PrPlan;
-use crate::num::usize_of;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::graphql::{
     GraphqlCollection, GraphqlPr, map_graphql_comments, map_graphql_commits, map_graphql_files,
@@ -15,6 +14,7 @@ use crate::tools::gh_get_history_item::window::{
     load_window,
 };
 use crate::tools::gh_get_history_item::{HistoryItemRequest, Sections, fetch};
+use octocode_engine::num::saturating_usize;
 use octocode_github::{GitHubTransport, MAX_PER_PAGE, ProviderError, RequestContext};
 use serde_json::Value;
 
@@ -136,7 +136,7 @@ async fn load_raw(
 fn provider_count(raw: Option<&Value>, key: &str) -> Option<usize> {
     raw.and_then(|raw| raw.get(key))
         .and_then(Value::as_u64)
-        .map(usize_of)
+        .map(saturating_usize)
 }
 
 /// The review-comment (inline) window of the requested page, sized by the

@@ -140,6 +140,46 @@ fn an_unreadable_branch_pattern_gives_the_fields_note() {
     );
 }
 
+/// A list item whose pattern is too long to read names the list's own note,
+/// never the enforcement regex.
+#[test]
+fn an_unreadable_item_pattern_gives_the_lists_note() {
+    let pattern = format!("^(?:{})$", "[a-z]".repeat(12));
+    let schema = json!({"type":"array","description":"Repo-relative paths without . segments.",
+            "items":{"type":"string","allOf":[{"pattern":pattern}]}});
+    let error = validate_input_schema_for_test(&schema, json!(["./a"]));
+    assert_eq!(
+        error.issues[0].message,
+        r#""./a" does not match the expected form: Repo-relative paths without . segments."#,
+        "{error:?}"
+    );
+}
+
+/// A value outside a declared `format` names that format, as the published
+/// schema shows it, never the enforcement regex derived for it.
+#[test]
+fn a_value_outside_its_format_names_the_format_not_its_pattern() {
+    let row = json!({"operation": "pullRequest",
+        "filters": {"createdAt": {"include": [{"from": "not-a-date"}]}}});
+    let error =
+        crate::contracts::prepare_many_and_validate("ghSearchHistory", json!({"queries": [row]}))
+            .expect_err("not a date-time");
+    let shown = crate::contracts::validate::format_input_error("ghSearchHistory", &error);
+    assert_eq!(
+        shown["error"],
+        r#"queries.0.filters.createdAt.include.0.from: "not-a-date" is not a valid from: it must be a date-time (RFC 3339), e.g. 2026-10-01T00:00:00Z"#,
+        "{shown}"
+    );
+    // A format the validator has no example for is still named.
+    let schema =
+        json!({"type": "string", "format": "x-ticket", "pattern": "^[A-Z]{2,8}-[0-9]{1,9}$"});
+    let error = validate_input_schema_for_test(&schema, json!("ab"));
+    assert_eq!(
+        error.issues[0].message,
+        r#""ab" is not a valid path: it must be in the x-ticket format"#
+    );
+}
+
 fn validate_input_schema_for_test(
     schema: &Value,
     mut value: Value,

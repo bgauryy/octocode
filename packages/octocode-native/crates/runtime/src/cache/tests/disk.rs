@@ -5,39 +5,33 @@ use crate::cache::disk::{DiskHeader, now_unix};
 #[test]
 fn disk_tier_keeps_immutable_entries_and_expires_volatile_ones() {
     let dir = tempfile::tempdir().unwrap();
-    let writer = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
-    writer.put(key("pinned", "x"), "body".into(), 4, CacheClass::Immutable);
-    writer.put(key("listing", "x"), "list".into(), 4, revalidate(60));
-    writer.put(key("search", "x"), "page".into(), 4, volatile(60));
+    let writer = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    writer.put_confirmed(key("pinned", "x"), "body".into(), 4, CacheClass::Immutable);
+    writer.put_confirmed(key("search", "x"), "page".into(), 4, volatile(60));
     // A day later, in a new process.
     age_disk_entries(dir.path(), 86_400);
-    let reader = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    let reader = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
     let pinned = reader.get(&key("pinned", "x")).expect("immutable survives");
-    assert!(pinned.fresh);
     assert_eq!(*pinned.value, "body");
-    let listing = reader
-        .get(&key("listing", "x"))
-        .expect("kept for revalidation");
-    assert!(!listing.fresh);
     assert!(reader.get(&key("search", "x")).is_none());
     assert_eq!(
         entry_files(dir.path()).len(),
-        2,
+        1,
         "the expired file is removed"
     );
-    // Promoted: later reads survive the file disappearing.
+    // No duplicate memory copy can revive deleted retained state.
     for file in entry_files(dir.path()) {
         fs::remove_file(file).unwrap();
     }
-    assert!(reader.get(&key("pinned", "x")).is_some());
+    assert!(reader.get(&key("pinned", "x")).is_none());
 }
 
 #[test]
 fn disk_tier_is_byte_bounded_least_recently_used_first() {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
-    store.put(key("old", "x"), "a".repeat(100), 100, CacheClass::Immutable);
-    store.put(key("new", "x"), "b".repeat(100), 100, CacheClass::Immutable);
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    store.put_confirmed(key("old", "x"), "a".repeat(100), 100, CacheClass::Immutable);
+    store.put_confirmed(key("new", "x"), "b".repeat(100), 100, CacheClass::Immutable);
     let disk = store.disk.as_ref().unwrap();
     let older = disk.file(&key("old", "x"));
     fs::File::options()
@@ -59,7 +53,7 @@ fn disk_tier_is_byte_bounded_least_recently_used_first() {
 #[test]
 fn prune_sweeps_orphaned_temporary_files_but_not_fresh_ones() {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
+    let store = Store::<u32>::new(CacheConfig::derived(), Some(dir.path().into()));
     let orphan = dir.path().join(".abc.entry-0011.tmp");
     let fresh = dir.path().join(".def.entry-0022.tmp");
     fs::write(&orphan, b"partial").unwrap();
@@ -82,12 +76,12 @@ fn prune_sweeps_orphaned_temporary_files_but_not_fresh_ones() {
 #[test]
 fn corrupt_files_are_dropped() {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
-    store.put(key("b", "x"), 2, 4, CacheClass::Immutable);
+    let store = Store::<u32>::new(CacheConfig::derived(), Some(dir.path().into()));
+    store.put_confirmed(key("b", "x"), 2, 4, CacheClass::Immutable);
     for file in entry_files(dir.path()) {
         fs::write(&file, b"corrupt").unwrap();
     }
-    let reader = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
+    let reader = Store::<u32>::new(CacheConfig::derived(), Some(dir.path().into()));
     assert!(reader.get(&key("b", "x")).is_none());
     assert!(entry_files(dir.path()).is_empty());
 }
@@ -99,11 +93,11 @@ fn corrupt_files_are_dropped() {
 fn a_transient_read_failure_keeps_the_entry() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
-    store.put(key("b", "x"), 2, 4, CacheClass::Immutable);
+    let store = Store::<u32>::new(CacheConfig::derived(), Some(dir.path().into()));
+    store.put_confirmed(key("b", "x"), 2, 4, CacheClass::Immutable);
     let file = entry_files(dir.path()).pop().unwrap();
     fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
-    let reader = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
+    let reader = Store::<u32>::new(CacheConfig::derived(), Some(dir.path().into()));
     assert!(
         reader.get(&key("b", "x")).is_none(),
         "an unreadable entry is a miss"
@@ -113,7 +107,7 @@ fn a_transient_read_failure_keeps_the_entry() {
         "a healthy entry survives a transient failure"
     );
     fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
-    let healed = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
+    let healed = Store::<u32>::new(CacheConfig::derived(), Some(dir.path().into()));
     assert!(
         healed.get(&key("b", "x")).is_some(),
         "the entry serves again once readable"
@@ -126,20 +120,14 @@ fn disk_entries_are_owner_only_and_oversized_values_skip_disk() {
     use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("tmp").join("response");
-    let store = Store::<String>::new(
-        CacheConfig {
-            max_bytes: 1024,
-            ..CacheConfig::default()
-        },
-        Some(dir.clone()),
-    );
-    store.put(key("a", "x"), "private".into(), 7, CacheClass::Immutable);
+    let store = Store::<String>::new(CacheConfig { disk_bytes: 1024 }, Some(dir.clone()));
+    store.put_confirmed(key("a", "x"), "private".into(), 7, CacheClass::Immutable);
     let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(&dir), 0o700);
     let files = entry_files(&dir);
     assert_eq!(files.len(), 1);
     assert_eq!(mode(&files[0]), 0o600);
-    store.put(
+    store.put_confirmed(
         key("large", "x"),
         "x".repeat(4096),
         4096,
@@ -155,10 +143,7 @@ fn disk_entries_are_owner_only_and_oversized_values_skip_disk() {
 #[test]
 fn disk_entries_that_are_not_bounded_regular_files_are_evicted_misses() {
     let dir = tempfile::tempdir().unwrap();
-    let config = CacheConfig {
-        max_bytes: 256,
-        ..CacheConfig::default()
-    };
+    let config = CacheConfig { disk_bytes: 256 };
     let store = std::sync::Arc::new(Store::<String>::new(
         config.clone(),
         Some(dir.path().join("store")),
@@ -219,18 +204,18 @@ fn disk_entries_that_are_not_bounded_regular_files_are_evicted_misses() {
 #[test]
 fn prune_removes_expired_entries_before_any_live_one() {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
-    store.put(key("short", "x"), "x".repeat(4096), 4096, volatile(60));
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    store.put_confirmed(key("short", "x"), "x".repeat(4096), 4096, volatile(60));
     age_disk_entries(dir.path(), 120);
-    store.put(key("pinned", "x"), "p".into(), 1, CacheClass::Immutable);
-    store.put(key("live", "x"), "l".into(), 1, volatile(600));
+    store.put_confirmed(key("pinned", "x"), "p".into(), 1, CacheClass::Immutable);
+    store.put_confirmed(key("live", "x"), "l".into(), 1, volatile(600));
     store.disk.as_ref().unwrap().prune(u64::MAX);
     assert_eq!(
         entry_files(dir.path()).len(),
         2,
         "only the expired entry goes"
     );
-    let reader = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    let reader = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
     assert!(reader.get(&key("pinned", "x")).is_some());
     assert!(reader.get(&key("live", "x")).is_some());
     assert!(reader.get(&key("short", "x")).is_none());
@@ -238,11 +223,7 @@ fn prune_removes_expired_entries_before_any_live_one() {
 
 #[test]
 fn confirmed_retention_requires_capacity_and_every_configured_tier() {
-    let config = CacheConfig {
-        max_entries: 2,
-        max_bytes: 1024,
-        disk_bytes: 4096,
-    };
+    let config = CacheConfig { disk_bytes: 4096 };
     let memory = Store::<String>::new(config.clone(), None);
     assert!(
         memory
@@ -251,7 +232,12 @@ fn confirmed_retention_requires_capacity_and_every_configured_tier() {
     );
     assert!(
         !memory
-            .put_confirmed(key("oversize", "x"), "large".into(), 1025, volatile(120))
+            .put_confirmed(
+                key("oversize", "x"),
+                "large".into(),
+                crate::cache::MEMORY.limit() + 1,
+                volatile(120)
+            )
             .1
     );
     assert!(memory.get(&key("oversize", "x")).is_none());
@@ -270,6 +256,12 @@ fn confirmed_retention_requires_capacity_and_every_configured_tier() {
         disk.put_confirmed(key("saved", "x"), "value".to_owned(), 5, volatile(120))
             .1
     );
+    assert!(
+        !disk
+            .put_confirmed(key("big", "x"), "x".repeat(4096), 4096, volatile(120))
+            .1,
+        "an entry over the disk budget is refused"
+    );
     let reopened = Store::<String>::new(config, Some(dir.clone()));
     assert_eq!(
         reopened.get(&key("saved", "x")).unwrap().value.as_str(),
@@ -287,13 +279,13 @@ fn confirmed_retention_requires_capacity_and_every_configured_tier() {
 fn idle_entries_on_disk_count_age_from_their_last_read() {
     let ttl = Duration::from_millis(600);
     let dir = tempfile::tempdir().unwrap();
-    let writer = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
-    writer.put(key("walk", "x"), "page".into(), 4, CacheClass::Idle { ttl });
+    let writer = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    writer.put_confirmed(key("walk", "x"), "page".into(), 4, CacheClass::Idle { ttl });
     for _ in 0..3 {
         std::thread::sleep(ttl / 2);
         assert!(writer.get(&key("walk", "x")).is_some(), "a memory hit");
     }
-    let restarted = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    let restarted = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
     assert_eq!(
         restarted
             .get(&key("walk", "x"))
@@ -302,7 +294,7 @@ fn idle_entries_on_disk_count_age_from_their_last_read() {
         "the memory reads kept the disk entry alive"
     );
     std::thread::sleep(ttl + ttl / 4);
-    let later = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    let later = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
     assert!(
         later.get(&key("walk", "x")).is_none(),
         "unused for its lifetime"

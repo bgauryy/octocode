@@ -79,7 +79,7 @@ async fn short_local_image_is_sent_padded_and_saved_as_judged() {
 }
 
 #[tokio::test]
-async fn image_mutation_invalidates_judgment_and_old_evidence_survives() {
+async fn image_mutation_changes_the_snapshot_and_old_evidence_survives() {
     let server = provider().await;
     let workspace = Workspace::new();
     let path = workspace.workspace.join("one.png");
@@ -87,7 +87,7 @@ async fn image_mutation_invalidates_judgment_and_old_evidence_survives() {
     let runtime = runtime(&workspace, &server, &[]);
     let first = clasify(&runtime, vec![row("one.png")]).await;
     let repeated = clasify(&runtime, vec![row("one.png")]).await;
-    assert_eq!(repeated["results"][0]["data"]["replayed"], true);
+    assert!(repeated["results"][0]["data"].get("replayed").is_none());
     let old = &first["results"][0]["data"]["assets"]["image_a"];
     let mut changed = png();
     changed.push(0);
@@ -98,7 +98,11 @@ async fn image_mutation_invalidates_judgment_and_old_evidence_survives() {
         old["snapshot"]
     );
     assert_eq!(std::fs::read(old["path"].as_str().unwrap()).unwrap(), png());
-    assert_eq!(requests(&server).await.len(), 2);
+    assert_eq!(
+        requests(&server).await.len(),
+        3,
+        "every evaluation reaches the provider"
+    );
     runtime.close().await;
 }
 

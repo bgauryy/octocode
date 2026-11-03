@@ -7,7 +7,7 @@ use super::{
 use crate::{ProviderError, ProviderErrorKind, RateLimit};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
 };
@@ -16,11 +16,39 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 mod admission;
 mod facts;
 
+/// One rate-limit bucket as GitHub last reported it.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Bucket {
     pub remaining: u64,
     /// Epoch seconds.
     pub reset: u64,
+}
+
+impl Bucket {
+    /// The start spacing for `planned` requests at `now`: zero while the
+    /// reported remaining quota covers them all, otherwise the time until
+    /// reset (plus grace) over only the requests beyond that quota.
+    pub(super) fn spacing_ms(&self, config: &ExecutorConfig, now: u64, planned: usize) -> u64 {
+        let planned = u64::try_from(planned).unwrap_or(u64::MAX);
+        let excess = planned.saturating_sub(self.remaining);
+        if excess == 0 {
+            return 0;
+        }
+        config.reset_until_ms(self.reset).saturating_sub(now) / excess
+    }
+
+    /// Order of two views of one bucket: an exhausted one first, then the
+    /// later window, then the lower count (counts only fall within a window).
+    pub(super) fn restricts_more_than(&self, other: &Self) -> bool {
+        let rank = |bucket: &Self| {
+            (
+                bucket.remaining == 0,
+                bucket.reset,
+                std::cmp::Reverse(bucket.remaining),
+            )
+        };
+        rank(self) > rank(other)
+    }
 }
 
 /// Blocking facts for one key. Circuit fields are process-local.
@@ -33,8 +61,6 @@ pub(super) struct KeyFacts {
     pub(super) cooldown_until_ms: u64,
     #[serde(default)]
     pub(super) last_start_ms: BTreeMap<String, u64>,
-    #[serde(default)]
-    pub(super) code_search_ms: VecDeque<u64>,
     #[serde(skip)]
     pub(super) circuit_failures: u32,
     #[serde(skip)]
@@ -45,23 +71,27 @@ pub(super) struct KeyFacts {
 }
 
 impl KeyFacts {
-    /// Undo one reservation made by `admit` (its start and window slot) when
-    /// the request was never sent.
-    pub(super) fn release(&mut self, group: &str, start: u64, previous: Option<u64>, window: bool) {
+    /// Undo one reservation made by `admit` (its start) when the request was
+    /// never sent.
+    pub(super) fn release(&mut self, group: &str, start: u64, previous: Option<u64>) {
         if self.last_start_ms.get(group) == Some(&start) {
             match previous {
                 Some(previous) => self.last_start_ms.insert(group.to_owned(), previous),
                 None => self.last_start_ms.remove(group),
             };
         }
-        if window
-            && let Some(index) = self
-                .code_search_ms
-                .iter()
-                .rposition(|stamp| *stamp == start)
-        {
-            self.code_search_ms.remove(index);
-        }
+    }
+
+    /// The quota `group` plans against at `now` (epoch milliseconds): its
+    /// bucket as GitHub last reported it while that window is open, else the
+    /// group's assumed quota ([`Group::assumed_quota`]), which the first
+    /// answer replaces.
+    pub(super) fn quota(&self, group: Group, now: u64) -> Option<Bucket> {
+        self.buckets
+            .get(group.bucket())
+            .copied()
+            .filter(|bucket| bucket.reset.saturating_mul(1000) > now)
+            .or_else(|| group.assumed_quota(now))
     }
 }
 
@@ -150,24 +180,18 @@ pub(crate) struct KeyState {
 impl KeyState {
     pub(super) fn new(key: LimiterKey, config: &ExecutorConfig) -> Self {
         // Code search gets its own lane: GitHub meters it in a separate
-        // bucket, and a code-search window wait must not stall repo/issue
+        // bucket, and a code-search quota wait must not stall repo/issue
         // search behind it.
-        let groups = [
-            Group::Search,
-            Group::CodeSearch,
-            Group::Graphql,
-            Group::Write,
-            Group::Auth,
-        ]
-        .into_iter()
-        .map(|group| {
-            let lane = Lane {
-                permit: Arc::new(Semaphore::new(1)),
-                queued: Arc::default(),
-            };
-            (group.name(), lane)
-        })
-        .collect();
+        let groups = Group::ALL
+            .into_iter()
+            .map(|group| {
+                let lane = Lane {
+                    permit: Arc::new(Semaphore::new(1)),
+                    queued: Arc::default(),
+                };
+                (group.name(), lane)
+            })
+            .collect();
         Self {
             key,
             global: Arc::new(Semaphore::new(config.global_concurrency.max(1))),
@@ -179,27 +203,24 @@ impl KeyState {
     }
 
     /// Nothing holds or throttles this key: no permit is out, no admission
-    /// queued, and no cooldown, circuit, exhausted bucket, spacing or
-    /// code-search window still constrains the next request. Dropping such a
+    /// queued, and no cooldown, circuit, exhausted bucket or spacing still
+    /// constrains the next request. Dropping such a
     /// key and recreating it later admits exactly what keeping it would.
     pub(super) fn is_idle(&self, config: &ExecutorConfig, now: u64) -> bool {
         let permits_free = self.global.available_permits() == config.global_concurrency.max(1)
             && self.git.available_permits() == config.git_concurrency.max(1)
             && self.groups.values().all(|lane| {
-                lane.permit.available_permits() == 1
-                    && lane.queued.plain.load(Ordering::SeqCst) == 0
-                    && lane.queued.windowed.load(Ordering::SeqCst) == 0
+                lane.permit.available_permits() == 1 && lane.queued.load(Ordering::SeqCst) == 0
             });
         if !permits_free {
             return false;
         }
-        let spacing = super::millis(
-            config
-                .search_spacing
-                .max(config.graphql_spacing)
-                .max(config.write_spacing),
-        );
         let facts = self.facts();
+        let spaced = Group::ALL.into_iter().all(|group| {
+            facts.last_start_ms.get(group.name()).is_none_or(|start| {
+                start.saturating_add(config.spacing_ms(group, &facts, now, 1)) <= now
+            })
+        });
         facts.cooldown_until_ms <= now
             && facts.circuit_failures == 0
             && facts.circuit_open_until_ms <= now
@@ -207,14 +228,7 @@ impl KeyState {
                 .buckets
                 .values()
                 .all(|bucket| bucket.remaining > 0 || config.reset_until_ms(bucket.reset) <= now)
-            && facts
-                .code_search_ms
-                .iter()
-                .all(|stamp| stamp.saturating_add(60_000) <= now)
-            && facts
-                .last_start_ms
-                .values()
-                .all(|start| start.saturating_add(spacing) <= now)
+            && spaced
     }
 
     pub(super) fn facts(&self) -> std::sync::MutexGuard<'_, KeyFacts> {

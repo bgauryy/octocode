@@ -75,27 +75,22 @@ fn a_fifo_or_link_in_place_of_a_source_is_never_reread() {
     crate::tools::test_support::make_fifo(&fifo);
     for swapped in [link, fifo] {
         let read = swapped.clone();
-        let (stored, key_scan, shown, entry, budget) = within_deadline(move || {
-            let mut budget = 1024;
-            let stored =
-                manifest::read_source(read.to_string_lossy().into_owned(), &[], &mut budget);
+        let (stored, key_scan, shown, entry) = within_deadline(move || {
+            let stored = manifest::read_source(read.to_string_lossy().into_owned(), &[], 1024);
             (
                 stored.is_none(),
                 verify::read_key_scan_bytes(&read).is_none(),
                 enclosing::shown_bytes(&read, crate::tools::local_search::sources::Expected::Fresh)
                     .is_none(),
                 sources::read_entry(&read, 1024).is_none(),
-                budget,
             )
         });
         assert!(stored, "{} has no stored source", swapped.display());
         assert!(key_scan, "{} has no key-block scan", swapped.display());
         assert!(shown, "{} has no shown outline", swapped.display());
         assert!(entry, "{} is not re-read", swapped.display());
-        assert_eq!(budget, 1024, "a refused read spends no budget");
     }
-    let mut budget = 1024;
-    assert!(manifest::read_source(real.to_string_lossy().into_owned(), &[], &mut budget).is_some());
+    assert!(manifest::read_source(real.to_string_lossy().into_owned(), &[], 1024).is_some());
     assert!(verify::read_key_scan_bytes(&real).is_some());
     assert_eq!(
         enclosing::shown_bytes(&real, crate::tools::local_search::sources::Expected::Fresh)

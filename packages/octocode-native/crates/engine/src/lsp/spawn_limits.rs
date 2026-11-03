@@ -50,52 +50,10 @@ pub(crate) fn default_memory_cap_mb(host_memory_mb: Option<u64>) -> u32 {
     })
 }
 
-/// Physical memory of this host in MiB, `None` where it cannot be read.
-fn host_memory_mb() -> Option<u64> {
-    static HOST: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
-    *HOST.get_or_init(read_host_memory_mb)
-}
-
-#[cfg(target_os = "macos")]
-fn read_host_memory_mb() -> Option<u64> {
-    let mut bytes: u64 = 0;
-    let mut size = std::mem::size_of::<u64>();
-    // SAFETY: `hw.memsize` is a NUL-terminated name and `bytes`/`size` are a
-    // valid out-buffer of `size` bytes.
-    let status = unsafe {
-        libc::sysctlbyname(
-            c"hw.memsize".as_ptr(),
-            std::ptr::from_mut(&mut bytes).cast(),
-            &raw mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    (status == 0 && bytes > 0).then_some(bytes / (1024 * 1024))
-}
-
-#[cfg(target_os = "linux")]
-fn read_host_memory_mb() -> Option<u64> {
-    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
-    let kib = meminfo
-        .lines()
-        .find_map(|line| line.strip_prefix("MemTotal:"))?
-        .split_whitespace()
-        .next()?
-        .parse::<u64>()
-        .ok()?;
-    Some(kib / 1024)
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn read_host_memory_mb() -> Option<u64> {
-    None
-}
-
 /// The cap in MiB `max_memory_mb` resolves to: unset takes the host-derived
 /// default, `Some(0)` disables the cap (`None`).
 pub(crate) fn effective_memory_cap_mb(max_memory_mb: Option<u32>) -> Option<u32> {
-    match max_memory_mb.unwrap_or_else(|| default_memory_cap_mb(host_memory_mb())) {
+    match max_memory_mb.unwrap_or_else(|| default_memory_cap_mb(crate::host::memory_mb())) {
         0 => None,
         mb => Some(mb),
     }
@@ -112,7 +70,7 @@ pub(crate) fn memory_cap_bytes(max_memory_mb: Option<u32>) -> Option<u64> {
 /// never over `max_entries` such caps (more than the pool holds). A host
 /// whose memory cannot be read keeps one cap.
 pub(crate) fn default_pool_memory_budget_bytes(max_entries: usize) -> u64 {
-    pool_memory_budget_bytes(host_memory_mb(), max_entries)
+    pool_memory_budget_bytes(crate::host::memory_mb(), max_entries)
 }
 
 fn pool_memory_budget_bytes(host_memory_mb: Option<u64>, max_entries: usize) -> u64 {

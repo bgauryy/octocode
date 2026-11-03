@@ -8,7 +8,7 @@ use support::Workspace;
 use wiremock::MockServer;
 
 /// A 115-file, ~560k-char pull request walked by following its leads
-/// only (`continuePatch`, then `nextFilePage`) at a 20k configured page reads
+/// only (the patch page, then the file page) at a 20k configured page reads
 /// every patch byte-identical (after the gutters) with no gap and no
 /// repeat, and never overflows its page. Every hop runs at the first call's
 /// page (no doubled `responseChars`, 2026-10-09): 21 → 44 calls, each the
@@ -95,10 +95,10 @@ async fn history_b_large_pr_lead_walk_is_lossless_at_the_first_page_size() {
             );
             text.push_str(patch);
         }
-        let next = &data["next"];
-        let Some(lead) = ["continuePatch", "nextFilePage"]
+        let pages = &data["pullRequests"][0]["contentPagination"];
+        let Some(lead) = ["patches", "files"]
             .iter()
-            .find_map(|name| next.get(*name))
+            .find_map(|name| pages[*name]["next"].get("nextPage"))
         else {
             break;
         };
@@ -122,7 +122,7 @@ async fn history_b_large_pr_lead_walk_is_lossless_at_the_first_page_size() {
 /// page 2 lists 96 patch-less files with long names beside a few patches:
 /// the first window's metadata rows and summary alone exceed the 20k page,
 /// so the row splits into structured `rowPart`s. Following
-/// `responsePagination.next` first, then `continuePatch`/`nextFilePage`,
+/// `responsePagination.next` first, then the patch/file page,
 /// every call keeps its rows, every patch arrives exactly once (a patch
 /// identical to an earlier one of its file page names that row,
 /// `samePatchAs`), and every patch-less file is listed exactly once: the
@@ -194,7 +194,7 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
         let files = match data["pullRequests"][0]["files"].as_array() {
             Some(files) => files,
             None if row.get("rowPart").is_some_and(|part| part["part"] != 1) => &empty,
-            None => panic!("call {calls}: rows hidden from structuredContent: {content}"),
+            None => panic!("call {calls}: rows hidden from the response: {content}"),
         };
         for file in files {
             let path = file["path"].as_str().expect("path").to_owned();
@@ -221,8 +221,14 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
         }
         let next = pagination["next"]["input"]
             .as_object()
-            .or_else(|| data["next"]["continuePatch"]["input"].as_object())
-            .or_else(|| data["next"]["nextFilePage"]["input"].as_object());
+            .or_else(|| {
+                data["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"]["input"]
+                    .as_object()
+            })
+            .or_else(|| {
+                data["pullRequests"][0]["contentPagination"]["files"]["next"]["nextPage"]["input"]
+                    .as_object()
+            });
         match next {
             Some(next) => envelope = Value::Object(next.clone()),
             None => break,

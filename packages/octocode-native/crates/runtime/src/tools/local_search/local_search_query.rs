@@ -1,8 +1,12 @@
 use crate::id::local_search_policy;
-use crate::num::{u32_of, u32_of_signed};
+use crate::num::u32_of_signed;
 use octocode_contract_types::{
-    CaseMode, DefaultExcludes, LocalSearchQuery, RegexEngine, TextMatchTerms,
+    CaseMode, DefaultExcludes, LocalSearchQuery, LocalSearchQueryContent, LocalSearchQueryFiles,
+    LocalSearchQueryFilesMultiline, LocalSearchQueryFilesView, LocalSearchQueryMatchOnly,
+    LocalSearchQueryMatchOnlyMultiline, LocalSearchSort, LocalSearchSortAnyOrderBy, RegexEngine,
+    TextMatchTerms,
 };
+use octocode_engine::num::saturating_u32;
 use octocode_engine::types::{SearchContext, SearchSort};
 use serde_json::json;
 
@@ -15,16 +19,17 @@ pub(crate) enum View {
     CountMatches,
     MatchOnly,
 }
-pub(crate) use octocode_contract_types::LocalSearchQueryVariant0Multiline as Multiline;
-pub(crate) use octocode_contract_types::LocalSearchQueryVariant2Unique as Unique;
+pub(crate) use octocode_contract_types::LocalSearchQueryContentMultiline as Multiline;
+pub(crate) use octocode_contract_types::LocalSearchQueryMatchOnlyUnique as Unique;
 
+/// Binds `$field` from whichever view variant `$q` is.
 macro_rules! common {
     ($q:expr,$field:ident,$value:expr) => {
-        match $q {
-            LocalSearchQuery::Variant0 { $field, .. } => $value,
-            LocalSearchQuery::Variant1 { $field, .. } => $value,
-            LocalSearchQuery::Variant2 { $field, .. } => $value,
-        }
+        crate::tools::variant_field::variant_field!($q, newtype [
+            LocalSearchQuery::Content => LocalSearchQueryContent,
+            LocalSearchQuery::Files => LocalSearchQueryFiles,
+            LocalSearchQuery::MatchOnly => LocalSearchQueryMatchOnly,
+        ] $field => $value)
     };
 }
 pub(crate) fn path(q: &LocalSearchQuery) -> &str {
@@ -64,7 +69,7 @@ pub(crate) fn default_excludes(q: &LocalSearchQuery) -> &Option<DefaultExcludes>
     common!(q, default_excludes, default_excludes)
 }
 pub(crate) fn page(q: &LocalSearchQuery) -> u32 {
-    common!(q, page, u32_of(page.get()))
+    common!(q, page, saturating_u32(page.get()))
 }
 /// Rows per page (`limit`): hit rows in content and matchOnly views, files
 /// in the others; `None` cuts pages by the budget alone.
@@ -72,17 +77,17 @@ pub(crate) fn limit(q: &LocalSearchQuery) -> Option<usize> {
     common!(
         q,
         limit,
-        limit.map(|limit| crate::num::usize_of(limit.get()))
+        limit.map(|limit| octocode_engine::num::saturating_usize(limit.get()))
     )
 }
 pub(crate) fn match_page(q: &LocalSearchQuery) -> u32 {
-    common!(q, match_page, u32_of(match_page.get()))
+    common!(q, match_page, saturating_u32(match_page.get()))
 }
 pub(crate) fn max_depth(q: &LocalSearchQuery) -> Option<u32> {
     common!(
         q,
         max_depth,
-        max_depth.map(|depth| u32_of(depth.get()).saturating_sub(1))
+        max_depth.map(|depth| saturating_u32(depth.get()).saturating_sub(1))
     )
 }
 pub(crate) fn snapshot(q: &LocalSearchQuery) -> Option<&str> {
@@ -107,24 +112,32 @@ pub(crate) fn file_lacks(q: &LocalSearchQuery) -> Vec<String> {
 }
 pub(crate) fn has_classification(q: &LocalSearchQuery) -> bool {
     match q {
-        LocalSearchQuery::Variant0 { classification, .. } => classification.is_some(),
-        LocalSearchQuery::Variant2 { classification, .. } => classification.is_some(),
+        LocalSearchQuery::Content(LocalSearchQueryContent { classification, .. }) => {
+            classification.is_some()
+        }
+        LocalSearchQuery::MatchOnly(LocalSearchQueryMatchOnly { classification, .. }) => {
+            classification.is_some()
+        }
         _ => false,
     }
 }
 pub(crate) fn selection(q: &LocalSearchQuery) -> Option<&str> {
     match q {
-        LocalSearchQuery::Variant0 { selection, .. } => selection.as_deref().map(String::as_str),
-        LocalSearchQuery::Variant2 { selection, .. } => selection.as_deref().map(String::as_str),
+        LocalSearchQuery::Content(LocalSearchQueryContent { selection, .. }) => {
+            selection.as_deref().map(String::as_str)
+        }
+        LocalSearchQuery::MatchOnly(LocalSearchQueryMatchOnly { selection, .. }) => {
+            selection.as_deref().map(String::as_str)
+        }
         _ => None,
     }
 }
 pub(crate) fn context(q: &LocalSearchQuery) -> SearchContext {
     match q {
-        LocalSearchQuery::Variant0 {
+        LocalSearchQuery::Content(LocalSearchQueryContent {
             context_lines: Some(context),
             ..
-        } => SearchContext {
+        }) => SearchContext {
             before: u32_of_signed(context.before),
             after: u32_of_signed(context.after),
         },
@@ -133,146 +146,58 @@ pub(crate) fn context(q: &LocalSearchQuery) -> SearchContext {
 }
 pub(crate) fn view(q: &LocalSearchQuery) -> View {
     match q {
-        LocalSearchQuery::Variant0 { .. } => View::Content,
-        LocalSearchQuery::Variant2 { .. } => View::MatchOnly,
-        LocalSearchQuery::Variant1 { view, .. } => match view {
-            octocode_contract_types::LocalSearchQueryVariant1View::Files => View::Files,
-            octocode_contract_types::LocalSearchQueryVariant1View::FilesWithout => {
-                View::FilesWithout
-            }
-            octocode_contract_types::LocalSearchQueryVariant1View::CountLines => View::CountLines,
-            octocode_contract_types::LocalSearchQueryVariant1View::CountMatches => {
-                View::CountMatches
-            }
+        LocalSearchQuery::Content(LocalSearchQueryContent { .. }) => View::Content,
+        LocalSearchQuery::MatchOnly(LocalSearchQueryMatchOnly { .. }) => View::MatchOnly,
+        LocalSearchQuery::Files(LocalSearchQueryFiles { view, .. }) => match view {
+            LocalSearchQueryFilesView::Files => View::Files,
+            LocalSearchQueryFilesView::FilesWithout => View::FilesWithout,
+            LocalSearchQueryFilesView::CountLines => View::CountLines,
+            LocalSearchQueryFilesView::CountMatches => View::CountMatches,
         },
     }
 }
 pub(crate) fn multiline(q: &LocalSearchQuery) -> Multiline {
     match q {
-        LocalSearchQuery::Variant0 { multiline, .. } => *multiline,
-        LocalSearchQuery::Variant1 { multiline, .. } => match multiline {
-            octocode_contract_types::LocalSearchQueryVariant1Multiline::Off => Multiline::Off,
-            octocode_contract_types::LocalSearchQueryVariant1Multiline::On => Multiline::On,
-            octocode_contract_types::LocalSearchQueryVariant1Multiline::Dotall => Multiline::Dotall,
+        LocalSearchQuery::Content(q) => q.multiline,
+        LocalSearchQuery::Files(q) => match q.multiline {
+            LocalSearchQueryFilesMultiline::Off => Multiline::Off,
+            LocalSearchQueryFilesMultiline::On => Multiline::On,
+            LocalSearchQueryFilesMultiline::Dotall => Multiline::Dotall,
         },
-        LocalSearchQuery::Variant2 { multiline, .. } => match multiline {
-            octocode_contract_types::LocalSearchQueryVariant2Multiline::Off => Multiline::Off,
-            octocode_contract_types::LocalSearchQueryVariant2Multiline::On => Multiline::On,
-            octocode_contract_types::LocalSearchQueryVariant2Multiline::Dotall => Multiline::Dotall,
+        LocalSearchQuery::MatchOnly(q) => match q.multiline {
+            LocalSearchQueryMatchOnlyMultiline::Off => Multiline::Off,
+            LocalSearchQueryMatchOnlyMultiline::On => Multiline::On,
+            LocalSearchQueryMatchOnlyMultiline::Dotall => Multiline::Dotall,
         },
     }
 }
 pub(crate) fn unique(q: &LocalSearchQuery) -> Unique {
     match q {
-        LocalSearchQuery::Variant2 { unique, .. } => *unique,
+        LocalSearchQuery::MatchOnly(LocalSearchQueryMatchOnly { unique, .. }) => *unique,
         _ => Unique::Off,
     }
 }
+/// The query's `sort`, shared by every view.
+fn sort_of(q: &LocalSearchQuery) -> &LocalSearchSort {
+    common!(q, sort, sort)
+}
 pub(crate) fn sort(q: &LocalSearchQuery) -> SearchSort {
-    match q {
-        LocalSearchQuery::Variant0 { sort, .. } => match sort {
-            octocode_contract_types::LocalSearchQueryVariant0Sort::Variant1 { .. } => {
-                SearchSort::Traversal
-            }
-            octocode_contract_types::LocalSearchQueryVariant0Sort::Variant0 { by, .. } => {
-                match by {
-                    octocode_contract_types::LocalSearchQueryVariant0SortVariant0By::Relevance => {
-                        SearchSort::Relevance
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant0SortVariant0By::MatchCount => {
-                        SearchSort::MatchCount
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant0SortVariant0By::Path => {
-                        SearchSort::Path
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant0SortVariant0By::ModifiedAt => {
-                        SearchSort::Modified
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant0SortVariant0By::AccessedAt => {
-                        SearchSort::Accessed
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant0SortVariant0By::CreatedAt => {
-                        SearchSort::Created
-                    }
-                }
-            }
-        },
-        LocalSearchQuery::Variant1 { sort, .. } => match sort {
-            octocode_contract_types::LocalSearchQueryVariant1Sort::Variant1 { .. } => {
-                SearchSort::Traversal
-            }
-            octocode_contract_types::LocalSearchQueryVariant1Sort::Variant0 { by, .. } => {
-                match by {
-                    octocode_contract_types::LocalSearchQueryVariant1SortVariant0By::Relevance => {
-                        SearchSort::Relevance
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant1SortVariant0By::MatchCount => {
-                        SearchSort::MatchCount
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant1SortVariant0By::Path => {
-                        SearchSort::Path
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant1SortVariant0By::ModifiedAt => {
-                        SearchSort::Modified
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant1SortVariant0By::AccessedAt => {
-                        SearchSort::Accessed
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant1SortVariant0By::CreatedAt => {
-                        SearchSort::Created
-                    }
-                }
-            }
-        },
-        LocalSearchQuery::Variant2 { sort, .. } => match sort {
-            octocode_contract_types::LocalSearchQueryVariant2Sort::Variant1 { .. } => {
-                SearchSort::Traversal
-            }
-            octocode_contract_types::LocalSearchQueryVariant2Sort::Variant0 { by, .. } => {
-                match by {
-                    octocode_contract_types::LocalSearchQueryVariant2SortVariant0By::Relevance => {
-                        SearchSort::Relevance
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant2SortVariant0By::MatchCount => {
-                        SearchSort::MatchCount
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant2SortVariant0By::Path => {
-                        SearchSort::Path
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant2SortVariant0By::ModifiedAt => {
-                        SearchSort::Modified
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant2SortVariant0By::AccessedAt => {
-                        SearchSort::Accessed
-                    }
-                    octocode_contract_types::LocalSearchQueryVariant2SortVariant0By::CreatedAt => {
-                        SearchSort::Created
-                    }
-                }
-            }
+    match sort_of(q) {
+        LocalSearchSort::AscOnly(_) => SearchSort::Traversal,
+        LocalSearchSort::AnyOrder(any) => match any.by {
+            LocalSearchSortAnyOrderBy::Relevance => SearchSort::Relevance,
+            LocalSearchSortAnyOrderBy::MatchCount => SearchSort::MatchCount,
+            LocalSearchSortAnyOrderBy::Path => SearchSort::Path,
+            LocalSearchSortAnyOrderBy::ModifiedAt => SearchSort::Modified,
+            LocalSearchSortAnyOrderBy::AccessedAt => SearchSort::Accessed,
+            LocalSearchSortAnyOrderBy::CreatedAt => SearchSort::Created,
         },
     }
 }
 pub(crate) fn reverse(q: &LocalSearchQuery) -> Option<bool> {
-    let descending = match q {
-        LocalSearchQuery::Variant0 { sort, .. } => match sort {
-            octocode_contract_types::LocalSearchQueryVariant0Sort::Variant0 { order, .. } => {
-                *order == octocode_contract_types::SortOrder::Desc
-            }
-            _ => false,
-        },
-        LocalSearchQuery::Variant1 { sort, .. } => match sort {
-            octocode_contract_types::LocalSearchQueryVariant1Sort::Variant0 { order, .. } => {
-                *order == octocode_contract_types::SortOrder::Desc
-            }
-            _ => false,
-        },
-        LocalSearchQuery::Variant2 { sort, .. } => match sort {
-            octocode_contract_types::LocalSearchQueryVariant2Sort::Variant0 { order, .. } => {
-                *order == octocode_contract_types::SortOrder::Desc
-            }
-            _ => false,
-        },
+    let descending = match sort_of(q) {
+        LocalSearchSort::AnyOrder(any) => any.order == octocode_contract_types::SortOrder::Desc,
+        LocalSearchSort::AscOnly(_) => false,
     };
     Some(descending != matches!(sort(q), SearchSort::Relevance | SearchSort::MatchCount))
 }
@@ -337,10 +262,10 @@ pub(crate) fn normalized(
 }
 /// The contract's default matches per file (`semanticPolicy`).
 pub(super) fn default_matches_per_file() -> u32 {
-    crate::num::u32_of_usize(local_search_policy::MATCHES_PER_FILE)
+    saturating_u32(local_search_policy::MATCHES_PER_FILE)
 }
 pub(super) fn default_page_size(view: View) -> u32 {
-    crate::num::u32_of_usize(if matches!(view, View::Content | View::MatchOnly) {
+    saturating_u32(if matches!(view, View::Content | View::MatchOnly) {
         local_search_policy::SNIPPET_PAGE_SIZE
     } else {
         local_search_policy::LIST_PAGE_SIZE
@@ -354,4 +279,18 @@ pub(super) fn streamed_layout(q: &LocalSearchQuery) -> bool {
 }
 pub(super) fn shows_span_columns(q: &LocalSearchQuery) -> bool {
     view(q) == View::MatchOnly
+}
+
+/// `query` with `changes` applied (a `null` drops that field) and decoded
+/// again as a search query: the edit of fields chosen at run time.
+pub(crate) fn edited(
+    query: &LocalSearchQuery,
+    changes: &serde_json::Value,
+) -> Result<LocalSearchQuery, crate::response::result::ToolError> {
+    crate::response::result::edited_query(query, changes).map_err(|error| {
+        crate::response::result::ToolError::new(
+            octocode_contract_types::ErrorCode::ExecutionFailed,
+            format!("the continuation is no valid localSearch query: {error}"),
+        )
+    })
 }

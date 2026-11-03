@@ -20,7 +20,7 @@ function fixture(t: TestContext, git = false) {
 }
 test('one typed envelope covers coordination, mail, leases, documents and generic JSON',t=>{
  const f=fixture(t);
- const message=f.call('send_message',{to:f.b,body:'Review shared records',conversationId:'records:1'},f.a);
+ const message=f.call('send_message',{parts: [{ text: 'Review shared records' }], to:f.b,contextId:'records:1'},f.a);
  f.call('subscribe',{topics:['review']},f.b);
  const lease=f.call('lock',{path:'src',kind:'tree'},f.a).lease;
  f.call('renew',{leaseId:lease.id,ttlMs:120000},f.a);
@@ -38,19 +38,34 @@ test('one typed envelope covers coordination, mail, leases, documents and generi
  assert.ok(rows.some(r=>r.type==='coordinate.in'));
  const mail=rows.find(r=>r.type==='message');
  assert.ok(mail);
- assert.equal(mail.to,f.b);assert.equal(mail.data.messageId,message.id);assert.equal(mail.data.body,'Review shared records');
+ assert.equal(mail.to,f.b);assert.equal(mail.data.messageId,message.id);assert.deepEqual(mail.data.parts,[{text:'Review shared records'}]);
  assert.equal(mail.branch,'feature/unified');
  for(const type of ['subscription.added','lease.acquired','lease.renewed','lease.removed','document','memory'])assert.ok(rows.some(r=>r.type===type),type);
  assert.equal(memory.data.nested.nil,null);
  assert.equal(f.call('fetch',{type:'message'},f.c).items.length,0,'mail visibility cannot be bypassed through the event log');
- assert.equal(f.call('fetch',{type:'message',branch:'feature/unified',where:{conversationId:'records:1'}},f.b).items.length,1);
- assert.equal(f.call('fetch',{type:'message',where:{body:'Review shared records'}},f.b).items.length,1);
+ assert.equal(f.call('fetch',{type:'message',branch:'feature/unified',where:{contextId:'records:1'}},f.b).items.length,1);
+ assert.equal(f.call('fetch',{type:'message',search:'Review shared records'},f.b).items.length,1);
  assert.equal(f.call('fetch',{search:'unicode'},f.b).items[0].recordId,memory.recordId);
  assert.equal(f.call('fetch',{type:'memory',where:{'nested.nil':null}},f.b).items[0].recordId,memory.recordId);
  assert.equal(f.call('fetch',{recordId:memory.recordId},f.b).items[0].data.content,'Remember unicode paths');
  assert.ok(rows.every(r=>!Object.hasOwn(r,'id')),'history envelopes expose recordId only');
  assert.throws(()=>f.call('record',{type:'message',data:{body:'bypass'}},f.a),/dedicated|not an allowed/);
  assert.throws(()=>f.call('record',{type:'memory',data:{}},f.a),/content|required/);
+});
+test('message search indexes hydrated content, context, reasoning, key and topic metadata',t=>{
+ const f=fixture(t);
+ f.call('subscribe',{topics:['uniquetopictoken']},f.b);
+ const direct=f.call('send_message',{to:f.b,parts:[{text:'uniquecontenttoken'},{data:{opaque:[null,{value:'nestedtoken'}]}}],contextId:'uniquecontexttoken',key:'uniquekeytoken',reasoning:'uniquereasoningtoken'},f.a);
+ const topic=f.call('send_message',{topic:'uniquetopictoken',parts:[{text:'topic payload'}],key:'uniquetopicmessagetoken',reasoning:'topic reasoning'},f.a);
+ for(const [term,id] of [
+  ['uniquecontenttoken',direct.id],['uniquecontexttoken',direct.id],['uniquekeytoken',direct.id],['uniquereasoningtoken',direct.id],
+  ['uniquetopictoken',topic.id],['uniquetopicmessagetoken',topic.id],
+ ] as const){
+  const matches=f.call('fetch',{type:'message',search:term},f.b).items;
+  assert.deepEqual(matches.map((row: JsonRecord)=>row.data.messageId),[id],`search finds ${term} in hydrated message payload`);
+ }
+ const fetched=f.call('fetch',{type:'message',where:{messageId:direct.id}},f.b).items[0];
+ assert.deepEqual(fetched.data.parts,[{text:'uniquecontenttoken'},{data:{opaque:[null,{value:'nestedtoken'}]}}]);
 });
 test('typed data queries distinguish null, missing, false and zero; branch can be cleared',t=>{
  const f=fixture(t);
@@ -68,7 +83,7 @@ test('typed data queries distinguish null, missing, false and zero; branch can b
 });
 test('current dispatch fetch excludes superseded attempts and completed stages',t=>{
  const f=fixture(t);
- const mail=f.call('send_message',{to:f.b,body:'Handoff'},f.a);
+ const mail=f.call('send_message',{parts: [{ text: 'Handoff' }], to:f.b,},f.a);
  f.call('attach',{transport:'raw'},f.b);
  f.call('hook',{format:'json',deferConfirm:true,consumer:'fixture'},f.b);
  const first=f.call('fetch',{type:'dispatch.staged',current:true,from:f.b},f.b).items[0];
@@ -112,7 +127,7 @@ test('all 26 operational and generic payloads conform to the discovered envelope
  f.call('record',{type:'checkpoint',data:{goal:'Validate payload contracts',done:['schemas'],next:'Check envelopes'}},f.a);
  f.call('record_usage',{key:'usage',scope:'turn',inputTokens:7},f.a);
  f.call('attach',{transport:'raw'},f.b);f.call('attach',{transport:'raw'},f.b);
- const mail=f.call('send_message',{to:f.b,body:'Contract evidence'},f.a);
+ const mail=f.call('send_message',{parts: [{ text: 'Contract evidence' }], to:f.b,},f.a);
  const db=new DatabaseSync(f.database);
  db.prepare("UPDATE deliveries SET claimedBy='fixture',claimUntil=0 WHERE message=?").run(mail.id);
  db.prepare('UPDATE deliveries SET claimedBy=NULL WHERE message=?').run(mail.id);
@@ -141,15 +156,16 @@ test('bound MCP exposes discriminated memory/event/checkpoint schemas and preser
  const f=fixture(t),data={content:'Wire proof',nullable:null,nested:{boolean:false},path:'x'.repeat(5000)};
  const frames=[
   {jsonrpc:'2.0',id:1,method:'tools/list'},
-  {jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'record',arguments:{type:'memory',data}}},
-  {jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'record',arguments:{type:'memory',data}}},
-  {jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'fetch',arguments:{type:'memory',where:{nullable:null}}}},
-  {jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'record',arguments:{type:'event',data:{content:'Missing name'}}}},
+  {jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'records',arguments:{type:'write',input:{type:'memory',data}}}},
+  {jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'records',arguments:{type:'write',input:{type:'memory',data}}}},
+  {jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'records',arguments:{type:'read',input:{type:'memory',where:{nullable:null}}}}},
+  {jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'records',arguments:{type:'write',input:{type:'event',data:{content:'Missing name'}}}}},
  ];
- const responses=execFileSync(binary,['mcp','--tools','fetch,record','--session',f.a,'--workspace',f.workspace,'--database',f.database],{
+ const responses=execFileSync(binary,['mcp','--tools','records','--session',f.a,'--workspace',f.workspace,'--database',f.database],{
   input:frames.map(frame=>JSON.stringify(frame)).join('\n')+'\n',encoding:'utf8',stdio:'pipe'}).trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
- const schema=responses[0].result.tools.find((tool: JsonRecord)=>tool.name==='record').inputSchema;
- assert.deepEqual(schema.oneOf.map((item: JsonRecord)=>item.properties.type.const),['memory','event','checkpoint']);
+ const schema=responses[0].result.tools.find((tool: JsonRecord)=>tool.name==='records').inputSchema;
+ const write=schema.oneOf.find((item: JsonRecord)=>item.properties.type.const==='write').properties.input;
+ assert.deepEqual(write.oneOf.map((item: JsonRecord)=>item.properties.type.const),['memory','event','checkpoint']);
  const record=JSON.parse(responses[1].result.content[0].text);
  assert.equal(record.to,null);assert.deepEqual(record.data,data);
  assert.deepEqual(responses[1],responses[2]);

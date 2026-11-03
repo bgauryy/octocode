@@ -94,7 +94,7 @@ fn a_listing_out_of_time_is_partial_names_where_it_stopped_and_leads_narrower() 
         assert_eq!(narrow["operation"], "tree", "{out}");
         let narrow = crate::tools::test_support::opened(ToolId::StructureSearch, narrow);
         assert_eq!(narrow["maxDepth"], 1, "{out}");
-        assert!(out["next"].get("continueWalk").is_none(), "{out}");
+        assert!(out["next"].get("nextPage").is_none(), "{out}");
     }
 }
 
@@ -129,7 +129,7 @@ fn listed_entries(out: &Value) -> Vec<String> {
         .collect()
 }
 
-/// Runs a listing through every window its `continueWalk` offers (resuming
+/// Runs a listing through every window its `nextPage` offers (resuming
 /// after a time cut, widening after a `limit` cut), each under the next
 /// budget of `budgets` (the last repeats): timing that cuts one window early
 /// and another late. Returns the rows each window listed, and how many
@@ -156,7 +156,7 @@ fn flat_listing(operation: &str, root: &Fixture, extra: Value) -> Value {
     query
 }
 /// [`follow_windows`], keeping each window's whole response, and for each
-/// window whether its `continueWalk` resumes a time cut: a resume moves
+/// window whether its `nextPage` resumes a time cut: a resume moves
 /// `walkOffset`, a widened `limit` keeps the window's own.
 fn follow_outputs(
     root: &std::path::Path,
@@ -177,13 +177,14 @@ fn follow_outputs(
         };
         let out = within_checked(root, query.clone(), budget, cancel);
         assert_row_contract(ToolId::StructureSearch, &out);
+        let next = out["next"]
+            .get("nextPage")
+            .map(|next| next["input"]["queries"][0].clone());
         assert!(
-            out["next"].get("nextPage").is_none(),
+            next.as_ref()
+                .is_none_or(|query| query.get("snapshot").is_none()),
             "a fixture window is one page: {out}"
         );
-        let next = out["next"]
-            .get("continueWalk")
-            .map(|next| next["input"]["queries"][0].clone());
         resumed.push(
             next.as_ref()
                 .is_some_and(|next| next.get("walkOffset") != query.get("walkOffset")),

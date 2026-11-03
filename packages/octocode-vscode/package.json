@@ -132,12 +132,15 @@
     "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
     "clean": "rm -rf out/ coverage/",
     "format": "prettier --write src",
-    "lint": "prettier --check src && yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint:own": "prettier --check src",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
     "package": "npx -y @vscode/vsce@3.9.2 package --allow-missing-repository --no-dependencies",
     "publish": "npx -y @vscode/vsce@3.9.2 publish",
     "test": "vitest run --coverage",
     "typecheck": "yarn run -T tsgo --noEmit",
-    "verify": "yarn lint && yarn typecheck && yarn test && yarn build",
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test && yarn build",
+    "verify": "yarn verify:own && yarn lint:oxlint",
     "vscode:prepublish": "yarn build"
   }
 }

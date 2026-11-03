@@ -203,7 +203,7 @@ async fn every_row_of_a_default_branch_page_has_numbered_lines() {
             json!([format!("1\tfn wrap_app() {{}} // {name}")]),
             "{row}"
         );
-        assert!(row["matches"].is_array(), "{row}");
+        assert!(row.get("matches").is_none(), "{row}");
     }
 }
 
@@ -243,7 +243,7 @@ async fn every_row_of_a_ref_page_is_read_at_the_ref() {
     let files = data["files"].as_array().expect("files");
     assert_eq!(files.len(), names.len(), "{data}");
     for row in &files[..6] {
-        assert!(row["matches"].is_array(), "{row}");
+        assert!(row.get("matches").is_none(), "{row}");
     }
     for (row, name) in files[..6].iter().zip(names) {
         assert_eq!(

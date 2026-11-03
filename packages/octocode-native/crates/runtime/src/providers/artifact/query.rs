@@ -127,8 +127,12 @@ pub(crate) mod artifact_search_query {
     /// when omitted. A resolve reads one release and pages nothing.
     pub(crate) fn page_size(query: &ArtifactSearchQuery) -> usize {
         match query {
-            ArtifactSearchQuery::Search1(query) => crate::num::usize_of(query.limit),
-            ArtifactSearchQuery::Search6(query) => crate::num::usize_of(query.limit),
+            ArtifactSearchQuery::Search1(query) => {
+                octocode_engine::num::saturating_usize(query.limit.get())
+            }
+            ArtifactSearchQuery::Search6(query) => {
+                octocode_engine::num::saturating_usize(query.limit.get())
+            }
             _ => crate::contracts::query_limits::artifact_search::search::LIMIT_DEFAULT,
         }
     }

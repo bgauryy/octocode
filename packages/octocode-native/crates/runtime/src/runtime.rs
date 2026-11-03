@@ -6,7 +6,6 @@ pub(crate) mod domain_dispatch;
 mod engine;
 pub mod error;
 mod github;
-mod github_cache;
 mod maintenance;
 mod row_indices;
 mod tool_output;

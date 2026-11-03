@@ -239,7 +239,6 @@ mod tests {
         let registry = super::super::types::ResolvedNpmRegistry {
             base,
             authorization: Some(authorization),
-            cache_identity: "fake-test".into(),
         };
         assert_eq!(
             registry.authorization.as_ref().unwrap().scope,

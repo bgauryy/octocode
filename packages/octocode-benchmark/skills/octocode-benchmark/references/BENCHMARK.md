@@ -71,14 +71,4 @@ repeat ≥3 passes. Method + worked example: [`aggregation-and-stats.md`](aggreg
 
 ## Results
 
-Rollup: [`results/SUMMARY.md`](../../../results/SUMMARY.md) is the **single source of truth** for headline
-numbers — always read the current figures there and recompute from the logs
-(`per_question_summary.py`), never hardcode a ratio here. It uses the latest complete campaign
-and never pools invalid/incompatible runs into one synthetic total. Current honest reading
-(fair leanest-path run): correctness is a near-ceiling tie in every matchup, and Octocode is
-reliably **leaner than all three baselines** — the margin is largest on large-file /
-commit-scoped / multi-hop reads and inverts on small single-hit lookups where one `gh` call
-answers. **No "several× better than everything" claim** — earlier inflated figures came from
-baseline runners violating the fairness rule above.
-
-Treat this public question suite as comparative orientation, not a shipping gate.
+Read the [published rollup](../../../results/SUMMARY.md) for results of past campaigns. Its `per_question_summary.py` script reads fixed historical campaign names. For a new comparison, validate the explicit campaign path and follow [paired statistics](aggregation-and-stats.md) and the [output contract](../output.md). Use a private held-out set for a shipping claim.

@@ -37,7 +37,7 @@ for (const vendor of ['claude', 'codex']) {
     assert.ok(start.hookSpecificOutput.additionalContext.includes(recipient));
     assert.equal(only<JsonRecord>(db.prepare('SELECT count(*) n FROM workspaces').get()).n, 1);
     const sender = f.call(f.repo, 'join', { name: 'sender', vendor: 'generic' }).id;
-    f.call(f.repo, 'send_message', { to: recipient, body: 'GIT DELIVERY' }, sender);
+    f.call(f.repo, 'send_message', {parts: [{ text: 'GIT DELIVERY' }],  to: recipient, }, sender);
     assert.match(JSON.stringify(hook('PostToolUse')), /GIT DELIVERY/);
   });
 }
@@ -73,7 +73,7 @@ test('directory paths default to tree conflicts; file contexts default to file s
 test('wrong message IDs and fractional numbers fail with actionable errors; whole-number floats are integers', t => {
   const f = gitRepo(t);
   const a = f.call(f.repo, 'join', { name: 'a', vendor: 'generic' }).id;
-  assert.match(f.fails(f.repo, 'complete', { message: 999, outcome:'done',reply:{conclusion:'done'} }, a), /Unknown message 999.*data\.messageId/);
+  assert.match(f.fails(f.repo, 'complete', { message: 999, outcome:"completed",reply:[{ data: {conclusion:'done'} }] }, a), /Unknown message 999.*data\.messageId/);
   // The runtime parses JSON with JavaScript semantics: 5.0 is the integer 5 (decision F-floats), a fraction is not.
   const raw = (command: string, json: string): { ok?: string; error?: string } => {
     try { return { ok: execFileSync(binary, [command, json, '--workspace', f.repo, '--database', f.database, '--session', a], { encoding: 'utf8', stdio: 'pipe' }) }; }
@@ -132,7 +132,7 @@ test('Claude dispatch predicts held mail from hook-reported permission mode and 
   assert.equal(f.call(f.repo, 'attach', { transport: 'claude', endpoint: path }, receiver).inbound.outcome, 'unknown');
   hook('PostToolUse', 'bypassPermissions');
   assert.equal(f.call(f.repo, 'attach', { transport: 'claude', endpoint: path }, receiver).inbound.outcome, 'held');
-  f.call(f.repo, 'send_message', { to: receiver, body: 'HELD QUESTION', wake: 'action' }, sender);
+  f.call(f.repo, 'send_message', {parts: [{ text: 'HELD QUESTION' }],  to: receiver, wake: 'action' }, sender);
   const deferred = await dispatch();
   assert.equal(deferred.submitted, 0);
   assert.equal(deferred.deferred, 'claude-inbound-held');
@@ -143,7 +143,7 @@ test('Claude dispatch predicts held mail from hook-reported permission mode and 
   hook('PostToolUse', 'default');
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   assert.deepEqual(db.prepare("SELECT data FROM records WHERE type='host.inbound' ORDER BY id").all().map((r: JsonRecord) => JSON.parse(r.data).permissionMode), ['bypassPermissions', 'default']);
-  f.call(f.repo, 'send_message', { to: receiver, body: 'DELIVERED QUESTION', wake: 'action' }, sender);
+  f.call(f.repo, 'send_message', {parts: [{ text: 'DELIVERED QUESTION' }],  to: receiver, wake: 'action' }, sender);
   const delivered = await dispatch();
   assert.equal(delivered.submitted, 1);
   assert.equal(delivered.inbound.outcome, 'delivered');
@@ -159,21 +159,21 @@ test('live peer names are unique per repository and address messages and records
   const second = f.call(f.repo, 'join', { name: 'api', vendor: 'codex' });
   const nested = f.call(join(f.repo, 'pkg'), 'join', { name: 'api', vendor: 'generic' });
   assert.deepEqual([first.name, second.name, nested.name], ['api', 'api-2', 'api-3']);
-  const sent = f.call(f.repo, 'send_message', { to: 'api-2', body: 'BY NAME' }, first.id);
+  const sent = f.call(f.repo, 'send_message', {parts: [{ text: 'BY NAME' }],  to: 'api-2', }, first.id);
   assert.equal(f.call(f.repo, 'inbox', {}, second.id).items[0].id, sent.id);
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   assert.equal(only<JsonRecord>(db.prepare('SELECT target FROM messages WHERE id=?').get(sent.id)).target, second.id, 'stored target stays the stable ID');
-  assert.equal(f.call(f.repo, 'send_message', { to: 'api-2', body: 'BY NAME', key: 'k1' }, first.id).id,
-    f.call(f.repo, 'send_message', { to: second.id, body: 'BY NAME', key: 'k1' }, first.id).id, 'name and ID retries share one key');
+  assert.equal(f.call(f.repo, 'send_message', {parts: [{ text: 'BY NAME' }],  to: 'api-2', key: 'k1' }, first.id).id,
+    f.call(f.repo, 'send_message', {parts: [{ text: 'BY NAME' }],  to: second.id, key: 'k1' }, first.id).id, 'name and ID retries share one key');
   assert.equal(f.call(f.repo, 'record', { type: 'event', data: { name: 'n' }, to: 'api-3' }, first.id).to, nested.id);
-  assert.match(f.fails(f.repo, 'send_message', { to: 'nobody', body: 'x' }, first.id), /Unknown peer nobody/);
+  assert.match(f.fails(f.repo, 'send_message', {parts: [{ text: 'x' }],  to: 'nobody', }, first.id), /Unknown peer nobody/);
   assert.match(f.fails(f.repo, 'heartbeat', { name: 'api' }, second.id), /belongs to a live peer/);
   // An expired identity that resumes after its name was taken gets a free suffix.
   db.prepare('UPDATE sessions SET expiresAt=0 WHERE id=?').run(first.id);
   const replacement = f.call(f.repo, 'join', { name: 'api', vendor: 'grok' });
   assert.equal(replacement.name, 'api');
   assert.equal(f.call(f.repo, 'resume', { vendor: 'claude' }, first.id).name, 'api-4');
-  assert.equal(f.call(f.repo, 'send_message', { to: 'api', body: 'live one' }, second.id).recipientOffline, undefined);
+  assert.equal(f.call(f.repo, 'send_message', {parts: [{ text: 'live one' }],  to: 'api', }, second.id).recipientOffline, undefined);
 });
 
 test('host hook registrations get distinct names per host session', t => {

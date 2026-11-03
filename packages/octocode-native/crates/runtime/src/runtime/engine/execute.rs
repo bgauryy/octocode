@@ -189,7 +189,13 @@ impl ToolRuntime {
                     None,
                 )
             };
-        let dispatcher = self.dispatcher();
+        let mut dispatcher = self.dispatcher();
+        if let Some(evidence) = opened
+            .as_ref()
+            .and_then(|opened| self.cursors.evidence(opened))
+        {
+            dispatcher.github_access = super::super::github::ResponseAccess::resuming(evidence);
+        }
         let run = ChannelRun {
             id,
             mcp,
@@ -231,20 +237,18 @@ impl ToolRuntime {
             paths: self.paths.clone(),
             security: self.security.clone(),
             github_services: self.github_services.clone(),
-            github_cache: self.github_cache.clone(),
             github_access: super::super::github::ResponseAccess::default(),
             config: self.config.clone(),
             limits: self.limits,
             home: self.config.home.clone(),
             handle: tokio::runtime::Handle::current(),
             lsp_pool: self.lsp_pool.clone(),
-            local_views: self.local_views.clone(),
-            source_views: self.source_views.clone(),
             lsp_execution_config: self.lsp_execution_config.clone(),
+            lsp_answers: self.lsp_answers.clone(),
+            graph_rows: self.graph_rows.clone(),
             availability: self.availability.clone(),
             selection_available: self.selection_available,
             evaluator: self.evaluator.clone(),
-            artifact_cache: self.artifact_cache.clone(),
         }
     }
 

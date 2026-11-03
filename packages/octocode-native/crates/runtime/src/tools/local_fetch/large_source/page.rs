@@ -3,10 +3,10 @@
 
 use super::window::WindowSpan;
 use super::{Streamed, WINDOW_LINES, line_chunk_query};
-use crate::num::usize_of;
 use crate::tools::source_view::local_fetch_query;
 use crate::tools::source_view::*;
 use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
+use octocode_engine::num::saturating_usize;
 
 /// An offset past the end of the read's `read_total` `unit`s (lines, or the
 /// bytes of its lines): nothing returned, in the shape an in-memory read
@@ -22,7 +22,7 @@ pub(super) fn past_end_row(
     let next = past_end(q);
     let offset = local_fetch_query::offset(q).unwrap_or(0);
     let (total_lines, total_bytes) = match unit {
-        ReadProgressUnit::Lines => (read_total, usize_of(len)),
+        ReadProgressUnit::Lines => (read_total, saturating_usize(len)),
         ReadProgressUnit::Bytes => (streamed.last + 1 - streamed.first, read_total),
     };
     LocalFetchResult {

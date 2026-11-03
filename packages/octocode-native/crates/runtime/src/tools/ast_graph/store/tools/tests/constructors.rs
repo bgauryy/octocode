@@ -71,13 +71,20 @@ fn constructor_boundaries_retain_sites_without_borrowing_unrelated_bindings() {
             ("unsupported-constructor-form".into(), 4),
         ])
     );
-    let reused = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
-    assert_eq!(reused["id"], built["id"]);
+    let rebuilt = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    assert_ne!(rebuilt["id"], built["id"], "{rebuilt}");
+    assert_eq!(rebuilt["counts"], built["counts"]);
+    assert_eq!(rebuilt["linkage"], built["linkage"]);
+    for (file, expected) in &original {
+        assert_eq!(&rows(&dir.0, "unresolved", file)["rows"], expected);
+    }
     let fresh = call(
         &dir.0,
         ToolId::GraphBuild,
         json!({"path":"app","refresh":true}),
     );
+    assert_ne!(fresh["id"], rebuilt["id"], "{fresh}");
+    assert_eq!(fresh["counts"], built["counts"]);
     assert_eq!(fresh["linkage"], built["linkage"]);
     for (file, expected) in original {
         assert_eq!(rows(&dir.0, "unresolved", file)["rows"], expected);

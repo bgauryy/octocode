@@ -39,6 +39,7 @@ mod runtime_github_compare;
 mod runtime_github_flows;
 mod runtime_github_history;
 mod runtime_github_large_pr;
+mod runtime_github_quota;
 mod runtime_github_scope;
 mod runtime_github_throttle;
 mod runtime_input_guard;
@@ -62,3 +63,6 @@ mod tool_cache_contracts;
 fn every_test_file_is_a_module() {
     support::assert_every_test_file_is_a_module(env!("CARGO_MANIFEST_DIR"));
 }
+
+#[path = "../build/schema_defaults.rs"]
+mod schema_defaults;

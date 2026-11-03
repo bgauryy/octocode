@@ -2,15 +2,16 @@
 //! page served from it.
 
 use super::held::Want;
-use super::index::read_windows;
 use super::page::{continue_window, map_to_file, past_end_row, served_span};
+use super::proven::Proven;
+use super::stream::stream;
 use super::{BYTE_LOOKBEHIND, Streamed, WINDOW_LINES};
 use crate::execution::cancel::CancellationCheck;
-use crate::num::usize_of;
 use crate::security::scan::ContentScan;
 use crate::tools::source_view::prepare::extraction_error;
 use crate::tools::source_view::*;
 use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadProgressUnit};
+use octocode_engine::num::saturating_usize;
 use std::path::Path;
 
 /// The file lines one streamed window of `q` holds.
@@ -41,7 +42,6 @@ impl WindowSpan {
             first: self.first,
             last: self.last,
             from: self.from,
-            byte_page: self.byte_page,
         }
     }
 }
@@ -93,12 +93,15 @@ pub(super) fn window_span(q: &LocalFetchQuery) -> WindowSpan {
 }
 
 /// The streamed source a read opened: its handle, canonical path, settled
-/// stamp (see [`read_windows`]) and length.
+/// length. Every request hashes the open handle while selecting its windows.
+#[derive(Clone, Copy)]
 pub(super) struct Opened<'a> {
     pub(super) file: &'a std::fs::File,
     pub(super) path: &'a Path,
-    pub(super) stamp: Option<octocode_engine::stamp::SourceStamp>,
     pub(super) len: u64,
+    /// The request's earlier pass over the whole source, with its line
+    /// count: windows are read from its checkpoints, not streamed again.
+    pub(super) proven: Option<(&'a Proven, usize)>,
 }
 
 impl Opened<'_> {
@@ -107,7 +110,10 @@ impl Opened<'_> {
         wants: &[Want],
         cancel: &impl CancellationCheck,
     ) -> Result<Vec<Streamed>, String> {
-        read_windows(self.file, self.path, self.stamp, wants, cancel)
+        match self.proven {
+            Some((proven, total_lines)) => proven.windows(self.file, wants, total_lines, cancel),
+            None => stream(self.file, wants, cancel),
+        }
     }
 }
 
@@ -223,7 +229,6 @@ pub(super) fn serve_window(
             &streamed.window,
             path,
             &SourceFacts {
-                views: Default::default(),
                 modified: modified.clone(),
                 window: share,
                 beside: 0,
@@ -276,7 +281,7 @@ pub(super) fn serve_window(
             page.length = end + 1 - start;
             page.total_lines = last + 1 - origin;
             if chunked {
-                page.total_bytes = usize_of(len);
+                page.total_bytes = saturating_usize(len);
             }
             page.has_more = end < last;
             page.next_offset = page.has_more.then_some(end + 1 - origin);

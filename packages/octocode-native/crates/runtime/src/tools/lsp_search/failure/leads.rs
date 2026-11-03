@@ -1,6 +1,7 @@
 //! Partial-answer flags and the text-search leads that cover what the
 //! server did not.
 use super::*;
+use octocode_contract_types::{CaseMode, LocalSearchQueryContent, RegexEngine};
 
 /// Partial reasons about *files* the server's project may not see (or, for
 /// dynamic dispatch, files it could not tie to the symbol). When every file
@@ -65,10 +66,11 @@ pub(in super::super) fn flag_partial(
         // Partial only with an executable recovery.
         Some(name) => {
             crate::response::paging::mark_partial(row, reason, &warnings);
-            crate::response::result::attach_related(
-                row,
-                text_search_lead(name, &scope.root, &scope.include, lead_files.as_deref()).build(),
-            );
+            if let Some(lead) =
+                text_search_lead(name, &scope.root, &scope.include, lead_files.as_deref())
+            {
+                crate::response::result::attach_related(row, lead.build());
+            }
         }
         // A position anchor has no name to search for: coverage reason and
         // warning only.
@@ -136,15 +138,15 @@ pub(in super::super) fn ignored_text_lead(
     scope: &super::super::scope::Scope,
     files: &[String],
     unfinished: bool,
-) -> Value {
+) -> Option<Value> {
     let mut rows = Vec::new();
     for file in files {
-        let row = text_search_row(name, file);
+        let row = text_search_row(name, file)?;
         if !rows.contains(&row) {
             rows.push(row);
         }
     }
-    let mut root = text_search_row(name, &scope.root);
+    let mut root = text_search_row(name, &scope.root)?;
     if !scope.include.is_empty() {
         root["include"] = json!(scope.include);
     }
@@ -153,7 +155,7 @@ pub(in super::super) fn ignored_text_lead(
     }
     let broad = rows.len() > LISTED_TEXT_FILES;
     if broad {
-        let mut recovery = text_search_row(name, &scope.root);
+        let mut recovery = text_search_row(name, &scope.root)?;
         // A root walk must reach paths that explicit file/root queries reach.
         recovery["defaultExcludes"] = json!(false);
         recovery["includeHidden"] = json!(true);
@@ -165,20 +167,32 @@ pub(in super::super) fn ignored_text_lead(
     for row in &mut rows {
         row["includeIgnored"] = json!(true);
     }
-    crate::response::result::Continuation::related_input(
-        ToolId::LocalSearch,
-        json!({"queries": rows}),
+    Some(
+        crate::response::result::Continuation::related_input(
+            ToolId::LocalSearch,
+            json!({"queries": rows}),
+        )
+        .build(),
     )
-    .build()
 }
 
-pub(super) fn text_search_row(name: &str, path: &str) -> Value {
-    json!({
-        "path": path,
-        "matchString": [octocode_engine::text::word_pattern(name)],
-        "regexEngine": "rust",
-        "caseMode": "sensitive",
+/// The whole-word, case-sensitive content search of `name` under `path`: a
+/// `rust` regex, as an unset `regex` would search its `\b` spelling as
+/// literal text. `None` when `name` or `path` is not a representable value.
+fn text_search_query(name: &str, path: &str) -> Option<LocalSearchQueryContent> {
+    let pattern = octocode_engine::text::word_pattern(name);
+    Some(LocalSearchQueryContent {
+        case_mode: CaseMode::Sensitive,
+        regex_engine: RegexEngine::Rust,
+        ..crate::tools::source_view::extraction::text_search_query(path, &[&pattern])?
     })
+}
+
+pub(super) fn text_search_row(name: &str, path: &str) -> Option<Value> {
+    Some(crate::response::result::query_row(
+        &text_search_query(name, path)?,
+        &[],
+    ))
 }
 
 /// The one lexical lead every lspSearch row builds: one row per listed file
@@ -193,20 +207,22 @@ pub(in super::super) fn text_search_lead(
     root: &str,
     include: &[String],
     files: Option<&[String]>,
-) -> crate::response::result::Continuation {
-    let row = |path: &str| text_search_row(name, path);
+) -> Option<crate::response::result::Continuation> {
     if let Some(files) = files.filter(|files| (1..=LISTED_TEXT_FILES).contains(&files.len())) {
-        let rows = files.iter().map(|file| row(file)).collect::<Vec<_>>();
-        return crate::response::result::Continuation::related_input(
+        let rows = files
+            .iter()
+            .map(|file| text_search_row(name, file))
+            .collect::<Option<Vec<_>>>()?;
+        return Some(crate::response::result::Continuation::related_input(
             ToolId::LocalSearch,
             json!({ "queries": rows }),
-        );
+        ));
     }
-    let mut search = row(root);
-    if !include.is_empty() {
-        search["include"] = json!(include);
-    }
-    crate::response::result::Continuation::related(ToolId::LocalSearch, search)
+    let search = LocalSearchQueryContent {
+        include: include.to_vec(),
+        ..text_search_query(name, root)?
+    };
+    Some(crate::response::result::Continuation::related_query(search))
 }
 
 /// The lexical lead of a `workspaceSymbol` query term over `root`: the term
@@ -217,12 +233,12 @@ pub(in super::super) fn term_search_lead(
     term: &str,
     root: &str,
     include: &[String],
-) -> crate::response::result::Continuation {
-    let mut search = json!({"path": root, "matchString": [term]});
-    if !include.is_empty() {
-        search["include"] = json!(include);
-    }
-    crate::response::result::Continuation::related(ToolId::LocalSearch, search)
+) -> Option<crate::response::result::Continuation> {
+    let search = LocalSearchQueryContent {
+        include: include.to_vec(),
+        ..crate::tools::source_view::extraction::text_search_query(root, &[term])?
+    };
+    Some(crate::response::result::Continuation::related_query(search))
 }
 
 /// The lexical lead of the query's symbol over `root`: its query term as
@@ -232,7 +248,7 @@ pub(super) fn symbol_search_lead(
     query: &LspSearchQuery,
     symbol: &str,
     root: &str,
-) -> crate::response::result::Continuation {
+) -> Option<crate::response::result::Continuation> {
     if lsp_search_query::op(query) == super::super::Op::WorkspaceSymbol {
         term_search_lead(symbol, root, &[])
     } else {

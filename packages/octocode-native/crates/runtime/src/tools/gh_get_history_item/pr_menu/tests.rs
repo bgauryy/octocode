@@ -33,11 +33,11 @@ fn change_reads_prefer_the_first_unpatched_text_file() {
         [
             (
                 "readAtCommit",
-                json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"head"})
+                json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"head","view":"content"})
             ),
             (
                 "readParent",
-                json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"base"})
+                json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"base","view":"content"})
             ),
         ]
     );

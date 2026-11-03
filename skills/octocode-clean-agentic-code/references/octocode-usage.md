@@ -8,15 +8,17 @@ Research, Chrome DevTools and agents-communication are different executables. Th
 
 ## Discover and invoke
 
+Discover the least you need: `--help` lists when to use each tool; `--view variants` gives operations, required fields and an example (about 1 KB); `--view query` every field (6–10 KB); `--view full` every tool (about 23 KB).
+
 ```bash
-npx -y octocode schema
-npx -y octocode schema localSearch --view query
+npx -y octocode --help
 npx -y octocode schema localSearch --view variants
+npx -y octocode schema localSearch --view query
 npx -y octocode schema --view full
 npx -y octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"startLine":1,"endLine":40}]}]}'
 ```
 
-New requests contain `queries` and optional `responseChars`. Use one tool per batch and respect its schema's maximum row count (at most five). Resume only with an emitted `{cursor}` input. CLI and MCP use the same envelope. For long requests, save JSON under the active skill's scratch directory and use CLI `--input <file>`.
+New requests contain `queries` and optional `responseChars`; each query takes `mainGoal` (the task) and `reasoning` (why this query). Use one tool per batch and respect its schema's maximum row count (at most five). Resume only with an emitted `{cursor}` input. CLI and MCP use the same envelope. For long requests, save JSON under the active skill's scratch directory and use CLI `--input <file>`.
 
 Use observed paths, lines, refs and identifiers. Shared fields have one form: `matchString` string arrays, `contextLines:{before,after}`, `ranges:[{startLine,endLine}]`, numeric `{min,max}`, dates `{from,to}`, `sort:{by,order}`. Live schemas own exact fields and limits. There are no input aliases, bare queries or guessed repairs.
 
@@ -30,7 +32,7 @@ Follow [configuration](configuration.md) for credentials/settings. Inline `class
 
 The default catalog contains 12 tools over MCP and 16 in the CLI. MCP independently adds graph tools with beta, clone with `OCTOCODE_ENABLE_CLONE=true`, and clasify with a nonblank classification key (beta and provider health do not gate it); tool lists and the local switch can restrict MCP further. Discovery is authoritative for the configured surface.
 
-- Graph: graphBuild writes and prunes workspace snapshots; graphQuery explores them. Candidates need LSP and source verification.
+- Graph, only when discovery lists it: graphBuild writes and prunes workspace snapshots; graphQuery explores them. Candidates need LSP and source verification.
 - GitHub: ghSearchRepo, ghSearchCode, ghStructure, ghGetFileContent, ghSearchHistory, ghGetHistoryItem, ghCloneRepo.
 - Local: localSearch, structureSearch, astSearch, localFetch, lspSearch.
 - Other: artifactSearch, clasify.

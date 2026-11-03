@@ -5,7 +5,7 @@ impl Catalog {
     pub(crate) fn dependencies(
         &self,
         value: &Value,
-        cancel: &CancellationToken,
+        cancel: &Cancellation,
     ) -> Result<DependencySet, DependencyError> {
         let mut units = BTreeSet::new();
         let mut pending = Vec::new();
@@ -39,7 +39,7 @@ impl Catalog {
         &self,
         value: &Value,
         representation: usize,
-        cancel: &CancellationToken,
+        cancel: &Cancellation,
     ) -> Result<(), DependencyError> {
         let mut pending = Vec::new();
         enqueue(&mut pending, value, cancel)?;
@@ -68,7 +68,7 @@ impl Catalog {
 fn enqueue<'a>(
     pending: &mut Vec<&'a Value>,
     value: &'a Value,
-    cancel: &CancellationToken,
+    cancel: &Cancellation,
 ) -> Result<(), DependencyError> {
     check(cancel)?;
     reserve(pending, 1)?;
@@ -79,7 +79,7 @@ fn enqueue<'a>(
 fn enqueue_children<'a>(
     pending: &mut Vec<&'a Value>,
     value: &'a Value,
-    cancel: &CancellationToken,
+    cancel: &Cancellation,
 ) -> Result<(), DependencyError> {
     match value {
         Value::Object(object) => {

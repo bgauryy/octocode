@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stagedNativeArtifacts, staleArtifacts } from '../artifact-freshness.mjs';
-import { ROOT, collectInternalDependencies, getWorkspaceMap, readJson } from './workspaces.mjs';
+import { OWN_SCRIPTS, ROOT, collectInternalDependencies, getWorkspaceMap, readJson } from './workspaces.mjs';
 
 // The core layering: interfaces (mcp, cli) sit on config (bundled at build time) and native
 // (loaded at runtime); config and native depend on no workspace package; mcp-cli is a standalone
@@ -17,8 +17,8 @@ const CORE_LAYERING = {
   // of its platform (`optionalDependencies` on the per-platform packages).
   octocode: ['@octocodeai/config'],
 };
-// Bundled into the interface's output, so it must never be a published runtime dependency.
-const BUNDLED_WORKSPACES = ['@octocodeai/config'];
+// Fields npm installs for a consumer; a private workspace never reaches npm.
+const RUNTIME_DEPENDENCY_FIELDS = ['dependencies', 'peerDependencies', 'optionalDependencies'];
 
 function sourceFiles(root) {
   const skippedDirectories = new Set([
@@ -94,14 +94,16 @@ function layeringFailures(workspaces) {
         failures.push(`${name} must not depend on ${dependency}; allowed: ${allowed.join(', ') || 'no workspace package'}`);
       }
     }
-    for (const bundled of BUNDLED_WORKSPACES) {
-      const fields = ['dependencies', 'peerDependencies', 'optionalDependencies'];
-      if (fields.some(field => workspace.packageJson[field]?.[bundled])) {
-        failures.push(`${name} bundles ${bundled}; declare it in devDependencies, not as a published runtime dependency`);
-      }
-    }
   }
-  return failures;
+  return [...failures, ...privateRuntimeFailures(workspaces)];
+}
+
+/** A published workspace whose consumers would have to install a private one. */
+function privateRuntimeFailures(workspaces) {
+  const privateNames = new Set(workspaces.filter(ws => ws.packageJson.private).map(ws => ws.name));
+  return workspaces.filter(ws => !ws.packageJson.private).flatMap(ws => RUNTIME_DEPENDENCY_FIELDS.flatMap(field =>
+    Object.keys(ws.packageJson[field] ?? {}).filter(dependency => privateNames.has(dependency)).map(dependency =>
+      `${ws.name} is published but its ${field} names private ${dependency}; bundle it and declare it in devDependencies`)));
 }
 
 export function checkLayering(workspaces) {
@@ -124,6 +126,11 @@ export function checkRequiredScripts(workspaces) {
           `${workspace.location} is missing required script "${requiredScript}"`
         );
       }
+    }
+    if (availableScripts.verify && !availableScripts[OWN_SCRIPTS.verify]) {
+      failures.push(
+        `${workspace.location} has "verify" but not "${OWN_SCRIPTS.verify}" (the gate without oxlint, which repo-wide verify runs)`
+      );
     }
   }
 

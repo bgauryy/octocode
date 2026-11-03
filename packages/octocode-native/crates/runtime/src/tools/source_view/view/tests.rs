@@ -105,7 +105,7 @@ fn fetch_partition_binding_rejects_same_count_legacy_replay() {
         judge: Arc::new(FirstCandidate(calls.clone())),
         handle: executor.handle().clone(),
         context: crate::execution::ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
+            cancellation: octocode_io::cancellation::Cancellation::new(),
             deadline: Instant::now() + Duration::from_secs(5),
             response_window: None,
             github_credential: None,

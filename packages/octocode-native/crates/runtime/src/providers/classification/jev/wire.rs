@@ -136,7 +136,7 @@ pub(super) fn validate_wire(
         // The candidate is built for this check alone, so it is validated in
         // place instead of cloned again.
         crate::contracts::validate_output_in_place(
-            "clasify",
+            crate::id::ToolId::Clasify.as_str(),
             &mut json!({"results":[{"index":0,"data":{
                 "model":response["model"],
                 "answers":response["answers"],

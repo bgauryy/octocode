@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn github_rows_page_by_the_calls_response_window() {
     let context = |response_window| ExecutionContext {
-        cancellation: tokio_util::sync::CancellationToken::new(),
+        cancellation: octocode_io::cancellation::Cancellation::new(),
         deadline: std::time::Instant::now() + Duration::from_secs(5),
         response_window,
         github_credential: None,

@@ -49,12 +49,7 @@ async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
         assert_eq!(row["owner"], "a", "{row}");
         assert_eq!(row["repo"], "b", "{row}");
         assert_eq!(row["commitSha"], TREE_SHA, "{row}");
-        assert!(
-            row["matches"]
-                .as_array()
-                .is_some_and(|matches| !matches.is_empty()),
-            "{row}"
-        );
+        assert!(row.get("matches").is_none(), "{row}");
     }
     let read = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| {
         true
@@ -143,9 +138,8 @@ async fn owner_wide_hits_keep_fragments_without_offsets() {
     let row = &out.data["files"][0];
     assert_eq!(row["owner"], "a", "{}", out.data);
     assert_eq!(row["repo"], "b", "{}", out.data);
-    assert!(row["matches"][0]["value"].is_string(), "{}", out.data);
+    assert!(row.get("matches").is_none(), "{}", out.data);
     assert!(row.get("commitSha").is_none(), "{row}");
-    assert!(row["matches"][0]["matchIndices"].is_array(), "{row}");
 }
 
 /// Path matches carry no empty snippet list.
@@ -174,4 +168,114 @@ async fn path_match_rows_omit_empty_matches() {
     let row = &out.data["files"][0];
     assert_eq!(row["path"], "src/pool.rs", "{}", out.data);
     assert!(row.get("matches").is_none(), "{}", out.data);
+}
+
+/// `contextLines` lists the neighbours of every hit as numbered lines of the
+/// same row; no row carries index fragments, and the read lead still opens
+/// on the hit line, not on its context.
+#[tokio::test]
+async fn context_lines_surround_hits_and_rows_carry_no_matches() {
+    let server = MockServer::builder().start().await;
+    mount_code_search(&server).await;
+    mount_ref(&server, "HEAD").await;
+    mount_content(
+        &server,
+        "src/handler.py",
+        "import x\n\ndef wrap_app(app):\n    return app\n",
+    )
+    .await;
+    mount_content(
+        &server,
+        "src/routing.py",
+        "from h import wrap_app\nimport y\n\nasync def a():\n    await wrap_app(app)(scope)\n    pass\n\nasync def b():\n    await wrap_app(s)(scope)\n",
+    )
+    .await;
+    let out = run(
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"],
+               "contextLines":{"before":1,"after":1}}),
+    )
+    .await
+    .expect("search");
+    let data = &out.data;
+    let files = data["files"].as_array().expect("files");
+    let lines_of = |path: &str| {
+        files
+            .iter()
+            .find(|row| row["path"] == path)
+            .map(|row| row["lines"].clone())
+            .expect("row")
+    };
+    assert_eq!(
+        lines_of("src/handler.py"),
+        json!(["2\t", "3\tdef wrap_app(app):", "4\t    return app"]),
+        "{data}"
+    );
+    // Windows 1-2, 4-6 and 8-9 touch but never repeat a line.
+    assert_eq!(
+        lines_of("src/routing.py"),
+        json!([
+            "1\tfrom h import wrap_app",
+            "2\timport y",
+            "4\tasync def a():",
+            "5\t    await wrap_app(app)(scope)",
+            "6\t    pass",
+            "8\tasync def b():",
+            "9\t    await wrap_app(s)(scope)"
+        ]),
+        "{data}"
+    );
+    for row in files {
+        assert!(row.get("matches").is_none(), "{row}");
+    }
+    let read = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| {
+        true
+    })["input"]["queries"][0];
+    assert_eq!(read["matchString"], json!(["def wrap_app(app):"]), "{data}");
+}
+
+/// `matchedLines` appears only when context lines are listed beside the hits.
+#[tokio::test]
+async fn matched_lines_name_the_hits_only_when_context_is_listed() {
+    let server = MockServer::builder().start().await;
+    mount_code_search(&server).await;
+    mount_ref(&server, "HEAD").await;
+    mount_content(
+        &server,
+        "src/handler.py",
+        "import x\n\ndef wrap_app(app):\n    return app\n",
+    )
+    .await;
+    mount_content(
+        &server,
+        "src/routing.py",
+        "from h import wrap_app\nimport y\n\nasync def a():\n    await wrap_app(app)(scope)\n    pass\n\nasync def b():\n    await wrap_app(s)(scope)\n",
+    )
+    .await;
+    let plain = run(
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"]}),
+    )
+    .await
+    .expect("search");
+    for row in plain.data["files"].as_array().expect("files") {
+        assert!(row.get("matchedLines").is_none(), "{row}");
+    }
+    let out = run(
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"],
+               "contextLines":{"before":1,"after":1}}),
+    )
+    .await
+    .expect("search");
+    let files = out.data["files"].as_array().expect("files");
+    let matched = |path: &str| {
+        files
+            .iter()
+            .find(|row| row["path"] == path)
+            .map(|row| row["matchedLines"].clone())
+            .expect("row")
+    };
+    assert_eq!(matched("src/handler.py"), json!([3]), "{}", out.data);
+    assert_eq!(matched("src/routing.py"), json!([1, 5, 9]), "{}", out.data);
 }

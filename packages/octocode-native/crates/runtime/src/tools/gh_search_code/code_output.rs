@@ -1,4 +1,4 @@
-use super::leads::{declaration_read, hits_read, line_read, read_top_match, scoped_fragment_read};
+use super::leads::{declaration_read, hits_read, line_read, scoped_fragment_read};
 use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
 use crate::security::scan::ContentScan;
 use octocode_github::{CodeSearchItem, ProviderError};
@@ -62,6 +62,7 @@ pub(super) fn shape_files(
             match hits {
                 super::lines::FileHits::Lines {
                     lines,
+                    matched,
                     first,
                     last,
                     best,
@@ -70,6 +71,10 @@ pub(super) fn shape_files(
                     declaration,
                 } => {
                     row.insert("lines".into(), json!(lines));
+                    // Only a listing with context needs to say which lines are hits.
+                    if lines.len() > matched.len() {
+                        row.insert("matchedLines".into(), json!(matched));
+                    }
                     // Complete lines already carry the count unless explicitly selected.
                     if picks(query, "matchCount") {
                         row.insert("matchCount".into(), json!(total));
@@ -84,15 +89,11 @@ pub(super) fn shape_files(
                 super::lines::FileHits::Missing | super::lines::FileHits::Unmatched
                     if resolution.reference.is_some() =>
                 {
-                    // The path, or its hit, is not at the ref; the
-                    // default-branch snippet is not this ref's content.
-                    row.shift_remove("matches");
+                    // The path, or its hit, is not at the ref.
                     row.insert("atRef".into(), json!(false));
                 }
                 super::lines::FileHits::Unavailable if resolution.reference.is_some() => {
-                    // Not read at the ref: drop the default-branch snippet and
-                    // lead to the keyword lines at the ref.
-                    row.shift_remove("matches");
+                    // Not read at the ref: lead to the keyword lines there.
                     row.insert("lineResolved".into(), json!(false));
                     if let Some(read) = hits_read(query, row, sha) {
                         hit_reads.push(read);
@@ -104,10 +105,13 @@ pub(super) fn shape_files(
             }
         }
     }
-    let top = top.flatten().or_else(|| {
-        let read = fragment.as_ref().and_then(read_top_match);
-        scoped_fragment_read(read, query, resolution.as_ref())
-    });
+    // The index fragments only feed the fallback lead below; no row lists them.
+    for row in items.iter_mut().filter_map(Value::as_object_mut) {
+        row.shift_remove("matches");
+    }
+    let top = top
+        .flatten()
+        .or_else(|| scoped_fragment_read(fragment.as_ref(), query, resolution.as_ref()));
     PageReads {
         top,
         hits: hit_reads,
@@ -123,10 +127,7 @@ pub(super) fn merge_identical(items: &mut Vec<Value>) {
     for item in items.drain(..) {
         let evidence = item
             .as_object()
-            .filter(|row| {
-                (row.contains_key("lines") || row.contains_key("matches"))
-                    && row.contains_key("path")
-            })
+            .filter(|row| row.contains_key("lines") && row.contains_key("path"))
             .and_then(|row| serde_json::to_string(&Evidence(row)).ok());
         let Some(evidence) = evidence else {
             kept.push(item);

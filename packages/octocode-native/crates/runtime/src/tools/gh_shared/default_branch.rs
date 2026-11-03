@@ -8,59 +8,18 @@ use crate::response::result::restart_query;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use serde_json::Value;
 
-/// `prefix:owner/repo`; owner and repository are case-insensitive cache keys.
-pub(crate) fn repo_key(prefix: &str, owner: &str, repo: &str) -> String {
-    format!(
-        "{prefix}:{}/{}",
-        owner.to_ascii_lowercase(),
-        repo.to_ascii_lowercase()
-    )
-}
-
-/// The default branch's name, memoized per repository for the cache's
-/// volatile lifetime (like the HEAD commit memo beside it).
+/// The repository's current default branch.
 pub(crate) async fn default_branch(
     provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     context: &RequestContext,
 ) -> Result<String, ProviderError> {
-    let key = repo_key("repo-default-branch", owner, repo);
-    let partition = provider.transport.cache_partition(context, None).ok();
-    if let Some(partition) = &partition
-        && let Some(cached) = provider.transport.cache.get(partition, &key).await
-        && let Ok(branch) = std::str::from_utf8(&cached.bytes)
-    {
-        return Ok(branch.to_owned());
-    }
-    let metadata = provider
+    provider
         .transport
         .repository_metadata(owner, repo, context)
-        .await?;
-    // The same read names the repository's canonical name: a renamed
-    // repository costs no further request.
-    if let Some(full_name) = metadata.full_name.as_deref() {
-        super::remember_canonical(provider, owner, repo, full_name, context).await;
-    }
-    let branch = metadata.default_branch;
-    if let Some(partition) = &partition {
-        provider
-            .transport
-            .cache
-            .put(
-                partition,
-                key,
-                octocode_github::CachedContent {
-                    etag: None,
-                    bytes: branch.as_bytes().to_vec().into(),
-                    resolved_ref: branch.clone(),
-                    has_more: false,
-                },
-                octocode_github::Retention::Revalidate,
-            )
-            .await;
-    }
-    Ok(branch)
+        .await
+        .map(|metadata| metadata.default_branch)
 }
 
 /// What a missing `ref` leaves to say: the repository exists and its default
@@ -81,8 +40,9 @@ impl DefaultBranchRetry {
         format!("{message}; the default branch is \"{}\".", self.branch)
     }
 
-    /// `next.atDefaultBranch`: the same call with `ref` set to the default
-    /// branch.
+    /// The `atDefaultBranch` lead: the same call with `ref` set to the
+    /// default branch. It is a related call, published in `related[]`, not a
+    /// `next` channel.
     pub(crate) fn lead(self) -> (&'static str, Value) {
         ("atDefaultBranch", self.lead)
     }

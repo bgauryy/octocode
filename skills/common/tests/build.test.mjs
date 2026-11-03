@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { build, COLLECTIONS } from '../build.mjs';
+import { build, COLLECTIONS, routeGraph, sharedAssets, sharedTargets } from '../build.mjs';
 import { stageSkills } from '../../../packages/octocode/scripts/stage-skills.mjs';
 
 const byText = (a, b) => a.localeCompare(b);
@@ -16,8 +16,8 @@ function fixture(t) {
   for (const collection of COLLECTIONS) {
     const dir = join(root, collection, 'example');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'SKILL.md'), '# Example\n[Render](scripts/render-report.mjs)\n');
-    writeFileSync(join(dir, 'output.md'), '# Output\n');
+    writeFileSync(join(dir, 'SKILL.md'), '# Example\n[Render](scripts/render-report.mjs)\n[Output](output.md)\n');
+    writeFileSync(join(dir, 'output.md'), '# Output\n[Shared](references/report-output.md)\n');
   }
   return root;
 }
@@ -91,6 +91,10 @@ test('a nested reference selects only its shared guide and its transitive depend
   assert.equal(existsSync(join(dir, 'references/octocode-usage.md')), false);
   build({ root });
   for (const path of expected) assert.equal(existsSync(join(root, path)), true);
+  const canonical = sharedAssets(dir);
+  assert.deepEqual([...canonical.keys()].toSorted(byText), expected.map(file => file.replace('skills-dev/example/', '')).toSorted(byText));
+  for (const [target, content] of canonical) assert.deepEqual(readFileSync(join(dir, target)), content);
+
   assert.equal(existsSync(join(dir, 'scripts/render-report.mjs')), false);
   assert.deepEqual(build({ root, check: true }).stale, []);
   rmSync(join(dir, 'references/configuration.md'));
@@ -106,6 +110,53 @@ test('architecture consumers get the canonical graph template without receiving 
   assert.equal(build({ root }).copies, 1);
   assert.match(readFileSync(join(dir, 'assets/template.html'), 'utf8'), /<!doctype html>/i);
   assert.equal(existsSync(join(dir, 'scripts/render-report.mjs')), false);
+});
+
+test('a shared file no route reaches is not copied, and a stale unreached copy is removed', t => {
+  const root = fixture(t);
+  const skill = join(root, 'skills/example');
+  build({ root });
+  const copy = join(skill, 'references/report-output.md');
+  assert.equal(existsSync(copy), true);
+  // Cut the only route to the page: the renderer stays, the unreached page goes.
+  writeFileSync(join(skill, 'output.md'), '# Output\n');
+  assert.ok(build({ root, check: true }).stale.includes('skills/example/references/report-output.md'));
+  assert.equal(existsSync(copy), true, 'check never deletes');
+  build({ root });
+  assert.equal(existsSync(copy), false);
+  assert.equal(existsSync(join(skill, 'references/evidence.md')), false, 'its dependencies go with it');
+  assert.equal(existsSync(join(skill, 'scripts/render-report.mjs')), true);
+  assert.deepEqual(build({ root, check: true }).stale.filter(file => file.startsWith('skills/')), []);
+});
+
+test('an unreached file at a shared path that is not a byte-identical copy is authored and kept', t => {
+  const root = fixture(t);
+  const skill = join(root, 'skills/example');
+  writeFileSync(join(skill, 'output.md'), '# Output\n');
+  mkdirSync(join(skill, 'references'), { recursive: true });
+  writeFileSync(join(skill, 'references/report-output.md'), '# My own notes\n');
+  build({ root, check: true });
+  build({ root });
+  assert.equal(readFileSync(join(skill, 'references/report-output.md'), 'utf8'), '# My own notes\n');
+});
+
+test('every installed skill carries exactly the shared files its routes reach', () => {
+  const root = new URL('../../..', import.meta.url).pathname;
+  const targets = sharedTargets();
+  for (const collection of COLLECTIONS) {
+    for (const name of readdirSync(join(root, collection))) {
+      const dir = join(root, collection, name);
+      if (!existsSync(join(dir, 'SKILL.md'))) continue;
+      const wanted = sharedAssets(dir);
+      const label = `${collection}/${name}`;
+      for (const target of targets) {
+        const installed = existsSync(join(dir, target));
+        if (installed && !wanted.has(target)) assert.fail(`${label} ships ${target} but no route reaches it`);
+        if (wanted.has(target)) assert.ok(installed, `${label} is missing ${target}`);
+      }
+      for (const link of routeGraph(dir).links) assert.ok(existsSync(join(dir, link)), `${label} routes to ${link} but it was not copied`);
+    }
+  }
 });
 
 test('network consumers restore a missing guard from its documented resource route', t => {

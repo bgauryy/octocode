@@ -59,6 +59,19 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
     );
     crate::contracts::validate("ghStructure", broaden["input"].clone())
         .expect("canonical fresh listing");
+    // A listing scoped to a directory reads that directory's own tree.
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex(format!(
+            "/git/trees/{TREE_SHA}(:|%3A)starlette$"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha":"e".repeat(40),"truncated":false,"tree":[
+                {"path":"_exception_handler.py","type":"blob","size":3},
+                {"path":"routing.py","type":"blob","size":3}
+            ]
+        })))
+        .mount(&server)
+        .await;
     let mut under = find("starlette/routing.py");
     under["path"] = json!("starlette");
     let under = run(&server, under)
@@ -297,4 +310,66 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
         nested.data
     );
     assert_eq!(nested.data["omitted"], json!(["src/link.rs (symlink)"]));
+}
+
+/// A deep listing of a directory reads the recursive git tree of that
+/// directory (`<commit>:<path>`), never the whole repository's: a large
+/// repository's own tree is truncated and costs a read per subtree, where the
+/// directory's is one request. Entries keep their repository-relative paths
+/// and the listing's depth.
+#[tokio::test]
+async fn a_deep_listing_of_a_directory_reads_that_directorys_tree_once() {
+    let server = MockServer::builder().start().await;
+    mount_ref(&server, "main").await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({"sha":"b".repeat(40),"truncated":true,"tree":[{"path":"root.rs","type":"blob","size":1}]}),
+        ))
+        .expect(0)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex(format!(
+            "/git/trees/{TREE_SHA}(:|%3A)src$"
+        )))
+        .and(wiremock::matchers::query_param("recursive", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha":"d".repeat(40),"truncated":false,"tree":[
+                {"path":"lib.rs","type":"blob","mode":"100644","size":7},
+                {"path":"util","type":"tree","mode":"040000"},
+                {"path":"util/deep.rs","type":"blob","mode":"100644","size":3},
+                {"path":"util/more","type":"tree","mode":"040000"},
+                {"path":"util/more/too_deep.rs","type":"blob","mode":"100644","size":2}
+            ]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = run(
+        &server,
+        json!({"operation":"tree","owner":"a","repo":"b",
+                "ref":"main","path":"src","maxDepth":2}),
+    )
+    .await
+    .expect("directory tree");
+    assert_eq!(
+        out.data["files"],
+        json!([
+            {"dir":"src","files":["lib.rs (7)","util/"]},
+            {"dir":"src/util","files":["deep.rs (3)","more/"]}
+        ]),
+        "{}",
+        out.data
+    );
+    let reads = server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|request| {
+            request.url.path() != "/api/graphql" && !request.url.path().contains("/commits/")
+        })
+        .count();
+    assert_eq!(reads, 1, "one tree read for the whole listing");
 }

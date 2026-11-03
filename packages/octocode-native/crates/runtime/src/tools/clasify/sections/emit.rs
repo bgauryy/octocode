@@ -1,5 +1,7 @@
 //! A batch's output: completed sections emitted once, coverage, and the
-//! terminal outcome that settles every remaining cell.
+//! terminal outcome that settles every remaining cell. A resource row is
+//! repeated on a later batch only when it gains sections or its coverage or
+//! status changed: unchanged rows are duplicate metadata, not evidence.
 use super::{Outcome, Runtime, Session};
 use crate::execution::ExecutionContext;
 use crate::tools::judgment::stats::ClassificationUsage;
@@ -77,10 +79,16 @@ pub(super) fn emit(
         }
         if metadata["status"] == "ready" {
             metadata["coverage"] = json!({"totalSections":resource.units.len(),"completedSections":completed,"remainingSections":resource.units.len()-completed,"answered":counts[0],"error":counts[1],"unsupported":counts[2],"unassessed":counts[3]});
-            if let Some(reason) = terminal {
+            // The reason explains this resource's unassessed cells; a resource
+            // the terminal batch left untouched has none to explain.
+            if let Some(reason) = terminal.filter(|_| counts[3] > 0) {
                 metadata["coverage"]["terminalReason"] = json!(reason);
             }
         }
+        if sections.is_empty() && resource.shown.as_ref() == Some(&metadata) {
+            continue;
+        }
+        resource.shown = Some(metadata.clone());
         metadata["sections"] = json!(sections);
         resources.insert(resource.key.clone(), metadata);
     }

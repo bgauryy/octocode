@@ -144,8 +144,9 @@ pub(super) fn diff(base: &GraphTables, head: &GraphTables) -> Drift {
             json!({"category": "relation", "change": change, "from": from, "to": to, "edge": edge})
         }));
     }
-    let delta =
-        |head: usize, base: usize| crate::num::i64_of_usize(head) - crate::num::i64_of_usize(base);
+    let delta = |head: usize, base: usize| {
+        octocode_engine::num::saturating_i64(head) - octocode_engine::num::saturating_i64(base)
+    };
     let summary = json!({
         "filesAdded": counts["added"],
         "filesRemoved": counts["removed"],

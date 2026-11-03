@@ -177,7 +177,7 @@ fn fallback_graph_walk(
                     cancel: &NeverCancel, path: &path, scope: &scope, root_only: false, line, character,
                     language_id:Some("typescript"), budget:16_000, response_window:None }.run().await.expect("fallback hierarchy");
                 let row = crate::tools::lsp_search::failure::with_next(&query, row);
-                if let Some(next) = row.pointer("/next/nextPage/input/queries/0") {
+                if let Some(next) = row.pointer("/pagination/next/nextPage/input/queries/0") {
                     let continued: LspSearchQuery = serde_json::from_value(next.clone()).expect("executable nextPage");
                     assert!(lsp_search_query::page(&continued) > lsp_search_query::page(&query), "page cursor must advance");
                 }

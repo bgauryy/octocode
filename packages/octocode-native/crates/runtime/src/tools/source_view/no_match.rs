@@ -8,7 +8,7 @@ use octocode_contract_types::{CaseMode, LocalFetchQuery};
 use std::path::Path;
 
 /// A matchString that selected no line: an empty row with its facts.
-pub(super) fn no_match(q: &LocalFetchQuery, source: &Source) -> LocalFetchResult {
+pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchResult {
     // In a file with redactions the text may sit behind a placeholder; that
     // fact depends only on the file, never on the guess (no oracle), and
     // reveals no more than a plain fetch (which shows the placeholders).

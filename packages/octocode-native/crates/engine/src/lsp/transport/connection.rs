@@ -150,6 +150,11 @@ impl JsonRpcConnection {
         self.shared.push_diagnostics.supersede(uri);
     }
 
+    /// See [`super::push_diagnostics::PushDiagnosticsStore::supersede_all`].
+    pub(crate) fn supersede_all_push_diagnostics(&self) {
+        self.shared.push_diagnostics.supersede_all();
+    }
+
     /// Whether the server registered for `workspace/didChangeWatchedFiles`
     /// (a `client/registerCapability` it sent after `initialize`).
     pub(crate) fn watches_files(&self) -> bool {

@@ -57,7 +57,7 @@ async fn section_cursor_replays_frozen_work_without_repeating_inference() {
         json!({"file":{"tool":"localFetch","query":{"path":"sections.rs"}}}),
     )
     .await;
-    let resume = first["next"]["nextSectionPage"]["input"].clone();
+    let resume = first["next"]["nextPage"]["input"].clone();
     crate::support::assert_cursor_only(&resume);
     let resumed = runtime
         .run("resume".into(), "clasify".into(), resume.clone())
@@ -126,7 +126,7 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
                     "section emitted twice"
                 );
             }
-            let next = &row["next"]["nextSectionPage"];
+            let next = &row["next"]["nextPage"];
             if next.is_null() {
                 break;
             }
@@ -161,7 +161,7 @@ async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transac
         json!({"file":{"tool":"localFetch","query":{"path":"many.rs"}}}),
     )
     .await;
-    let next = first["next"]["nextSectionPage"]["input"].clone();
+    let next = first["next"]["nextPage"]["input"].clone();
     crate::support::assert_cursor_only(&next);
     let before = provider_calls(&provider).await;
     let (a, b) = tokio::join!(

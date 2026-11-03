@@ -6,7 +6,7 @@ use crate::cache::disk::now_unix;
 #[test]
 fn retired_json_entries_are_removed_by_the_next_prune() {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
     let retired = dir.path().join(format!("{}.json", "a".repeat(64)));
     fs::write(
         &retired,
@@ -16,11 +16,11 @@ fn retired_json_entries_are_removed_by_the_next_prune() {
         .unwrap(),
     )
     .unwrap();
-    store.put(key("kept", "x"), "new".into(), 3, CacheClass::Immutable);
+    store.put_confirmed(key("kept", "x"), "new".into(), 3, CacheClass::Immutable);
     store.disk.as_ref().unwrap().prune(u64::MAX);
     assert!(!retired.exists(), "the retired layout is discarded");
     assert_eq!(entry_files(dir.path()).len(), 1);
-    let reader = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    let reader = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
     assert_eq!(
         reader
             .get(&key("kept", "x"))
@@ -30,82 +30,46 @@ fn retired_json_entries_are_removed_by_the_next_prune() {
 }
 
 #[test]
-fn classes_age_differently_in_memory() {
-    let store = Store::<u32>::new(CacheConfig::default(), None);
-    store.put(key("pinned", "x"), 1, 4, CacheClass::Immutable);
-    store.put(key("listing", "x"), 2, 4, revalidate(0));
-    store.put(key("search", "x"), 3, 4, volatile(0));
-    let pinned = store
-        .get(&key("pinned", "x"))
-        .expect("immutable never expires");
-    assert!(pinned.fresh);
-    let listing = store
-        .get(&key("listing", "x"))
-        .expect("revalidate entries are kept past the fresh window");
+fn retained_entries_expire_only_by_their_declared_lifetime() {
+    let store = Store::<u32>::new(CacheConfig::derived(), None);
+    store.put_confirmed(key("pinned", "x"), 1, 4, CacheClass::Immutable);
+    store.put_confirmed(key("expired", "x"), 2, 4, volatile(0));
+    store.put_confirmed(key("active", "x"), 3, 4, volatile(60));
+    assert_eq!(*store.get(&key("pinned", "x")).unwrap().value, 1);
+    assert!(store.get(&key("expired", "x")).is_none());
+    assert_eq!(*store.get(&key("active", "x")).unwrap().value, 3);
+}
+
+/// The memory tier counts against the one process budget (whose eviction
+/// order `octocode_io::memo` tests); only an entry heavier than the whole
+/// budget is refused outright.
+#[test]
+fn memory_draws_on_the_process_budget_and_refuses_oversized_entries() {
+    let store = Store::<u32>::new(CacheConfig::derived(), None);
+    let before = crate::cache::MEMORY.used();
     assert!(
-        !listing.fresh,
-        "past the fresh window the caller revalidates"
+        store
+            .put_confirmed(key("a", "x"), 1, 4096, CacheClass::Immutable)
+            .1
     );
-    assert!(store.get(&key("search", "x")).is_none(), "volatile expires");
-}
-
-#[test]
-fn revalidate_entries_are_fresh_inside_the_window() {
-    let store = Store::<u32>::new(CacheConfig::default(), None);
-    store.put(key("listing", "x"), 2, 4, revalidate(60));
-    store.put(key("search", "x"), 3, 4, volatile(60));
-    assert!(store.get(&key("listing", "x")).unwrap().fresh);
-    assert!(store.get(&key("search", "x")).unwrap().fresh);
-}
-
-#[test]
-fn memory_is_a_byte_and_entry_bounded_lru() {
-    let store = Store::<u32>::new(
-        CacheConfig {
-            max_entries: 2,
-            max_bytes: 5,
-            ..CacheConfig::default()
-        },
-        None,
-    );
-    store.put(key("a", "x"), 1, 2, CacheClass::Immutable);
-    store.put(key("b", "x"), 2, 2, CacheClass::Immutable);
+    assert!(crate::cache::MEMORY.used() >= before + 4096);
     assert!(store.get(&key("a", "x")).is_some());
-    store.put(key("c", "x"), 3, 2, CacheClass::Immutable);
-    assert!(
-        store.get(&key("b", "x")).is_none(),
-        "least recently used goes"
+    let (_, kept) = store.put_confirmed(
+        key("big", "x"),
+        4,
+        crate::cache::MEMORY.limit() + 1,
+        CacheClass::Immutable,
     );
-    assert!(store.get(&key("a", "x")).is_some());
-    assert!(store.get(&key("c", "x")).is_some());
-    store.put(key("big", "x"), 4, 6, CacheClass::Immutable);
-    assert!(
-        store.get(&key("big", "x")).is_none(),
-        "over budget is refused"
-    );
-}
-
-#[test]
-fn zero_entries_disables_the_store() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::<u32>::new(
-        CacheConfig {
-            max_entries: 0,
-            ..CacheConfig::default()
-        },
-        Some(dir.path().into()),
-    );
-    store.put(key("a", "x"), 1, 4, CacheClass::Immutable);
-    assert!(store.get(&key("a", "x")).is_none());
-    assert!(entry_files(dir.path()).is_empty());
+    assert!(!kept, "heavier than the whole budget is refused");
+    assert!(store.get(&key("big", "x")).is_none());
 }
 
 #[test]
 fn partitions_never_share_entries() {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
-    store.put(key("a", "first"), 1, 4, CacheClass::Immutable);
-    let fresh = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
+    let store = Store::<u32>::new(CacheConfig::derived(), Some(dir.path().into()));
+    store.put_confirmed(key("a", "first"), 1, 4, CacheClass::Immutable);
+    let fresh = Store::<u32>::new(CacheConfig::derived(), Some(dir.path().into()));
     assert_eq!(*fresh.get(&key("a", "first")).unwrap().value, 1);
     assert!(fresh.get(&key("a", "second")).is_none());
     assert!(store.get(&key("a", "second")).is_none());
@@ -117,9 +81,9 @@ fn partitions_never_share_entries() {
 #[test]
 fn idle_entries_live_while_read_and_expire_when_unused() {
     let ttl = Duration::from_millis(400);
-    let store = Store::<u32>::new(CacheConfig::default(), None);
-    store.put(key("walk", "x"), 1, 4, CacheClass::Idle { ttl });
-    store.put(key("fixed", "x"), 2, 4, CacheClass::Volatile { ttl });
+    let store = Store::<u32>::new(CacheConfig::derived(), None);
+    store.put_confirmed(key("walk", "x"), 1, 4, CacheClass::Idle { ttl });
+    store.put_confirmed(key("fixed", "x"), 2, 4, CacheClass::Volatile { ttl });
     for _ in 0..4 {
         std::thread::sleep(ttl / 2);
         assert!(
@@ -136,4 +100,34 @@ fn idle_entries_live_while_read_and_expire_when_unused() {
         store.get(&key("walk", "x")).is_none(),
         "unused for its lifetime"
     );
+}
+
+/// No literal entry cap: under the derived policy an envelope far larger than
+/// the retired 32 MiB cap is retained in memory and on disk, and the disk
+/// budget follows the memory budget.
+#[test]
+fn derived_policy_retains_entries_over_the_retired_fixed_cap() {
+    const RETIRED_CAP: usize = 32 * 1024 * 1024;
+    let size = RETIRED_CAP + 8 * 1024 * 1024;
+    assert!(size <= crate::cache::MIN_MEMORY_BUDGET);
+    assert_eq!(
+        CacheConfig::derived().disk_bytes,
+        crate::cache::MEMORY.limit() as u64
+    );
+    let memory = Store::<u8>::new(CacheConfig::derived(), None);
+    assert!(
+        memory
+            .put_confirmed(key("big", "x"), 1, size, CacheClass::Immutable)
+            .1
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let disk = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    let (_, saved) = disk.put_confirmed(
+        key("big", "x"),
+        "x".repeat(size),
+        size,
+        CacheClass::Immutable,
+    );
+    assert!(saved);
+    assert_eq!(disk.get(&key("big", "x")).unwrap().value.len(), size);
 }

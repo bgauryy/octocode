@@ -44,6 +44,7 @@ fn a_missing_capability_lists_the_operations_the_server_advertises() {
             &paths,
             &execution,
             None,
+            crate::tools::lsp_search::test_answers(),
         )))
         .expect("capability row");
     assert_row_contract(ToolId::LspSearch, &row);
@@ -56,12 +57,16 @@ fn a_missing_capability_lists_the_operations_the_server_advertises() {
         }}),
         "{row}"
     );
+    // The call's own trace: one server line. A process-wide notice another
+    // call raised outside every scope reaches every live scope by design
+    // (`octocode_io::notice::raise`), so only the server lines count here.
     let lines = notices.notices();
-    assert_eq!(lines.len(), 1, "{lines:?}");
-    let server = lines[0]
-        .split_once("server: ")
-        .map(|(_, server)| server)
-        .unwrap_or_else(|| panic!("a server line: {}", lines[0]));
+    let servers = lines
+        .iter()
+        .filter_map(|line| line.split_once("server: ").map(|(_, server)| server))
+        .collect::<Vec<_>>();
+    assert_eq!(servers.len(), 1, "{lines:?}");
+    let server = servers[0];
     assert!(
         server.contains("source=user") && server.contains("operations=[hover,diagnostic]"),
         "{server}"

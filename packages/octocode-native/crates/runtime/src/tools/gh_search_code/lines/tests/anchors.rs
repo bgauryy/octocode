@@ -11,6 +11,7 @@ fn a_declared_hit_names_its_unique_declaration_line() {
         path,
         &[keyword.into()],
         "",
+        Window::default(),
         &Passthrough,
     ) {
         FileHits::Lines { declaration, .. } => declaration,
@@ -76,6 +77,7 @@ fn the_best_hit_for_the_goal_anchors_the_read() {
         "builder.rs",
         &["max_blocking_threads".into()],
         goal,
+        Window::default(),
         &Passthrough,
     ) {
         FileHits::Lines { first, best, .. } => (first, best),
@@ -95,6 +97,7 @@ fn the_best_hit_for_the_goal_anchors_the_read() {
         "a.rs",
         &["max_blocking_threads".into()],
         "default max_blocking_threads",
+        Window::default(),
         &Passthrough,
     ) else {
         panic!("hit");
@@ -108,7 +111,14 @@ fn the_read_anchors_on_a_line_holding_every_keyword() {
     let text = "fn default() {}\nfn other() {}\nlet x = 1;\nfn search_path(p: &Path) {}\n";
     let FileHits::Lines {
         first, last, best, ..
-    } = scan(text.as_bytes(), "a.rs", &keywords, "", &Passthrough)
+    } = scan(
+        text.as_bytes(),
+        "a.rs",
+        &keywords,
+        "",
+        Window::default(),
+        &Passthrough,
+    )
     else {
         panic!("hit");
     };
@@ -143,7 +153,14 @@ fn spread_keywords_anchor_on_the_declaration_window() {
         best,
         declaration,
         ..
-    } = scan(text.as_bytes(), "sessions.py", &keywords, "", &Passthrough)
+    } = scan(
+        text.as_bytes(),
+        "sessions.py",
+        &keywords,
+        "",
+        Window::default(),
+        &Passthrough,
+    )
     else {
         panic!("hit");
     };
@@ -161,8 +178,14 @@ fn spread_keywords_anchor_on_the_declaration_window() {
     }
     // Keywords never within the window size keep the best single hit.
     let far = "x = trust_env\n".to_owned() + &"\n".repeat(100) + "merge_environment_settings()\n";
-    let FileHits::Lines { best, .. } = scan(far.as_bytes(), "a.py", &keywords, "", &Passthrough)
-    else {
+    let FileHits::Lines { best, .. } = scan(
+        far.as_bytes(),
+        "a.py",
+        &keywords,
+        "",
+        Window::default(),
+        &Passthrough,
+    ) else {
         panic!("hit");
     };
     assert_eq!(best, 1);
@@ -185,6 +208,7 @@ fn hits_find_their_declaration_by_line_among_many() {
         "a.py",
         &["target_name".into()],
         "",
+        Window::default(),
         &Passthrough,
     )
     else {
@@ -205,7 +229,7 @@ fn only_declarations_named_on_hit_lines_are_kept() {
     }
     text.push_str("def target_name(a):\n    return a\n");
     let path = format!("hit-declarations-{}.py", std::process::id());
-    let outline = crate::tools::declarations_cache::file_document(&text, &path).expect("outline");
+    let outline = crate::tools::declarations::file_document(&text, &path).expect("outline");
     assert_eq!(outline.declarations.len(), 2_001);
     let kept = hit_declarations(Some(&outline), &[(4_000, 4, 11)]);
     let names: Vec<&str> = kept.iter().map(|declared| declared.name.as_str()).collect();

@@ -15,14 +15,14 @@ use collections::{
     drop_empty_declared_siblings, empty_declared_siblings, lean_declared_skeleton,
 };
 use octocode_engine::digest::JsonFingerprint;
-use plan::{Later, PreparedRows, RowPlan};
+use octocode_io::cancellation::Cancellation;
+use plan::{Later, PageBudget, PreparedRows, RowPlan};
 #[cfg(test)]
 use serde_json::json;
 use serde_json::{Map, Value};
 use shares::{PartShare, keep_row_next, row_next_chars, row_part_chars};
-use skeleton::{continues_chars, enclosing_element, lean_elements, volatile_reserve};
+use skeleton::{continues_chars, enclosing_element, lean_later_context, volatile_reserve};
 use slicer::{Open, Slicer};
-use tokio_util::sync::CancellationToken;
 
 use super::page_model::{ResponsePageOptions, ResponsePagination};
 use super::result::Remaining;
@@ -105,7 +105,7 @@ pub(super) fn paginate_rows(
     tool: crate::id::ToolId,
 ) -> (Map<String, Value>, ResponsePagination) {
     let envelope = octocode_engine::digest::fingerprint_json(&structured).expect("envelope");
-    let cancelled = CancellationToken::new();
+    let cancelled = Cancellation::new();
     RowSource::new(
         structured,
         &envelope,
@@ -162,7 +162,7 @@ impl RowSource {
         mut volatile: Vec<Option<Map<String, Value>>>,
         tool: crate::id::ToolId,
         block: &dyn Fn(&ResponsePagination) -> usize,
-        cancelled: &CancellationToken,
+        cancelled: &Cancellation,
     ) -> Result<Self, super::pager::ResponseError> {
         let budget = options.response_chars.unwrap_or(1).max(1);
         let rows = match structured.remove(ROWS_KEY) {
@@ -196,9 +196,13 @@ impl RowSource {
         // splits, so ordinary fragments reserve the continued-page block.
         // Only the final query row can spend the finished envelope allowance.
         let one_page = total + finished <= budget && prepared.size() <= row_budget(finished);
+        let block_chars = if one_page { finished } else { widest };
         let plan = prepared.plan_with_terminal(
-            row_budget(if one_page { finished } else { widest }),
-            Some(budget.saturating_sub(overhead + finished).max(1)),
+            PageBudget {
+                rows: row_budget(block_chars),
+                terminal: Some(budget.saturating_sub(overhead + finished).max(1)),
+                envelope: overhead + banner + block_chars,
+            },
             cancelled,
         )?;
         Ok(Self {
@@ -217,7 +221,7 @@ impl RowSource {
         options: &ResponsePageOptions,
         remaining: &[Vec<Remaining>],
         block: &dyn Fn(&ResponsePagination) -> usize,
-        cancelled: &CancellationToken,
+        cancelled: &Cancellation,
     ) -> Result<(Map<String, Value>, ResponsePagination), super::pager::ResponseError> {
         let Self { plan, .. } = self;
         let mut structured = self.skeleton.clone();

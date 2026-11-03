@@ -179,6 +179,30 @@ pub fn canonical(value: &Value) -> String {
     sorted(value).to_string()
 }
 
+/// An lspSearch page's location rows, each with its path: rows grouped under
+/// `files[].matches`, then any listed flat in `matches` (a row naming no path
+/// stays flat). Empty when the page has neither.
+pub(crate) fn location_rows(row: &Value) -> Vec<Value> {
+    let grouped = row["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|file| {
+            let path = file["path"].clone();
+            file["matches"]
+                .as_array()
+                .expect("grouped file rows")
+                .iter()
+                .map(move |site| {
+                    let mut site = site.clone();
+                    site["path"] = path.clone();
+                    site
+                })
+        });
+    let flat = row["matches"].as_array().into_iter().flatten().cloned();
+    grouped.chain(flat).collect()
+}
+
 #[path = "walker.rs"]
 pub mod walker;
 pub use walker::{Page, Walk, Walker};

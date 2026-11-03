@@ -47,6 +47,44 @@ fn run(dir: &Path, scope: &str, cancel: &dyn CancellationCheck) -> GraphOutput {
     )
 }
 
+#[test]
+fn completed_ingests_discard_extraction_artifacts() {
+    let dir = workspace();
+    let root = dir.0.to_path_buf();
+    let job = super::super::super::graph::checkpoint::job_path(
+        &root.join(".octocode/graph/.facts"),
+        &root.join("a").canonicalize().unwrap(),
+    );
+    let first = run(&root, "a", &NeverCancel);
+    assert_eq!(first.class, ExitClass::Success, "{}", first.value);
+    assert!(
+        !job.exists(),
+        "completed extraction must not remain a cache"
+    );
+    let unchanged = run(&root, "a", &NeverCancel);
+    assert_eq!(
+        unchanged.value["extraction"]["parsedFiles"],
+        unchanged.value["scan"]["filesScanned"]
+    );
+    assert_eq!(unchanged.value["extraction"]["reusedFiles"], 0);
+    assert_eq!(unchanged.value["sha256"], first.value["sha256"]);
+    assert!(!job.exists());
+    dir.write("a/lib.ts", "export function f() { return 42; }\n");
+    let changed = run(&root, "a", &NeverCancel);
+    assert_eq!(changed.class, ExitClass::Success, "{}", changed.value);
+    let manifest: Value = serde_json::from_slice(
+        &std::fs::read(Path::new(changed.value["dir"].as_str().unwrap()).join(MANIFEST_FILE))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["extraction"]["reusedFiles"], 0);
+    assert_eq!(
+        manifest["extraction"]["parsedFiles"],
+        manifest["scan"]["filesScanned"]
+    );
+    assert!(!job.exists());
+}
+
 /// Whether another holder could take the workspace build lock now.
 fn build_lock_free(home: &Path) -> bool {
     std::fs::create_dir_all(home).expect("graph home");
@@ -111,7 +149,7 @@ fn ingests_of_different_scopes_build_while_no_lock_is_held() {
 }
 
 #[test]
-fn concurrent_ingests_of_one_scope_publish_one_snapshot() {
+fn concurrent_ingests_of_one_scope_publish_each_computed_snapshot() {
     let dir = workspace();
     let root = dir.0.to_path_buf();
     let both = Arc::new(Barrier::new(2));
@@ -135,28 +173,38 @@ fn concurrent_ingests_of_one_scope_publish_one_snapshot() {
         .collect::<Vec<_>>();
     for output in &outputs {
         assert_eq!(output.class, ExitClass::Success, "{}", output.value);
+        assert!(output.value.get("reused").is_none());
+        let work = &output.value["extraction"];
+        assert_eq!(
+            work["parsedFiles"].as_u64().unwrap() + work["reusedFiles"].as_u64().unwrap(),
+            output.value["scan"]["filesScanned"].as_u64().unwrap()
+        );
     }
-    assert_eq!(id(&outputs[0]), id(&outputs[1]), "one snapshot serves both");
-    let reused = outputs
-        .iter()
-        .filter(|output| output.value["reused"] == true)
-        .count();
-    assert_eq!(reused, 1, "the later ingest reuses the earlier snapshot");
+    assert_ne!(id(&outputs[0]), id(&outputs[1]));
+    assert_eq!(outputs[0].value["sha256"], outputs[1].value["sha256"]);
     let home = root.join(".octocode/graph");
+    let snapshots = list_snapshots(&home);
+    assert_eq!(snapshots.len(), outputs.len());
+    assert!(outputs.iter().all(|output| snapshots.contains(&id(output))));
     assert_eq!(
         std::fs::read_to_string(home.join(LATEST_FILE)).expect("latest"),
-        id(&outputs[0])
+        *snapshots.last().unwrap()
     );
-    assert_eq!(list_snapshots(&home), vec![id(&outputs[0])]);
     let job = super::super::super::graph::checkpoint::job_path(
         &home.join(".facts"),
         &root.join("a").canonicalize().expect("scope"),
     );
-    let manifest: Value =
-        serde_json::from_slice(&std::fs::read(job.join("job.json")).expect("job")).expect("json");
-    assert_eq!(manifest["stage"], "complete");
+    assert!(
+        !job.exists(),
+        "completed concurrent jobs release their artifacts"
+    );
     let again = run(&root, "a", &NeverCancel);
-    assert_eq!(again.value["reused"], true, "{}", again.value);
+    assert_eq!(again.value["extraction"]["reusedFiles"], 0);
+    assert_eq!(
+        again.value["extraction"]["parsedFiles"],
+        again.value["scan"]["filesScanned"]
+    );
+    assert_eq!(again.value["sha256"], outputs[0].value["sha256"]);
 }
 
 /// Counts the checks an ingest makes once armed, and cancels on request.

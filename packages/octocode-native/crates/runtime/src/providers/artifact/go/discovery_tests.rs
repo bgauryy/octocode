@@ -1,15 +1,13 @@
-//! Go discovery: remembered tokens, bound cursors, the registry cap and deadline-bounded walks.
+//! Go discovery: self-contained bound cursors, the registry cap and deadline-bounded walks.
 use super::super::query::discovery;
 use super::super::test_http::RouteHttp;
 use super::super::test_http::test_budget;
 use super::*;
 use serde_json::json;
 
-/// Go pages by opaque token: each served page remembers the token that
-/// starts the next, so following `nextPage` reads one page (not every
-/// page before it), and a deeper jump walks from the deepest page known.
+/// Go nextPage carries its token; a jump without one walks from page1.
 #[tokio::test]
-async fn go_next_pages_start_from_the_remembered_token() {
+async fn go_next_pages_carry_their_token_without_a_store() {
     let item = |n: usize| json!({"packagePath": format!("example.com/p{n}")});
     let search = |token: Option<&str>| match token {
         None => "/v1/search?q=json&limit=20".to_owned(),
@@ -32,12 +30,8 @@ async fn go_next_pages_start_from_the_remembered_token() {
             &search(Some("t4")),
             json!({"items": [item(7), item(8)], "total": 9}),
         );
-    let cache = super::super::ArtifactCache::new(None);
     let b = test_budget();
-    let client = RegistryClient {
-        cache: Some(&cache),
-        ..RegistryClient::uncached(&http, &b)
-    };
+    let client = RegistryClient::new(&http, &b);
     let page_of = |page: u64| {
         (
             discovery(ArtifactType::Go, json!({"page": page})),
@@ -57,11 +51,12 @@ async fn go_next_pages_start_from_the_remembered_token() {
         Some("t2")
     );
     let seen = http.targets().len();
-    let (query, state) = page_of(2);
+    let (query, mut state) = page_of(2);
+    state.token = cursor;
     let second = go(&query, &state, &client).await.expect("page 2");
     assert_eq!(second.artifacts[0].package_name, "example.com/p3");
     assert_eq!(http.targets()[seen..], [search(Some("t2"))], "one request");
-    // Page 4 walks from page 3, the deepest page whose start is known.
+    // A direct jump without its token walks all pages from the beginning.
     let seen = http.targets().len();
     let (query, state) = page_of(4);
     let fourth = go(&query, &state, &client).await.expect("page 4");
@@ -69,7 +64,12 @@ async fn go_next_pages_start_from_the_remembered_token() {
     assert_eq!(fourth.next_state, None);
     assert_eq!(
         http.targets()[seen..],
-        [search(Some("t3")), search(Some("t4"))]
+        [
+            search(None),
+            search(Some("t2")),
+            search(Some("t3")),
+            search(Some("t4"))
+        ]
     );
 }
 
@@ -113,7 +113,7 @@ fn go_page(page: u64, cursor: Option<String>) -> (ArtifactSearchQuery, ArtifactP
 async fn a_go_search_with_no_match_is_an_empty_page() {
     let http = RouteHttp::always(json!({"items": null, "total": 0}));
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let (query, state) = go_page(1, None);
     let page = go(&query, &state, &client).await.expect("empty page");
     assert!(page.artifacts.is_empty());
@@ -129,7 +129,7 @@ async fn a_go_total_at_the_registry_cap_is_unknown() {
         let http = RouteHttp::always(json!({"items": [{"packagePath": "example.com/p1"}],
             "nextPageToken": "t2", "total": reported}));
         let b = test_budget();
-        let client = RegistryClient::uncached(&http, &b);
+        let client = RegistryClient::new(&http, &b);
         let (query, state) = go_page(1, None);
         let page = go(&query, &state, &client).await.expect("page");
         assert_eq!(page.total, total, "reported {reported}");
@@ -169,7 +169,7 @@ async fn a_go_walk_past_the_deadline_names_the_walk() {
     }
     let http = DeadlineAfterFirst(go_pages());
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let (query, state) = go_page(3, None);
     let error = go(&query, &state, &client).await.expect_err("deadline");
     assert_eq!(error.code, ErrorCode::Timeout);
@@ -193,7 +193,7 @@ async fn a_go_walk_past_the_deadline_names_the_walk() {
 async fn a_go_cursor_serves_its_page_in_one_request_without_a_cache() {
     let http = go_pages();
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let (query, state) = go_page(3, None);
     let third = go(&query, &state, &client).await.expect("page 3 walks");
     assert_eq!(third.artifacts[0].package_name, "example.com/p5");
@@ -230,7 +230,7 @@ async fn a_foreign_or_rejected_go_cursor_walks_to_the_same_rows() {
     ] {
         let http = go_pages();
         let b = test_budget();
-        let client = RegistryClient::uncached(&http, &b);
+        let client = RegistryClient::new(&http, &b);
         let (query, state) = go_page(3, Some(cursor.clone()));
         let third = go(&query, &state, &client).await.expect("page 3");
         let names = third

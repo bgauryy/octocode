@@ -98,7 +98,6 @@ mod tests {
             repo: "r".into(),
             path: name.into(),
             reference: Some(SHA.into()),
-            force_refresh: false,
         };
         let wide = provider
             .get_file_bytes(&read("wide.txt"), &default_context())

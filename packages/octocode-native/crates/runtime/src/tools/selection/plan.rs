@@ -3,11 +3,11 @@
 //! candidate page judges from; sealed and compressed, it is the replay token.
 use super::{Candidate, Outcome};
 use crate::execution::SelectionLimits;
-use crate::num::u32_of_usize;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use octocode_contract_types::{
     Selection, SelectionFailure, SelectionScope, SelectionStatus, SelectionUnit,
 };
+use octocode_engine::num::saturating_u32;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
@@ -134,7 +134,7 @@ impl Plan {
             selected: Vec::new(),
             related: Vec::new(),
             excluded: Vec::new(),
-            total: u32_of_usize(total),
+            total: saturating_u32(total),
             reason: reason.map(str::to_owned),
             failures: Vec::new(),
             unjudged: Vec::new(),
@@ -185,7 +185,7 @@ impl Plan {
             {
                 continue;
             }
-            let ordinal = u32_of_usize(ordinal);
+            let ordinal = saturating_u32(ordinal);
             match runs.last_mut() {
                 Some(run) if run[1] == ordinal => run[1] = ordinal.saturating_add(1),
                 _ => runs.push([ordinal, ordinal.saturating_add(1)]),
@@ -302,10 +302,10 @@ impl Plan {
             status: self.status,
             scope: self.scope,
             unit: self.unit,
-            selected_items: crate::num::i64_of_usize(self.selected.len()),
-            excluded_items: crate::num::i64_of_usize(self.excluded.len()),
+            selected_items: octocode_engine::num::saturating_i64(self.selected.len()),
+            excluded_items: octocode_engine::num::saturating_i64(self.excluded.len()),
             related_items: std::num::NonZeroU64::new(self.related.len() as u64),
-            unknown_items: size - crate::num::i64_of_usize(self.judged()),
+            unknown_items: size - octocode_engine::num::saturating_i64(self.judged()),
             total_items: size,
             reason: self.reason.clone(),
             failures: self.failures.clone(),

@@ -6,17 +6,20 @@ A rule in the wrong layer is never read; give each rule one owning layer.
 
 | Layer | Read when | Owns (nothing else) |
 |---|---|---|
-| Server instructions | Before the first call | Family choice, cross-tool order, shared conventions, approval and trust boundaries, limits |
-| Name + description | Choosing a tool | When to call and not, returns, next tool |
-| Input/output schema | Filling a call, reading a result | Types, required, enums, limits, dependent fields, continuation |
+| Server instructions | Before the first call | Cross-tool order, shared conventions, lifecycle, approval and trust boundaries |
+| Tool name + description | Choosing a capability | Its job and distinction from neighboring tools |
+| Operation description, when a tool has variants | Choosing an operation | Behavior, result meaning, side effects and next step |
+| Input/output schema + field notes | Filling a call, reading a result | Structural constraints; values, units, defaults, scope, dependent fields and continuation |
 
 - Octocode tools: edit `@octocodeai/octocode-core`, which owns tool names, schemas, descriptions, and shared MCP context; skills point to live discovery, never a second schema.
 
 ## Instructions, descriptions, names
 
-- Server instructions: intent → tool routing, conditional order when one call feeds the next, what the agent cannot infer (refusals, approvals, what empty proves); at most one line per tool: `Find text: search_code → get_file at the returned path.`
-- Descriptions: for a capable new hire, naming implicit context: use when, not when, inputs, returns, next; only what decides selection, never types. "Searches code." → "Use when the path is unknown; not for a known file (get_file). Returns paths, lines. Next: get_file."
-- Names: namespace + verb + noun (`repo_search_code`, `issue_get`); `search` filters, `get` takes a known ID, `list` browses bounded sets, mutation verbs change state. No near-synonyms unless evals show agents distinguish them.
+- Host caps cut text silently: Claude Code keeps 4,096 characters of server instructions and of each loaded description (2,048 before v2.1.296). Put routing and trust boundaries first.
+- Instructions reach MCP agents only. Deferred tool loading and CLI agents skip them, so a field an agent must fill keeps its own note, and CLI help carries its own routing.
+- Server instructions: explain dependencies and what the agent cannot infer (refusals, approvals, what empty proves). Include routing only when it resolves a cross-tool decision; do not repeat the tool catalog.
+- Descriptions: give a capable new hire the selection or behavior information missing from the name and schema. A simple tool may need one sentence; add an example or next step only when it prevents ambiguity.
+- Names: express the capability or action (`messages`, `repo_search_code`, `issue_get`); `search` filters, `get` takes a known ID, `list` browses bounded sets, mutation verbs change state. No near-synonyms unless evals show agents distinguish them.
 - Pass tools in the API tools field, not prompt text.
 
 ## Schema and result
@@ -35,12 +38,34 @@ A rule in the wrong layer is never read; give each rule one owning layer.
   - Server instructions state how a complete result looks, for example: no `hasMore` and no continuation.
 - Partial results are visible, for example as `isPartial` with reasons, and the instructions say what an agent concludes from them.
 
-## Optimize descriptions, never trim
+## Efficient MCP context
 
-- Every edit adds or sharpens guidance the agent uses at that decision point. Remove a sentence only when it repeats a fact the same agent sees at the same point.
-- A line that "restates the name" can hold the only reason to use the field (`wholeWord`: use it for identifiers). Keep the reason.
-- Size follows clarity: when better guidance outgrows a measured budget, raise the budget with the measured number, never cut the guidance.
-- Prove each change with the [interview loop](interview.md) before and after: valid cold calls, answers, and no new High finding.
+Optimize successful work per loaded context, not tool count or character count alone.
+
+### Measure the served surface
+
+- Capture actual server instructions and every `tools/list` page; inspect the host's projected tool definitions too. Freeze the build for each comparison. Include descriptions, schemas and repeated metadata, not just tool names or source-file size.
+- Compare the same profiles, authorization and lifecycle states. Keep raw captures; separate variable identity/path metadata from static guidance so it cannot distort savings.
+- Report UTF-8 bytes as bytes. Token claims need the production tokenizer or provider count; cost claims need usage and retry costs ([context metrics](context.md#budget)). A smaller definition is not evidence of better task success.
+
+### Remove duplication, retain decisions
+
+- Give each rule one [owner](#layer-owners). Remove repeated routing, boilerplate and explanations already carried by constraints. Keep purpose that names cannot convey: `wholeWord` may still need “Use for identifiers.”
+- Let types, required fields, enums and branch constraints express structure. Field notes explain non-obvious values, units, omission/default behavior and ID scope; do not recite every allowed value. Keep distinctions such as acknowledgement versus completion, timeout versus failure, and record ID versus message ID when the runtime has them.
+- Generate schemas from one definition. Shared source definitions do not guarantee smaller served schemas: adapters may inline them. Factor references or unions only when the receiving hosts support them and measured exposure improves; preserve branch validation and execution-time checks.
+- Prefer clear language to cryptic aliases, abbreviated fields or a second schema hidden in prose. Preserve evidence and executable continuations; a context target never justifies truncation or weaker validation.
+
+### Choose a small, coherent tool set
+
+- Merge aliases and overlapping operations when their purpose, lifecycle and authority agree. Related actions may share a typed family, for example `{type:"read",input:{...}}`, with exact fields per variant. Keep unrelated jobs separate; avoid an unrestricted `execute` tool or one object full of optional fields.
+- Tool-level annotations and approval policies must remain accurate for every variant. Split a family when combining reads and mutations obscures permissions or recovery; fewer names alone is not a gain.
+- Use supported profiles or scopes to expose only relevant operations. Descriptions and instructions must not promise hidden capabilities. Bootstrap tools and changing catalogs require the negotiated revision and client to support that discovery model; configuration files alone do not prove active hooks or identity binding ([MCP wire](#mcp-wire)).
+
+### Verify retained behavior
+
+- For wording-only edits, compare non-prose schema structure before/after: names, requiredness, defaults, bounds, enums, composition and annotations must remain unchanged. Check affected CLI help and host projections as well as MCP calls.
+- For changed tool surfaces or substantial rewrites, use [cold interviews and live replay](interview.md): selection, request/result handling, invalid combinations, hidden capabilities, retries, empty pages, continuations and untrusted content. Execute proposed calls; valid syntax or self-reported confidence is not enough.
+- Keep reductions that preserve the required decisions and recovery. Report measured size and observed outcomes separately; use held-out evaluation for comparative reliability or cost-per-success claims. Do not turn a few successful probes into a general model-performance claim.
 
 ## MCP wire
 

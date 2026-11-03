@@ -18,152 +18,102 @@ pub(super) struct PageDates {
     /// Entries left undated, stated as one row warning.
     #[serde(skip)]
     pub(super) warning: Option<String>,
-    /// Page entries past the first [`DATED_PER_PAGE`], left to the next
-    /// page (`next.nextPage`).
-    #[serde(skip)]
-    pub(super) undated: usize,
 }
 
-/// Entries one page dates inline: one GraphQL request's aliases. Spike
+/// Entries one page lists and dates: one GraphQL request's aliases. Spike
 /// 2026-10-06: 1×100 aliases ≈ 3.4 s, 1×300 ≈ 7.6 s (near the 10 s
-/// GraphQL timeout), so a larger listing page shows that many entries and
-/// leads the rest as its next page.
+/// GraphQL timeout), so a dated page lists at most that many entries and the
+/// walk's next page leads the rest. The executor spaces GraphQL starts by a
+/// second, so splitting a request in two or more saves little wall time.
 pub(super) const DATED_PER_PAGE: usize = octocode_github::MAX_PATHS_PER_REQUEST;
 
-/// The page's dates: its first [`DATED_PER_PAGE`] entries, one cached
-/// record per (owner, repo, commit, those paths), else one GraphQL request.
-/// A failure dates what was answered and names the rest in
-/// [`PageDates::warning`]; entries past the first chunk are counted in
-/// [`PageDates::undated`].
+/// The dates of `listing[shown]`, the entries one page shows.
+///
+/// The listing is dated in chunks aligned on [`DATED_PER_PAGE`] boundaries
+/// of the whole listing, one GraphQL request each, whatever the page size:
+/// every page asks for a chunk in the same words, so a chunk an earlier
+/// page of the walk read is answered by the evidence its cursor owns (the
+/// request journal) and a full walk sends one request per chunk, never
+/// dating a path twice. The chunks one page needs (at most two) are sent
+/// together. A failed chunk leaves its entries undated, named in
+/// [`PageDates::warning`].
 pub(super) async fn page_dates(
     provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     commit_sha: &str,
-    entries: &[TreeEntry],
+    listing: &[TreeEntry],
+    shown: std::ops::Range<usize>,
     context: &RequestContext,
 ) -> PageDates {
-    if entries.is_empty() {
+    let shown = shown.start.min(listing.len())..shown.end.min(listing.len());
+    if shown.is_empty() {
         return PageDates::default();
     }
-    let undated = entries.len().saturating_sub(DATED_PER_PAGE);
-    let paths = entries[..entries.len() - undated]
+    let chunks = (shown.start / DATED_PER_PAGE..=(shown.end - 1) / DATED_PER_PAGE)
+        .map(|chunk| {
+            let start = chunk * DATED_PER_PAGE;
+            &listing[start..start.saturating_add(DATED_PER_PAGE).min(listing.len())]
+        })
+        .collect::<Vec<_>>();
+    let answers = futures_util::future::join_all(chunks.iter().map(|chunk| {
+        let paths = chunk
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect::<Vec<_>>();
+        async move {
+            provider
+                .transport
+                .path_commit_dates(owner, repo, commit_sha, &paths, context)
+                .await
+        }
+    }))
+    .await;
+    let wanted = listing[shown]
         .iter()
         .map(|entry| entry.path.as_str())
-        .collect::<Vec<_>>();
-    let key = cache_key(owner, repo, commit_sha, &paths);
-    let partition = provider.transport.cache_partition(context, None).ok();
-    if let Some(partition) = &partition
-        && let Some(cached) = provider.transport.cache.get(partition, &key).await
-        && let Ok(mut dates) = serde_json::from_slice::<PageDates>(&cached.bytes)
-    {
-        dates.undated = undated;
-        return dates;
-    }
-    let answer = provider
-        .transport
-        .path_commit_dates(owner, repo, commit_sha, &paths, context)
-        .await;
-    let mut dates = PageDates {
-        commit: answer.commit_date.as_deref().and_then(utc_day),
-        entries: paths
-            .iter()
-            .zip(&answer.dates)
-            .filter_map(|(path, date)| Some(((*path).to_owned(), utc_day(date.as_deref()?)?)))
-            .collect(),
-        warning: None,
-        undated,
-    };
-    match answer.error {
-        Some(error) => {
-            let missing = paths.len() - dates.entries.len();
-            dates.warning = Some(format!(
-                "Last-commit dates are missing for {missing} {}: {}.",
-                if missing == 1 { "entry" } else { "files" },
-                error.message
-            ));
-        }
-        None => {
-            // A complete answer at a commit SHA never changes.
-            if let Some(partition) = &partition
-                && let Ok(bytes) = serde_json::to_vec(&dates)
-            {
-                provider
-                    .transport
-                    .cache
-                    .put(
-                        partition,
-                        key,
-                        octocode_github::CachedContent {
-                            etag: None,
-                            bytes: bytes.into(),
-                            resolved_ref: commit_sha.to_owned(),
-                            has_more: false,
-                        },
-                        octocode_github::Retention::Pinned,
-                    )
-                    .await;
+        .collect::<std::collections::HashSet<_>>();
+    let mut dates = PageDates::default();
+    let mut missing = 0;
+    let mut failure = None;
+    for (chunk, answer) in chunks.iter().zip(answers) {
+        dates.commit = dates
+            .commit
+            .or_else(|| answer.commit_date.as_deref().and_then(utc_day));
+        for (entry, date) in chunk.iter().zip(&answer.dates) {
+            if !wanted.contains(entry.path.as_str()) {
+                continue;
+            }
+            match date.as_deref().and_then(utc_day) {
+                Some(day) => {
+                    dates.entries.insert(entry.path.clone(), day);
+                }
+                None if answer.error.is_some() => missing += 1,
+                None => {}
             }
         }
+        failure = failure.or(answer.error);
+    }
+    if let Some(error) = failure.filter(|_| missing > 0) {
+        dates.warning = Some(format!(
+            "Last-commit dates are missing for {missing} {}: {}.",
+            if missing == 1 { "entry" } else { "files" },
+            error.message
+        ));
     }
     dates
 }
 
-/// The next page of a listing page longer than one dated batch: the same
-/// listing at its pinned SHA, private `dateOffset` advanced by
-/// [`DATED_PER_PAGE`]. It is the page's `nextPage` lead, `pagination`
-/// states that entries remain, and the warning names how many and why.
-pub(super) fn expand(
-    value: &mut Value,
-    pinned: &GhStructureQueryTree,
-    page: &super::listing::ListingPage<'_>,
-    undated: usize,
-) -> Result<(), ProviderError> {
-    if undated == 0 {
-        return Ok(());
-    }
-    let offset = pinned.date_offset.map_or(0, crate::num::usize_of);
-    let next_offset = offset
-        .saturating_add(DATED_PER_PAGE)
-        .min(page.entries.len());
-    let mut row = query_row(pinned, &[]);
-    row["dateOffset"] = json!(next_offset);
-    if let Some(next) = value.get_mut("calls").and_then(Value::as_object_mut) {
-        next.remove("nextPage");
-    }
-    push_warnings(
-        value,
-        [format!(
-            "{} on the next page: a page lists at most {DATED_PER_PAGE}, the entries one last-commit-date request covers.",
-            crate::response::pages::more(
-                u64::try_from(undated).unwrap_or(u64::MAX),
-                "entry",
-                "entries"
-            )
-        )],
-    );
-    // Listing pages past the first already state their page count; either
-    // way this page is not the end of the listing.
-    match value.get_mut("pagination") {
-        Some(pagination) => pagination["hasMore"] = json!(true),
-        None => {
-            value["pagination"] = crate::response::pages::PageFacts::open(page.current, None, true)
-                .with_items(page.total_entries)
-                .to_value();
-        }
-    }
-    value["calls"]["nextPage"] =
-        crate::response::result::Continuation::continued(ToolId::GhStructure, row).build();
-    Ok(())
-}
-
-fn cache_key(owner: &str, repo: &str, commit_sha: &str, paths: &[&str]) -> String {
-    let (owner, repo) = (owner.to_ascii_lowercase(), repo.to_ascii_lowercase());
-    let fields = [owner.as_str(), repo.as_str(), commit_sha]
-        .into_iter()
-        .chain(paths.iter().copied())
-        .collect::<Vec<_>>();
-    octocode_github::fields_key("github-tree-dates", &fields)
+/// The page's size cap, stated when `limit` asked for more than one date
+/// request covers and the listing needs more than one page: the page lists
+/// [`DATED_PER_PAGE`] entries and the cursor leads to the rest.
+pub(super) fn cap_warning(page: &super::listing::ListingPage<'_>) -> Option<String> {
+    let limit = page
+        .capped_from
+        .filter(|_| page.total_entries > page.per_page)?;
+    Some(format!(
+        "limit {limit} is lowered to {DATED_PER_PAGE}: a page lists the entries one last-commit-date request covers."
+    ))
 }
 
 /// State the page's commit date (`commitDate`) and its dating warning; the

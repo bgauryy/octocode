@@ -76,7 +76,7 @@ fn split_row_secondary_lists_ride_the_first_part_once() {
 #[test]
 fn nested_secondary_records_are_once_and_executable_queries_stay_intact() {
     let mut structured = envelope();
-    structured["results"][0]["data"]["coverage"] =
+    structured["results"][0]["data"]["skippedPaths"] =
         json!({"entries": [{"path": "generated/api.ts", "cause": "ignored"}], "sampled": true});
     let input = json!({"queries": [{"path": "a.rs"}, {"path": "b.rs"}]});
     structured["results"][0]["data"]["related"] =
@@ -91,12 +91,12 @@ fn nested_secondary_records_are_once_and_executable_queries_stay_intact() {
             if row["index"] != 0 {
                 continue;
             }
-            records.extend(
-                row["data"]["coverage"]["entries"]
-                    .as_array()
-                    .expect("entries")
-                    .clone(),
-            );
+            // Later parts omit the optional collection the first part delivered.
+            let entries = row["data"]["skippedPaths"]["entries"].as_array();
+            if row["rowPart"]["part"] == 1 {
+                assert!(entries.is_some(), "the first part lists them: {row}");
+            }
+            records.extend(entries.into_iter().flatten().cloned());
             for call in row["data"]["related"]
                 .as_array()
                 .into_iter()
@@ -181,13 +181,13 @@ fn split_element_later_parts_carry_continues_marker() {
     ] {
         let structured = json!({"results": [{"index": 0, "data": {
             "path": "tsx",
-            "results": cycles,
+            "rows": cycles,
             "summary": {"cycleCount": 2},
         }}]})
         .as_object()
         .cloned()
         .expect("object");
-        let pages = walk(&structured, 20_000);
+        let pages = walk_as(crate::id::ToolId::GraphQuery, &structured, 20_000);
         let parts = row_parts(&pages);
         let pieces: Vec<_> = parts
             .iter()
@@ -201,20 +201,23 @@ fn split_element_later_parts_carry_continues_marker() {
             .find(|cycle| is_cycle(cycle, 2))
             .expect("cycle 2");
         assert_eq!(
-            head["runtimeCycles"].as_array().map(Vec::len),
-            Some(5),
-            "runtime cycles ride the first part: {head}"
+            head["evidence"]["members"].as_array().map(Vec::len),
+            Some(5 * 30),
+            "runtime cycle members ride the first part: {head}"
         );
-        assert_eq!(head["cycleEdges"].as_array().map(Vec::len), Some(4));
+        assert_eq!(
+            head["evidence"]["witness"].as_array().map(Vec::len),
+            Some(4)
+        );
         for (part, cycles) in &pieces[1..] {
             assert_eq!(
                 part["continues"],
-                json!({"array": "/data/results", "index": huge}),
+                json!({"array": "/data/rows", "index": huge}),
                 "{part}"
             );
             assert!(is_cycle(&cycles[0], 2), "{cycles:?}");
             assert!(
-                cycles[0]["runtimeCycles"]
+                cycles[0]["evidence"]["members"]
                     .as_array()
                     .is_none_or(Vec::is_empty),
                 "{part}"

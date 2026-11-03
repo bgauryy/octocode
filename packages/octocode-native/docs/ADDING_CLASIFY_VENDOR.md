@@ -22,7 +22,7 @@ Register it with `pub mod <vendor>;` in `providers/classification.rs`.
 
 ## 2. Add a selection setting
 
-`provider()` in `classification.rs` returns the one built-in provider. Declare an `enum` field (for example `classification.vendor`) with both vendor ids in `packages/octocode-config/config-contract.json`, then run `yarn workspace @octocodeai/config generate:config-contract`. The native build generates a Rust enum for it; `provider()` matches on that enum with no default arm, so an unknown value is impossible by construction. Don't reuse `classification.type`: it stays under `removed` in the contract. Adding a setting: [ADDING_CONFIG.md](../../../skills-dev/octocode-dev/docs/ADDING_CONFIG.md).
+`provider()` in `classification.rs` returns the one built-in provider. Declare an `enum` field (for example `classification.vendor`) with both vendor ids in `packages/octocode-config/scripts/config-contract/declaration/sections.ts`, then run `yarn workspace @octocodeai/config generate:config-contract`. The native build generates a Rust enum for it; `provider()` matches on that enum with no default arm, so an unknown value is impossible by construction. Don't reuse `classification.type`: it stays under `removed` in the contract. Adding a setting: [ADDING_CONFIG.md](../../../skills-dev/octocode-dev/docs/ADDING_CONFIG.md).
 
 ## 3. Test it
 

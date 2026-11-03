@@ -20,10 +20,10 @@ pub(super) struct LocalEnv<'a> {
     pub memory_only: bool,
     pub paths: &'a PathPolicy,
     pub security: &'a ContentSecurity,
-    pub views: &'a crate::security::scan::SanitizedViewMemo,
-    pub source_views: &'a std::sync::Arc<crate::tools::source_view::ViewCache>,
     pub cargo: Option<&'a str>,
     pub selection: Option<&'a crate::tools::selection::Runtime>,
+    /// The retained rows graph continuation pages replay; `None`: they compute.
+    pub graph_rows: Option<&'a std::sync::Arc<crate::tools::ast_graph::store::SavedRows>>,
 }
 
 /// Execute one local-filesystem row. The caller routes by [`ToolId`]; a tool
@@ -38,10 +38,9 @@ pub(super) fn execute_local(
         memory_only,
         paths,
         security,
-        views,
-        source_views,
         selection,
         cargo,
+        graph_rows,
     } = env;
     // Generated query types carry the meta fields, so every tool parses the
     // validated row as-is through `parse_query`.
@@ -67,19 +66,22 @@ pub(super) fn execute_local(
         }
         ToolId::GraphQuery => {
             let _ = parsed!(octocode_contract_types::GraphQueryQuery);
-            crate::tools::ast_graph::store::tools::execute_query(query, paths, context)
+            crate::tools::ast_graph::store::tools::execute_query(
+                query,
+                paths,
+                context,
+                graph_rows.cloned(),
+            )
         }
         ToolId::LocalFetch => {
             let request = parsed!(LocalFetchQuery);
-            let scan = crate::security::scan::MemoizedScan::new(security, views);
             let result = crate::tools::local_fetch::execute_local_fetch(
                 &request,
                 paths,
-                &scan,
+                security,
                 context,
                 context.response_window,
                 selection,
-                source_views,
             );
             let status = result.status.row_status();
             let missing = result.resource_missing;
@@ -223,7 +225,7 @@ pub(super) fn provider_failure(
     // reads as the transient failure it is).
     if hints.is_empty() && code != ErrorCode::InvalidInput {
         let own = match code {
-            ErrorCode::Authentication | ErrorCode::Permission => Some(
+            ErrorCode::Authentication | ErrorCode::PermissionDenied => Some(
                 "Registry denied access: verify the registry credentials and access, then retry.",
             ),
             ErrorCode::CapabilityUnavailable => {

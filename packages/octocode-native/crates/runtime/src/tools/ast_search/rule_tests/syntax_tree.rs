@@ -26,10 +26,10 @@ fn syntax_tree_of_an_unsupported_file_is_an_error_row() {
 fn unsupported_syntax_trees_offer_document_outlines_or_text_reads() {
     let root = Fixture::new();
     for (name, view) in [
-        ("instructions.md", Some("symbols")),
-        ("data.json", Some("symbols")),
-        ("notes.txt", None),
-        ("README", None),
+        ("instructions.md", "symbols"),
+        ("data.json", "symbols"),
+        ("notes.txt", "content"),
+        ("README", "content"),
     ] {
         let file = root.write(name, "# Instructions\nRead this text.\n");
         let out = run(&root.0, json!({"operation":"syntaxTree","path":file})).expect("row");
@@ -39,7 +39,7 @@ fn unsupported_syntax_trees_offer_document_outlines_or_text_reads() {
         assert_eq!(read["tool"], "localFetch", "{out}");
         let query = &read["input"]["queries"][0];
         assert_eq!(query["path"], file.to_string_lossy().as_ref(), "{out}");
-        assert_eq!(query["view"].as_str(), view, "{out}");
+        assert_eq!(query["view"], view, "{out}");
         crate::contracts::validate_built_query("localFetch", query.clone()).expect("valid read");
         assert!(out.get("next").is_none(), "{out}");
     }

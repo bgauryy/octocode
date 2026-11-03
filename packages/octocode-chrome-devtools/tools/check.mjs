@@ -1,7 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { sharedAssets } from '../../../skills/common/build.mjs';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 function walk(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry =>
@@ -20,27 +21,15 @@ for (const directory of ['tools', 'bin', 'tests'])
     if (result.status !== 0) throw Error(result.stderr);
   }
 const skill = join(root, '../../skills/octocode-chrome-devtools');
-const common = join(root, '../../skills/common');
 const guidance = new Set(['SKILL.md', 'README.md', 'output.md']);
-const reportScripts = new Set([
-  'scripts/render-report.mjs',
-  'scripts/lib/entrypoint.mjs',
-]);
+const canonical = sharedAssets(skill);
 for (const file of walk(skill)) {
   const entry = relative(skill, file).replaceAll('\\', '/');
   if (guidance.has(entry)) continue;
-  const source = join(common, entry);
-  const shared =
-    reportScripts.has(entry) ||
-    /^scripts\/lib\/report\/[^/]+\.mjs$/.test(entry) ||
-    /^references\/[^/]+\.md$/.test(entry);
-  if (
-    !shared ||
-    !existsSync(source) ||
-    !readFileSync(file).equals(readFileSync(source))
-  )
+  const expected = canonical.get(entry);
+  if (!expected || !readFileSync(file).equals(expected))
     throw Error(
-      `Chrome skill must contain guidance and canonical shared report assets only: ${entry}`
+      `Chrome skill must contain guidance and canonical shared assets only: ${entry}`
     );
 }
 if (

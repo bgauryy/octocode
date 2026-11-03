@@ -22,10 +22,12 @@ pub(super) use paging::{
     ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, RequestFailures, offer_next_page, with_next,
 };
 use rows::attach_text_search;
+#[cfg(test)]
+pub(super) use rows::same_query_rerun;
 pub(super) use rows::{
-    BUILD_SCRIPTS_COST, annotate_empty_includes, continuation, empty, mark_anchor_line_errors,
+    BUILD_SCRIPTS_COST, annotate_empty_includes, empty, mark_anchor_line_errors,
     mark_diagnostics_unpublished, next_action, no_answer, partial_with_related_rerun,
-    same_query_rerun, stamp_coverage,
+    stamp_coverage,
 };
 
 /// A request-level failure `execute` could not render as a row. The
@@ -166,16 +168,16 @@ impl LspFailure {
     /// stage states the code's tip beside them.
     pub(super) fn row(&self, query: &LspSearchQuery, canonical_uri: &str) -> Value {
         let mut value = failure(query, canonical_uri, self.code, &self.message, false);
-        if lsp_search_query::operation(query) == "callers" {
-            let mut references = crate::response::result::query_row(
+        if lsp_search_query::operation(query) == "callers"
+            // A related request is fresh: it drops the cursors itself.
+            && let Ok(references) = lsp_search_query::edited(
                 query,
-                &["depth", "page", "snapshot", "importerPage", "candidatePage"],
-            );
-            references["operation"] = json!("references");
+                &json!({"operation": "references", "depth": null}),
+            )
+        {
             crate::response::result::attach_related(
                 &mut value,
-                crate::response::result::Continuation::related(ToolId::LspSearch, references)
-                    .build(),
+                crate::response::result::Continuation::related_query(references).build(),
             );
         }
         value
@@ -228,11 +230,7 @@ pub(super) fn failure(
     if code == ErrorCode::Timeout {
         crate::response::result::attach_related(
             &mut value,
-            crate::response::result::Continuation::related(
-                ToolId::LspSearch,
-                same_query_rerun(query),
-            )
-            .build(),
+            crate::response::result::Continuation::related_query(query.clone()).build(),
         );
     }
     if lsp_search_query::path(query).is_some() {

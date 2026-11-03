@@ -53,6 +53,7 @@ const LAYERS: &[&[&str]] = &[
 const ENGINE_LAYERS: &[&[&str]] = &[
     &[
         "deep_stack",
+        "host",
         "json_size",
         "num",
         "process_env",

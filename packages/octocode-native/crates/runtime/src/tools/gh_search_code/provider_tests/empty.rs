@@ -28,50 +28,43 @@ async fn run_empty(row: serde_json::Value) -> crate::response::result::ToolData 
         .expect("empty search")
 }
 
-/// An empty repo-scoped search is unproven absence; the default hint says
-/// so in plain words and `next.cloneRepo` is the runnable way to verify it,
-/// scoped to the same ref as the search.
+/// An empty repo-scoped search is unproven absence; its lead scopes the next
+/// step: the root listing at the searched ref. A miss never leads to a clone
+/// of the whole repository (no `paths` to bound it), whatever the filters.
 #[tokio::test]
-async fn an_empty_repo_search_leads_to_a_runnable_clone() {
-    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"]})).await;
-    let clone =
-        crate::tools::test_support::checks::related_call(&out.data, "ghCloneRepo", |_| true);
-    assert_eq!(clone["tool"], "ghCloneRepo", "{}", out.data);
-    assert_eq!(
-        clone["input"]["queries"][0],
-        json!({"owner":"a","repo":"b"}),
-        "{}",
-        out.data
-    );
-    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"ref":"v1"})).await;
-    assert_eq!(
-        crate::tools::test_support::checks::related_call(&out.data, "ghCloneRepo", |_| true)["input"]
-            ["queries"][0],
-        json!({"owner":"a","repo":"b","ref":"v1"}),
-        "{}",
-        out.data
-    );
-    // A path scope leads to its listing instead.
-    let out =
-        run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"pathPrefix":"src"})).await;
-    assert!(
-        crate::tools::test_support::checks::find_related_call(&out.data, "ghCloneRepo", |_| true)
+async fn an_empty_repo_search_never_leads_to_an_unscoped_clone() {
+    for row in [
+        json!({"owner":"a","repo":"b","keywords":["zzqq"]}),
+        json!({"owner":"a","repo":"b","keywords":["zzqq"],"ref":"v1"}),
+        json!({"owner":"a","repo":"b","keywords":["zzqq"],"extensions":["ts"]}),
+        json!({"owner":"a","repo":"b","keywords":["zzqq"],"pathPrefix":"src"}),
+    ] {
+        let out = run_empty(row.clone()).await;
+        assert!(
+            crate::tools::test_support::checks::find_related_call(&out.data, "ghCloneRepo", |_| {
+                true
+            })
             .is_none(),
-        "{}",
-        out.data
-    );
-    assert!(
-        crate::tools::test_support::checks::find_related_call(&out.data, "ghStructure", |input| {
-            input["queries"][0]["operation"] == "tree"
-        })
-        .is_some(),
-        "{}",
-        out.data
-    );
+            "{row}: {}",
+            out.data
+        );
+        // A narrowing to drop leads to `broadenSearch` in the listing's place.
+        if row.get("extensions").is_none() {
+            assert!(
+                crate::tools::test_support::checks::find_related_call(
+                    &out.data,
+                    "ghStructure",
+                    |input| { input["queries"][0]["operation"] == "tree" }
+                )
+                .is_some(),
+                "{row}: {}",
+                out.data
+            );
+        }
+    }
 }
 
-/// `cloneRepo` runs only where clone is available, so an empty repo-wide
-/// search also lists the root at the searched ref, a route every surface
+/// An empty repo-wide search lists the root at the searched ref, a route every surface
 /// runs. A search with a narrowing to drop leads to `broadenSearch`
 /// instead.
 #[tokio::test]
@@ -85,12 +78,6 @@ async fn an_empty_repo_search_also_lists_the_root_on_every_surface() {
     assert_eq!(
         tree["input"]["queries"][0],
         json!({"operation":"tree","owner":"a","repo":"b","ref":"v1"}),
-        "{}",
-        out.data
-    );
-    assert!(
-        crate::tools::test_support::checks::find_related_call(&out.data, "ghCloneRepo", |_| true)
-            .is_some(),
         "{}",
         out.data
     );

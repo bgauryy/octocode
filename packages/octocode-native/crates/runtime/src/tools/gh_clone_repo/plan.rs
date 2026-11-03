@@ -1,5 +1,5 @@
 //! One fresh clone: resolve its destination, hold its lock and publish a verified checkout.
-use super::checkout::fresh_clone;
+use super::checkout::{fresh_clone, reuse_checkout};
 use super::validate::{repository_url, validate_query, web_root};
 use super::{
     CloneContext, CloneError, CloneLocation, CloneResult, GhCloneRepoQuery, Sparse, check_control,
@@ -57,9 +57,7 @@ impl Plan<'_> {
                 requested_paths: paths.map(<[String]>::to_vec),
                 symlinks: (!checkout.symlinks.is_empty()).then_some(checkout.symlinks),
                 history_depth: (self.depth > 1).then_some(self.depth),
-                cloned_at: Some(crate::civil_date::iso8601_millis(
-                    crate::civil_date::unix_millis(),
-                )),
+                cloned_at: None,
             },
         }
     }
@@ -97,7 +95,10 @@ pub(super) fn execute_clone(
     };
     let clone_dir = plan.target(reference)?;
     let _lock = storage::CloneLock::acquire(&clone_dir, context)?;
-    fresh_clone(&plan, reference, &clone_dir)
+    match reuse_checkout(&plan, reference, &clone_dir)? {
+        Some(reused) => Ok(reused),
+        None => fresh_clone(&plan, reference, &clone_dir),
+    }
 }
 
 /// The clones root under the home passes the path policy, then exists.
@@ -145,25 +146,46 @@ pub(super) struct Checkout {
 /// astSearch, and lspSearch on it. A single checked-out file is read with
 /// localFetch instead: structureSearch lists directories only.
 fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json::Value {
-    use crate::id::ToolId;
+    use crate::response::result::Continuation;
+    use crate::tools::source_view::local_fetch_query::read_lead;
+    use octocode_contract_types::{
+        StructureSearchQueryTree, StructureSearchQueryTreeOperation, StructureSearchView,
+    };
     // One sparse path explores that path; several explore the checkout root.
     let root = match sparse_paths {
         Some([path]) => clone_dir.join(path),
         _ => clone_dir.to_path_buf(),
     };
-    let mut query = serde_json::Map::new();
-    query.insert(
-        "path".into(),
-        serde_json::Value::String(root.to_string_lossy().into_owned()),
-    );
-    let tool = if root.is_file() {
-        ToolId::LocalFetch
+    let root = root.to_string_lossy();
+    let lead = if Path::new(root.as_ref()).is_file() {
+        read_lead(&root).map(|read| Continuation::related_query(read).build())
     } else {
-        query.insert("operation".into(), serde_json::json!("tree"));
-        ToolId::StructureSearch
-    };
-    serde_json::json!({
-        "exploreClone": crate::response::result::Continuation::related(tool, serde_json::Value::Object(query))
+        root.as_ref().try_into().ok().map(|path| {
+            Continuation::related_query(StructureSearchQueryTree {
+                default_excludes: None,
+                entry_type: None,
+                exclude: Vec::new(),
+                extensions: Vec::new(),
+                include: Vec::new(),
+                include_hidden: None,
+                include_ignored: None,
+                limit: None,
+                main_goal: None,
+                max_depth: std::num::NonZeroU64::MIN,
+                operation: StructureSearchQueryTreeOperation::Tree,
+                page: std::num::NonZeroU64::MIN,
+                path,
+                reasoning: None,
+                scan_offset: None,
+                snapshot: None,
+                view: StructureSearchView::Details,
+                walk_offset: None,
+            })
             .build()
-    })
+        })
+    };
+    match lead {
+        Some(lead) => serde_json::json!({ "exploreClone": lead }),
+        None => serde_json::json!({}),
+    }
 }

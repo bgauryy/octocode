@@ -35,8 +35,12 @@ pub(super) async fn assign_roles(
             continue;
         };
         let point = |row: &Value, edge: &str| GraphPosition {
-            line: crate::num::u32_of(row["range"][edge]["line"].as_u64().unwrap_or(0)),
-            character: crate::num::u32_of(row["range"][edge]["character"].as_u64().unwrap_or(0)),
+            line: octocode_engine::num::saturating_u32(
+                row["range"][edge]["line"].as_u64().unwrap_or(0),
+            ),
+            character: octocode_engine::num::saturating_u32(
+                row["range"][edge]["character"].as_u64().unwrap_or(0),
+            ),
         };
         let starts = indices
             .iter()
@@ -89,7 +93,7 @@ async fn declared_sites(
         .map(|start| (start.line, start.character))
         .collect::<Vec<_>>();
     let declared = super::blocking_cancellable(cancel, move |_| {
-        let document = crate::tools::declarations_cache::file_document(&source.content, &path);
+        let document = crate::tools::declarations::file_document(&source.content, &path);
         starts
             .iter()
             .map(|&(line, character)| {

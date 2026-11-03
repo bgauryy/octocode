@@ -161,7 +161,11 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
             o.edges = vec!["calls".into()];
         },
     );
-    assert_eq!(calls.value["pagination"]["totalItems"], 200, "{}", calls.value);
+    assert_eq!(
+        calls.value["pagination"]["totalItems"], 200,
+        "{}",
+        calls.value
+    );
 
     let issues = ask(dir.0.as_path(), "issues", None, |o| o.limit = Some(500));
     let subjects = issues.value["rows"]
@@ -294,8 +298,7 @@ fn authored_lib_javascript_keeps_its_symbols() {
 
 /// `ingest --language-glob` picks a parser by root-relative glob, as for
 /// astSearch: a `.h` header holding C++ reads as C++ (its class is a class)
-/// until a glob parses it as C, and the globs are part of what a reuse
-/// compares.
+/// until a glob parses it as C; every build applies the selected globs.
 #[test]
 fn ingest_language_globs_choose_the_parser() {
     let dir = git_app(&[("include/widget.h", "namespace Space { class Widget {}; }\n")]);
@@ -341,7 +344,8 @@ fn ingest_language_globs_choose_the_parser() {
     );
     assert_ne!(widget(), "class", "C reads no class");
     let again = with_globs(&[("c", "include/**/*.h")]);
-    assert_eq!(again.value["reused"], true, "{}", again.value);
+    assert_fresh_build(&again);
+    assert_eq!(again.value["sha256"], c.value["sha256"]);
     let stale = ask(root, "stale", None, |_| {});
     assert_eq!(stale.value["fresh"], true, "{}", stale.value);
 }
@@ -368,7 +372,7 @@ fn a_malformed_language_glob_is_an_invalid_glob_error() {
 }
 
 #[test]
-fn a_published_graph_keeps_completed_extraction_for_reuse() {
+fn a_published_graph_discards_extraction_before_changed_builds() {
     let dir = git_app(&[(
         "a.ts",
         "export function a() { return b(); }\nfunction b() {}\n",
@@ -380,15 +384,15 @@ fn a_published_graph_keeps_completed_extraction_for_reuse() {
         &dir.0.join(".octocode/graph/.facts"),
         &root,
     );
-    let manifest: Value =
-        serde_json::from_slice(&std::fs::read(job.join("job.json")).unwrap()).unwrap();
-    assert_eq!(manifest["stage"], "complete");
-    let artifact = job.join(format!("{}.fact", octocode_engine::digest::sha256(b"a.ts")));
-    assert!(artifact.is_file());
+    assert!(!job.exists(), "publication must remove its extraction job");
     std::fs::write(root.join("new.ts"), "export const added = 1;\n").unwrap();
     let rebuilt = ingest_root(&dir.0, &root, None, false);
     assert_eq!(rebuilt.class, ExitClass::Success, "{}", rebuilt.value);
-    assert_eq!(rebuilt.value["extraction"]["parsedFiles"], 1);
-    assert_eq!(rebuilt.value["extraction"]["reusedFiles"], 1);
+    assert_eq!(
+        rebuilt.value["extraction"]["parsedFiles"],
+        rebuilt.value["scan"]["filesScanned"]
+    );
+    assert_eq!(rebuilt.value["extraction"]["reusedFiles"], 0);
     assert_eq!(rebuilt.value["extraction"]["resumedFiles"], 0);
+    assert!(!job.exists());
 }

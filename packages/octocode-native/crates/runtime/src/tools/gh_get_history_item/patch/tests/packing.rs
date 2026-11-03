@@ -208,35 +208,40 @@ fn history_b_packed_walk_is_lossless_and_fills_its_windows() {
 /// line 1, skip pure additions, and fit one read's range cap.
 #[test]
 fn parent_windows_fit_one_ranged_read() {
-    assert_eq!(parent_windows("@@ -1,4 +1,3 @@ fn a\n"), [(1, 14)]);
+    assert_eq!(hunk_windows("@@ -1,4 +1,3 @@ fn a\n", '-'), [(1, 14)]);
+    // The new side numbers from `+c,d`; a pure removal has none.
+    let both = "@@ -40,3 +60,4 @@ fn f\n a\n-b\n+c\n+d\n e";
+    assert_eq!(hunk_windows(both, '-'), [(30, 52)]);
+    assert_eq!(hunk_windows(both, '+'), [(50, 73)]);
+    assert!(hunk_windows("@@ -5,2 +4,0 @@\n-x\n-y", '+').is_empty());
     assert_eq!(
-        parent_windows("@@ -5 +5 @@\n@@ -38,0 +40,2 @@\n"),
+        hunk_windows("@@ -5 +5 @@\n@@ -38,0 +40,2 @@\n", '-'),
         [(1, 15)]
     );
     // A hunk with fewer trailing context lines than the diff keeps ends
     // at the end of the file: its span stops at its last line.
     assert_eq!(
-        parent_windows("@@ -10,5 +10,4 @@\n a\n b\n c\n-d\n e\n"),
+        hunk_windows("@@ -10,5 +10,4 @@\n a\n b\n c\n-d\n e\n", '-'),
         [(1, 14)]
     );
     assert_eq!(
-        parent_windows("@@ -10,7 +10,6 @@\n a\n b\n c\n-d\n e\n f\n g\n"),
+        hunk_windows("@@ -10,7 +10,6 @@\n a\n b\n c\n-d\n e\n f\n g\n", '-'),
         [(1, 26)]
     );
     let many = (0..15)
         .map(|i| format!("@@ -{0},1 +{0},1 @@\n", 100 * (i + 1) + i))
         .collect::<String>();
-    let ranges = parent_windows(&many);
-    assert_eq!(ranges.len(), PARENT_WINDOW_RANGES, "{ranges:?}");
+    let ranges = hunk_windows(&many, '-');
+    assert_eq!(ranges.len(), HUNK_WINDOW_RANGES, "{ranges:?}");
     assert_eq!(ranges[0].0, 90, "{ranges:?}");
-    assert_eq!(ranges[PARENT_WINDOW_RANGES - 1].1, 1524, "{ranges:?}");
+    assert_eq!(ranges[HUNK_WINDOW_RANGES - 1].1, 1524, "{ranges:?}");
     for i in 0..15 {
         let line = 100 * (i + 1) + i;
         assert!(
             ranges
                 .iter()
-                .any(|&(start, end)| start <= line - PARENT_WINDOW_PAD
-                    && end >= line + PARENT_WINDOW_PAD),
+                .any(|&(start, end)| start <= line - HUNK_WINDOW_PAD
+                    && end >= line + HUNK_WINDOW_PAD),
             "hunk {line}: {ranges:?}"
         );
     }

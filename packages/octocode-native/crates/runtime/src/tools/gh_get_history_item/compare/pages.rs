@@ -59,7 +59,7 @@ pub(super) fn attach_commit_page(
             message.lines().nth(1).is_some()
         })
         .and_then(|v| str_at(v, "/sha"))
-        .map(|sha| read_commit_lead(query, sha));
+        .and_then(|sha| read_commit_lead(query, sha));
     out["commits"] = json!(
         commits
             .into_iter()
@@ -78,7 +78,7 @@ pub(super) fn attach_commit_page(
     // A commit page past the last is the shared out-of-range outcome (the
     // response stage states `page N of M` and the restart), unless the same
     // page still lists files. The commit page continuation
-    // (`nextCommitPage`) is the cursor.
+    // (`contentPagination.commits.next.nextPage`) is the cursor.
     let files_listed = out
         .get("files")
         .and_then(Value::as_array)

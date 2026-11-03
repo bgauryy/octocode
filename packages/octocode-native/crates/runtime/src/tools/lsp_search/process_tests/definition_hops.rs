@@ -98,6 +98,7 @@ fn definition_of(file: &str, symbol: &str, line: u32) -> (Vec<String>, Vec<Strin
             &crate::tools::test_support::workspace_policy(&root),
             &execution,
             None,
+            crate::tools::lsp_search::test_answers(),
         ))
         .expect("row");
     assert_row_contract(ToolId::LspSearch, &row);

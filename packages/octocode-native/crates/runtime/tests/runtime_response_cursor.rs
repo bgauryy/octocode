@@ -27,7 +27,8 @@ async fn walk(
             .await
             .expect("page");
         assert_ne!(result["isError"], true, "{result}");
-        let pagination = result["structuredContent"]["responsePagination"].clone();
+        let payload = support::mcp_payload(&result);
+        let pagination = payload["responsePagination"].clone();
         if !pages.is_empty() || pagination.is_object() {
             assert_eq!(pagination["page"], pages.len() + 1, "{pagination}");
             assert_ne!(pagination["restart"], true, "{pagination}");
@@ -36,7 +37,7 @@ async fn walk(
             let first: &Value = first;
             assert_eq!(
                 pagination["totalPages"],
-                first["structuredContent"]["responsePagination"]["totalPages"],
+                support::mcp_payload(first)["responsePagination"]["totalPages"],
                 "totalPages is exact from the first page: {pagination}"
             );
         }
@@ -79,7 +80,7 @@ async fn mcp_walks_every_captured_line_following_only_the_cursor() {
         )
         .await
         .expect("unpaged");
-    let whole = &whole["structuredContent"];
+    let whole = support::mcp_payload(&whole);
     assert!(whole.get("responsePagination").is_none(), "{whole}");
     let mut expected = Vec::new();
     captured(&whole["results"], &mut expected);
@@ -95,7 +96,7 @@ async fn mcp_walks_every_captured_line_following_only_the_cursor() {
     assert!(pages.len() > 2, "the fixture spans response pages");
     let mut seen = Vec::new();
     for page in &pages {
-        captured(&page["structuredContent"]["results"], &mut seen);
+        captured(&support::mcp_payload(page)["results"], &mut seen);
     }
     seen.sort();
     assert_eq!(seen, expected, "every captured line exactly once");
@@ -122,8 +123,9 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
     runtime.close().await;
     std::fs::remove_file(&file).expect("remove the live source");
     let mut seen = Vec::new();
-    captured(&first["structuredContent"]["results"], &mut seen);
-    let mut pagination = first["structuredContent"]["responsePagination"].clone();
+    let first_payload = support::mcp_payload(&first);
+    captured(&first_payload["results"], &mut seen);
+    let mut pagination = first_payload["responsePagination"].clone();
     let total = pagination["totalPages"].clone();
     let mut pages = 1;
     while pagination["hasMore"] == true {
@@ -140,8 +142,8 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
             .await
             .expect("saved page");
         runtime.close().await;
-        captured(&page["structuredContent"]["results"], &mut seen);
-        pagination = page["structuredContent"]["responsePagination"].clone();
+        captured(&support::mcp_payload(&page)["results"], &mut seen);
+        pagination = support::mcp_payload(&page)["responsePagination"].clone();
         assert_eq!(pagination["replayed"], true, "{pagination}");
         assert_eq!(pagination["totalPages"], total, "{pagination}");
     }
@@ -155,7 +157,7 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
 
 /// The `nextPage` lead of `result`'s first row.
 fn next_page(result: &Value) -> Value {
-    result["structuredContent"]["results"][0]["data"]["next"]["nextPage"]["input"].clone()
+    support::mcp_payload(result)["results"][0]["data"]["next"]["nextPage"]["input"].clone()
 }
 
 /// The same continuation issued twice (two identical requests, as a lead a
@@ -189,7 +191,7 @@ async fn an_identical_continuation_is_one_cursor() {
             .await
             .expect("next page");
         assert_ne!(page["isError"], true, "{page}");
-        windows.push(page["structuredContent"]["results"][0]["data"]["files"].clone());
+        windows.push(support::mcp_payload(&page)["results"][0]["data"]["files"].clone());
     }
     assert_eq!(windows[0], windows[1], "the same page");
     assert!(windows[0].as_array().is_some_and(|files| !files.is_empty()));

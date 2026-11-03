@@ -27,7 +27,7 @@ use super::scope::{Scope, imports_in_code};
 use super::{LspSearchQuery, Op};
 use crate::id::ToolId;
 use crate::tools::lsp_search::lsp_search_query;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::path::Path;
 
 mod gates;
@@ -143,10 +143,9 @@ pub(super) fn workspace_symbols(
         return;
     }
     crate::response::paging::push_notice(row, WORKSPACE_SYMBOL_NOTE);
-    crate::response::result::attach_related(
-        row,
-        super::failure::term_search_lead(name, &scope.root, &scope.include).build(),
-    );
+    if let Some(lead) = super::failure::term_search_lead(name, &scope.root, &scope.include) {
+        crate::response::result::attach_related(row, lead.build());
+    }
     // A server cap this answer reached is a fact of this answer: a warning.
     let mut warnings = Vec::new();
     if let Some(limit) = capped_at {
@@ -157,16 +156,18 @@ pub(super) fn workspace_symbols(
     if !warnings.is_empty() {
         crate::response::paging::terminal_limit(row, WORKSPACE_SYMBOL_CAPPED_REASON, &warnings);
     }
-    if let Some(path) = anchor {
-        // This is an optional lead, moved to hints by continuation shaping;
-        // it is not a page that recovers an exhaustive workspace result.
+    // This is an optional lead, moved to hints by continuation shaping;
+    // it is not a page that recovers an exhaustive workspace result.
+    if let Some(path) = anchor
+        && let Some(outline) = lsp_search_query::document_lead(
+            octocode_contract_types::LspDocumentOperation::DocumentSymbols,
+            path,
+            None,
+        )
+    {
         crate::response::result::attach_related(
             row,
-            crate::response::result::Continuation::related(
-                ToolId::LspSearch,
-                json!({"operation": "documentSymbols", "path": path}),
-            )
-            .build(),
+            crate::response::result::Continuation::related_query(outline).build(),
         );
     }
 }

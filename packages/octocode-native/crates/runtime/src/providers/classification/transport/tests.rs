@@ -12,7 +12,7 @@ mod retries;
 fn test_budget(timeout: Duration) -> RequestBudget {
     budget(
         Instant::now() + timeout,
-        tokio_util::sync::CancellationToken::new(),
+        octocode_io::cancellation::Cancellation::new(),
     )
 }
 

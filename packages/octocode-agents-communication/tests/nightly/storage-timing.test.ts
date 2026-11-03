@@ -30,9 +30,9 @@ test('coordination and unified fetch stay indexed with 10^4 leases and 10^5 reco
   const session = db.prepare('INSERT INTO sessions(id,workspace,name,vendor,expiresAt) VALUES(?,?,?,?,1)');
   const others = Array.from({ length: 1000 }, () => randomUUID());
   for (const id of others) session.run(id, workspace, 'history', 'raw');
-  const message = db.prepare("INSERT INTO messages(sender,target,body,key,expiresAt,reasoning,wake) VALUES(?,?,?,?,1,'r','passive')");
+  const message = db.prepare("INSERT INTO messages(sender,target,parts,key,expiresAt,reasoning,wake) VALUES(?,?,?, ?,1,'r','passive')");
   const delivery = db.prepare('INSERT INTO deliveries(message,recipient,acknowledgedAt) VALUES(?,?,1)');
-  for (let i = 0; i < 50000; i++) delivery.run(message.run(others[i % 1000], others[(i + 1) % 1000], 'b', `k${i}`).lastInsertRowid, others[(i + 1) % 1000]);
+  for (let i = 0; i < 50000; i++) delivery.run(message.run(others[i % 1000], others[(i + 1) % 1000], JSON.stringify([{ text: 'b' }]), `k${i}`).lastInsertRowid, others[(i + 1) % 1000]);
   const lease = db.prepare("INSERT INTO leases(workspace,path,kind,owner,expiresAt,reasoning,pathKey) VALUES(?,?,'file',?,?,'r',?)");
   for (let i = 0; i < 10000; i++) {
     const path = join(workspace, `d${i % 16}`, `f${i}.txt`);
@@ -61,13 +61,13 @@ test('coordination and unified fetch stay indexed with 10^4 leases and 10^5 reco
   assert.deepEqual(context.value.items.map((item: JsonRecord) => item.name), ['early.md']); assert.equal(context.value.next ?? null, null);
   measure('share_document', owner, 'share_document', { name: 'late.md', content: 'proof', reasoning: 'Scale fixture' });
   assert.throws(() => run(peer, 'read_document', { name: 'late' }), /late\.md/);
-  const mail = run(owner, 'send_message', { to: peer, body: 'Indexed incoming evidence', reasoning: 'Scale fixture' }).value;
+  const mail = run(owner, 'send_message', { to: peer, parts: [{ text: 'Indexed incoming evidence' }], reasoning: 'Scale fixture' }).value;
   const incoming = measure('fetch incoming', peer, 'fetch', { incoming: true });
   assert.deepEqual(incoming.value.items.map((item: JsonRecord) => item.data.messageId), [mail.id]);
   const memory = run(owner, 'record', { type: 'memory', branch: 'scale', data: { content: 'Unique search needle', category: 'performance' } }).value;
   const searched = measure('fetch search', peer, 'fetch', { type: 'memory', branch: 'scale', search: '"search needle"', where: { category: 'performance' } });
   assert.deepEqual(searched.value.items, [memory]);
   const selected = measure('fetch payload', peer, 'fetch', { type: 'message', where: { messageId: mail.id } });
-  assert.equal(selected.value.items[0].data.body, 'Indexed incoming evidence');
+  assert.deepEqual(selected.value.items[0].data.parts, [{ text: 'Indexed incoming evidence' }]);
   t.diagnostic(JSON.stringify(timings));
 });

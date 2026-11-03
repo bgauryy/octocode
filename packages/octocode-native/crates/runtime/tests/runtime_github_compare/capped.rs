@@ -62,7 +62,7 @@ async fn capped_compare_with_a_path_leads_to_the_path_history() {
             .is_none(),
         "{data}"
     );
-    let page = data["next"]["nextCommitPage"]["input"].clone();
+    let page = data["contentPagination"]["commits"]["next"]["nextPage"]["input"].clone();
     let listed = call(&runtime, "ghGetHistoryItem", page)
         .await
         .expect("commit page");

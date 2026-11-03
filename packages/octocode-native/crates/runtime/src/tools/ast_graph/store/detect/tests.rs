@@ -1,4 +1,5 @@
 use super::*;
+use octocode_engine::signatures::languages::SCRIPT_BEARING_MARKUP;
 
 #[test]
 fn feedback_arcs_break_every_cycle() {
@@ -33,34 +34,99 @@ fn witness_is_the_shortest_cycle_through_the_start() {
     assert_eq!(witness_cycle(0, &members, &adj), vec![0, 3, 0]);
 }
 
-/// A name imported by a component's script block (`.vue`, `.svelte`,
-/// `.astro`, `.mdx`, `.html`) is a reference, as in source code; the
-/// same bare word in prose stays a word.
+/// A name imported by a component's script block (every extension of
+/// [`SCRIPT_BEARING_MARKUP`]) is a reference, as in source code; the same
+/// bare word in prose stays a word.
 #[test]
 fn script_bearing_markup_names_are_references() {
     let dir = tempfile::tempdir().expect("dir");
     let import = "<script>\nimport { run } from './cmd'\n</script>\n";
-    let markup = [
-        "App.vue",
-        "Page.svelte",
-        "Card.astro",
-        "doc.mdx",
-        "index.html",
-    ];
-    for name in markup {
+    let markup = SCRIPT_BEARING_MARKUP
+        .iter()
+        .map(|ext| format!("component.{ext}"))
+        .collect::<Vec<_>>();
+    for name in &markup {
         std::fs::write(dir.path().join(name), import).expect("write");
     }
     std::fs::write(dir.path().join("README.md"), "Call run to start.\n").expect("write");
-    let (hits, truncated) = scan_mentions(
+    let (hits, gaps) = scan_mentions(
         dir.path(),
         &BTreeSet::new(),
         &BTreeSet::from(["run".to_owned()]),
     );
-    assert!(!truncated);
-    let mut expected = markup.map(|name| format!("{name}:2"));
+    assert_eq!(gaps, MentionGaps::default());
+    let mut expected = markup
+        .iter()
+        .map(|name| format!("{name}:2"))
+        .collect::<Vec<_>>();
     expected.sort();
-    assert_eq!(hits.references.get("run"), Some(&expected.to_vec()));
+    assert_eq!(hits.references.get("run"), Some(&expected));
     assert_eq!(hits.words.get("run"), Some(&vec!["README.md:1".to_owned()]));
+}
+
+/// The engine and this crate each name script-bearing markup through
+/// [`SCRIPT_BEARING_MARKUP`]: a line that lists all but one of its extensions
+/// is a handpicked copy that drifts from it. Only the definition lists them.
+#[test]
+fn no_source_keeps_its_own_list_of_script_bearing_markup() {
+    fn sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("read dir") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                sources(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    sources(&manifest.join("src"), &mut files);
+    sources(&manifest.join("../engine/src"), &mut files);
+    assert!(files.len() > 100, "{} sources found", files.len());
+    let literals = SCRIPT_BEARING_MARKUP
+        .iter()
+        .map(|ext| format!("\"{ext}\""))
+        .collect::<Vec<_>>();
+    let mut copies = Vec::new();
+    for file in files {
+        let text = std::fs::read_to_string(&file).expect("read source");
+        for (index, line) in text.lines().enumerate() {
+            let listed = literals.iter().filter(|lit| line.contains(*lit)).count();
+            if listed + 1 >= literals.len() && !line.contains("pub const SCRIPT_BEARING_MARKUP") {
+                copies.push(format!("{}:{}", file.display(), index + 1));
+            }
+        }
+    }
+    assert!(
+        copies.is_empty(),
+        "derive these from octocode_engine::signatures::languages::SCRIPT_BEARING_MARKUP: {copies:?}"
+    );
+}
+
+/// The scan skips the graph's own environment and vendored directories, so a
+/// vendored copy that mentions every name corroborates nothing.
+#[test]
+fn the_mention_scan_skips_the_graphs_environment_and_vendored_dirs() {
+    let dir = tempfile::tempdir().expect("dir");
+    let skipped = super::super::INGEST_EXCLUDES
+        .iter()
+        .chain(crate::tools::ast_graph::classify::VENDORED_DIRS);
+    for name in skipped {
+        std::fs::create_dir_all(dir.path().join(name)).expect("dir");
+        std::fs::write(dir.path().join(name).join("copy.ts"), "run();\n").expect("write");
+    }
+    std::fs::create_dir(dir.path().join("src")).expect("src");
+    std::fs::write(dir.path().join("src/app.ts"), "run();\n").expect("write");
+    let (hits, _) = scan_mentions(
+        dir.path(),
+        &BTreeSet::new(),
+        &BTreeSet::from(["run".to_owned()]),
+    );
+    assert_eq!(
+        hits.references.get("run"),
+        Some(&vec!["src/app.ts:1".to_owned()])
+    );
 }
 
 #[test]
@@ -69,14 +135,23 @@ fn magnitude_is_bounded() {
     assert!(magnitude(1_000_000) <= 1.0);
 }
 
-/// Abstractness reads kinds the extractors emit; a spelling no
-/// extractor produces would never count.
+/// A file too long for the mention scan is counted: "no mention" must not
+/// read as "no file names it".
 #[test]
-fn abstract_kinds_are_emitted_declaration_kinds() {
-    for kind in ABSTRACT_KINDS {
-        assert!(
-            octocode_engine::signatures::DECLARATION_KINDS.contains(kind),
-            "{kind}"
-        );
-    }
+fn the_mention_scan_counts_the_files_it_did_not_read() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let long = usize::try_from(MENTION_MAX_FILE).expect("fits") + 1;
+    std::fs::write(
+        dir.path().join("big.txt"),
+        format!("run {}", "x".repeat(long)),
+    )
+    .expect("write");
+    let (hits, gaps) = scan_mentions(
+        dir.path(),
+        &BTreeSet::new(),
+        &BTreeSet::from(["run".to_owned()]),
+    );
+    assert_eq!(gaps.oversized, 1);
+    assert!(!gaps.truncated);
+    assert_eq!(hits.references.get("run"), None);
 }

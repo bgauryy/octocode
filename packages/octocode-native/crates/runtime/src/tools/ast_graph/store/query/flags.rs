@@ -102,13 +102,17 @@ impl Flags {
 
 /// The unresolved-row reason vocabulary the graphQuery contract declares.
 fn unresolved_reasons() -> Vec<&'static str> {
+    let Ok(contract) = crate::contracts::parsed_contract() else {
+        return Vec::new();
+    };
     crate::contracts::query_schema_value(
         crate::id::ToolId::GraphQuery,
         Some("unresolved"),
         "reasons",
         "items",
     )
-    .and_then(|items| items["enum"].as_array())
+    .and_then(|items| crate::contracts::schema_keyword(items, &contract["$defs"], "enum"))
+    .and_then(Value::as_array)
     .into_iter()
     .flatten()
     .filter_map(Value::as_str)

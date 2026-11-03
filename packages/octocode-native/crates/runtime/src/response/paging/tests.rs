@@ -113,6 +113,7 @@ fn partial_marks_append_once_on_a_row_or_its_object() {
 /// batch size rather than a position.
 #[test]
 fn no_cursor_field_declares_a_maximum() {
+    let mut checked = 0;
     for tool in ToolId::ALL {
         let contract = crate::contracts::tool_contract(tool).expect("tool contract");
         let schema = &contract["querySchema"];
@@ -124,15 +125,22 @@ fn no_cursor_field_declares_a_maximum() {
         for branch in branches {
             let branch = crate::contracts::resolve_ref(branch, defs);
             for (field, field_schema) in branch["properties"].as_object().into_iter().flatten() {
-                let field_schema = crate::contracts::resolve_ref(field_schema, defs);
                 let batch_size = tool == ToolId::GhGetHistoryItem && field == "pageSize";
-                if field_schema["x-cursor"] == json!(true) && !batch_size {
+                if crate::contracts::schema_keyword(field_schema, defs, "x-cursor")
+                    == Some(&json!(true))
+                    && !batch_size
+                {
+                    checked += 1;
                     assert!(
-                        field_schema.get("maximum").is_none(),
+                        crate::contracts::schema_keyword(field_schema, defs, "maximum").is_none(),
                         "{tool:?} {field}: {field_schema}"
                     );
                 }
             }
         }
     }
+    assert!(
+        checked > 0,
+        "the cursor invariant must inspect declared positions"
+    );
 }

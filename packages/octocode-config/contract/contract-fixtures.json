@@ -2461,6 +2461,10 @@
           "matchIn": [
             "content"
           ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
           "classification": {
             "predicates": [
               "Does this expire keys?"
@@ -3003,6 +3007,10 @@
           "matchIn": [
             "content"
           ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
           "limit": 50,
           "page": 1
         }
@@ -3029,6 +3037,10 @@
           "matchIn": [
             "content"
           ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
           "limit": 50,
           "page": 1
         }
@@ -3055,6 +3067,10 @@
           "matchIn": [
             "content"
           ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
           "limit": 50,
           "page": 1
         }
@@ -3097,6 +3113,10 @@
             "path",
             "content"
           ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
           "classification": {
             "predicates": [
               "Relevant?"
@@ -3316,6 +3336,10 @@
           "matchIn": [
             "content"
           ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
           "limit": 50,
           "page": 1
         }
@@ -3357,6 +3381,10 @@
           "matchIn": [
             "path"
           ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
           "limit": 50,
           "page": 1
         }
@@ -4108,6 +4136,8 @@
           "repo": "r",
           "limit": 50,
           "page": 1,
+          "pathPrefix": "src",
+          "ref": "main",
           "filters": {
             "committer": {
               "include": [
@@ -4117,9 +4147,7 @@
             "committedAt": {
               "from": "2026-01-01T00:00:00Z"
             }
-          },
-          "pathPrefix": "src",
-          "ref": "main"
+          }
         }
       ]
     }
@@ -4136,7 +4164,21 @@
           "repo": "r",
           "keywords": [
             "fix"
-          ]
+          ],
+          "filters": {
+            "committedAt": {
+              "include": [
+                {
+                  "from": "2026-01-01T00:00:00Z"
+                }
+              ],
+              "exclude": [
+                {
+                  "to": "2026-01-01T00:00:00Z"
+                }
+              ]
+            }
+          }
         }
       ]
     },
@@ -4150,7 +4192,21 @@
           "page": 1,
           "keywords": [
             "fix"
-          ]
+          ],
+          "filters": {
+            "committedAt": {
+              "include": [
+                {
+                  "from": "2026-01-01T00:00:00Z"
+                }
+              ],
+              "exclude": [
+                {
+                  "to": "2026-01-01T00:00:00Z"
+                }
+              ]
+            }
+          }
         }
       ]
     }

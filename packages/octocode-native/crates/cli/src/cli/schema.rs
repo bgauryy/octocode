@@ -43,6 +43,9 @@ fn enabled(machine: &Value, name: &str) -> bool {
     machine_entry(machine, name).is_some_and(|tool| tool["availability"]["enabled"] == true)
 }
 
+/// The one spelling of the per-tool query-schema command, in every catalog view.
+const QUERY_COMMAND: &str = "octocode schema <tool> --view query [--select FIELD=VALUE]";
+
 /// The CLI's own notes, after the shared instructions in the full catalog.
 const CLI_INSTRUCTIONS: &str = "<cli>All tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE, clasify needs OCTOCODE_CLASSIFICATION_API. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
 
@@ -75,6 +78,7 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
             Some(json!({
                 "name": name,
                 "title": tool["title"],
+                "when": octocode_native::contracts::cli_tool_trigger(name),
                 "fields": entry.get("fields").cloned().unwrap_or_else(|| json!("[]")),
             }))
         })
@@ -85,7 +89,7 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
         "toolCount": listed.len(),
         "commands": {
             "run": "octocode <tool> '<json>' (or --input FILE|-)",
-            "query": "octocode schema <tool> --view query [--select FIELD=VALUE]",
+            "query": QUERY_COMMAND,
             "variants": "octocode schema <tool> --view variants",
             // First-run setup an agent cannot discover from the tool list.
             "setup": {
@@ -119,7 +123,7 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
         }
         value["commands"] = json!({
             "run": "octocode <tool> '<json>' (or --input FILE|-)",
-            "query": "octocode schema <tool> [--select operation=VALUE]",
+            "query": QUERY_COMMAND,
             "full": "octocode schema --view full"
         });
     }
@@ -165,7 +169,8 @@ pub(super) fn tool_view(
         }
         Some(selection) => selected(tool, selection)?.clone(),
     };
-    if name == "lspSearch"
+    if octocode_native::id::ToolId::from_name(name)
+        .is_some_and(octocode_native::id::ToolId::lists_lsp_servers)
         && let (Some(description), Some(servers)) = (
             value["description"].as_str(),
             machine["lspServers"].as_array(),

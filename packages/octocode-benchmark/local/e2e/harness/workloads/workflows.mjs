@@ -1,4 +1,4 @@
-// Research workflows (docs/OCTOCODE_WORKFLOWS.md): each step runs the typed
+// Research workflows (skills/octocode-research/references/tool-flow.md): each step runs the typed
 // call the previous response emitted, never a hand-built follow-up, so a chain
 // measures what an agent following the tool's own leads pays.
 import fs from 'node:fs';

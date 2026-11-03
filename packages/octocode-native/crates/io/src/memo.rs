@@ -1,27 +1,25 @@
 //! The one in-process memo outside the engine's own caches ([`crate`]):
-//! least-recently-used order, an entry cap and a weight cap, a lifetime
-//! chosen per entry, shared (`Arc`) values, and a lock that recovers from
-//! poisoning instead of skipping work.
+//! least-recently-used order, a lifetime chosen per entry, shared (`Arc`)
+//! values, and a lock that recovers from poisoning instead of skipping work.
+//!
+//! Every memo draws on one [`MemoryBudget`] of bytes, shared with every other
+//! memo built on the same budget: an insertion past it evicts the least
+//! recently used entries of all of them, oldest first, and a value larger
+//! than the whole budget is not kept. A memo sets no limit of its own.
 //!
 //! Single flight is composed, not built in: a caller that must not run the
 //! same load twice holds a `KeyedFlight` turn ([`crate::flight`]) around its
 //! `get`-then-`insert`.
+mod budget;
+
+pub use budget::MemoryBudget;
+use budget::{Held, next_use};
 use lru::LruCache;
 use std::borrow::Borrow;
 use std::collections::BTreeSet;
 use std::hash::Hash;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
-
-/// A memo's budgets.
-#[derive(Clone, Copy, Debug)]
-pub struct MemoLimits {
-    pub max_entries: usize,
-    /// Total weight kept, in the caller's unit (bytes, graph elements...).
-    pub max_weight: usize,
-    /// Keep the newest entry alone even when it exceeds `max_weight`.
-    pub keep_newest: bool,
-}
 
 /// A hit: the shared value, the metadata stored with it, and its age.
 #[derive(Debug)]
@@ -37,6 +35,8 @@ struct Entry<V, M> {
     weight: usize,
     stored_at: Instant,
     expires_at: Option<Instant>,
+    /// When it was last stored or read, in the budget's use order.
+    used: u64,
 }
 
 struct Inner<K, V, M> {
@@ -44,6 +44,7 @@ struct Inner<K, V, M> {
     /// Only expiring entries occupy this index; removal also removes the deadline.
     expiry: BTreeSet<(Instant, K)>,
     weight: usize,
+    budget: &'static MemoryBudget,
 }
 
 impl<K: Hash + Eq + Ord + Clone, V, M> Inner<K, V, M> {
@@ -58,6 +59,7 @@ impl<K: Hash + Eq + Ord + Clone, V, M> Inner<K, V, M> {
 
     fn forget(&mut self, key: &K, entry: &Entry<V, M>) {
         self.weight = self.weight.saturating_sub(entry.weight);
+        self.budget.release(entry.weight);
         if let Some(deadline) = entry.expires_at {
             self.expiry.remove(&(deadline, key.clone()));
         }
@@ -74,13 +76,28 @@ impl<K: Hash + Eq + Ord + Clone, V, M> Inner<K, V, M> {
             };
             if let Some(entry) = self.entries.pop(&key) {
                 self.weight = self.weight.saturating_sub(entry.weight);
+                self.budget.release(entry.weight);
             }
         }
+    }
+
+    fn clear(&mut self) {
+        self.entries = LruCache::unbounded();
+        self.expiry.clear();
+        self.budget.release(self.weight);
+        self.weight = 0;
+    }
+}
+
+impl<K, V, M> Drop for Inner<K, V, M> {
+    /// A dropped memo (one an engine owned) returns what it held.
+    fn drop(&mut self) {
+        self.budget.release(self.weight);
     }
 }
 
 pub struct Memo<K, V, M = ()> {
-    limits: MemoLimits,
+    budget: &'static MemoryBudget,
     inner: OnceLock<Arc<Mutex<Inner<K, V, M>>>>,
 }
 
@@ -90,9 +107,10 @@ impl<
     M: Clone + Send + 'static,
 > Memo<K, V, M>
 {
-    pub const fn new(limits: MemoLimits) -> Self {
+    /// A memo drawing on `budget`, shared with every memo built on it.
+    pub const fn new(budget: &'static MemoryBudget) -> Self {
         Self {
-            limits,
+            budget,
             inner: OnceLock::new(),
         }
     }
@@ -104,8 +122,9 @@ impl<
                     entries: LruCache::unbounded(),
                     expiry: BTreeSet::new(),
                     weight: 0,
+                    budget: self.budget,
                 }));
-                REGISTRY.register(inner.clone());
+                self.budget.register(inner.clone());
                 inner
             })
             .lock()
@@ -134,7 +153,8 @@ impl<
             inner.remove(key);
             return None;
         }
-        let entry = inner.entries.get(key)?;
+        let entry = inner.entries.get_mut(key)?;
+        entry.used = next_use();
         Some(Hit {
             value: Arc::clone(&entry.value),
             meta: entry.meta.clone(),
@@ -158,6 +178,7 @@ impl<
         }
         entry.stored_at = now;
         entry.expires_at = now.checked_add(ttl);
+        entry.used = next_use();
         if let Some(deadline) = entry.expires_at {
             inner.expiry.insert((deadline, key.clone()));
         }
@@ -171,15 +192,19 @@ impl<
         value: impl Into<Arc<V>>,
         weight: usize,
         ttl: Option<Duration>,
-    ) -> Arc<V>
+    ) -> (Arc<V>, bool)
     where
         M: Default,
     {
         self.insert_full(key, value, M::default(), weight, ttl, Instant::now())
     }
 
-    /// Expired entries go first, then LRU entries until both strict budgets hold.
-    /// An already expired value is returned to its caller without displacing live entries.
+    /// Store `value`, `weight` bytes, for `key`, replacing any entry; then
+    /// expired entries go first, and the budget's least recently used entries
+    /// across its memos until it holds. Returns the value and whether it was
+    /// kept: one heavier than the whole budget, or already expired, is
+    /// returned to its caller without displacing anything (an entry it
+    /// replaces is still dropped).
     pub fn insert_full(
         &self,
         key: K,
@@ -188,43 +213,39 @@ impl<
         weight: usize,
         ttl: Option<Duration>,
         stored_at: Instant,
-    ) -> Arc<V> {
+    ) -> (Arc<V>, bool) {
         let value = value.into();
-        let mut inner = self.lock();
-        inner.remove(&key);
-        let now = Instant::now();
-        if self.limits.max_entries == 0
-            || (weight > self.limits.max_weight && !self.limits.keep_newest)
-            || ttl.is_some_and(|ttl| now.saturating_duration_since(stored_at) >= ttl)
         {
-            return value;
+            let mut inner = self.lock();
+            inner.remove(&key);
+            let now = Instant::now();
+            if weight > self.budget.limit()
+                || ttl.is_some_and(|ttl| now.saturating_duration_since(stored_at) >= ttl)
+            {
+                return (value, false);
+            }
+            inner.expire(now);
+            let expires_at = ttl.and_then(|ttl| stored_at.checked_add(ttl));
+            if let Some(deadline) = expires_at {
+                inner.expiry.insert((deadline, key.clone()));
+            }
+            inner.weight = inner.weight.saturating_add(weight);
+            self.budget.charge(weight);
+            inner.entries.put(
+                key,
+                Entry {
+                    value: Arc::clone(&value),
+                    meta,
+                    weight,
+                    stored_at,
+                    expires_at,
+                    used: next_use(),
+                },
+            );
         }
-        inner.expire(now);
-        while !inner.entries.is_empty()
-            && (inner.entries.len() >= self.limits.max_entries
-                || inner.weight.saturating_add(weight) > self.limits.max_weight)
-        {
-            let Some((old_key, entry)) = inner.entries.pop_lru() else {
-                break;
-            };
-            inner.forget(&old_key, &entry);
-        }
-        let expires_at = ttl.and_then(|ttl| stored_at.checked_add(ttl));
-        if let Some(deadline) = expires_at {
-            inner.expiry.insert((deadline, key.clone()));
-        }
-        inner.weight = inner.weight.saturating_add(weight);
-        inner.entries.put(
-            key,
-            Entry {
-                value: Arc::clone(&value),
-                meta,
-                weight,
-                stored_at,
-                expires_at,
-            },
-        );
-        value
+        // Outside this memo's lock: reclaiming locks each memo in turn.
+        self.budget.reclaim();
+        (value, true)
     }
 
     pub fn remove<Q: Hash + Eq + ?Sized>(&self, key: &Q)
@@ -235,10 +256,7 @@ impl<
     }
 
     pub fn clear(&self) {
-        let mut inner = self.lock();
-        inner.entries = LruCache::unbounded();
-        inner.expiry.clear();
-        inner.weight = 0;
+        self.lock().clear();
     }
 
     /// Entries held, expired ones included until touched or another insertion.
@@ -264,49 +282,31 @@ impl<
     }
 }
 
-trait Clear: Send + Sync {
-    fn clear(&self);
-}
-
-impl<K: Hash + Eq + Send, V: Send + Sync, M: Send> Clear for Mutex<Inner<K, V, M>> {
+impl<K: Hash + Eq + Ord + Clone + Send, V: Send + Sync, M: Send> Held for Mutex<Inner<K, V, M>> {
     fn clear(&self) {
+        self.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    }
+
+    fn oldest(&self) -> Option<u64> {
+        let inner = self.lock().unwrap_or_else(PoisonError::into_inner);
+        inner.entries.peek_lru().map(|(_, entry)| entry.used)
+    }
+
+    fn evict_oldest(&self, used: u64) -> bool {
         let mut inner = self.lock().unwrap_or_else(PoisonError::into_inner);
-        inner.entries = LruCache::unbounded();
-        inner.expiry.clear();
-        inner.weight = 0;
-    }
-}
-
-#[derive(Default)]
-struct Registry(Mutex<Vec<Weak<dyn Clear>>>);
-static REGISTRY: Registry = Registry(Mutex::new(Vec::new()));
-
-impl Registry {
-    fn register(&self, cache: Arc<dyn Clear>) {
-        let mut stores = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        stores.retain(|store| store.strong_count() != 0);
-        stores.push(Arc::downgrade(&cache));
-    }
-
-    fn clear(&self) {
-        // Release the registry lock before entering a cache.
-        let stores: Vec<_> = self
-            .0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .filter_map(Weak::upgrade)
-            .collect();
-        for store in stores {
-            store.clear();
+        if inner
+            .entries
+            .peek_lru()
+            .is_none_or(|(_, entry)| entry.used != used)
+        {
+            return false;
         }
+        let Some((key, entry)) = inner.entries.pop_lru() else {
+            return false;
+        };
+        inner.forget(&key, &entry);
+        true
     }
-}
-
-/// Clear every initialized memo in this process, including tool-local statics.
-/// Callers must quiesce tool execution first; values already borrowed by a caller remain valid.
-pub fn clear_process_memos() {
-    REGISTRY.clear();
 }
 
 #[cfg(test)]

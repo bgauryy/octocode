@@ -297,11 +297,34 @@ fn graph_build_reports_progress_on_stderr_and_the_result_on_stdout() {
         .args(["graphBuild", "--json", BUILD_APP])
         .output()
         .expect("graphBuild again");
+    // Every build recomputes: an unchanged rebuild publishes its own
+    // snapshot and reports the same progress, never a reused one.
+    assert_eq!(again.status.code(), Some(0), "{}", stderr(&again));
     let again_result = compact_line(stdout(&again));
+    let again_id = again_result
+        .pointer("/results/0/data/id")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("snapshot id: {again_result}"));
+    assert_ne!(again_id, id, "{again_result}");
     assert_eq!(
         again_result.pointer("/results/0/data/reused"),
-        Some(&Value::Bool(true)),
+        None,
         "{again_result}"
     );
-    assert!(stderr(&again).contains("reused "), "{}", stderr(&again));
+    let again_lines = stderr(&again)
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert!(
+        again_lines
+            .iter()
+            .any(|line| line.contains("parsed 2/2 files")),
+        "{again_lines:?}"
+    );
+    assert!(
+        again_lines
+            .last()
+            .is_some_and(|line| line.contains("published ") && line.contains(again_id)),
+        "{again_lines:?}"
+    );
 }

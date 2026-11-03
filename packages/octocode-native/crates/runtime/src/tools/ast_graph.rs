@@ -13,7 +13,7 @@ mod limits;
 mod linking;
 mod packages;
 mod paths;
-pub mod progress;
+mod progress;
 pub mod store;
 mod types;
 

@@ -25,7 +25,8 @@ import {
 } from '@octocodeai/octocode-core/schema';
 import { buildToolTypesBundle } from './tool-contract/bundle.ts';
 import { buildCliPresentation } from './tool-contract/presentation.ts';
-import { renderRust, rustHeader } from './tool-contract/rust.ts';
+import { toolNames } from './tool-contract/rust-dispatch.ts';
+import { renderRust, rustHeader, type Dispatch } from './tool-contract/rust.ts';
 
 export { buildToolTypesBundle } from './tool-contract/bundle.ts';
 
@@ -50,6 +51,7 @@ export function generateToolContract(): {
   files: Map<string, string>;
   bundleJson: string;
   rustHeader: string;
+  dispatch: Dispatch;
 } {
   const ir = buildEnforcementContractIr();
   const contractJson = canonicalizeNativeContractIr(ir);
@@ -72,14 +74,19 @@ export function generateToolContract(): {
     ]),
     bundleJson,
     rustHeader: rustHeader(fingerprint, sha256(bundleJson)),
+    dispatch: {
+      tools: toolNames(ir.tools),
+      channels: ir.continuationChannels,
+      errorChannels: ir.errorContinuationChannels,
+    },
   };
 }
 
 function main(): void {
-  const { files, bundleJson, rustHeader: header } = generateToolContract();
+  const { files, bundleJson, rustHeader: header, dispatch } = generateToolContract();
   if (!process.argv.includes('--check')) {
     // Finish fallible generation before publishing any part of the contract.
-    const rust = renderRust(header, bundleJson);
+    const rust = renderRust(header, bundleJson, undefined, dispatch);
     for (const [path, content] of files) writeFileSync(path, content);
     writeFileSync(rustPath, rust);
     return;
@@ -95,7 +102,7 @@ function main(): void {
   // The whole Rust file is regenerated and compared: a matching header
   // (fingerprint + bundle digest) does not prove the body was not edited.
   // renderRust fails loudly when cargo-typify is missing.
-  if (read(rustPath) !== renderRust(header, bundleJson)) stale.push(rustPath);
+  if (read(rustPath) !== renderRust(header, bundleJson, undefined, dispatch)) stale.push(rustPath);
   if (stale.length > 0) {
     throw new Error(
       `Generated tool contract is stale (${stale.join(', ')}). Run: node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen`

@@ -30,12 +30,6 @@ impl Partition {
         Self::from_parts(origin.into(), credential)
     }
 
-    /// The same credential under a narrower origin (`<origin>#<scope>`), such
-    /// as one session of a provider.
-    pub(crate) fn within(&self, scope: &str) -> Self {
-        Self::from_parts(format!("{}#{scope}", self.origin), self.credential)
-    }
-
     fn from_parts(origin: String, credential: Option<[u8; 32]>) -> Self {
         let tag = credential.map_or_else(|| "anon".to_owned(), |digest| hex::encode(&digest[..8]));
         let mut digest = Sha256::new();
@@ -97,8 +91,6 @@ mod tests {
             a.identity(),
             partition("https://api.github.com/", None).identity()
         );
-        assert_ne!(a, a.within("session"));
-        assert_eq!(a.within("session"), a.within("session"));
     }
 
     #[test]

@@ -60,8 +60,6 @@ impl GitHubServices {
                 let query = typed!(GhGetFileContentQuery);
                 let shaping = gh_get_file_content::Shaping {
                     security: security.clone(),
-                    memo: self.sanitized_views.clone(),
-                    views: self.source_views.clone(),
                     context: context.clone(),
                     selection: selection.clone(),
                 };

@@ -6,7 +6,13 @@ mod listing;
 mod memo;
 mod output;
 mod probe;
-use octocode_contract_types::{ErrorCode, StructureSearchQuery};
+use crate::response::result::Continuation;
+use listing::{Listing, Move};
+use octocode_contract_types::{
+    ErrorCode, LocalFetchQuery, LocalFetchQuerySymbols, LocalFetchQuerySymbolsPath,
+    LocalFetchQuerySymbolsView, StructureSearchQuery, StructureSearchQueryTree,
+    StructureSearchQueryTreeOperation, StructureSearchQueryTreePath, StructureSearchView,
+};
 mod resume;
 mod rows;
 #[cfg(test)]
@@ -19,7 +25,7 @@ use probe::ProbeBound;
 use walked::Walked;
 
 /// The most rows one listing window walks, sorts and pages: the core walk
-/// window, internal. Windows continue past it (`next.continueWalk`), so it
+/// window, internal. Windows continue past it (`next.nextPage`), so it
 /// bounds no listing.
 fn max_entries() -> usize {
     #[cfg(test)]
@@ -35,9 +41,9 @@ fn max_entries() -> usize {
 /// next entry and the page says where ([`Cut::time_cut`]).
 const WALK_BUDGET: std::time::Duration = octocode_engine::scan_budget::SCAN_TIME_BUDGET;
 
-use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::tools::display_name;
+use octocode_engine::num::saturating_u32;
 use serde_json::{Value, json};
 
 /// The policy error for `requested`; a missing path also leads to a tree of
@@ -66,12 +72,19 @@ fn file_root(file: &std::path::Path, paths: &crate::policy::path::PathPolicy) ->
         ErrorCode::NotADirectory,
         format!("{name} is a file, not a directory; read it with localFetch or list its parent."),
     );
-    let lead = crate::response::result::Continuation::related(
-        crate::id::ToolId::LocalFetch,
-        json!({"path": name, "view": "symbols"}),
-    )
-    .build();
-    out.calls = Some(Box::new(json!({ "read": lead })));
+    if let Ok(path) = LocalFetchQuerySymbolsPath::try_from(name) {
+        let lead = Continuation::related_query(LocalFetchQuery::Symbols(LocalFetchQuerySymbols {
+            limit: None,
+            main_goal: None,
+            path,
+            read_progress: None,
+            reasoning: None,
+            snapshot: None,
+            view: LocalFetchQuerySymbolsView::Symbols,
+        }))
+        .build();
+        out.calls = Some(Box::new(json!({ "read": lead })));
+    }
     out
 }
 
@@ -132,38 +145,41 @@ fn restart_if_stale(
     ))
 }
 
-/// Copy the query with `changes` applied as a `structureSearch` continuation;
-/// a `null` change drops that field.
-fn continuation(query: &impl serde::Serialize, changes: Value, continuing: bool) -> Value {
-    let query = crate::response::result::with_changes(
-        serde_json::to_value(query).unwrap_or_else(|_| json!({})),
-        &changes,
-    );
-    if continuing {
-        crate::response::result::Continuation::continued(crate::id::ToolId::StructureSearch, query)
-    } else {
-        let fields = crate::contracts::state_fields(crate::id::ToolId::StructureSearch);
-        let omitted = fields.iter().map(String::as_str).collect::<Vec<_>>();
-        crate::response::result::Continuation::related(
-            crate::id::ToolId::StructureSearch,
-            crate::response::result::query_row(&query, &omitted),
-        )
-    }
-    .build()
+/// The listing `query` moved by `to`, as a continuation of its saved walk.
+fn continuation<Q: Listing>(query: &Q, to: Move) -> Continuation {
+    let moved: StructureSearchQuery = query.moved(to).into();
+    Continuation::continued_query(moved)
 }
 
 /// One level of the listed directory's tree: the subdirectories a listing
 /// cut at a terminal limit can be re-listed under, each within the limits.
-fn narrow_scope(query: &impl serde::Serialize) -> Value {
-    let path = serde_json::to_value(query)
-        .ok()
-        .and_then(|query| query.get("path").cloned())
-        .unwrap_or(Value::Null);
-    crate::response::result::Continuation::related(
-        crate::id::ToolId::StructureSearch,
-        json!({"operation": "tree", "path": path, "maxDepth": 1}),
+/// `None` when the listed path is no valid tree path (it always is: both
+/// operations share the path contract).
+fn narrow_scope(query: &impl Listing) -> Option<Value> {
+    let path = StructureSearchQueryTreePath::try_from(query.path()).ok()?;
+    Some(
+        Continuation::related_query(StructureSearchQuery::Tree(StructureSearchQueryTree {
+            default_excludes: None,
+            entry_type: None,
+            exclude: Vec::new(),
+            extensions: Vec::new(),
+            include: Vec::new(),
+            include_hidden: None,
+            include_ignored: None,
+            limit: None,
+            main_goal: None,
+            max_depth: std::num::NonZeroU64::MIN,
+            operation: StructureSearchQueryTreeOperation::Tree,
+            page: std::num::NonZeroU64::MIN,
+            path,
+            reasoning: None,
+            scan_offset: None,
+            snapshot: None,
+            view: StructureSearchView::Details,
+            walk_offset: None,
+        }))
+        .build(),
     )
-    .build()
 }
 
 /// What bounds a walk: a listing walk by time ([`WALK_BUDGET`]), a probe
@@ -215,7 +231,7 @@ impl Resumes<'_> {
         let resume = (walk_offset > 0)
             .then(|| resume::take(&self.identity, &self.paths.identity(), walk_offset))
             .flatten();
-        (resume, Some(u32_of_usize(window_end)))
+        (resume, Some(saturating_u32(window_end)))
     }
 
     /// Keep where the walk stands at the end of its window, for the window

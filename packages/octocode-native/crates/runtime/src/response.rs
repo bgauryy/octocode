@@ -27,3 +27,4 @@ pub(crate) mod selection_errors;
 pub(crate) mod source_evidence;
 pub(crate) mod stage;
 pub(crate) mod symbol_outline;
+pub mod wire;

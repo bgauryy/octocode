@@ -39,7 +39,7 @@ async fn commit_patch_continuations_preserve_match_context_and_exact_stream() {
             let data = read_with_budget(&server, query.clone(), Some(40)).await;
             assert_history_page_contract(&data);
             actual.push_str(data["files"][0]["patch"].as_str().expect("patch window"));
-            let Some(next) = data.pointer("/next/continuePatch/input") else {
+            let Some(next) = data.pointer("/contentPagination/patches/next/nextPage/input") else {
                 break;
             };
             let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
@@ -130,7 +130,7 @@ async fn a_one_batch_commit_read_by_branch_sends_no_separate_resolution() {
     let requests = server.received_requests().await.expect("requests");
     assert_eq!(requests.len(), 1, "one read of the commit by its name");
     assert_eq!(
-        data.pointer("/next/nextFilePage/input/queries/0/ref"),
+        data.pointer("/contentPagination/files/next/nextPage/input/queries/0/ref"),
         Some(&json!(HEAD)),
         "{data}"
     );

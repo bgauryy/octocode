@@ -10,6 +10,9 @@ import type { Budget, CommandInputs, CommandResults, Continuation } from './cata
 import { recordVariants } from './record-variants.js';
 import { compact } from './json-text.js';
 import { asObject, asObjects, isObject, type Json, type JsonObject, type Schema } from './validation.js';
+import { groupedTools, operationFor, variantInput } from './tool-groups.js';
+import { workerInstructions } from './mcp-instructions.js';
+export { isTool, keyedInput, groupedResult as toolResult } from './tool-groups.js';
 
 /** A catalog command that takes input, by name. */
 export type CommandName = keyof CommandInputs;
@@ -17,19 +20,17 @@ export type CommandName = keyof CommandInputs;
 export type CommandCall<N extends CommandName = CommandName> = { [M in N]: { name: M; input: CommandInputs[M] } }[N];
 
 export const PAGE_BYTES = 16 * 1024;
-/** The `messageKinds` marker of one send_message kind: its input field, whether it is a request, and whether it wakes by default. */
-export interface MessageKind { readonly kind: string; readonly field: string; readonly request: boolean; readonly wake: boolean }
-
 const clone = <T>(value: T): T => structuredClone(value);
 
 function resolveRefs(value: Json, definitions: JsonObject, refs: readonly string[] = []): Json {
   if (isObject(value)) {
     if ('$ref' in value) {
       const ref = value.$ref;
-      if (typeof ref !== 'string' || !ref.startsWith('#/$defs/') || Object.keys(value).some(key => key !== '$ref' && key !== 'description')) throw new ValidationError('Unsupported catalog reference');
+      if (typeof ref !== 'string' || !ref.startsWith('#/$defs/') || Object.keys(value).some(key => key !== '$ref' && key !== 'description' && key !== 'default')) throw new ValidationError('Unsupported catalog reference');
       if (refs.includes(ref)) throw new ValidationError('Circular catalog reference: ' + ref);
       const result = resolveRefs(definitions[ref.slice('#/$defs/'.length)]!, definitions, [...refs, ref]) as JsonObject;
-      return 'description' in value ? { ...result, description: value.description! } : result;
+      const { $ref: _ref, ...annotations } = value;
+      return { ...result, ...annotations };
     }
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveRefs(item, definitions, refs)]));
   }
@@ -42,6 +43,7 @@ type CommandEntry = Dump['commands'][number];
 type RecordTypeEntry = Dump['recordTypes'][number];
 
 let loaded: Dump | undefined;
+let operations: Dump['tools'] = [];
 
 function load(): Dump {
   if (loaded) return loaded;
@@ -77,11 +79,18 @@ function load(): Dump {
   value.pagination = { maxItems: 100, targetBytes: PAGE_BYTES, continuation: 'Run next.command with next.input unchanged. A single oversized row remains intact with an explicit budget diagnostic.' };
   // The one place the loaded JSON becomes the generated type: the dump must satisfy the `schema` result schema.
   validation.validate(asObject(results.schema, 'schema result'), value);
-  const dump: unknown = value;
-  return (loaded = dump as Dump);
+  const validated: unknown = value;
+  const dump = validated as Dump;
+  operations = dump.tools;
+  dump.tools = groupedTools(operations);
+  for (const tool of dump.tools) validation.checkSchema(tool.inputSchema);
+  return (loaded = dump);
 }
 function find(name: string): CommandEntry {
-  const item = load().commands.find(command => command.name === name);
+  const dump = load();
+  const item = dump.commands.find(command => command.name === name);
+  const tool = dump.tools.find(candidate => candidate.name === name);
+  if (tool) return { ...tool, usage: name + ' <json> --session <id>', cliFlags: ['workspace', 'database', 'session'] };
   if (!item) throw new ValidationError('Unknown command: ' + name + '; use --help');
   return item;
 }
@@ -135,8 +144,8 @@ export function typeSummary(): (DataFields & { type: string; writer: string })[]
 }
 
 const BYTE_UNITS: ReadonlySet<string> = new Set(['reasoning', 'content']);
-const LIMITS: Readonly<Record<string, number>> = { reasoning: 512, content: 1024 * 1024, body: 16384, question: 16384, path: 4096 };
-const STORED_KEYS: ReadonlySet<string> = new Set(['reasoning', 'content', 'body', 'question', 'path']);
+const LIMITS: Readonly<Record<string, number>> = { reasoning: 512, content: 1024 * 1024, path: 4096 };
+const STORED_KEYS: ReadonlySet<string> = new Set(['reasoning', 'content', 'path']);
 
 /** Stored text is bounded in UTF-8 bytes (reasoning, content) or UTF-16 units (everything else); `prompt` is unbounded. */
 function length(key: string, value: string): void {
@@ -154,26 +163,13 @@ export function storedLengths(value: unknown): void {
   if (Array.isArray(value)) for (const item of value) storedLengths(item);
   else if (isObject(value)) for (const [key, item] of Object.entries(value)) {
     if (typeof item === 'string' && STORED_KEYS.has(key)) length(key, item);
-    else storedLengths(item);
+    else if (key !== 'parts' && key !== 'reply') storedLengths(item);
   }
 }
 
 export function validate(schema: Schema, value: Json): void {
   storedLengths(value);
   validation.validate(schema, value);
-}
-
-/** Every send_message kind with its markers, in catalog order (shared and read-only, like the catalog it comes from). */
-export function messageKinds(): readonly MessageKind[] {
-  return load().messageKinds;
-}
-
-/** The one message-kind field present in a send_message input: `body` is a `note`. */
-export function kindOf(input: object): string {
-  const kinds = load().messageKinds;
-  const present = kinds.filter(spec => spec.field in input);
-  if (present.length !== 1) throw new ValidationError('Supply exactly one message kind: ' + kinds.map(spec => spec.field).join(', '));
-  return present[0]!.kind;
 }
 
 /** The catalog command `name` that takes input, else a validation error. */
@@ -196,9 +192,8 @@ function writableRecordTypes(): unknown[] {
 export function command<N extends CommandName>(name: N, value: unknown): CommandCall<N> {
   const input = isObject(value) ? value : undefined;
   if (name === 'record' && input && writableRecordTypes().includes(input.type) && 'data' in input) validation.validate(asObject(recordType(String(input.type)).dataSchema, 'record dataSchema'), input.data);
-  if (name === 'send_message' && input && 'replyTo' in input) throw new ValidationError('Replies use complete {message, outcome, reply} only. For progress send a delta with to and conversationId; omit replyTo.');
+  if (name === 'send_message' && input && 'replyTo' in input) throw new ValidationError('Replies use complete {message, outcome, reply} only. For progress send parts with to and contextId; omit replyTo.');
   if (name === 'send_message' && input && ('to' in input) === ('topic' in input)) throw new ValidationError('Supply exactly one recipient: to or topic');
-  if (name === 'send_message' && input) kindOf(input);
   if (name === 'complete' && input && 'reasoning' in input && !('reply' in input)) throw new ValidationError('Invalid complete: to handle without replying, omit reasoning and use message or messages only. Do not add a reply merely to satisfy validation; handled informational messages need no reply.');
   if (name === 'complete' && input && ('outcome' in input || 'reply' in input) && ('messages' in input || !('reply' in input && 'outcome' in input && 'message' in input))) throw new ValidationError('Invalid complete: a request answer needs one message, its outcome and reply: {message, outcome, reply}. Complete FYIs with message or messages and no outcome; leave unfinished work pending.');
   const item = find(name);
@@ -225,20 +220,21 @@ export function ttl(value: { readonly ttlMs?: unknown }, defaultValue: number, m
   return result;
 }
 
-const PRESETS: Readonly<Record<string, string>> = {
-  messaging: 'peers,set_status,send_message,notify_all,inbox,complete,fetch',
-  review: 'peers,set_status,send_message,notify_all,inbox,complete,fetch,record,share_document,read_document,context',
-  editing: 'peers,set_status,send_message,notify_all,inbox,complete,fetch,record,share_document,read_document,context,locks,lock,lock_many,renew,unlock',
-};
-
 export function selectedTools(selection?: string | null): Dump['tools'] {
-  const tools = load().tools;
-  if (selection == null) return clone(tools);
-  const names = (Object.hasOwn(PRESETS, selection) ? PRESETS[selection]! : selection).split(',');
-  const available = new Set(tools.map(tool => tool.name));
-  for (const name of names) if (!available.has(name)) throw new ValidationError('Unknown selected tool: ' + name + '; use schema to inspect tools');
-  if (names.length !== new Set(names).size) throw new ValidationError('Duplicate selected tool');
-  return clone(tools.filter(tool => names.includes(tool.name)));
+  load();
+  return groupedTools(operations, selection);
+}
+
+/** Both worker transports and the public CLI validate and dispatch the same typed family call. */
+export function toolCommand(name: string, value: unknown, selection?: string | null): CommandCall {
+  const tool = selectedTools(selection).find(candidate => candidate.name === name);
+  if (!tool) throw new ValidationError('Unknown tool: ' + name);
+  // Validate the discriminator/envelope first, then the selected operation. The equivalent
+  // oneOf discovery schema alone would hide actionable field errors behind a union error.
+  const { oneOf: _variants, ...envelope } = asObject(tool.inputSchema, 'tool inputSchema');
+  validation.validate(envelope, value);
+  const input = asObject(value, 'tool arguments');
+  return command(operationFor(name, input.type), variantInput(input));
 }
 
 export function deliveryBatchLimit(): number {
@@ -258,17 +254,7 @@ export function skillInstructions(vendor?: string | null): string {
 }
 
 export function workerSkill(selection?: string | null): string {
-  let value = skillInstructions('worker');
-  const names = new Set(selectedTools(selection).map(tool => tool.name));
-  if (!names.has('lock') && !names.has('lock_many')) {
-    let start = indexOf(value, '## Edit with ownership');
-    let end = indexOf(value, '\n## ', start + 3);
-    value = value.slice(0, start) + value.slice(end + 1);
-    start = indexOf(value, '```mermaid');
-    end = indexOf(value, '## Discover and choose work', start);
-    value = value.slice(0, start) + value.slice(end);
-  }
-  return value;
+  return workerInstructions(selectedTools(selection));
 }
 
 export function help() {
@@ -277,7 +263,7 @@ export function help() {
     usage: 'npx -y @octocodeai/octocode-agents-communication <command> [json|-] --workspace <path> [--database <file>] [--session <id>]',
     commands: load().commands.map(item => item.name),
     discover: ['skill', '<command> --help', 'schema types --compact', 'schema type <name>', 'db info'],
-    toolProfiles: { messaging: 'messages/status', review: 'messaging + documents/context', editing: 'review + leases' },
+    toolProfiles: { messaging: 'messages/topics/status', review: 'messaging + documents/context/records', editing: 'review + leases/write checks' },
   };
 }
 

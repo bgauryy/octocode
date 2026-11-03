@@ -249,11 +249,10 @@ pub struct NpmAuthorization {
 pub struct ResolvedNpmRegistry {
     pub base: Url,
     pub authorization: Option<NpmAuthorization>,
-    pub cache_identity: String,
 }
 
 impl ResolvedNpmRegistry {
-    /// The public npm registry (`npmjs` in cache keys), without credentials.
+    /// The public npm registry, without credentials.
     pub(crate) fn npmjs() -> Self {
         static BASE: std::sync::LazyLock<Url> = std::sync::LazyLock::new(|| {
             #[expect(clippy::expect_used, reason = "static URL, valid by construction")]
@@ -262,7 +261,6 @@ impl ResolvedNpmRegistry {
         Self {
             base: BASE.clone(),
             authorization: None,
-            cache_identity: "npmjs".into(),
         }
     }
 
@@ -291,7 +289,6 @@ impl fmt::Debug for ResolvedNpmRegistry {
                 "authorization",
                 &self.authorization.as_ref().map(|_| "[REDACTED]"),
             )
-            .field("cache_identity", &self.cache_identity)
             .finish()
     }
 }

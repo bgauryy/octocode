@@ -1,14 +1,14 @@
-//! Prepared media: request headers, per-request assets, cache identity
+//! Prepared media: request headers, per-request assets
 //! and retries that keep the media payload.
 use super::*;
 
 #[tokio::test]
-async fn prepared_media_batches_headers_and_cache_identity_without_exposing_assets() {
+async fn prepared_media_batches_headers_and_fresh_reads_without_exposing_assets() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(response)
-        .expect(3)
+        .expect(4)
         .mount(&server)
         .await;
     let evaluator = evaluator(&server);
@@ -35,8 +35,8 @@ async fn prepared_media_batches_headers_and_cache_identity_without_exposing_asse
     );
     let first = first.unwrap();
     let concurrent = concurrent.unwrap();
-    assert_eq!(first.provider_calls + concurrent.provider_calls, 1);
-    assert_ne!(first.replayed, concurrent.replayed);
+    assert_eq!(first.provider_calls, 1);
+    assert_eq!(concurrent.provider_calls, 1);
     assert_eq!(first.model, "jev-resolved");
     assert_eq!(first.answers[0]["confidence"], Value::Null);
     assert!(
@@ -81,11 +81,11 @@ async fn prepared_media_batches_headers_and_cache_identity_without_exposing_asse
             .contains_key("typesafe-danger-zone-long-context")
     );
     assert_eq!(
-        requests[2].headers["typesafe-danger-zone-long-context"],
+        requests[3].headers["typesafe-danger-zone-long-context"],
         "true"
     );
     assert_eq!(requests[0].body_json::<Value>().unwrap()["assets"], assets);
-    assert_eq!(requests[1].body_json::<Value>().unwrap()["assets"], changed);
+    assert_eq!(requests[2].body_json::<Value>().unwrap()["assets"], changed);
 }
 
 #[tokio::test]

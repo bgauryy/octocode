@@ -136,34 +136,8 @@ pub(super) fn fan_out<I: Sync, T: Send>(
     }
     let largest = items.iter().map(&weight).max().unwrap_or(0);
     let workers = budget.workers(cores, items.len(), largest);
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    let mut out: Vec<Option<T>> = items.iter().map(|_| None).collect();
-    std::thread::scope(|scope| {
-        let tasks: Vec<_> = (0..workers)
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut done = Vec::new();
-                    loop {
-                        context.check()?;
-                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(item) = items.get(index) else {
-                            return Ok::<_, ProviderError>(done);
-                        };
-                        done.push((index, run(item)?));
-                    }
-                })
-            })
-            .collect();
-        for task in tasks {
-            let done = match task.join() {
-                Ok(done) => done?,
-                Err(panic) => std::panic::resume_unwind(panic),
-            };
-            for (index, value) in done {
-                out[index] = value;
-            }
-        }
-        context.check()?;
-        Ok(out)
-    })
+    let mut items = items.iter().collect::<Vec<_>>();
+    let out = crate::tools::workers::try_each_parallel(&mut items, workers, |item| run(item))?;
+    context.check()?;
+    Ok(out)
 }

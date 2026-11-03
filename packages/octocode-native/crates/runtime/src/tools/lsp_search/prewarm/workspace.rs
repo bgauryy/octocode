@@ -18,7 +18,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// Entries and wall time of the workspace walk.
+/// Entries and wall time of the workspace walk. The walk only samples which
+/// servers to warm, on a background worker nothing waits for, and starts at
+/// most [`MAX_PREWARM_KEYS`]; no answer depends on it, so it has no
+/// completion to wait for: a cut sample warms the servers of the files it
+/// saw, and a missed server starts on its first call as without prewarm.
+/// The bounds keep that opt-in heuristic (`OCTOCODE_LSP_PREWARM=all`) from
+/// spending a large tree's full walk (874,144 entries, 3.5 s relaxed on this
+/// repository, 2026-11-02) at session start.
 const WALK_ENTRIES: usize = 20_000;
 const WALK_BUDGET: Duration = Duration::from_millis(500);
 /// Directory and extension groups planned (each plan resolves a workspace

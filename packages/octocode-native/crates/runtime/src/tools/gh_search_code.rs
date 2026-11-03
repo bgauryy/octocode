@@ -4,6 +4,7 @@ mod code_selection;
 mod fragments;
 mod leads;
 mod lines;
+mod listed;
 #[cfg(test)]
 mod provider_tests;
 mod query;
@@ -13,16 +14,16 @@ mod search_page;
 mod selection_tests;
 
 use crate::id::ToolId;
-use crate::num::usize_of;
-use crate::response::paging::{mark_partial, push_warnings};
+use crate::response::paging::mark_partial;
 use crate::response::result::{Continuation, ToolData, fresh_query_row, query_row};
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{
-    GhFailure, SearchCompleteness, SearchWindow, add_next, apply_partial, field_names, pick_rows,
-    push_warning_front, rerun_renamed, search_failure, search_may_be_renamed, with_ref_recovery,
-    with_search_repair,
+    GhFailure, Rerun, SearchCompleteness, SearchWindow, add_next, apply_partial, field_names,
+    pick_rows, push_warning_front, rerun_renamed, search_failure, search_may_be_renamed,
+    with_ref_recovery, with_search_repair,
 };
-use octocode_github::{GitHubProvider, ProviderError, RequestContext};
+use octocode_engine::num::saturating_usize;
+use octocode_github::{GitHubProvider, ProviderError, RepositoryMetadata, RequestContext};
 use serde_json::json;
 
 use octocode_contract_types::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
@@ -48,7 +49,7 @@ pub async fn run(
     };
     // A page past the 1,000-result window repairs to the search's last real
     // page: the window's last page, or the first page's own last page when
-    // it names an earlier one (one search, usually cached). Its reachable
+    // it names an earlier one (one search). Its reachable
     // results are the first page's total (every merged search's).
     let window = match context {
         Some(context)
@@ -80,7 +81,7 @@ pub async fn run(
             // size is internal.
             failure.message = format!(
                 "Page {} is past GitHub's search window: at limit {}, page {last} is the last{}.",
-                usize_of(query.page),
+                saturating_usize(query.page.get()),
                 limit(query),
                 reachable.map_or_else(String::new, |total| format!(
                     ", reaching the first {total} results"
@@ -117,7 +118,7 @@ pub async fn run(
 /// Files per merged page: the query's `limit`, its contract default when
 /// omitted.
 fn limit(query: &GhSearchCodeQuery) -> usize {
-    usize_of(query.limit)
+    saturating_usize(query.limit.get())
 }
 
 /// Files each merged search lists per page: GitHub ANDs repeated
@@ -133,7 +134,7 @@ pub(crate) async fn execute(
     context: &RequestContext,
     security: &(impl ContentScan + Sync),
 ) -> Result<ToolData, ProviderError> {
-    let current = usize_of(query.page);
+    let current = saturating_usize(query.page.get());
     let per = limit(query);
     SearchWindow::PageEnd.reject(current, per_search(query, per))?;
     // A ref search's lines are read at the ref's commit, which does not
@@ -144,17 +145,18 @@ pub(crate) async fn execute(
     )
     .await;
     // GitHub code search does not follow renames: a scoped search a rename
-    // could explain reruns once against the canonical name.
+    // could explain reruns once against the canonical name. The metadata
+    // that check read also answers the empty page's scope check.
+    let mut checked = None;
     if let Some(repo) = query.repo.as_deref()
         && search_may_be_renamed(&data, |page| page.fetched == 0 && page.total == 0)
     {
         let rerun = |renamed: GhSearchCodeQuery| async move {
             Box::pin(execute(provider, &renamed, context, security)).await
         };
-        if let Some(output) =
-            rerun_renamed(provider, query, &query.owner, repo, context, rerun).await?
-        {
-            return Ok(output);
+        match rerun_renamed(provider, query, &query.owner, repo, context, rerun).await? {
+            Rerun::Renamed(output) => return Ok(output),
+            Rerun::Stands(metadata) => checked = metadata,
         }
     }
     let data = data?;
@@ -204,7 +206,13 @@ pub(crate) async fn execute(
                 .out_of_range(past_end)
                 .to_value();
     }
-    add_next(&mut value, ToolId::GhSearchCode, query, current, more);
+    add_next(
+        &mut value,
+        ToolId::GhSearchCode,
+        &walked(query, &data),
+        current,
+        more,
+    );
     // A file lists at most a few of its hit lines; `readHits` reads the rest.
     let hits_unlisted = !reads.hits.is_empty();
     add_reads(&mut value, reads);
@@ -229,10 +237,21 @@ pub(crate) async fn execute(
         code_output::owner_exists(&query.owner, &provider.transport, context).await?;
     }
     if data.fetched == 0 && !past_end {
-        empty_page(provider, query, context, &mut output).await?;
+        empty_page(provider, query, context, checked, &mut output).await?;
     }
     crate::response::result::finish_calls(&mut output.data);
     Ok(output)
+}
+
+/// `query` carrying the walk through `data`'s page, for `next.nextPage`:
+/// every file listed so far and the match count GitHub stated, private
+/// state the issued continuation carries across independent requests.
+fn walked(query: &GhSearchCodeQuery, data: &SearchPage) -> GhSearchCodeQuery {
+    GhSearchCodeQuery {
+        listed: data.listed.state().and_then(|state| state.try_into().ok()),
+        matched: Some(u64::try_from(data.matched).unwrap_or(u64::MAX)),
+        ..query.clone()
+    }
 }
 
 /// The page's reads: `read` (the top hit) and `readHits`, `readHits2`, …,
@@ -280,8 +299,13 @@ fn disclose_completeness(
             &[],
         );
     }
-    if data.pages > 1 {
-        push_warnings(value, data.paging_warnings());
+    let before = query.matched.map(saturating_usize);
+    if let Some(warnings) = data.shift_warnings(before) {
+        mark_partial(
+            value,
+            crate::response::paging::PartialReason::ProviderResultsShifted,
+            &warnings,
+        );
     }
     if let Some(warning) = octocode_github::sso_partial_warning(&data.sso_partial) {
         push_warning_front(value, warning);
@@ -293,6 +317,7 @@ async fn empty_page(
     provider: &GitHubProvider,
     query: &GhSearchCodeQuery,
     context: &RequestContext,
+    checked: Option<RepositoryMetadata>,
     output: &mut ToolData,
 ) -> Result<(), ProviderError> {
     let broader = leads::broaden_search(query, provider.transport.code_search_room(context));
@@ -303,6 +328,7 @@ async fn empty_page(
         query,
         broader.is_some(),
         &provider.transport,
+        checked,
         context,
     )
     .await?;

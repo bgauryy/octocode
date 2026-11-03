@@ -19,7 +19,7 @@ function fixture(t: TestContext){
   const asyncCall=async(...input: [command: string, input?: unknown, session?: string]): Promise<JsonRecord>=>JSON.parse((await execute(binary,args(...input),{timeout:15000})).stdout);
   const sender=call('join',{name:'sender',vendor:'raw'}),receiver=call('join',{name:'grok',vendor:'grok'}),vendorSession=randomUUID(),db=new DatabaseSync(database);
   t.after(()=>{db.close();rmSync(workspace,{recursive:true,force:true});});
-  return{workspace,call,asyncCall,receiver,sender,vendorSession,db,send:(wake='action')=>call('send_message',{to:receiver.id,body:'Question requiring one answer',wake,key:randomUUID(),reasoning:'Verify existing Grok native delivery'},sender.id)};
+  return{workspace,call,asyncCall,receiver,sender,vendorSession,db,send:(wake='action')=>call('send_message',{parts: [{ text: 'Question requiring one answer' }], to:receiver.id,wake,key:randomUUID(),reasoning:'Verify existing Grok native delivery'},sender.id)};
 }
 type Fixture=ReturnType<typeof fixture>;
 async function leader(t: TestContext,f: Fixture,{mode='success',fragment=false,metadata={}}: {mode?: string;fragment?: boolean;metadata?: JsonRecord}={}){

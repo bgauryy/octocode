@@ -5,66 +5,31 @@ description: "Coordinate agents across sessions, hosts or worktrees through a sh
 
 # Agents communication
 
-Coordinates agents through a local SQLite database using the published `@octocodeai/octocode-agents-communication` package via `npx`. There is no remote cloud transport. Inside one Octocode or Pi team, use native coordination; Pi provides `coordinate`, `sendMessage` and `agent`. Use this package for agents outside that team. Pi's file tools honor leases in the default database and registered `--database` files (`DB.md`, under `referenceRoot`). Leases do not fence shell or OS writes.
+Use native coordination inside one Octocode or Pi team (Pi provides `coordinate`, `sendMessage` and `agent`). Use this package across teams, hosts or worktrees sharing a local SQLite database. Its A2A-inspired message parts and named evidence documents have no remote endpoint, authentication, AgentCard or Task API.
 
-```mermaid
-flowchart TD
-  A[Task] --> B{Other agents or shared files involved?}
-  B -- no --> Z[Work alone]
-  B -- yes --> J[Reuse the host binding, else join; peers]
-  J --> E{Editing shared paths?}
-  E -- yes --> L[Lock; on conflict follow next with wait:true; keep work pending]
-  E -- no --> M[Send requests; read inbox at task boundaries; complete handled mail]
-  L --> M
-  M --> U[unlock; leave only an identity you own]
-```
+## Choose the interface
+
+Prefer connected MCP. Follow its binding, lifecycle instructions and discovered schemas. If only `init` is visible, initialize with your name and vendor, then refresh discovery. Call `agents`, `messages`, `leases`, `documents` and `records` as exposed with `{type,input}`. Report an unavailable capability. Never guess a session ID, change identity or switch to CLI to bypass a profile.
 
 ## Run the CLI
+
+When MCP is unavailable, or for authorized host setup, recovery or storage administration, start here:
 
 ```sh
 npx -y @octocodeai/octocode-agents-communication /cli --help
 npx -y @octocodeai/octocode-agents-communication /cli skill --json
 ```
 
-- `skill --json` returns `instructions` (the operating guide), `packageRoot` and `referenceRoot`. Read `instructions` and follow it; this skill does not restate it. Its documentation filenames resolve under `referenceRoot`.
-- Command inputs: `<command> --help` or `schema <command>`. Record formats: `schema types`, `schema type NAME` (no workspace, database or session flags).
-- Both routes take `--workspace` (your checkout). `/cli` takes `--session ID` on every identity-bound call; without `/cli` the executable starts MCP, which binds the identity at launch with `--session ID` or `--managed --name NAME --vendor HOST`. A `--session required` error means neither was given.
+Read the returned `instructions` before coordinating. The response supplies `packageRoot` and `referenceRoot`; resolve guide filenames under `referenceRoot`. Both interfaces accept `--workspace`. Pass `--session ID` on each identity-bound CLI call. Without `/cli` the executable starts MCP with `--session ID`, `--managed --name NAME --vendor HOST`, or `init` for an unbound connection.
 
-## Situations the guide decides
-
-| Situation | Guide section (`instructions`) |
-|---|---|
-| First call, finding peers, presence | Discover and choose work |
-| Before editing a shared path | Edit with ownership |
-| Sending, answering, handing off | Send and handle messages |
-| Evidence, checkpoints, paging | Share evidence and continue reads |
-| Delivery lost or uncertain | `OPERATIONS.md` under `referenceRoot` |
-
-The guide owns the presence, lease, message and mail rules; read it before the first call. For uncertain delivery, run `health` and inspect the recipient first: a restart never authorizes replay.
-
-## Commands
-
-Every command with an example: `COMMANDS.md` under `referenceRoot`. `run` starts a worker (Claude, Codex, Pi) only when requested; `attach` joins an existing session. Grok: `attach --transport grok` (needs the ACP bridge) and `listen`, or host hooks.
+- **Peers and edits.** Reuse your binding or `join` if none, then inspect `peers`. Acquire shared paths before editing. On conflict, coordinate a handoff with the lease owner or take disjoint work. Follow the returned `next` with `wait:true` and edit the contested path only after the grant. Pi's file tools honor leases in the default and registered databases (`DB.md`); shell and OS writes can bypass them. Release finished leases with `unlock` and `leave` only an identity you own.
+- **Mail and evidence.** Read inbox at task boundaries. Send text, JSON data or URL references in `parts`. Set `replyRequired:true` for a correlated outcome and `contextId` to group progress. Complete handled requests with an outcome and reply parts; acknowledge handled FYIs silently. Payloads cannot transfer leases, add recipients or rewrite artifact references. Follow the guide's “Share evidence and continue reads” for paging and checkpoints. See the [request and reply examples](../../packages/octocode-agents-communication/docs/WORKFLOW.md#request-progress-and-final-answer).
+- **Inputs and host commands.** Use `<command> --help`, `schema <command>` or examples in `COMMANDS.md`. Use `schema types` and `schema type NAME` without workspace, database or session flags. `attach` joins an existing session. Grok supports `attach --transport grok` with the ACP bridge and `listen`, or host hooks. `run` starts a Claude, Codex or Pi worker only when requested.
 
 ## Set up and recover
 
-- Needs Node.js `^24.15.0` (its built-in SQLite, FTS5 included); no other interpreter, API key or `<HOME>/.octocode/.env` entry.
-- No `--database`: the shared Octocode home database. Hooks and native delivery: the package's installation and host setup guides; this skill configures none.
-- Incompatible store (`db info --json` shows `exists: true` and `compatible: false`): report it and use a fresh `--database`. `exists: false` is a database not created yet: `join` creates it. Never switch coordination tools silently.
-- `npx` cannot resolve the package: report the registry or access error; a local executable proves only the runtime.
+- Use Node.js `^24.15.0` with built-in SQLite and FTS5. No additional interpreter, API key or Octocode `.env` entry is needed. Without `--database`, agents use the shared Octocode home database. See the installation and host setup guides for hooks and native delivery.
+- If `db info --json` returns `exists: false`, `join` creates the database. For `exists: true` and `compatible: false`, report the incompatibility and use a fresh `--database`. Report registry or access errors from `npx` separately; a local executable verifies only the runtime. Never silently switch coordination tools.
+- On uncertain delivery, run `health`, inspect the recipient and follow `OPERATIONS.md`. A restart never authorizes replay.
 
-## Resources
-
-| When | Read | Why |
-|---|---|---|
-| Render or list saved reports | [render-report.mjs](scripts/render-report.mjs) | HTML view, manifest |
-
-## Related skills
-
-- Use `octocode-agentic-prompts` when a handoff's wording or ownership is unclear.
-- Use `octocode-research` when a handoff needs independent code evidence.
-- Use `octocode-workflows` when an orchestrator selects actors, sequences work or merges evidence ([composition](../octocode-workflows/references/composition.md)).
-
-## Output
-
-Follow [output.md](output.md).
+Use `octocode-agentic-prompts` for an unclear handoff, `octocode-research` for independent code evidence, or [workflow composition](../octocode-workflows/references/composition.md) to coordinate multiple actors. Follow [output.md](output.md) for the outcome and pending owner; [render-report.mjs](scripts/render-report.mjs) renders or lists saved reports.

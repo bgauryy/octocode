@@ -1,6 +1,40 @@
 //! Path and anchor recovery: directory anchors, nearby names, order hints
 //! and the recovery `next` call.
 use super::*;
+use crate::tools::source_view::local_fetch_query::{outline_lead, read_lead};
+use octocode_contract_types::{
+    CaseMode, LocalFetchQuery, LocalFetchQueryContentMatchString,
+    LocalFetchQueryContentMatchStringContextLines, LocalFetchQueryContentMatchStringView,
+    RegexEngine,
+};
+
+/// A read of the windows around `symbol` in `path`, matching with `case_mode`.
+fn symbol_read(path: &str, symbol: &str, case_mode: CaseMode) -> Option<LocalFetchQuery> {
+    Some(
+        LocalFetchQueryContentMatchString {
+            block: None,
+            case_mode,
+            classification: None,
+            context_lines: Some(LocalFetchQueryContentMatchStringContextLines {
+                after: 3,
+                before: 3,
+            }),
+            limit: None,
+            main_goal: None,
+            match_string: vec![symbol.try_into().ok()?].into(),
+            path: path.try_into().ok()?,
+            ranges: Vec::new(),
+            read_progress: None,
+            reasoning: None,
+            regex_engine: RegexEngine::Literal,
+            selection: None,
+            snapshot: None,
+            view: LocalFetchQueryContentMatchStringView::Content,
+            whole_word: false,
+        }
+        .into(),
+    )
+}
 
 /// A request whose path did not validate, as a row where its lead says
 /// what to do (a directory anchor, a missing path), else the failure.
@@ -54,10 +88,9 @@ pub(in super::super) fn directory_anchor(
     });
     match lsp_search_query::symbol_name(query).filter(|symbol| !symbol.trim().is_empty()) {
         Some(symbol) => {
-            crate::response::result::attach_related(
-                &mut row,
-                text_search_lead(symbol, &name, &[], None).build(),
-            );
+            if let Some(lead) = text_search_lead(symbol, &name, &[], None) {
+                crate::response::result::attach_related(&mut row, lead.build());
+            }
         }
         None => {
             crate::response::result::attach_related(
@@ -84,24 +117,22 @@ pub(in super::super) fn attach_recovery_next(value: &mut Value, query: &LspSearc
         .filter(|name| !name.trim().is_empty());
     // A directory (a workspaceSymbol scope) is searched, not fetched.
     if let Some(symbol) = symbol.filter(|_| std::path::Path::new(&path).is_dir()) {
-        crate::response::result::attach_related(
-            value,
-            symbol_search_lead(query, symbol, &path).build(),
-        );
+        if let Some(lead) = symbol_search_lead(query, symbol, &path) {
+            crate::response::result::attach_related(value, lead.build());
+        }
         return;
     }
-    let mut read = json!({ "path": path });
-    if let Some(symbol) = symbol {
-        read["matchString"] = json!([symbol]);
-        read["caseMode"] = json!("sensitive");
-        read["contextLines"] = json!({"before":3,"after":3});
-    } else if lsp_search_query::operation(query) == "documentSymbols" {
-        read["view"] = json!("symbols");
+    let read = match symbol {
+        Some(symbol) => symbol_read(&path, symbol, CaseMode::Sensitive),
+        None if lsp_search_query::operation(query) == "documentSymbols" => outline_lead(&path),
+        None => read_lead(&path),
+    };
+    if let Some(read) = read {
+        crate::response::result::attach_related(
+            value,
+            crate::response::result::Continuation::related_query(read).build(),
+        );
     }
-    crate::response::result::attach_related(
-        value,
-        crate::response::result::Continuation::related(ToolId::LocalFetch, read).build(),
-    );
 }
 
 pub(in super::super) fn anchor_recovery(
@@ -115,16 +146,15 @@ pub(in super::super) fn anchor_recovery(
     if let Some(source) = source {
         keep_reads_that_find(value, query, name, source);
     }
-    let mut search = json!({"operation": "workspaceSymbol", "symbolQuery": name});
-    let asked = lsp_search_query::to_row(query);
-    for key in ["path", "workspaceRoot", "rustContext"] {
-        if let Some(value) = asked.get(key).filter(|value| !value.is_null()) {
-            search[key] = value.clone();
-        }
-    }
+    // A named symbol is anchored, so the request has a path.
+    let Some(search) = lsp_search_query::path(query)
+        .and_then(|path| lsp_search_query::workspace_symbol_lead(name, path, Some(query)))
+    else {
+        return;
+    };
     crate::response::result::attach_related(
         value,
-        crate::response::result::Continuation::related(ToolId::LspSearch, search).build(),
+        crate::response::result::Continuation::related_query(search).build(),
     );
 }
 
@@ -137,14 +167,12 @@ fn keep_reads_that_find(value: &mut Value, query: &LspSearchQuery, name: &str, s
     if name.is_empty() || source.contains(name) {
         return;
     }
-    let mut read = None;
+    let mut read_dropped = false;
     if let Some(related) = value.get_mut("related").and_then(Value::as_array_mut) {
         related.retain(|call| {
-            let reads_name = call["tool"] == "localFetch"
+            let reads_name = call["tool"] == ToolId::LocalFetch.as_str()
                 && call["input"]["queries"][0]["matchString"] == json!([name]);
-            if reads_name {
-                read = Some(call["input"]["queries"][0].clone());
-            }
+            read_dropped |= reads_name;
             !reads_name
         });
     }
@@ -164,11 +192,13 @@ fn keep_reads_that_find(value: &mut Value, query: &LspSearchQuery, name: &str, s
             "{error}; the file has '{name}' only in another case, nearest at line {line}"
         ));
     }
-    if let Some(mut read) = read {
-        read["caseMode"] = json!("insensitive");
+    let path = lsp_search_query::path(query)
+        .map(uri_to_path)
+        .unwrap_or_default();
+    if read_dropped && let Some(read) = symbol_read(&path, name, CaseMode::Insensitive) {
         crate::response::result::attach_related(
             value,
-            crate::response::result::Continuation::related(ToolId::LocalFetch, read).build(),
+            crate::response::result::Continuation::related_query(read).build(),
         );
     }
 }

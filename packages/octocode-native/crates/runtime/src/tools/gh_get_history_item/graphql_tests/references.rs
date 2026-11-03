@@ -135,7 +135,7 @@ async fn every_closing_reference_is_read_on_from_its_cursor() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
             "repository": {"issue": {"closedByPullRequestsReferences": {
                 "totalCount": 130, "pageInfo": {"hasNextPage": false, "endCursor": "r2"},
-                "nodes": nodes(100..130)}}}
+                "nodes": nodes(101..131)}}}
         }})))
         .expect(1)
         .with_priority(1)
@@ -146,7 +146,7 @@ async fn every_closing_reference_is_read_on_from_its_cursor() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
             "repository": {"issue": {"closedByPullRequestsReferences": {
                 "totalCount": 130, "pageInfo": {"hasNextPage": true, "endCursor": "r1"},
-                "nodes": nodes(0..100)}}}
+                "nodes": nodes(1..101)}}}
         }})))
         .expect(1)
         .with_priority(2)

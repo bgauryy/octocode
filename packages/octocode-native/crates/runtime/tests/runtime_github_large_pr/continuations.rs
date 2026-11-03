@@ -33,7 +33,7 @@ async fn inventory_cursors_keep_identity_and_reach_each_file_once() {
         let next = result
             .structured_content
             .pointer("/responsePagination/next")
-            .or_else(|| data.pointer("/next/nextFilePage"));
+            .or_else(|| data.pointer("/pullRequests/0/contentPagination/files/next/nextPage"));
         let Some(next) = next else { break };
         assert_eq!(next["kind"], "continue");
         assert!(next["input"]["cursor"].is_string());
@@ -74,7 +74,10 @@ async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
     assert_eq!(pages["files"]["hasMore"], false, "{pages}");
     assert_eq!(pages["patches"]["offset"], 0, "{pages}");
     assert!(pages["patches"].get("totalChars").is_none(), "{pages}");
-    assert!(data["next"]["continuePatch"].is_object(), "{data}");
+    assert!(
+        data["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"].is_object(),
+        "{data}"
+    );
 }
 
 /// The default PR view is GitHub's verbatim text: a body's HTML comment
@@ -171,7 +174,7 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
     }
 }
 
-/// A file page pins the head it read (`headSha` on `next.nextFilePage`);
+/// A file page pins the head it read (`headSha` on `contentPagination.files.next.nextPage`);
 /// replayed after the head moved, the page is a stale snapshot whose
 /// restart is the first page without the pin, never a mix of two heads.
 #[tokio::test]
@@ -194,7 +197,9 @@ async fn inventory_cursor_replay_returns_the_same_pinned_file_page() {
         json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["files"]}),
     )
     .await;
-    let next = first.data()["next"]["nextFilePage"]["input"].clone();
+    let next =
+        first.data()["pullRequests"][0]["contentPagination"]["files"]["next"]["nextPage"]["input"]
+            .clone();
     assert!(next["cursor"].is_string());
     let second = support::run(&runtime, "ghGetHistoryItem", next.clone()).await;
     let replay = support::run(&runtime, "ghGetHistoryItem", next).await;
@@ -239,7 +244,7 @@ fn inventory_paths(files: &Value) -> Vec<String> {
         .collect()
 }
 
-/// A budget-sized file page pins its grid: `next.nextFilePage`, copied
+/// A budget-sized file page pins its grid: `contentPagination.files.next.nextPage`, copied
 /// unchanged, continues the same file list whether it runs alone or batched
 /// with other rows (a different budget share), so every walk lists each
 /// changed file exactly once.
@@ -285,7 +290,7 @@ async fn file_page_continuations_continue_the_same_grid_in_any_batch() {
             seen.extend(inventory_paths(&data["pullRequests"][0]["files"]));
             let next = content
                 .pointer("/responsePagination/next")
-                .or_else(|| data.pointer("/next/nextFilePage"));
+                .or_else(|| data.pointer("/pullRequests/0/contentPagination/files/next/nextPage"));
             let Some(next) = next else { break };
             assert!(next["input"]["cursor"].is_string(), "{next}");
             input = next["input"].clone();

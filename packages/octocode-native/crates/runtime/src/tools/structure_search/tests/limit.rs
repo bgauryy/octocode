@@ -56,7 +56,7 @@ fn omitted_limit_keeps_the_budget_cut_pages() {
     assert_eq!(tight.iter().map(|out| paths(out).len()).sum::<usize>(), 7);
 }
 
-/// The walk window stays internal: a limited page's `continueWalk` (were
+/// The walk window stays internal: a limited page's `nextPage` (were
 /// one needed) never rewrites `limit`, and `nextPage` carries it.
 #[test]
 fn the_cursor_carries_the_limit() {

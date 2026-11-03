@@ -1,39 +1,14 @@
 use super::*;
 
-/// A cycle listing row, one huge cycle between two small
+/// A graphQuery cycle listing row, one huge cycle between two small
 /// ones. Each page holds at most one part of a row, so `results[i]` is
 /// the whole of that row on the page; every edge record is delivered
 /// once; and the first page is filled with the head of the evidence.
 #[test]
 fn a_split_row_has_one_part_per_page_and_never_repeats_its_records() {
-    let edges = |cycle: usize, kind: &str, count: usize| {
-        (0..count)
-            .map(|n| {
-                json!({"from": format!("c{cycle}/{kind}/from_{n}.ts"),
-                           "to": format!("c{cycle}/{kind}/to_{n}.ts"),
-                           "edgeKinds": ["static-import"]})
-            })
-            .collect::<Vec<_>>()
-    };
-    let cycle = |cycle: usize, files: usize, runtime: usize, members: usize| {
-        json!({
-            "files": (0..files)
-                .map(|n| format!("excalidraw-app/c{cycle}/components/Module_{n:04}.tsx"))
-                .collect::<Vec<_>>(),
-            "edgeKinds": ["static-import", "type-import"],
-            "runtimeCycles": (0..runtime)
-                .map(|r| (0..members)
-                    .map(|n| format!("packages/c{cycle}/runtime_{r}/member_{n:03}.ts"))
-                    .collect::<Vec<_>>())
-                .collect::<Vec<_>>(),
-            "runtimeCycleCount": runtime,
-            "cycleEdges": edges(cycle, "cycle", 4),
-            "runtimeCycleEdges": edges(cycle, "runtime", 7),
-        })
-    };
     let structured = json!({"results": [{"index": 0, "data": {
         "path": "tsx",
-        "results": [cycle(1, 4, 1, 2), cycle(2, 349, 5, 30), cycle(3, 4, 1, 2)],
+        "rows": [cycle_row(1, 4, 1, 2), cycle_row(2, 349, 5, 30), cycle_row(3, 4, 1, 2)],
         "summary": {"cycleCount": 3, "runtimeCycleCount": 7},
         "hints": {"read": {"tool": "localFetch", "query": {"path": "tsx/a.ts"}}}
     }}]})
@@ -41,7 +16,7 @@ fn a_split_row_has_one_part_per_page_and_never_repeats_its_records() {
     .cloned()
     .expect("object");
     let budget = 20_000;
-    let pages = walk(&structured, budget);
+    let pages = walk_as(crate::id::ToolId::GraphQuery, &structured, budget);
     assert!(pages.len() > 1, "the row is split");
     let (mut files, mut edges_seen, mut runtime_seen) = (Vec::new(), Vec::new(), Vec::new());
     for (number, (page, _)) in pages.iter().enumerate() {
@@ -55,13 +30,19 @@ fn a_split_row_has_one_part_per_page_and_never_repeats_its_records() {
         unique.dedup();
         assert_eq!(indexes, unique, "page {number} repeats a row index");
         for row in page["results"].as_array().expect("rows") {
-            for cycle in row["data"]["results"].as_array().into_iter().flatten() {
+            for cycle in row["data"]["rows"].as_array().into_iter().flatten() {
                 files.extend(cycle["files"].as_array().into_iter().flatten().cloned());
-                for key in ["cycleEdges", "runtimeCycleEdges"] {
-                    edges_seen.extend(cycle[key].as_array().into_iter().flatten().cloned());
+                for key in ["witness", "suggestedCuts"] {
+                    edges_seen.extend(
+                        cycle["evidence"][key]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .cloned(),
+                    );
                 }
                 runtime_seen.extend(
-                    cycle["runtimeCycles"]
+                    cycle["evidence"]["members"]
                         .as_array()
                         .into_iter()
                         .flatten()
@@ -79,7 +60,11 @@ fn a_split_row_has_one_part_per_page_and_never_repeats_its_records() {
     };
     assert_eq!(count(&files), (357, 357), "every file once");
     assert_eq!(count(&edges_seen), (33, 33), "every edge record once");
-    assert_eq!(count(&runtime_seen), (7, 7), "every runtime cycle once");
+    assert_eq!(
+        count(&runtime_seen),
+        (2 + 5 * 30 + 2, 2 + 5 * 30 + 2),
+        "every runtime cycle member once"
+    );
     let first = pages[0].1.returned_chars;
     assert!(
         first > budget / 2,

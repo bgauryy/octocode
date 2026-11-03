@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { bindingArgs, readBinding, runtimeCommand, type HostBinding, type PiHost, type PiToolHost } from './shared/command.js';
 import { isObject, type Json } from '../runtime/validation.js';
+import { keyedInput, retryKeyPayload } from '../runtime/tool-groups.js';
 
 interface Tool {
   name: string;
@@ -23,6 +24,14 @@ export interface BoundToolsOptions {
 // Keep the field schema and let the shared runtime catalog enforce cross-field rules.
 function providerParameters(schema: Record<string, unknown>): Record<string, unknown> {
   const result = { ...schema };
+  // Keep all variant argument schemas visible when a provider forbids top-level unions.
+  // The canonical runtime still enforces the selected type/argument pairing.
+  if (isObject(schema.properties) && 'type' in schema.properties && 'input' in schema.properties && Array.isArray(schema.oneOf)) {
+    result.properties = { ...schema.properties, input: { anyOf: schema.oneOf.map(branch => {
+      if (!isObject(branch) || !isObject(branch.properties)) throw new Error('Malformed tool variant');
+      return branch.properties.input;
+    }) } };
+  }
   for (const keyword of ['oneOf', 'anyOf', 'allOf', 'enum', 'const', 'not']) delete result[keyword];
   return result;
 }
@@ -77,10 +86,11 @@ export function registerBoundTools(pi: PiToolHost, options: BoundToolsOptions): 
         if (!session) throw new Error('Communication is disabled or no session is bound');
         if (!binary || !workspace) throw new Error('Communication binding requires a binary and a workspace');
         // Host call IDs survive re-execution; different calls may intentionally repeat a body.
-        const retryable = ['send_message', 'notify_all', 'record'].includes(tool.name);
-        const keyed = retryable && input.key === undefined;
+        const payload = retryKeyPayload(tool.name, input);
+        const retryable = payload !== null;
+        const keyed = retryable && payload.key === undefined;
         if (keyed && (typeof id !== 'string' || !id)) throw new Error('Message execution requires a stable host call ID or explicit key');
-        const value = keyed ? { ...input, key: `pi:${createHash('sha256').update(id).digest('hex')}` } : input;
+        const value = keyed ? keyedInput(tool.name, input, `pi:${createHash('sha256').update(id).digest('hex')}`) : input;
         const json = JSON.stringify(value);
         const stdout = await new Promise<string>((resolve, reject) => {
           let inputError: (Error & { code?: string }) | undefined;
@@ -93,7 +103,7 @@ export function registerBoundTools(pi: PiToolHost, options: BoundToolsOptions): 
             if (!failure) { resolve(output); return; }
             const detail = stderr?.trim() || `Communication ${tool.name} failed (${failure.code ?? failure.name}${failure.signal ? `, ${failure.signal}` : ''})`;
             const retry = retryable
-              ? ` Outcome may be unknown; inspect history before retrying unchanged input with key ${JSON.stringify(value.key)}.` : '';
+              ? ` Outcome may be unknown; inspect history before retrying unchanged input with key ${JSON.stringify(retryKeyPayload(tool.name, value)?.key)}.` : '';
             reject(new Error(detail + retry + (output ? '\nOutput captured before failure: ' + output : '')));
           });
           // An early exit/abort can close the pipe before a large write finishes.

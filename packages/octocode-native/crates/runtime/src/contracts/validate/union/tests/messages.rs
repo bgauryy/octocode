@@ -311,25 +311,45 @@ fn a_sibling_hint_skips_forms_whose_other_selectors_reject_the_row() {
     assert!(!message.contains("requires"), "{message}");
 }
 
-/// A value only a sibling form accepts names the selector the row omitted
-/// that picks that form: `unique:"list"` needs `view:"matchOnly"`.
+/// A value only a sibling form accepts names that form's single-literal
+/// selector: `unique:"list"` sent with `view:"content"` needs
+/// `view:"matchOnly"`.
 #[test]
-fn a_sibling_hint_names_the_omitted_selector_that_accepts_the_value() {
+fn a_sibling_hint_names_the_single_literal_selector_that_accepts_the_value() {
     let schema = json!({"anyOf":[
         {"type":"object","additionalProperties":false,
          "properties":{"view":{"const":"content"},"unique":{"enum":["off"]}}},
         {"type":"object","additionalProperties":false,
-         "properties":{"view":{"const":"matchOnly"},"unique":{"enum":["off","list"]}},
-         "required":["view"]}
+         "properties":{"view":{"const":"matchOnly"},"unique":{"enum":["off","list"]}}}
     ]});
-    let mut value = json!({"unique":"list"});
+    let mut value = json!({"view":"content","unique":"list"});
     let error = validate_schema(&schema, &schema, &mut value, &mut vec![])
         .expect_err("list needs matchOnly");
+    let hint = r#"(unique:"list" requires view:"matchOnly")"#;
     assert!(
-        error
-            .issues
-            .iter()
-            .any(|item| item.message.contains(r#"(unique:"list" requires view:"matchOnly")"#)),
+        error.issues.iter().any(|item| item.message.contains(hint)),
+        "{error:?}"
+    );
+}
+
+/// Several forms accepting the value are all named, merged by selector.
+#[test]
+fn a_sibling_hint_names_every_form_that_accepts_the_value() {
+    let form = |view: &str, unique: Value| {
+        json!({"type":"object","additionalProperties":false,
+               "properties":{"view":{"const":view},"unique":{"enum":unique}}})
+    };
+    let schema = json!({"anyOf":[
+        form("content", json!(["off"])),
+        form("matchOnly", json!(["off", "list"])),
+        form("count", json!(["off", "list"]))
+    ]});
+    let mut value = json!({"view":"content","unique":"list"});
+    let error = validate_schema(&schema, &schema, &mut value, &mut vec![])
+        .expect_err("list needs matchOnly or count");
+    let hint = r#"(unique:"list" requires view one of "matchOnly", "count")"#;
+    assert!(
+        error.issues.iter().any(|item| item.message.contains(hint)),
         "{error:?}"
     );
 }

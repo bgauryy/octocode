@@ -12,6 +12,7 @@ mod predicates;
 mod relationships;
 mod scalar;
 use super::{ContractValidationError, issue, schema_issue, union};
+pub(super) use object::authored_property;
 use object::validate_object;
 use pattern::{compiled_pattern, describe_unreadable_pattern, pattern_message};
 use predicates::predicate_root;
@@ -116,7 +117,13 @@ fn validate_schema_with_ref_depth(
         let target = reference
             .as_str()
             .filter(|reference| reference.starts_with("#/$defs/"))
-            .and_then(|reference| root.pointer(&reference[1..]))
+            .and_then(|reference| {
+                root.pointer(&reference[1..]).or_else(|| {
+                    super::super::parsed_contract()
+                        .ok()
+                        .and_then(|contract| contract.pointer(&reference[1..]))
+                })
+            })
             .filter(|_| ref_depth < 32)
             .ok_or_else(|| {
                 issue(

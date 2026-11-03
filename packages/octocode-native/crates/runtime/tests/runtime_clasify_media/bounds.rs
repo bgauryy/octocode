@@ -55,22 +55,26 @@ async fn cancellation_keeps_completed_sibling_usage() {
     })
     .await
     .unwrap();
-    // A replay joins the successful sibling's single flight. Its completion
-    // proves the original judgment is saved before cancellation, without timing guesses.
-    let replay = clasify(&runtime, vec![fast]).await;
-    assert_eq!(replay["results"][0]["data"]["replayed"], true, "{replay}");
+    // An independent identical call is a fresh evaluation that reaches the
+    // provider after the sibling's request, so the sibling has answered
+    // before the cancellation.
+    let repeat = clasify(&runtime, vec![fast]).await;
+    assert!(
+        repeat["results"][0]["data"].get("replayed").is_none(),
+        "{repeat}"
+    );
     assert!(runtime.requests.cancel("cancelled"));
     let _ = task.await.unwrap();
     let stats: Value =
         serde_json::from_slice(&std::fs::read(workspace.home.join("stats.json")).unwrap()).unwrap();
-    assert_eq!(stats["stats"]["clasify"]["calls"], 2, "{stats}");
-    assert_eq!(stats["stats"]["clasify"]["known_usage_calls"], 1, "{stats}");
+    assert_eq!(stats["stats"]["clasify"]["calls"], 3, "{stats}");
+    assert_eq!(stats["stats"]["clasify"]["known_usage_calls"], 2, "{stats}");
     assert_eq!(
         stats["stats"]["clasify"]["unknown_usage_calls"], 1,
         "{stats}"
     );
-    assert_eq!(stats["stats"]["clasify"]["input_tokens"], 100, "{stats}");
-    assert_eq!(stats["stats"]["clasify"]["output_tokens"], 10, "{stats}");
+    assert_eq!(stats["stats"]["clasify"]["input_tokens"], 200, "{stats}");
+    assert_eq!(stats["stats"]["clasify"]["output_tokens"], 20, "{stats}");
     runtime.close().await;
 }
 
@@ -91,15 +95,13 @@ async fn image_asset_admission_respects_disabled_reader_and_path_policy() {
         )
         .await
         .expect("MCP refusal response");
-    assert_eq!(error["structuredContent"]["errorCode"], "invalidInput");
+    let payload = crate::support::mcp_payload(&error);
+    assert_eq!(payload["errorCode"], "invalidInput");
     assert!(
-        error["structuredContent"]["error"]
-            .as_str()
-            .is_some_and(
-                |message| message.contains("queries.0.assets.image_a.source")
-                    && message.contains("localFetch")
-                    && message.contains("DISABLE_TOOLS")
-            ),
+        payload["error"].as_str().is_some_and(|message| message
+            .contains("queries.0.assets.image_a.source")
+            && message.contains("localFetch")
+            && message.contains("DISABLE_TOOLS")),
         "{error}"
     );
     assert!(requests(&server).await.is_empty());

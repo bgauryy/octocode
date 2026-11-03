@@ -14,7 +14,7 @@ use crate::contracts::listing_roles::structure_search;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
-use octocode_contract_types::{StructureSearchQueryFilesSort, StructureSearchView};
+use octocode_contract_types::{StructureSearchSort, StructureSearchView};
 use octocode_engine::types::FileSystemQueryOptions;
 
 mod walk;
@@ -23,9 +23,33 @@ mod walk;
 pub(super) use walk::listing_walks;
 use walk::walk_listing;
 
+/// Where a continuation moves a listing: the private position fields it
+/// sets, the rest of the query staying as written.
+pub(super) enum Move {
+    /// The next page of the stored walk, bound to its `snapshot`.
+    Page {
+        page: std::num::NonZeroU64,
+        snapshot: String,
+    },
+    /// The window after one a row limit cut, past the rows already listed.
+    Window {
+        scan_offset: Option<std::num::NonZeroU64>,
+    },
+    /// The walk resumed after a time cut, past the rows already listed.
+    Resume {
+        walk_offset: std::num::NonZeroU64,
+        scan_offset: Option<std::num::NonZeroU64>,
+    },
+}
+
 /// A listing operation's query: the fields both operations share
 /// ([`listing_fields!`]) and what the operation decides itself.
-pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned {
+pub(super) trait Listing:
+    Clone
+    + serde::Serialize
+    + serde::de::DeserializeOwned
+    + Into<octocode_contract_types::StructureSearchQuery>
+{
     /// Page layout tag folded into the snapshot.
     const LAYOUT: &'static str;
 
@@ -36,6 +60,8 @@ pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned
     /// This query with `relaxed` lifting skips, walking from its first
     /// entry: the resume cursors of the request's own walk do not apply.
     fn relaxed(&self, relaxed: Walk) -> Self;
+    /// This query moved by `to`: a continuation's position.
+    fn moved(&self, to: Move) -> Self;
     /// Private page position within the saved listing.
     fn page(&self) -> usize;
     fn snapshot(&self) -> Option<&str>;
@@ -65,7 +91,7 @@ pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned
             .any(|(field, role)| role.selects() && crate::response::output::has_value(&row, field))
     }
     /// The order rows are listed in.
-    fn sort(&self) -> StructureSearchQueryFilesSort;
+    fn sort(&self) -> StructureSearchSort;
     /// The walk stops at the first match past `limit`: in walk order
     /// the first matches are final once found.
     fn early_exit(&self) -> bool;
@@ -129,22 +155,50 @@ macro_rules! listing_fields {
                 query.walk_offset = None;
                 query
             }
+            fn moved(&self, to: super::listing::Move) -> Self {
+                use super::listing::Move;
+                let first = std::num::NonZeroU64::MIN;
+                match to {
+                    Move::Page { page, snapshot } => Self {
+                        page,
+                        snapshot: Some(
+                            snapshot
+                                .parse()
+                                .expect("a listing snapshot is a sha256 hex digest"),
+                        ),
+                        ..self.clone()
+                    },
+                    Move::Window { scan_offset } => Self {
+                        page: first,
+                        snapshot: None,
+                        scan_offset,
+                        ..self.clone()
+                    },
+                    Move::Resume { walk_offset, scan_offset } => Self {
+                        page: first,
+                        snapshot: None,
+                        scan_offset,
+                        walk_offset: Some(walk_offset),
+                        ..self.clone()
+                    },
+                }
+            }
             fn page(&self) -> usize {
-                crate::num::usize_of(self.page.get()).max(1)
+                octocode_engine::num::saturating_usize(self.page.get()).max(1)
             }
             fn snapshot(&self) -> Option<&str> {
                 self.snapshot.as_deref().map(String::as_str)
             }
             fn scan_offset(&self) -> usize {
                 self.scan_offset
-                    .map_or(0, |offset| crate::num::usize_of(offset.get()))
+                    .map_or(0, |offset| octocode_engine::num::saturating_usize(offset.get()))
             }
             fn walk_offset(&self) -> u32 {
                 self.walk_offset
-                    .map_or(0, |offset| crate::num::u32_of(offset.get()))
+                    .map_or(0, |offset| octocode_engine::num::saturating_u32(offset.get()))
             }
             fn page_rows(&self) -> Option<usize> {
-                self.limit.map(|limit| crate::num::usize_of(limit.get()))
+                self.limit.map(|limit| octocode_engine::num::saturating_usize(limit.get()))
             }
             fn show_hidden(&self) -> bool {
                 self.include_hidden == Some(true)
@@ -214,7 +268,7 @@ pub(super) fn execute_listing<Q: Listing>(
     let prefix = listing_prefix(paths, root);
     let deferred_detail = q.view() == StructureSearchView::Details
         && super::files::sort_key(&q.sort())
-            != Some(octocode_contract_types::StructureSearchQueryFilesSortVariant0By::LineCount);
+            != Some(octocode_contract_types::StructureSearchSortAnyOrderBy::LineCount);
     let pages = page_ranges(
         &rows::costs(&walk.rows, &prefix, q.view(), deferred_detail),
         budget,
@@ -274,7 +328,7 @@ fn listing_page<Q: Listing>(
     });
     // Every page states its block; the response stage keeps it where it
     // routes (`response::rows::walks_on`).
-    // A window `next.continueWalk` continues is not the listing's end: its
+    // A window `next.nextPage` continues is not the listing's end: its
     // rows are what this window loaded, not the listing's total.
     let continues = cut.walk_lead().is_some();
     let facts = crate::response::pages::PageFacts::sized(

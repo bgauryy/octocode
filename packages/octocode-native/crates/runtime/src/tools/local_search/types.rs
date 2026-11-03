@@ -29,9 +29,9 @@ pub struct SearchMatch {
     pub match_lines: Option<Vec<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
-    /// Complete declaration around this hit, usable on every response page.
+    /// Index in the file's `declarations` of the declaration around this hit.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub enclosing: Option<Enclosing>,
+    pub enclosing: Option<u32>,
     /// `true` on a row whose hit line declares a name (the lspSearch
     /// anchor among same-name hits); absent on every other row.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -51,6 +51,8 @@ pub struct ItemPagination {
     #[serde(rename = "totalItems", skip_serializing_if = "Option::is_none")]
     pub total_matches: Option<u32>,
     pub has_more: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<serde_json::Value>,
     /// Lines of this file's hits on later pages, ascending (numbers,
     /// not a packed list): read them directly or page on.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,9 +84,13 @@ pub struct SearchFile {
     #[serde(
         rename = "matchKeys",
         skip_serializing_if = "Vec::is_empty",
-        serialize_with = "crate::tools::match_keys::serialize"
+        serialize_with = "crate::tools::match_keys::serialize_rows"
     )]
     pub match_keys: Vec<(usize, String)>,
+    /// The declarations around the shown hits, each once; a hit names its own
+    /// by index, so hits in one function do not each repeat it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub declarations: Vec<Enclosing>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matches: Option<Vec<SearchMatch>>,
     #[serde(rename = "matchCount", skip_serializing_if = "Option::is_none")]
@@ -141,7 +147,7 @@ pub struct SearchStats {
     pub binary_skipped: Option<u32>,
     /// What a `testCode` scope left out.
     #[serde(rename = "testCodeExcluded", skip_serializing_if = "Option::is_none")]
-    pub test_code_excluded: Option<crate::tools::test_code::Excluded>,
+    pub test_code_excluded: Option<octocode_engine::types::TestCodeExcluded>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -226,7 +232,7 @@ pub(crate) fn cap_partial_reason(
     match reason {
         CapReason::MaxOnlyMatchingPerFile => PartialReason::MaxOnlyMatchingPerFile,
         CapReason::Pcre2Deadline => PartialReason::Pcre2Deadline,
-        CapReason::MaxFileSize => PartialReason::MaxFileSize,
+        CapReason::MaxFileSize => PartialReason::FileTooLarge,
         CapReason::Cancelled => PartialReason::Cancelled,
         CapReason::BinaryQuit => PartialReason::BinaryQuit,
     }

@@ -63,10 +63,9 @@ pub(super) fn promote_pr_continuations(
     let patches_open = pages
         .get(Axis::Patches.key())
         .is_some_and(|entry| entry.get("hasMore").and_then(Value::as_bool) == Some(true));
-    let mut next = Map::new();
     let mut notes = Vec::new();
     let mut unreached = false;
-    for (key, entry) in pages.iter() {
+    for (key, entry) in pages.iter_mut() {
         if entry.get("hasMore").and_then(Value::as_bool) != Some(true) {
             continue;
         }
@@ -92,15 +91,14 @@ pub(super) fn promote_pr_continuations(
             }
             continuation(nq)
         };
-        next.insert(axis.next_name().into(), call);
+        if let Some(call) = call {
+            entry["next"][Axis::next_name()] = call;
+        }
         notes.extend(remainder.note(axis, entry));
     }
     strip_cursors(pages);
     if unreached {
         out["isPartial"] = json!(true);
-    }
-    if !next.is_empty() {
-        out["calls"] = Value::Object(next);
     }
     notes
 }
@@ -169,10 +167,9 @@ pub(super) fn promote_issue_continuations(
     } else {
         comments
     };
-    let mut next = Map::new();
     let mut notes = Vec::new();
     let mut unreached = false;
-    for (key, entry) in pages.iter() {
+    for (key, entry) in pages.iter_mut() {
         if entry.get("hasMore").and_then(Value::as_bool) != Some(true) {
             continue;
         }
@@ -201,15 +198,14 @@ pub(super) fn promote_issue_continuations(
             // A page restarts every body window: the default offset.
             remove_key(&mut nq, Cursor::Offset.query_key());
         }
-        next.insert(axis.next_name().into(), continuation(nq));
+        if let Some(call) = continuation(nq) {
+            entry["next"][Axis::next_name()] = call;
+        }
         notes.extend(remainder.note(axis, entry));
     }
     strip_cursors(pages);
     if unreached {
         out["isPartial"] = json!(true);
-    }
-    if !next.is_empty() {
-        out["calls"] = Value::Object(next);
     }
     notes
 }

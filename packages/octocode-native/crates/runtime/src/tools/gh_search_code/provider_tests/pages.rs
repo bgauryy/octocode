@@ -132,33 +132,25 @@ async fn a_page_counts_files_and_retains_every_hit_of_each_file() {
     );
 }
 
-/// A search page of `names` (paths in `a/b`), GitHub reporting `total` matches.
+/// The search's page `page` (at the default limit) lists `names` (paths in
+/// `a/b`), GitHub reporting `total` matches.
 async fn mount_search_page(server: &MockServer, page: usize, total: usize, names: &[&str]) {
-    let items = names
-        .iter()
-        .map(|name| {
-            json!({"name":name,"path":name,"sha":"1","html_url":"https://x",
-             "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}})
-        })
-        .collect::<Vec<_>>();
-    Mock::given(method("GET"))
-        .and(path("/api/v3/search/code"))
-        .and(wiremock::matchers::query_param("page", page.to_string()))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count":total,"incomplete_results":false,"items":items
-        })))
-        .mount(server)
-        .await;
+    let limit = crate::contracts::query_limits::gh_search_code::LIMIT_DEFAULT;
+    mount_answer(server, page, limit, total, names).await;
 }
 
+/// Page 1 of the search, or the page `previous`'s `next.nextPage` resumes.
 async fn search_page_of(
     provider: &octocode_github::GitHubProvider,
-    page: usize,
+    previous: Option<&crate::response::result::ToolData>,
 ) -> crate::response::result::ToolData {
-    let query: GhSearchCodeQuery = serde_json::from_value(json!({
-        "owner":"a","repo":"b","keywords":["needle"],"matchIn":["path"],"page":page
-    }))
-    .expect("query");
+    let query: GhSearchCodeQuery = match previous {
+        Some(previous) => next_page(previous),
+        None => serde_json::from_value(json!({
+            "owner":"a","repo":"b","keywords":["needle"],"matchIn":["path"]
+        }))
+        .expect("query"),
+    };
     execute(provider, &query, &default_context(), &Passthrough)
         .await
         .expect("search")
@@ -168,39 +160,29 @@ fn warnings_of(out: &crate::response::result::ToolData) -> &serde_json::Value {
     &out.data["warnings"]
 }
 
-/// A paged search page states the repeats it found: a later page drops a
-/// file an earlier cached page listed, and counts the earlier pages it could
-/// check. An uncached earlier page keeps its repeats listed and adds no note
-/// (a jump to a deep page dropped nothing), nor does a clean first page:
-/// that totals are estimates is static and lives in the tool description.
+/// Page 2 of a walk drops the file page 1 listed (the
+/// walk's continuation knows it), and says GitHub's results moved; a clean
+/// first page says nothing.
 #[tokio::test]
 async fn paged_pages_state_estimates_and_the_repeats_they_dropped() {
-    let checked =
-        "Repeat check read 1 of 1 earlier page; pages no longer cached were not compared.";
-    let dropped = "Dropped 1 file GitHub listed again (already on an earlier page or this one).";
-    for (cached, page, paths, warnings) in [
-        (true, 1, vec!["a.rs", "b.rs"], serde_json::Value::Null),
-        (true, 2, vec!["c.rs"], json!([dropped, checked])),
-        (false, 2, vec!["b.rs", "c.rs"], serde_json::Value::Null),
-    ] {
+    let dropped =
+        "Dropped 1 file GitHub listed again (already on an earlier page of this walk or this one).";
+    let moved = "GitHub's results moved between page reads, so a file may have moved past this walk unseen.";
+    {
         let server = MockServer::builder().start().await;
         mount_search_page(&server, 1, 100, &["a.rs", "b.rs"]).await;
         mount_search_page(&server, 2, 100, &["b.rs", "c.rs"]).await;
-        let mut provider = one_shot_provider(&server);
-        if cached {
-            provider.transport.cache = std::sync::Arc::new(MemoryCache::default());
-        }
-        let mut out = search_page_of(&provider, 1).await;
-        if page == 2 {
-            out = search_page_of(&provider, 2).await;
-        }
+        let provider = one_shot_provider(&server);
+        let first = search_page_of(&provider, None).await;
+        assert_eq!(paths_of(&first), ["a.rs", "b.rs"], "{}", first.data);
+        assert_eq!(warnings_of(&first), &serde_json::Value::Null);
+        let out = search_page_of(&provider, Some(&first)).await;
         assert_eq!(out.data["pagination"]["totalItems"], 100, "{}", out.data);
-        assert_eq!(paths_of(&out), paths, "cached {cached}: {}", out.data);
+        assert_eq!(paths_of(&out), ["c.rs"], "{}", out.data);
+        assert_eq!(warnings_of(&out), &json!([dropped, moved]), "{}", out.data);
         assert_eq!(
-            warnings_of(&out),
-            &warnings,
-            "cached {cached}: {}",
-            out.data
+            out.data["partialReasons"],
+            json!(["providerResultsShifted"])
         );
     }
 }
@@ -212,10 +194,9 @@ async fn a_page_of_only_repeats_is_not_an_empty_search() {
     let server = MockServer::builder().start().await;
     mount_search_page(&server, 1, 150, &["a.rs", "b.rs"]).await;
     mount_search_page(&server, 2, 150, &["a.rs", "b.rs"]).await;
-    let mut provider = one_shot_provider(&server);
-    provider.transport.cache = std::sync::Arc::new(MemoryCache::default());
-    search_page_of(&provider, 1).await;
-    let second = search_page_of(&provider, 2).await;
+    let provider = one_shot_provider(&server);
+    let first = search_page_of(&provider, None).await;
+    let second = search_page_of(&provider, Some(&first)).await;
     assert!(paths_of(&second).is_empty(), "{}", second.data);
     assert_ne!(second.status, Some("empty"), "{}", second.data);
     assert_eq!(
@@ -231,8 +212,8 @@ async fn a_page_of_only_repeats_is_not_an_empty_search() {
     assert_eq!(
         warnings_of(&second),
         &json!([
-            "Dropped 2 files GitHub listed again (already on an earlier page or this one).",
-            "Repeat check read 1 of 1 earlier page; pages no longer cached were not compared."
+            "Dropped 2 files GitHub listed again (already on an earlier page of this walk or this one).",
+            "GitHub's results moved between page reads, so a file may have moved past this walk unseen."
         ]),
         "{}",
         second.data

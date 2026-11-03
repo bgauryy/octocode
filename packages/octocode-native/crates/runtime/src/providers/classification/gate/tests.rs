@@ -1,8 +1,8 @@
 use super::*;
-use tokio_util::sync::CancellationToken;
+use octocode_io::cancellation::Cancellation;
 
 fn budget(timeout: Duration) -> RequestBudget {
-    RequestBudget::new(Instant::now() + timeout, CancellationToken::new(), 1024)
+    RequestBudget::new(Instant::now() + timeout, Cancellation::new(), 1024)
 }
 
 fn lease_on(limit: usize) -> GateLease {

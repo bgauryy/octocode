@@ -2,34 +2,11 @@
 use super::bench::*;
 use super::*;
 
-struct ForbiddenCache;
-
-impl octocode_github::ConditionalCache for ForbiddenCache {
-    fn get<'a>(
-        &'a self,
-        _: &'a octocode_github::Partition,
-        _: &'a str,
-    ) -> std::pin::Pin<Box<dyn Future<Output = Option<octocode_github::CachedContent>> + Send + 'a>>
-    {
-        Box::pin(async { panic!("clone read a shared response cache") })
-    }
-
-    fn put<'a>(
-        &'a self,
-        _: &'a octocode_github::Partition,
-        _: String,
-        _: octocode_github::CachedContent,
-        _: octocode_github::Retention,
-    ) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async { panic!("clone wrote a shared response cache") })
-    }
-}
-
 #[tokio::test]
-async fn clone_bypasses_shared_provider_caches_even_for_full_commit_refs() {
+async fn clone_checks_access_for_every_full_commit_read() {
     let server = wiremock::MockServer::builder().start().await;
     let bench = Bench::at(mock_endpoint(&server));
-    let provider = GitHubProvider::new(one_shot_provider(&server).transport, ForbiddenCache);
+    let provider = one_shot_provider(&server);
     let sha = &bench.fixture.first_commit;
     answer_commit(&server, sha, ALICE, commit(sha)).await;
     let query = GhCloneRepoQuery {
@@ -45,7 +22,7 @@ async fn clone_bypasses_shared_provider_caches_even_for_full_commit_refs() {
 }
 
 #[tokio::test]
-async fn repeated_clone_fetches_fresh_and_writes_no_cache_metadata() {
+async fn repeated_clone_reuses_the_checkout_and_writes_no_cache_metadata() {
     let server = wiremock::MockServer::builder().start().await;
     let bench = Bench::at(mock_endpoint(&server));
     let provider = one_shot_provider(&server);
@@ -58,9 +35,10 @@ async fn repeated_clone_fetches_fresh_and_writes_no_cache_metadata() {
         .await
         .expect("fresh replacement");
     assert_eq!(first.location.local_path, second.location.local_path);
-    assert!(
-        bench.clones_seen() > before,
-        "each invocation must fetch the checkout again"
+    assert_eq!(
+        bench.clones_seen(),
+        before,
+        "the verified checkout of the same commit is not fetched again"
     );
     assert!(
         !Path::new(&second.location.local_path)
@@ -211,8 +189,8 @@ async fn fresh_clone_follows_the_callers_access_check() {
     assert_eq!(bob.location.commit_sha, sha);
     assert_eq!(
         bench.clones_seen(),
-        clones + 1,
-        "every allowed invocation fetches a fresh checkout"
+        clones,
+        "an allowed invocation reuses the verified checkout"
     );
     assert_eq!(api_calls(&server).await, [COMMITS_MAIN, COMMITS_MAIN]);
 }

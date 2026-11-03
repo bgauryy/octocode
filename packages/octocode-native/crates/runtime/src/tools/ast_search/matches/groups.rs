@@ -8,10 +8,10 @@ use super::scope::Inapplicable;
 use super::types::{Group, Grouped, SKIP_CODES, ScannedFile, Scope};
 use super::{file_list, row_chars};
 use crate::execution::cancel::CancellationCheck;
-use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::tools::ast_rule::is_compile_failure;
 use octocode_contract_types::ErrorCode;
+use octocode_engine::num::saturating_u32;
 use octocode_engine::structural::{FileMatches, StructuralDiagnostic};
 use serde_json::json;
 
@@ -304,7 +304,7 @@ fn rebuild_file(
         .map(|m| super::match_row(q, m, cancel))
         .collect::<Result<Vec<_>, _>>()
         .map_err(RebuildError::Evidence)?;
-    let repriced = rows.iter().map(|row| u32_of_usize(row_chars(row)));
+    let repriced = rows.iter().map(|row| saturating_u32(row_chars(row)));
     if !repriced.eq(prices.iter().copied()) {
         return Err(RebuildError::SourceChanged);
     }
@@ -361,8 +361,8 @@ pub(super) fn match_group(
     }
     let mut row = json!({"path":path,"matches":selected});
     // A file whose matches span match pages states its page facts (the
-    // page stage counts the matches left from them); `next.nextMatchPage`
-    // is the continuation, so the facts do not restate it.
+    // page stage counts the matches left from them); the row's
+    // `next.nextPage` is the continuation, so the facts do not restate it.
     if pages.cut.pages > 1 || out_of_range {
         row["pagination"] = pages.cut.facts.to_value();
     }

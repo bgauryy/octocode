@@ -15,6 +15,10 @@ const PACKAGE_SCRIPT_POLICY = ['build', 'lint', 'test', 'typecheck', 'verify'];
 const SOURCE_ONLY_PACKAGES = new Set(['packages/octocode-benchmark']);
 const SOURCE_ONLY_SCRIPT_POLICY = ['lint', 'test', 'verify'];
 export const SKILL_SCRIPT_POLICY = ['build', 'lint', 'test'];
+// oxlint runs once per repo-wide run, in oxlint-baseline.mjs. A script that includes oxlint has an
+// oxlint-free variant, which repo-wide runs use instead: `lint:own` (its other checks; absent when oxlint
+// is all the workspace lints with) and `verify:own` (the full gate without oxlint; required beside `verify`).
+export const OWN_SCRIPTS = { lint: 'lint:own', verify: 'verify:own' };
 // Build-order edges that are not package dependencies: the consumer's build
 // reads or rewrites files another workspace's build generates, so they must
 // never run concurrently (or out of order).

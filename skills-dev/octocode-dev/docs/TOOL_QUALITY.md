@@ -5,10 +5,10 @@ How to evaluate the tools in the Octocode catalog.
 | Need | Owner |
 |---|---|
 | Concept | `<repo>/docs/OCTOCODE_PROTOCOL.md` |
-| Routing decisions | `<repo>/docs/OCTOCODE_WORKFLOWS.md` |
+| Routing decisions | `<repo>/skills/octocode-research/references/tool-flow.md` |
 | Parameters and defaults | `<repo>/docs/OCTOCODE_TOOLS.md` and live schemas |
 | Response fields, path reconstruction, pagination layers, handoffs | `<repo>/docs/TOOL_DATA_CONTRACT.md` |
-| Base-call rules (normative prose) | `<repo>/docs/OCTOCODE_TOOLS.md#how-every-tool-call-works` |
+| Base-call rules (normative prose) | `<repo>/docs/TOOL_DATA_CONTRACT.md` |
 
 Every acceptance run covers the shared contract and tool-specific behavior:
 
@@ -89,7 +89,7 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 | `ghGetFileContent` | `content`, `compact`, `symbols`; full and windowed reads. | Local/remote parity; pinned refs, repeated-outline prevention, redaction, directory-input rejection. |
 | `ghSearchHistory` | PR, issue, commit discovery with operation scope. | Discovery pages; filters, field selection and exact-detail hints; provider-incomplete results. |
 | `ghGetHistoryItem` | PR/issue, commit, compare, selected content. | Each of files, comments, reviews, commits, bodies, patches traversed alone; omitted-patch/error state; immutable refs. |
-| `ghCloneRepo` | Default ref, full SHA, sparse paths, history depth, availability gates. | Fresh checkout identity on every call; clean destination replacement, local edit preservation, concurrent mutation, rollback, cleanup; crash recovery apart. |
+| `ghCloneRepo` | Default ref, full SHA, sparse paths, history depth, availability gates. | Ref resolved to a commit on every call; a clean checkout at that commit reused without a fetch; local edits refused and preserved; concurrent mutation, rollback, cleanup; crash recovery apart. |
 | `artifactSearch` | Exact, scoped, keyword; reject mixed or empty selectors. | Keyword continuations, repo subdirectory, registry failures, authenticated registries. |
 
 ## Minification and smart-window matrix

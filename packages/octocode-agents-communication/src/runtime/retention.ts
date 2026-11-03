@@ -32,15 +32,15 @@ export function report(path: string, input: DbRetentionInput): CommandResults['d
   const db = openDatabase(path, true, false);
   try {
     return readTransaction(db, () => {
-      const found = query(db, "SELECT m.id,m.expiresAt,length(CAST(m.body AS BLOB)) AS bodyBytes, EXISTS(SELECT 1 FROM deliveries d WHERE d.message=m.id AND d.acknowledgedAt IS NULL) AS unacknowledged, EXISTS(SELECT 1 FROM dispatches x WHERE x.message=m.id AND x.state IN ('staged','uncertain')) AS unresolved FROM messages m WHERE m.id>? ORDER BY m.id LIMIT ?", [after, limit + 1]);
+      const found = query(db, "SELECT m.id,m.expiresAt,length(CAST(m.parts AS BLOB)) AS contentBytes, EXISTS(SELECT 1 FROM deliveries d WHERE d.message=m.id AND d.acknowledgedAt IS NULL) AS unacknowledged, EXISTS(SELECT 1 FROM dispatches x WHERE x.message=m.id AND x.state IN ('staged','uncertain')) AS unresolved FROM messages m WHERE m.id>? ORDER BY m.id LIMIT ?", [after, limit + 1]);
       const more = found.length > limit;
       const rows = found.slice(0, limit);
       const settled = rows.filter(row => rowInteger(row, 'expiresAt') <= before && !row.unacknowledged && !row.unresolved);
       const last = rows.at(-1);
       return {
         scope: 'all-workspaces', readOnly: true, deletionSupported: false, before, cutoffField: 'messages.expiresAt', observedAt: at, storage: storage(db, path),
-        page: { afterId: after, limit, count: rows.length, hasMore: more, expiredSettledMessages: settled.length, expiredSettledBodyBytes: settled.reduce((sum, row) => sum + rowInteger(row, 'bodyBytes'), 0), unacknowledgedMessages: rows.filter(row => row.unacknowledged).length, unresolvedDispatchMessages: rows.filter(row => row.unresolved).length },
-        retainedBecause: ['Audit is append-only and does not duplicate message bodies.', 'Message keys preserve idempotency; replyTo and delivery records preserve correlation and visibility.', 'Expiry and acknowledgement do not authorize deletion; pending and uncertain attempts remain recoverable.'],
+        page: { afterId: after, limit, count: rows.length, hasMore: more, expiredSettledMessages: settled.length, expiredSettledContentBytes: settled.reduce((sum, row) => sum + rowInteger(row, 'contentBytes'), 0), unacknowledgedMessages: rows.filter(row => row.unacknowledged).length, unresolvedDispatchMessages: rows.filter(row => row.unresolved).length },
+        retainedBecause: ['Audit is append-only and does not duplicate message content.', 'Message keys preserve idempotency; replyTo and delivery records preserve correlation and visibility.', 'Expiry and acknowledgement do not authorize deletion; pending and uncertain attempts remain recoverable.'],
         maintenance: { compact: 'db compact {} reclaims reusable SQLite pages without deleting history.', archive: 'db export creates a verified full snapshot; preserve workspace documents separately.' },
         ...(more && last ? { next: { command: 'db retention', input: { before, afterId: rowInteger(last, 'id'), limit } } } : {}),
       };

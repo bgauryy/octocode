@@ -16,6 +16,17 @@ pub(super) fn head_limit(size: usize, room: Room, reserve: usize) -> usize {
     }
 }
 
+/// What a page allows a row-scoped response: the characters its `rows`
+/// may fill, the finished page's allowance only the final query row's tail
+/// may use (`terminal`), and the characters every page spends outside its
+/// rows (`envelope`: envelope fields, banner and pagination block).
+#[derive(Clone, Copy)]
+pub(in crate::response::row_pages) struct PageBudget {
+    pub(in crate::response::row_pages) rows: usize,
+    pub(in crate::response::row_pages) terminal: Option<usize>,
+    pub(in crate::response::row_pages) envelope: usize,
+}
+
 /// Room on a page: a whole page's `row_budget`, and what is `left` of the
 /// page the next fragment goes on.
 #[derive(Clone, Copy)]

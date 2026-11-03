@@ -15,7 +15,6 @@ use std::path::Path;
 pub(super) struct Fetched {
     pub(super) window: Option<usize>,
     pub(super) renamed_warning: Option<String>,
-    pub(super) views: std::sync::Arc<crate::tools::source_view::ViewCache>,
 }
 
 /// One fetched body as the read's row: the shared extraction, a missed
@@ -31,14 +30,12 @@ pub(super) fn shape(
     let Fetched {
         window,
         renamed_warning,
-        views,
     } = fetched;
     let local = local_query(query)?;
     // Selected and whole-file views use the configured response budget;
     // bare reads retain the shared source-head preview policy. The shared
     // read fits the row's window less what this row adds around it.
     let facts = crate::tools::source_view::SourceFacts {
-        views,
         modified: None,
         window,
         beside: row_envelope_chars(query, &acquired.resolved_ref),
@@ -100,7 +97,7 @@ pub(super) fn shape(
 /// next candidate page of a ranked read).
 const REWRITTEN_CONTINUATIONS: usize = 3;
 /// The quoted keys and separators of `"owner":"…","repo":"…","ref":"…"`,
-/// the longer tool name and `refresh` on one rewritten continuation.
+/// and the longer tool name on one rewritten continuation.
 const COORDINATE_KEYS_CHARS: usize = 64;
 /// `commitSha` and `fileType` beside the row's content.
 const ROW_FIELDS_CHARS: usize = 48;

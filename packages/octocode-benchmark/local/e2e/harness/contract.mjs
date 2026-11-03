@@ -4,7 +4,17 @@ import path from 'node:path';
 import { ROOT } from './paths.mjs';
 import { createAjv } from './query-defaults.mjs';
 
-export const contract = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/octocode-config/contract/tool-contract.json'), 'utf8'));
+const stored = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/octocode-config/contract/tool-contract.json'), 'utf8'));
+const withSharedDefs = schema => ({ ...schema, $defs: { ...stored.$defs, ...schema.$defs } });
+// The harness walks schema roots directly; give each root the same definition
+// view native's shared-reference resolvers provide, without changing the IR.
+export const contract = {
+  ...stored,
+  tools: stored.tools.map(tool => ({
+    ...tool,
+    ...Object.fromEntries(['querySchema', 'inputSchema', 'outputSchema'].map(key => [key, withSharedDefs(tool[key])])),
+  })),
+};
 const presentation = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/octocode-config/contract/cli-presentation.json'), 'utf8'));
 const publicTools = new Map(presentation.tools.map(tool => [tool.name, tool]));
 

@@ -26,7 +26,6 @@ grep-searcher = "0.1.17"
 globset = { workspace = true }
 hex = { workspace = true }
 ignore = { workspace = true }
-moka = { version = "0.12", default-features = false, features = ["sync"] }
 oxc_allocator = "=0.154.0"
 oxc_ast = "=0.154.0"
 oxc_ast_visit = "=0.154.0"
@@ -54,6 +53,7 @@ tree-sitter-rust = "0.24.2"
 tree-sitter-scala = { version = "0.26", optional = true }
 tree-sitter-typescript = "0.23"
 url = { workspace = true }
+regex-syntax = "0.8"
 which = "8"
 
 # The secret detector's prescan gate is extracted from the pattern table at build time.
@@ -64,12 +64,11 @@ regex-syntax = "0.8"
 libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading"] }
 
 [dev-dependencies]
 criterion = { version = "0.8" }
 proptest = "1"
-regex-syntax = "0.8"
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 

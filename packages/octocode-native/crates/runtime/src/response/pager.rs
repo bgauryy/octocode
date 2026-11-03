@@ -8,10 +8,10 @@ mod telemetry;
 mod window;
 pub(crate) use cut::measure_page;
 use cut::{cut_rows, pagination_block_chars};
+use octocode_io::cancellation::Cancellation;
 use serde_json::{Map, Value};
 use std::sync::OnceLock;
 use telemetry::take_volatile_fields;
-use tokio_util::sync::CancellationToken;
 use window::{build_continuation, page_cursor};
 
 use super::page_model::{ResponsePageOptions, ResponsePagination};
@@ -60,7 +60,7 @@ pub(crate) enum ResponseError {
 /// envelope unchanged.
 pub(crate) fn prepare(
     mut input: ResponseInput,
-    cancelled: &CancellationToken,
+    cancelled: &Cancellation,
 ) -> Result<PreparedPage, ResponseError> {
     if cancelled.is_cancelled() {
         return Err(ResponseError::Cancelled);
@@ -87,7 +87,7 @@ pub(crate) fn prepare_saved(
     input: &ResponseInput,
     envelope: &Value,
     pages: &SavedPages,
-    cancelled: &CancellationToken,
+    cancelled: &Cancellation,
 ) -> Result<PreparedPage, ResponseError> {
     if cancelled.is_cancelled() {
         return Err(ResponseError::Cancelled);
@@ -112,7 +112,7 @@ pub(crate) fn prepare_saved(
 fn row_source(
     mut structured: Map<String, Value>,
     input: &ResponseInput,
-    cancelled: &CancellationToken,
+    cancelled: &Cancellation,
 ) -> Result<RowSource, ResponseError> {
     // Row pages re-attach per-call provider facts to the row they came
     // from; the snapshot and page plan never see them.
@@ -162,7 +162,7 @@ pub(crate) fn content_snapshot(structured: &Value, budget: usize) -> Option<Stri
 fn saved_source(
     envelope: &Value,
     input: &ResponseInput,
-    cancelled: &CancellationToken,
+    cancelled: &Cancellation,
 ) -> Result<SavedSource, ResponseError> {
     let Value::Object(structured) = envelope else {
         return Err(ResponseError::StructuredContentMustBeObject);

@@ -1,9 +1,9 @@
-//! Contents, blobs, single-flight and the response cache for reads.
+//! Contents, blobs, independent requests and commit identity.
 use super::*;
 
 mod blobs;
-mod cache;
 mod flight;
+mod fresh;
 mod refs;
 mod repository;
 
@@ -28,19 +28,12 @@ async fn ghes_content_route_auth_and_decode() {
                 repo: "repo".into(),
                 path: "src/lib.rs".into(),
                 reference: Some("main".into()),
-                force_refresh: false,
             },
             &with_token("secret", Duration::from_secs(2), 1024),
         )
         .await
         .expect("content");
     assert_eq!(result.bytes, &b"hello\n"[..]);
-    assert_eq!(result.etag.as_deref(), Some("\"v1\""));
-    assert!(!result.from_cache);
-}
-
-async fn keyed_provider(server: &MockServer) -> GitHubProvider {
-    GitHubProvider::new(provider(server).await.transport, KeyedCache::default())
 }
 
 fn file_at(path: &str, reference: &str) -> ContentRequest {
@@ -49,7 +42,6 @@ fn file_at(path: &str, reference: &str) -> ContentRequest {
         repo: "b".into(),
         path: path.into(),
         reference: Some(reference.into()),
-        force_refresh: false,
     }
 }
 
@@ -75,30 +67,4 @@ async fn requests_to(server: &MockServer, route: &str) -> usize {
         .iter()
         .filter(|request| request.url.path().starts_with(route))
         .count()
-}
-
-/// Key-aware cache so ref memo and body entries coexist.
-#[derive(Default)]
-struct KeyedCache(Mutex<std::collections::HashMap<String, CachedContent>>);
-
-impl ConditionalCache for KeyedCache {
-    fn get<'a>(
-        &'a self,
-        _: &'a Partition,
-        key: &'a str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<CachedContent>> + Send + 'a>>
-    {
-        Box::pin(async move { self.0.lock().expect("cache lock").get(key).cloned() })
-    }
-    fn put<'a>(
-        &'a self,
-        _: &'a Partition,
-        key: String,
-        value: CachedContent,
-        _: Retention,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            self.0.lock().expect("cache lock").insert(key, value);
-        })
-    }
 }

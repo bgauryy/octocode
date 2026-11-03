@@ -99,6 +99,35 @@ fn cli_tool_help(presentation: &Value) -> Result<String, Box<dyn Error>> {
     Ok(help.join(", "))
 }
 
+/// Each tool's trigger as `("name", "when")` Rust tuples: the first sentence
+/// of its `<when>` text, for the list a CLI agent chooses a tool from.
+fn cli_tool_triggers(presentation: &Value) -> Result<String, Box<dyn Error>> {
+    let tools = presentation
+        .get("tools")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("cli presentation has no tools[]"))?;
+    let mut triggers = Vec::new();
+    for tool in tools {
+        let (Some(name), Some(description)) = (
+            tool.get("name").and_then(Value::as_str),
+            tool.pointer("/mcp/description").and_then(Value::as_str),
+        ) else {
+            return Err(invalid(
+                "cli presentation tool lacks name or mcp.description",
+            ));
+        };
+        let when = description
+            .strip_prefix("<when>")
+            .and_then(|rest| rest.split("</when>").next())
+            .unwrap_or(description);
+        let sentence = when
+            .split_once(". ")
+            .map_or_else(|| when.trim_end_matches('.'), |(sentence, _)| sentence);
+        triggers.push(format!("({name:?}, {sentence:?})"));
+    }
+    Ok(triggers.join(", "))
+}
+
 /// Embeds the tool contract that `@octocodeai/config` generates (its
 /// `generate:tool-contract` script is the only generator). Native keeps no copy:
 /// regenerating in config is the whole change, and cargo rebuilds from it.
@@ -176,6 +205,7 @@ pub(super) fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
         ));
     }
     let cli_help = cli_tool_help(&presentation)?;
+    let cli_triggers = cli_tool_triggers(&presentation)?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     fs::write(out_dir.join("tool_ids.rs"), render_tool_ids(&contract)?)?;
     fs::write(
@@ -211,6 +241,8 @@ pub(super) fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
          pub const CLI_PRESENTATION_JSON: &str = {};\n\
          /// Each presentation tool's `<tool> --help` section, by name.\n\
          pub const CLI_TOOL_HELP: &[(&str, &str)] = &[{}];\n\
+         /// When to use each presentation tool, by name.\n\
+         pub const CLI_TOOL_TRIGGERS: &[(&str, &str)] = &[{cli_triggers}];\n\
          // Read only by tests: contract-ownership and fixture-replay checks.\n\
          #[cfg(test)]\n\
          pub const CONTRACT_FINGERPRINT: &str = {fingerprint:?};\n\

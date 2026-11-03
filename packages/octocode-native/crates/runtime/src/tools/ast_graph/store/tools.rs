@@ -1,8 +1,8 @@
 //! Public graph tools: workspace ownership, exact snapshot selection and typed pages.
 use super::*;
 use crate::execution::{ExecutionContext, ExecutionError};
-use crate::id::ToolId;
 use crate::response::{outcome::DomainResult, result::Continuation};
+use octocode_contract_types::{GraphQueryQuery, GraphQueryStats, GraphQueryStatsOperation};
 
 fn text(row: &Value, key: &str) -> Option<String> {
     row[key].as_str().map(str::to_owned)
@@ -51,25 +51,75 @@ fn missing_snapshot(message: &str, root: &Path) -> GraphOutput {
     out.value["hints"] = json!([
         "Use an existing snapshot ID, or run graphBuild for this path and use its returned ID."
     ]);
-    out.value["related"] =
-        json!([Continuation::related(ToolId::GraphBuild, json!({"path": root})).build()]);
+    if let Some(build) = super::query::typed_row::<GraphBuildQuery>(json!({"path": root})) {
+        out.value["related"] = json!([Continuation::related_query(build).build()]);
+    }
     out
 }
 
-fn exact_snapshot(home: &Path, id: &str, root: &Path) -> Result<String, GraphOutput> {
-    if id.is_empty()
-        || !id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-        || id.starts_with('.')
-        || !is_snapshot(&home.join(id))
-    {
-        return Err(missing_snapshot(
-            "snapshot ID does not exist in this workspace",
-            root,
-        ));
+/// The graphQuery `stats` call for snapshot `id` of `path`.
+fn stats_lead(id: &str, path: &str) -> Option<Value> {
+    let stats = GraphQueryQuery {
+        subtype_0: Some(GraphQueryStats {
+            graph: Some(id.try_into().ok()?),
+            include_provenance: None,
+            main_goal: None,
+            operation: GraphQueryStatsOperation::Stats,
+            path: Some(path.try_into().ok()?),
+            reasoning: None,
+        }),
+        ..GraphQueryQuery::default()
+    };
+    Some(Continuation::related_query(stats).build())
+}
+
+/// A snapshot ID that a later build of its scope retired: the error names the
+/// snapshot that replaced it and leads to it.
+fn superseded_snapshot(id: &str, successor: &str, path: &str) -> GraphOutput {
+    let mut out = GraphOutput::error(
+        ErrorCode::NotFound,
+        format!("snapshot {id} was replaced by a newer graphBuild of this path: {successor}"),
+    );
+    out.value["supersededBy"] = json!(successor);
+    out.value["hints"] = json!([format!(
+        "Repeat the query with graph {successor}, or omit graph for the newest snapshot of this path. Offsets and pages of {id} do not carry over to a rebuilt snapshot."
+    )]);
+    if let Some(lead) = stats_lead(successor, path) {
+        out.value["related"] = json!([lead]);
     }
-    Ok(home.join(id).to_string_lossy().into_owned())
+    out
+}
+
+/// Where graph IDs of one requested scope resolve.
+struct Snapshots<'a> {
+    home: &'a Path,
+    workspace: &'a Path,
+    /// The canonical scope root.
+    root: &'a Path,
+    /// The scope as the caller wrote it.
+    path: &'a str,
+}
+
+impl Snapshots<'_> {
+    fn exact(&self, id: &str) -> Result<String, GraphOutput> {
+        let safe = !id.is_empty()
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+            && !id.starts_with('.');
+        if safe && is_snapshot(&self.home.join(id)) {
+            return Ok(self.home.join(id).to_string_lossy().into_owned());
+        }
+        Err(safe
+            .then(|| successor(self.home, self.workspace, self.root, id))
+            .flatten()
+            .map_or_else(
+                || {
+                    missing_snapshot("snapshot ID does not exist in this workspace", self.root)
+                },
+                |newer| superseded_snapshot(id, &newer, self.path),
+            ))
+    }
 }
 
 fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput> {
@@ -86,7 +136,13 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
             })
             .ok_or_else(|| missing_snapshot("no snapshot for this exact path", &root))?,
     };
-    let graph = exact_snapshot(&home, &id, &root)?;
+    let snapshots = Snapshots {
+        home: &home,
+        workspace: &workspace,
+        root: &root,
+        path: row["path"].as_str().unwrap_or("."),
+    };
+    let graph = snapshots.exact(&id)?;
     if read_manifest(Path::new(&graph)).is_none_or(|m| m["root"] != root.to_string_lossy().as_ref())
     {
         return Err(failure(
@@ -95,7 +151,7 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
     }
     let baseline = row["baseline"]
         .as_str()
-        .map(|id| exact_snapshot(&home, id, &root))
+        .map(|id| snapshots.exact(id))
         .transpose()?;
     Ok(QueryOptions {
         op: text(row, "operation").unwrap_or_default(),
@@ -111,11 +167,19 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
         edges: strings(row, "edges"),
         kind: text(row, "kind"),
         direction: text(row, "direction"),
-        depth: row["depth"].as_u64().map(crate::num::u32_of),
+        depth: row["depth"]
+            .as_u64()
+            .map(octocode_engine::num::saturating_u32),
         confidence: text(row, "confidence"),
-        limit: row["limit"].as_u64().map(crate::num::usize_of),
-        offset: row["offset"].as_u64().map(crate::num::usize_of),
-        page: row["page"].as_u64().map(crate::num::usize_of),
+        limit: row["limit"]
+            .as_u64()
+            .map(octocode_engine::num::saturating_usize),
+        offset: row["offset"]
+            .as_u64()
+            .map(octocode_engine::num::saturating_usize),
+        page: row["page"]
+            .as_u64()
+            .map(octocode_engine::num::saturating_usize),
         list: text(row, "list"),
         view: text(row, "view"),
         changed: strings(row, "changed"),
@@ -175,22 +239,14 @@ fn build(
         for key in RECEIPT_INTERNALS {
             object.remove(key);
         }
-        // The manifest keeps every scan fact for reuse checks; the receipt
-        // states only the ones that carry information (a cut, an exclude).
-        if let Some(scan) = object.get_mut("scan").and_then(Value::as_object_mut) {
-            scan.retain(|_, value| {
-                !(value == &json!(0)
-                    || value == &json!(false)
-                    || value.as_array().is_some_and(Vec::is_empty))
-            });
+        if let Some(scan) = object.get_mut("scan") {
+            *scan = super::manifest::scan_disclosure(scan);
         }
     }
-    if let Some(id) = out.value["id"].as_str() {
-        out.value["related"] = json!([Continuation::related(
-            ToolId::GraphQuery,
-            json!({"operation":"stats", "path": query.path.as_str(), "graph": id})
-        )
-        .build()]);
+    if let Some(id) = out.value["id"].as_str()
+        && let Some(lead) = stats_lead(id, &query.path)
+    {
+        out.value["related"] = json!([lead]);
     }
     out
 }
@@ -215,23 +271,55 @@ pub(crate) fn execute_query(
     row: &Value,
     paths: &PathPolicy,
     context: &ExecutionContext,
+    rows: Option<std::sync::Arc<SavedRows>>,
 ) -> Result<DomainResult, ExecutionError> {
     context.check()?;
     let mut out = match options(row, paths) {
-        Ok(options) => super::query::query_cancellable(
-            &QueryOptions {
-                response_window: context.response_window,
-                reuse_snapshot: true,
-                ..options
-            },
-            paths,
-            context,
-        ),
+        Ok(options) => {
+            let unrecorded = record_reads(&options);
+            let mut out = super::query::query_cancellable(
+                &QueryOptions {
+                    response_window: context.response_window,
+                    rows,
+                    ..options
+                },
+                paths,
+                context,
+            );
+            if let Some(hint) = unrecorded {
+                match out.value["hints"].as_array_mut() {
+                    Some(hints) => hints.push(json!(hint)),
+                    None => out.value["hints"] = json!([hint]),
+                }
+            }
+            out
+        }
         Err(error) => error,
     };
     context.check()?;
     pages::convert(&mut out, row);
     Ok(result(out))
+}
+
+/// Renews the lease of every snapshot `options` reads, so a rebuild's
+/// retention leaves them for the walk in progress. A read that cannot be
+/// recorded still answers, and says so.
+fn record_reads(options: &QueryOptions) -> Option<String> {
+    let failures = [options.graph.as_deref(), options.baseline.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter_map(|dir| {
+            renew_lease(Path::new(dir))
+                .err()
+                .map(|error| format!("{dir}: {error}"))
+        })
+        .collect::<Vec<_>>();
+    (!failures.is_empty()).then(|| {
+        format!(
+            "This read could not be recorded ({}); a graphBuild of this path may remove the snapshot before the walk ends.",
+            failures.join("; ")
+        )
+    })
 }
 
 fn result(out: GraphOutput) -> DomainResult {

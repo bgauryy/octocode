@@ -27,7 +27,7 @@ pub(super) fn recount(
     if rows_removed == 0 {
         return;
     }
-    let saturate = |n: usize| u32_of_usize(n);
+    let saturate = |n: usize| saturating_u32(n);
     let rows_are_occurrences = local_search_query::view(query) == View::MatchOnly
         && local_search_query::unique(query) == Unique::Off;
     let one_per_line = stats.match_count.is_some() && stats.match_count == stats.matched_lines;
@@ -71,38 +71,41 @@ impl Selected {
         query: &LocalSearchQuery,
         snapshot: &str,
         root_is_dir: bool,
-    ) -> Vec<(&'static str, Value)> {
+    ) -> Result<Vec<(&'static str, Value)>, ToolError> {
         // A page that kept every hit, or that the provider failed, already
         // shows every hit unfiltered.
         if !self.outcome.leaves_out() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
-        let query_json = query_value(query);
-        let mut leads = self.unfiltered_leads(&query_json, snapshot, root_is_dir);
+        let mut leads = self.unfiltered_leads(query, snapshot, root_is_dir)?;
         if let Some(token) = self.outcome.next_candidates(ToolId::LocalSearch) {
-            let mut row = query_json;
-            if let Some(fields) = row.as_object_mut() {
-                for field in crate::contracts::state_fields(ToolId::LocalSearch) {
-                    fields.remove(field);
-                }
+            let mut changes = serde_json::Map::new();
+            for field in crate::contracts::state_fields(ToolId::LocalSearch) {
+                changes.insert(field.clone(), Value::Null);
             }
-            row["snapshot"] = json!(snapshot);
-            row["selection"] = json!(token);
+            changes.insert("snapshot".into(), json!(snapshot));
+            changes.insert("selection".into(), json!(token));
+            let next = local_search_query::edited(query, &Value::Object(changes))?;
             leads.push((
                 "nextCandidatePage",
-                crate::response::result::Continuation::continued(ToolId::LocalSearch, row).build(),
+                crate::response::result::Continuation::continued_query(next).build(),
             ));
         }
-        leads
+        Ok(leads)
     }
 
     fn unfiltered_leads(
         &self,
-        query_json: &Value,
+        query: &LocalSearchQuery,
         snapshot: &str,
         root_is_dir: bool,
-    ) -> Vec<(&'static str, Value)> {
-        let whole = unfiltered_whole(query_json, snapshot);
+    ) -> Result<Vec<(&'static str, Value)>, ToolError> {
+        let mut changes = crate::tools::selection::unfiltered_changes(&[]);
+        changes["snapshot"] = json!(snapshot);
+        let whole = crate::response::result::Continuation::continued_query(
+            local_search_query::edited(query, &changes)?,
+        )
+        .build();
         let globs = self
             .unknown_files
             .iter()
@@ -115,13 +118,15 @@ impl Selected {
                     && globs.len() <= include_cap()
             });
         let Some(globs) = globs else {
-            return vec![("unfiltered", whole)];
+            return Ok(vec![("unfiltered", whole)]);
         };
-        let mut unknown = crate::tools::selection::unfiltered_row(query_json, &[]);
-        unknown["include"] = json!(globs);
-        let unknown =
-            crate::response::result::Continuation::continued(ToolId::LocalSearch, unknown).build();
-        vec![("unfiltered", whole), ("unfilteredUnknown", unknown)]
+        let mut changes = crate::tools::selection::unfiltered_changes(&[]);
+        changes["include"] = json!(globs);
+        let unknown = crate::response::result::Continuation::continued_query(
+            local_search_query::edited(query, &changes)?,
+        )
+        .build();
+        Ok(vec![("unfiltered", whole), ("unfilteredUnknown", unknown)])
     }
 
     /// The provider's error when it failed this page, the hit rows kept
@@ -160,11 +165,4 @@ impl Selected {
         }
         notes
     }
-}
-
-/// The whole unfiltered result of the scan `snapshot` names.
-fn unfiltered_whole(query_json: &Value, snapshot: &str) -> Value {
-    let mut whole = crate::tools::selection::unfiltered_row(query_json, &[]);
-    whole["snapshot"] = json!(snapshot);
-    crate::response::result::Continuation::continued(ToolId::LocalSearch, whole).build()
 }

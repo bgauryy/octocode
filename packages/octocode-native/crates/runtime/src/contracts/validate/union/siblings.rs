@@ -3,11 +3,7 @@ use super::{render_selector, selector_literals, selectors_accept, sibling_select
 use serde_json::Value;
 
 pub(super) fn branch_object<'a>(root: &'a Value, branch: &'a Value) -> &'a Value {
-    branch
-        .get("$ref")
-        .and_then(Value::as_str)
-        .and_then(|reference| root.pointer(reference.strip_prefix('#').unwrap_or(reference)))
-        .unwrap_or(branch)
+    crate::contracts::resolve_ref(branch, &root["$defs"])
 }
 
 /// An unknown field that a sibling branch declares is a mode mismatch, not a
@@ -49,15 +45,42 @@ pub(super) fn annotate_sibling_branch_fields(
         let same_mode = declaring
             .iter()
             .copied()
-            .filter(|branch| selectors_accept(branch, value))
+            .filter(|branch| selectors_accept(root, branch, value))
             .collect::<Vec<_>>();
         let Some(schema) = item.schema.as_mut().and_then(Value::as_object_mut) else {
             continue;
         };
         if let Some(requires) = sibling_missing_fields(root, &same_mode, value, field) {
             schema.insert("siblingRequires".into(), Value::Array(requires));
-        } else if let Some(requires) = sibling_selector_values(&declaring, value, field) {
+        } else if let Some(requires) = sibling_selector_values(root, &declaring, value, field) {
             schema.insert("siblingRequires".into(), Value::Array(requires));
+        }
+    }
+}
+
+/// An unknown field directly in the union's value lists as allowed every
+/// field of the forms the value still fits (`compatible_fields`), replacing
+/// the one scored branch's own fields; kept when no form fits.
+pub(super) fn annotate_allowed_fields(
+    issues: &mut [ValidationIssue],
+    root: &Value,
+    branches: &[Value],
+    value: &Value,
+    path: &[String],
+) {
+    let mut allowed = None;
+    for item in issues.iter_mut().filter(|item| {
+        item.rule_id == "schema.unknown-field"
+            && item.path.len() == path.len() + 1
+            && item.path.starts_with(path)
+    }) {
+        let Some(schema) = item.schema.as_mut().and_then(Value::as_object_mut) else {
+            continue;
+        };
+        let fields = allowed
+            .get_or_insert_with(|| super::branches::compatible_fields(root, branches, value));
+        if let Some(fields) = fields {
+            schema.insert("knownFields".into(), serde_json::json!(fields));
         }
     }
 }
@@ -85,7 +108,7 @@ pub(super) fn sibling_missing_fields(
                     &branch["properties"][required],
                     &root["$defs"],
                 );
-                selector_literals(schema).map_or_else(
+                selector_literals(root, schema).map_or_else(
                     || required.to_owned(),
                     |literals| render_selector(required, &literals),
                 )

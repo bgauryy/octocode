@@ -181,15 +181,20 @@ function delivery(context: Context): DeliveryRuntime {
   };
 }
 
-const READ_ONLY = ['binding', 'fetch', 'peers', 'inbox', 'read_document', 'context', 'check_paths', 'locks', 'check_write', 'health', 'completion-check'];
+const READ_ONLY = ['binding', 'fetch', 'peers', 'inbox', 'read_document', 'context', 'check_paths', 'locks', 'check_write', 'health', 'completion-check', 'activity'];
 
-/** Runs one command line. Interrupts and failures are the caller's: see `main`. */
-async function run(argv: readonly string[], context: Context): Promise<void> {
-  const parsed = parseArguments(argv);
-  if (parsed === 'version') return context.write(`agents-communication ${VERSION} (TypeScript)\n`);
-  const args = parsed;
-  if (args.help || !args.args.length) return output(context, args.args.length ? catalog.definition(args.args.join(' ')) : catalog.help());
-  const [command = '', ...rest] = args.args;
+/** The typed CLI surface uses the same selected-operation dispatch and continuation projection as MCP. */
+async function capability(command: string, json: string | undefined, args: Arguments, context: Context): Promise<void> {
+  const call = catalog.toolCommand(command, parseJson(context, json ?? '{}'));
+  if (!args.session) throw new ValidationError('--session required');
+  const store = new Store(databasePath(args.database), args.workspace, READ_ONLY.includes(call.name), false);
+  try {
+    output(context, catalog.toolResult(call.name, await store.call(args.session, call.name, call.input)));
+  } finally { store.close(); }
+}
+
+/** Refuse flags outside their owning command before opening storage. */
+function validateFlags(argv: readonly string[], args: Arguments, command: string, rest: readonly string[]): void {
   if (args.compact && !(command === 'schema' && rest.length === 1 && rest[0] === 'types')) throw new ValidationError('--compact is supported only for schema types');
   if (args.managed && command !== 'mcp') throw new ValidationError('--managed is supported only for mcp');
   if (args.tools !== undefined) {
@@ -202,6 +207,16 @@ async function run(argv: readonly string[], context: Context): Promise<void> {
   for (const token of argv) {
     if (token.startsWith('--') && !allowed.has(token.slice(2).split('=', 1)[0]!)) throw new ValidationError(`${token.split('=', 1)[0]} is not supported for ${name}`);
   }
+}
+
+/** Runs one command line. Interrupts and failures are the caller's: see `main`. */
+async function run(argv: readonly string[], context: Context): Promise<void> {
+  const parsed = parseArguments(argv);
+  if (parsed === 'version') return context.write(`agents-communication ${VERSION} (TypeScript)\n`);
+  const args = parsed;
+  if (args.help || !args.args.length) return output(context, args.args.length ? catalog.definition(args.args.join(' ')) : catalog.help());
+  const [command = '', ...rest] = args.args;
+  validateFlags(argv, args, command, rest);
   const runtime = delivery(context);
   const packageRoot = dirname(dirname(context.entry));
   if (command === 'skill') {
@@ -258,6 +273,7 @@ async function run(argv: readonly string[], context: Context): Promise<void> {
   }
   const wait = command === 'inbox' && rest[0] === 'wait';
   arity(rest, Number(wait), wait ? 2 : 1);
+  if (catalog.isTool(command)) return capability(command, rest[0], args, context);
   const call = commandInput(context, catalog.commandName(wait ? 'inbox wait' : command), rest[Number(wait)]);
   if (call.name === 'activity') return output(context, await activity.read(args.workspace, call.input));
   const session = args.session ?? '';

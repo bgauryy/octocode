@@ -18,7 +18,7 @@ fn walk_tool(tool: &str, input: &Value, budget: usize) -> Vec<Value> {
                 options: options.clone(),
                 remaining: Vec::new(),
             },
-            &CancellationToken::new(),
+            &Cancellation::new(),
         )
         .expect("page");
         let page = prepared.value;
@@ -113,12 +113,12 @@ fn unpaged_output_is_unchanged_and_cancellation_never_returns_a_partial_page() {
         remaining: Vec::new(),
     };
     assert_eq!(
-        prepare(response.clone(), &CancellationToken::new())
+        prepare(response.clone(), &Cancellation::new())
             .expect("unpaged")
             .value,
         input
     );
-    let cancelled = CancellationToken::new();
+    let cancelled = Cancellation::new();
     cancelled.cancel();
     assert_eq!(prepare(response, &cancelled), Err(ResponseError::Cancelled));
 }
@@ -144,7 +144,7 @@ fn immutable_replay_uses_one_plan_and_preserves_provider_facts_once() {
             },
             &input,
             &pages,
-            &CancellationToken::new(),
+            &Cancellation::new(),
         )
         .expect("saved page");
         let page = prepared.value;
@@ -182,7 +182,7 @@ fn mismatched_or_out_of_range_internal_page_locators_are_rejected_without_restar
             options: base.clone(),
             remaining: Vec::new(),
         },
-        &CancellationToken::new(),
+        &Cancellation::new(),
     )
     .expect("first page");
     let mut valid = base;
@@ -209,7 +209,7 @@ fn mismatched_or_out_of_range_internal_page_locators_are_rejected_without_restar
                     options,
                     remaining: Vec::new()
                 },
-                &CancellationToken::new()
+                &Cancellation::new()
             ),
             Err(ResponseError::InvalidPage)
         );

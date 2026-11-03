@@ -39,7 +39,8 @@ fn variant(tool: &Value, selection: bool) -> &Value {
 /// One tool's `tools/list` entry from its presentation `mcp` definition.
 fn entry(name: &str, mcp: &Value, lsp_servers: Option<&[&str]>) -> Value {
     let mut description = mcp["description"].clone();
-    if name == "lspSearch"
+    if octocode_native::id::ToolId::from_name(name)
+        .is_some_and(octocode_native::id::ToolId::lists_lsp_servers)
         && let (Some(text), Some(servers)) = (mcp["description"].as_str(), lsp_servers)
     {
         description = Value::String(with_lsp_servers(text, servers));

@@ -46,13 +46,17 @@ function validPartition(receipt) {
   return receipt.selectedItems > 0 && receipt.excludedItems > 0 && receipt.unknownItems > 0
     && receipt.selectedItems + receipt.excludedItems + (receipt.relatedItems ?? 0) + receipt.unknownItems === receipt.totalItems;
 }
+// A repeated selection is judged afresh: it selects what the first did and reports new provider spend.
+function freshRepeat(selection, receipt) {
+  return selection.selectedItems === receipt.selectedItems && selection.usage.calls > 0;
+}
 function restoredEvidenceMatches(report, tool, expected) {
   const restored = evidence(tool, report.responses.filter(entry => entry.tool === tool).flatMap(entry => rowData(entry.result)));
   return report.failures.length === 0 && same(ordered(restored), ordered(expected));
 }
 
-async function oneSurface(ctx, tool, surface, setup) {
-  const provider = providerSession(ctx, tool, surface), checks = [];
+async function oneSurface(ctx, tool, { surface, setup, token }) {
+  const provider = providerSession(ctx, tool, surface, token), checks = [];
   let attempt = 0;
   provider.set(request => ++attempt === 1 ? { status: 429, body: { error: 'temporary provider limit' } } : { body: classificationAnswer(request, question => selectedAnswer(question, setup.decide(request.state))) });
   try {
@@ -76,10 +80,10 @@ async function oneSurface(ctx, tool, surface, setup) {
     const expected = full.filter(value => selectedStates.some(state => selectedIdentity(tool, state, value, { cwd: ctx.cwd, query: setup.query })));
     checks.push(['selection.body', expected.length > 0 && same(ordered(selectedEvidence), ordered(expected)), { expected: expected.length, selected: selectedEvidence.length }]);
     checks.push(['selection.recovery', recovery.failures.length === 0 && provider.sent.length === before && same(ordered(recovered), ordered(full)) && new Set(recovered).size === recovered.length, { expected: full.length, recovered: recovered.length }]);
-    const cached = data(await ctx.call(ctx.q({ ...setup.query, classification }), surface));
-    checks.push(['selection.cache', provider.sent.length === before && cached.selection.selectedItems === receipt.selectedItems, cached.selection]);
+    const repeated = data(await ctx.call(ctx.q({ ...setup.query, classification }), surface));
+    checks.push(['selection.fresh', provider.sent.length > before && freshRepeat(repeated.selection, receipt), repeated.selection]);
     provider.set(() => ({ status: 401, body: { error: 'fixture refusal' } }));
-    const failure = data(await ctx.call(ctx.q({ ...setup.query, classification: { ...classification, predicates: ['A separate uncached selection question.'] } }), surface));
+    const failure = data(await ctx.call(ctx.q({ ...setup.query, classification: { ...classification, predicates: ['A separate selection question.'] } }), surface));
     checks.push(['selection.failClosed', failure?.errorCode === 'classificationProviderError' && evidence(tool, [failure]).length === 0 && failure.next?.unfiltered?.kind === 'continue', failure]);
     const afterFailure = provider.sent.length;
     const restored = await ctx.explore(tool, failure.next.unfiltered.input, surface);
@@ -102,16 +106,18 @@ async function partialFailurePaging(ctx, surface) {
     const report = await ctx.explore('localSearch', { queries: [{ path: directory, matchString: ['classification_evidence'],
       contextLines: { before: 0, after: 0 }, classification: { predicates: ['Keep partial-page evidence.'] } }], responseChars: 600 }, surface);
     const responses = report.responses.filter(entry => entry.tool === 'localSearch');
-    const rows = responses.flatMap(entry => rowData(entry.result)).filter(row => row.selection);
-    const matches = evidence('localSearch', rows);
-    const failures = JSON.stringify(rows[0]?.selection.failures), models = JSON.stringify(rows[0]?.selection.usage?.models);
+    // The selection receipt is a disclosure: every part of the selected walk repeats it unchanged and its evidence
+    // appears once across parts. The explored next.unfiltered* walks carry no receipt and are not selected evidence.
+    const parts = responses.flatMap(entry => rowData(entry.result)).filter(row => row?.selection);
+    const receipt = JSON.stringify(parts[0]?.selection);
+    const matches = evidence('localSearch', parts);
     return [
       ['selection.partial-pages.complete', report.failures.length === 0 && responses.some(entry => entry.result.json?.results?.some(row => row.rowPart?.of > 1)), report.failures],
       ['selection.partial-pages.exact-evidence', matches.length === 16 && new Set(matches).size === 16
         && matches.every(match => !match.includes('failed.txt')), matches],
-      ['selection.partial-pages.metadata', rows.length > 1 && rows.every(row => row.selection.failures?.length === 1
-        && JSON.stringify(row.selection.failures) === failures && row.selection.usage?.models?.length > 0
-        && JSON.stringify(row.selection.usage.models) === models), rows.map(row => row.selection)],
+      ['selection.partial-pages.metadata', parts.length > 1 && parts[0].selection?.failures?.length === 1
+        && parts[0].selection.usage?.models?.length > 0 && parts.every(row => JSON.stringify(row.selection) === receipt),
+        parts.map(row => row.selection)],
       ['selection.partial-pages.no-reevaluation', provider.sent.length === 3, provider.sent.length],
     ];
   } finally {
@@ -123,7 +129,9 @@ async function partialFailurePaging(ctx, surface) {
 export async function inlineChecks(ctx, tool) {
   const setup = fixture(ctx, tool), checks = [];
   for (const surface of ctx.surfaces) {
-    const results = await oneSurface(ctx, tool, surface, setup);
+    // Every selection call reaches the provider afresh, so the walk owns its credential:
+    // its GitHub quota is not the one earlier checks of this tool already spent.
+    const results = await ctx.scenario('selection', surface, ({ token }) => oneSurface(ctx, tool, { surface, setup, token }));
     if (tool === 'localSearch') results.push(...await partialFailurePaging(ctx, surface));
     for (const [label, ok, detail] of results) checks.push([`${surface}.${label}`, ok, JSON.stringify(detail)]);
   }

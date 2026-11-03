@@ -40,7 +40,8 @@ test('check_write is read-only under a held writer and does not renew presence o
   const expires = f.sessionExpiry();
   f.db.exec('BEGIN IMMEDIATE');
   try {
-    const result = await exec(binary, f.args('check_write', {paths: [{path:'file.txt'}]}, f.owner), {timeout: 1500});
+    // A reader that waited on the writer lock would hit the busy timeout and exit non-zero, failing exec.
+    const result = await exec(binary, f.args('check_write', {paths: [{path:'file.txt'}]}, f.owner));
     assert.equal(JSON.parse(result.stdout).ok, true);
   } finally { f.db.exec('ROLLBACK'); }
   assert.equal(f.dataVersion(), before);

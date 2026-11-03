@@ -49,19 +49,6 @@ fn not_regular() -> io::Error {
     )
 }
 
-/// Open the regular file `path` for reading by walking down from `boundary`
-/// one component at a time, never following a symlink, so a file or
-/// directory swapped for a link after an earlier check cannot redirect the
-/// read outside `boundary`. `path` must lie beneath `boundary` with no `..`;
-/// a symlink or non-file anywhere below `boundary` is `InvalidInput`.
-pub(crate) fn open_beneath(boundary: &Path, path: &Path) -> io::Result<File> {
-    let names = names_beneath(boundary, path)?;
-    let Some((file_name, directories)) = names.split_last() else {
-        return Err(not_regular());
-    };
-    BeneathDir::walk(boundary, directories)?.open_file(file_name)
-}
-
 /// The components of `path` below `boundary`; `..`, `.` or a root is
 /// `InvalidInput`.
 fn names_beneath<'a>(boundary: &Path, path: &'a Path) -> io::Result<Vec<&'a OsStr>> {

@@ -98,7 +98,7 @@ pub(crate) async fn locate_path(
     let (owner, repo) = (at.owner, at.repo);
     let segments: Vec<&str> = at.path.split('/').filter(|part| !part.is_empty()).collect();
     let reference = provider
-        .resolve_reference(owner, repo, at.reference, false, context)
+        .resolve_reference(owner, repo, at.reference, context)
         .await
         .ok()?;
     let mut listings = 0;

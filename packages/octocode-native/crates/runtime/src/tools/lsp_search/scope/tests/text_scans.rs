@@ -64,18 +64,15 @@ async fn every_unanswered_file_is_checked_for_a_code_use() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn text_scan_is_reused_under_an_unchanged_fingerprint() {
+async fn every_request_scans_its_current_source() {
     let (_dir, root) = fixture();
     write(&root.join("a.ts"), "export function f() {}\n");
     write(&root.join("b.ts"), "f();\n");
     let policy = workspace_policy(&root);
     let cancel = &crate::execution::cancel::NeverCancel;
     let include = vec!["*.ts".to_owned()];
-    let scan = |fingerprint: Option<&str>| {
+    let scan = || {
         let scope = Scope::new(root.to_string_lossy().into_owned(), include.clone());
-        if let Some(fingerprint) = fingerprint {
-            scope.set_fingerprint(fingerprint.to_owned());
-        }
         let policy = policy.clone();
         async move {
             scope
@@ -86,16 +83,12 @@ async fn text_scan_is_reused_under_an_unchanged_fingerprint() {
                 .len()
         }
     };
-    assert_eq!(scan(Some("fp")).await, 2);
-    // A new mention under the same fingerprint string: the earlier
-    // scan answers (the fingerprint is what proves the files unchanged),
-    // so no file is read again.
+    assert_eq!(scan().await, 2);
+    // Every request scans its current source: no scan is shared.
     write(&root.join("c.ts"), "f();\n");
-    assert_eq!(scan(Some("fp")).await, 2);
-    // Another fingerprint, or none (walk past its bounds), scans again.
-    assert_eq!(scan(Some("fp2")).await, 3);
+    assert_eq!(scan().await, 3);
     write(&root.join("d.ts"), "f();\n");
-    assert_eq!(scan(None).await, 4);
+    assert_eq!(scan().await, 4);
 }
 
 /// The ignored-file index does not enter a nested repository (a gitignored

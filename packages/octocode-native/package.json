@@ -34,12 +34,15 @@
     "coverage:rust": "node scripts/rust-tests.cjs --coverage",
     "check:features": "cargo hack check --locked --workspace --each-feature",
     "test:scripts": "node tests/platform.test.cjs && node scripts/platform-packages.cjs --check && node --test tests/build-publication.test.cjs tests/fetch-binary.test.cjs tests/release-pipeline.test.cjs tests/upgrade-path.test.mjs",
-    "lint": "yarn run -T oxlint -c ../../.oxlintrc.json . && cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+    "lint:own": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:oxlint && yarn lint:own",
     "format": "cargo fmt --all",
     "fmt:rust:check": "cargo fmt --all -- --check",
     "typecheck": "yarn run -T tsgo --noEmit",
     "deny": "cargo deny --locked check",
     "shear": "cargo shear --locked --deny-warnings --check-test-targets",
-    "verify": "yarn fmt:rust:check && yarn lint && yarn deny && yarn shear && yarn typecheck && yarn test && yarn workspace @octocodeai/config check:tool-contract"
+    "verify:own": "yarn fmt:rust:check && yarn lint:own && yarn deny && yarn shear && yarn typecheck && yarn test && yarn workspace @octocodeai/config check:tool-contract",
+    "verify": "yarn verify:own && yarn lint:oxlint"
   }
 }

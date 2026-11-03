@@ -24,7 +24,7 @@ pub(crate) fn runtime(
         judge: std::sync::Arc::new(judge),
         handle,
         context: crate::execution::ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
+            cancellation: octocode_io::cancellation::Cancellation::new(),
             deadline: Instant::now() + timeout,
             response_window: None,
             github_credential: None,

@@ -36,8 +36,8 @@ pub(super) const LSP_SERVER_ENV_ALLOWLIST: &[&str] = &[
     "SystemRoot",
     // Toolchain selection the servers of other languages read: a Python
     // interpreter and its import paths (pyright), the Go module cache,
-    // flags and workspace file (gopls), the JVM (jdtls, Metals), locale and
-    // scratch space.
+    // flags and workspace file (gopls), the JVM (jdtls, Metals), .NET
+    // apphost runtime roots (csharp-ls), locale and scratch space.
     "VIRTUAL_ENV",
     "CONDA_PREFIX",
     "PYTHONPATH",
@@ -49,6 +49,12 @@ pub(super) const LSP_SERVER_ENV_ALLOWLIST: &[&str] = &[
     "GOPRIVATE",
     "GONOSUMDB",
     "JAVA_HOME",
+    "DOTNET_ROOT",
+    "DOTNET_ROOT_ARM",
+    "DOTNET_ROOT_ARM64",
+    "DOTNET_ROOT_X64",
+    "DOTNET_ROOT_X86",
+    "DOTNET_ROOT(x86)",
     "XDG_CONFIG_HOME",
     "LANG",
     "LC_ALL",

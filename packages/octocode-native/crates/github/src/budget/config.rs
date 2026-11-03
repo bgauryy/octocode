@@ -1,5 +1,6 @@
 //! Executor tuning and identity: request families, Octokit throttling groups,
 //! [`ExecutorConfig`] timings and the [`LimiterKey`] every state is keyed by.
+use super::key_state::{Bucket, KeyFacts};
 use super::now_ms;
 use crate::credential_host;
 use std::time::Duration;
@@ -47,6 +48,43 @@ impl Group {
     }
 
     /// The GitHub rate-limit bucket this group's requests draw from.
+    pub(super) const ALL: [Self; 5] = [
+        Self::Search,
+        Self::CodeSearch,
+        Self::Graphql,
+        Self::Write,
+        Self::Auth,
+    ];
+
+    /// Groups whose start spacing follows the quota GitHub reports for
+    /// their bucket rather than a fixed interval.
+    pub(super) fn quota_paced(self) -> bool {
+        matches!(self, Self::Search | Self::CodeSearch)
+    }
+
+    /// Whether `bucket` is the reported quota of a quota-paced group.
+    pub(super) fn paces_bucket(bucket: &str) -> bool {
+        Self::ALL
+            .into_iter()
+            .any(|group| group.quota_paced() && group.bucket() == bucket)
+    }
+
+    /// The quota a quota-paced bucket is assumed to hold until a response
+    /// reports its real one, which replaces the assumption from the first
+    /// answer on. GitHub documents 10 requests a minute for the code search
+    /// endpoint, which requires authentication
+    /// (<https://docs.github.com/en/rest/search/search#rate-limit>). It is an
+    /// assumption for planning, never a cap: no request waits for it.
+    pub(super) fn assumed_quota(self, now: u64) -> Option<Bucket> {
+        match self {
+            Self::CodeSearch => Some(Bucket {
+                remaining: 10,
+                reset: now / 1000 + 60,
+            }),
+            _ => None,
+        }
+    }
+
     pub(super) fn bucket(self) -> &'static str {
         match self {
             Self::Search => GitHubResource::Search.bucket(),
@@ -63,10 +101,11 @@ impl Group {
 pub struct ExecutorConfig {
     pub global_concurrency: usize,
     pub git_concurrency: usize,
-    pub search_spacing: Duration,
+    /// Space search and code-search starts by the quota GitHub reports for
+    /// their bucket (see [`Self::spacing_ms`]).
+    pub quota_pacing: bool,
     pub graphql_spacing: Duration,
     pub write_spacing: Duration,
-    pub code_search_per_minute: usize,
     /// Added to a primary reset before retrying (Octokit waits reset + 1s).
     pub reset_grace: Duration,
     /// Secondary-limit wait when GitHub sends no `retry-after`.
@@ -80,10 +119,9 @@ impl ExecutorConfig {
         Self {
             global_concurrency: 10,
             git_concurrency: 2,
-            search_spacing: Duration::from_millis(2000),
+            quota_pacing: true,
             graphql_spacing: Duration::from_millis(1000),
             write_spacing: Duration::from_millis(1000),
-            code_search_per_minute: 10,
             reset_grace: Duration::from_secs(1),
             secondary_default: Duration::from_secs(60),
             circuit_failures: 5,
@@ -109,21 +147,47 @@ impl ExecutorConfig {
         Self {
             global_concurrency: 32,
             git_concurrency: 8,
-            search_spacing: Duration::ZERO,
+            quota_pacing: false,
             graphql_spacing: Duration::ZERO,
             write_spacing: Duration::ZERO,
-            code_search_per_minute: usize::MAX,
             reset_grace: Duration::ZERO,
             ..Self::octokit()
         }
     }
 
-    pub(super) fn spacing(&self, group: Group) -> Duration {
+    /// Whether `group`'s starts are spaced at all under this config.
+    pub(super) fn paces(&self, group: Group) -> bool {
+        (self.quota_pacing && group.quota_paced()) || !self.fixed_spacing(group).is_zero()
+    }
+
+    /// Milliseconds between two of `group`'s starts for an admission planning
+    /// `planned` requests. A quota-covered admission bursts. Only requests
+    /// beyond the reported remaining quota are spread over the time until
+    /// reset (plus grace). Before any answer reports the quota, or once its
+    /// reset has passed, the group's assumed quota stands in
+    /// ([`Group::assumed_quota`]); a group with none applies no spacing, and its
+    /// single permit already holds the next request until an answer reports
+    /// the quota.
+    pub(super) fn spacing_ms(
+        &self,
+        group: Group,
+        facts: &KeyFacts,
+        now: u64,
+        planned: usize,
+    ) -> u64 {
+        if self.quota_pacing && group.quota_paced() {
+            return facts
+                .quota(group, now)
+                .map_or(0, |bucket| bucket.spacing_ms(self, now, planned));
+        }
+        super::millis(self.fixed_spacing(group))
+    }
+
+    fn fixed_spacing(&self, group: Group) -> Duration {
         match group {
-            Group::Search | Group::CodeSearch => self.search_spacing,
             Group::Graphql => self.graphql_spacing,
             Group::Write => self.write_spacing,
-            Group::Auth => Duration::ZERO,
+            Group::Search | Group::CodeSearch | Group::Auth => Duration::ZERO,
         }
     }
 }

@@ -1,7 +1,8 @@
-//! Per-tool cache-contract integration tests.
+//! Per-tool no-reuse contract integration tests.
 //!
-//! Provider request counts and returned evidence prove cache reuse or refresh.
-//! Cache telemetry is absent on every tool's public result rows.
+//! Provider request counts and returned evidence prove every fresh call reads
+//! its source again and nothing is persisted for reuse. Cache telemetry is
+//! absent on every tool's public result rows.
 
 use crate::support;
 
@@ -32,10 +33,9 @@ fn sha(ch: char) -> String {
 
 // ─── ghSearchHistory ─────────────────────────────────────────────────────────
 
-/// `ghSearchHistory` bypasses `ConditionalCache` intentionally — history
-/// search results are mutable. Both calls must reach the provider.
+/// Every `ghSearchHistory` call reaches the provider: both calls are sent.
 #[tokio::test]
-async fn ghsearchhistory_revalidates_without_cache_telemetry() {
+async fn ghsearchhistory_reads_the_provider_on_every_call_without_cache_telemetry() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/pulls"))
@@ -70,10 +70,10 @@ async fn ghsearchhistory_revalidates_without_cache_telemetry() {
 
 // ─── artifactSearch ──────────────────────────────────────────────────────────
 
-/// Memory storage reuses registry responses within one runtime, but a new
-/// runtime starts cold and neither runtime persists those responses.
+/// Every artifact call reads the registry, in the same runtime or a new one,
+/// and no storage mode persists those responses.
 #[tokio::test]
-async fn artifactsearch_memory_storage_reuses_ram_without_persisting() {
+async fn artifactsearch_reads_the_registry_on_every_call_and_persists_nothing() {
     let server = MockServer::builder().start().await;
     let pkg = "memory-cache-fixture";
     // The npm `exact` code fetches `/{name}/{spec}` where spec defaults to
@@ -86,7 +86,7 @@ async fn artifactsearch_memory_storage_reuses_ram_without_persisting() {
             "version": "1.0.0",
             "description": "memory cache fixture",
         })))
-        .expect(2)
+        .expect(3)
         .mount(&server)
         .await;
 
@@ -115,12 +115,12 @@ async fn artifactsearch_memory_storage_reuses_ram_without_persisting() {
             "call {call_n} must succeed"
         );
     }
-    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
     runtime.close().await;
     let restarted = workspace.runtime(&settings);
     let outcome = call(&restarted, "artifactSearch", query).await.unwrap();
     assert_eq!(row_status(&outcome), "success");
-    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
     assert!(!workspace.home.join("tmp/artifact").exists());
     restarted.close().await;
 }

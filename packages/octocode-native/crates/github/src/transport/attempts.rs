@@ -42,7 +42,6 @@ pub(super) struct Attempts<'a> {
     /// The operation's physical attempts so far (0-based index of the
     /// next send's predecessor), shared with any outer semantic retry.
     attempt: &'a mut u8,
-    counted_window: bool,
 }
 
 impl<'a> Attempts<'a> {
@@ -74,7 +73,6 @@ impl<'a> Attempts<'a> {
             spec,
             redirects: 0,
             attempt,
-            counted_window: false,
         }
     }
 
@@ -93,12 +91,12 @@ impl<'a> Attempts<'a> {
             let headers = response.headers().clone();
             *self.failed = None;
             self.state.observe(&headers, self.resource.bucket());
-            if status.is_redirection() && status != StatusCode::NOT_MODIFIED {
+            if status.is_redirection() {
                 drop(admission);
                 self.follow_redirect(status, &headers)?;
                 continue;
             }
-            if status.is_success() || status == StatusCode::NOT_MODIFIED {
+            if status.is_success() {
                 let next = parse_next(&headers, &self.transport.endpoint)?;
                 let body = read_bounded(response, self.context).await?;
                 drop(admission);
@@ -120,40 +118,33 @@ impl<'a> Attempts<'a> {
         }
     }
 
-    /// Wait out a short block, then take this attempt's permits and slots.
+    /// Wait out a block or the quota-paced start, then take this attempt's
+    /// permits and slots.
     async fn admit(&mut self) -> Result<Admission, ProviderError> {
         self.context.check()?;
-        let cap = self.transport.retry.max_rate_limit_wait;
-        // Admission waits (a rate-limit block, search spacing, the
-        // code-search window, a permit) may use the request time left or
-        // `cap`, whichever ends later, within the call's own deadline;
-        // the time they take is credited back to the request budget.
+        // Admission waits (a rate-limit block, search pacing, a permit) may
+        // use the call's own deadline; the time they take is credited back to
+        // the request budget. Only a wait that ends past it is refused.
         let queued = Instant::now();
-        let wait_deadline = self.context.budget.admission_deadline(cap);
+        let wait_deadline = self.context.budget.admission_deadline();
         self.state
             .wait_unblocked(
                 self.resource.bucket(),
                 self.config,
-                cap,
                 wait_deadline,
                 &self.context.budget.cancellation,
             )
             .await?;
-        // The code-search window is charged once per logical request.
-        let charge_window = self.resource == GitHubResource::CodeSearch && !self.counted_window;
         let admission = self
             .state
             .admit(
                 self.group,
                 self.config,
-                charge_window,
-                cap,
                 wait_deadline,
                 &self.context.budget.cancellation,
             )
             .await?;
         self.context.budget.credit_wait(queued.elapsed());
-        self.counted_window |= charge_window;
         Ok(admission)
     }
 
@@ -220,7 +211,7 @@ impl<'a> Attempts<'a> {
             && self.transport.endpoint.permits(&location)
         {
             self.redirects += 1;
-            self.transport.record_rename(&self.spec.url, &location);
+            self.context.record_rename(&self.spec.url, &location);
             self.spec.url = location;
             return Ok(());
         }
@@ -249,16 +240,16 @@ impl<'a> Attempts<'a> {
     ) -> Result<(), ProviderError> {
         let retry = &self.transport.retry;
         let budget = &self.context.budget;
-        // A rate limit waits up to `cap` within the call's deadline (the
-        // next turn's admission waits and credits it); a 5xx backoff
-        // spends request time.
+        // A rate limit waits within the call's deadline and nothing else
+        // bounds it (the next turn's admission waits and credits it); a 5xx
+        // backoff spends request time and honors `max_retry_after`.
         let (limit, deadline) = if backoff.rate_limited {
-            (retry.max_rate_limit_wait, budget.wait_until)
+            (None, budget.admission_deadline())
         } else {
-            (retry.max_retry_after, budget.effective_deadline())
+            (Some(retry.max_retry_after), budget.effective_deadline())
         };
         if *self.attempt + 1 >= retry.max_attempts
-            || backoff.wait > limit
+            || limit.is_some_and(|limit| backoff.wait > limit)
             || Instant::now() + backoff.wait >= deadline
         {
             return Err(error);

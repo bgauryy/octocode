@@ -25,7 +25,10 @@ fn an_empty_listings_probe_stops_at_its_entry_cap() {
         let hint = out["hints"][0].as_str().expect("hint");
         assert_eq!(
             hint,
-            format!("At least {cap} entries behind skipped paths (build/)."),
+            format!(
+                "At least {cap} entries behind skipped paths (build/). {}",
+                crate::tools::leads::skipped::WALKS_ALL_SKIPPED
+            ),
             "{out}"
         );
         let retry = &related(&out, "structureSearch")["input"]["queries"][0];

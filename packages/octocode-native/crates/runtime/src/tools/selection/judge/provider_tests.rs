@@ -17,13 +17,12 @@ fn evaluator(key: &str, base_url: String) -> Evaluator {
         0,
         4,
         None,
-        None,
     )
 }
 
 fn context(timeout: Duration) -> ExecutionContext {
     ExecutionContext {
-        cancellation: tokio_util::sync::CancellationToken::new(),
+        cancellation: octocode_io::cancellation::Cancellation::new(),
         deadline: Instant::now() + timeout,
         response_window: None,
         github_credential: None,
@@ -250,4 +249,80 @@ fn a_refused_connection_is_named_not_the_circuit_it_opens() {
         "the provider is unavailable: {error:?}"
     );
     assert!(error.message.contains("could not connect"), "{error:?}");
+}
+
+/// Candidates with identical states in one call are one evaluation: one
+/// provider request, one decision for each, spend counted once.
+#[test]
+fn identical_candidate_states_in_one_call_share_one_request() {
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let server = executor.block_on(MockServer::start());
+    executor.block_on(
+        Mock::given(method("POST"))
+            .respond_with(|request: &Request| {
+                let body: Value = request.body_json().expect("request");
+                let answers = body["questions"]
+                    .as_object()
+                    .expect("questions")
+                    .iter()
+                    .map(|(id, question)| {
+                        let legend = question["criteria"]
+                            .as_array()
+                            .expect("criteria")
+                            .iter()
+                            .enumerate()
+                            .map(|(i, criterion)| (i.to_string(), criterion.clone()))
+                            .collect::<serde_json::Map<String, Value>>();
+                        (
+                            id.clone(),
+                            json!({"type":"score","score":2.0,"confidence":1.0,
+                            "legend":legend,"probabilities":{"0":0.0,"1":0.0,"2":1.0}}),
+                        )
+                    })
+                    .collect::<serde_json::Map<String, Value>>();
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "model":"jev-resolved","answers":answers,
+                    "usage":{"input_tokens":10,"output_tokens":2}
+                }))
+            })
+            .mount(&server),
+    );
+    let evaluator = evaluator("test-key", server.uri());
+    let candidates =
+        ["same", "other", "same"].map(|text| Candidate::new(Some(json!({"text":text}))));
+    let context = context(Duration::from_secs(10));
+    let mut usage = ClassificationUsage::default();
+    let mut decisions = evaluator
+        .select(JudgeCall {
+            failures: &mut Vec::new(),
+            candidates: &candidates,
+            admitted: &[0, 1, 2],
+            predicates: &["Does this describe termination?".to_owned()],
+            research_context: None,
+            long_context: false,
+            limits: SelectionLimits {
+                max_candidates: 3,
+                max_chars: 10_000,
+                timeout: Duration::from_secs(10),
+            },
+            handle: executor.handle(),
+            context: &context,
+            usage: &mut usage,
+        })
+        .expect("judged");
+    decisions.sort_by_key(|(ordinal, _)| *ordinal);
+    assert_eq!(
+        decisions,
+        [
+            (0, Decision::Selected),
+            (1, Decision::Selected),
+            (2, Decision::Selected)
+        ]
+    );
+    let requests = executor
+        .block_on(server.received_requests())
+        .expect("requests");
+    assert_eq!(requests.len(), 2, "one request per distinct state");
+    assert_eq!(usage.calls, 2);
+    assert_eq!((usage.input_tokens, usage.output_tokens), (20, 4));
 }

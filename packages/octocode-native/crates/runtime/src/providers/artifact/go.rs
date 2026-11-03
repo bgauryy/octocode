@@ -228,8 +228,7 @@ pub(crate) async fn go(
     // the N-1 pages before it, each the same size, so pages tile the list.
     // Each next page's `cursor` carries the token that starts it, so
     // following `nextPage` reads one page with no server-side state. A page
-    // without a usable cursor walks from the deepest page whose start the
-    // registry cache remembers.
+    // without a usable cursor follows the token chain from page one.
     let page = state.page.unwrap_or(1);
     let supplied = state
         .token
@@ -262,11 +261,6 @@ pub(crate) async fn go(
             (end, false) => return Ok(ArtifactProviderPage::empty(total(end.get("total")))),
         },
     };
-    if let Some(next) = string(data.get("nextPageToken")) {
-        client
-            .remember_cursor(&go_page_key(query, page + 1), &next)
-            .await;
-    }
     let data = &data;
     // pkg.go.dev answers a search with no match as `items: null`.
     let Some(items) = data.get("items").filter(|items| !items.is_null()) else {

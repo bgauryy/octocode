@@ -55,6 +55,32 @@ fn read_fix_pr_carries_the_patches_of_a_small_fix() {
     );
 }
 
+/// GitHub numbers start at 1: a node numbered 0 is no pull request, so it
+/// is neither listed nor made the fix lead.
+#[test]
+fn a_node_with_an_invalid_number_is_dropped() {
+    let query = HistoryItemRequest::from_row(json!({
+        "operation":"issue","owner":"o","repo":"r","number":1
+    }))
+    .expect("issue query");
+    let prs = map_closing_pull_requests(&[
+        json!({"number":0,"state":"MERGED","mergedAt":"2026-09-11T15:55:40Z"}),
+        json!({"number":5,"state":"CLOSED"}),
+    ]);
+    assert_eq!(
+        prs.iter()
+            .map(|pr| pr.row["number"].clone())
+            .collect::<Vec<_>>(),
+        [json!(5)]
+    );
+    let lead = out_for(&query, &prs);
+    assert_eq!(
+        lead["calls"]["readPullRequest"]["input"]["queries"][0]["number"],
+        5
+    );
+    assert!(out_for(&query, &map_closing_pull_requests(&[json!({"number":0})]))["calls"]["readPullRequest"].is_null());
+}
+
 fn out_for(query: &HistoryItemRequest, prs: &[ClosingPr]) -> Value {
     let mut out = json!({});
     attach_fix_pr(&mut out, query, Some(prs), true);

@@ -21,6 +21,14 @@ fn message(result: Result<Value, super::SchemaError>) -> String {
 }
 
 #[test]
+fn every_catalog_view_names_one_query_command() {
+    let machine = machine(&[]);
+    let compact = catalog(&machine, None).expect("catalog");
+    let full = catalog(&machine, Some("full")).expect("catalog");
+    assert_eq!(compact["commands"]["query"], full["commands"]["query"]);
+}
+
+#[test]
 fn catalog_lists_only_enabled_tools() {
     let value = catalog(&machine(&["clasify"]), None).expect("catalog");
     let names: Vec<&str> = value["tools"]

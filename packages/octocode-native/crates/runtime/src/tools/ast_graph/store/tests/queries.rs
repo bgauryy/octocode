@@ -37,7 +37,11 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     );
 
     let cycles = ask(root, "cycles", None, |_| {});
-    assert_eq!(cycles.value["pagination"]["totalItems"], 1, "{}", cycles.value);
+    assert_eq!(
+        cycles.value["pagination"]["totalItems"], 1,
+        "{}",
+        cycles.value
+    );
     assert_eq!(
         cycles.value["rows"][0]["nodes"],
         json!(["src/a.ts", "src/b.ts"])
@@ -216,7 +220,11 @@ fn out_of_range_flags_are_rejected_and_a_page_past_the_end_is_empty() {
         o.offset = Some(500);
     });
     assert_eq!(past.class, ExitClass::Empty, "{}", past.value);
-    assert!(past.value["pagination"]["totalItems"].as_u64().is_some_and(|total| total > 0));
+    assert!(
+        past.value["pagination"]["totalItems"]
+            .as_u64()
+            .is_some_and(|total| total > 0)
+    );
 }
 
 /// An unknown `--edge` names every edge kind `--edge` accepts.
@@ -316,5 +324,9 @@ fn ambiguous_reference_pages_every_candidate() {
         .collect::<BTreeSet<_>>();
     assert_eq!(union.len(), 25);
     let found = ask(root, "find", Some("run"), |o| o.limit = Some(100));
-    assert_eq!(found.value["pagination"]["totalItems"], 25, "{}", found.value);
+    assert_eq!(
+        found.value["pagination"]["totalItems"], 25,
+        "{}",
+        found.value
+    );
 }

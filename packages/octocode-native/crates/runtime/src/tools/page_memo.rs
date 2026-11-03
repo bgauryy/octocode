@@ -1,36 +1,35 @@
-//! A short-lived store of results kept for continuation pages, keyed by the
-//! result's snapshot and the path policy that produced it. A hit is only a
+//! A store of results kept for continuation pages, keyed by the result's
+//! snapshot and the path policy that produced it. A value lives as issued
+//! continuation state does ([`crate::cache::CONTINUATION_RETENTION`]): it
+//! expires [`CONTINUATION_IDLE`] after its last read. A hit is only a
 //! candidate: each owner re-validates what it reads before serving a page.
 use crate::tools::source::{Link, StampSet};
-use octocode_io::memo::{Memo, MemoLimits};
+use octocode_io::memo::Memo;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
+
+use crate::cache::CONTINUATION_IDLE;
 
 /// Values by snapshot, each stored with the policy that produced it.
 pub(crate) struct PageMemo<V> {
     memo: Memo<String, (String, V)>,
-    ttl: Duration,
 }
 
 impl<V: Send + Sync + 'static> PageMemo<V> {
-    /// A store that keeps a value for `ttl`, at most `max_entries` values,
-    /// and at most `max_weight` total weight; the least recently used go
-    /// first.
-    pub(crate) const fn new(ttl: Duration, max_entries: usize, max_weight: usize) -> Self {
+    /// A store drawing on the one process budget ([`crate::cache::MEMORY`]),
+    /// the least recently used of every store going first; each value
+    /// expires [`CONTINUATION_IDLE`] after it was last read.
+    pub(crate) const fn new() -> Self {
         Self {
-            memo: Memo::new(MemoLimits {
-                max_entries,
-                max_weight,
-                keep_newest: false,
-            }),
-            ttl,
+            memo: Memo::new(&crate::cache::MEMORY),
         }
     }
 
-    /// `read` of the unexpired value stored for `snapshot` under `policy`.
+    /// `read` of the unexpired value stored for `snapshot` under `policy`;
+    /// the read restarts its lifetime, so a cursor being paged stays served.
     pub(crate) fn get<T>(
         &self,
         snapshot: &str,
@@ -39,7 +38,11 @@ impl<V: Send + Sync + 'static> PageMemo<V> {
     ) -> Option<T> {
         let hit = self.memo.get(snapshot)?;
         let (stored_policy, value) = hit.value.as_ref();
-        (stored_policy == policy).then(|| read(value))
+        if stored_policy != policy {
+            return None;
+        }
+        self.memo.touch(snapshot, CONTINUATION_IDLE);
+        Some(read(value))
     }
 
     /// The hit stored for `snapshot` under `policy` while it is current:
@@ -61,12 +64,14 @@ impl<V: Send + Sync + 'static> PageMemo<V> {
         hit
     }
 
-    /// Store `value`, replacing any value for the same snapshot and dropping
-    /// expired values, then the least recently used beyond the entry and
-    /// weight budgets. A value over the weight budget is not kept.
-    pub(crate) fn put(&self, snapshot: String, policy: String, weight: usize, value: V) {
+    /// Store `value`, about `bytes` large, replacing any value for the same
+    /// snapshot; expired values go first, then the least recently used of
+    /// every store until the budget holds. A value over the whole budget is
+    /// not kept. The key and policy count toward its weight.
+    pub(crate) fn put(&self, snapshot: String, policy: String, bytes: usize, value: V) {
+        let weight = bytes + snapshot.len() + policy.len();
         self.memo
-            .insert(snapshot, (policy, value), weight, Some(self.ttl));
+            .insert(snapshot, (policy, value), weight, Some(CONTINUATION_IDLE));
     }
 
     /// Drop the value stored for `snapshot`, as expiry or eviction would.
@@ -208,8 +213,12 @@ fn exists(path: &Path) -> bool {
 }
 
 #[cfg(test)]
+mod budget_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     /// A walked directory's ignore inputs: its present regular ignore files,
     /// a nested repository's rule files outside the walk (never the root's:
@@ -254,26 +263,19 @@ mod tests {
         assert!(directory_ignore_inputs(&root.join("dir"), root, all).untracked);
     }
 
+    /// A value over the whole budget is not kept, and evicts nothing
+    /// (oldest-first eviction across stores: `octocode_io::memo` tests).
     #[test]
-    fn the_oldest_values_go_first_to_keep_both_budgets() {
-        let memo = PageMemo::new(Duration::from_secs(60), 3, 10);
-        for tag in 0..5 {
-            memo.put(format!("s{tag}"), "p".into(), 3, ());
-        }
-        assert_eq!(
-            memo.contents(),
-            (vec!["s2".into(), "s3".into(), "s4".into()], 9)
-        );
-        memo.put("big".into(), "p".into(), 8, ());
-        assert_eq!(memo.contents(), (vec!["big".into()], 8));
-        // A value over the weight budget is not kept, and evicts nothing.
-        memo.put("huge".into(), "p".into(), 11, ());
-        assert_eq!(memo.contents(), (vec!["big".into()], 8));
+    fn a_value_over_the_whole_budget_is_not_kept() {
+        let memo = PageMemo::new();
+        memo.put("small".into(), "p".into(), 3, ());
+        memo.put("huge".into(), "p".into(), crate::cache::MEMORY.limit(), ());
+        assert_eq!(memo.contents(), (vec!["small".into()], 3 + 5 + 1));
     }
 
     #[test]
     fn a_value_is_served_under_its_own_policy_until_replaced_or_evicted() {
-        let memo = PageMemo::new(Duration::from_secs(60), 4, 100);
+        let memo = PageMemo::new();
         memo.put("s".into(), "a".into(), 1, 1);
         assert_eq!(memo.get("s", "a", |v| *v), Some(1));
         assert_eq!(memo.get("s", "b", |v| *v), None);
@@ -298,7 +300,7 @@ mod tests {
             .capture(Link::Follow, None)
             .expect("proof")
         };
-        let memo = PageMemo::new(Duration::from_secs(60), 4, 100);
+        let memo = PageMemo::new();
         let get = |serve: fn(u8) -> Option<u8>| {
             memo.get_current(
                 "s",
@@ -319,10 +321,43 @@ mod tests {
         assert!(memo.contents().0.is_empty());
     }
 
+    /// `value` stored under policy `a` as if put `age` ago.
+    fn put_aged(memo: &PageMemo<()>, age: Duration) {
+        let stored_at = std::time::Instant::now()
+            .checked_sub(age)
+            .expect("monotonic clock covers the age");
+        memo.memo.insert_full(
+            "s".into(),
+            ("a".into(), ()),
+            (),
+            1,
+            Some(CONTINUATION_IDLE),
+            stored_at,
+        );
+    }
+
+    #[test]
+    fn a_read_restarts_the_continuation_lifetime() {
+        let memo = PageMemo::new();
+        put_aged(&memo, CONTINUATION_IDLE - Duration::from_secs(5));
+        assert_eq!(memo.get("s", "a", |()| ()), Some(()));
+        let age = memo.memo.get("s").expect("still stored").age;
+        assert!(
+            age < Duration::from_secs(5),
+            "read restarted the lifetime: {age:?}"
+        );
+        // A read under another policy is no use of this value.
+        put_aged(&memo, CONTINUATION_IDLE - Duration::from_secs(5));
+        assert_eq!(memo.get("s", "b", |()| ()), None);
+        let age = memo.memo.get("s").expect("still stored").age;
+        assert!(age >= CONTINUATION_IDLE - Duration::from_secs(5), "{age:?}");
+    }
+
     #[test]
     fn an_expired_value_is_not_served() {
-        let memo = PageMemo::new(Duration::ZERO, 4, 100);
-        memo.put("s".into(), "a".into(), 1, ());
+        let memo = PageMemo::new();
+        put_aged(&memo, CONTINUATION_IDLE - Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(40));
         assert_eq!(memo.get("s", "a", |()| ()), None);
     }
 }

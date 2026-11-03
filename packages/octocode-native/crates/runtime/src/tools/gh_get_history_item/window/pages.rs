@@ -39,8 +39,9 @@ pub(in crate::tools::gh_get_history_item) fn reconcile_file_totals(
     let Some(total) = changed_files else { return };
     let listable = total.min(MAX_FILE_BATCHES * MAX_PER_PAGE);
     if !state.exhausted && !filtered {
-        let per = crate::num::usize_of(page["pageSize"].as_u64().unwrap_or(1).max(1));
-        let current = crate::num::usize_of(page["page"].as_u64().unwrap_or(1));
+        let per =
+            octocode_engine::num::saturating_usize(page["pageSize"].as_u64().unwrap_or(1).max(1));
+        let current = octocode_engine::num::saturating_usize(page["page"].as_u64().unwrap_or(1));
         let more = page["hasMore"] == true;
         // Rebuilt from the facts, so the block keeps the one key order.
         let mut rebuilt = crate::response::pages::PageFacts::open(current, Some(per), more)
@@ -63,7 +64,7 @@ pub(in crate::tools::gh_get_history_item) fn reconcile_file_totals(
         page["countScope"] = json!("partial");
         page["terminalLimit"] = json!(true);
         page["providerLimit"] = json!({
-            "reason":"providerFileListLimit",
+            "reason":"providerFileLimit",
             "listed": if state.exhausted { listed } else { listable },
             "changedFilesCount": total
         });

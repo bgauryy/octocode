@@ -7,10 +7,9 @@ export const rowData = result => (result.json?.results ?? []).map(row => row.dat
 export const noul = instructions => ({ type: 'noul', instructions });
 export const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-/** One tool/surface credential owns its responder and observed provider packets. */
-export function providerSession(ctx, tool, surface) {
+/** One credential (the tool/surface default, or a scenario's) owns its responder and observed provider packets. */
+export function providerSession(ctx, tool, surface, token = tokenFor(tool, surface)) {
   const session = { sent: [], respond: request => ({ body: classificationAnswer(request) }) };
-  const token = tokenFor(tool, surface);
   ctx.mock.classificationResponders.set(token, (request, headers) => {
     session.sent.push({ request, headers });
     return session.respond(request, headers);

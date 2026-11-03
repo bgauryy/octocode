@@ -7,12 +7,16 @@
 //! internally as original bytes, with immutable local inspection copies.
 //!
 //! Every row evaluates through the shared [`Evaluator`]: one provider client,
-//! judgment cache, single flight, retry policy and accounting for this tool
-//! and retrieval `classifiers` alike.
+//! retry policy and accounting for this tool and retrieval `classifiers`
+//! alike. Every call's evaluations are fresh provider requests; nothing is
+//! saved. Identical evaluations inside one call (same provider request
+//! payload) share one request and are counted once.
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::response::result::FailureKind;
 use crate::security::CheckedQuery;
-use crate::tools::judgment::{ClassificationError, Evaluator, Judged, stats::ClassificationUsage};
+use crate::tools::judgment::{
+    ClassificationError, Evaluator, Judged, shared::Evaluations, stats::ClassificationUsage,
+};
 use crate::tools::source_capture::{Captured, SourceReader};
 use serde_json::{Value, json};
 
@@ -85,12 +89,14 @@ pub(crate) fn call(
     let parsed = parse_rows(rows);
     let budget = evaluator.budget(context.deadline, context.cancellation.clone());
     let gate = evaluator.gate();
+    let evaluations = Evaluations::default();
     let section_budget = sections::Budget::new(dispatcher.limits().selection);
     let outcomes = std::thread::scope(|scope| {
         let tasks = parsed
             .iter()
             .map(|row| {
-                let (budget, gate, section_budget) = (&budget, &gate, &section_budget);
+                let (budget, gate, evaluations, section_budget) =
+                    (&budget, &gate, &evaluations, &section_budget);
                 scope.spawn(move || {
                     let _enter = dispatcher.handle().enter();
                     match &row.input {
@@ -105,9 +111,16 @@ pub(crate) fn call(
                         Input::Models => RowOutcome::Models(
                             dispatcher.handle().block_on(evaluator.models(budget, gate)),
                         ),
-                        Input::Judge(target) => {
-                            evaluate_row(evaluator, row, target, dispatcher, context, budget, gate)
-                        }
+                        Input::Judge(target) => evaluate_row(
+                            evaluator,
+                            evaluations,
+                            row,
+                            target,
+                            dispatcher,
+                            context,
+                            budget,
+                            gate,
+                        ),
                     }
                 })
             })

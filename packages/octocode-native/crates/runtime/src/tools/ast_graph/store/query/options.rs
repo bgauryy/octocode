@@ -23,8 +23,6 @@ pub struct QueryOptions {
     /// page. A list page ends at `limit` rows or this budget, whichever
     /// comes first. `None`: `limit` alone.
     pub response_window: Option<usize>,
-    /// Keep the decoded snapshot open for later queries of this process.
-    pub reuse_snapshot: bool,
     /// Second reference for `path`.
     pub to: Option<String>,
     /// Snapshot directory, `graph.bin` path, id, scope, or a substring of
@@ -45,7 +43,7 @@ pub struct QueryOptions {
     /// The call count of a walk: 1 for its first call, each continuation's
     /// one more (`pagination.page`).
     pub page: Option<usize>,
-    /// Evidence list in `summary` or `baseline` to return as paged results.
+    /// Internal cycle-member listing selector, copied from an emitted continuation.
     pub list: Option<String>,
     /// `dependents`/`callers`: `files` groups the edges per file.
     pub view: Option<String>,
@@ -64,6 +62,9 @@ pub struct QueryOptions {
     pub min_tier: Option<u8>,
     /// `issues`: entrypoints (node references) in place of the inferred ones.
     pub entries: Vec<String>,
+    /// The runtime's retained row sets: a continuation page of a full-row
+    /// answer slices the set its first page kept. `None`: every page computes.
+    pub rows: Option<std::sync::Arc<super::SavedRows>>,
 }
 
 impl QueryOptions {

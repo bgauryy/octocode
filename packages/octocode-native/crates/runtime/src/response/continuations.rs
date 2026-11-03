@@ -74,19 +74,34 @@ fn publish(
             ))
         };
     }
+    let input = checked_input(target, related, &call["input"])?;
     if related {
-        contracts::validate(target.as_str(), call["input"].clone())?;
         return Ok(true);
     }
-    let mut input = call["input"].clone();
-    let rows = contracts::prepare_saved_rows(target.as_str(), input.clone())?
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
-    input["queries"] = Value::Array(rows);
     let token = seal(target, input, origin)
         .ok_or_else(|| defect(&[], "Continuation storage failed; no handle was published."))?;
     call["input"] = serde_json::json!({"cursor":token});
     Ok(true)
+}
+
+/// The contract check every call passes before it is published: a related
+/// call's input validates as a fresh request, continued work's as a saved
+/// request with its private progress. `Ok` holds the validated input; for
+/// continued work that is what its cursor saves.
+pub(crate) fn checked_input(
+    target: ToolId,
+    related: bool,
+    input: &Value,
+) -> Result<Value, ContractValidationError> {
+    if related {
+        return contracts::validate(target.as_str(), input.clone());
+    }
+    let rows = contracts::prepare_saved_rows(target.as_str(), input.clone())?
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut prepared = input.clone();
+    prepared["queries"] = Value::Array(rows);
+    Ok(prepared)
 }
 
 fn defect(path: &[&str], message: &str) -> ContractValidationError {

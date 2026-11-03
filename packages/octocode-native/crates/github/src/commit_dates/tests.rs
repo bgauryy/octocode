@@ -20,7 +20,6 @@ fn transport(server: &MockServer) -> GitHubTransport {
             max_attempts: 1,
             base_delay: Duration::from_millis(1),
             max_retry_after: Duration::from_secs(1),
-            max_rate_limit_wait: Duration::from_secs(1),
         },
         crate::GitHubBudget::relaxed(),
     )

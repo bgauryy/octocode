@@ -33,6 +33,15 @@ pub(crate) use tagged::{FileProbe, Tagged};
 /// [`FileProbe`], localSearch's re-walks, structureSearch's listing probes):
 /// past it the probe is cut and absence behind the skipped paths unproven.
 /// The one budget every local tool's probes share.
+///
+/// Kept as a clock on measurement, not a structural stop: no earlier signal
+/// proves absence (`Absent` needs the relaxed walk to finish), and finishing
+/// costs what the skipped paths hold, not what the request asked for. On this
+/// repository (2026-11-02) the requested walk lists 4,023 files in 0.07 s and
+/// the fully relaxed walk 874,144 files in 3.5 s (`rg --files` vs `-uuu`):
+/// a complete probe would add ~50x the search to every empty answer. A cut
+/// probe is disclosed (`Verdict::Unproven`, `Hits::cut`) with the lead that
+/// lifts the flags, which runs the full walk under the request's deadline.
 pub(crate) const PROBE_BUDGET: std::time::Duration = std::time::Duration::from_millis(400);
 
 #[cfg(test)]

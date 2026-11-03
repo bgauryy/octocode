@@ -305,6 +305,7 @@ where
     let sanitized = crate::security::ContentSecurity
         .sanitize_text(text, None)
         .content
+        .into_owned()
         .try_into()
         .expect("sanitized nonempty text");
     sanitized

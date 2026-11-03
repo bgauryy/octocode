@@ -51,7 +51,9 @@ fn oversized_batch(tool_name: &str, rows: usize) -> Option<ValidationIssue> {
     let input = &contract["inputSchema"];
     let maximum = super::schema_facts::property_schemas(input, &input["$defs"], "queries")
         .into_iter()
-        .find_map(|queries| queries.get("maxItems")?.as_u64())?;
+        .find_map(|queries| {
+            super::schema_facts::schema_keyword(queries, &input["$defs"], "maxItems")?.as_u64()
+        })?;
     (rows as u64 > maximum).then(|| ValidationIssue {
         rule_id: "schema.size".into(),
         path: vec!["queries".to_owned()],
@@ -106,8 +108,13 @@ pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationI
                     let input = &contract["inputSchema"];
                     super::schema_facts::property_schemas(input, &input["$defs"], "queries")
                         .into_iter()
-                        .find(|schema| schema.get("items").is_some())
-                        .cloned()
+                        .find(|schema| {
+                            super::schema_facts::schema_keyword(schema, &input["$defs"], "items")
+                                .is_some()
+                        })
+                        .map(|schema| {
+                            super::schema_facts::resolve_ref(schema, &input["$defs"]).clone()
+                        })
                 }),
             received: Some(rows.clone()),
         }];

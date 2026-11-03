@@ -113,8 +113,7 @@ pub struct ViewFallback {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PartialReason {
-    #[serde(rename = "sourceSizeLimit")]
-    SourceSizeLimit,
+    FileTooLarge,
     #[serde(rename = "securitySelectedViewSizeLimit")]
     SecuritySelectedView,
     /// A regex scan stopped at its in-process match limit: the selection is a
@@ -135,8 +134,6 @@ pub struct DeclaredBlock {
 /// What the caller knows about a read besides its bytes.
 #[derive(Clone, Debug, Default)]
 pub struct SourceFacts {
-    /// The caller's rendered-view cache and persistence policy.
-    pub views: std::sync::Arc<super::ViewCache>,
     /// The file's modification time (ISO 8601), when the caller has one.
     pub modified: Option<String>,
     /// Target content budget for this reader page. Remaining source is

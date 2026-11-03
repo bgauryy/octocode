@@ -27,21 +27,39 @@ pub(crate) fn resolve_ref<'a>(schema: &'a Value, defs: &'a Value) -> &'a Value {
     ref_chain(schema, defs).last().copied().unwrap_or(schema)
 }
 
+/// Read a keyword without losing annotations on intermediate references.
+pub(crate) fn schema_keyword<'a>(
+    schema: &'a Value,
+    defs: &'a Value,
+    keyword: &str,
+) -> Option<&'a Value> {
+    ref_chain(schema, defs)
+        .into_iter()
+        .find_map(|part| part.get(keyword))
+}
+
 /// `schema` and every definition its `$ref` chain reaches, in order. A
 /// keyword declared beside a `$ref` (a `default` on a shared bounded type)
 /// stays readable on the schema that declares it.
 fn ref_chain<'a>(mut schema: &'a Value, defs: &'a Value) -> Vec<&'a Value> {
     let mut chain = vec![schema];
-    // A cycle of pure references cannot describe a value; the bound stops it.
-    for _ in 0..32 {
-        let Some(target) = schema
-            .get("$ref")
-            .and_then(Value::as_str)
-            .and_then(|reference| reference.strip_prefix("#/$defs/"))
-            .and_then(|name| defs.get(name))
-        else {
+    let mut seen = HashSet::from([std::ptr::from_ref(schema)]);
+    while let Some(target) = schema
+        .get("$ref")
+        .and_then(Value::as_str)
+        .and_then(|reference| reference.strip_prefix("#/$defs/"))
+        .and_then(|name| {
+            defs.get(name).or_else(|| {
+                super::parsed_contract()
+                    .ok()
+                    .and_then(|contract| contract.get("$defs"))
+                    .and_then(|shared| shared.get(name))
+            })
+        })
+    {
+        if !seen.insert(std::ptr::from_ref(target)) {
             break;
-        };
+        }
         schema = target;
         chain.push(schema);
     }
@@ -121,7 +139,7 @@ fn variants(tool: ToolId) -> Option<&'static [Variant]> {
         let Ok(tool) = super::tool_contract(tool) else {
             return Vec::new();
         };
-        let schema = &tool["querySchema"];
+        let schema = resolve_ref(&tool["querySchema"], &Value::Null);
         let defs = &schema["$defs"];
         let branches = ["oneOf", "anyOf"]
             .iter()

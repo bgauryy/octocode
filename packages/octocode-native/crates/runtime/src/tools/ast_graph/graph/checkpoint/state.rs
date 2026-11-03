@@ -12,6 +12,7 @@ pub(super) enum Stage {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(super) struct Manifest {
     pub(super) version: u32,
+    pub(super) generation: String,
     pub(super) namespace: String,
     pub(super) inventory_digest: String,
     pub(super) config_digest: String,
@@ -117,8 +118,12 @@ impl<'a> Job<'a> {
         let config_digest = octocode_engine::digest::sha256(
             &serde_json::to_vec(&configs).map_err(|error| failure(error.to_string()))?,
         );
+        let mut generation = [0; 16];
+        getrandom::fill(&mut generation)
+            .map_err(|error| failure(format!("cannot identify graph checkpoint: {error}")))?;
         let manifest = Manifest {
             version: JOB_VERSION,
+            generation: hex::encode(generation),
             namespace: octocode_engine::digest::sha256(&identity),
             inventory_digest,
             config_digest,
@@ -131,14 +136,15 @@ impl<'a> Job<'a> {
             return Err(failure("graph checkpoint manifest must be a regular file"));
         }
         let previous = Manifest::read(&dir);
-        let compatible = previous
-            .as_ref()
-            .is_some_and(|old| old.version == JOB_VERSION && old.namespace == manifest.namespace);
+        let compatible = previous.as_ref().is_some_and(|old| {
+            old.version == JOB_VERSION
+                && old.namespace == manifest.namespace
+                && old.stage != Stage::Complete
+        });
         let resumed = !scan.refresh
             && compatible
             && previous.as_ref().is_some_and(|old| {
-                old.stage != Stage::Complete
-                    && old.inventory_digest == manifest.inventory_digest
+                old.inventory_digest == manifest.inventory_digest
                     && old.config_digest == manifest.config_digest
             });
         if dir.exists() && (scan.refresh || !compatible) {

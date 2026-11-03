@@ -59,7 +59,7 @@ pub(super) struct AnchorModule {
 /// source version); `None` when the file cannot be parsed or its parse
 /// recovered from errors (facts may miss an import).
 fn clean_facts(content: &str, file: &str) -> Option<Arc<GraphFactsDocument>> {
-    let facts = crate::tools::declarations_cache::graph_facts(content, file)?;
+    let facts = crate::tools::declarations::graph_facts(content, file)?;
     facts_are_clean(&facts).then_some(facts)
 }
 

@@ -7,9 +7,9 @@ use super::{
 use crate::civil_date::unix_secs;
 use crate::providers::github::OAuthToken;
 use octocode_github::{ProviderError, ProviderErrorKind};
+use octocode_io::cancellation::Cancellation;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -311,7 +311,7 @@ async fn oauth_calls_do_not_replay_bodies_across_redirects() {
     let device = login_device_flow_in_store(
         &endpoints(&server),
         "cid",
-        &CancellationToken::new(),
+        &Cancellation::new(),
         &crate::providers::github::CredentialStore::new(home.path()),
     )
     .await

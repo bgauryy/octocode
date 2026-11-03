@@ -1,5 +1,5 @@
 PRAGMA application_id=1329678147;
-PRAGMA user_version=7;
+PRAGMA user_version=8;
 
 CREATE TABLE workspaces (
   workspace TEXT PRIMARY KEY, coordinationScope TEXT NOT NULL
@@ -40,16 +40,22 @@ CREATE TABLE lease_waits (
 
 CREATE TABLE "messages" (
   id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL REFERENCES sessions(id),
-  target TEXT NOT NULL, topic TEXT, body TEXT NOT NULL, key TEXT NOT NULL,
+  target TEXT NOT NULL, topic TEXT, parts TEXT NOT NULL CHECK(json_valid(parts) AND json_type(parts)='array' AND json_array_length(parts)>0), key TEXT NOT NULL,
   replyRequired INTEGER NOT NULL DEFAULT 0 CHECK(replyRequired IN (0,1)),
-  expiresAt INTEGER NOT NULL, reasoning TEXT NOT NULL, wake TEXT NOT NULL DEFAULT 'passive' CHECK(wake IN ('action','passive')), conversationId TEXT
-  CHECK(conversationId IS NULL OR (typeof(conversationId)='text' AND length(conversationId) BETWEEN 1 AND 128 AND conversationId NOT GLOB '*[^A-Za-z0-9._:-]*')), replyTo INTEGER REFERENCES messages(id)
+  expiresAt INTEGER NOT NULL, reasoning TEXT NOT NULL, wake TEXT NOT NULL DEFAULT 'passive' CHECK(wake IN ('action','passive')), contextId TEXT
+  CHECK(contextId IS NULL OR (typeof(contextId)='text' AND length(contextId) BETWEEN 1 AND 128 AND contextId NOT GLOB '*[^A-Za-z0-9._:-]*')), replyTo INTEGER REFERENCES messages(id)
   CHECK(replyTo IS NULL OR (typeof(replyTo)='integer' AND replyTo BETWEEN 1 AND 9007199254740991)), ttlMs INTEGER NOT NULL DEFAULT 3600000
   CHECK(typeof(ttlMs)='integer' AND ttlMs BETWEEN 1000 AND 86400000),
-  kind TEXT NOT NULL DEFAULT 'note' CHECK(kind IN ('note','question','task','decision','blocker','handoff','delta','checkback','issue','answer')
-    AND (kind IN ('question','task','decision','handoff'))=(replyRequired=1) AND (kind='answer')=(replyTo IS NOT NULL)),
-  slots TEXT CHECK(slots IS NULL OR (json_valid(slots) AND json_type(slots)='object')), UNIQUE(sender, key)
+  outcome TEXT CHECK(outcome IS NULL OR outcome IN ('completed','failed','rejected','canceled')),
+  CHECK((replyTo IS NULL)=(outcome IS NULL)), UNIQUE(sender, key)
   );
+
+-- One projection owns the public message payload for both history reads and full-text indexing.
+CREATE VIEW message_payload AS
+SELECT id,json_patch(json_object('messageId',id,'parts',json(parts),'expiresAt',expiresAt,'ttlMs',ttlMs,
+  'reasoning',reasoning,'wake',wake,'replyRequired',json(CASE replyRequired WHEN 1 THEN 'true' ELSE 'false' END),'key',key),
+  json_object('topic',topic,'contextId',contextId,'replyTo',replyTo,'outcome',outcome)) AS data
+FROM messages;
 
 CREATE TABLE deliveries (
   message INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -112,7 +118,7 @@ CREATE VIRTUAL TABLE records_search USING fts5(text, tokenize='unicode61');
 
 CREATE INDEX dispatches_state ON dispatches(recipient,state,message);
 
-CREATE INDEX messages_conversation ON messages(conversationId,id) WHERE conversationId IS NOT NULL;
+CREATE INDEX messages_conversation ON messages(contextId,id) WHERE contextId IS NOT NULL;
 
 CREATE INDEX messages_reply ON messages(replyTo,id) WHERE replyTo IS NOT NULL;
 
@@ -139,7 +145,7 @@ CREATE TRIGGER records_no_delete BEFORE DELETE ON records BEGIN
 END;
 
 CREATE TRIGGER message_immutable BEFORE UPDATE ON messages
-WHEN NEW.sender IS NOT OLD.sender OR NEW.target IS NOT OLD.target OR NEW.topic IS NOT OLD.topic OR NEW.body IS NOT OLD.body OR NEW.key IS NOT OLD.key OR NEW.ttlMs IS NOT OLD.ttlMs OR NEW.replyRequired IS NOT OLD.replyRequired OR NEW.kind IS NOT OLD.kind OR NEW.slots IS NOT OLD.slots BEGIN
+WHEN NEW.sender IS NOT OLD.sender OR NEW.target IS NOT OLD.target OR NEW.topic IS NOT OLD.topic OR NEW.parts IS NOT OLD.parts OR NEW.key IS NOT OLD.key OR NEW.ttlMs IS NOT OLD.ttlMs OR NEW.replyRequired IS NOT OLD.replyRequired OR NEW.outcome IS NOT OLD.outcome BEGIN
   SELECT RAISE(ABORT,'Message content is immutable');
 END;
 
@@ -202,8 +208,8 @@ WHEN NEW.wake IS NOT OLD.wake BEGIN
   SELECT RAISE(ABORT,'wake is immutable; create a new message');
 END;
 
-CREATE TRIGGER messages_correlation_immutable BEFORE UPDATE OF conversationId,replyTo ON messages
-WHEN NEW.conversationId IS NOT OLD.conversationId OR NEW.replyTo IS NOT OLD.replyTo BEGIN
+CREATE TRIGGER messages_correlation_immutable BEFORE UPDATE OF contextId,replyTo ON messages
+WHEN NEW.contextId IS NOT OLD.contextId OR NEW.replyTo IS NOT OLD.replyTo BEGIN
   SELECT RAISE(ABORT,'Message correlation is immutable');
 END;
 
@@ -213,9 +219,9 @@ WHEN NEW.replyTo IS NOT NULL AND NOT EXISTS (
   JOIN sessions sender ON sender.id=NEW.sender
   WHERE parent.id=NEW.replyTo AND coalesce((SELECT coordinationScope FROM workspaces WHERE workspace=author.workspace),author.workspace)=coalesce((SELECT coordinationScope FROM workspaces WHERE workspace=sender.workspace),sender.workspace)
     AND (parent.sender=NEW.sender OR EXISTS (SELECT 1 FROM deliveries d WHERE d.message=parent.id AND d.recipient=NEW.sender))
-    AND NEW.conversationId IS parent.conversationId
+    AND NEW.contextId IS parent.contextId
 ) BEGIN
-  SELECT RAISE(ABORT,'Reply requires a visible parent in this repository and its conversationId');
+  SELECT RAISE(ABORT,'Reply requires a visible parent in this repository and its contextId');
 END;
 
 CREATE TRIGGER messages_reply_policy BEFORE INSERT ON messages
@@ -273,7 +279,7 @@ WHEN NEW.branch IS NOT OLD.branch OR NEW.name IS NOT OLD.name OR NEW.vendorSessi
 END;
 
 CREATE TRIGGER record_message_insert AFTER INSERT ON messages BEGIN
-  INSERT INTO records(path,"from","to",type,timestamp,branch,data,entityId,key) VALUES((SELECT workspace FROM sessions WHERE id=NEW.sender),NEW.sender,CASE WHEN NEW.topic IS NULL THEN NEW.target ELSE 'topic:'||NEW.topic END,'message',CAST(unixepoch('subsec')*1000 AS INTEGER),(SELECT branch FROM sessions WHERE id=NEW.sender),json_set(json_patch('{}',json_object('kind',NEW.kind,'topic',NEW.topic,'key',NEW.key,'reasoning',NEW.reasoning,'wake',NEW.wake,'conversationId',NEW.conversationId,'replyTo',NEW.replyTo,'replyRequired',json(CASE NEW.replyRequired WHEN 1 THEN 'true' ELSE 'false' END))),'$.messageId',NEW.id),CAST(NEW.id AS TEXT),NULL);
+  INSERT INTO records(path,"from","to",type,timestamp,branch,data,entityId,key) VALUES((SELECT workspace FROM sessions WHERE id=NEW.sender),NEW.sender,CASE WHEN NEW.topic IS NULL THEN NEW.target ELSE 'topic:'||NEW.topic END,'message',CAST(unixepoch('subsec')*1000 AS INTEGER),(SELECT branch FROM sessions WHERE id=NEW.sender),json_object('messageId',NEW.id),CAST(NEW.id AS TEXT),NULL);
 END;
 
 CREATE TRIGGER record_lease_update AFTER UPDATE OF expiresAt ON leases
@@ -318,5 +324,5 @@ END;
 
 CREATE TRIGGER records_index AFTER INSERT ON records BEGIN
   INSERT INTO records_search(rowid,text) VALUES(NEW.id,
-    NEW.data || ' ' || coalesce((SELECT body FROM messages WHERE NEW.type='message' AND id=CAST(NEW.entityId AS INTEGER)),''));
+    CASE WHEN NEW.type='message' THEN (SELECT data FROM message_payload WHERE id=CAST(NEW.entityId AS INTEGER)) ELSE NEW.data END);
 END;

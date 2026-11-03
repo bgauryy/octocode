@@ -28,7 +28,7 @@ async fn maven_discovery_ands_terms_and_splits_query_syntax() {
     ] {
         let http = RouteHttp::always(json!({"response":{"numFound":0,"docs":[]}}));
         let b = test_budget();
-        let client = RegistryClient::uncached(&http, &b);
+        let client = RegistryClient::new(&http, &b);
         let query = artifact_query(
             json!({"operation":"search","ecosystem": ArtifactType::Maven, "keywords": keywords}),
             None,
@@ -66,7 +66,7 @@ fn yaml_central() -> RouteHttp {
 async fn maven_pages_walk_every_row_central_serves_from_its_first() {
     let http = yaml_central();
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let mut names = Vec::new();
     let mut state = ArtifactProviderState::default();
     for page in 1.. {

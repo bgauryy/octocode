@@ -144,12 +144,10 @@ fn pcre2_ranges(
 
 /// 1-based lines any span touches: every line of a multiline match, not
 /// just its start. A match ending at the next line's start does not touch it.
-pub(super) fn hit_lines(lines: &[&str], spans: &[(usize, usize)]) -> Vec<usize> {
+pub(super) fn hit_lines(lines: &super::LineOffsets, spans: &[(usize, usize)]) -> Vec<usize> {
     let mut hits = vec![];
-    let mut line_start = 0;
     let mut next_match = 0;
-    for (i, line) in lines.iter().enumerate() {
-        let line_end = line_start + line.len();
+    for (i, (line_start, line_end)) in lines.spans().enumerate() {
         while spans
             .get(next_match)
             .is_some_and(|(start, end)| *start < line_start && *end <= line_start)
@@ -162,7 +160,6 @@ pub(super) fn hit_lines(lines: &[&str], spans: &[(usize, usize)]) -> Vec<usize> 
         {
             hits.push(i + 1);
         }
-        line_start = line_end;
     }
     hits
 }

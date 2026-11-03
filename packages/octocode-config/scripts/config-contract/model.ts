@@ -1,55 +1,8 @@
 // The validated config contract and the views both renderers (TypeScript source and the
 // settings reference) derive from it: flattened fields, defaults, and environment policy.
-import Ajv2020 from 'ajv/dist/2020.js';
-import { readFile } from 'node:fs/promises';
+import type { Contract, Field } from './schema.ts';
 
 export type JsonObject = Record<string, unknown>;
-type EnvBinding = {
-  name: string;
-  dotenv?: 'all' | 'home' | 'never';
-  normalize?: 'trim' | 'lower';
-  workspaceNarrowsTo?: string;
-};
-export type Field = {
-  type: 'boolean' | 'string' | 'url' | 'path' | 'stringArray' | 'enum';
-  description: string;
-  notes?: string;
-  env?: EnvBinding;
-  default?: unknown;
-  credential?: boolean;
-  displayDefault?: string;
-  itemFormat?: 'path';
-  typeName?: string;
-  enumStyle?: 'list' | 'quotedOr';
-  values?: string[];
-};
-export type Section = {
-  title: string;
-  typeName?: string;
-  rustTypeName?: string;
-  file: boolean;
-  resolved: boolean;
-  fields: Record<string, Field>;
-};
-export type Contract = {
-  config: {
-    fileName: string;
-    schemaVersion: number;
-    runtimeSurfaces: string[];
-  };
-  environment: Record<
-    string,
-    {
-      dotenv?: 'all' | 'home' | 'never';
-      tokenPriority?: number;
-      configSource?: boolean;
-      credential?: boolean;
-      documentation?: boolean;
-      description?: string;
-    }
-  >;
-  sections: Record<string, Section>;
-};
 
 export type FlatField = Field & {
   path: string;
@@ -61,13 +14,6 @@ export type FlatField = Field & {
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function asObject(value: unknown, label: string): JsonObject {
-  if (!isJsonObject(value)) {
-    throw new Error(`${label} must be an object`);
-  }
-  return value;
 }
 
 function pathFor(section: string, key: string): string {
@@ -140,20 +86,4 @@ export function orderedEnvironment(fields: FlatField[], contract: Contract) {
     tokenNames,
     workspaceNarrowOnly,
   };
-}
-
-export async function loadContract(contractPath: string, schemaPath: string): Promise<Contract> {
-  const [contractSource, schemaSource] = await Promise.all([
-    readFile(contractPath, 'utf8'),
-    readFile(schemaPath, 'utf8'),
-  ]);
-  const contract: unknown = JSON.parse(contractSource);
-  const schema = asObject(JSON.parse(schemaSource) as unknown, 'config contract schema');
-  const ajv = new Ajv2020({ allErrors: true, strict: false });
-  const validate = ajv.compile<Contract>(schema);
-  if (!validate(contract)) {
-    throw new Error(`Invalid config contract:\n${ajv.errorsText(validate.errors, { separator: '\n' })}`);
-  }
-  asObject(contract, 'config contract');
-  return contract;
 }

@@ -90,8 +90,13 @@ fn search_fixture(files: &[(&str, &str)], request: LocalSearchQuery) -> serde_js
     result.to_row().expect("serialize")
 }
 
+/// The declaration hit row `index` of `file` sits in: its `enclosing` index
+/// into the file's `declarations`.
 fn owner_of(file: &serde_json::Value, index: usize) -> Option<serde_json::Value> {
-    file["matches"][index].get("enclosing").cloned()
+    let owner = file["matches"][index].get("enclosing")?.as_u64()?;
+    file["declarations"]
+        .get(usize::try_from(owner).ok()?)
+        .cloned()
 }
 
 /// One never-cancelled localSearch call under the response `window`.
@@ -190,6 +195,7 @@ fn row_ids(body: &serde_json::Value) -> Vec<String> {
 }
 
 mod binaries;
+mod changed;
 mod empty_pages;
 mod limit;
 mod match_list;

@@ -332,6 +332,7 @@ pub(super) enum Admission {
     Every,
     /// The catalog and the persisted origin index; each origin is decoded
     /// and validated when it is read.
+    #[cfg(test)]
     Accessed,
 }
 

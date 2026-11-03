@@ -28,7 +28,7 @@ pub(in super::super) async fn landing(
 ) -> Result<Landing, LspFailure> {
     let (path, source) = (path.to_owned(), std::sync::Arc::clone(source));
     let landing = super::super::blocking_cancellable(cancel, move |_| {
-        crate::tools::declarations_cache::file_document(&source.content, &path)
+        crate::tools::declarations::file_document(&source.content, &path)
             .map_or(Landing::Unknown, |document| {
                 lands(&document, line, character)
             })

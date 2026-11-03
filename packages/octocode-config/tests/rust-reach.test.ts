@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { NATIVE_CRATES } from '../scripts/tool-contract/rust.ts';
+import { buildEnforcementContractIr } from '@octocodeai/octocode-core/schema';
+import { NATIVE_CRATES, withDispatchRoots } from '../scripts/tool-contract/rust.ts';
+import { toolNames } from '../scripts/tool-contract/rust-dispatch.ts';
 import {
   blankLiterals,
   classify,
@@ -105,12 +107,18 @@ describe('generated Rust reachability', () => {
   });
 
   it('emits exactly the types native names or reaches', () => {
-    // The pinned header (comments and constants) is not typify output.
-    const rust = readFileSync(resolve(packageRoot, 'contract/tool_types.rs'), 'utf8')
+    // The pinned header (comments and constants) and the generated dispatch
+    // after typify's output (a trait, a constant table) are not typify output.
+    const file = readFileSync(resolve(packageRoot, 'contract/tool_types.rs'), 'utf8');
+    const rust = file
+      .slice(0, file.indexOf('/// How a continuation moves'))
       .split('\n')
       .filter(line => !line.startsWith('//') && !line.startsWith('pub const '))
       .join('\n');
-    const roots = nativeIdentifiers(NATIVE_CRATES);
+    const roots = withDispatchRoots(
+      nativeIdentifiers(NATIVE_CRATES),
+      toolNames(buildEnforcementContractIr().tools)
+    );
     expect(roots.has('LocalFetchQuery')).toBe(true);
     // Nothing is left to drop: every emitted type is reachable from native.
     expect(declared(keepReachable(rust, roots))).toEqual(declared(rust));

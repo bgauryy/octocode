@@ -2,6 +2,8 @@ use super::types::{ExtractionError, LineRange, NextCalls, line_read, uncovered};
 use crate::tools::source_view::local_fetch_query;
 use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
+mod lines;
+pub(crate) use lines::LineOffsets;
 mod matches;
 mod search_lead;
 mod spans;
@@ -15,13 +17,14 @@ pub(crate) fn match_spans(
 
 /// The 1-based lines of `content` a match of `q`'s patterns touches, as a
 /// whole-file match read selects them, and whether a regex scan stopped at
-/// its match limit.
+/// its match limit. The whole-file answer a streamed scan must equal.
+#[cfg(test)]
 pub(crate) fn match_lines(
     q: &LocalFetchQuery,
     content: &str,
 ) -> Result<(Vec<usize>, bool), ExtractionError> {
     let found = match_spans(q, content)?;
-    let lines = content.split_inclusive('\n').collect::<Vec<_>>();
+    let lines = LineOffsets::new(content);
     Ok((spans::hit_lines(&lines, &found.spans), found.truncated))
 }
 
@@ -29,7 +32,7 @@ pub(crate) fn match_lines(
 mod canonical_tests;
 
 use matches::match_extract;
-pub(crate) use search_lead::search_lead;
+pub(crate) use search_lead::{search_lead, text_search_query};
 #[cfg(test)]
 pub(crate) use spans::{MAX_REGEX_MATCHES, RUST_REGEX_RUNS, literal_ranges};
 
@@ -73,16 +76,23 @@ pub fn line_count(s: &str) -> usize {
     s.split_inclusive('\n').count()
 }
 pub fn extract(q: &LocalFetchQuery, content: &str) -> Result<Extraction, ExtractionError> {
+    extract_indexed(q, content, &LineOffsets::new(content))
+}
+
+pub(super) fn extract_indexed(
+    q: &LocalFetchQuery,
+    content: &str,
+    lines: &LineOffsets,
+) -> Result<Extraction, ExtractionError> {
     if selects_whole(q) {
         return Ok(Extraction::whole(content.into()));
     }
     let patterns = local_fetch_query::match_strings(q);
     let requested = local_fetch_query::line_ranges(q);
-    let lines = content.split_inclusive('\n').collect::<Vec<_>>();
     if !patterns.is_empty() {
-        return match_extract(q, content, &lines, &patterns);
+        return match_extract(q, content, lines, &patterns);
     }
-    ranges_extract(q, content, &lines, &requested)
+    ranges_extract(q, content, lines, &requested)
 }
 
 /// A read with no pattern and no range selects the whole text.
@@ -115,7 +125,7 @@ impl Extraction {
 fn ranges_extract(
     q: &LocalFetchQuery,
     content: &str,
-    lines: &[&str],
+    lines: &LineOffsets,
     requested: &[LineRange],
 ) -> Result<Extraction, ExtractionError> {
     let total = lines.len();
@@ -157,7 +167,7 @@ fn ranges_extract(
         );
     }
     let windows = merge_ranges(kept);
-    let (text, selected) = windows_text(lines, &windows);
+    let (text, selected) = windows_text(content, lines, &windows);
     // A plain read that stops inside a declaration offers no reread: the
     // caller chose these lines, and `block` or `ranges` reads the rest.
     let next = NextCalls {
@@ -200,7 +210,7 @@ fn merge_ranges(ranges: Vec<LineRange>) -> Vec<LineRange> {
 /// The text of `windows` (sorted, disjoint), with one omission marker
 /// between non-adjacent windows; `selected` maps each view line to its
 /// source line (markers map to [`OMISSION_LINE`]).
-fn windows_text(lines: &[&str], windows: &[LineRange]) -> (String, Vec<usize>) {
+fn windows_text(content: &str, lines: &LineOffsets, windows: &[LineRange]) -> (String, Vec<usize>) {
     let mut selected = vec![];
     let mut text = String::new();
     let mut prev_end: Option<usize> = None;
@@ -212,10 +222,8 @@ fn windows_text(lines: &[&str], windows: &[LineRange]) -> (String, Vec<usize>) {
             text.push_str(&omission_marker(prev + 1, r.start - 1));
             selected.push(OMISSION_LINE);
         }
-        for line in r.start..=r.end {
-            text.push_str(lines[line - 1]);
-            selected.push(line);
-        }
+        text.push_str(lines.range(content, r.start, r.end));
+        selected.extend(r.start..=r.end);
         prev_end = Some(r.end);
     }
     (text, selected)

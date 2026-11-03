@@ -76,6 +76,22 @@ pub(crate) fn require_node() -> bool {
 
 thread_local! { static SAVED_REQUESTS: std::cell::RefCell<Vec<(ToolId, Value)>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
+/// A query row `tool`'s contract accepts as saved work with `fields` set:
+/// the first of core's accepted contract fixtures for `tool` that stays
+/// valid with them. For tests whose subject is call plumbing, not the row.
+pub(crate) fn accepted_row(tool: ToolId, fields: &Value) -> Value {
+    let fixtures: Vec<Value> =
+        serde_json::from_str(crate::contracts::generated::CONTRACT_FIXTURES_JSON)
+            .expect("core contract fixtures");
+    fixtures
+        .iter()
+        .filter(|fixture| fixture["tool"] == tool.as_str() && fixture["accepted"] == true)
+        .filter_map(|fixture| fixture["input"]["queries"].get(0))
+        .map(|row| crate::response::result::with_changes(row.clone(), fields))
+        .find(|row| crate::contracts::validate_built_query(tool.as_str(), row.clone()).is_ok())
+        .unwrap_or_else(|| panic!("no accepted {} fixture takes {fields}", tool.as_str()))
+}
+
 pub(crate) fn opened(tool: ToolId, row: &Value) -> Value {
     crate::contracts::validate_built_query(tool.as_str(), row.clone())
         .expect("valid internal producer row")
@@ -130,8 +146,15 @@ fn publish_for_assertion(tool: &str, output: &Value) -> Value {
         &mut |target, input, _| {
             SAVED_REQUESTS.with(|saved| {
                 let mut saved = saved.borrow_mut();
-                let id = saved.len();
-                saved.push((target, input));
+                // The same continuation (tool and complete input) is the same
+                // handle, as in the issuing runtime.
+                let id = saved
+                    .iter()
+                    .position(|(tool, saved)| *tool == target && *saved == input)
+                    .unwrap_or_else(|| {
+                        saved.push((target, input));
+                        saved.len() - 1
+                    });
                 Some(format!("test-publication-{id}"))
             })
         },

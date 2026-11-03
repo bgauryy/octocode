@@ -89,9 +89,10 @@ async fn a_url_source_needs_local_fetch_to_read_its_capture_back() {
         )
         .await
         .expect("MCP refusal response");
-    assert_eq!(error["structuredContent"]["errorCode"], "invalidInput");
+    let payload = crate::support::mcp_payload(&error);
+    assert_eq!(payload["errorCode"], "invalidInput");
     assert!(
-        error["structuredContent"]["error"]
+        payload["error"]
             .as_str()
             .is_some_and(|message| message.contains("queries.0.source")
                 && message.contains("localFetch")

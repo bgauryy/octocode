@@ -25,6 +25,12 @@ fn root_help_lists_all_tools_independent_of_mcp_gates_and_filters() {
             tool.as_str()
         );
     }
+    // A CLI agent chooses from this list: it never reads the MCP instructions.
+    assert!(
+        text.contains("Use when you know a word or pattern"),
+        "{text}"
+    );
+    assert!(text.contains("references/tool-flow.md"), "{text}");
     // Each tool retains its canonical JSON input and continuation help.
     let own = workspace
         .cli()
@@ -109,7 +115,7 @@ fn help_lists_only_the_minimal_command_surface() {
 }
 
 #[test]
-fn tool_help_uses_canonical_core_titles() {
+fn tool_help_states_each_contract_tools_trigger() {
     let workspace = Workspace::new();
     let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
     let root = all_tools_enabled(workspace.cli().arg("--help"))
@@ -147,11 +153,11 @@ fn tool_help_uses_canonical_core_titles() {
         .join(" ");
     for tool in contract["tools"].as_array().expect("contract tools") {
         let name = tool["name"].as_str().expect("tool name");
-        let title = tool["title"].as_str().expect("core title");
-        assert!(!title.is_empty());
+        let trigger = octocode_native::contracts::cli_tool_trigger(name).expect("tool trigger");
+        assert!(!trigger.is_empty(), "{name}");
         assert!(
-            root_text.contains(title),
-            "missing canonical {name} title in root help"
+            root_text.contains(trigger),
+            "missing {name} trigger in root help: {root_text}"
         );
         for flag in ["-h", "--help"] {
             let output = workspace
@@ -164,13 +170,10 @@ fn tool_help_uses_canonical_core_titles() {
                 .split_whitespace()
                 .collect::<Vec<_>>()
                 .join(" ");
-            assert!(text.contains(title), "{name} {flag}: {text}");
-            assert_eq!(
-                text.contains(
-                    "MCP beta (set OCTOCODE_BETA=true or local.beta:true); available in CLI."
-                ),
-                tool["beta"] == true,
-                "{name} {flag} names the beta gate exactly when the tool is beta: {text}"
+            assert!(text.contains(trigger), "{name} {flag}: {text}");
+            assert!(
+                !text.contains("MCP beta"),
+                "{name} {flag} no longer names the beta gate: {text}"
             );
         }
     }

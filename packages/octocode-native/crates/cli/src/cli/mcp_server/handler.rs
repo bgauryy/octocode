@@ -3,6 +3,7 @@
 //! shaping and error projection are the runtime's; this adapter only
 //! carries requests in and results out.
 use super::listing::Listing;
+use super::resources;
 use octocode_contract_types::ErrorCode;
 use octocode_native::runtime::error::{McpResult, mcp_result};
 use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
@@ -11,8 +12,9 @@ use rmcp::ErrorData;
 use rmcp::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
-    JsonObject, ListToolsResult, MetaObject, PaginatedRequestParams, ProtocolVersion, ResultType,
-    ServerCapabilities, ServerConfig, Tool,
+    JsonObject, ListResourcesResult, ListToolsResult, MetaObject, PaginatedRequestParams,
+    ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult,
+    ResultType, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use serde_json::Value;
@@ -43,7 +45,10 @@ impl Handler {
         // Server identity is interface-owned: the contract carries tool
         // guidance, not the server's name, title or version.
         // Tools never change while connected: advertise `listChanged: false`.
-        let mut capabilities = ServerCapabilities::builder().enable_tools().build();
+        let mut capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_resources()
+            .build();
         if let Some(tools) = capabilities.tools.as_mut() {
             tools.list_changed = Some(false);
         }
@@ -138,6 +143,30 @@ impl ServerHandler for Handler {
         Ok(result)
     }
 
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let mut result = ListResourcesResult::with_all_items(resources::list());
+        result.meta = self.response_meta(&context);
+        Ok(result)
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        let Some(contents) = resources::read(&request.uri) else {
+            return Err(ErrorData::resource_not_found(
+                format!("Resource {} not found", request.uri),
+                None,
+            ));
+        };
+        Ok(ReadResourceResult::new(vec![contents]).into())
+    }
+
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
@@ -155,17 +184,11 @@ impl ServerHandler for Handler {
         let input = request.arguments.map_or(Value::Null, Value::Object);
         // A request that names a progress token is told its call's progress.
         let token = context.meta.get_progress_token();
-        let McpResult {
-            text,
-            structured_content,
-            is_error,
-        } = super::progress::relayed(token, &context.peer, self.run(&tool, input, context.ct))
-            .await
-            .map_err(|error| protocol_error(&tool, &error))?;
-        // Built from its parts: the envelope is not walked again into a
-        // result value before rmcp serializes it.
+        let McpResult { text, is_error } =
+            super::progress::relayed(token, &context.peer, self.run(&tool, input, context.ct))
+                .await
+                .map_err(|error| protocol_error(&tool, &error))?;
         let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
-        result.structured_content = Some(structured_content);
         result.is_error = Some(is_error);
         // rmcp completes list results itself; a call result carries its type
         // from here (it strips it again for a 2025-era peer).

@@ -1,6 +1,6 @@
 use super::{Catalog, DependencyError, Evidence, Fragment, FragmentArena, Selection};
+use octocode_io::cancellation::Cancellation;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 const FIELD_CHARS: usize = "\"sourceEvidence\":,".len();
 
@@ -8,7 +8,7 @@ impl FragmentArena {
     pub(in crate::response::row_pages) fn take_catalog(
         &mut self,
         row: &mut Value,
-        cancelled: &CancellationToken,
+        cancelled: &Cancellation,
     ) -> Result<Option<usize>, DependencyError> {
         let Some(catalog) = Catalog::take(row, cancelled)? else {
             return Ok(None);
@@ -22,7 +22,7 @@ impl FragmentArena {
         &self,
         catalog: Option<usize>,
         value: &Value,
-        cancelled: &CancellationToken,
+        cancelled: &Cancellation,
     ) -> Result<Evidence, DependencyError> {
         catalog
             .map(|index| {
@@ -54,7 +54,7 @@ impl FragmentArena {
         &self,
         current: &Evidence,
         added: &Evidence,
-        cancelled: &CancellationToken,
+        cancelled: &Cancellation,
     ) -> Result<usize, DependencyError> {
         match (current, added) {
             (_, None) => Ok(0),
@@ -80,7 +80,7 @@ impl FragmentArena {
         &self,
         current: &mut Evidence,
         added: &Evidence,
-        cancelled: &CancellationToken,
+        cancelled: &Cancellation,
     ) -> Result<(), DependencyError> {
         match (current.as_mut(), added) {
             (_, None) => {}
@@ -101,7 +101,7 @@ impl FragmentArena {
         &self,
         fragment: &Fragment,
         value: &mut Value,
-        cancelled: &CancellationToken,
+        cancelled: &Cancellation,
     ) -> Result<(), DependencyError> {
         if let Some(selection) = &fragment.evidence {
             let catalog = &self.catalogs[selection.catalog];

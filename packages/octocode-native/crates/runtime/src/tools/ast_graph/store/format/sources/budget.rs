@@ -40,6 +40,21 @@ impl<'a> Budget<'a> {
             ticks: std::cell::Cell::new(0),
         }
     }
+    /// A fresh charge for one item within this pass: same limits, request
+    /// and deadline, without polling the request on its first step. The
+    /// pass that hands these out polls once per item with [`Self::check`],
+    /// so per-item scratch budgets never multiply the request's polls.
+    pub fn scratch(&self) -> Self {
+        Self {
+            cancel: self.cancel,
+            bytes: 0,
+            items: 0,
+            max_bytes: self.max_bytes,
+            max_items: self.max_items,
+            deadline: self.deadline,
+            ticks: std::cell::Cell::new(1),
+        }
+    }
     pub fn check(&self) -> Result<(), SourceError> {
         let tick = self.ticks.get();
         self.ticks.set(tick.wrapping_add(1));

@@ -5,11 +5,10 @@
 //! tool adapter makes executable; paging is success, so the exit stays 0.
 use super::format::{
     Confidence, EdgeKind, EdgeRec, FLAG_EXPORTED, GraphTables, NONE, NodeKind, ProvenanceRec,
-    decode_with_cancel,
 };
 use super::{
-    Channel, GRAPH_FILE, GraphOutput, LATEST_FILE, Resume, MANIFEST_FILE, graph_home, list_snapshots,
-    read_graph_file,
+    Channel, GRAPH_FILE, GraphOutput, LATEST_FILE, MANIFEST_FILE, Resume, graph_home,
+    list_snapshots,
 };
 use crate::policy::path::PathPolicy;
 use crate::response::exit::ExitClass;
@@ -30,10 +29,10 @@ mod health;
 mod lean;
 mod load;
 mod lookup;
-mod opened;
 mod options;
 mod paging;
 mod references;
+mod saved;
 mod sources;
 mod traverse;
 mod walks;
@@ -46,7 +45,8 @@ use load::*;
 use lookup::*;
 pub use options::QueryOptions;
 use paging::*;
-pub(crate) use paging::query_row;
+pub(crate) use paging::{query_row, typed_row};
+pub use saved::SavedRows;
 use walks::*;
 use window::*;
 
@@ -121,8 +121,6 @@ struct Graph {
     compact_provenance: bool,
     /// Characters a page's rows may take ([`budget::page_budget`]).
     page_budget: Option<usize>,
-    /// The process-cache key of a reusable snapshot ([`opened`]).
-    reuse: Option<opened::Key>,
     explicit_path: Option<PathBuf>,
     id: String,
     manifest: Value,
@@ -148,8 +146,9 @@ fn fail(code: ErrorCode, message: impl Into<String>) -> Failure {
     Box::new(GraphOutput::error(code, message))
 }
 
-/// Runs one query against a published snapshot.
-pub fn query(options: &QueryOptions, paths: &PathPolicy) -> GraphOutput {
+/// Runs one query against a published snapshot, without a cancellation.
+#[cfg(test)]
+pub(crate) fn query(options: &QueryOptions, paths: &PathPolicy) -> GraphOutput {
     query_cancellable(options, paths, &crate::execution::cancel::NeverCancel)
 }
 
@@ -168,14 +167,14 @@ fn run(
     paths: &PathPolicy,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<GraphOutput, GraphOutput> {
-    run_with(options, paths, cancel, true)
+    run_with(options, paths, cancel, Decode::Selective)
 }
 
 fn run_with(
     options: &QueryOptions,
     paths: &PathPolicy,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
-    selective: bool,
+    decode: Decode,
 ) -> Result<GraphOutput, GraphOutput> {
     cancel
         .check()
@@ -191,7 +190,7 @@ fn run_with(
         ));
     };
     let flags = Flags::parse(options)?;
-    let mut graph = load_with(options, paths, cancel, selective).map_err(|failure| *failure)?;
+    let mut graph = load_with(options, paths, cancel, decode).map_err(|failure| *failure)?;
     graph.compact_provenance = !options.include_provenance;
     graph.page_budget = budget::page_budget(options.response_window);
     let mut pinned = options.clone();
@@ -207,6 +206,7 @@ fn run_with(
         g: &graph,
         flags,
         cancel,
+        pending: Default::default(),
     };
     let g = &graph;
     // `stale` is the freshness check itself: its answer states it once.
@@ -278,9 +278,9 @@ fn run_with(
     graph.close_sources(&mut output, cancel)?;
     #[cfg(test)]
     if let Some(reader) = &graph.selective {
-        output.validation = reader.borrow().validation();
+        output.validation = Box::new(reader.borrow().validation());
     } else if let Some(validation) = &graph.validation {
-        output.validation = validation.clone();
+        output.validation = Box::new(validation.clone());
     }
     if failed {
         return Err(output);
@@ -292,15 +292,14 @@ fn run_with(
         output.value["freshness"] = freshness;
     }
     graph.fit_page(&mut output, options, cancel)?;
+    query.retain_pending(&output);
     #[cfg(test)]
     if let Some(reader) = &graph.selective {
-        output.validation = reader.borrow().validation();
+        output.validation = Box::new(reader.borrow().validation());
     }
     cancel
         .check()
         .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
-    // Only a completed query returns its snapshot for reuse.
-    graph.release();
     Ok(output)
 }
 
@@ -326,6 +325,8 @@ struct Query<'q> {
     g: &'q Graph,
     flags: Flags,
     cancel: &'q dyn crate::execution::cancel::CancellationCheck,
+    /// The full row set this page computed, for [`Query::retain_pending`].
+    pending: saved::Pending,
 }
 
 #[cfg(test)]
@@ -340,3 +341,5 @@ mod window_tests;
 mod selective_evidence_tests;
 #[cfg(test)]
 mod selective_tests;
+#[cfg(test)]
+mod selective_topology_tests;

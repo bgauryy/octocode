@@ -1,4 +1,4 @@
-//! GitHub images through the shared capture cache, and the provider's model and long-context contract.
+//! GitHub images captured fresh per request, and the provider's model and long-context contract.
 
 use super::{png, provider, requests, row, runtime};
 use crate::runtime_clasify::clasify;
@@ -9,7 +9,7 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
-async fn github_image_reuses_shared_capture_cache_and_resolved_commit() {
+async fn github_image_resolves_the_commit_and_pins_its_capture() {
     let server = provider().await;
     let github = MockServer::builder().start().await;
     let sha = "1111111111111111111111111111111111111111";
@@ -31,7 +31,8 @@ async fn github_image_reuses_shared_capture_cache_and_resolved_commit() {
         .expect(1).mount(&github).await;
     Mock::given(method("GET")).and(path("/api/v3/repos/a/b/contents/image.png")).and(query_param("ref", sha))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","encoding":"base64","content":STANDARD.encode(png()),"size":png().len(),"sha":sha,"path":"image.png"})))
-        .expect(1).mount(&github).await;
+        // Two clasify captures and the ranged read each fetch the pinned commit's bytes.
+        .expect(3).mount(&github).await;
     let workspace = Workspace::new();
     let runtime = runtime(
         &workspace,
@@ -46,7 +47,12 @@ async fn github_image_reuses_shared_capture_cache_and_resolved_commit() {
         "{out}"
     );
     let again = clasify(&runtime, vec![query.clone()]).await;
-    assert_eq!(again["results"][0]["data"]["replayed"], true);
+    assert!(again["results"][0]["data"].get("replayed").is_none());
+    assert_eq!(
+        again["results"][0]["data"]["assets"]["image_a"]["snapshot"],
+        out["results"][0]["data"]["assets"]["image_a"]["snapshot"],
+        "the same commit and path capture the same bytes"
+    );
     let text = runtime
         .run(
             "text".into(),
@@ -73,7 +79,11 @@ async fn github_image_reuses_shared_capture_cache_and_resolved_commit() {
         other["results"][0]["data"]["assets"]["image_a"]["snapshot"],
         out["results"][0]["data"]["assets"]["image_a"]["snapshot"]
     );
-    assert_eq!(requests(&server).await.len(), 2);
+    assert_eq!(
+        requests(&server).await.len(),
+        3,
+        "every evaluation reaches the provider"
+    );
     runtime.close().await;
 }
 

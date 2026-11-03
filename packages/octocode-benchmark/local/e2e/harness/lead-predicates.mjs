@@ -30,7 +30,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 // Key families.
-export const PAGE_KEYS = /^(nextPage|nextMatchPage|nextFilePage|nextCommitPage|nextCommentPage|nextReviewPage|nextImporterPage|nextDiagnosticPage|continue[A-Za-z]*|expandScan|readHits|readDeclaration|wholeLines|readBoundedLines|responsePagination\.next)$/;
+export const PAGE_KEYS = /^(nextPage|nextDiagnosticPage|continue[A-Za-z]*|expandScan|readHits|readDeclaration|wholeLines|readBoundedLines|responsePagination\.next)$/;
 const FLAG_KEYS = { includeHidden: 'includeHidden', includeArchived: 'includeArchived' };
 // The skip causes an includeSkipped lead may lift: the query flag that lifts each, and the words a source's hint or warning names it by.
 const SKIP_CAUSES = [
@@ -45,8 +45,6 @@ const SAME_TOOL_PAGE_KEYS = /^(next[A-Za-z]*Page|continue[A-Za-z]*|expandScan|re
 const MUTABLE = [
   [/^include(Skipped|Hidden|Archived|BuildScripts)$/, new Set(['includeIgnored', 'includeHidden', 'includeArchived', 'defaultExcludes', 'rustContext'])],
   [/^expandScan$/, new Set(['limit', 'maxDepth'])],
-  // structureSearch widens a limit cut through continueWalk.
-  [/^continueWalk$/, new Set(['fullContent', 'limit'])],
   [/^continue[A-Za-z]*$/, new Set(['fullContent'])],
 ];
 // Enrichment and clipped-read leads add the option that widens the same read.
@@ -126,7 +124,7 @@ export function leadsOf(sc) {
 }
 
 /** Evidence atoms of a result: every scalar outside pagination/hint metadata, keyed by its enclosing path. */
-const NOISE = new Set(['next', 'hints', 'pagination', 'contentPagination', 'matchPagination', 'warnings', 'summary', 'snapshot', 'root', 'index', 'status', 'terminalLimit', 'coverage', 'completeness', 'complete', 'isPartial', 'partialReasons', 'atLeast', 'truncated', 'filesScanned', 'matchCount', 'matchedLineCount', 'fileCount', 'totalFiles', 'moreLines', 'currentPage', 'totalPages', 'totalItems', 'hasMore', 'pageSize', 'extras', 'echo', 'receipts', 'stats']);
+const NOISE = new Set(['next', 'hints', 'pagination', 'contentPagination', 'matchPagination', 'warnings', 'summary', 'snapshot', 'root', 'index', 'status', 'terminalLimit', 'coverage', 'completeness', 'complete', 'isPartial', 'partialReasons', 'atLeast', 'truncated', 'filesScanned', 'matchCount', 'matchedLineCount', 'fileCount', 'totalFiles', 'moreLines', 'currentPage', 'totalPages', 'totalItems', 'hasMore', 'pageSize', 'extras', 'echo', 'receipts', 'stats', 'enclosing']);
 export function atoms(sc) {
   const out = new Set();
   const walk = (node, ctx, key) => {

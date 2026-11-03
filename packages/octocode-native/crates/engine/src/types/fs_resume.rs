@@ -62,19 +62,24 @@ impl WalkCursor {
             .collect()
     }
 
-    /// Entries the cursor still holds to inspect, what keeping it costs.
+    /// Estimated heap bytes the cursor holds, what keeping it costs: each
+    /// frame's path and every listed entry it keeps (a frame keeps its whole
+    /// listing, inspected entries included).
     #[must_use]
     pub fn weight(&self) -> usize {
         self.frames
             .iter()
             .map(|frame| {
-                frame
-                    .children
-                    .as_ref()
-                    .map_or(0, |children| children.len().saturating_sub(frame.next))
+                std::mem::size_of::<Frame>()
+                    + frame.base.as_os_str().len()
+                    + frame.children.as_ref().map_or(0, |children| {
+                        children
+                            .iter()
+                            .map(|child| std::mem::size_of::<Child>() + child.name.len())
+                            .sum::<usize>()
+                    })
             })
-            .sum::<usize>()
-            + self.frames.len()
+            .sum()
     }
 }
 

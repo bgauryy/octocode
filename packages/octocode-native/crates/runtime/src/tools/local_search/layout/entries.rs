@@ -6,8 +6,8 @@ use super::super::rows::project_shape;
 use super::super::types::ItemPagination;
 use super::Layout;
 use super::costs::{PageCosts, RowName};
-use crate::num::u32_of_usize;
 use octocode_engine::json_size::string_body_units;
+use octocode_engine::num::saturating_u32;
 
 /// Per-file paging, reported only while it routes somewhere: more rows
 /// remain, or the requested match page is past the end. `shown` counts the
@@ -31,13 +31,14 @@ pub(crate) fn file_pagination(
                 total_pages: None,
                 total_matches: (named != total as usize).then_some(total),
                 has_more: true,
+                next: None,
                 more_lines: Some(lines),
                 more_lines_unlisted: unlisted,
                 out_of_range: false,
             }
         });
     }
-    let total_pages = u32_of_usize(crate::response::page_windows::count_pages(
+    let total_pages = saturating_u32(crate::response::page_windows::count_pages(
         total as usize,
         layout.matches_per as usize,
     ));
@@ -54,6 +55,7 @@ pub(crate) fn file_pagination(
         total_pages: Some(total_pages),
         total_matches: Some(total),
         has_more,
+        next: None,
         more_lines,
         more_lines_unlisted,
         out_of_range,
@@ -128,8 +130,9 @@ pub(super) fn pagination_chars(file: &octocode_engine::types::TextSearchFile) ->
     let empty = ItemPagination {
         page: None,
         total_pages: None,
-        total_matches: Some(u32_of_usize(total)),
+        total_matches: Some(saturating_u32(total)),
         has_more: true,
+        next: None,
         more_lines: Some(Vec::new()),
         more_lines_unlisted: None,
         out_of_range: false,

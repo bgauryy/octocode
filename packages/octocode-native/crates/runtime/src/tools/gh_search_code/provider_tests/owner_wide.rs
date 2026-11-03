@@ -57,7 +57,7 @@ async fn owner_wide_rows_list_numbered_lines_at_the_indexed_commit() {
             "{}",
             out.data
         );
-        assert!(row["matches"].is_array(), "{}", out.data);
+        assert!(row.get("matches").is_none(), "{}", out.data);
         assert!(row["repo"].is_string(), "{}", out.data);
         assert_eq!(row["owner"], "o", "{}", out.data);
         assert_eq!(row["commitSha"], SHA, "{}", out.data);
@@ -87,7 +87,7 @@ async fn owner_wide_row_missing_at_its_commit_keeps_fragments() {
     let out = run_owner_wide(&server).await;
     let row = &out.data["files"][0];
     assert_eq!(row["lineResolved"], false, "{}", out.data);
-    assert!(row["matches"][0]["value"].is_string(), "{}", out.data);
+    assert!(row.get("matches").is_none(), "{}", out.data);
     assert!(row.get("lines").is_none(), "{}", out.data);
 }
 

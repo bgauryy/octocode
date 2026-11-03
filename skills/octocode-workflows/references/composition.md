@@ -43,14 +43,10 @@ Size a lane by its files and checks, not by item count. Once its return is in, r
 
 The [shared tool-access rule](../SKILL.md#use-octocode-across-workflows) applies to all catalog cards and metaphors. Assign the evidence question and relevant checkout/ref or entry point; let the actor choose and refine its calls. The orchestrator can use the same tools to scope work, resolve disagreements, and verify returned anchors without taking over actor duties.
 
-Use the [shared MCP/CLI guide](octocode-usage.md) for invocation, live availability, pagination, and recovery. The capability map below connects tools to workflow roles.
+Use the [shared MCP/CLI guide](octocode-usage.md) for invocation, live availability, pagination, and recovery. Choose the tool and query shape with the [tool flow](../../octocode-research/references/tool-flow.md). Locating, reading, shape, identity, upstream facts and history are all there, for writing, planning, critique and maintenance as well as investigation. The rows below add what specific roles pair with those tools.
 
 | Evidence needed, in any workflow | Useful Octocode capability and application |
 |---|---|
-| Locate an owner or verify a written claim | `structureSearch`, `localSearch`, and `localFetch`: locate and read implementation, tests, configuration, docs, prompts, skills, or permitted memory files. Useful for writing, planning, critique, and maintenance as well as code investigation. |
-| Understand shape or repeated logic | `astSearch`: find declarations, branches, duplicate patterns, and candidate paths for traversal, algorithms, cleanup, or architecture work. |
-| Resolve identity or impact | `lspSearch`: confirm definitions, references, callers, and consumers before a refactor, deletion, protocol change, or acceptance judgment. |
-| Check upstream facts or explain a change | GitHub search/read/history tools and `artifactSearch`: inspect pinned source, changes, package versions, and dependencies for research, brainstorming, RFCs, and reviews. |
 | Connect observed behavior to implementation | Local search/read plus AST/LSP: trace a runtime or browser observation through handlers, state, and consumers; inspect scraper extraction and normalization. Pair source evidence with the domain's live observation or replay. |
 | Find a resource-flow bottleneck | Local search/read plus AST/LSP: trace instruction loaders, cache keys, invalidation, queues, allocations, and lifetimes. The plumber pairs these anchors with measurements before claiming an efficiency or memory benefit. |
 | Check an instruction or evaluation pipeline | Search/read the effective prompt loader, schema, fixture, grader, and result consumer. Inspect only evidence permitted by the evaluation phase; retain held-out boundaries. |

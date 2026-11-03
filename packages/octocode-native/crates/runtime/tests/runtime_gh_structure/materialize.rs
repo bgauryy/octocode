@@ -1,5 +1,5 @@
-//! Materialized trees: the layout Octocode owns, content identity reuse,
-//! and no dating request.
+//! Materialized trees: the layout Octocode owns, provider bytes reacquired
+//! on every materialize, and no dating request.
 use super::*;
 
 /// octocode-mcp 19.x rewrites `tmp/tree/<owner>/<repo>/<sha>/`; a
@@ -76,9 +76,11 @@ async fn materialize_never_trusts_a_foreign_directory() {
     runtime.close().await;
 }
 
-/// Matching content is reused; a same-size edit on disk is written again.
+/// A repeated materialize reuses nothing on disk: it reads every file from
+/// the provider again, so a same-size edit on disk is overwritten with the
+/// commit's bytes and an untouched file still holds them.
 #[tokio::test]
-async fn materialize_reuses_only_recorded_content_identity() {
+async fn materialize_reacquires_every_file_and_restores_its_content() {
     let server = MockServer::builder().start().await;
     mount_head_at_sha(&server).await;
     Mock::given(method("GET"))
@@ -102,6 +104,8 @@ async fn materialize_reuses_only_recorded_content_identity() {
                 "sha": "a".repeat(40),
                 "path": name
             })))
+            // Both materializations read each file.
+            .expect(2)
             .mount(&server)
             .await;
     }
@@ -118,14 +122,6 @@ async fn materialize_reuses_only_recorded_content_identity() {
             .expect("localPath"),
     );
     std::fs::write(local.join("two.rs"), "modified!!").expect("same-size tamper");
-    // An old mtime on the reusable file shows whether it was rewritten.
-    let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
-    std::fs::File::options()
-        .write(true)
-        .open(local.join("one.rs"))
-        .expect("open one")
-        .set_modified(old)
-        .expect("age one");
     let second = call(&runtime, "ghStructure", query).await.expect("second");
     assert_eq!(
         row_status(&second),
@@ -142,16 +138,10 @@ async fn materialize_reuses_only_recorded_content_identity() {
         "// one.rs\n"
     );
     assert_eq!(
-        std::fs::metadata(local.join("one.rs"))
-            .and_then(|meta| meta.modified())
-            .expect("mtime"),
-        old,
-        "a file matching its recorded identity is reused, not rewritten"
-    );
-    assert_eq!(
         std::fs::read_to_string(local.join("two.rs")).expect("two"),
         "// two.rs\n"
     );
+    server.verify().await;
     runtime.close().await;
 }
 

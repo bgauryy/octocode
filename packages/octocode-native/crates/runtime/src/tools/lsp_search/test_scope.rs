@@ -7,8 +7,9 @@
 use super::lsp_search_query;
 use super::render::uri_to_path;
 use crate::policy::path::PathPolicy;
-use crate::tools::test_code::{Excluded, Scoped};
+use crate::tools::test_code::Scoped;
 use octocode_contract_types::LspSearchQuery;
+use octocode_engine::types::TestCodeExcluded;
 use serde_json::Value;
 use std::path::Path;
 
@@ -18,7 +19,7 @@ pub(super) fn retain_locations(
     query: &LspSearchQuery,
     paths: &PathPolicy,
     locations: &mut Vec<Value>,
-) -> Option<Excluded> {
+) -> Option<TestCodeExcluded> {
     retain(query, paths, locations, |location| {
         let path = uri_to_path(location.get("uri")?.as_str()?);
         let line = location.pointer("/range/start/line")?.as_u64()?;
@@ -32,7 +33,7 @@ pub(super) fn retain_callers(
     query: &LspSearchQuery,
     paths: &PathPolicy,
     items: &mut Vec<Value>,
-) -> Option<Excluded> {
+) -> Option<TestCodeExcluded> {
     retain(query, paths, items, |item| {
         let caller = item.get("from")?;
         let line = caller
@@ -44,7 +45,7 @@ pub(super) fn retain_callers(
 }
 
 /// State what the scope left out on `row` (`testCodeExcluded`).
-pub(super) fn disclose(row: &mut Value, excluded: Option<Excluded>) {
+pub(super) fn disclose(row: &mut Value, excluded: Option<TestCodeExcluded>) {
     if let (Some(excluded), Some(fields)) = (excluded, row.as_object_mut()) {
         fields.insert(
             "testCodeExcluded".into(),
@@ -60,10 +61,12 @@ fn retain(
     paths: &PathPolicy,
     rows: &mut Vec<Value>,
     site: impl Fn(&Value) -> Option<(String, u64)>,
-) -> Option<Excluded> {
+) -> Option<TestCodeExcluded> {
     let scope = Scoped::of(lsp_search_query::test_code(query), paths)?;
     rows.retain(|row| {
-        site(row).is_none_or(|(path, line)| scope.keeps(Path::new(&path), crate::num::u32_of(line)))
+        site(row).is_none_or(|(path, line)| {
+            scope.keeps(Path::new(&path), octocode_engine::num::saturating_u32(line))
+        })
     });
     scope.excluded().stated()
 }

@@ -106,10 +106,8 @@ pub(super) fn text_search(path: &str, literal: &str) -> Option<Value> {
     if literal.is_empty() || literal.contains('\n') {
         return None;
     }
-    let row = serde_json::json!({"path": path, "matchString": [literal]});
-    Some(
-        crate::response::result::Continuation::related(crate::id::ToolId::LocalSearch, row).build(),
-    )
+    let query = crate::tools::source_view::extraction::text_search_query(path, &[literal])?;
+    Some(crate::response::result::Continuation::related_query(query).build())
 }
 
 /// A pattern's text when it names no metavariable: the literal a text

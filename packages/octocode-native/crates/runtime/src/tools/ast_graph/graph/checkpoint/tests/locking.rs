@@ -50,7 +50,7 @@ fn a_held_job_blocks_a_second_build_until_released_and_the_wait_cancels() {
         "a waiting build never prunes the holder's files"
     );
     // Completion by another build leaves the held job as its holder left it.
-    complete(&job_dir).unwrap();
+    complete(&job_dir, &held.manifest.generation).unwrap();
     assert!(Manifest::read(&job_dir).is_some_and(|manifest| manifest.stage == Stage::Extracting));
     drop(held);
     assert!(

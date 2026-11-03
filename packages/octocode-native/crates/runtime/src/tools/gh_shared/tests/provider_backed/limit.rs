@@ -1,8 +1,11 @@
-//! `limit` conformance for the GitHub search tools: each provider request
-//! asks `per_page = limit`, an omitted `limit` is the contract default (the
-//! page size these tools served before `limit` existed), the contract
-//! bounds it by GitHub's documented `per_page` maximum, and a walk at a
-//! small `limit` lists every row exactly once.
+//! `limit` conformance for the GitHub search tools: a REST list request
+//! asks `per_page = limit`, a code, repository or history search reads
+//! GitHub's largest page (`octocode_github::MAX_PER_PAGE`) and pages it by
+//! `limit`, an omitted
+//! `limit` is the contract default (the page size these tools served
+//! before `limit` existed), the contract bounds it by GitHub's documented
+//! `per_page` maximum, and a walk at a small `limit` lists every row
+//! exactly once.
 use super::pages::page_data;
 use crate::contracts::query_limits;
 use crate::tools::gh_shared::test_support::backed::repo_item;
@@ -13,19 +16,20 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// The small page size the walks use.
 const LIMIT: usize = 2;
 
-/// One search endpoint's pages of `rows` at `per` rows a page.
-async fn mount_search(server: &MockServer, route: &str, per: usize, rows: &[Value]) {
-    for (index, chunk) in rows.chunks(per).enumerate() {
-        Mock::given(method("GET"))
-            .and(path(route))
-            .and(query_param("page", (index + 1).to_string()))
-            .and(query_param("per_page", per.to_string()))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "total_count": rows.len(), "incomplete_results": false, "items": chunk
-            })))
-            .mount(server)
-            .await;
-    }
+/// One search endpoint answering only GitHub's largest page of `rows`.
+async fn mount_search(server: &MockServer, route: &str, rows: &[Value]) {
+    Mock::given(method("GET"))
+        .and(path(route))
+        .and(query_param("page", "1"))
+        .and(query_param(
+            "per_page",
+            octocode_github::MAX_PER_PAGE.to_string(),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count": rows.len(), "incomplete_results": false, "items": rows
+        })))
+        .mount(server)
+        .await;
 }
 
 /// One REST list endpoint's pages of `rows` at `per` rows a page, each but
@@ -69,13 +73,21 @@ fn commit_item(index: usize) -> Value {
         "author": {"date": "2026-09-01T00:00:00Z"}}})
 }
 
-/// One walk case: the tool, its route and how it pages (search or REST
-/// list), the provider rows, the first row, and the listed rows' key and
-/// identity field.
+/// How one endpoint is asked for a caller's page.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Paging {
+    /// A REST list: `per_page = limit`, Link headers.
+    List,
+    /// A search read through GitHub's largest page.
+    Search,
+}
+
+/// One walk case: the tool, its route and how it pages, the provider rows,
+/// the first row, and the listed rows' key and identity field.
 struct Case {
     tool: &'static str,
     route: &'static str,
-    search: bool,
+    paging: Paging,
     rows: Vec<Value>,
     first: Value,
     rows_key: &'static str,
@@ -88,7 +100,7 @@ fn cases() -> Vec<Case> {
         Case {
             tool: "ghSearchRepo",
             route: "/api/v3/search/repositories",
-            search: true,
+            paging: Paging::Search,
             rows: five
                 .clone()
                 .map(|n| repo_item(&format!("r{n}"), false))
@@ -100,7 +112,7 @@ fn cases() -> Vec<Case> {
         Case {
             tool: "ghSearchRepo",
             route: "/orgs/o/repos",
-            search: false,
+            paging: Paging::List,
             rows: five
                 .clone()
                 .map(|n| repo_item(&format!("r{n}"), false))
@@ -112,7 +124,7 @@ fn cases() -> Vec<Case> {
         Case {
             tool: "ghSearchCode",
             route: "/api/v3/search/code",
-            search: true,
+            paging: Paging::Search,
             rows: five.clone().map(code_item).collect(),
             first: json!({"owner":"a","keywords":["needle"],"matchIn":["path"]}),
             rows_key: "files",
@@ -121,7 +133,7 @@ fn cases() -> Vec<Case> {
         Case {
             tool: "ghSearchHistory",
             route: "/api/v3/search/issues",
-            search: true,
+            paging: Paging::Search,
             rows: five.clone().map(issue_item).collect(),
             first: json!({"operation":"issue","owner":"o","repo":"r"}),
             rows_key: "issues",
@@ -130,7 +142,7 @@ fn cases() -> Vec<Case> {
         Case {
             tool: "ghSearchHistory",
             route: "/repos/o/r/commits",
-            search: false,
+            paging: Paging::List,
             rows: five.map(commit_item).collect(),
             first: json!({"operation":"commit","owner":"o","repo":"r"}),
             rows_key: "commits",
@@ -140,16 +152,16 @@ fn cases() -> Vec<Case> {
 }
 
 async fn mount(server: &MockServer, case: &Case, per: usize) {
-    if case.search {
-        mount_search(server, case.route, per, &case.rows).await;
-    } else {
-        mount_list(server, case.route, per, &case.rows).await;
+    match case.paging {
+        Paging::Search => mount_search(server, case.route, &case.rows).await,
+        Paging::List => mount_list(server, case.route, per, &case.rows).await,
     }
 }
 
 /// Every page of a `limit: 2` walk holds at most 2 rows, its `nextPage`
 /// carries the same `limit`, and the walk lists each of the 5 rows once,
-/// in provider order. The mocks answer only `per_page=2`.
+/// in provider order. The list mocks answer only `per_page=2`, the search
+/// mocks only GitHub's largest page.
 #[tokio::test]
 async fn a_small_limit_walk_lists_every_row_exactly_once() {
     for case in cases() {
@@ -188,8 +200,8 @@ async fn a_small_limit_walk_lists_every_row_exactly_once() {
 }
 
 /// An omitted `limit` is the page size each tool served before `limit`
-/// existed (50 rows), read from the contract: the mocks answer only
-/// `per_page=50`.
+/// existed (50 rows), read from the contract: the list mocks answer only
+/// `per_page=50`, the search mocks only GitHub's largest page.
 #[tokio::test]
 async fn an_omitted_limit_requests_the_contract_default() {
     assert_eq!(query_limits::gh_search_repo::LIMIT_DEFAULT, 50);

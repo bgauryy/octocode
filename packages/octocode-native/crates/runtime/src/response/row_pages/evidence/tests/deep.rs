@@ -17,7 +17,7 @@ fn nested_outline(origin: Value, depth: usize) -> Value {
 
 #[test]
 fn catalog_present_origin_beyond_sixty_four_outline_levels_is_supported() {
-    let token = CancellationToken::new();
+    let token = Cancellation::new();
     let expected_origin = origin(0, true);
     let mut row = nested_outline(expected_origin.clone(), 256);
     let catalog = Catalog::take(&mut row, &token).unwrap().unwrap();
@@ -36,7 +36,7 @@ fn catalog_present_origin_beyond_sixty_four_outline_levels_is_supported() {
 
 #[test]
 fn dangling_ids_beyond_sixty_four_outline_levels_are_still_errors() {
-    let token = CancellationToken::new();
+    let token = Cancellation::new();
     let mut bad_source = origin(0, true);
     bad_source["segments"][0]["branches"][0]["origin"]["sourceId"] = json!("missing-source");
     for (bad, expected_collection, expected_id) in [

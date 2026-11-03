@@ -93,12 +93,13 @@ mod tests {
         let Input::Judge(Target::Source(source)) = &row.input else {
             unreachable!()
         };
+        let snapshot = "f".repeat(64);
         let capture = Captured {
             state: json!({"content":"PRIVATE SOURCE BODY"}),
             read: source_capture::read_lead(
                 ToolId::LocalFetch,
                 &source["query"],
-                Some("frozen-snapshot"),
+                Some(snapshot.as_str()),
             ),
             source: None,
         };
@@ -109,7 +110,7 @@ mod tests {
         assert_eq!(failure["next"]["read"]["kind"], "continue");
         assert_eq!(
             failure["next"]["read"]["input"]["queries"][0]["snapshot"],
-            "frozen-snapshot"
+            json!(snapshot)
         );
         assert!(
             failure["hints"]

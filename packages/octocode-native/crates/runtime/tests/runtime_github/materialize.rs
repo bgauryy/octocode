@@ -219,7 +219,8 @@ async fn clone_mcp_opt_in_is_independent_of_storage_and_cli_host() {
                 .expect("MCP response");
             if enabled == "false" {
                 assert_eq!(
-                    result["structuredContent"]["errorCode"], "toolUnavailable",
+                    crate::support::mcp_payload(&result)["errorCode"],
+                    "toolUnavailable",
                     "{result}"
                 );
                 assert!(
@@ -229,7 +230,8 @@ async fn clone_mcp_opt_in_is_independent_of_storage_and_cli_host() {
             } else {
                 assert_eq!(result["isError"], true, "{result}");
                 assert_eq!(
-                    result["structuredContent"]["errorCode"], "persistentStorageDisabled",
+                    crate::support::mcp_payload(&result)["errorCode"],
+                    "persistentStorageDisabled",
                     "{result}"
                 );
                 assert!(result.to_string().contains("persistent"), "{result}");

@@ -62,10 +62,9 @@ fn assert_same_evidence(compact: &Value, full: &Value, symbol_file: Option<&Valu
         }
         if let (Some(recipient), Some(original)) =
             (actual.get_mut("recipient"), full.get("recipient"))
+            && recipient["sourceOrigin"] == "identity"
         {
-            if recipient["sourceOrigin"] == "identity" {
-                recipient["sourceOrigin"] = original["sourceOrigin"].clone();
-            }
+            recipient["sourceOrigin"] = original["sourceOrigin"].clone();
         }
     }
     assert_eq!(

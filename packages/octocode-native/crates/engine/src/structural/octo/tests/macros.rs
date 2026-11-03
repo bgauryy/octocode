@@ -261,10 +261,6 @@ fn synthetic_c_tail_is_unmapped_and_never_a_match() {
 }
 
 #[test]
-#[expect(
-    clippy::print_stderr,
-    reason = "explicit resource-profile test emits its measured accounting receipt"
-)]
 fn macro_projection_budget_profile_uses_real_producer() {
     use crate::text::analysis::*;
     let mut text = "fn run() {\n".to_owned();

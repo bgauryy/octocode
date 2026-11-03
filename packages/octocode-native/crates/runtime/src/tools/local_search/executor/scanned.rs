@@ -223,7 +223,7 @@ pub(crate) fn search_options(
         // Every matched file is collected, in the engine sort order above:
         // pages are cut from the whole sorted list, so each one is reachable.
         // Use the engine default per-file byte ceiling (skips pathological
-        // multi-GB files, surfaced as a maxFileSize diagnostic).
+        // multi-GB files, surfaced as a fileTooLarge diagnostic).
         max_file_bytes: None,
         // A scan small enough to store for later pages keeps the digest of
         // each matched file from the read that searched it (see `manifest`).
@@ -296,7 +296,7 @@ pub(crate) fn scan(
             paths.clone(),
             std::path::PathBuf::from(&options.path),
             local_search_query::include_ignored(query) != Some(true),
-            super::super::manifest::MAX_BYTES,
+            crate::cache::MEMORY.limit(),
         ));
         let parsed = search_cancellable(options, recorder.clone(), &|| cancel.check().is_err())
             .map_err(|error| {

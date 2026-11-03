@@ -53,7 +53,10 @@ fn named_argument_occurrences_page_without_becoming_invocations() {
                 row["argument"]["index"].as_u64().unwrap()
             ))
         );
-        assert_eq!(crate::tools::ast_graph::test_support::next_offset(&out).is_some(), offset < 2);
+        assert_eq!(
+            crate::tools::ast_graph::test_support::next_offset(&out).is_some(),
+            offset < 2
+        );
         // Coverage is an answer fact: stated once, on the first page.
         if offset == 0 {
             assert_eq!(
@@ -69,7 +72,11 @@ fn named_argument_occurrences_page_without_becoming_invocations() {
         o.edges = vec!["calls".into()];
         o.to = Some("args.ts#handler".into());
     });
-    assert_eq!(calls.value["pagination"]["totalItems"], 0, "{}", calls.value);
+    assert_eq!(
+        calls.value["pagination"]["totalItems"], 0,
+        "{}",
+        calls.value
+    );
     let sink = ask(&dir.0, "callees", Some("args.ts#sink"), |_| {});
     assert_eq!(sink.value["pagination"]["totalItems"], 0);
     let counts = &built.value["argumentCoverage"]["byLanguage"]["typescript"]["counts"];
@@ -92,7 +99,11 @@ fn argument_barriers_and_unsupported_forms_remain_queryable() {
         o.include_provenance = true;
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(linked.value["pagination"]["totalItems"], 0, "{}", linked.value);
+    assert_eq!(
+        linked.value["pagination"]["totalItems"], 0,
+        "{}",
+        linked.value
+    );
     let mut ids = BTreeSet::new();
     for offset in 0..2 {
         let page = ask(&dir.0, "unresolved", Some("barriers.ts#run"), |o| {
@@ -307,7 +318,10 @@ fn wide_argument_lists_keep_every_slot_across_pages() {
                 assert!(ids.insert(row["id"].as_str().unwrap().to_owned()));
                 assert!(slots.insert(row["argument"]["index"].as_u64().unwrap()));
             }
-            assert_eq!(crate::tools::ast_graph::test_support::next_offset(&out).is_some(), offset + 71 < 1203);
+            assert_eq!(
+                crate::tools::ast_graph::test_support::next_offset(&out).is_some(),
+                offset + 71 < 1203
+            );
         }
         assert_eq!(ids.len(), 1203);
         assert_eq!(slots, (0..1203).collect());

@@ -4,10 +4,12 @@
 //! call at the default branch.
 use crate::id::ToolId;
 use crate::response::result::Continuation;
+use crate::response::result::wire_query;
 use crate::tools::gh_shared::{
     DefaultBranchRetry, GhFailure, RenameCheck, canonical_repo, default_branch_retry,
     renamed_warning, unresolved_refs, with_repo,
 };
+use octocode_contract_types::{GhGetHistoryItemQuery, GhSearchHistoryQuery};
 use octocode_github::{
     GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
@@ -61,7 +63,7 @@ pub(crate) async fn recover(
 }
 
 /// The repository `query` names as `((owner, repo), canonical)` when GitHub
-/// redirected it to another name (the memoized rename check: free for a
+/// redirected it to another name (a metadata check only for a
 /// repository GitHub never redirected).
 async fn renamed_repository(
     provider: &GitHubProvider,
@@ -199,7 +201,9 @@ fn recovery(
         }
     }
     next.insert("operation".into(), json!(operation));
-    let read = Continuation::related(ToolId::GhGetHistoryItem, Value::Object(next)).build();
+    let read =
+        Continuation::related_query(wire_query::<GhGetHistoryItemQuery>(Value::Object(next))?)
+            .build();
     Some(Value::Object(Map::from_iter([(name.to_owned(), read)])))
 }
 
@@ -215,10 +219,9 @@ fn find_item(operation: Option<&str>, query: &Value) -> Option<Value> {
     };
     let owner = query.get("owner").and_then(Value::as_str)?;
     let repo = query.get("repo").and_then(Value::as_str)?;
-    let listing = Continuation::related(
-        ToolId::GhSearchHistory,
+    let listing = Continuation::related_query(wire_query::<GhSearchHistoryQuery>(
         json!({"operation": search, "owner": owner, "repo": repo}),
-    )
+    )?)
     .build();
     Some(Value::Object(Map::from_iter([(name.to_owned(), listing)])))
 }

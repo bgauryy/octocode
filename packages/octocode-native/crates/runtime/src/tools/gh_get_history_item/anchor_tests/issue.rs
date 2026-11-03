@@ -99,7 +99,9 @@ async fn issue_comment_pages_keep_the_callers_page_size() {
         let block = &issue["contentPagination"]["comments"];
         assert!(block.get("pageSize").is_none(), "call {call}: {data}");
         ids.extend(shown.iter().map(|comment| comment["id"].to_string()));
-        let Some(next) = data.pointer("/next/nextCommentPage/input/queries/0") else {
+        let Some(next) =
+            data.pointer("/issues/0/contentPagination/comments/next/nextPage/input/queries/0")
+        else {
             break;
         };
         assert_eq!(next["pageSize"], 4, "call {call}: {data}");

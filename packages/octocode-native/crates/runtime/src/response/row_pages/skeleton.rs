@@ -1,3 +1,4 @@
+use super::collections::collection_paths;
 use crate::response::result::{HINTS_KEY, PAGES_KEY};
 use serde_json::{Map, Value, json};
 
@@ -49,44 +50,50 @@ pub(super) fn continues_chars(array: &str, index: usize) -> usize {
         - 1
 }
 
-/// A later slice of a split element (a pull request whose comments page)
-/// names the element, not its description again: on each array element the
-/// paged `pointer` passes through, descriptive scalars ride the first part
-/// only. Required fields and core-classified provenance/disclosures stay,
-/// along with its lists (emptied beside the paged one, and dropped by
-/// the final materialization pass once the part is whole) and nested objects stay.
-pub(super) fn lean_elements(
+/// A later part of a split row (a listing whose files page, a pull request
+/// whose comments page) names the row and the elements it continues, not
+/// their description again: on every object the paged `pointer` passes
+/// through, the row itself included, a member rides the first part only
+/// unless it is the pointer's next step, guidance, a core-declared
+/// page-context field (`pageContextFields`: identity, provenance and
+/// disclosures), or a holder of a declared collection (emptied beside the
+/// paged one, and dropped by the final materialization pass once the part
+/// is whole).
+pub(super) fn lean_later_context(
     skeleton: &mut Value,
     pointer: &str,
     context: &crate::contracts::output_fields::PageContextFields,
+    routes: &crate::contracts::output_fields::CollectionRoutes,
 ) {
-    let segments = pointer
-        .trim_start_matches('/')
-        .split('/')
-        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
-        .collect::<Vec<_>>();
+    let holders = collection_paths(skeleton, routes);
+    let holds = |path: &str| {
+        holders.iter().any(|held| {
+            held.strip_prefix(path)
+                .is_some_and(|tail| tail.is_empty() || tail.starts_with('/'))
+        })
+    };
     let mut node = Some(skeleton);
-    let mut in_element = false;
-    for key in &segments {
+    let mut at = String::new();
+    for segment in pointer.trim_start_matches('/').split('/') {
         let Some(current) = node else {
             return;
         };
-        if in_element && let Some(map) = current.as_object_mut() {
-            map.retain(|name, value| {
-                name == key
+        let key = segment.replace("~1", "/").replace("~0", "~");
+        if let Some(map) = current.as_object_mut() {
+            map.retain(|name, _| {
+                *name == key
                     || name == PAGES_KEY
                     || name == HINTS_KEY
                     || context.required.contains(name)
                     || context.optional.contains(name)
-                    || value.is_array()
-                    || value.is_object()
+                    || holds(&format!("{at}/{}", escape_pointer(name)))
             });
         }
-        in_element = current.is_array();
         node = match current {
-            Value::Object(map) => map.get_mut(key),
+            Value::Object(map) => map.get_mut(&key),
             Value::Array(items) => key.parse::<usize>().ok().and_then(|i| items.get_mut(i)),
             _ => None,
         };
+        at = format!("{at}/{segment}");
     }
 }

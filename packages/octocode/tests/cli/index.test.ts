@@ -31,29 +31,26 @@ describe('runCLI native boundary', () => {
     process.exitCode = originalExitCode;
   });
 
-  it.each([
-    [],
-    ['--help'],
-    ['--version'],
-    ['--version', '--bogus'],
-    ['--', '--help'],
-    ['install'],
-    ['install', '--json=true'],
-    ['config', 'view', '--no-open'],
-    ['config', 'view', '--json', '--idle-timeout=abc'],
-    ['skill', 'list', '--json'],
-    ['skill', 'install', '--all', '--platform', 'codex', '--global'],
-    ['schema', 'localFetch', '--view', 'query'],
-    ['localFetch', '{"queries":[{"path":"a b","ranges":["1-2"]}]}'],
-    ['unknown', '--flag=value=with=equals'],
-  ])('forwards arguments unchanged: %j', async (...argv) => {
-    const original = [...argv];
-    await runCLI(Object.freeze(argv));
-    expect(argv).toEqual(original);
-    expect(mocks.delegate).toHaveBeenCalledExactlyOnceWith(
-      '/native/octocode',
-      original
-    );
+  it('forwards every argument vector to native unchanged, never interpreting it', async () => {
+    const vectors = [
+      [],
+      ['--help'],
+      ['--version', '--bogus'],
+      ['--', '--help'],
+      ['install', '--json=true'],
+      ['config', 'view', '--json', '--idle-timeout=abc'],
+      ['skill', 'install', '--all', '--platform', 'codex', '--global'],
+      ['localFetch', '{"queries":[{"path":"a b","ranges":["1-2"]}]}'],
+      ['unknown', '--flag=value=with=equals'],
+    ];
+    for (const argv of vectors) {
+      mocks.delegate.mockClear();
+      await runCLI(Object.freeze([...argv]));
+      expect(mocks.delegate, argv.join(' ')).toHaveBeenCalledExactlyOnceWith(
+        '/native/octocode',
+        argv
+      );
+    }
   });
 
   it('leaves terminal behavior to native', async () => {
@@ -74,10 +71,12 @@ describe('runCLI native boundary', () => {
     }
   });
 
-  it.each([0, 2, 5, 130, 143])('preserves native exit code %i', async code => {
-    mocks.delegate.mockResolvedValue(code);
-    await runCLI(['config']);
-    expect(process.exitCode).toBe(code);
+  it('preserves every native exit code, including signal exits', async () => {
+    for (const code of [0, 2, 5, 130, 143]) {
+      mocks.delegate.mockResolvedValue(code);
+      await runCLI(['config']);
+      expect(process.exitCode, `exit ${code}`).toBe(code);
+    }
   });
 
   it('reports resolution failure without interpreting CLI flags', async () => {

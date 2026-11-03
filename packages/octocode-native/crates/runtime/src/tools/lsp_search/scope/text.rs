@@ -22,32 +22,9 @@ impl Scope {
         {
             return Ok(scan);
         }
-        let stored = self.fingerprint().map(|fingerprint| {
-            octocode_engine::digest::sha256(
-                format!(
-                    "{}\u{0}{}\u{0}{symbol}\u{0}{fingerprint}\u{0}{policy:?}",
-                    self.root,
-                    self.include.join("\u{0}")
-                )
-                .as_bytes(),
-            )
-        });
-        let hit = stored
-            .as_ref()
-            .and_then(|key| TEXT_SCANS.get(key))
-            .map(|hit| hit.value);
-        let files = match hit {
-            Some(files) => Some(files),
-            None => {
-                let files = scan_text(&self.root, &self.include, symbol, policy, cancel)
-                    .await?
-                    .map(Arc::new);
-                if let (Some(key), Some(files)) = (stored, &files) {
-                    TEXT_SCANS.insert(key, Arc::clone(files), 1, None);
-                }
-                files
-            }
-        };
+        let files = scan_text(&self.root, &self.include, symbol, policy, cancel)
+            .await?
+            .map(Arc::new);
         if let Ok(mut slot) = self.text.lock() {
             *slot = Some(TextScan {
                 symbol: symbol.to_owned(),
@@ -74,8 +51,8 @@ impl Scope {
     /// such as `node_modules/` stay out), with the deciding rules of the
     /// first few; files in `skip` (already in the answer) are left out.
     /// The files come from the scope's ignored-file index (see
-    /// `ignored_index`), built once per workspace snapshot. The request
-    /// waits for an index a walk is building and reads every listed file,
+    /// `ignored_index`), built for this request. The request
+    /// walks the scope and reads every listed file,
     /// however long that takes: only its own cancellation or deadline ends
     /// either early (an error, never a shorter answer). An index the walk
     /// left incomplete says so in [`IgnoredMentions::unfinished`], with the
@@ -347,14 +324,14 @@ fn uses_in_code(symbol: &str, file: &str) -> bool {
 }
 
 /// Whether `file` (canonical, from the text scan) imports `symbol` by
-/// name (the digest-cached declarations parse holds its imports); an
+/// name (the declarations parse holds its imports); an
 /// unreadable or unparsable file does not.
 pub(in super::super) fn imports_in_code(symbol: &str, file: &str) -> bool {
     crate::tools::source::read_bounded(Path::new(file), octocode_engine::signatures::MAX_PARSE_SIZE)
         .ok()
         .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
         .and_then(|text| {
-            crate::tools::declarations_cache::file_document(&text, file)
+            crate::tools::declarations::file_document(&text, file)
                 .map(|facts| super::super::importers::imports_name(&facts, &text, symbol))
         })
         .unwrap_or(false)

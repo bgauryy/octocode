@@ -2,9 +2,10 @@ use super::super::{ContractValidationError, ValidationIssue, schema_issue, union
 use super::{ValidationMode, check_size, validate_with_mode};
 use serde_json::Value;
 
-fn authored_property(root: &Value, property: &Value) -> bool {
-    property["x-cursor"] != true
-        && super::super::super::resolve_ref(property, &root["$defs"])["x-cursor"] != true
+/// Whether a caller authors `property`: cursor state (`x-cursor`) is not.
+pub(in super::super) fn authored_property(root: &Value, property: &Value) -> bool {
+    crate::contracts::schema_facts::schema_keyword(property, &root["$defs"], "x-cursor")
+        != Some(&Value::Bool(true))
 }
 
 /// The shape an object schema takes, for a value of another type: its
@@ -144,15 +145,43 @@ pub(super) fn validate_object(
             }
         }
     }
+    let mut patterned = std::collections::HashSet::new();
+    if let Some(patterns) = schema.get("patternProperties").and_then(Value::as_object) {
+        for (pattern, field_schema) in patterns {
+            let pattern = super::compiled_pattern(pattern).map_err(super::super::internal)?;
+            for (key, field) in object.iter_mut() {
+                if pattern.find(key).is_none() {
+                    continue;
+                }
+                patterned.insert(key.clone());
+                path.push(key.clone());
+                let result = validate_with_mode(root, field_schema, field, path, mode);
+                path.pop();
+                if let Err(error) = result {
+                    issues.extend(error.issues);
+                    if speculative {
+                        return Err(ContractValidationError { issues });
+                    }
+                }
+            }
+        }
+    }
     if schema.get("additionalProperties") == Some(&Value::Bool(false)) {
-        issues.extend(unknown_fields(root, properties, object, path, speculative));
+        issues.extend(unknown_fields(
+            root,
+            properties,
+            &patterned,
+            object,
+            path,
+            speculative,
+        ));
     }
     if let Some(additional) = schema
         .get("additionalProperties")
         .filter(|value| value.is_object())
     {
         for (key, field) in object.iter_mut() {
-            if properties.is_some_and(|known| known.contains_key(key)) {
+            if properties.is_some_and(|known| known.contains_key(key)) || patterned.contains(key) {
                 continue;
             }
             path.push(key.clone());
@@ -168,9 +197,11 @@ pub(super) fn validate_object(
     }
     if let Some(properties) = properties {
         for (name, field_schema) in properties {
-            let default = field_schema.get("default").or_else(|| {
-                super::super::super::resolve_ref(field_schema, &root["$defs"]).get("default")
-            });
+            let default = crate::contracts::schema_facts::schema_keyword(
+                field_schema,
+                &root["$defs"],
+                "default",
+            );
             if mode != ValidationMode::ReadOnly
                 && !object.contains_key(name)
                 && let Some(default) = default
@@ -179,7 +210,7 @@ pub(super) fn validate_object(
             }
         }
     }
-    issues.extend(missing_required(schema, properties, object, path));
+    issues.extend(missing_required(root, schema, properties, object, path));
     if speculative && !issues.is_empty() {
         return Err(ContractValidationError { issues });
     }
@@ -211,6 +242,7 @@ pub(super) fn validate_object(
 fn unknown_fields(
     root: &Value,
     properties: Option<&serde_json::Map<String, Value>>,
+    patterned: &std::collections::HashSet<String>,
     object: &serde_json::Map<String, Value>,
     path: &[String],
     speculative: bool,
@@ -224,7 +256,7 @@ fn unknown_fields(
         })
     };
     for key in object.keys() {
-        if !properties.is_some_and(|known| known.contains_key(key)) {
+        if !properties.is_some_and(|known| known.contains_key(key)) && !patterned.contains(key) {
             let mut field_path = path.to_vec();
             field_path.push(key.clone());
             issues.push(ValidationIssue {
@@ -242,6 +274,7 @@ fn unknown_fields(
 
 /// An issue per field the schema's `required` lists that `object` lacks.
 fn missing_required(
+    root: &Value,
     schema: &Value,
     properties: Option<&serde_json::Map<String, Value>>,
     object: &serde_json::Map<String, Value>,
@@ -263,9 +296,12 @@ fn missing_required(
                     "schema.required",
                     field_path,
                     format!("Missing required field: {required}"),
-                    properties
-                        .and_then(|items| items.get(required))
-                        .unwrap_or(&Value::Null),
+                    crate::contracts::resolve_ref(
+                        properties
+                            .and_then(|items| items.get(required))
+                            .unwrap_or(&Value::Null),
+                        &root["$defs"],
+                    ),
                     &Value::Null,
                 )
                 .issues,

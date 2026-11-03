@@ -91,9 +91,9 @@ async function scenario(driver: Driver, { exhaustive }: { exhaustive: boolean })
   await ok('set_status', { task: 'checking results', status: 'busy' }, alice);
   await ok('peers', {}, alice);
   await ok('subscribe', { topics: ['api'] }, bob);
-  const asked = await ok('send_message', { to: bob, question: 'Is the schema right?', reasoning: REASON }, alice);
-  await ok('send_message', { topic: 'api', body: 'fyi', reasoning: REASON, key: 'results-1' }, alice);
-  await ok('notify_all', { body: 'everyone', reasoning: REASON }, alice);
+  const asked = await ok('send_message', {parts: [{ text: 'Is the schema right?' }], replyRequired: true,  to: bob, reasoning: REASON }, alice);
+  await ok('send_message', {parts: [{ text: 'fyi' }],  topic: 'api', reasoning: REASON, key: 'results-1' }, alice);
+  await ok("send_message", {to: '*', parts: [{ text: 'everyone' }],  reasoning: REASON }, alice);
   await ok('inbox', {}, bob);
   await ok('inbox', { message: asked.id }, bob);
   await ok('inbox wait', { timeoutMs: 1000 }, bob);
@@ -123,21 +123,21 @@ async function scenario(driver: Driver, { exhaustive }: { exhaustive: boolean })
   await ok('read_document', { name: 'd.md' }, bob);
   await ok('context', { path: 'src/a.ts' }, bob);
   await ok('attach', { transport: 'raw' }, bob);
-  const task = await ok('send_message', { to: bob, task: { objective: 'Do it', inputs: ['a'], output: 'o', done: 'Given x, when y, then z' }, reasoning: REASON }, alice);
+  const task = await ok('send_message', {parts: [{ data: { task: { objective: 'Do it', inputs: ['a'], output: 'o', done: 'Given x, when y, then z' } } }], replyRequired: true,  to: bob, reasoning: REASON }, alice);
   const offered = await ok('hook', { format: 'json', deferConfirm: true }, bob);
   const items = offered.items as { id: number; dispatchToken: string }[];
   await ok('confirm_delivery', { items: items.map(({ id, dispatchToken }) => ({ id, dispatchToken })) }, bob);
-  const fyi = await ok('send_message', { to: bob, body: 'one more', reasoning: REASON }, alice);
+  const fyi = await ok('send_message', {parts: [{ text: 'one more' }],  to: bob, reasoning: REASON }, alice);
   await ok('hook', { format: 'claude' }, bob);
-  const staged = await ok('send_message', { to: bob, question: 'and another?', reasoning: REASON }, alice);
+  const staged = await ok('send_message', {parts: [{ text: 'and another?' }], replyRequired: true,  to: bob, reasoning: REASON }, alice);
   await ok('hook', { format: 'json', deferConfirm: true }, bob);
   await ok('retry_delivery', { message: staged.id, reason: 'Receiver inspection confirms retry is needed' }, bob);
   await ok('record_usage', { key: 'usage-1', scope: 'turn', model: 'm', inputTokens: 1, outputTokens: 2 }, bob);
   await ok('dispatch', {}, bob);
   await ok('health', {});
   await ok('health', { limit: 1 });
-  await ok('complete', { message: asked.id, outcome: 'done', reply: { conclusion: 'It is right' } }, bob);
-  await ok('complete', { message: task.id, outcome: 'done', reply: { conclusion: 'Done' } }, bob);
+  await ok('complete', { message: asked.id, outcome: "completed", reply: [{ data: { conclusion: 'It is right' } }] }, bob);
+  await ok('complete', { message: task.id, outcome: "completed", reply: [{ data: { conclusion: 'Done' } }] }, bob);
   await ok('complete', { messages: [fyi.id] }, bob);
   await ok('activity', { view: 'files', limit: 5 }, alice);
   await ok('activity', { view: 'commits' }, alice);
@@ -195,7 +195,7 @@ test('completion-check results satisfy their schema', async t => {
   await call('attach', claude, recipient);
   const event = { hook_event_name: 'Stop', stop_hook_active: false, session_id: 'native-recipient', cwd: f.workspace };
   conforms('completion-check', await call('completion-check', event, recipient));
-  await call('send_message', { to: recipient, question: 'Review this?', reasoning: REASON, wake: 'action' }, sender);
+  await call('send_message', {parts: [{ text: 'Review this?' }], replyRequired: true,  to: recipient, reasoning: REASON, wake: 'action' }, sender);
   await call('attach', { transport: 'raw' }, recipient);
   await call('hook', { format: 'json' }, recipient);
   await call('attach', claude, recipient);
@@ -226,7 +226,7 @@ test('host-hook results satisfy their schema for every hook vendor', t => {
       const host = (db.prepare('SELECT id FROM sessions WHERE vendor=?').get(vendor) as { id: string }).id;
       const sender = execFileSync(binary, ['join', JSON.stringify({ name: 'sender', vendor: 'raw' }), ...flags], { encoding: 'utf8' });
       const from = (JSON.parse(sender) as { id: string }).id;
-      execFileSync(binary, ['send_message', JSON.stringify({ to: host, body: 'context for the host', reasoning: REASON }), ...flags, '--session', from], { encoding: 'utf8' });
+      execFileSync(binary, ['send_message', JSON.stringify({ to: host, parts: [{ text: 'context for the host' }], reasoning: REASON }), ...flags, '--session', from], { encoding: 'utf8' });
     } finally {
       db.close();
     }
@@ -242,7 +242,7 @@ test('mcp frames satisfy their schema', t => {
     { id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'results', version: '1' } } },
     { method: 'notifications/initialized' },
     { id: 2, method: 'tools/list' },
-    { id: 3, method: 'tools/call', params: { name: 'peers', arguments: {} } },
+    { id: 3, method: 'tools/call', params: { name: 'agents', arguments: { type: 'list', input: {} } } },
     { id: 4, method: 'tools/call', params: { name: 'nope', arguments: {} } },
     { id: 5, method: 'unknown/method' },
   ].map(frame => JSON.stringify({ jsonrpc: '2.0', ...frame })).join('\n') + '\n';
@@ -282,7 +282,7 @@ if(r.method==='turn/start')result={turn:{id:'results-turn',status:'inProgress'}}
   const ready = await waitFor(() => worker.output().find((row): row is { session: string } => typeof row === 'object' && row !== null && 'type' in row && row.type === 'ready'), { timeout: 20000, message: worker.stderr() || 'worker did not become ready' });
   const sender = (await f.call('', 'join', { name: 'sender', vendor: 'generic' })).id as string;
   assert.ok(ready, 'the worker reported ready');
-  await f.call(sender, 'send_message', { to: ready.session, body: 'during the turn', reasoning: REASON });
+  await f.call(sender, 'send_message', {parts: [{ text: 'during the turn' }],  to: ready.session, reasoning: REASON });
   await waitFor(() => worker.output().some(row => typeof row === 'object' && row !== null && 'type' in row && row.type === 'delivery'), { timeout: 15000, message: 'worker did not report a delivery' });
   await worker.stop();
   const events = worker.output();

@@ -108,8 +108,9 @@ fn pull_request_predicates_are_distinct_and_negation_survives() {
 }
 
 #[test]
-fn commit_terms_and_rest_window_share_inclusive_timestamp_bounds() {
-    let filters = json!({"author":{"include":["a@example.test"]},"committer":{"include":["bob"]},"committedAt":{"from":"2024-01-01T00:00:00+02:00","to":"2024-02-01T00:00:00Z"}});
+fn commit_search_terms_include_and_exclude_date_ranges() {
+    let range = json!({"from":"2024-01-01T00:00:00+02:00","to":"2024-02-01T00:00:00Z"});
+    let filters = json!({"author":{"include":["a@example.test"]},"committer":{"include":["bob"]},"committedAt":{"include":[range],"exclude":[{"from":"2024-03-01T00:00:00Z"}]}});
     let q = serde_json::from_value(json!({"operation":"commit","owner":"o","repo":"r","keywords":["fix parser"],"filters":filters})).expect("query");
     let terms = build_query(&q).expect("terms");
     for expected in [
@@ -117,9 +118,20 @@ fn commit_terms_and_rest_window_share_inclusive_timestamp_bounds() {
         "author-email:a@example.test",
         "committer:bob",
         "committer-date:2024-01-01T00:00:00+02:00..2024-02-01T00:00:00Z",
+        "-committer-date:>=2024-03-01T00:00:00Z",
     ] {
         assert!(terms.contains(expected), "{terms}");
     }
+}
+
+#[test]
+fn rest_commit_window_keeps_plain_inclusive_timestamp_bounds() {
+    let filters =
+        json!({"committedAt":{"from":"2024-01-01T00:00:00+02:00","to":"2024-02-01T00:00:00Z"}});
+    let q = serde_json::from_value(
+        json!({"operation":"commit","owner":"o","repo":"r","pathPrefix":"src","filters":filters}),
+    )
+    .expect("query");
     assert_eq!(
         resolve_commit_window(&search(&q).expect("request")),
         (

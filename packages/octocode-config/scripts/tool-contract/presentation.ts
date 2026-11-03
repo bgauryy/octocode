@@ -60,15 +60,20 @@ export function toolHelpSection(definition: Definition): string {
   } else if (variants.length > 1) {
     lines.push('', 'Required fields, by operation:');
     // Each row names every operation it takes, so none is left unlisted.
-    const forms = variants.map(variant => ({
-      ...variant,
-      label: variant.operations.join(', ') || variant.name,
-    }));
+    // Variants that differ only in their example (one per ecosystem) share
+    // one row: the examples above show them.
+    const forms = [
+      ...new Map(
+        variants.map(variant => {
+          const label = variant.operations.join(', ') || variant.name;
+          const requires = variant.requires.join(', ');
+          return [`${label}\0${requires}`, { label, requires }] as const;
+        })
+      ).values(),
+    ];
     const width = Math.max(...forms.map(form => form.label.length));
     for (const form of forms)
-      lines.push(
-        `  ${form.label.padEnd(width)}  ${form.requires.join(', ')}`.trimEnd()
-      );
+      lines.push(`  ${form.label.padEnd(width)}  ${form.requires}`.trimEnd());
     lines.push('', `Each form's example: octocode schema ${name} --view variants`);
   }
   lines.push('', `Fields: octocode schema ${name}`);

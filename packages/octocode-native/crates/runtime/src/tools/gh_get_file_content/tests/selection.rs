@@ -45,6 +45,7 @@ async fn selected_body_is_shaped_off_the_acquisition_worker() {
             &fixture_context(Duration::from_secs(10), 1 << 20),
             Some(50_000),
             shaping(TimedJudge(calls.clone())),
+            &mut None,
         ),
     )
     .await

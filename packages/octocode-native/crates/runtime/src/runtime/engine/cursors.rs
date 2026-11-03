@@ -8,7 +8,6 @@ use crate::id::ToolId;
 use crate::response::cursor::{Cursor, issued};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::Digest as _;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -34,6 +33,9 @@ pub(super) struct Member {
     /// Complete normalized input, including contract-typed private progress.
     pub input: Value,
     pub work: SavedWork,
+    /// The digest of the provider evidence a resumed tool continuation
+    /// answers from ([`evidence`]).
+    pub evidence: Option<String>,
 }
 
 /// One issued continuation as the registry keeps it: the access identity
@@ -47,6 +49,9 @@ pub(super) struct Issued {
 
 pub(super) struct Registry {
     store: Store<Issued>,
+    /// What issued tool continuations own, beside the handles (same
+    /// directory and retention).
+    evidence: Store<octocode_github::ProviderEvidence>,
     policy: String,
     disk: Option<PathBuf>,
     mutation: Mutex<()>,
@@ -58,6 +63,11 @@ pub(super) struct Pending {
     access: [u8; 32],
     github_identity: Option<String>,
     issued: BTreeMap<String, Member>,
+    /// The tool whose continuations own the call's sealed provider
+    /// evidence, its digest and the evidence.
+    evidence: Option<(ToolId, String, octocode_github::ProviderEvidence)>,
+    /// The call's evidence was sealed (it may have left nothing to own).
+    sealed: bool,
 }
 
 pub(super) struct Opened {
@@ -73,10 +83,13 @@ impl Opened {
     }
 }
 
+mod evidence;
+
 impl Registry {
     pub fn new(config: CacheConfig, disk: Option<PathBuf>, policy: String) -> Self {
         Self {
-            store: Store::new(config, disk.clone()),
+            store: Store::new(config.clone(), disk.clone()),
+            evidence: Store::new(config, disk.clone()),
             policy,
             disk,
             mutation: Mutex::new(()),
@@ -110,11 +123,21 @@ impl Registry {
         let _storage = self.process_lock(context)?;
         let _mutation = self.mutation_lock(context)?;
         context.check()?;
+        if let Some((_, digest, evidence)) = pending.evidence
+            && pending
+                .issued
+                .values()
+                .any(|member| member.evidence.as_ref() == Some(&digest))
+        {
+            let key = evidence::key(&self.policy, pending.github_identity.as_deref(), &digest);
+            // Unretained evidence costs its continuation a fresh read only.
+            evidence::retain(&self.evidence, key, evidence);
+        }
         for (token, member) in pending.issued {
             let key = self.key(&token);
             if self
                 .store
-                .get_current(&key)
+                .get(&key)
                 .is_some_and(|current| current.value.access != pending.access)
             {
                 return Err(ExecutionError::WorkerFailed);
@@ -127,7 +150,7 @@ impl Registry {
             let bytes = octocode_engine::json_size::bytes(&issued).unwrap_or(usize::MAX);
             if !self
                 .store
-                .put_confirmed(key, issued, bytes, super::page_replay::RETENTION)
+                .put_confirmed(key, issued, bytes, crate::cache::CONTINUATION_RETENTION)
                 .1
             {
                 return Err(ExecutionError::WorkerFailed);
@@ -193,7 +216,7 @@ impl Registry {
         issued::parts(token).ok_or(Refusal::Malformed)?;
         let issued = self
             .store
-            .get_current(&self.key(token))
+            .get(&self.key(token))
             .ok_or(Refusal::NotRetained)?
             .value;
         if issued.access != access {
@@ -204,6 +227,15 @@ impl Registry {
         }
         Ok(Opened { issued })
     }
+
+    /// The provider evidence `opened` owns, while it is retained.
+    pub fn evidence(&self, opened: &Opened) -> Option<Arc<octocode_github::ProviderEvidence>> {
+        let digest = opened.issued.member.evidence.as_deref()?;
+        evidence::open(
+            &self.evidence,
+            &evidence::key(&self.policy, opened.github_identity(), digest),
+        )
+    }
 }
 
 impl Pending {
@@ -212,7 +244,20 @@ impl Pending {
             access,
             github_identity,
             issued: BTreeMap::new(),
+            evidence: None,
+            sealed: false,
         }
+    }
+
+    /// The provider evidence `tool`'s own tool continuations issued by
+    /// this output own, as the output gate leaves it ([`evidence::sealed`]).
+    pub fn own_evidence(&mut self, tool: ToolId, observed: octocode_github::ProviderEvidence) {
+        self.evidence = evidence::sealed(observed).map(|(digest, sealed)| (tool, digest, sealed));
+        self.sealed = true;
+    }
+
+    pub fn owns_evidence(&self) -> bool {
+        self.sealed
     }
 
     pub fn is_empty(&self) -> bool {
@@ -228,10 +273,17 @@ impl Pending {
     /// ([`handle`]).
     pub fn insert(&mut self, tool: ToolId, input: Value, work: SavedWork) -> String {
         let token = handle(&self.access, tool, &input, &work);
+        let evidence = match (&self.evidence, &work) {
+            (Some((owner, digest, _)), SavedWork::ToolResume { .. }) if *owner == tool => {
+                Some(digest.clone())
+            }
+            _ => None,
+        };
         self.issued.entry(token.clone()).or_insert(Member {
             tool: tool.as_str().into(),
             input,
             work,
+            evidence,
         });
         token
     }
@@ -253,7 +305,7 @@ fn handle(access: &[u8; 32], tool: ToolId, input: &Value, work: &SavedWork) -> S
         canonical_json(serde_json::to_value(work).unwrap_or_default(), Nulls::Keep),
     ]);
     let digest = octocode_engine::digest::json_sha256(&identity)
-        .unwrap_or_else(|| sha2::Sha256::digest([]).into());
+        .unwrap_or_else(|| octocode_engine::digest::sha256_digest(&[]));
     let (set, member) = digest.split_at(issued::ID_BYTES);
     let part = |bytes: &[u8]| {
         let mut id = [0; issued::ID_BYTES];

@@ -204,7 +204,7 @@ impl ToolRuntime {
         login::login_device_flow_in_store(
             &login::LoginEndpoints::from_host(&target.host),
             &target.client_id,
-            &tokio_util::sync::CancellationToken::new(),
+            &octocode_io::cancellation::Cancellation::new(),
             &self.credential_store(),
         )
         .await

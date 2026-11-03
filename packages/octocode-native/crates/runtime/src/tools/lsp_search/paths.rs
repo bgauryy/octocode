@@ -11,17 +11,17 @@ pub(super) fn set_path(query: &mut LspSearchQuery, path: String) {
         };
     }
     match query {
-        LspSearchQuery::Variant0(q) => assign!(&mut q.path),
-        LspSearchQuery::Variant1(q) => assign!(&mut q.path),
-        LspSearchQuery::Variant2(q) => assign!(&mut q.path),
-        LspSearchQuery::Variant3(q) => assign!(&mut q.path),
-        LspSearchQuery::Variant4(q) => assign!(&mut q.path),
-        LspSearchQuery::Variant5(q) => assign!(&mut q.path),
-        LspSearchQuery::Variant6(q) => assign!(&mut q.path),
-        LspSearchQuery::Variant7(q) => assign!(&mut q.path),
-        LspSearchQuery::Variant8 { path: field, .. } => assign!(field),
-        LspSearchQuery::Variant9 { path: field, .. } => assign!(field),
-        LspSearchQuery::Variant10 { .. } => {}
+        LspSearchQuery::AnchoredLocations(q) => assign!(&mut q.path),
+        LspSearchQuery::AnchoredLocationsFiles(q) => assign!(&mut q.path),
+        LspSearchQuery::AnchoredReferences(q) => assign!(&mut q.path),
+        LspSearchQuery::AnchoredReferencesFiles(q) => assign!(&mut q.path),
+        LspSearchQuery::AnchoredCallers(q) => assign!(&mut q.path),
+        LspSearchQuery::AnchoredHierarchy(q) => assign!(&mut q.path),
+        LspSearchQuery::AnchoredSubtypes(q) => assign!(&mut q.path),
+        LspSearchQuery::AnchoredHover(q) => assign!(&mut q.path),
+        LspSearchQuery::LspDocument(q) => assign!(&mut q.path),
+        LspSearchQuery::LspWorkspacePath(q) => assign!(&mut q.path),
+        LspSearchQuery::LspWorkspaceRoot(_) => {}
     }
 }
 
@@ -34,19 +34,19 @@ pub(super) fn set_workspace_root(query: &mut LspSearchQuery, root: String) {
         };
     }
     match query {
-        LspSearchQuery::Variant0(q) => optional!(&mut q.workspace_root),
-        LspSearchQuery::Variant1(q) => optional!(&mut q.workspace_root),
-        LspSearchQuery::Variant2(q) => optional!(&mut q.workspace_root),
-        LspSearchQuery::Variant3(q) => optional!(&mut q.workspace_root),
-        LspSearchQuery::Variant4(q) => optional!(&mut q.workspace_root),
-        LspSearchQuery::Variant5(q) => optional!(&mut q.workspace_root),
-        LspSearchQuery::Variant6(q) => optional!(&mut q.workspace_root),
-        LspSearchQuery::Variant7(q) => optional!(&mut q.workspace_root),
-        LspSearchQuery::Variant8 { workspace_root, .. } => optional!(workspace_root),
-        LspSearchQuery::Variant9 { workspace_root, .. } => optional!(workspace_root),
-        LspSearchQuery::Variant10 { workspace_root, .. } => {
+        LspSearchQuery::AnchoredLocations(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::AnchoredLocationsFiles(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::AnchoredReferences(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::AnchoredReferencesFiles(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::AnchoredCallers(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::AnchoredHierarchy(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::AnchoredSubtypes(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::AnchoredHover(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::LspDocument(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::LspWorkspacePath(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::LspWorkspaceRoot(q) => {
             if let Ok(root) = root.try_into() {
-                *workspace_root = root;
+                q.workspace_root = root;
             }
         }
     }

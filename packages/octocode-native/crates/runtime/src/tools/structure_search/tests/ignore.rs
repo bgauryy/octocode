@@ -320,7 +320,7 @@ fn traversal_sorted_listing_stops_walking_at_its_window() {
     assert!(cut.get("totalAvailable").is_none(), "{cut}");
     assert_eq!(cut["atLeast"], 4, "{cut}");
     assert!(cut.get("terminalLimit").is_none(), "{cut}");
-    let next = &cut["next"]["continueWalk"]["input"]["queries"][0];
+    let next = &cut["next"]["nextPage"]["input"]["queries"][0];
     assert!(next.get("limit").is_none(), "the window is internal: {cut}");
     assert_eq!(next["scanOffset"], 3, "{cut}");
 }

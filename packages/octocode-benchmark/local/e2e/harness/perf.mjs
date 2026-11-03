@@ -43,7 +43,7 @@ const rows = [];
   rows.push({ case: `astSearch symbols (${rowData(first.out)?.pagination?.totalItems} decls)`, page1: first.ms, page2: second?.ms ?? '-' });
 }
 
-// Graph tools (CLI): build, an unchanged rebuild (reused snapshot), then
+// Graph tools (CLI): build, an unchanged rebuild (a fresh snapshot), then
 // queries over the snapshot. Each call is a fresh process; `data` is the row.
 const graph = (cwd, tool, query) => {
   const started = performance.now();
@@ -55,13 +55,13 @@ const graph = (cwd, tool, query) => {
 const total = (data) => data?.pagination?.totalItems ?? data?.rows?.length;
 {
   const root = path.join(REPOS, 'rust');
-  const build = graph(root, 'graphBuild', { path: root, exclude: ['target'] });
-  const reused = graph(root, 'graphBuild', { path: root, exclude: ['target'] });
+  const build = graph(root, 'graphBuild', { path: root, excludeDirs: ['target'] });
+  const rebuilt = graph(root, 'graphBuild', { path: root, excludeDirs: ['target'] });
   const id = build.data?.id;
   const dependents = graph(root, 'graphQuery', { operation: 'dependents', path: root, graph: id, target: 'tokio/src/sync/mpsc/bounded.rs', depth: 6 });
   const cycles = graph(root, 'graphQuery', { operation: 'cycles', path: root, graph: id });
-  rows.push({ case: 'graph tokio build / dependents', page1: build.ms, page2: dependents.ms, repeat: reused.ms, cycles: cycles.ms });
-  check('graph: tokio build, reuse, and dependents answer', build.status === 0 && reused.data?.reused === true && dependents.status === 0 && (total(dependents.data) ?? 0) > 0 && cycles.status !== 5, JSON.stringify({ build: build.status, reused: reused.data?.reused, dependents: total(dependents.data) ?? dependents.data?.errorCode, cycles: cycles.status }));
+  rows.push({ case: 'graph tokio build / dependents', page1: build.ms, page2: dependents.ms, repeat: rebuilt.ms, cycles: cycles.ms });
+  check('graph: tokio build, rebuild, and dependents answer', build.status === 0 && rebuilt.status === 0 && !!rebuilt.data?.id && rebuilt.data.id !== id && JSON.stringify(rebuilt.data.counts) === JSON.stringify(build.data?.counts) && dependents.status === 0 && (total(dependents.data) ?? 0) > 0 && cycles.status !== 5, JSON.stringify({ build: build.status, rebuilt: rebuilt.status, dependents: total(dependents.data) ?? dependents.data?.errorCode, cycles: cycles.status }));
 }
 
 // astSearch match and symbols over the native crates (this repository): walk

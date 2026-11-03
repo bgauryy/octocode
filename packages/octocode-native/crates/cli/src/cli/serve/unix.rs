@@ -2,6 +2,7 @@
 
 mod client;
 mod daemon;
+mod frames;
 mod identity;
 mod served;
 mod sockets;

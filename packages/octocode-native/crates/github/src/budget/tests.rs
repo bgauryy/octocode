@@ -2,11 +2,10 @@
 //! admission behavior is a child module.
 use super::*;
 
+mod admission;
 mod gates;
-mod queueing;
-mod shared_state;
+mod quota;
 mod spacing;
-mod window;
 
 /// Account-key churn (many short-lived tokens) does not grow the
 /// registry for the process lifetime: idle keys past the retention cap
@@ -88,6 +87,23 @@ fn primary_bucket_blocks_until_reset_and_isolates_keys() {
     assert!(rate.retry_after_seconds.unwrap_or_default() >= 119);
 }
 
+impl KeyState {
+    /// Report 1000 requests left for `bucket`, resetting 1000 × `spacing` +
+    /// 10 s from now (under zero reset grace). Covered admissions burst;
+    /// `spacing` is the reference interval for tests that contrast that burst
+    /// with the old even-spreading rule.
+    pub(in crate::budget) fn report_quota(self: &Arc<Self>, bucket: &str, spacing: Duration) {
+        let reset = now_ms() / 1000 + 10 + millis(spacing);
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-ratelimit-remaining", "1000".parse().expect("header"));
+        headers.insert(
+            "x-ratelimit-reset",
+            reset.to_string().parse().expect("header"),
+        );
+        self.observe(&headers, bucket);
+    }
+}
+
 /// A budget under `config` and its state for one host key.
 fn limited(config: ExecutorConfig) -> (Arc<GitHubBudget>, Arc<KeyState>) {
     let budget = Arc::new(GitHubBudget::with_config(config));
@@ -95,20 +111,44 @@ fn limited(config: ExecutorConfig) -> (Arc<GitHubBudget>, Arc<KeyState>) {
     (budget, state)
 }
 
-/// Seed a full 2/min window whose oldest slot frees in ~1.5 s.
-fn full_code_search_window() -> (Arc<GitHubBudget>, Arc<KeyState>) {
-    let budget = Arc::new(GitHubBudget::with_config(ExecutorConfig {
-        code_search_per_minute: 2,
+/// A config that paces search and code-search starts by the quota GitHub
+/// reports (or the group's assumed quota), with no reset grace.
+fn quota_paced() -> ExecutorConfig {
+    ExecutorConfig {
+        quota_pacing: true,
+        reset_grace: Duration::ZERO,
         ..ExecutorConfig::relaxed()
-    }));
-    let state = budget.key_state(&LimiterKey::new("h", None), None);
-    {
-        let now = now_ms();
-        let mut facts = state.facts();
-        facts.code_search_ms.push_back(now - 58_500);
-        facts.code_search_ms.push_back(now - 10_000);
     }
-    (budget, state)
+}
+
+/// One `group` admission under `deadline`.
+async fn admit(
+    state: &Arc<KeyState>,
+    budget: &GitHubBudget,
+    group: Group,
+    deadline: Instant,
+) -> Result<Admission, ProviderError> {
+    state
+        .admit(Some(group), budget.config(), deadline, &Cancellation::new())
+        .await
+}
+
+/// A code-search answer reporting `remaining` requests left and a window that
+/// resets in `resets_in` seconds.
+fn report_remaining(state: &Arc<KeyState>, remaining: u64, resets_in: u64) {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "x-ratelimit-remaining",
+        remaining.to_string().parse().expect("header"),
+    );
+    headers.insert(
+        "x-ratelimit-reset",
+        (now_ms() / 1000 + resets_in)
+            .to_string()
+            .parse()
+            .expect("header"),
+    );
+    state.observe(&headers, Group::CodeSearch.bucket());
 }
 
 /// Duration conversions are exact in range and saturate past `u64`.

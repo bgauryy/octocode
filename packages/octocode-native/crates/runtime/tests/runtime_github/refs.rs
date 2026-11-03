@@ -84,7 +84,7 @@ async fn gh_bad_ref_is_not_found_with_a_refs_lead() {
     for (tool, query) in [
         (
             "ghGetFileContent",
-            json!({"owner":"a","repo":"b","path":"README.md","ref":"no-such-ref","refresh":true}),
+            json!({"owner":"a","repo":"b","path":"README.md","ref":"no-such-ref"}),
         ),
         (
             "ghStructure",
@@ -142,7 +142,7 @@ async fn gh_missing_full_sha_is_named_with_a_refs_lead() {
     for (tool, query) in [
         (
             "ghGetFileContent",
-            json!({"owner":"a","repo":"b","path":"README.md","ref":MISSING,"refresh":true}),
+            json!({"owner":"a","repo":"b","path":"README.md","ref":MISSING}),
         ),
         (
             "ghStructure",
@@ -173,8 +173,8 @@ async fn gh_missing_full_sha_is_named_with_a_refs_lead() {
 
 /// A read of a renamed repository (GitHub answers 301 to
 /// `/repositories/<id>`) warns once and names the canonical repository; a
-/// later process reading from the immutable cache (no request, so no
-/// redirect) still knows the rename from the memo.
+/// later process keeps no memo of the rename: its read follows the redirect
+/// again and reads the metadata once more to name the canonical repository.
 #[tokio::test]
 async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
     let server = MockServer::builder().start().await;
@@ -217,7 +217,8 @@ async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
             ResponseTemplate::new(200)
                 .set_body_json(json!({"default_branch":"main","full_name":"c/d"})),
         )
-        .expect(1)
+        // One metadata read per process: each read learns the rename.
+        .expect(2)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -272,7 +273,13 @@ async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
         json!({"owner":"a","repo":"b","path":"README.md","ref":sha}),
     )
     .await
-    .expect("cached read");
+    .expect("second process read");
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
     renamed(row_data(&outcome));
     second.close().await;
 }

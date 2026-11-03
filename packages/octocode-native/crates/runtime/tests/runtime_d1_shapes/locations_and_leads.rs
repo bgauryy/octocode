@@ -58,16 +58,18 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     workspace.write("pkg/a.txt", "x\n");
     let runtime = workspace.runtime(&[]);
     // The enclosing declaration is an object an lspSearch/localFetch
-    // call takes as is.
+    // call takes as is, listed once on the file and named by index.
     let hits = support::run(
         &runtime,
         "localSearch",
         json!({"path":"pkg","matchString":["let"]}),
     )
     .await;
-    let first = &hits.data()["files"][0]["matches"][0];
+    let file = &hits.data()["files"][0];
+    let first = &file["matches"][0];
+    let owner = first["enclosing"].as_u64().expect("enclosing index");
     assert_eq!(
-        first["enclosing"],
+        file["declarations"][usize::try_from(owner).expect("index")],
         json!({"symbolName":"run","kind":"function","line":1,"endLine":4}),
         "{}",
         hits.structured_content

@@ -29,7 +29,7 @@ test('with the owner lock, an expired session renews, keeps its leases and stage
   const worker = await f.join('worker');
   const sender = await f.join('sender');
   await lockPath(f, worker, 'held.txt');
-  const sent = await f.call(sender, 'send_message', { to: worker, question: 'status?', key: 'q1' });
+  const sent = await f.call(sender, 'send_message', {parts: [{ text: 'status?' }], replyRequired: true,  to: worker, key: 'q1' });
   await using lock = await ownerLock.claimDeliveryOwner(f.file, worker);
   f.jump(5 * MINUTE);
   assert.ok(sessionRow(f, worker).expiresAt <= Date.now(), 'the presence row expired');

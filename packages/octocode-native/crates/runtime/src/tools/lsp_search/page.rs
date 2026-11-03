@@ -132,6 +132,9 @@ pub(super) async fn run_target(
     paths: &PathPolicy,
     response_window: Option<usize>,
 ) -> Result<Value, Exit> {
+    // Before any read of the request's sources: a file written after it
+    // may be read by this page before the write.
+    let started = std::time::SystemTime::now();
     let language_id = target.config.language_id.as_deref();
     let scope = scope::Scope::resolve(
         &target.path,
@@ -140,17 +143,14 @@ pub(super) async fn run_target(
         paths,
         language_id,
     );
-    // Importer recovery reads the scope's ignored-file index after the
-    // server answers: its walk starts now, alongside the server's work.
-    if importers::applies(language_id, lsp_search_query::operation(query)) && !target.root_only {
-        scope.warm_ignored_index(paths);
-    }
     // Read the anchor document once (bounded, regular files only). The same
     // text is sent in didOpen, resolves the anchor, and serves same-file
     // context windows; a bad document or anchor costs no server start.
     let mut sources = SourceCache::new(paths);
     let document = read_anchor_document(query, target, &mut sources).await?;
-    scope_responses(query, &scope, document.as_deref(), cancel).await?;
+    if !scope_responses(query, &scope, document.as_deref(), cancel).await? {
+        return Ok(locations::snapshot_changed(query));
+    }
     let text = document.as_deref().map(|source| source.content.as_str());
     let anchor =
         anchor::resolve_anchor(query, &target.path, &target.uri, text).map_err(|error| {
@@ -176,9 +176,6 @@ pub(super) async fn run_target(
         pool,
     )
     .await?;
-    if session.open_readiness.as_deref() == Some("timeout") {
-        quarantine_responses();
-    }
     sync_watched_files(&scope, &session.client, cancel).await?;
     // One request reads each snippet file once, however many responses
     // name it.
@@ -219,7 +216,14 @@ pub(super) async fn run_target(
     if matches!(lsp_search_query::op(query), Op::References | Op::Callers) {
         locations::attach_read_lead(&mut result);
     }
-    Ok(with_next(query, result))
+    let mut row = with_next(query, result);
+    // A continuation page re-proved the revision its first page pinned.
+    if lsp_search_query::snapshot(query).is_none()
+        && continuations::declares_continuation(&mut row)?
+    {
+        seal_scope_revision(query, &scope, document.as_deref(), started, cancel).await?;
+    }
+    Ok(row)
 }
 
 /// A server stopped for its memory cannot answer this scope again: its

@@ -55,6 +55,27 @@ pub(in super::super) fn group_by_file(locations: &[Value]) -> Vec<Value> {
 }
 
 /// Lines of context on each side of a site in the read lead.
+/// Adjacent location rows of one file under its `path`, in order, as a call
+/// row's `files` are: `None` when a row names no path, so nothing is grouped
+/// under a guess. A page is sorted by path, so each file appears once.
+pub(in super::super) fn located_files(rows: Vec<Value>) -> Option<Vec<Value>> {
+    let mut files: Vec<(String, Vec<Value>)> = Vec::new();
+    for mut row in rows {
+        let path = row.as_object_mut()?.remove("path")?;
+        let path = path.as_str()?.to_owned();
+        match files.last_mut() {
+            Some((last, matches)) if *last == path => matches.push(row),
+            _ => files.push((path, vec![row])),
+        }
+    }
+    Some(
+        files
+            .into_iter()
+            .map(|(path, matches)| json!({ "path": path, "matches": matches }))
+            .collect(),
+    )
+}
+
 pub(super) const READ_LEAD_CONTEXT: u64 = 6;
 
 /// The one-based lines a compact row points at: a call row's `sites`, else

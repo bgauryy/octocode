@@ -24,7 +24,7 @@ pub(super) async fn refs(
     // page of every tag.
     if let Some(reference) = query.ref_.as_deref() {
         let sha = match provider
-            .resolve_reference(owner, repo, Some(reference), false, context)
+            .resolve_reference(owner, repo, Some(reference), context)
             .await
         {
             Ok(sha) => sha,
@@ -73,14 +73,16 @@ pub(super) async fn refs(
         }
         return Ok(ToolData::from(value));
     }
-    let page = query.page.map_or(1, crate::num::usize_of);
-    let per_page = crate::num::usize_of(query.limit);
+    let page = query
+        .page
+        .map_or(1, |page| octocode_engine::num::saturating_usize(page.get()));
+    let per_page = octocode_engine::num::saturating_usize(query.limit.get());
     let transport = &provider.transport;
     let branches =
         transport.repository_refs(owner, repo, RefKind::Branches, page, per_page, context);
     let (default_branch, head, branches, tags) = tokio::try_join!(
         default_branch(provider, owner, repo, context),
-        provider.resolve_reference(owner, repo, None, false, context),
+        provider.resolve_reference(owner, repo, None, context),
         branches,
         tag_page(transport, owner, repo, page, per_page, context),
     )?;

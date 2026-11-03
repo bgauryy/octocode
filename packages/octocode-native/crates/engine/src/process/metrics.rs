@@ -128,7 +128,10 @@ impl TreeCpuClock {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) fn read(&self) -> Option<Duration> {
         let mut now = std::collections::HashMap::from([(self.root, cpu_time(self.root)?)]);
-        for pid in descendants(self.root) {
+        for pid in descendants(self.root)
+            .into_iter()
+            .map(|process| process.pid)
+        {
             if let Some(time) = cpu_time(pid) {
                 now.insert(pid, time);
             }
@@ -203,7 +206,7 @@ pub(crate) fn tree_rss_bytes(root: u32) -> Option<u64> {
     Some(
         descendants(root)
             .into_iter()
-            .filter_map(rss_bytes)
+            .filter_map(|process| rss_bytes(process.pid))
             .fold(own, u64::saturating_add),
     )
 }

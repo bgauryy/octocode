@@ -1,5 +1,5 @@
 //! GitHub protocol, bounded transport, and provider operations.
-//! Hosts own credential acquisition, cache storage, and application policy.
+//! Hosts own credential acquisition and application policy.
 // Numeric conversions are explicit (`try_from` with a stated outcome): a
 // lossy `as` cast fails CI (`-D warnings`). Tests may cast fixture values.
 #![cfg_attr(
@@ -10,9 +10,11 @@
         clippy::cast_possible_wrap
     )
 )]
+// Library output reaches people through its callers or the `octocode_io::notice`
+// owner, never stray stdout/stderr prints; deliberate sites carry `#[expect]`.
+#![deny(clippy::print_stdout, clippy::print_stderr)]
 
 mod budget;
-mod cache_key;
 mod commit_dates;
 mod content;
 mod credentials;
@@ -27,18 +29,14 @@ mod search;
 mod transport;
 mod tree;
 
-use octocode_io::flight::KeyedFlight;
-
 /// GitHub REST's largest `per_page`: one provider batch of a list endpoint
 /// (branches, tags, comments, reviews, commits, changed files).
 pub const MAX_PER_PAGE: usize = 100;
 
 pub use budget::{AuthAdmission, GitHubBudget, GitHubPacing, LimiterKey};
-pub use cache_key::fields_key;
 pub use commit_dates::{MAX_PATHS_PER_REQUEST, PathDates};
 pub use content::{
-    CachedContent, ConditionalCache, ContentRequest, ContentResponse, GitHubProvider, NoCache,
-    Retention, Submodule, decode_content, is_full_sha,
+    ContentRequest, ContentResponse, GitHubProvider, Submodule, decode_content, is_full_sha,
 };
 pub use credentials::{CredentialSource, ResolvedCredential};
 pub use endpoint::{GitHubEndpoint, credential_host, is_loopback, names_localhost};
@@ -52,11 +50,12 @@ pub use query_syntax::{
 pub use refs::{NamedRef, RefKind, RefMatch, RefPage};
 pub use search::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchItem,
-    RepositorySearchPage, RepositorySearchRequest, TextMatch, TreeEntry, TreeRequest, TreeResponse,
+    RepositorySearchPage, RepositorySearchRequest, SEARCH_RESULT_CAP, TextMatch, TreeEntry,
+    TreeRequest, TreeResponse,
 };
 pub use transport::{
-    GitHubTransport, GraphQlError, GraphQlPage, HTTP_USER_AGENT, HttpMethod, RequestContext,
-    RequestSpec, ResponsePage, RetryPolicy, sso_partial_warning,
+    GitHubTransport, GraphQlError, GraphQlPage, HTTP_USER_AGENT, HttpMethod, ProviderAnswer,
+    ProviderEvidence, RequestContext, RequestSpec, ResponsePage, RetryPolicy, sso_partial_warning,
 };
 pub use tree::{ContentsEntry, ContentsListing};
 

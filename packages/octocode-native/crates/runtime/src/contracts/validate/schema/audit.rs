@@ -3,10 +3,18 @@ use super::super::{ContractValidationError, internal};
 use super::{compiled_pattern, known_type, relationships::strings};
 use serde_json::Value;
 
+#[cfg(test)]
 pub(in crate::contracts::validate) fn validate(
     root: &Value,
 ) -> Result<(), ContractValidationError> {
     visit(root, root)
+}
+
+pub(in crate::contracts::validate) fn validate_in(
+    root: &Value,
+    schema: &Value,
+) -> Result<(), ContractValidationError> {
+    visit(root, schema)
 }
 
 fn require(valid: bool, message: &str) -> Result<(), ContractValidationError> {
@@ -47,12 +55,14 @@ fn visit(root: &Value, schema: &Value) -> Result<(), ContractValidationError> {
                     }),
                 "Unsupported schema type",
             )?,
-            "properties" | "$defs" => {
-                for child in value
+            "properties" | "patternProperties" | "$defs" => {
+                for (name, child) in value
                     .as_object()
                     .ok_or_else(|| internal("Schema map must be an object".into()))?
-                    .values()
                 {
+                    if key == "patternProperties" {
+                        compiled_pattern(name).map_err(internal)?;
+                    }
                     visit(root, child)?;
                 }
             }

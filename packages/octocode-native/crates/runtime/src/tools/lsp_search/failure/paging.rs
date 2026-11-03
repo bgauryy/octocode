@@ -108,7 +108,7 @@ impl RequestFailures {
     }
 }
 
-/// `next.nextPage` for a row that has a page after it: this query at that
+/// `pagination.next.nextPage` for a row that has a page after it: this query at that
 /// page, pinned by its `snapshot`.
 pub(in super::super) fn offer_next_page(
     query: &LspSearchQuery,
@@ -118,14 +118,15 @@ pub(in super::super) fn offer_next_page(
     let Some(next) = next else {
         return;
     };
-    if let Some(call) = crate::response::paging::next_page_call(
-        ToolId::LspSearch,
-        lsp_search_query::to_row(query),
-        "page",
-        next.page,
-        &[("snapshot", json!(next.snapshot))],
+    if let Ok(page) = lsp_search_query::edited(
+        query,
+        &json!({"page": next.page, "snapshot": next.snapshot}),
     ) {
-        row["next"]["nextPage"] = call;
+        crate::response::result::insert_next(
+            &mut row["pagination"]["next"],
+            octocode_contract_types::LspSearchChannel::NextPage,
+            crate::response::result::Continuation::continued_query(page),
+        );
     }
 }
 

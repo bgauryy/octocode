@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 mod identity_keys;
+mod progress;
 mod requests;
 use requests::exchange_reply;
 mod server_lifecycle;

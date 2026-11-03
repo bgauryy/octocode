@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { JsonRecord } from './json-record.ts';
 import { binary, only, fastHeartbeatEnv, isChildFailure } from './helpers.ts';
 import { fixture, invoke, joinAgent, skill, stableVendor } from './native-support.ts';
+import { runtime } from './store-support.ts';
 
 /** What `runUntilTurn` rejects with when the worker does not stop after its turn. */
 type WorkerFailure = Error & { stdout: string; stderr: string };
@@ -21,12 +22,12 @@ test('Pi inbox pages maximum escaped messages without loss or buffer overflow',a
  const db=new DatabaseSync(f.database);
  // The envelope is valid at the CLI's 16,384 UTF-16-unit limit. Control
  // characters require six output bytes per unit, the largest JSON expansion.
- const body='x'+'\u0001'.repeat(16383);
- invoke(f,['send_message',JSON.stringify({to:b.id,body}),'--session',a.id]);
- const insert=db.prepare('INSERT INTO messages(sender,target,body,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)');
+ const content='x'+'\u0001'.repeat(16383), parts=JSON.stringify([{text:content}]);
+ invoke(f,['send_message',JSON.stringify({to:b.id,parts:[{text:content}]}),'--session',a.id]);
+ const insert=db.prepare('INSERT INTO messages(sender,target,parts,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)');
  const delivery=db.prepare('INSERT INTO deliveries(message,recipient) VALUES(?,?)');
  db.exec('BEGIN IMMEDIATE');
- for(let i=1;i<101;i++){const result=insert.run(a.id,b.id,body,`large-${i}`,Date.now()+60000,'Verify bounded delivery of escaped payloads');delivery.run(result.lastInsertRowid,b.id);}
+ for(let i=1;i<101;i++){const result=insert.run(a.id,b.id,parts,`large-${i}`,Date.now()+60000,'Verify bounded delivery of escaped payloads');delivery.run(result.lastInsertRowid,b.id);}
  db.exec('COMMIT');db.close();
  const previous=process.env.OCTOCODE_COMMUNICATION_BINDING;
  t.after(()=>{if(previous===undefined)delete process.env.OCTOCODE_COMMUNICATION_BINDING;else process.env.OCTOCODE_COMMUNICATION_BINDING=previous;});
@@ -37,21 +38,26 @@ test('Pi inbox pages maximum escaped messages without loss or buffer overflow',a
  for(const tool of tools){
   const definition=catalog.tools.find((item: JsonRecord)=>item.name===tool.name);
   assert.equal(tool.description,definition.description);
-  const expected=structuredClone(definition.inputSchema);
-  for(const keyword of ['oneOf','anyOf','allOf','enum','const','not'])delete expected[keyword];
-  assert.deepEqual(tool.parameters,expected);
+  const parameters=tool.parameters as JsonRecord;
+  const properties=parameters.properties as JsonRecord, input=properties.input as JsonRecord;
+  const definitionSchema=definition.inputSchema as JsonRecord;
+  const definitionProperties=definitionSchema.properties as JsonRecord;
+  const alternatives=definitionSchema.oneOf as JsonRecord[];
+  assert.deepEqual((properties.type as JsonRecord).enum,(definitionProperties.type as JsonRecord).enum);
+  assert.deepEqual((input.anyOf as JsonRecord[]).map((branch: JsonRecord)=>branch.description),alternatives.map((branch: JsonRecord)=>(branch.properties as JsonRecord).input.description));
+  assert.deepEqual(parameters.required,['type','input']);
   assert.deepEqual(catalog.tools.find((item: JsonRecord)=>item.name===tool.name).inputSchema,definition.inputSchema);
  }
  const cacheWarming=handlers.get('cache_warming_decision');assert.ok(cacheWarming);
  assert.deepEqual(cacheWarming({type:'cache_warming_decision',action:'warm',warmCost:0.01,missCost:1,continuationProbability:1}),{action:'stop'});
- const inbox=tools.find(tool=>tool.name==='inbox');assert.ok(inbox);
+ const inbox=tools.find(tool=>tool.name==='messages');assert.ok(inbox);
  let after=0;const seen=[];
  do {
-  const result: JsonRecord=await inbox.execute('page',{after});
+  const result: JsonRecord=await inbox.execute('page',{type:'read',input:{after}});
   assert.ok(Buffer.byteLength(result.content[0].text)<=256*1024);
   assert.ok(result.details.items.length>0);
-  for(const item of result.details.items as JsonRecord[]){assert.equal(item.body,body);seen.push(item.id);}
-  after=result.details.next?.input.after;
+  for(const item of result.details.items as JsonRecord[]){assert.deepEqual(item.parts,[{text:content}]);seen.push(item.id);}
+  after=result.details.next?.input.input.after;
   if(seen.length%20===0)invoke(f,['heartbeat','--session',b.id]);
  } while(after!=null);
  assert.equal(seen.length,101);assert.equal(new Set(seen).size,101);
@@ -70,11 +76,10 @@ test('duration bounds silent vendor startup and expires the session', {skip:proc
  for (const vendor of ['codex','pi']) {
   const f=fixture(t);const bin=join(f.workspace,'path');mkdirSync(bin);
   writeFileSync(join(bin,vendor),'#!/bin/sh\nexec /bin/sleep 60\n',{mode:0o755});
-  const started=Date.now();
   assert.throws(()=>invoke(f,['run','--vendor',vendor,'--model','test','--prompt','test','--duration-ms','1000'],{env:{...process.env,PATH:bin},timeout:6000}),(error: unknown)=>{
    assert.ok(isChildFailure(error));assert.equal(error.status,1);assert.match(error.stderr.toString(),/Timed out/);return true;
   });
-  assert.ok(Date.now()-started<5000);assert.deepEqual(invoke(f,['peers']).items,[]);
+  assert.deepEqual(invoke(f,['peers']).items,[]);
  }
 });
 
@@ -165,7 +170,7 @@ rl.on('line',line=>{const c=JSON.parse(line);
   const started=Date.now();
   let events: JsonRecord[];
   try {
-   events=await runUntilTurn(['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--tools','peers,send_message,complete','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],vendorEnv);
+   events=await runUntilTurn(['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--tools','agents,messages','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],vendorEnv);
   } catch(error) {
    const boot=existsSync(capture+'.boot')?JSON.parse(readFileSync(capture+'.boot','utf8')):null;
    const frames=existsSync(capture+'.frames')?readFileSync(capture+'.frames','utf8').trim().split('\n').slice(-20).map((line): JsonRecord=>JSON.parse(line)):[];
@@ -174,21 +179,19 @@ rl.on('line',line=>{const c=JSON.parse(line);
   }
   assert.ok(existsSync(capture),`${vendor}: prompt not captured; boot=${existsSync(capture+'.boot')}; ${JSON.stringify(events)}`);
   const prompt=JSON.parse(readFileSync(capture,'utf8'));
-  assert.equal(prompt.split('# Agents communication').length,2);
-  assert.ok(prompt.includes('complete'));
-  const workerSkill=readFileSync(new URL('../OPERATING.md',import.meta.url),'utf8').replace(/^---\n[\s\S]*?\n---\n/,'').replace(/## Edit with ownership[\s\S]*?(?=## Share evidence)/,'').replace(/```mermaid[\s\S]*?(?=## Discover)/,'');
-  assert.ok(prompt.includes(workerSkill.trim()), 'worker receives the canonical core for its selected tool profile');
+  assert.equal(prompt.includes('# Agents communication'), false, 'workers receive compact family guidance, not the full OPERATING guide');
+  const workerSkill=prompt.slice(prompt.indexOf('\n\n')+2,prompt.indexOf('\n\nCommunication binding:'));
+  assert.equal(workerSkill,runtime.catalog.workerSkill('agents,messages'),'each host receives the current canonical instructions for its selected tools');
   assert.ok(prompt.includes('Skip independent solo tasks') === false, 'frontmatter must stay out of worker instructions');
   assert.ok(!prompt.includes('## Host setup'));
   assert.ok(!prompt.includes('## CLI command map'));
-  assert.equal(prompt.split('\n')[0], 'Available communication tools: ["peers","send_message","complete"]');
+  assert.equal(prompt.split('\n')[0], 'Available communication tools: ["agents","messages"]');
   assert.match(prompt, /Communication binding:/);
   const binding=JSON.parse(prompt.match(/Communication binding: (.*)/)[1]);
   assert.equal(binding.workspace,realpathSync(f.workspace));assert.equal(binding.coordinationScope,realpathSync(f.workspace));
-  assert.deepEqual(binding.tools,['peers','send_message','complete']);
+  assert.deepEqual(binding.tools,['agents','messages']);
   assert.equal(binding.instructionsVersion,1);
   assert.equal(binding.instructionsSha256,createHash('sha256').update(workerSkill).digest('hex'));
-  assert.ok(!prompt.includes('## Edit with ownership'));
   const ready=events.find(e=>e.type==='ready');assert.ok(ready);
   assert.ok(prompt.includes(ready.session));
   assert.ok(prompt.endsWith('User task:\nTask sentinel'));
@@ -218,7 +221,7 @@ rl.on('line',line=>{const c=JSON.parse(line);
 test('deleted database is not silently recreated by an existing-session command',t=>{
  const f=fixture(t),a=joinAgent(f);invoke(f,['leave','--session',a.id]);
  rmSync(f.database);
- assert.throws(()=>invoke(f,['send_message','{"to":"missing","body":"must fail"}','--session',a.id]));
+ assert.throws(()=>invoke(f,['send_message','{"to":"missing","parts":[{"text":"must fail"}]}','--session',a.id]));
  assert.equal(existsSync(f.database),false);
 });
 
@@ -294,7 +297,7 @@ test('managed Codex separates user kickoff from pending peer tools and preserves
   const env: NodeJS.ProcessEnv={...process.env,PATH:bin,CAPTURE:capture,REJECT_KICKOFF:String(rejectKickoff),...stableVendor(bin,'codex',script)};delete env.NODE_TEST_CONTEXT;
   execFileSync(join(bin,'codex'),[],{env,input:'',timeout:30000});
   const sender=invoke(f,['join',JSON.stringify({name:'supervisor',vendor:'generic',task:'DIRECTORY_SENTINEL'})]),receiver=invoke(f,['join',JSON.stringify({name:'worker',vendor:'codex'})]);
-  const sent=invoke(f,['send_message',JSON.stringify({to:receiver.id,body:'PEER_SENTINEL',wake:'action'}),'--session',sender.id]);
+  const sent=invoke(f,['send_message',JSON.stringify({to:receiver.id,parts:[{text:'PEER_SENTINEL'}],wake:'action'}),'--session',sender.id]);
   invoke(f,['leave','--session',receiver.id]);
   const args=['run','--vendor','codex','--model','test','--prompt','USER_SENTINEL','--session',receiver.id,'--duration-ms','3000','--workspace',f.workspace,'--database',f.database];
   if(rejectKickoff)await assert.rejects(()=>runUntilTurn(args,env),/worker exited 1/);
@@ -342,6 +345,6 @@ test('native peer replay text does not break tool tracing',async()=>{
  const {proxy}=await import('../dist/runtime.js');
  assert.deepEqual(proxy.traceTools('session',{type:'user',message:{content:'peer context'},isReplay:true},new Map()),[]);
  const calls=new Map();
- const records=proxy.traceTools('session',{type:'assistant',message:{content:[{type:'tool_use',id:'tool1',name:'peers',input:{}}]}},calls);
- assert.equal(records.length,1);assert.equal(records[0].type,'tool-call');assert.deepEqual([...calls],[['tool1','peers']]);
+ const records=proxy.traceTools('session',{type:'assistant',message:{content:[{type:'tool_use',id:'tool1',name:'agents',input:{type:'list',input:{}}}]}},calls);
+ assert.equal(records.length,1);assert.equal(records[0].type,'tool-call');assert.deepEqual([...calls],[['tool1','agents']]);
 });

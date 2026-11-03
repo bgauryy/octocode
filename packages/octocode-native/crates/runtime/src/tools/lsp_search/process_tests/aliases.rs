@@ -119,6 +119,7 @@ fn references_under(mode: &str) -> (Vec<String>, Vec<Site>) {
             &crate::tools::test_support::workspace_policy(&root),
             &execution,
             None,
+            crate::tools::lsp_search::test_answers(),
         ))
         .expect("row");
     assert_row_contract(ToolId::LspSearch, &row);
@@ -131,7 +132,7 @@ fn references_under(mode: &str) -> (Vec<String>, Vec<Site>) {
         .collect();
     // Every listed site is classified: the import line's names are
     // imports, `y()` is a call, and the declaration is a declaration.
-    for site in row["matches"].as_array().into_iter().flatten() {
+    for site in location_rows(&row) {
         let file = site["path"].as_str().expect("path");
         let line = site["displayRange"]["startLine"].as_u64().expect("line");
         let expected = match (file.ends_with("b.ts"), line) {
@@ -141,10 +142,8 @@ fn references_under(mode: &str) -> (Vec<String>, Vec<Site>) {
         };
         assert_eq!(site["role"], expected, "{site}");
     }
-    let mut sites = row["matches"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let mut sites = location_rows(&row)
+        .iter()
         .map(|site| {
             (
                 Path::new(site["path"].as_str().expect("path"))

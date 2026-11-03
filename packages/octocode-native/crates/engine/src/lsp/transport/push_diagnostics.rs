@@ -107,6 +107,19 @@ impl PushDiagnosticsStore {
         }
     }
 
+    /// A file changed on disk, and the server was told: any document's report
+    /// may now be out of date, as a new module can resolve another file's
+    /// import.
+    pub(super) fn supersede_all(&self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for record in state.records.values_mut() {
+            record.superseded = true;
+        }
+    }
+
     pub(super) fn clear(&self, uri: &str) {
         {
             let mut state = self
@@ -319,6 +332,24 @@ mod tests {
 #[cfg(test)]
 mod supersede_tests {
     use super::*;
+
+    /// A file event can change what any document's diagnostics say (a new
+    /// module resolves another file's import), so every report predates it.
+    #[test]
+    fn a_workspace_change_supersedes_every_report() {
+        let store = PushDiagnosticsStore::new();
+        for uri in ["file:///w/a.ts", "file:///w/b.ts"] {
+            store.record(json!({ "uri": uri, "diagnostics": [{ "message": "before" }] }));
+        }
+        store.supersede_all();
+        assert!(store.report("file:///w/a.ts", None, false).is_none());
+        assert!(store.report("file:///w/b.ts", None, false).is_none());
+        store.record(json!({ "uri": "file:///w/a.ts", "diagnostics": [] }));
+        assert_eq!(
+            store.report("file:///w/a.ts", None, false).expect("fresh")["superseded"],
+            false
+        );
+    }
 
     /// A document change keeps the server's last report, marked: a reader
     /// prefers a fresh publish and falls back to it after its wait.

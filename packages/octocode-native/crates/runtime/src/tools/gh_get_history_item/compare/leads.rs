@@ -4,11 +4,13 @@ use super::pages::ListedCommits;
 use crate::id::ToolId;
 use crate::response::paging::push_warnings;
 use crate::response::result::Continuation;
+use crate::response::result::wire_query;
 use crate::tools::gh_get_history_item::HistoryItemRequest;
 use crate::tools::gh_get_history_item::file_page::{Lead, first_page, literal_prefix};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::util::str_at;
 use crate::tools::gh_get_history_item::window::{COMPARE_FILE_LIMIT, page_starting_at};
+use octocode_contract_types::{GhGetHistoryItemQuery, GhSearchHistoryQuery};
 use serde_json::{Value, json};
 
 /// A scoped path's own history lists the commits of the range that touched
@@ -38,10 +40,9 @@ pub(super) fn capped_file_leads(
         {
             history["filters"]["committedAt"] = json!({"from":date});
         }
-        leads.push((
-            "narrowScope",
-            Continuation::related(ToolId::GhSearchHistory, history).build(),
-        ));
+        if let Some(history) = wire_query::<GhSearchHistoryQuery>(history) {
+            leads.push(("narrowScope", Continuation::related_query(history).build()));
+        }
     }
     if !file_limit {
         return leads;
@@ -81,7 +82,7 @@ fn capped_files_reach(
 ) -> Option<(&'static str, Value)> {
     let batch = crate::response::result::rows_per_call(ToolId::GhGetHistoryItem);
     let Some(listed) = commits else {
-        return Some(commit_list_lead(query, out, batch, 1));
+        return commit_list_lead(query, out, batch, 1);
     };
     if !listed.shas.is_empty() && listed.shas.len() <= batch {
         let rows = listed
@@ -98,7 +99,7 @@ fn capped_files_reach(
         ));
     }
     let (page, size) = page_starting_at(listed.seen?, batch);
-    Some(commit_list_lead(query, out, size, page))
+    commit_list_lead(query, out, size, page)
 }
 
 fn commit_list_lead(
@@ -106,13 +107,11 @@ fn commit_list_lead(
     out: &Value,
     size: usize,
     page: usize,
-) -> (&'static str, Value) {
+) -> Option<(&'static str, Value)> {
     let mut list = json!({"operation":"compare","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"baseRef":out["baseSha"],"headRef":out["headSha"],"sections":["commits"],"pageSize":size});
     if page > 1 {
         list["page"] = json!(page);
     }
-    (
-        "listCommits",
-        Continuation::continued(ToolId::GhGetHistoryItem, list).build(),
-    )
+    let list = wire_query::<GhGetHistoryItemQuery>(list)?;
+    Some(("listCommits", Continuation::continued_query(list).build()))
 }

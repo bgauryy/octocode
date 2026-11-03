@@ -51,6 +51,11 @@ impl ChannelRun {
                 {
                     input["responseChars"] = chars.clone();
                 }
+                // The call's own tool continuations own what its rows
+                // observed, sealed once when the first is issued.
+                if target == self.id && self.id.is_github() && !pending.owns_evidence() {
+                    pending.own_evidence(self.id, self.dispatcher.github_access.observed());
+                }
                 Some(pending.insert(
                     target,
                     input,

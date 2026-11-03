@@ -1,4 +1,4 @@
-//! A read's decoded, key-block-redacted source, memoized for large files.
+//! A request's decoded, key-block-redacted source and its source facts.
 
 use super::extraction::line_count;
 use super::types::*;
@@ -14,12 +14,13 @@ pub(super) const KEY_BLOCK_NOTE: &str =
     "Redacted private-key block(s) found in the source before selecting the window.";
 
 /// The decoded source, redacted before any window is cut from it.
-pub(super) struct Source {
+pub(super) struct Source<'a> {
     pub(super) sha256: String,
-    /// The redacted text; a non-match read shares its preparation's copy.
-    pub(super) text: std::sync::Arc<String>,
+    /// Redacted source; unchanged UTF-8 remains borrowed from the input bytes.
+    pub(super) text: std::borrow::Cow<'a, str>,
     pub(super) bytes: usize,
     pub(super) total_lines: usize,
+    pub(super) offsets: Option<super::extraction::LineOffsets>,
     pub(super) key_blocks_redacted: bool,
     pub(super) match_redacted: bool,
     /// The source lines the source-wide redactions changed (1-based,
@@ -29,7 +30,7 @@ pub(super) struct Source {
     pub(super) warnings: Vec<String>,
 }
 
-impl Source {
+impl Source<'_> {
     /// Placeholders the source-wide redactions put on `lines` (1-based).
     pub(super) fn redactions_on(&self, lines: impl IntoIterator<Item = usize>) -> usize {
         lines
@@ -85,10 +86,10 @@ pub(super) fn redacted_lines(raw: &str, redacted: &str) -> Vec<(usize, usize)> {
 
 /// A decoded source with its whole-file private-key blocks redacted, and
 /// the facts every page of it states. It never holds the key material: the
-/// memo keeps it across calls.
-pub(crate) struct Prepared {
+/// request owns it until its selected view has been rendered.
+pub(crate) struct Prepared<'a> {
     /// The decoded text, private-key blocks redacted.
-    pub(super) keyed: std::sync::Arc<String>,
+    pub(super) keyed: std::borrow::Cow<'a, str>,
     /// The lines the key-block pass changed, with the placeholders each
     /// gained (empty when it changed nothing).
     pub(super) key_block_lines: Vec<(usize, usize)>,
@@ -96,12 +97,11 @@ pub(crate) struct Prepared {
     /// Bytes of the source as read (a leading BOM and the encoding
     /// fallback change the decoded text, not the file's size).
     pub(super) raw_bytes: usize,
-    pub(super) total_lines: usize,
     pub(super) warning: Option<&'static str>,
 }
 
-impl Prepared {
-    pub(super) fn of(bytes: &[u8], interior: bool, security: &impl ContentScan) -> Self {
+impl<'a> Prepared<'a> {
+    pub(super) fn of(bytes: &'a [u8], interior: bool, security: &impl ContentScan) -> Self {
         // Binary detection is a separate heuristic; text that is not UTF-8
         // is decoded (Latin-1 or lossy UTF-8) with a warning, never refused.
         let decoded = if interior {
@@ -117,7 +117,6 @@ impl Prepared {
         // complete block in a single view).
         let (keyed, changed) = security.redact_key_blocks(&raw);
         Self {
-            total_lines: line_count(&raw),
             raw_bytes: bytes.len(),
             // The pass keeps the line count, so its changes map onto lines.
             key_block_lines: if changed {
@@ -126,77 +125,38 @@ impl Prepared {
                 Vec::new()
             },
             key_blocks_redacted: changed,
-            keyed: std::sync::Arc::new(keyed),
+            keyed: match keyed {
+                std::borrow::Cow::Borrowed(_) => raw,
+                std::borrow::Cow::Owned(text) => std::borrow::Cow::Owned(text),
+            },
             warning: decoded.warning,
         }
     }
 }
 
-/// Sources at least this large are prepared once per version for every
-/// page a runtime serves; smaller ones are cheap to prepare again.
-pub(crate) const PREPARED_MIN_BYTES: usize = 256 * 1024;
-
-/// A prepared source's key: its path, byte digest and whether the bytes
-/// begin inside the file ([`SourceFacts::interior`]).
-type PreparedKey = (std::path::PathBuf, String, bool);
-
-/// Prepared sources by [`PreparedKey`] (the digest names the bytes, so an
-/// entry never goes stale). One process holds one content scanner.
-static PREPARED: octocode_io::memo::Memo<PreparedKey, Prepared> =
-    octocode_io::memo::Memo::new(octocode_io::memo::MemoLimits {
-        max_entries: 4,
-        max_weight: 96 * 1024 * 1024,
-        keep_newest: false,
-    });
-
-/// One preparation per large version at a time: rows of a batch reading it
-/// concurrently wait for the first and take its value from the slot.
-pub(crate) static PREPARING: octocode_io::flight::KeyedFlight<
-    PreparedKey,
-    Option<std::sync::Arc<Prepared>>,
-> = octocode_io::flight::KeyedFlight::transient();
-
-/// The prepared source of `bytes` (digest `sha256`) at `source_path`: from
-/// the memo when an earlier page (or a concurrent row) prepared the same
-/// version. A row waiting for a concurrent row's preparation stops when
-/// `cancel` fails.
-pub(crate) fn prepared(
-    bytes: &[u8],
-    sha256: &str,
+/// Prepare this request's source. No decoded or redacted source survives it.
+pub(crate) fn prepared<'a>(
+    bytes: &'a [u8],
     interior: bool,
-    source_path: &std::path::Path,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
-) -> Result<std::sync::Arc<Prepared>, String> {
-    if bytes.len() < PREPARED_MIN_BYTES {
-        return Ok(std::sync::Arc::new(Prepared::of(bytes, interior, security)));
-    }
-    // Rows prepare in blocking row workers, never on an async worker.
-    PREPARING.memoized_blocking(
-        (source_path.to_path_buf(), sha256.to_owned(), interior),
-        |key| PREPARED.get(key).map(|hit| hit.value),
-        |key| {
-            let prepared = Prepared::of(bytes, interior, security);
-            let weight = prepared.keyed.len()
-                + prepared.key_block_lines.len() * 2 * std::mem::size_of::<usize>();
-            PREPARED.insert(key, prepared, weight, None)
-        },
-        || cancel.check(),
-    )
+) -> Result<Prepared<'a>, String> {
+    cancel.check()?;
+    Ok(Prepared::of(bytes, interior, security))
 }
 
 /// Decode and redact the source; a stale snapshot, a cancel or a failed
 /// redaction ends the read. The decoded, key-redacted text of a large source
-/// is prepared once per version (see [`prepared`]).
-pub(super) fn prepare_source(
+/// stays owned by this request (see [`prepared`]).
+pub(super) fn prepare_source<'a>(
     q: &LocalFetchQuery,
-    bytes: &[u8],
+    bytes: &'a [u8],
     sha256: String,
     facts: &SourceFacts,
     source_path: &std::path::Path,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
-) -> Result<Source, Box<LocalFetchResult>> {
+) -> Result<Source<'a>, Box<LocalFetchResult>> {
     if let Some(expected) = local_fetch_query::snapshot(q)
         && expected != sha256
     {
@@ -210,23 +170,16 @@ pub(super) fn prepare_source(
         ))
     };
     cancel.check().map_err(cancelled)?;
-    let prepared = prepared(
-        bytes,
-        &sha256,
-        facts.interior,
-        source_path,
-        security,
-        cancel,
-    )
-    .map_err(cancelled)?;
+    let prepared = prepared(bytes, facts.interior, security, cancel).map_err(cancelled)?;
     let key_blocks_redacted = prepared.key_blocks_redacted;
     // Sanitize before selection: match probes cannot confirm secrets, and a
     // range cannot detach a secret value from its identifying source context.
-    // The shared sanitizer preserves line counts and memoizes source versions.
+    // Both security passes preserve source line counts.
+    let mut redacted = prepared.key_block_lines;
     let (text, match_redacted) =
         if local_fetch_query::has_matches(q) || local_fetch_query::has_ranges(q) {
-            let (text, redacted) = security
-                .redact_source_lines(&prepared.keyed, source_path, &sha256)
+            let (text, changed) = security
+                .redact_source_lines(&prepared.keyed, source_path)
                 .map_err(|(code, message)| {
                     Box::new(LocalFetchResult::error(
                         local_fetch_query::path(q).to_owned(),
@@ -234,20 +187,28 @@ pub(super) fn prepare_source(
                         message,
                     ))
                 })?;
-            (std::sync::Arc::new(text), redacted)
+            if changed {
+                add_redacted_lines(&mut redacted, &redacted_lines(&prepared.keyed, &text));
+            }
+            let text = match text {
+                std::borrow::Cow::Borrowed(_) => prepared.keyed,
+                std::borrow::Cow::Owned(text) => std::borrow::Cow::Owned(text),
+            };
+            (text, changed)
         } else {
-            (std::sync::Arc::clone(&prepared.keyed), false)
+            (prepared.keyed, false)
         };
-    // Both passes keep the line count, so their changes map onto lines.
-    let mut redacted = prepared.key_block_lines.clone();
-    if match_redacted {
-        add_redacted_lines(&mut redacted, &redacted_lines(&prepared.keyed, &text));
-    }
+    let offsets = (local_fetch_query::has_matches(q) || local_fetch_query::has_ranges(q))
+        .then(|| super::extraction::LineOffsets::new(&text));
+    let total_lines = offsets
+        .as_ref()
+        .map_or_else(|| line_count(&text), super::extraction::LineOffsets::len);
     Ok(Source {
         sha256,
         text,
         bytes: prepared.raw_bytes,
-        total_lines: prepared.total_lines,
+        total_lines,
+        offsets,
         key_blocks_redacted,
         match_redacted,
         redacted_lines: redacted,

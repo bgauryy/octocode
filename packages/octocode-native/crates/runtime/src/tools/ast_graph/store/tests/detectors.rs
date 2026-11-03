@@ -130,7 +130,7 @@ fn every_cycle_surface_reports_the_same_groups() {
         .collect::<Groups>();
     assert_eq!(found, expected, "issues: {}", issues.value);
     assert!(
-        issues.value["summary"]["detectorMs"]["health"].is_number(),
+        issues.value["summary"].get("detectorMs").is_none(),
         "{}",
         issues.value
     );
@@ -193,10 +193,7 @@ fn dead_code_detectors_judge_one_fixture() {
         o.limit = Some(200);
         o.min_tier = Some(0);
     });
-    let rows = issues.value["rows"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let rows = issues.value["rows"].as_array().cloned().unwrap_or_default();
     let store_unreachable = rows
         .iter()
         .filter(|row| row["detector"] == "unreachable-file")

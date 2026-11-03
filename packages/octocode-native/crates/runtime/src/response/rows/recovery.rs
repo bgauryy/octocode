@@ -82,7 +82,7 @@ pub(crate) fn error_code_hint(
     Some(match code {
         ErrorCode::OutsideAllowedRoots | ErrorCode::SymlinkEscape => SANDBOX_HINT,
         ErrorCode::Authentication => GITHUB_AUTH_RECOVERY_HINT,
-        ErrorCode::Permission | ErrorCode::PermissionDenied => {
+        ErrorCode::PermissionDenied => {
             "Verify access and token scopes; do not treat denial as absence."
         }
         ErrorCode::RateLimited | ErrorCode::ClassificationRateLimited => {
@@ -101,7 +101,7 @@ pub(crate) fn error_code_hint(
         ErrorCode::Decode => {
             "Retry once; report a provider response incompatibility if it persists."
         }
-        ErrorCode::Configuration | ErrorCode::Config => {
+        ErrorCode::Config => {
             "Inspect octocode config --json and correct the setting named in the error before retrying."
         }
         ErrorCode::CredentialStoreUnavailable => {

@@ -1,9 +1,9 @@
 //! The page's rows: files ordered, shown rows projected, and each hit
 //! annotated with its match keys and enclosing declaration.
-use crate::num::u32_of_usize;
 use crate::tools::local_search::local_search_query::View;
 use octocode_contract_types::CaseMode;
 use octocode_contract_types::RegexEngine;
+use octocode_engine::num::saturating_u32;
 use octocode_engine::types::SearchSort;
 
 use super::super::enclosing::{annotate_enclosing, annotate_match_keys};
@@ -57,17 +57,22 @@ pub(super) fn annotate_rows<'q>(
         expected_digest,
         security,
     ));
-    let (definition, enclosing_note) = annotate_enclosing(
-        &mut files,
-        symbol,
-        symbol.filter(|_| {
-            super::super::enclosing::declaration_search(local_search_query::pattern(query))
-        }),
-        output_root,
-        expected_digest,
-        outlines,
-        security,
-    );
+    // A matchOnly row is the hit's text and place; content rows name its owner.
+    let (definition, enclosing_note) = if local_search_query::view(query) == View::MatchOnly {
+        (None, None)
+    } else {
+        annotate_enclosing(
+            &mut files,
+            symbol,
+            symbol.filter(|_| {
+                super::super::enclosing::declaration_search(local_search_query::pattern(query))
+            }),
+            output_root,
+            expected_digest,
+            outlines,
+            security,
+        )
+    };
     notes.extend(enclosing_note);
     Annotated {
         files,
@@ -157,7 +162,7 @@ fn project_files(
         .map(|(f, rows)| {
             // One key per file, its line and column set per row.
             let mut key = (f.path.clone(), 0, 0);
-            let total = u32_of_usize(f.matches.len());
+            let total = saturating_u32(f.matches.len());
             let end = rows.end.min(f.matches.len());
             let start = rows.start.min(end);
             let mut page_rows = f.matches[start..end].iter().collect::<Vec<_>>();
@@ -194,6 +199,7 @@ fn project_files(
             };
             let span = (start, end, shown.len());
             SearchFile {
+                declarations: Vec::new(),
                 matches: (!layout.list).then_some(shown),
                 total_occurrences: (local_search_query::view(query) == View::CountMatches)
                     .then_some(f.match_count),

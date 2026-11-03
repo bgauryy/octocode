@@ -86,7 +86,7 @@ pub(in super::super) fn subtype_snippets(
     file: &str,
     base: &str,
 ) -> Vec<LspCodeSnippet> {
-    let Some(document) = crate::tools::declarations_cache::graph_facts(content, file) else {
+    let Some(document) = crate::tools::declarations::graph_facts(content, file) else {
         return Vec::new();
     };
     let Ok(uri) = octocode_engine::lsp::uri::path_to_uri(file) else {
@@ -145,39 +145,31 @@ pub(in super::super) fn scan_subtypes(
     base: &str,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> (Vec<LspCodeSnippet>, Vec<String>) {
-    let files = files.iter().collect::<Vec<_>>();
+    let mut files = files.iter().collect::<Vec<_>>();
     let workers = crate::tools::workers::workers(files.len(), None);
-    let chunk = files.len().div_ceil(workers).max(1);
-    let (mut found, mut unread) = std::thread::scope(|scope| {
-        let handles = files
-            .chunks(chunk)
-            .map(|files| {
-                scope.spawn(move || {
-                    let mut found = Vec::new();
-                    let mut unread = Vec::new();
-                    for file in files {
-                        if stopped() {
-                            break;
-                        }
-                        match read_bounded_source(std::path::Path::new(file)) {
-                            Ok(content) => found.extend(subtype_snippets(&content, file, base)),
-                            Err(_) => unread.push((*file).clone()),
-                        }
-                    }
-                    (found, unread)
-                })
-            })
-            .collect::<Vec<_>>();
-        handles.into_iter().fold(
-            (Vec::new(), Vec::new()),
-            |(mut found, mut unread), handle| {
-                let (more_found, more_unread) = handle.join().unwrap_or_default();
-                found.extend(more_found);
-                unread.extend(more_unread);
-                (found, unread)
-            },
-        )
+    // Per file: its subtypes, or `Err` when it could not be read or parsed
+    // (it is listed unread, never dropped); nothing once the scan stopped.
+    let scanned = crate::tools::workers::each_parallel(&mut files, workers, |file| {
+        if stopped() {
+            return None;
+        }
+        let parsed = read_bounded_source(std::path::Path::new(file.as_str()))
+            .ok()
+            .and_then(|content| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    subtype_snippets(&content, file, base)
+                }))
+                .ok()
+            });
+        Some(parsed.ok_or_else(|| (*file).clone()))
     });
+    let (mut found, mut unread) = (Vec::new(), Vec::new());
+    for outcome in scanned.into_iter().flatten() {
+        match outcome {
+            Ok(snippets) => found.extend(snippets),
+            Err(file) => unread.push(file),
+        }
+    }
     unread.sort();
     found.sort_by(|left, right| {
         (&left.uri, left.range.start.line, left.range.start.character).cmp(&(

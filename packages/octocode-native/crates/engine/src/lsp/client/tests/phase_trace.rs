@@ -8,9 +8,9 @@ async fn symbols_in_generation(client: NativeLspClient, path: String) -> Arc<Val
     RESPONSE_SCOPE
         .scope(
             std::cell::RefCell::new(ResponseScope {
-                reuse: true,
                 generation: "same-project".into(),
                 call: None,
+                ..Default::default()
             }),
             client.get_document_symbols(path),
         )
@@ -19,7 +19,7 @@ async fn symbols_in_generation(client: NativeLspClient, path: String) -> Arc<Val
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_late_old_version_response_cannot_replace_the_new_versions_cache() {
+async fn a_late_old_version_response_cannot_replace_a_fresh_requests_answer() {
     let (client, mut reader, mut writer) =
         client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
     let tmp = TmpDir::new();
@@ -52,8 +52,14 @@ async fn a_late_old_version_response_cannot_replace_the_new_versions_cache() {
     )
     .await;
     assert_eq!(*old.await.unwrap(), json!(["old"]));
-    // No third server reply is supplied: this must hit the new epoch's cache.
-    assert_eq!(*symbols_in_generation(client, path).await, json!(["new"]));
+    let fresh = tokio::spawn(symbols_in_generation(client, path));
+    let fresh_request = read_client_frame(&mut reader).await;
+    send_server_frame(
+        &mut writer,
+        json!({"jsonrpc":"2.0","id":fresh_request["id"],"result":["fresh"]}),
+    )
+    .await;
+    assert_eq!(*fresh.await.unwrap(), json!(["fresh"]));
 }
 
 #[tokio::test(start_paused = true)]

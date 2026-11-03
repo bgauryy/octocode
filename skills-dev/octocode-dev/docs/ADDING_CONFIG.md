@@ -4,10 +4,13 @@ How to add settings and credentials without TypeScript/Rust drift. User-facing s
 
 ## Architecture
 
-`packages/octocode-config/config-contract.json` is the only declaration of field policy: file paths and sections, input/resolved types, defaults, one environment variable per setting, enums, URL/path semantics, unknown keys, dotenv trust (`all`, `home`, `never`), credential exclusion from `ResolvedConfig`, and descriptions. The TypeScript generator validates it against `config-contract.schema.json` (Ajv); both build paths consume it:
+The Zod declaration in `packages/octocode-config/scripts/config-contract/declaration/` (`sections.ts`, `environment.ts`), shaped by `scripts/config-contract/schema.ts`, is the only declaration of field policy: file paths and sections, input/resolved types, defaults, one environment variable per setting, enums, URL/path semantics, unknown keys, dotenv trust (`all`, `home`, `never`), credential exclusion from `ResolvedConfig`, and descriptions. The generator validates it with that Zod schema and emits `config-contract.json` and `config-contract.schema.json` (generated, never hand-edited; the JSON examples below show the emitted form). Both build paths consume the JSON:
 
 ```text
-packages/octocode-config/config-contract.json
+packages/octocode-config/scripts/config-contract/declaration/ (schema.ts validates)
+                 │
+                 ├─ config-contract.json · config-contract.schema.json
+                 │
                  │
                  ├─ TypeScript generator
                  │    ├─ src/config/contract.generated.ts
@@ -24,7 +27,7 @@ contract metadata → TypeScript .env policy and editor metadata
 
 - Interpreters hold language mechanics only (reading JS objects or `serde_json::Value`, parsing env strings, diagnostics), no per-setting field lists.
 - Never edit generated files; never add a setting directly to Rust config structs, `resolver.rs` or `validation.rs` (field logic there brings back drift); never copy a default or range into docs (the generated reference owns them).
-- `@octocodeai/config` owns this policy. Its `.` entry uses only Node builtins; Ajv is a build/test dependency. TypeScript surfaces never resolve settings themselves: the native runtime does, and `octocode config` shows the result.
+- `@octocodeai/config` owns this policy. Its `.` entry uses only Node builtins; Zod and Ajv are build/test dependencies. TypeScript surfaces never resolve settings themselves: the native runtime does, and `octocode config` shows the result.
 - The `./schema` and `./mcp` subpaths re-export `@octocodeai/octocode-core`, and the tool-contract generator reads core ([contract pipeline](DEVELOPMENT.md#contract-pipeline)). `src/home.ts`, `src/dotenv.ts`, and `src/config` never import core: core owns tool contracts, config owns configuration and environment policy.
 
 ## Source precedence and file policy
@@ -52,10 +55,10 @@ process environment / MCP client env block
 
 ## What is a setting
 
-A setting is something a user chooses: a credential, an endpoint, a feature switch, a tool list, a scope, a storage mode, a model or a presentation format. Internal limits (timeouts, retries, waits, page sizes, cache sizes and TTLs, concurrency, spend caps, memory caps) are code constants, never settings: no `.env` or `.octocoderc` can change them. The contract has no number field type. A limit lives in one of two places:
+A setting is something a user chooses: a credential, an endpoint, a feature switch, a tool list, a scope, a storage mode, a model or a presentation format. Internal limits (timeouts, retries, waits, page sizes, retained-work sizes and TTLs, concurrency, spend caps, memory caps) are code constants, never settings: no `.env` or `.octocoderc` can change them. The contract has no number field type. A limit lives in one of two places:
 
 - **`RuntimeLimits::DEFAULT`** (`packages/octocode-native/crates/runtime/src/execution/limits.rs`) when several surfaces share it or tests vary it through `ToolRuntime::with_limits`.
-- **A named constant next to its single use** otherwise (for example `PREPARED_MIN_BYTES` in `crates/runtime/src/tools/source_view/prepare.rs`, `IDLE_EXIT` in `crates/cli/src/cli/serve.rs`). Its doc comment gives the rationale. When it bounds evidence, the response discloses the cut (a warning, a `*Clipped` flag or a continuation), never a silent gap.
+- **A named constant next to its single use** otherwise (for example `IDLE_EXIT` in `crates/cli/src/cli/serve.rs`). Its doc comment gives the rationale. When it bounds evidence, the response discloses the cut (a warning, a `*Clipped` flag or a continuation), never a silent gap.
 
 Docs link to the constant instead of copying its value.
 
@@ -63,7 +66,7 @@ To retire a setting, delete its declaration, consumers and tests for the removed
 
 ## Add a normal setting
 
-One edit in `config-contract.json` plus regeneration. Hypothetical example: `output.compact`, with `OCTOCODE_OUTPUT_COMPACT` and default `false`:
+One edit in `scripts/config-contract/declaration/sections.ts` plus regeneration. Hypothetical example: `output.compact`, with `OCTOCODE_OUTPUT_COMPACT` and default `false`:
 
 ```json
 {
@@ -115,7 +118,7 @@ Each setting has at most one `env` binding, `{ "name": "OCTOCODE_…" }`, and no
 
 ### Add a new section
 
-Declare the section and its fields in the same contract. `file` controls whether `.octocoderc` accepts it; `resolved` controls whether it appears in generated `ResolvedConfig` types.
+Declare the section and its fields in `declaration/sections.ts`. `file` controls whether `.octocoderc` accepts it; `resolved` controls whether it appears in generated `ResolvedConfig` types.
 
 ```json
 "cache": {
@@ -227,14 +230,14 @@ let prewarm = &config.resolved.lsp.prewarm;
 let classification_key = config.env_value("OCTOCODE_CLASSIFICATION_API");
 ```
 
-Rust resolved structs are generated at build time. `crates/runtime/build.rs` reads `config-contract.json` through a manifest-relative path, so native-only builds do not depend on a prior TypeScript generation or the working directory. It does not re-validate the meta-schema (the TypeScript generator does); its renderer fails closed on missing or mistyped fields.
+Rust resolved structs are generated at build time. `crates/runtime/build.rs` reads `config-contract.json` through a manifest-relative path, so native-only builds do not depend on a prior TypeScript generation or the working directory. It does not re-validate the schema (the TypeScript generator does, with Zod); its renderer fails closed on missing or mistyped fields.
 
 ## Generated artifacts and checks
 
 | Kind | Files |
 |---|---|
-| Source | `packages/octocode-config/config-contract.json` (policy); `packages/octocode-config/config-contract.schema.json` (meta-schema) |
-| Generated | `packages/octocode-config/src/config/contract.generated.ts`; `<repo>/docs/generated/CONFIG_SETTINGS.md`; Rust `$OUT_DIR/config_contract.rs` (build output, never commit it) |
+| Source | `packages/octocode-config/scripts/config-contract/declaration/` (policy); `packages/octocode-config/scripts/config-contract/schema.ts` (Zod shape) |
+| Generated | `packages/octocode-config/config-contract.json`; `packages/octocode-config/config-contract.schema.json`; `packages/octocode-config/src/config/contract.generated.ts`; `<repo>/docs/generated/CONFIG_SETTINGS.md`; Rust `$OUT_DIR/config_contract.rs` (build output, never commit it) |
 
 ```bash
 yarn workspace @octocodeai/config generate:config-contract

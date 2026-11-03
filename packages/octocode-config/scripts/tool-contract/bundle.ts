@@ -36,6 +36,29 @@ function jsonObject(value: unknown, what: string): JsonObject {
 const byKey = ([left]: [string, unknown], [right]: [string, unknown]): number =>
   left < right ? -1 : left > right ? 1 : 0;
 
+/**
+ * `.describe()` on a core-registered (`.meta({ id })`) schema clones it, and
+ * JSON Schema export then copies the clone inline beside its `$ref`, with the
+ * registered title: the generated type is renamed or conflicts. Fail with the
+ * fix instead of generating it.
+ */
+function rejectInlineCopies(value: unknown, where: string): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => rejectInlineCopies(item, `${where}/${index}`));
+    return;
+  }
+  if (typeof value !== 'object' || value === null) return;
+  const reference: unknown = Reflect.get(value, '$ref');
+  const title: unknown = Reflect.get(value, 'title');
+  if (typeof reference === 'string' && typeof title === 'string') {
+    throw new Error(
+      `${where}: registered schema ${reference} is copied inline beside its $ref (title ${title}): .describe() on a .meta({ id }) schema clones it. In core, add the note with describedUse(schema, note) from toolContract/useSite.ts, or describe a wrapper such as .optional().`
+    );
+  }
+  for (const [key, child] of Object.entries(value))
+    rejectInlineCopies(child, `${where}/${key}`);
+}
+
 function sortKeys(value: Json): Json {
   if (Array.isArray(value)) return value.map(sortKeys);
   if (!isObject(value)) return value;
@@ -155,6 +178,45 @@ class Definitions {
   }
 }
 
+/** Restore the pre-compaction schema view so generated type names stay stable. */
+function inlineGenerated(
+  schema: Json,
+  definitions: Readonly<Record<string, unknown>>,
+  active = new Set<string>()
+): Json {
+  if (Array.isArray(schema))
+    return schema.map(item => inlineGenerated(item, definitions, active));
+  if (!isObject(schema)) return schema;
+  const reference = schema.$ref;
+  if (typeof reference === 'string') {
+    const name = reference.startsWith('#/$defs/_h') ? reference.slice(8) : undefined;
+    if (name && /^_h\d+$/.test(name)) {
+      if (active.has(name)) throw new Error(`Cyclic generated schema: ${name}`);
+      const target = definitions[name];
+      if (target === undefined) throw new Error(`Missing generated schema: ${name}`);
+      const resolved = inlineGenerated(
+        jsonObject(target, name),
+        definitions,
+        new Set([...active, name])
+      );
+      const siblings = Object.fromEntries(
+        Object.entries(schema)
+          .filter(([key]) => key !== '$ref')
+          .map(([key, child]) => [key, inlineGenerated(child, definitions, active)])
+      );
+      return { ...jsonObject(resolved, name), ...siblings };
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(schema).map(([key, child]) => [
+      key,
+      ['default', 'examples', 'const', 'enum'].includes(key)
+        ? child
+        : inlineGenerated(child, definitions, active),
+    ])
+  );
+}
+
 /**
  * typify drops a string `const` (emitting a free `String`); a one-value
  * `enum` means the same and is enforced. Union keywords are left as authored:
@@ -205,52 +267,76 @@ function toolRecord(record: Readonly<Record<string, unknown>>): ToolRecord {
   };
 }
 
+/**
+ * Add one root schema (a tool's query, input or output) and its local `$defs`;
+ * a root that only points at its own definition adds nothing more.
+ */
+function registerRoot(
+  definitions: Definitions,
+  normalize: (schema: Json, owner?: string) => Json,
+  name: string,
+  source: JsonObject
+): void {
+  const {
+    $schema: _schema,
+    $defs: inner = {},
+    title: _title,
+    ...body
+  } = source;
+  for (const [local, schema] of Object.entries(isObject(inner) ? inner : {})) {
+    // Zod emits `__schemaN` for a cyclic schema core left unnamed; a
+    // generated type needs a stable, core-owned name.
+    if (/^__schema\d+$/.test(local)) {
+      throw new Error(
+        `${name} has an unnamed recursive schema (${local}); name it in core with .meta({ id })`
+      );
+    }
+    definitions.add(local, {
+      ...jsonObject(normalize(schema), local),
+      title: local,
+    });
+  }
+  if (body.$ref === `#/$defs/${name}` && Object.keys(body).length === 1) {
+    if (definitions.defs[name] === undefined) {
+      throw new Error(`${name} references a missing root definition`);
+    }
+    return;
+  }
+  definitions.add(name, {
+    ...jsonObject(normalize(body, name), name),
+    title: name,
+  });
+}
+
 export function buildToolTypesBundle(
   ir: EnforcementContractIr = buildEnforcementContractIr()
 ): {
   fingerprint: string;
   bundle: JsonObject;
 } {
+  rejectInlineCopies(ir, 'contract');
   const definitions = new Definitions();
-  const register = (name: string, source: JsonObject): void => {
-    const {
-      $schema: _schema,
-      $defs: inner = {},
-      title: _title,
-      ...body
-    } = source;
-    const normalize = (schema: Json, owner?: string): Json => {
-      const exclusive = stringConstsAsEnums(schema);
-      return definitions.hoistTitles(
-        owner && isObject(exclusive)
-          ? nameVariants(exclusive, owner)
-          : exclusive
-      );
-    };
-    for (const [local, schema] of Object.entries(isObject(inner) ? inner : {})) {
-      // Zod emits `__schemaN` for a cyclic schema core left unnamed; a
-      // generated type needs a stable, core-owned name.
-      if (/^__schema\d+$/.test(local)) {
-        throw new Error(
-          `${name} has an unnamed recursive schema (${local}); name it in core with .meta({ id })`
-        );
-      }
-      definitions.add(local, {
-        ...jsonObject(normalize(schema), local),
-        title: local,
-      });
-    }
-    if (body.$ref === `#/$defs/${name}` && Object.keys(body).length === 1) {
-      if (definitions.defs[name] === undefined) {
-        throw new Error(`${name} references a missing root definition`);
-      }
-      return;
-    }
+  const normalize = (schema: Json, owner?: string): Json => {
+    const exclusive = stringConstsAsEnums(inlineGenerated(schema, ir.$defs));
+    return definitions.hoistTitles(
+      owner && isObject(exclusive)
+        ? nameVariants(exclusive, owner)
+        : exclusive
+    );
+  };
+  const register = (name: string, source: JsonObject): void =>
+    registerRoot(definitions, normalize, name, source);
+  for (const [name, schema] of Object.entries(ir.$defs)) {
+    if (/^_h\d+$/.test(name)) continue;
+    const definition = jsonObject(schema, name);
     definitions.add(name, {
-      ...jsonObject(normalize(body, name), name),
+      ...jsonObject(
+        normalize(definition, name.endsWith('Data') ? name : undefined),
+        name
+      ),
       title: name,
     });
-  };
+  }
   register(
     'AnalysisCapabilities',
     jsonObject(ir.analysisCapabilitiesSchema, 'analysisCapabilitiesSchema')

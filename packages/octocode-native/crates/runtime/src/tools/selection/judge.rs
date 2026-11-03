@@ -3,7 +3,8 @@
 //! probability policy selects, excludes or leaves it unknown before host output.
 use super::{Decision, JudgeCall, JudgeFailure, Judgments, ProviderError, SelectionJudge};
 use crate::tools::judgment::{
-    ClassificationError, EvaluationInput, Evaluator, stats::ClassificationUsage,
+    ClassificationError, EvaluationInput, Evaluator, shared::Evaluations,
+    stats::ClassificationUsage,
 };
 use futures_util::{StreamExt as _, stream};
 use octocode_contract_types::ErrorCode;
@@ -234,11 +235,14 @@ impl SelectionJudge for Evaluator {
         let deadline = (Instant::now() + call.limits.timeout).min(call.context.deadline);
         let budget = self.budget(deadline, call.context.cancellation.clone());
         let gate = self.gate();
+        // Candidates with identical states are one evaluation.
+        let evaluations = Evaluations::default();
         let outcomes = call.handle.block_on(async {
             stream::iter(call.admitted.iter().copied())
                 .map(|ordinal| {
                     let state = call.candidates[ordinal].state.as_ref();
-                    let (budget, gate, questions) = (&budget, &gate, &questions);
+                    let (budget, gate, questions, evaluations) =
+                        (&budget, &gate, &questions, &evaluations);
                     async move {
                         let Some(state) = state else {
                             return (ordinal, Err(ClassificationError::new(
@@ -247,7 +251,7 @@ impl SelectionJudge for Evaluator {
                             )));
                         };
                         let compact = provider_state(state);
-                        let judged = self.evaluate_prepared(EvaluationInput {
+                        let judged = self.evaluate_once(evaluations, EvaluationInput {
                             state: &compact, questions, assets:None, long_context:call.long_context,
                         }, None, budget, gate).await;
                         (ordinal, judged)

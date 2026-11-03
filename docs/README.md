@@ -7,10 +7,10 @@ For setup, start with [Configuration](CONFIGURATION.md): it owns the CLI/MCP ava
 | Doc | Owns |
 |---|---|
 | [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md) | The concept: evidence dimensions, the research loop, why each part exists, measured strengths and limits |
-| [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md) | Research-tool routing: which tool first, what each result proves, one diagram per flow |
+| [Tool flow](../skills/octocode-research/references/tool-flow.md) | Research-tool routing: which tool, how little to ask for, when to judge instead of read, how to carry evidence across, recovery and measured cost |
 | [OCTOCODE_TOOLS.md](OCTOCODE_TOOLS.md) | Every tool's fields, defaults, limits, results, and continuations |
 | [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md) | The shared request and result envelope: rows, result shapes, `next` continuations, `related` calls, and prose `hints` |
-| [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md) | `classification` on search and fetch, and the `clasify` tool: choose a route, read the answers and limits |
+| [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md) | `classification` on search and fetch, and the `clasify` tool: main-agent token benchmarks, how each route works, examples, recovery and limits |
 | [OCTOCODE_MCP.md](OCTOCODE_MCP.md) | The MCP server: client setup, registered tools, instructions, lifecycle |
 | [OCTOCODE_CLI.md](OCTOCODE_CLI.md) | The CLI: commands, flags, output, exit codes |
 | [CONFIGURATION.md](CONFIGURATION.md) | Setup entrypoint: CLI/MCP availability, feature opt-ins, config files and precedence, storage and caches, fixed internal limits, troubleshooting |
@@ -26,6 +26,6 @@ Philosophy: [MANIFEST.md](../MANIFEST.md) (Research Driven Development). Legal: 
 
 Hosts and packages: [VS Code](../packages/octocode-vscode/README.md) · [Claude Code](../packages/octocode-claude-plugin/README.md) · [Codex](../packages/octocode-codex-plugin/README.md) · [Agents communication](../packages/octocode-agents-communication/README.md) · [Chrome DevTools](../packages/octocode-chrome-devtools/README.md) · [Benchmark](../packages/octocode-benchmark/README.md).
 
-Skills: [skills/](../skills/README.md) (published, including [workflow orchestration](../skills/octocode-workflows/README.md)), [skills-dev/](../skills-dev/README.md) (repository-only helpers). [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md) routes research tools; the public `octocode-workflows` skill selects and executes agent workflows. Install public skills with [`npx octocode skill`](OCTOCODE_CLI.md#skill--agent-skills).
+Skills: [skills/](../skills/README.md) (published, including [workflow orchestration](../skills/octocode-workflows/README.md)), [skills-dev/](../skills-dev/README.md) (repository-only helpers). [Tool flow](../skills/octocode-research/references/tool-flow.md) routes research tools; the public `octocode-workflows` skill selects and executes agent workflows. Install public skills with [`npx octocode skill`](OCTOCODE_CLI.md#skill--agent-skills).
 
 Working on this repository: [AGENTS.md](../AGENTS.md) and [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md), which links the dev docs and the package map.

@@ -18,9 +18,9 @@ Load when judging a tool's input schema, descriptions, MCP/CLI instructions, con
 - Each sentence changes an agent decision. Keep a rule at its narrowest owner, not in both instructions and descriptions. Rewrites go through `octocode-agentic-prompts`; measure context cost with core `publishedSurfaceBudget.test.ts`.
 
 ## Config and docs
-Config source of truth: `packages/octocode-config/config-contract.json`; contributor rules: `docs/ADDING_CONFIG.md`.
+Config source of truth: the Zod declaration in `packages/octocode-config/scripts/config-contract/declaration/` (emits `config-contract.json`); contributor rules: `docs/ADDING_CONFIG.md`.
 - List every knob the tool reads: native config accessors in the tool module and `crates/runtime/src/config/`, plus `std::env::var` reads anywhere in the tool path.
-- Each knob is declared in `config-contract.json`, generated into `src/config/contract.generated.ts` and the native struct (`crates/runtime/build.rs`), listed in `<repo>/docs/generated/CONFIG_SETTINGS.md`, and honored identically via env, `.octocoderc`, CLI, and MCP.
+- Each knob is declared in that declaration, generated into `src/config/contract.generated.ts` and the native struct (`crates/runtime/build.rs`), listed in `<repo>/docs/generated/CONFIG_SETTINGS.md`, and honored identically via env, `.octocoderc`, CLI, and MCP.
 - Flag env reads that bypass the contract, declared knobs never read, TS and Rust resolvers that differ, protected-key drift, and availability gates (clone, beta, clasify key, local tools) that differ between `$OCTO schema` and the MCP tool list.
 - Check with `$OCTO config --json` and one MCP session per relevant setting. Generated drift: `yarn workspace @octocodeai/config check:config-contract`.
 - Tool facts (fields, defaults, views, limits, tool and enabled-by-default counts) in each doc of the `references/surface-map.md` Docs row match live `schema` output and code. After every rename, search docs for the old name.

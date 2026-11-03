@@ -12,8 +12,11 @@
         clippy::cast_possible_wrap
     )
 )]
+// Library output reaches people through its callers or the `octocode_io::notice`
+// owner, never stray stdout/stderr prints; deliberate sites carry `#[expect]`.
+#![deny(clippy::print_stdout, clippy::print_stderr)]
 
-pub mod cache;
+pub(crate) mod cache;
 mod civil_date;
 pub mod config;
 pub(crate) mod content;

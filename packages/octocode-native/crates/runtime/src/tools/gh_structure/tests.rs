@@ -19,8 +19,6 @@ async fn materialize_never_writes_a_provider_path_outside_its_root() {
         Acquired::Read(Ok(octocode_github::ContentResponse {
             bytes: b"owned".to_vec().into(),
             resolved_ref: "main".into(),
-            etag: None,
-            from_cache: false,
             raw_response_bytes: 5,
             blob: None,
         }))
@@ -93,6 +91,7 @@ fn materialization_page_boundary_and_pages_past_the_former_ceiling_continue() {
     let page = |current| ListingPage {
         current,
         per_page: 1,
+        capped_from: None,
         total_entries: current + 1,
         total_pages: current + 1,
         entries: &[],
@@ -123,24 +122,6 @@ fn materialization_page_boundary_and_pages_past_the_former_ceiling_continue() {
     }
 }
 
-/// A recursive git-tree listing of a path the tree lacks is a
-/// missing path (not an empty listing), so the viewTree recovery runs.
-#[test]
-fn a_root_missing_from_the_git_tree_is_not_found() {
-    let tree: octocode_github::TreeResponse = serde_json::from_value(json!({
-        "sha":"s","truncated":false,"tree":[
-            {"path":"src","type":"tree"},{"path":"src/lib.rs","type":"blob"}
-        ]
-    }))
-    .expect("tree");
-    assert!(root_is_directory(&tree, "").is_ok());
-    assert!(root_is_directory(&tree, "src").is_ok());
-    let missing = root_is_directory(&tree, "no/such").expect_err("missing");
-    assert_eq!(missing.kind, ProviderErrorKind::NotFound);
-    assert_eq!(missing.reason, None);
-    let file = root_is_directory(&tree, "src/lib.rs").expect_err("file");
-    assert_eq!(file.kind, ProviderErrorKind::Validation);
-}
 /// A depth-3 listing of the repository root of `a/b`.
 fn test_listing() -> Listing<'static> {
     Listing {
@@ -212,9 +193,7 @@ fn include_globs_match_repository_relative_paths() {
 }
 
 /// A git tree types a symlink `blob` of mode `120000`: it is named
-/// beside the skipped entries, never listed or sized as a file, and a
-/// listing rooted at it says it is a symlink and is repaired by a read
-/// (which follows the link to its file).
+/// beside the skipped entries, never listed or sized as a file.
 #[test]
 fn a_git_tree_symlink_is_named_not_listed_as_a_file() {
     let tree: octocode_github::TreeResponse = serde_json::from_value(json!({
@@ -224,7 +203,7 @@ fn a_git_tree_symlink_is_named_not_listed_as_a_file() {
         ]
     }))
     .expect("tree");
-    let traversal = traverse::traversal_from_git_tree(tree.clone(), &test_listing());
+    let traversal = traverse::traversal_from_git_tree(tree, &test_listing());
     let listed = traversal
         .entries
         .iter()
@@ -234,12 +213,6 @@ fn a_git_tree_symlink_is_named_not_listed_as_a_file() {
     assert_eq!(
         serde_json::to_value(&traversal.omitted).expect("omitted"),
         json!(["docs (symlink)"])
-    );
-    let link = root_is_directory(&tree, "docs").expect_err("a symlink");
-    assert_eq!(link.reason, Some(ProviderErrorReason::PathIsFile));
-    assert_eq!(
-        link.message.as_ref(),
-        "Path \"docs\" is a symlink, not a directory"
     );
 }
 

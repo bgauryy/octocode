@@ -6,8 +6,6 @@ pub(in crate::tools::gh_structure) enum Acquired {
     NotAFile,
     /// Larger than [`MATERIALIZE_FILE_BYTES`] by its listed size.
     Oversized,
-    /// Already on disk, as the manifest recorded it.
-    Reused,
     Read(Result<octocode_github::ContentResponse, ProviderError>),
 }
 
@@ -39,7 +37,7 @@ impl MaterializeWriter<'_> {
         }
         self.cursor += 1;
         let acquired = match read {
-            Acquired::NotAFile | Acquired::Reused => return Ok(true),
+            Acquired::NotAFile => return Ok(true),
             Acquired::Oversized => {
                 self.skips.oversized.push(entry.path.clone());
                 return Ok(true);

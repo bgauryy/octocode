@@ -82,7 +82,7 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
     assert!(stderr(&malformed).is_empty(), "{}", stderr(&malformed));
 
     // A schema-invalid query answers with the same typed envelope MCP
-    // returns as structuredContent.
+    // returns in its JSON text block.
     let typo = workspace
         .cli()
         .args([
@@ -152,7 +152,7 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
         .env("GITHUB_TOKEN", "invalid-fixture-token")
         .args([
             "ghGetFileContent",
-            r#"{"queries":[{"owner":"fixture","repo":"fixture","path":"README","refresh":true}]}"#,
+            r#"{"queries":[{"owner":"fixture","repo":"fixture","path":"README"}]}"#,
             "--json",
         ]);
     let output = tokio::task::spawn_blocking(move || command.output().expect("tool output"))

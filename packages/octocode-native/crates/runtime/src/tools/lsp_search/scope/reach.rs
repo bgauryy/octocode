@@ -72,7 +72,7 @@ impl Reach {
             crate::tools::source::read_bounded(path, octocode_engine::signatures::MAX_PARSE_SIZE)
                 .ok()?;
         let content = super::super::source::admitted_text(&bytes).ok()?;
-        let document = crate::tools::declarations_cache::file_document(&content, &site.path)?;
+        let document = crate::tools::declarations::file_document(&content, &site.path)?;
         let declared = rust::declared(&document, &content, (site.line, site.character), symbol)?;
         let package = cargo::package_of(path)?;
         let name = cargo::package_name(&package)?;

@@ -148,57 +148,6 @@ impl GraphFactArgumentSite {
             }
         }
     }
-    pub(crate) fn heap_bytes(&self) -> usize {
-        let optional = |value: &Option<String>| value.as_ref().map_or(0, String::capacity);
-        std::mem::size_of::<Self>()
-            + self.id.capacity()
-            + self.caller.capacity()
-            + optional(&self.caller_id)
-            + optional(&self.call_id)
-            + optional(&self.recipient_name)
-            + self.groups.capacity() * std::mem::size_of::<GraphArgumentGroup>()
-            + self
-                .groups
-                .iter()
-                .map(|group| match &group.observation {
-                    GraphArgumentGroupObservation::Unsupported { construct } => {
-                        construct.capacity()
-                    }
-                    GraphArgumentGroupObservation::Slots { slots } => {
-                        slots.capacity() * std::mem::size_of::<GraphArgumentSlot>()
-                            + slots
-                                .iter()
-                                .map(|slot| {
-                                    slot.id.capacity()
-                                        + optional(&slot.label)
-                                        + match &slot.observation {
-                                            GraphArgumentObservation::Reference {
-                                                target_name,
-                                                binding,
-                                                ..
-                                            } => {
-                                                target_name.capacity()
-                                                    + match binding {
-                                                        GraphArgumentBinding::Declaration {
-                                                            declaration_id,
-                                                        } => declaration_id.capacity(),
-                                                        GraphArgumentBinding::Import {
-                                                            import_id,
-                                                        } => import_id.capacity(),
-                                                        _ => 0,
-                                                    }
-                                            }
-                                            GraphArgumentObservation::Unsupported { construct } => {
-                                                construct.capacity()
-                                            }
-                                            GraphArgumentObservation::NonReference { .. } => 0,
-                                        }
-                                })
-                                .sum::<usize>()
-                    }
-                })
-                .sum::<usize>()
-    }
 }
 
 /// An occurrence identifies the exact decoded input and derivation, not a

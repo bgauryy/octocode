@@ -1,90 +1,17 @@
 use super::evidence::{Catalog, DependencyError, DependencySet};
 use super::{
     Open, Slicer, collection_pointer, continues_chars, empty_declared_siblings, enclosing_element,
-    lean_declared_skeleton, lean_elements,
+    lean_declared_skeleton, lean_later_context,
 };
+use octocode_io::cancellation::Cancellation;
 use serde_json::Value;
 use std::ops::Range;
-use tokio_util::sync::CancellationToken;
 
 mod materialize;
 mod records;
-
-#[derive(Clone, Copy)]
-pub(super) struct Window<'a> {
-    pub(super) head: usize,
-    pub(super) budget: usize,
-    /// Actual finished-page allowance; never enlarged for oversized context.
-    pub(super) terminal_budget: Option<usize>,
-    pub(super) cancelled: &'a CancellationToken,
-    pub(super) continuation_chars: usize,
-    /// Room the fragment that ends the row keeps for the continuations
-    /// only the row's last part carries ([`super::PartShare`]); zero
-    /// inside an item that does not end its split.
-    pub(super) tail: usize,
-}
-
-impl Window<'_> {
-    pub(super) fn check(self) -> Result<(), DependencyError> {
-        if self.cancelled.is_cancelled() {
-            Err(DependencyError::Cancelled)
-        } else {
-            Ok(())
-        }
-    }
-    pub(super) fn with_head(self, head: usize) -> Self {
-        Self { head, ..self }
-    }
-
-    /// This window for item `index` of `len`: only the item that ends the
-    /// split keeps the row's tail room.
-    pub(super) fn for_item(self, index: usize, len: usize) -> Self {
-        Self {
-            tail: if index + 1 == len { self.tail } else { 0 },
-            terminal_budget: self.terminal_budget.filter(|_| index + 1 == len),
-            ..self
-        }
-    }
-
-    /// The tail room item `index` of `len` keeps.
-    pub(super) fn tail_of(self, index: usize, len: usize) -> usize {
-        self.for_item(index, len).tail
-    }
-
-    /// An indivisible context already exceeds the bound. Avoid multiplying
-    /// that same oversized context for each tiny child record.
-    pub(super) fn with_continuation(self, chars: usize) -> Self {
-        Self {
-            continuation_chars: self.continuation_chars.max(chars),
-            ..self
-        }
-    }
-
-    pub(super) fn later_limit(self, marker: usize) -> usize {
-        self.budget
-            .saturating_sub(self.continuation_chars.max(marker))
-            .max(1)
-    }
-
-    pub(super) fn with_context(self, first: usize, later: usize, marker: usize) -> Self {
-        let marker = self.continuation_chars.max(marker);
-        Self {
-            head: if first > self.budget {
-                self.head.max(first.saturating_mul(2))
-            } else {
-                self.head
-            },
-            budget: if later > self.later_limit(marker) {
-                self.budget
-                    .max(later.saturating_mul(2).saturating_add(marker))
-            } else {
-                self.budget
-            },
-            ..self
-        }
-    }
-}
 mod source_catalog;
+mod window;
+pub(super) use window::Window;
 
 pub(super) struct Fragment {
     pub(super) kind: FragmentKind,
@@ -224,7 +151,7 @@ impl FragmentArena {
         budget: usize,
         out: &mut Vec<Planned>,
     ) -> Result<(), DependencyError> {
-        let cancelled = CancellationToken::new();
+        let cancelled = Cancellation::new();
         let catalog = self.take_catalog(&mut row, &cancelled)?;
         self.plan_in(
             row,
@@ -236,6 +163,7 @@ impl FragmentArena {
                 cancelled: &cancelled,
                 continuation_chars: 0,
                 tail: 0,
+                envelope: 0,
             },
             out,
         )
@@ -292,6 +220,13 @@ impl FragmentArena {
                 },
                 out,
             )?;
+            // The rest went first, so even this split's head is a later part.
+            lean_later_context(
+                &mut row,
+                &pointer,
+                self.page_context,
+                self.collection_routes,
+            );
         }
         let contexts = self.contexts(row, &pointer, catalog, cancelled)?;
         let enclosing = enclosing_element(&contexts[0].value, &pointer);
@@ -353,11 +288,16 @@ impl FragmentArena {
         row: Value,
         pointer: &str,
         catalog: Option<usize>,
-        cancelled: &CancellationToken,
+        cancelled: &Cancellation,
     ) -> Result<[Skeleton; 2], DependencyError> {
         let mut later = row.clone();
         self.empty_secondary_lists(&mut later, pointer);
-        lean_elements(&mut later, pointer, self.page_context);
+        lean_later_context(
+            &mut later,
+            pointer,
+            self.page_context,
+            self.collection_routes,
+        );
         let make = |value: Value| -> Result<Skeleton, DependencyError> {
             let evidence = self.dependencies(catalog, &value, cancelled)?;
             Ok(Skeleton {

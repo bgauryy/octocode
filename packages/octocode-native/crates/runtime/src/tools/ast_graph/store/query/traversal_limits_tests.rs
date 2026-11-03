@@ -59,6 +59,7 @@ fn traversal_pages_reach_every_node_beyond_the_former_visit_cap() {
             flags: Flags::parse(&options).unwrap(),
             options: &options,
             g: &graph,
+            pending: Default::default(),
         }
         .traversal()
         .unwrap();
@@ -166,8 +167,12 @@ fn filtered_traversal_does_not_hide_matches_after_many_nonmatching_nodes() {
 #[test]
 fn reingest_is_a_related_build_that_keeps_the_scan_options() {
     let input = |root: &str, scan: Value| {
-        let call = reingest_call(&json!({"root": root, "workspace": "/w", "scan": scan}));
-        assert_eq!((&call["kind"], &call["tool"]), (&json!("related"), &json!("graphBuild")));
+        let call = reingest_call(&json!({"root": root, "workspace": "/w", "scan": scan}))
+            .expect("a typed build lead");
+        assert_eq!(
+            (&call["kind"], &call["tool"]),
+            (&json!("related"), &json!("graphBuild"))
+        );
         call["input"]["queries"][0].clone()
     };
     assert_eq!(input("/w/app", json!({})), json!({"path": "app"}));
@@ -176,7 +181,8 @@ fn reingest_is_a_related_build_that_keeps_the_scan_options() {
             "/w/app",
             json!({"excludeDir": ["gen"], "languageGlobs": {"cpp": ["include/**/*.h"]}})
         ),
-        json!({"path": "app", "exclude": ["gen"], "parserGlobs": {"cpp": ["include/**/*.h"]}})
+        json!({"path": "app", "excludeDirs": ["gen"], "parserGlobs": {"cpp": ["include/**/*.h"]}})
     );
-    assert_eq!(input("/w", json!({})), json!({"path": "."}));
+    // The workspace root is graphBuild's default path, which a related call omits.
+    assert_eq!(input("/w", json!({})), json!({}));
 }

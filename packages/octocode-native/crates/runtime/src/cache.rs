@@ -1,12 +1,10 @@
-//! One cache store for the runtime: the shared in-process
-//! [`octocode_io::memo::Memo`] as its memory tier plus an optional
-//! byte-bounded disk tier. The writer picks a [`CacheClass`] per entry, so
-//! pinned facts never expire while movable ones age out or revalidate.
-pub(crate) mod async_io;
+//! Retained continuation state. Each store has one authoritative location:
+//! disk for persistent sessions, or process memory for memory-only sessions.
+//! Fresh tool requests never use this store to reuse computed results.
 mod disk;
 pub(crate) use disk::Disk;
 
-use octocode_io::memo::{Memo, MemoLimits};
+use octocode_io::memo::{Memo, MemoryBudget};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fs;
 use std::marker::PhantomData;
@@ -14,36 +12,63 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// Issued work remains reachable while pages are being consumed.
+pub(crate) const CONTINUATION_IDLE: Duration = Duration::from_secs(600);
+pub(crate) const CONTINUATION_RETENTION: CacheClass = CacheClass::Idle {
+    ttl: CONTINUATION_IDLE,
+};
+
+/// The bytes every in-process store holds together: each tool's page memo
+/// ([`crate::tools::page_memo::PageMemo`]) and the memory tier of every
+/// [`Store`]. Past it the least recently used entries of all of them go
+/// first, and a value larger than all of it is not kept.
+pub(crate) static MEMORY: MemoryBudget = MemoryBudget::new(memory_budget);
+
+/// The budget's floor: what a host whose memory cannot be read, or a small
+/// one, still gets, so one large scan's continuation stays retained.
+pub(crate) const MIN_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
+/// The budget's ceiling: retained continuation state is a convenience, so a
+/// large host keeps most of its memory for language servers and its users.
+pub(crate) const MAX_MEMORY_BUDGET: usize = 2 * 1024 * 1024 * 1024;
+
+fn memory_budget() -> usize {
+    memory_budget_for(octocode_engine::host::memory_mb())
+}
+
+/// An eighth of `host_mb` MiB, within [`MIN_MEMORY_BUDGET`] and
+/// [`MAX_MEMORY_BUDGET`]; the floor when the host's memory is unknown.
+pub(crate) fn memory_budget_for(host_mb: Option<u64>) -> usize {
+    host_mb.map_or(MIN_MEMORY_BUDGET, |mb| {
+        usize::try_from(mb.saturating_mul(1024 * 1024) / 8)
+            .unwrap_or(usize::MAX)
+            .clamp(MIN_MEMORY_BUDGET, MAX_MEMORY_BUDGET)
+    })
+}
+
 /// Persistent store directories: construction and maintenance share this inventory.
 #[derive(Clone, Copy)]
 pub(crate) enum Directory {
-    Response,
-    Outline,
-    Artifact,
     ResponsePages,
     Continuations,
     SectionAssessments,
-    Judgment,
+    LspAnswers,
+    GraphRows,
 }
 impl Directory {
-    pub(crate) const ALL: [Self; 7] = [
-        Self::Response,
-        Self::Outline,
-        Self::Artifact,
+    pub(crate) const ALL: [Self; 5] = [
         Self::ResponsePages,
         Self::Continuations,
         Self::SectionAssessments,
-        Self::Judgment,
+        Self::LspAnswers,
+        Self::GraphRows,
     ];
     pub(crate) fn path(self, home: &std::path::Path) -> PathBuf {
         home.join("tmp").join(match self {
-            Self::Response => "response",
-            Self::Outline => "outline",
-            Self::Artifact => "artifact",
             Self::ResponsePages => "response-pages",
             Self::Continuations => "continuations",
             Self::SectionAssessments => "section-assessments",
-            Self::Judgment => "judgment",
+            Self::LspAnswers => "lsp-answers",
+            Self::GraphRows => "graph-rows",
         })
     }
 }
@@ -58,16 +83,13 @@ pub struct CacheKey {
     pub resource: String,
 }
 
-/// How an entry ages; the writer chooses it, with its window, at `put`.
+/// How an entry ages; the writer chooses it, with its window, at `put_confirmed`.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CacheClass {
     /// Keyed by a content digest or a commit SHA: never expires and is always
     /// fresh. Only the byte budget evicts it.
     Immutable,
-    /// Fresh for `fresh`, then returned stale so the caller revalidates it
-    /// (ETag; a 304 costs no rate limit). Only the byte budget evicts it.
-    Revalidate { fresh: Duration },
     /// Expires `ttl` after it is stored.
     Volatile { ttl: Duration },
     /// Expires `ttl` after its last use: every read restarts its lifetime in
@@ -79,7 +101,7 @@ impl CacheClass {
     fn ttl(self) -> Option<Duration> {
         match self {
             Self::Volatile { ttl } | Self::Idle { ttl } => Some(ttl),
-            Self::Immutable | Self::Revalidate { .. } => None,
+            Self::Immutable => None,
         }
     }
 
@@ -88,46 +110,47 @@ impl CacheClass {
     fn idle(self) -> Option<Duration> {
         match self {
             Self::Idle { ttl } => Some(ttl),
-            Self::Immutable | Self::Revalidate { .. } | Self::Volatile { .. } => None,
+            Self::Immutable | Self::Volatile { .. } => None,
         }
     }
 
-    /// Freshness of an entry `age` old (since its last use for
-    /// [`Self::Idle`]), or `None` once it expired.
-    fn freshness(self, age: Duration) -> Option<bool> {
+    /// Whether retained state is still within its declared lifetime.
+    fn is_live(self, age: Duration) -> bool {
         match self {
-            Self::Immutable => Some(true),
-            Self::Revalidate { fresh } => Some(age < fresh),
-            Self::Volatile { ttl } | Self::Idle { ttl } => (age < ttl).then_some(true),
+            Self::Immutable => true,
+            Self::Volatile { ttl } | Self::Idle { ttl } => age < ttl,
         }
     }
 }
 
+/// A store's bounds. Memory counts against [`MEMORY`] alone, which refuses
+/// an entry heavier than the whole budget; the disk tier has this one budget.
 #[derive(Clone, Debug)]
 pub struct CacheConfig {
-    pub max_entries: usize,
-    /// Memory budget; also the largest single entry either tier accepts.
-    pub max_bytes: usize,
-    /// Disk budget, pruned oldest-first by modification time.
+    /// One store directory's budget, pruned oldest-first by modification
+    /// time. It is also the largest single entry the disk accepts.
     pub disk_bytes: u64,
 }
 
-impl Default for CacheConfig {
-    fn default() -> Self {
+impl CacheConfig {
+    /// The policy every retained-state store runs under: its disk budget is
+    /// the memory budget ([`MEMORY`]), so an entry that fits in memory also
+    /// fits on disk and a larger host retains larger work.
+    pub(crate) fn derived() -> Self {
+        Self::for_memory(MEMORY.limit())
+    }
+
+    fn for_memory(memory_bytes: usize) -> Self {
         Self {
-            max_entries: 4_096,
-            max_bytes: 64 * 1024 * 1024,
-            disk_bytes: 512 * 1024 * 1024,
+            disk_bytes: memory_bytes as u64,
         }
     }
 }
 
-/// A hit. `fresh` is false only for a [`CacheClass::Revalidate`] entry past
-/// its fresh window: the caller must revalidate before serving it.
+/// Retained state retrieved from its authoritative store.
 #[derive(Clone, Debug)]
 pub struct Cached<V> {
     pub value: Arc<V>,
-    pub fresh: bool,
 }
 
 /// How a store lays its values out on disk, after the entry header.
@@ -149,11 +172,10 @@ impl<V: Serialize + DeserializeOwned> DiskCodec<V> for JsonCodec {
     }
 }
 
-/// [`Memo`] (memory) plus [`Disk`] (optional, across processes); `C` lays
-/// values out on disk.
+/// One authoritative state store; `C` lays values out on disk.
 pub struct Store<V, C = JsonCodec> {
     config: CacheConfig,
-    memory: Memo<Arc<CacheKey>, V, CacheClass>,
+    memory: Option<Memo<Arc<CacheKey>, V, CacheClass>>,
     disk: Option<Disk>,
     codec: PhantomData<C>,
 }
@@ -162,90 +184,42 @@ impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
     /// `disk: None` keeps the store in this process only.
     pub(crate) fn new(config: CacheConfig, disk: Option<PathBuf>) -> Self {
         Self {
+            memory: disk.is_none().then(|| Memo::new(&MEMORY)),
             disk: disk.map(Disk::new),
-            memory: Memo::new(MemoLimits {
-                max_entries: config.max_entries,
-                max_weight: config.max_bytes,
-                keep_newest: false,
-            }),
             config,
             codec: PhantomData,
         }
     }
 
     pub(crate) fn get(&self, key: &CacheKey) -> Option<Cached<V>> {
-        self.read_memory(key).or_else(|| self.read_disk(key))
+        match &self.disk {
+            Some(disk) => {
+                let (value, _, _, _) = disk.read::<V, C>(key, &self.config)?;
+                Some(Cached {
+                    value: Arc::new(value),
+                })
+            }
+            None => self.read_memory(key),
+        }
     }
 
     fn read_memory(&self, key: &CacheKey) -> Option<Cached<V>> {
-        if let Some(hit) = self.memory.get(key) {
-            // The memo already dropped an expired `Volatile` entry.
-            if let Some(fresh) = hit.meta.freshness(hit.age) {
-                if let Some(ttl) = hit.meta.idle() {
-                    self.touch(key, ttl);
-                }
-                return Some(Cached {
-                    value: hit.value,
-                    fresh,
-                });
-            }
-            self.memory.remove(key);
+        let memory = self.memory.as_ref()?;
+        let hit = memory.get(key)?;
+        if !hit.meta.is_live(hit.age) {
+            memory.remove(key);
+            return None;
         }
-        None
-    }
-
-    /// Restart an [`CacheClass::Idle`] entry's lifetime in every tier: a
-    /// memory hit never reads the disk entry, so its file is touched too and
-    /// another process (or a restart) sees the same last use.
-    fn touch(&self, key: &CacheKey, ttl: Duration) {
-        self.memory.touch(key, ttl);
-        if let Some(disk) = &self.disk {
-            disk.touch(key);
+        if let Some(ttl) = hit.meta.idle() {
+            memory.touch(key, ttl);
         }
+        Some(Cached { value: hit.value })
     }
 
-    /// Mutable retained work is read under its owner's transaction lock.
-    /// Persistent state must observe another process's latest write, including
-    /// eviction or expiry, rather than revive an older memory entry.
-    pub(crate) fn get_current(&self, key: &CacheKey) -> Option<Cached<V>> {
-        if self.disk.is_none() {
-            return self.get(key);
-        }
-        self.memory.remove(key);
-        self.read_disk(key)
-    }
-
-    fn read_disk(&self, key: &CacheKey) -> Option<Cached<V>> {
-        let (value, class, age, bytes) = self.disk.as_ref()?.read::<V, C>(key, &self.config)?;
-        let fresh = class.freshness(age)?;
-        let now = Instant::now();
-        // The read restarted an idle entry's lifetime (the disk tier touched
-        // its file), so its memory copy starts fresh too.
-        let age = if class.idle().is_some() {
-            Duration::ZERO
-        } else {
-            age
-        };
-        let stored_at = now.checked_sub(age).unwrap_or(now);
-        let value = self.memory.insert_full(
-            Arc::new(key.clone()),
-            value,
-            class,
-            bytes,
-            class.ttl(),
-            stored_at,
-        );
-        Some(Cached { value, fresh })
-    }
-
-    /// Store `value` (about `bytes` large) in memory and, when configured, on
-    /// disk. An entry larger than the memory budget is not stored at all.
-    /// The stored value is returned, shared with the entry.
-    pub(crate) fn put(&self, key: CacheKey, value: V, bytes: usize, class: CacheClass) -> Arc<V> {
-        self.put_confirmed(key, value, bytes, class).0
-    }
-
-    /// Whether the value was retained in every configured tier. A result
+    /// Store `value` (about `bytes` large) in the selected storage mode; an
+    /// entry heavier than the memory budget, or than the disk budget on disk,
+    /// is not stored at all. Returns
+    /// the value, shared with the entry, and whether it was retained: a result
     /// continuation must check this before advertising saved pages.
     pub(crate) fn put_confirmed(
         &self,
@@ -254,37 +228,40 @@ impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
         bytes: usize,
         class: CacheClass,
     ) -> (Arc<V>, bool) {
-        if self.config.max_entries == 0
-            || bytes > self.config.max_bytes
-            || class.freshness(Duration::ZERO).is_none()
-        {
+        if !class.is_live(Duration::ZERO) {
             return (Arc::new(value), false);
         }
-        let saved = self
-            .disk
-            .as_ref()
-            .is_none_or(|disk| disk.write::<V, C>(&key, &value, class, &self.config));
-        let value = self.memory.insert_full(
+        if let Some(disk) = &self.disk {
+            let saved = disk.write::<V, C>(&key, &value, class, &self.config);
+            return (Arc::new(value), saved);
+        }
+        let Some(memory) = &self.memory else {
+            return (Arc::new(value), false);
+        };
+        memory.insert_full(
             Arc::new(key),
             value,
             class,
             bytes,
             class.ttl(),
             Instant::now(),
-        );
-        (value, saved)
+        )
     }
 
-    /// Drop `key` from both tiers.
+    /// Drop `key` from its authoritative store.
     pub(crate) fn remove(&self, key: &CacheKey) {
-        self.memory.remove(key);
+        if let Some(memory) = &self.memory {
+            memory.remove(key);
+        }
         if let Some(disk) = &self.disk {
             let _ = fs::remove_file(disk.file(key));
         }
     }
 
     pub(crate) fn clear_memory(&self) {
-        self.memory.clear();
+        if let Some(memory) = &self.memory {
+            memory.clear();
+        }
     }
 }
 

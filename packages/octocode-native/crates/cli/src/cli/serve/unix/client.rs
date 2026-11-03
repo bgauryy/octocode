@@ -1,6 +1,7 @@
 //! The client side of a warm call: resolve the server for this call, start
 //! it when none answers, send the request and print the reply.
 
+use super::frames::PROGRESS;
 use super::identity::{call_identity, exe_identity, served_env, server_key, workspace_of};
 use super::sockets::socket_in;
 use super::{read_line_bounded, same_dir_form};
@@ -76,6 +77,7 @@ pub(in crate::cli) async fn call(
         first,
         tokio::signal::ctrl_c(),
         interrupted,
+        |line| eprintln!("{line}"),
     )
     .await;
     let (printed, notices) = match exchanged {
@@ -185,7 +187,8 @@ pub(super) fn target() -> Option<Target> {
 /// Send one request and read the printed call back within `deadline`.
 /// `first` is the first interrupt: it calls `interrupted`, closes the
 /// request side (the server cancels), then waits for the server to finish
-/// unless `second` arrives first.
+/// unless `second` arrives first. Each progress frame the server sends
+/// while the call runs goes to `progress` as it arrives.
 pub(super) async fn exchange(
     stream: &mut tokio::net::UnixStream,
     request: &Request<'_>,
@@ -193,6 +196,7 @@ pub(super) async fn exchange(
     first: impl std::future::Future<Output = ()>,
     second: impl std::future::Future,
     interrupted: impl FnOnce(),
+    mut progress: impl FnMut(&str),
 ) -> Result<Reply, Failed> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
     let fallback = |reason: &str| Failed::Fallback(reason.to_owned());
@@ -212,13 +216,27 @@ pub(super) async fn exchange(
         .await
         .map_err(|error| Failed::Fallback(format!("request not sent: {error}")))?;
     let mut reader = BufReader::new(read);
-    let response = tokio::select! {
-        response = tokio::time::timeout(
-            deadline,
-            read_line_bounded(&mut reader, MAX_RESPONSE_BYTES),
-        ) => response.map_err(|_| Failed::Deadline)?.ok_or_else(|| {
-            fallback("it closed without a reply, or the reply was over the size limit")
-        })?,
+    // Frames come first, one per line; the line that is not one is the
+    // reply. The deadline covers the whole wait, frames included.
+    let awaited = async {
+        loop {
+            let line = read_line_bounded(&mut reader, MAX_RESPONSE_BYTES)
+                .await
+                .ok_or_else(|| {
+                    fallback("it closed without a reply, or the reply was over the size limit")
+                })?;
+            let parsed = serde_json::from_str::<Value>(&line)
+                .map_err(|_| fallback("the reply was not JSON"))?;
+            match parsed.get(PROGRESS).and_then(Value::as_str) {
+                Some(text) => progress(text),
+                None => break Ok::<Value, Failed>(parsed),
+            }
+        }
+    };
+    let reply = tokio::select! {
+        awaited = tokio::time::timeout(deadline, awaited) => {
+            awaited.map_err(|_| Failed::Deadline)??
+        }
         () = first => {
             interrupted();
             let _ = write.shutdown().await;
@@ -231,8 +249,6 @@ pub(super) async fn exchange(
             ));
         }
     };
-    let reply =
-        serde_json::from_str::<Value>(&response).map_err(|_| fallback("the reply was not JSON"))?;
     if let Some(reason) = reply.get("fallback").and_then(Value::as_str) {
         return Err(fallback(reason));
     }

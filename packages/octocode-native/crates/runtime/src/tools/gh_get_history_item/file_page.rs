@@ -9,12 +9,14 @@ use super::patch_hop::DiffCursors;
 use super::pr_menu::{ChangeSides, change_reads, without_match_string};
 use super::remaining::Remainder;
 use super::util::str_at;
-use crate::id::ToolId;
+use crate::response::pages::SpanFacts;
 use crate::response::paging::push_warnings;
 use crate::response::result::Continuation;
 use crate::response::result::Remaining;
+use crate::response::result::wire_query;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_shared::ensure_calls;
+use octocode_contract_types::GhGetHistoryItemQuery;
 use serde_json::{Value, json};
 
 /// What a commit's or comparison's file page leaves for its continuations
@@ -62,11 +64,21 @@ pub(super) fn shape_file_page(
     } = filtered;
     let patches = query.include_diff();
     // A file page's first patch window reads its top file at both sides of
-    // the numbered diff (a file the filter kept); the filter's facts are
-    // stated once, on the first page.
+    // the numbered diff: a file the window shows (the filter keeps more files
+    // than one window packs); the filter's facts are stated once, on the
+    // first page.
     let first_window =
         gh_get_history_item_query::char_offset(query).is_none_or(|offset| offset == 0);
-    let side_reads = if patches && first_window {
+    let side_files = (patches && first_window).then(|| files.clone());
+    let (rows, patch_window) = file_rows(files, query);
+    let side_reads = side_files.map_or_else(Vec::new, |files| {
+        let shown = |file: &Value| {
+            let name = file.get("filename").and_then(Value::as_str);
+            rows.as_array()
+                .into_iter()
+                .flatten()
+                .any(|row| row.get("path").and_then(Value::as_str) == name)
+        };
         change_reads(
             gh_get_history_item_query::owner(query),
             gh_get_history_item_query::repo(query),
@@ -75,17 +87,21 @@ pub(super) fn shape_file_page(
                 new_ref: sides.new,
                 old_ref: sides.old,
             },
-            |_| true,
+            shown,
         )
-    } else {
-        Vec::new()
-    };
-    let (rows, cursor) = file_rows(files, query);
+    });
     let listed = rows.as_array().is_some_and(|rows| !rows.is_empty());
     // Files it could not search may hold the literal: no empty answer then.
     let match_removed_all = patches && in_scope > 0 && unsearched.is_empty() && kept == 0;
-    let cursors = DiffCursors::of_file_page(&mut page, cursor, listed);
+    let cursors = DiffCursors::of_file_page(
+        &mut page,
+        patch_window.and_then(SpanFacts::next_offset),
+        listed,
+    );
     out["files"] = rows;
+    if let Some(window) = patch_window {
+        out["contentPagination"][Axis::Patches.key()] = window.to_value();
+    }
     super::window::lift_page_limits(out, &mut page);
     out["contentPagination"][Axis::Files.key()] = page;
     let mut without_match = None;
@@ -127,18 +143,18 @@ pub(super) fn shape_file_page(
 /// The note of the next changed-file page of a commit or comparison, from
 /// its file page's facts ([`Remainder`]).
 pub(super) fn file_page_note(out: &Value) -> Vec<Remaining> {
-    out.pointer("/next/nextFilePage")
+    out.pointer("/contentPagination/files/next/nextPage")
         .and(out.pointer("/contentPagination/files"))
         .and_then(|page| Remainder::default().note(Axis::Files, page))
         .into_iter()
         .collect()
 }
 
-/// The rows of a filtered file page and the patch-stream offset that
-/// continues them: without patches the pull-request inventory
+/// The rows of a filtered file page and their complete patch-stream facts:
+/// without patches the pull-request inventory
 /// (`M +3 -1 path`, grouped by directory); with patches, one row per file,
 /// each narrowed to its `matchString` hits.
-fn file_rows(files: Vec<Value>, query: &HistoryItemRequest) -> (Value, Option<usize>) {
+fn file_rows(files: Vec<Value>, query: &HistoryItemRequest) -> (Value, Option<SpanFacts>) {
     if !query.include_diff() {
         return (
             Value::Array(super::inventory::compact_inventory(&files)),
@@ -147,7 +163,7 @@ fn file_rows(files: Vec<Value>, query: &HistoryItemRequest) -> (Value, Option<us
     }
     let page = super::patch::page::shape_patch_page(files, query).compact();
     let rows = Value::Array(page.rows);
-    (rows, page.cursor)
+    (rows, Some(page.stream))
 }
 
 /// The literal a read filters changed files by: its `matchString`, when it
@@ -181,12 +197,11 @@ fn mark_unsearched(
 }
 
 /// The read of one commit at its default sections.
-pub(super) fn read_commit_lead(query: &HistoryItemRequest, sha: &str) -> Value {
-    Continuation::related(
-        ToolId::GhGetHistoryItem,
+pub(super) fn read_commit_lead(query: &HistoryItemRequest, sha: &str) -> Option<Value> {
+    let read = wire_query::<GhGetHistoryItemQuery>(
         json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"ref":sha}),
-    )
-    .build()
+    )?;
+    Some(Continuation::related_query(read).build())
 }
 
 /// Put `leads` ahead of the row's other leads, in order (pages keep their
@@ -293,3 +308,6 @@ pub(super) fn literal_prefix(pattern: &str) -> Option<String> {
 
 /// Changed directories an empty-scope warning names at most.
 const NEAREST_DIRS: usize = 5;
+
+#[cfg(test)]
+mod tests;

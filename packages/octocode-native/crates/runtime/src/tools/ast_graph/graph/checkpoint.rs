@@ -15,35 +15,16 @@ pub(in crate::tools::ast_graph) use state::job_path;
 use state::{Manifest, Stage};
 
 use super::super::limits::LIMITS;
-const JOB_VERSION: u32 = 1;
+const JOB_VERSION: u32 = 3;
 
-/// Bytes of artifact text one secret scan reads: within what the scanner
-/// admits, which refuses (as a secret) any larger text unread.
-const SECRET_SCAN_WINDOW: usize = 4 << 20;
-/// Bytes consecutive windows share, longer than any one credential, so a
-/// secret across a window boundary lies whole inside one window.
-const SECRET_SCAN_OVERLAP: usize = 64 << 10;
-
-/// Whether `text` holds a secret, scanned window by window so an artifact
-/// of any admitted size is read rather than refused unread.
-fn holds_secret(security: &ContentSecurity, text: &str) -> bool {
-    let mut start = 0;
-    loop {
-        let mut end = (start + SECRET_SCAN_WINDOW).min(text.len());
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        if security.sanitize_text(&text[start..end], None).has_secrets {
-            return true;
-        }
-        if end == text.len() {
-            return false;
-        }
-        start = end - SECRET_SCAN_OVERLAP;
-        while !text.is_char_boundary(start) {
-            start -= 1;
-        }
-    }
+/// Whether the file's source holds a secret. Every text an artifact holds
+/// is a substring of that source, so a clean source cannot put a secret on
+/// disk; the scan reads the raw text once, not its JSON-escaped facts. A
+/// graph source is within what the scanner admits
+/// ([`octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES`]); a larger text
+/// would be refused as a secret, so nothing unscanned is ever written.
+fn holds_secret(security: &ContentSecurity, source: &str) -> bool {
+    security.sanitize_text(source, None).has_secrets
 }
 
 pub(super) struct Job<'a> {
@@ -73,11 +54,15 @@ struct State {
     memory_files: usize,
 }
 
+/// A file's facts left encoded until linking: its marks and source
+/// correspondence, which linking keeps whole, stay decoded here.
 pub(super) struct Kept {
     pub(super) modules: Option<(String, Vec<GraphFactRustModule>)>,
     digest: String,
     stamp: Option<octocode_engine::stamp::SourceStamp>,
     storage: Storage,
+    marks: super::super::classify::SourceMarks,
+    source: capture::CapturedSource,
 }
 
 enum Storage {
@@ -111,7 +96,7 @@ impl Job<'_> {
         context: &octocode_engine::fact_scan::GraphFactsReuseContext<'_>,
     ) -> Option<GraphFactsTypedEntry> {
         let bytes = self.read(&self.target(context.relative_path)).ok()?;
-        let extraction = artifact::decode_extraction(
+        let extraction = artifact::decode(
             &bytes,
             &self.manifest.namespace,
             context.relative_path,
@@ -133,10 +118,10 @@ impl Job<'_> {
     }
 
     /// Commits the file's artifact and keeps its facts for linking: decoded
-    /// while the retention budget allows, else on disk (or, holding a
-    /// secret, encoded in memory) to decode at [`Job::restore`]. Encoding,
-    /// the secret scan and the write run outside the job's lock, which only
-    /// guards its counters. An artifact is its own commit record (header
+    /// while the retention budget allows, else on disk (or, its source
+    /// holding a secret, encoded in memory) to decode at [`Job::restore`].
+    /// Encoding, the secret scan and the write run outside the job's lock,
+    /// which only guards its counters. An artifact is its own commit record (header
     /// digest + pinned identity + complete payload), so it is written
     /// without a sync: a torn or lost write fails verification on the next
     /// build and is extracted again; only stage transitions are durable.
@@ -163,9 +148,9 @@ impl Job<'_> {
                 return Ok(self.retain(view, source, size, storage));
             }
         }
-        let bytes = encode(&self.manifest.namespace, view, &source)?;
+        let bytes = encode(&self.manifest.namespace, view)?;
         let size = bytes.len() as u64;
-        let storage = if holds_secret(self.security, &String::from_utf8_lossy(&bytes)) {
+        let storage = if holds_secret(self.security, view.content) {
             let previous = {
                 let mut state = self.state();
                 if state.memory_bytes.saturating_add(size) > self.limits.memory_only_bytes {
@@ -245,17 +230,19 @@ impl Job<'_> {
             }
             fits
         };
+        let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content);
         if fits {
-            let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content);
             return super::scan::Kept::Memory(Box::new((view.to_entry(), marks, source)));
         }
-        super::scan::Kept::Spill(Kept {
+        super::scan::Kept::Spill(Box::new(Kept {
             modules: (view.facts.language == "rust")
                 .then(|| (view.relative_path.into(), view.facts.modules.clone())),
             digest: view.content_digest.into(),
             stamp: view.source_stamp,
             storage,
-        })
+            marks,
+            source,
+        }))
     }
 
     pub(super) fn restore(
@@ -275,9 +262,9 @@ impl Job<'_> {
             Storage::Memory(bytes) => bytes,
         };
         let artifact = decode(&bytes, &self.manifest.namespace, relative, &kept.digest)?;
-        let (mut entry, marks, source) = artifact.into_parts();
+        let mut entry = artifact.into_entry();
         entry.source_stamp = kept.stamp;
-        Ok((entry, marks, source))
+        Ok((entry, kept.marks, kept.source))
     }
 
     pub(super) fn linking(&self) -> Result<(), ToolError> {
@@ -287,6 +274,7 @@ impl Job<'_> {
     pub(super) fn progress(&self) -> BuildProgress {
         let state = self.state();
         BuildProgress {
+            checkpoint_generation: Some(self.manifest.generation.clone()),
             resumed_files: state.resumed.len(),
             checkpointed_files: state.committed.len(),
             spilled_bytes: state
@@ -301,9 +289,12 @@ impl Job<'_> {
     }
 }
 
-/// Marks a published job complete, retaining its verified artifacts for reuse.
-/// A job another build holds is that build's to finish: it is left as is.
-pub(in crate::tools::ast_graph) fn complete(path: &Path) -> Result<(), ToolError> {
+/// Releases a published build's extraction artifacts. A held or newer job
+/// belongs to its own build, even if the older build published first.
+pub(in crate::tools::ast_graph) fn complete(
+    path: &Path,
+    generation: &str,
+) -> Result<(), ToolError> {
     let held = lock::open(&lock::job_lock_path(path))
         .map_err(|error| failure(format!("cannot lock graph checkpoint: {error}")))?;
     match held.try_lock() {
@@ -313,9 +304,23 @@ pub(in crate::tools::ast_graph) fn complete(path: &Path) -> Result<(), ToolError
             return Err(failure(format!("cannot lock graph checkpoint: {error}")));
         }
     }
+    if !path.exists() {
+        return Ok(());
+    }
     let manifest = Manifest::read(path)
         .ok_or_else(|| failure("cannot read graph checkpoint manifest for completion"))?;
-    manifest.write(path, Stage::Complete)
+    if manifest.generation != generation {
+        return Ok(());
+    }
+    // A crash during removal must never turn completed work back into an
+    // eligible checkpoint on the next open.
+    manifest.write(path, Stage::Complete)?;
+    std::fs::remove_dir_all(path)
+        .map_err(|error| failure(format!("cannot remove completed graph checkpoint: {error}")))?;
+    if let Some(parent) = path.parent() {
+        state::sync_dir(parent)?;
+    }
+    Ok(())
 }
 
 fn failure(message: impl Into<String>) -> ToolError {

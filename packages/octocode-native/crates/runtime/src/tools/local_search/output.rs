@@ -33,6 +33,7 @@ mod tests {
             total_pages: Some(2),
             total_matches: Some(3),
             has_more: true,
+            next: None,
             more_lines: Some(vec![4, 9]),
             more_lines_unlisted: None,
             out_of_range: false,

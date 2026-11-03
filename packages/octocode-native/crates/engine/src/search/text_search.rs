@@ -59,7 +59,7 @@ pub trait TextSearchPathFilter: Send + Sync {
 /// skipped before it is opened/searched, so a pathological multi-GB (often
 /// single-line, minified/generated) file cannot force a giant line buffer plus a
 /// lossy-UTF8 copy. Callers may override via [`TextSearchOptions::max_file_bytes`].
-/// Skipped files are surfaced as a `maxFileSize` cap reason, never silently
+/// Skipped files are surfaced as a `fileTooLarge` cap reason, never silently
 /// dropped.
 pub(crate) const DEFAULT_MAX_SEARCH_FILE_BYTES: u64 = 20 * 1024 * 1024;
 

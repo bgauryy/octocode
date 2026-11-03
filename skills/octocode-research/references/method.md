@@ -1,4 +1,4 @@
-Load when the task class, mode, proof bar, read span, or multi-pass plan is unclear: bugs, root causes, consequential claims (callers, cycles, reachability, deletion, architecture), loops, workers, handoffs.
+Load when the task class, mode, proof bar, or multi-pass plan is unclear: bugs, root causes, consequential claims (callers, cycles, reachability, deletion, architecture), loops, workers, handoffs. Tool choice and calls: [tool flow](tool-flow.md).
 
 ## Classify the task
 
@@ -20,7 +20,7 @@ Skip stages a known anchor answers; a lookup is a direct read.
 | Investigate | symptom needs a cause | structure → symptom search → exact boundary reads → graph/LSP/AST → history/tests |
 | Plan / Architecture | change needs its safest step | contract → entry points → graph/LSP scope → exact boundaries → safest step/tradeoffs |
 
-- Pick surfaces (local, GitHub, packages, PR/history, docs/web) by the claim; name spanned surfaces you skip. Local ↔ upstream: [workflows](workflows.md#local-and-remote-together).
+- Pick surfaces (local, GitHub, packages, PR/history, docs/web) by the claim; name spanned surfaces you skip. Local ↔ upstream: [tool flow](tool-flow.md#carry-evidence-across).
 - Advocate/Critic: strongest evidence for and against; rebut the claim most likely to flip the decision.
 - Reuse (repository landscape): discover repos and packages; separate fit from risk; verify finalists via source, tests, releases, issues, license; report comparison, integration path, gaps. Popularity proves nothing.
 
@@ -49,22 +49,10 @@ Ladder: `candidate → exact evidence → claim-specific corroboration → verif
 
 Report per [output](../output.md#response).
 
-## Read the smallest span
-
-`localFetch` and `ghGetFileContent` share selectors and pagination (GitHub adds `owner`, `repo`, `ref`). Output is `<line>\t<text>`; non-adjacent windows are separated by one unnumbered `--` line; cite by line number.
-
-- Quote or edit only verbatim `view:"content"` evidence (the default); `view:"compact"` is for orientation. History text and patches are exact.
-- Known literal: `matchString` arrays with explicit `contextLines:{before,after}` when needed; wider: `ranges`.
-- Several regions, one call: `"ranges":[{"startLine":95,"endLine":105},{"startLine":255,"endLine":265}]`.
-- Whole declaration: `block:true` on a match or range; check the span closes it, else use `astSearch symbols` `line`/`endLine`. Never guess an end.
-- `view:"symbols"`: doc headings or code signatures with lines; read exact source before explaining behavior. A missing outline entry is not absence; recover with exact search.
-- Broad unread source where only some passages matter: [context selection](clasify.md#select-inside-search-and-fetch) returns selected raw windows. A known deciding span is usually an ordinary exact read.
-- Path-only reads return content and page when necessary. Copy emitted continue inputs unchanged; never author private offsets.
-
 ## Campaigns
 
 - Loop: `frame one question → cheapest call that can change the answer → observe status → learn → next call`.
-- Start: set corpus, question, mode, surfaces, and a Stop condition (done when the class's Definition of Done holds; escalate when the budget is spent or a prerequisite is missing); check reach ([octocode](octocode.md)). Measure claims resolved, not calls.
+- Start: set corpus, question, mode, surfaces, and a Stop condition (done when the class's Definition of Done holds; escalate when the budget is spent or a prerequisite is missing); check reach ([tool flow](tool-flow.md)). Measure claims resolved, not calls.
 - Ledger: goal, anchors (paths, lines, ids, refs, `next.*`/`hints`; never invented), open hypothesis tests (rivals, cheapest distinguishing check), tried shapes.
 - Direct research may pursue independent directions sequentially. When an orchestrator selects a multi-actor workflow, it assigns only directions with distinct observations, keeps one ledger and the merged verdict, and gives each actor an authorized Task contract: objective (purpose), constraints, output (`claim, evidence, verdict, confidence` per finding), and a Definition of Done. Actors pick the domain method and return evidence; they do not select more actors. Disagreement is evidence; the orchestrator re-checks each load-bearing anchor. See [workflow composition](../../octocode-workflows/references/composition.md).
 - At decision boundaries and when stopping, report per [output](../output.md#response), naming verification and open gaps (unresolved alternatives, exhausted budgets, missing prerequisites).

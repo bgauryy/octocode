@@ -3,13 +3,15 @@
 //! bytes stay bound by the source digest.
 use super::*;
 use crate::execution::cancel::CancellationCheck;
+use crate::tools::local_search::sources::Expected;
 use crate::tools::local_search::{executor, verify};
+use octocode_contract_types::ErrorCode;
 use octocode_engine::types::TextSearchFile;
 use std::io::{Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Reconstruct `file`'s first row from its source under `cancel`, with no
-/// stored digest to check against.
+/// Reconstruct `file`'s first row from its source under `cancel`, as a
+/// fresh scan's page does; returns the rows it withheld.
 fn materialize_first_row<C: CancellationCheck>(
     request: &LocalSearchQuery,
     policy: &PathPolicy,
@@ -17,8 +19,29 @@ fn materialize_first_row<C: CancellationCheck>(
     security: &ContentSecurity,
     cancel: &C,
     file: &mut TextSearchFile,
-) -> Result<(), crate::response::result::ToolError> {
-    let expected = |_: &std::path::Path| crate::tools::local_search::sources::Expected::Fresh;
+) -> Result<Vec<usize>, crate::response::result::ToolError> {
+    materialize_first_row_as(
+        request,
+        policy,
+        root,
+        security,
+        cancel,
+        file,
+        Expected::Fresh,
+    )
+}
+
+/// [`materialize_first_row`] with the page's `expected` source bytes.
+fn materialize_first_row_as<C: CancellationCheck>(
+    request: &LocalSearchQuery,
+    policy: &PathPolicy,
+    root: &std::path::Path,
+    security: &ContentSecurity,
+    cancel: &C,
+    file: &mut TextSearchFile,
+    expected: Expected,
+) -> Result<Vec<usize>, crate::response::result::ToolError> {
+    let expected = |_: &std::path::Path| expected;
     let scope = verify::PageScope {
         query: request,
         paths: policy,
@@ -124,16 +147,32 @@ fn deferred_hit_before_a_large_binary_tail_remains_readable_and_binds_the_tail()
     source.seek(SeekFrom::End(-1)).expect("last byte");
     source.write_all(b"z").expect("same-size tail edit");
     drop(source);
-    assert!(
-        materialize_first_row(
-            &request,
-            &policy,
-            root.path(),
-            &security,
-            &NeverCancel,
-            &mut original.clone()
-        )
-        .is_err(),
-        "even unshown tail bytes remain bound by the source digest"
-    );
+    // Even unshown tail bytes stay bound by the source digest: a fresh page
+    // withholds the value, and a stored scan restarts.
+    let mut fresh = original.clone();
+    let withheld = materialize_first_row(
+        &request,
+        &policy,
+        root.path(),
+        &security,
+        &NeverCancel,
+        &mut fresh,
+    )
+    .expect("a fresh page withholds rather than fails");
+    assert_eq!(withheld, vec![0]);
+    assert_eq!(fresh.matches[0].value, verify::UNVERIFIED_PLACEHOLDER);
+    assert_eq!(fresh.matches[0].deferred, None);
+    let stored = original.source.map(|source| source.digest);
+    assert!(stored.is_some(), "the scan hashed the file");
+    let error = materialize_first_row_as(
+        &request,
+        &policy,
+        root.path(),
+        &security,
+        &NeverCancel,
+        &mut original.clone(),
+        Expected::Stored(stored),
+    )
+    .expect_err("a stored scan restarts");
+    assert_eq!(error.code, ErrorCode::StaleSnapshot);
 }

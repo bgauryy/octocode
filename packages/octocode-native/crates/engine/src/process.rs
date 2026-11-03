@@ -1,7 +1,8 @@
 //! Process containment and tree inspection for spawned commands: the
 //! descendants of a pid (following parent links, so a child that called
 //! `setsid` and left the process group is still found), their resident
-//! memory and CPU time, and a freeze-then-kill teardown of the whole tree.
+//! memory and CPU time, and a freeze-then-kill teardown of the whole tree
+//! that signals a descendant only while its pid still names it.
 //!
 //! Implemented on macOS (`libproc`) and Linux (`/proc`); Windows reads the
 //! server process's own CPU time. Elsewhere the tree walk finds nothing,
@@ -11,6 +12,8 @@
 #[cfg(target_os = "linux")]
 use std::path::Path;
 
+#[cfg(any(test, unix))]
+mod identity;
 mod job;
 mod metrics;
 // The Linux `/proc` readers; the synthetic-tree tests run them on every host.
@@ -18,6 +21,8 @@ mod metrics;
 mod proc_table;
 mod teardown;
 
+#[cfg(any(test, unix))]
+pub(crate) use identity::Process;
 pub use job::Job;
 #[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub(crate) use metrics::TreeCpuClock;
@@ -25,13 +30,13 @@ pub(crate) use metrics::TreeCpuClock;
 use metrics::rss_bytes;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) use metrics::tree_rss_bytes;
-#[cfg(any(test, target_os = "linux"))]
-use proc_table::{children_from_table, read_proc_table};
 #[cfg(test)]
 use proc_table::{
-    parse_proc_stat, parse_proc_stat_cpu_ticks, parse_proc_statm_rss, read_proc_cpu_ticks,
-    read_proc_rss,
+    ProcStat, parse_proc_stat, parse_proc_stat_cpu_ticks, parse_proc_statm_rss,
+    read_proc_cpu_ticks, read_proc_rss,
 };
+#[cfg(any(test, target_os = "linux"))]
+use proc_table::{children_from_table, read_proc_table};
 #[cfg(unix)]
 pub use teardown::exited_without_reaping;
 #[cfg(unix)]
@@ -43,13 +48,14 @@ pub use teardown::{kill_tree, kill_tree_blocking};
 #[cfg(any(test, unix))]
 const MAX_TREE_PROCESSES: usize = 4_096;
 
-/// Every descendant of `root` (not `root` itself), breadth-first. Parent links
-/// are followed, not the process group or session, so descendants that
-/// called `setsid` are included. A child whose parent already exited has
-/// been re-parented away and cannot be found this way; callers snapshot the
-/// tree before killing any of it.
+/// Every descendant of `root` (not `root` itself), breadth-first, each with
+/// the start time read alongside its parent link. Parent links are followed,
+/// not the process group or session, so descendants that called `setsid` are
+/// included. A child whose parent already exited has been re-parented away
+/// and cannot be found this way; callers snapshot the tree before killing any
+/// of it.
 #[cfg(unix)]
-pub(crate) fn descendants(root: u32) -> Vec<u32> {
+pub(crate) fn descendants(root: u32) -> Vec<Process> {
     walk_descendants(root, children_lookup())
 }
 
@@ -59,28 +65,30 @@ pub(crate) fn descendants(root: u32) -> Vec<u32> {
 /// looping table), duplicates, and the [`MAX_TREE_PROCESSES`] bound are
 /// covered by tests on every host. `root` is never reported.
 #[cfg(any(test, unix))]
-fn walk_descendants(root: u32, mut children_of: impl FnMut(u32) -> Vec<u32>) -> Vec<u32> {
+fn walk_descendants(root: u32, mut children_of: impl FnMut(u32) -> Vec<Process>) -> Vec<Process> {
     let mut seen = std::collections::HashSet::from([root]);
     let mut found = Vec::new();
     let mut frontier = std::collections::VecDeque::from([root]);
     while let Some(parent) = frontier.pop_front() {
         for child in children_of(parent) {
-            if !seen.insert(child) {
+            if !seen.insert(child.pid) {
                 continue;
             }
             if found.len() >= MAX_TREE_PROCESSES {
                 return found;
             }
             found.push(child);
-            frontier.push_back(child);
+            frontier.push_back(child.pid);
         }
     }
     found
 }
 
-/// `pid → direct children` for the current platform.
+/// `pid → direct children` for the current platform. Each listed pid is
+/// kept only if its own record still names `parent`, so a pid recycled
+/// between the listing and the read is not mistaken for a child.
 #[cfg(target_os = "macos")]
-fn children_lookup() -> impl Fn(u32) -> Vec<u32> {
+fn children_lookup() -> impl Fn(u32) -> Vec<Process> {
     |parent| {
         /// `PROC_PPID_ONLY` from `<libproc.h>` (not exported by `libc`).
         const PROC_PPID_ONLY: u32 = 6;
@@ -103,6 +111,10 @@ fn children_lookup() -> impl Fn(u32) -> Vec<u32> {
                     .iter()
                     .filter_map(|&pid| u32::try_from(pid).ok())
                     .filter(|&pid| pid != 0)
+                    .filter_map(|pid| {
+                        let (ppid, start) = identity::bsd_record(pid)?;
+                        (ppid == parent).then_some(Process { pid, start })
+                    })
                     .collect();
             }
             pids.resize(pids.len() * 2, 0);
@@ -111,13 +123,13 @@ fn children_lookup() -> impl Fn(u32) -> Vec<u32> {
 }
 
 #[cfg(target_os = "linux")]
-fn children_lookup() -> impl Fn(u32) -> Vec<u32> {
+fn children_lookup() -> impl Fn(u32) -> Vec<Process> {
     // One `/proc` scan per walk.
     children_from_table(read_proc_table(Path::new("/proc")))
 }
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
-fn children_lookup() -> impl Fn(u32) -> Vec<u32> {
+fn children_lookup() -> impl Fn(u32) -> Vec<Process> {
     |_| Vec::new()
 }
 

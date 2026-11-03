@@ -120,6 +120,7 @@ pub(super) fn resolve_commit_window(q: &GhSearchHistoryQuery) -> (Option<String>
 }
 
 fn commit_terms(q: &HistorySearch, out: &mut SearchTerms) -> Result<(), ProviderError> {
+    let f = q.filters();
     let (o, r) = required_repo(q)?;
     out.scope(Some(o), Some(r));
     for (field, value) in [("author", q.author()), ("committer", q.committer())] {
@@ -132,10 +133,9 @@ fn commit_terms(q: &HistorySearch, out: &mut SearchTerms) -> Result<(), Provider
             out.push(format!("{key}:{value}"));
         }
     }
-    if let Some(range) =
-        gh_search_history_query::committed_at(q).and_then(crate::tools::gh_shared::ranges::date)
-    {
-        out.push(format!("committer-date:{range}"));
+    out.text("committer-date", f.committed.as_deref());
+    for (key, value) in &f.excluded {
+        out.text(&format!("-{key}"), Some(value));
     }
     Ok(())
 }

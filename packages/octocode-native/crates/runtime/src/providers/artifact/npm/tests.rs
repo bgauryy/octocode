@@ -2,7 +2,6 @@ use super::registry::test_registry;
 use super::{
     ArtifactError, ArtifactProviderPage, NPM_INSTALL_JSON, RegistryClient, ResolvedNpmRegistry,
 };
-use crate::providers::artifact::ArtifactCache;
 use crate::providers::artifact::query::artifact_query;
 use crate::providers::artifact::test_http::test_budget;
 use crate::providers::artifact::test_http::{KnownTags, RouteHttp};
@@ -73,7 +72,7 @@ fn bundle(version: &str, repo: &str, digest: &[u8]) -> Value {
 
 async fn lookup(http: &RouteHttp, fields: Value) -> Result<ArtifactProviderPage, ArtifactError> {
     let budget = test_budget();
-    let client = RegistryClient::uncached(http, &budget);
+    let client = RegistryClient::new(http, &budget);
     let mut query = json!({"operation":"search","ecosystem": "npm"});
     for (key, value) in fields.as_object().expect("fields") {
         query[key] = value.clone();
@@ -231,7 +230,7 @@ async fn npm_without_a_recorded_commit_pins_the_upstream_release_tag() {
     let budget = test_budget();
     let client = RegistryClient {
         tags: Some(&tags),
-        ..RegistryClient::uncached(&http, &budget)
+        ..RegistryClient::new(&http, &budget)
     };
     let query = artifact_query(
         json!({"operation":"resolve","ecosystem": "npm", "packageName": "zod", "version": "3.25.76"}),
@@ -247,7 +246,7 @@ async fn npm_without_a_recorded_commit_pins_the_upstream_release_tag() {
     let with_head = routes(Vec::new());
     let client = RegistryClient {
         tags: Some(&tags),
-        ..RegistryClient::uncached(&with_head, &budget)
+        ..RegistryClient::new(&with_head, &budget)
     };
     let checks = tags.seen().len();
     let page = super::npm(&query, &Default::default(), &registry, &client, false)
@@ -264,7 +263,7 @@ async fn npm_without_a_recorded_commit_pins_the_upstream_release_tag() {
     let tag_only = KnownTags::new(vec!["colinhacks/zod@v3.25.76"]);
     let client = RegistryClient {
         tags: Some(&tag_only),
-        ..RegistryClient::uncached(&with_head, &budget)
+        ..RegistryClient::new(&with_head, &budget)
     };
     let page = super::npm(&query, &Default::default(), &registry, &client, false)
         .await
@@ -275,10 +274,9 @@ async fn npm_without_a_recorded_commit_pins_the_upstream_release_tag() {
 }
 
 /// A range reads the abbreviated packument for its version list only:
-/// that view (registry order, `latest`) is what is decoded and cached,
-/// so a repeat resolves without the registry.
+/// that view retains registry order and `latest`, without full manifests.
 #[tokio::test]
-async fn a_range_caches_only_the_version_view_of_the_packument() {
+async fn a_range_decodes_only_the_current_version_view_of_the_packument() {
     let view = super::version_view(
         br#"{"name":"zod","dist-tags":{"latest":"4.6.5","next":"5.0.0-beta"},
         "versions":{"3.22.0":{"dist":{"x":[1,2]}},"10.0.0":{},"4.6.5":{}},"modified":"x"}"#,
@@ -289,12 +287,8 @@ async fn a_range_caches_only_the_version_view_of_the_packument() {
         json!({"versions": ["3.22.0", "10.0.0", "4.6.5"], "latest": "4.6.5"})
     );
     let http = routes(vec![("/zod/latest", JSON, manifest("4.6.5", false))]);
-    let cache = ArtifactCache::new(None);
     let budget = test_budget();
-    let client = RegistryClient {
-        cache: Some(&cache),
-        ..RegistryClient::uncached(&http, &budget)
-    };
+    let client = RegistryClient::new(&http, &budget);
     let query = artifact_query(
         json!({"operation":"resolve","ecosystem": "npm", "packageName": "zod", "version": "^3"}),
         None,
@@ -306,7 +300,11 @@ async fn a_range_caches_only_the_version_view_of_the_packument() {
             .expect("range");
         assert_eq!(page.artifacts[0].version.as_deref(), Some("3.25.76"));
     }
-    assert_eq!(http.seen().len(), 2, "packument and manifest once each");
+    assert_eq!(
+        http.seen().len(),
+        4,
+        "each call reads its packument and manifest"
+    );
 }
 
 /// `dependencies` lists the required ones as `name@range`: npm repeats

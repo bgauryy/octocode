@@ -1,11 +1,9 @@
-//! Requests a search sends or refuses: invalid refs and globs before any request, one request for identical searches.
+//! Requests a search sends or refuses: invalid refs and globs before any request, independent identical searches.
 use super::*;
 
-/// Identical searches in one batch share one request: the second waits for
-/// the first and reads the page it stored, so the duplicate spends no
-/// code-search quota.
+/// Identical searches each ask GitHub for the current result.
 #[tokio::test]
-async fn identical_concurrent_searches_send_one_request() {
+async fn identical_concurrent_searches_send_independent_requests() {
     let server = MockServer::builder().start().await;
     let search = Delayed::new(
         Duration::from_millis(200),
@@ -21,8 +19,7 @@ async fn identical_concurrent_searches_send_one_request() {
         .respond_with(search.clone())
         .mount(&server)
         .await;
-    let mut provider = one_shot_provider(&server);
-    provider.transport.cache = std::sync::Arc::new(MemoryCache::default());
+    let provider = one_shot_provider(&server);
     let query: GhSearchCodeQuery = serde_json::from_value(json!({
         "owner":"a","repo":"b","keywords":["app"],"matchIn":["path"]
     }))
@@ -37,7 +34,11 @@ async fn identical_concurrent_searches_send_one_request() {
         first.expect("first").data["files"],
         second.expect("second").data["files"]
     );
-    assert_eq!(search.arrivals.count(), 1, "one GET /search/code");
+    assert_eq!(
+        search.arrivals.count(),
+        2,
+        "independent GET /search/code requests"
+    );
 }
 
 #[test]

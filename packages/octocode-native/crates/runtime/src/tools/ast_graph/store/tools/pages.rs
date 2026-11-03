@@ -1,12 +1,17 @@
 //! State an answer's typed continuations as executable calls on the public
 //! row: `next.<channel>` for continued work, `related` for leads.
 use super::*;
+use crate::id::ToolId;
 use serde_json::Map;
 
 /// The call that resumes `row`, the request this answer serves, at `resume`.
 fn next(row: &Value, id: &str, resume: &Resume) -> Value {
     let mut request = match resume {
-        Resume::Row { offset, list, cycle } => {
+        Resume::Row {
+            offset,
+            list,
+            cycle,
+        } => {
             let mut request = row.clone();
             request["offset"] = json!(offset);
             if let Some(list) = list {

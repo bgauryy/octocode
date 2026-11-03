@@ -22,7 +22,10 @@ pub(super) fn build_continuation(
     let schema = &contract["inputSchema"];
     let maximum = crate::contracts::property_schemas(schema, &schema["$defs"], "cursor")
         .iter()
-        .filter_map(|field| field["maxLength"].as_u64())
+        .filter_map(|field| {
+            crate::contracts::schema_keyword(field, &schema["$defs"], "maxLength")
+                .and_then(Value::as_u64)
+        })
         .max()?;
     // Plan for the issuer's exact wire shape; maxLength is an admission bound,
     // not the size of a handle. Publication replaces only the placeholder's value.

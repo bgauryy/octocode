@@ -102,11 +102,9 @@ async fn rejected_stored_token_falls_back_to_gh_on_the_next_request() {
     assert_eq!(next.token(), "gh-token");
     assert_eq!(next.source_label(), "gh-cli");
 }
-/// A stored token remembered while fresh is selected again once it
-/// expires: an expired memo entry is a miss, so the next request reloads and
-/// refreshes instead of sending the expired token until GitHub rejects it.
+/// Every request reloads the stored token and refreshes it when due.
 #[tokio::test]
-async fn memoized_stored_credential_refreshes_once_it_expires() {
+async fn stored_credential_refreshes_once_it_expires() {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -126,7 +124,7 @@ async fn memoized_stored_credential_refreshes_once_it_expires() {
         .unwrap()
         .unwrap();
     assert_eq!(first.token(), "stored-token");
-    // Three seconds on: past the refresh time, still inside the memo TTL.
+    // Three seconds on: past the refresh time.
     auth.now = || std::time::SystemTime::now() + Duration::from_secs(3);
     let next = auth
         .resolve_with("github.com", AuthMode::Request, &budget, &backend)
@@ -165,9 +163,10 @@ async fn rejected_expired_stored_token_refreshes() {
 #[tokio::test]
 async fn saved_response_inspection_rejects_known_rejected_credentials_and_honors_budget() {
     let auth = authentication(Some("env-token"));
+    let backend = Backend::new(None);
     let credential = ResolvedCredential::new("env-token", CredentialSource::Environment);
     let first = auth
-        .inspect_response_identity("github.com", &budget())
+        .inspect_identity_with("github.com", &budget(), &backend)
         .await
         .unwrap();
     assert_eq!(
@@ -176,13 +175,13 @@ async fn saved_response_inspection_rejects_known_rejected_credentials_and_honors
     );
     auth.reject("github.com", Some(&credential));
     let rejected = auth
-        .inspect_response_identity("github.com", &budget())
+        .inspect_identity_with("github.com", &budget(), &backend)
         .await
         .unwrap_err();
     assert_eq!(rejected.kind, ProviderErrorKind::Authentication);
     let expired = RequestBudget::with_timeout(Duration::ZERO, 1024);
     assert!(
-        auth.inspect_response_identity("github.com", &expired)
+        auth.inspect_identity_with("github.com", &expired, &backend)
             .await
             .is_err()
     );

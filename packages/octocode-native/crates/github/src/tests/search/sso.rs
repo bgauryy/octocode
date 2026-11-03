@@ -49,8 +49,7 @@ async fn a_search_partly_withheld_by_saml_names_the_organizations_and_is_not_cac
         .expect(4)
         .mount(&server)
         .await;
-    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
-    transport.cache = Arc::new(PartitionedCache::default());
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let context = with_token("t", Duration::from_secs(5), 1 << 20);
     for _ in 0..2 {
         let page = transport

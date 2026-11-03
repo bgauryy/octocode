@@ -81,8 +81,6 @@ node examples/filesystem-cli.ts /allowed/dir read_text_file --path /allowed/dir/
 
 `filesystem-cli.ts` requires the allowed directory as its first argument. The server can access only that directory. A filesystem tool result prints as `key: value` lines or a table when the server returns structured content. `--json` prints the full result object.
 
-`yarn workspace octocode-mcp-cli test:servers` runs the same two servers.
-
 ## Add a command
 
 ```ts

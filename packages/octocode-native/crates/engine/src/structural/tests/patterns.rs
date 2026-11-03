@@ -259,3 +259,16 @@ fn a_named_root_pattern_is_a_declaration() {
     assert_eq!(pattern_declaration("std::chrono::seconds", "cpp"), None);
     assert_eq!(pattern_declaration("fn ???", "rs"), None);
 }
+
+/// A declaration pattern that spells no body parses as the grammar's
+/// smaller form of the declaration (a signature), which matches none of
+/// the definitions: the declaration names the fuller kinds it leaves out.
+#[test]
+fn a_bodiless_pattern_names_the_fuller_declaration_kinds() {
+    let signature = pattern_declaration("fn $N($$$A)", "rs").expect("signature");
+    assert_eq!(signature.kind, "function_signature_item");
+    assert_eq!(signature.fuller_kinds, ["function_item"]);
+    let definition = pattern_declaration("fn $N($$$A) { $$$ }", "rs").expect("definition");
+    assert_eq!(definition.kind, "function_item");
+    assert!(definition.fuller_kinds.is_empty(), "{definition:?}");
+}

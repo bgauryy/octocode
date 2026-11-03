@@ -1,12 +1,12 @@
 //! Row shape: receipts, block reads and zero-byte files.
 use super::*;
 
-/// Freshness is a receipt: a `receipts` read's first page (offset 0)
-/// states when the file last changed and by whom, for one commits
-/// request sent after the body arrived; a default read, a later page and
-/// a failed read send none.
+/// Freshness is a receipt: a read's first page (offset 0) states when the
+/// file last changed and by whom, for one request sent beside the body
+/// (so a read that then fails on the fetched body spent it); a later page
+/// sends none.
 #[tokio::test]
-async fn a_receipts_first_page_states_the_last_change_for_one_extra_request() {
+async fn a_first_page_states_the_last_change_for_one_concurrent_request() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     let body: String = (1..=40).map(|i| format!("line {i}\n")).collect();
@@ -32,7 +32,9 @@ async fn a_receipts_first_page_states_the_last_change_for_one_extra_request() {
                 "p0":{"nodes":[{"committedDate":"2026-01-02T00:00:00Z",
                     "author":{"name":"Ada","user":{"login":"ada-l"}}}]}}}}}
         )))
-        .expect(1)
+        // The stamped first page and the first page whose body then fails;
+        // the later page sends none.
+        .expect(2)
         .mount(&server)
         .await;
     let provider = mock_provider(&server, RetryPolicy::default());
@@ -43,8 +45,8 @@ async fn a_receipts_first_page_states_the_last_change_for_one_extra_request() {
         Some("2026-01-02T00:00:00Z")
     );
     assert_eq!(stamped.file.last_modified_by.as_deref(), Some("ada-l"));
-    // A read that fails on the fetched body (a range past its end)
-    // spends no receipts request (the mock expects exactly one).
+    // A read that fails on the fetched body (a range past its end) states
+    // no stamp, though its request travelled with the body.
     let mut failed = base.clone();
     failed["ranges"] = json!([{"startLine":100,"endLine":120}]);
     let failed = read(&provider, failed).await;
@@ -77,6 +79,55 @@ async fn a_receipts_first_page_states_the_last_change_for_one_extra_request() {
                     .is_some_and(|q| q.contains("missing.txt"))
         }),
         "a failed read asked for its timestamp: {requests:?}"
+    );
+}
+
+/// The timestamp request is independent of the body (both need only the
+/// resolved SHA): a first page costs the slower of the two, not their sum.
+#[tokio::test]
+async fn the_timestamp_request_runs_beside_the_contents_read() {
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let delay = Duration::from_millis(400);
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/a.txt"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(
+                    json!({"type":"file","encoding":"base64","content":STANDARD.encode("hi\n")}),
+                )
+                .set_delay(delay),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(
+                    json!({"data":{"repository":{"object":{"committedDate":"2026-01-03T00:00:00Z",
+                    "p0":{"nodes":[{"committedDate":"2026-01-02T00:00:00Z",
+                        "author":{"name":"Ada","user":{"login":"ada-l"}}}]}}}}}),
+                )
+                .set_delay(delay),
+        )
+        .mount(&server)
+        .await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let started = std::time::Instant::now();
+    let stamped = read(
+        &provider,
+        json!({"owner":"a","repo":"b","path":"a.txt","ref":sha}),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    assert_eq!(
+        stamped.file.last_modified.as_deref(),
+        Some("2026-01-02T00:00:00Z")
+    );
+    assert!(
+        elapsed < delay * 2,
+        "the two reads ran one after the other: {elapsed:?}"
     );
 }
 

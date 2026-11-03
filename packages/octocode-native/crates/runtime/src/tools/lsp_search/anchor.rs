@@ -6,18 +6,7 @@ use crate::tools::lsp_search::lsp_search_query;
 use octocode_contract_types::LspSearchQuery;
 use octocode_engine::lsp::resolver::resolve_position_in_file_content;
 use octocode_engine::lsp::types::{LspFuzzyPosition, LspResolvedSymbol};
-use octocode_io::memo::{Memo, MemoLimits};
 use serde_json::{Value, json};
-
-/// Symbol anchors resolved per `(path, name, line, occurrence, source
-/// text)`: resolution is a pure function of them (a parse past its budget
-/// is an error, never stored), and a warm repeat skips the parse. The 256
-/// most recently used are kept.
-static RESOLVED: Memo<[u8; 32], LspResolvedSymbol> = Memo::new(MemoLimits {
-    max_entries: 256,
-    max_weight: 256,
-    keep_newest: false,
-});
 
 /// A resolved anchor: zero-based LSP `line`/`character` for the server, and
 /// the public receipt (one-based) when the operation is anchored.
@@ -138,7 +127,7 @@ fn qualified_at(line: &str, column: u32, name: &str) -> Option<String> {
         .char_indices()
         .scan(0_u32, |units, (byte, ch)| {
             let start = *units;
-            *units += crate::num::u32_of_usize(ch.len_utf16());
+            *units += octocode_engine::num::saturating_u32(ch.len_utf16());
             Some((byte, start))
         })
         .find(|(_, start)| *start == column)
@@ -165,36 +154,6 @@ fn qualified_at(line: &str, column: u32, name: &str) -> Option<String> {
 /// first so a repeated member on the line resolves inside that expression;
 /// when it is not spelled contiguously the bare member is resolved instead.
 fn resolve_symbol(
-    path: &str,
-    source: &str,
-    name: &str,
-    line_hint: Option<u32>,
-    occurrence: Option<u32>,
-) -> Result<LspResolvedSymbol, String> {
-    let key: [u8; 32] = {
-        use sha2::{Digest, Sha256};
-        let mut digest = Sha256::new();
-        // The source is hashed in place, never copied into the key.
-        for part in [
-            path,
-            name,
-            &format!("{line_hint:?}\u{0}{occurrence:?}"),
-            source,
-        ] {
-            digest.update((part.len() as u64).to_le_bytes());
-            digest.update(part.as_bytes());
-        }
-        digest.finalize().into()
-    };
-    if let Some(hit) = RESOLVED.get(&key) {
-        return Ok(hit.value.as_ref().clone());
-    }
-    let resolved = resolve_symbol_in(path, source, name, line_hint, occurrence)?;
-    RESOLVED.insert(key, resolved.clone(), 1, None);
-    Ok(resolved)
-}
-
-fn resolve_symbol_in(
     path: &str,
     source: &str,
     name: &str,
@@ -292,7 +251,7 @@ fn qualifier_width(resolved: &LspResolvedSymbol, name: &str, member_start: usize
     let spelled: Vec<u16> = name.encode_utf16().collect();
     line.get(column..)?
         .starts_with(&spelled)
-        .then(|| crate::num::u32_of_usize(name[..member_start].encode_utf16().count()))
+        .then(|| octocode_engine::num::saturating_u32(name[..member_start].encode_utf16().count()))
 }
 
 #[cfg(test)]
@@ -362,7 +321,7 @@ mod tests {
             "impl<T: Clone> std::fmt::Debug for Wrap<T>",
             "Debug for Wrap",
         ] {
-            let resolved = resolve_symbol_in("/a.rs", source, name, Some(2), None)
+            let resolved = resolve_symbol("/a.rs", source, name, Some(2), None)
                 .unwrap_or_else(|error| panic!("{name}: {error}"));
             assert_eq!(
                 (resolved.found_at_line, resolved.position.character),
@@ -370,8 +329,8 @@ mod tests {
                 "{name}"
             );
         }
-        let inherent = resolve_symbol_in("/a.rs", source, "impl Wrap<u8>", Some(3), None)
-            .expect("inherent impl");
+        let inherent =
+            resolve_symbol("/a.rs", source, "impl Wrap<u8>", Some(3), None).expect("inherent impl");
         assert_eq!(
             (inherent.found_at_line, inherent.position.character),
             (3, 5)

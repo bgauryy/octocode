@@ -141,3 +141,54 @@ fn a_streamed_source_with_a_late_nul_is_binary() {
     let result = fetch(&file, &query(serde_json::json!({"path":file.path()})), None);
     assert_eq!(result.error_code, Some(ErrorCode::BinaryFileUnsupported));
 }
+
+/// Walking every emitted continuation of a read whose giant private-key body
+/// line sits across the window edge joins into the independently sanitized
+/// source exactly once: no gap, no duplicate, no key byte.
+#[test]
+fn a_walk_across_a_giant_key_body_reconstructs_the_sanitized_source_once() {
+    let mut text = "x".repeat(2 * BYTE_LOOKBEHIND + 17);
+    text.push_str("\r\n-----BEGIN PRIVATE KEY-----\r\n");
+    text.push_str(&"A".repeat(2 * BYTE_LOOKBEHIND + 5));
+    text.push_str("\r\n-----END PRIVATE KEY-----\r\n\r\n");
+    text.push_str(&"€".repeat(BYTE_LOOKBEHIND));
+    let mut keys = crate::security::KeyBlockState::default();
+    let expected: String = text
+        .split_inclusive('\n')
+        .map(|line| {
+            if keys.push_line(line.trim_end_matches(['\r', '\n'])) {
+                format!("{}\n", crate::security::key_fragment_placeholder())
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect();
+    let file = temp(text.as_bytes());
+    let mut call = query(serde_json::json!({"path":file.path()}));
+    let (mut joined, mut pages) = (String::new(), 0);
+    loop {
+        let page = fetch(&file, &call, Some(2 * WINDOW_BYTES));
+        assert_eq!(page.error_code, None, "page {pages}");
+        joined.push_str(page.content.as_deref().expect("content"));
+        pages += 1;
+        assert!(pages < 20, "runaway paging");
+        match page.next.and_then(|next| next.continue_window) {
+            Some(next) => {
+                crate::contracts::prepare_many_built(
+                    "localFetch",
+                    serde_json::json!({"queries":[&next.query]}),
+                )
+                .expect("canonical continuation");
+                call = next.query;
+            }
+            None => break,
+        }
+    }
+    assert!(!joined.contains("AAAA"));
+    assert!(
+        joined == expected,
+        "walk of {pages} pages: {} bytes, expected {}",
+        joined.len(),
+        expected.len()
+    );
+}

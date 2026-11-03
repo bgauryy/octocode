@@ -8,26 +8,23 @@ use pages::discovery_page;
 pub(crate) use pages::last_reachable_page;
 
 use crate::providers::artifact::{
-    ArtifactCache, ArtifactError, ArtifactProviderContext, ArtifactProviderPage, ReleaseTags,
-    SystemArtifactHttp, execute_artifact, github_repository, github_slug, invalid_registry_url,
+    ArtifactError, ArtifactProviderContext, ArtifactProviderPage, ReleaseTags, SystemArtifactHttp,
+    execute_artifact, github_repository, github_slug, invalid_registry_url,
 };
 use crate::response::paging;
 use octocode_io::budget::RequestBudget;
+use octocode_io::cancellation::Cancellation;
 use serde_json::{Value, json};
 use std::time::Instant;
-use tokio_util::sync::CancellationToken;
 
 use crate::providers::artifact::{ArtifactItem, ResolvedNpmRegistry};
 
 /// What one call takes from the runtime besides its query.
 pub struct ArtifactCall<'a> {
     pub deadline: Instant,
-    pub cancellation: CancellationToken,
+    pub cancellation: Cancellation,
     /// Opt-in escape hatch for the npm registry SSRF guard (`network`).
     pub allow_private_registry: bool,
-    /// The runtime's registry cache; `None` (non-persistent storage)
-    /// bypasses it.
-    pub cache: Option<&'a ArtifactCache>,
     /// The runtime's network timeout: each call's request budget, within its
     /// deadline.
     pub timeout: std::time::Duration,
@@ -58,7 +55,6 @@ pub async fn execute(
             budget: &budget,
             npm_registry: npm_registry.as_ref(),
             allow_private_registry: call.allow_private_registry,
-            cache: call.cache,
             tags: call.tags,
         },
     )
@@ -80,11 +76,9 @@ fn npm_registry(
     let mut registry = match artifact_search_query::registry_url(query) {
         Some(raw) => {
             let base = url::Url::parse(raw).map_err(|_| invalid_registry_url())?;
-            let cache_identity = base.host_str().unwrap_or("npm").to_owned();
             ResolvedNpmRegistry {
                 base,
                 authorization: None,
-                cache_identity,
             }
         }
         None => ResolvedNpmRegistry::npmjs(),
@@ -254,9 +248,8 @@ fn typed(query: &Value) -> ArtifactSearchQuery {
 fn call(deadline: Instant, allow_private_registry: bool) -> ArtifactCall<'static> {
     ArtifactCall {
         deadline,
-        cancellation: CancellationToken::new(),
+        cancellation: Cancellation::new(),
         allow_private_registry,
-        cache: None,
         timeout: std::time::Duration::from_secs(300),
         max_retries: 1,
         tags: None,

@@ -3,21 +3,51 @@
 use super::rows::{is_completed, is_merged, item_number, item_repo, read_target};
 use super::{GhSearchHistoryQuery, HistorySearch};
 use crate::id::ToolId;
-use crate::response::result::{Continuation, query_row};
+use crate::response::result::wire_query;
+use crate::response::result::{Continuation, edited_query, query_row};
 use crate::tools::gh_search_history::gh_search_history_query;
 use crate::tools::leads::broaden::{Broaden, broaden};
+use octocode_contract_types::GhGetHistoryItemQuery;
 use serde_json::{Value, json};
 
-/// The default PR read: body and the patch-free file inventory.
-pub(super) fn pr_read_query(owner: &str, repo: &str, number: u64) -> Value {
+/// The default PR read as a wire row: body and the patch-free file inventory.
+fn pr_read_row(owner: &str, repo: &str, number: u64) -> Value {
     json!({"operation":"pullRequest","owner":owner,"repo":repo,"number":number,
         "sections":["body","files"]})
 }
 
+/// The default PR read: body and the patch-free file inventory.
+pub(super) fn pr_read_query(owner: &str, repo: &str, number: u64) -> Option<GhGetHistoryItemQuery> {
+    wire_query(pr_read_row(owner, repo, number))
+}
+
 /// The issue body and discussion.
-pub(super) fn issue_read_query(owner: &str, repo: &str, number: u64) -> Value {
-    json!({"operation":"issue","owner":owner,"repo":repo,"number":number,
-        "sections":["body","comments"]})
+pub(super) fn issue_read_query(
+    owner: &str,
+    repo: &str,
+    number: u64,
+) -> Option<GhGetHistoryItemQuery> {
+    wire_query(
+        json!({"operation":"issue","owner":owner,"repo":repo,"number":number,
+        "sections":["body","comments"]}),
+    )
+}
+
+/// This search with `changes` applied ([`edited_query`]); a change the
+/// contract rejects yields no lead (debug and test builds panic).
+#[track_caller]
+fn edited(q: &GhSearchHistoryQuery, changes: &Value) -> Option<GhSearchHistoryQuery> {
+    match edited_query(q, changes) {
+        Ok(edited) => Some(edited),
+        Err(error) => {
+            debug_assert!(
+                false,
+                "an edited history search breaks its contract at {}: {error}",
+                std::panic::Location::caller()
+            );
+            None
+        }
+    }
 }
 
 /// Rows in GitHub's relevance order: a keyword search without an explicit
@@ -42,11 +72,7 @@ pub(super) fn read_pull_request(q: &GhSearchHistoryQuery, items: &[Value]) -> Op
         .map(|(owner, repo)| (owner.to_owned(), repo.to_owned()))
         .or_else(|| item_repo(&items[target]))?;
     let number = item_number(&items[target])?;
-    let read = Continuation::related(
-        ToolId::GhGetHistoryItem,
-        pr_read_query(&owner, &repo, number),
-    );
-    Some(read.build())
+    Some(Continuation::related_query(pr_read_query(&owner, &repo, number)?).build())
 }
 
 /// The PR a commit row's `(#N)` headline names: the first such row's read,
@@ -58,24 +84,21 @@ pub(super) fn read_commit_pull_request(q: &GhSearchHistoryQuery, rows: &[Value])
             .and_then(Value::as_str)
             .and_then(crate::tools::gh_shared::commit::headline_pull_request)
     })?;
-    let mut read = pr_read_query(owner, repo, number);
+    let mut read = pr_read_row(owner, repo, number);
     if let Some(path) = gh_search_history_query::path(q) {
         read["include"] = json!([path]);
     }
-    Some(Continuation::related(ToolId::GhGetHistoryItem, read).build())
+    Some(Continuation::related_query(wire_query::<GhGetHistoryItemQuery>(read)?).build())
 }
 
 /// The PR holding a commit no headline names: issue search matches PRs
 /// by commit SHA (the first row's; any other row's SHA runs the same search).
 pub(super) fn find_commit_pull_request(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> {
     let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
-    Some(
-        Continuation::related(
-            ToolId::GhSearchHistory,
-            json!({"operation":"pullRequest","owner":owner,"repo":repo,"keywords":[sha]}),
-        )
-        .build(),
-    )
+    let search = wire_query::<GhSearchHistoryQuery>(
+        json!({"operation":"pullRequest","owner":owner,"repo":repo,"keywords":[sha]}),
+    )?;
+    Some(Continuation::related_query(search).build())
 }
 
 /// The issue read: a completed issue first.
@@ -83,13 +106,7 @@ pub(super) fn read_issue(q: &GhSearchHistoryQuery, items: &[Value]) -> Option<Va
     let target = read_target(items, is_completed)?;
     let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
     let number = item_number(&items[target])?;
-    Some(
-        Continuation::related(
-            ToolId::GhGetHistoryItem,
-            issue_read_query(owner, repo, number),
-        )
-        .build(),
-    )
+    Some(Continuation::related_query(issue_read_query(owner, repo, number)?).build())
 }
 
 /// The first commit's patches, scoped to the listed path in the read's
@@ -102,7 +119,7 @@ pub(super) fn read_commit(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> 
     if let Some(path) = gh_search_history_query::path(q) {
         read["include"] = json!([path]);
     }
-    Some(Continuation::related(ToolId::GhGetHistoryItem, read).build())
+    Some(Continuation::related_query(wire_query::<GhGetHistoryItemQuery>(read)?).build())
 }
 
 /// A PR search whose keywords are one bare issue number (`13786`, `#13786`)
@@ -118,13 +135,10 @@ pub(super) fn issue_links_read(q: &GhSearchHistoryQuery) -> Option<Value> {
         .parse::<u64>()
         .ok()
         .filter(|n| *n > 0)?;
-    Some(
-        Continuation::related(
-            ToolId::GhGetHistoryItem,
-            json!({"operation":"issue","owner":owner,"repo":repo,"number":number}),
-        )
-        .build(),
-    )
+    let read = wire_query::<GhGetHistoryItemQuery>(
+        json!({"operation":"issue","owner":owner,"repo":repo,"number":number}),
+    )?;
+    Some(Continuation::related_query(read).build())
 }
 
 /// The same query as a wire row without `page`, the base of every
@@ -138,8 +152,8 @@ fn same_query(q: &GhSearchHistoryQuery) -> Value {
 /// when nothing would scope the search without them: no owner, repository,
 /// keyword or other qualifier).
 pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
-    let mut row = same_query(q);
-    let filters = row.get_mut("filters")?.as_object_mut()?;
+    let mut filters = same_query(q).get_mut("filters")?.take();
+    let filters = filters.as_object_mut()?;
     let mut removed = false;
     for key in [
         "author",
@@ -155,17 +169,21 @@ pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
     if !removed {
         return None;
     }
-    if filters.is_empty() {
-        row.as_object_mut()?.remove("filters");
-    }
-    Some(Continuation::related(ToolId::GhSearchHistory, row).build())
+    let filters = if filters.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(std::mem::take(filters))
+    };
+    let search = edited(q, &json!({"page": null, "filters": filters}))?;
+    Some(Continuation::related_query(search).build())
 }
 
 /// Result page `page` of the same query.
-pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize) -> Value {
-    let mut next = same_query(q);
-    next["page"] = json!(page);
-    Continuation::continued(ToolId::GhSearchHistory, next).build()
+pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize) -> Option<Continuation> {
+    Some(Continuation::continued_query(edited(
+        q,
+        &json!({"page": page}),
+    )?))
 }
 
 /// An empty search, broadened ([`broaden`]): drop `filters` and `pathPrefix`
@@ -218,7 +236,13 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
     match sort.as_deref() {
         Some("committer-date") => {
             let date = last(&["/commit/committer/date", "/commit/author/date"])?;
-            row["filters"]["committedAt"]["to"] = json!(date);
+            let selection = &mut row["filters"]["committedAt"];
+            let mut range = selection
+                .pointer("/include/0")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            range["to"] = json!(date);
+            selection["include"] = json!([range]);
         }
         Some("created" | "updated") => {
             let (field, pointer) = if sort.as_deref() == Some("created") {
@@ -245,5 +269,5 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
         json!({ "queries": [row] }),
     )
     .ok()?;
-    Some(Continuation::related(ToolId::GhSearchHistory, row).build())
+    Some(Continuation::related_query(wire_query::<GhSearchHistoryQuery>(row)?).build())
 }

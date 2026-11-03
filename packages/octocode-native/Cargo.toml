@@ -65,6 +65,10 @@ dead_code = "deny"
 unused_imports = "deny"
 unused_variables = "deny"
 unused_mut = "deny"
+# A public item never exposes a more private type: fail the ordinary build,
+# not only the Clippy gate.
+private_interfaces = "deny"
+private_bounds = "deny"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }

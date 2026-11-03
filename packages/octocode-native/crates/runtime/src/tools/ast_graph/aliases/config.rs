@@ -37,7 +37,7 @@ pub(crate) fn read_config_text(
     security
         .validate_text_bytes(&bytes, Some(&validated.canonical), MAX_CONFIG_BYTES)
         .ok()
-        .map(|safe| safe.content)
+        .map(|safe| safe.content.into_owned())
 }
 
 pub(super) struct ConfigReader<'a> {

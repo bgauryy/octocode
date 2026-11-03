@@ -53,6 +53,31 @@ fn user_rust_analyzer_options_win_over_headless_defaults() {
     assert_eq!(options.pointer("/checkOnSave"), Some(&json!(false)));
 }
 
+/// tsgo runs `npm install` for an inferred project unless a
+/// `workspace/configuration` section turns its typing acquisition off:
+/// `initializationOptions` alone, or typescript-language-server's spelling,
+/// leaves it on. The client answers a section from these options.
+#[test]
+fn tsgo_starts_without_network_typing_acquisition() {
+    let mut config = crate::lsp::types::LspLanguageServerConfig {
+        command: "/opt/bin/tsgo".to_owned(),
+        args: None,
+        workspace_root: "/w".to_owned(),
+        language_id: Some("typescript".to_owned()),
+        initialization_options: Some(json!({"js/ts": {"userKey": 1}})),
+        env: None,
+        max_memory_mb: None,
+        source: Default::default(),
+    };
+    crate::lsp::config::apply_server_default_options(&mut config, None);
+    let options = config.initialization_options.expect("options");
+    assert_eq!(
+        options.pointer("/js~1ts/disableAutomaticTypeAcquisition"),
+        Some(&json!(true))
+    );
+    assert_eq!(options.pointer("/js~1ts/userKey"), Some(&json!(1)));
+}
+
 #[test]
 fn server_defaults_touch_only_rust_analyzer_and_are_idempotent() {
     let mut config = crate::lsp::types::LspLanguageServerConfig {

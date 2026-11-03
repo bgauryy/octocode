@@ -60,42 +60,49 @@ function indentOf(depth: number): string {
   return ' '.repeat(10 + depth * 2);
 }
 
-export function outlineLines(schema: JsonSchema, root: JsonSchema, prefix: string, depth = 0): string[] {
-  if (depth > 6) return [];
+interface OutlineContext { depth: number; ancestors: ReadonlySet<JsonSchema> }
+
+export function outlineLines(schema: JsonSchema, root: JsonSchema, prefix: string,
+  context: OutlineContext = { depth: 0, ancestors: new Set() }): string[] {
+  const { depth, ancestors } = context;
   const resolved = deref(root, schema);
+  if (ancestors.has(resolved)) return [`${indentOf(depth)}${prefix}(recursive)`];
+  const seen = new Set(ancestors).add(resolved);
   const alternatives = [...schemaList(resolved.anyOf), ...schemaList(resolved.oneOf)];
-  if (alternatives.length > 1) {
-    return alternatives.flatMap((branch, index) => [
-      `${indentOf(depth)}${prefix}shape ${index + 1}`,
-      ...fieldLines(branch, root, prefix, depth),
-    ]);
+  if (alternatives.length > 0) {
+    return alternatives.flatMap((branch, index) => {
+      const part = deref(root, branch);
+      const merged = { ...resolved, ...part,
+        properties: { ...asSchema(resolved.properties), ...asSchema(part.properties) },
+        required: [...new Set([...(Array.isArray(resolved.required) ? resolved.required : []),
+          ...(Array.isArray(part.required) ? part.required : [])])],
+      };
+      return [
+        `${indentOf(depth)}${prefix}shape ${index + 1}`,
+        ...fieldLines(merged, root, prefix, { depth, ancestors: seen }),
+      ];
+    });
   }
-  return fieldLines(alternatives[0] ?? resolved, root, prefix, depth);
+  return fieldLines(resolved, root, prefix, { depth, ancestors: seen });
 }
 
-function nestedLines(schema: JsonSchema, root: JsonSchema, depth: number): string[] {
-  if (schema.type === 'object' || asSchema(schema.properties)) return fieldLines(schema, root, '', depth + 1);
-  if (schema.type === 'array') {
-    const items = asSchema(schema.items);
-    const item = items ? deref(root, items) : undefined;
-    if (item && (item.type === 'object' || asSchema(item.properties) || item.anyOf || item.oneOf)) {
-      return fieldLines(schema, root, '', depth + 1);
-    }
+function nestedLines(schema: JsonSchema, root: JsonSchema, depth: number, ancestors: ReadonlySet<JsonSchema>): string[] {
+  if (schema.type === 'object' || asSchema(schema.properties) || schema.anyOf || schema.oneOf) {
+    return outlineLines(schema, root, '', { depth: depth + 1, ancestors });
   }
-  const alternatives = [...schemaList(schema.anyOf), ...schemaList(schema.oneOf)];
-  if (alternatives.length > 1) return outlineLines(schema, root, '', depth + 1);
+  if (schema.type === 'array') return outlineLines(schema, root, '', { depth: depth + 1, ancestors });
   return [];
 }
 
-function fieldLines(schema: JsonSchema, root: JsonSchema, prefix: string, depth = 0): string[] {
-  if (depth > 6) return [];
+function fieldLines(schema: JsonSchema, root: JsonSchema, prefix: string, context: OutlineContext): string[] {
+  const { depth, ancestors } = context;
   const resolved = deref(root, schema);
   if (resolved.type === 'array') {
     const items = asSchema(resolved.items);
     if (!items) return [];
     const item = deref(root, items);
     if (item.type === 'object' || asSchema(item.properties) || item.anyOf || item.oneOf) {
-      return outlineLines(item, root, `${prefix}[ ].`, depth);
+      return outlineLines(item, root, `${prefix}[ ].`, { depth, ancestors });
     }
     const tail = schemaTail(resolved, false);
     return [`${indentOf(depth)}${prefix}${schemaWord(resolved)}${tail ? `   ${tail}` : ''}`];
@@ -112,7 +119,7 @@ function fieldLines(schema: JsonSchema, root: JsonSchema, prefix: string, depth 
     rows.push({
       head: word ? `${prefix}${key} ${word}` : `${prefix}${key}`,
       tail: schemaTail(resolvedChild, required.has(key)),
-      children: nestedLines(resolvedChild, root, depth),
+      children: nestedLines(resolvedChild, root, depth, ancestors),
     });
   }
   const rendered = aligned(rows.map(row => ({ head: row.head, tail: row.tail })), indentOf(depth));

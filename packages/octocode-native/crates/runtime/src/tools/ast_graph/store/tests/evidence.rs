@@ -57,7 +57,10 @@ fn repeated_call_sites_survive_topology_and_paging() {
         assert_eq!(&source[start..end], "target()");
         assert!(starts.insert(start), "same-line call ranges collapsed");
         assert!(identities.insert(row["id"].as_str().unwrap().to_owned()));
-        assert_eq!(crate::tools::ast_graph::test_support::next_offset(&page).is_some(), offset < 2);
+        assert_eq!(
+            crate::tools::ast_graph::test_support::next_offset(&page).is_some(),
+            offset < 2
+        );
     }
     let all = ask(&dir.0, "witnesses", Some("calls.ts"), |o| {
         o.edges = vec!["calls".into()];
@@ -81,10 +84,7 @@ fn unresolved_sites_are_attributable_and_empty_population_is_unavailable() {
         o.limit = Some(1);
         o.offset = Some(1);
     });
-    assert_ne!(
-        first.value["rows"][0]["id"],
-        second.value["rows"][0]["id"]
-    );
+    assert_ne!(first.value["rows"][0]["id"], second.value["rows"][0]["id"]);
     assert_eq!(first.value["rows"][0]["reason"], "not-declared-in-repo");
     assert_eq!(first.value["rows"][0]["evidence"], "syntax");
     for out in [&first, &second] {

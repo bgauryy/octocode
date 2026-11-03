@@ -19,7 +19,8 @@ async fn retired_jev_vendor_key_does_not_enable_clasify() {
         .await
         .expect("MCP response");
     assert_eq!(
-        response["structuredContent"]["errorCode"], "toolUnavailable",
+        crate::support::mcp_payload(&response)["errorCode"],
+        "toolUnavailable",
         "{response}"
     );
     assert!(
@@ -60,7 +61,8 @@ async fn public_clasify_requires_a_nonblank_key_regardless_of_beta() {
             .await
             .expect("MCP refusal");
         assert_eq!(
-            refused["structuredContent"]["errorCode"], "toolUnavailable",
+            crate::support::mcp_payload(&refused)["errorCode"],
+            "toolUnavailable",
             "{refused}"
         );
         let error = runtime
@@ -163,13 +165,9 @@ async fn cli_host_mcp_rejects_disabled_source(setting: (&str, String)) {
         server.received_requests().await.unwrap().is_empty(),
         "MCP reader restriction must reject before provider work: {response}"
     );
-    assert_eq!(
-        response["structuredContent"]["errorCode"], "invalidInput",
-        "{response}"
-    );
-    let error = response["structuredContent"]["error"]
-        .as_str()
-        .expect("public error");
+    let payload = crate::support::mcp_payload(&response);
+    assert_eq!(payload["errorCode"], "invalidInput", "{response}");
+    let error = payload["error"].as_str().expect("public error");
     assert!(error.contains("queries.0.source"), "{response}");
     assert!(error.contains("localFetch"), "{response}");
     assert!(error.contains(setting_name), "{response}");

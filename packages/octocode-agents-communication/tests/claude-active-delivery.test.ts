@@ -69,7 +69,7 @@ setInterval(() => { if (received && fs.existsSync(release)) finish(); }, 20);
   const recipient = ready.session;
   const call = jsonCall(binary, workspace, database, {stdio:'pipe'});
   const sender = call('join', {name:'reviewer',vendor:'raw'}).id;
-  const send = (body: string, wake = 'action') => call('send_message', {to:recipient,body,key:body,reasoning:'Verify native managed delivery',wake}, sender).id;
+  const send = (body: string, wake = 'action') => call('send_message', {parts: [{ text: body }], to:recipient,key:body,reasoning:'Verify native managed delivery',wake}, sender).id;
   const state = (message: number): JsonRecord | undefined => {
     const db = new DatabaseSync(database, {readOnly:true});
     try {

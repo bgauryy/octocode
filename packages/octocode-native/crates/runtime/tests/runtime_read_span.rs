@@ -154,7 +154,7 @@ async fn workspace_config_cannot_change_the_response_window() {
         )
         .await
         .expect("read");
-    let envelope = &mcp["structuredContent"];
+    let envelope = crate::support::mcp_payload(&mcp);
     let page = envelope.to_string().encode_utf16().count();
     assert!(page <= WINDOW + 1_000, "page {page} exceeds the constant");
     runtime.close().await;

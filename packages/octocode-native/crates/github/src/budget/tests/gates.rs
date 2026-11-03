@@ -8,17 +8,16 @@ async fn oauth_admission_holds_permits_and_honors_cancellation_and_shared_cooldo
         ..ExecutorConfig::relaxed()
     });
     let origin = Url::parse("https://api.github.com").expect("origin");
-    let cap = Duration::from_secs(1);
     let deadline = Instant::now() + Duration::from_secs(5);
-    let cancellation = CancellationToken::new();
+    let cancellation = Cancellation::new();
     let permit = budget
-        .admit_auth(&origin, cap, deadline, &cancellation)
+        .admit_auth(&origin, deadline, &cancellation)
         .await
         .expect("first admission");
-    let cancelled = CancellationToken::new();
+    let cancelled = Cancellation::new();
     cancelled.cancel();
     let error = budget
-        .admit_auth(&origin, cap, deadline, &cancelled)
+        .admit_auth(&origin, deadline, &cancelled)
         .await
         .err()
         .expect("cancelled while waiting for a permit");
@@ -26,7 +25,6 @@ async fn oauth_admission_holds_permits_and_honors_cancellation_and_shared_cooldo
     let error = budget
         .admit_auth(
             &origin,
-            cap,
             Instant::now() + Duration::from_millis(20),
             &cancellation,
         )
@@ -37,7 +35,7 @@ async fn oauth_admission_holds_permits_and_honors_cancellation_and_shared_cooldo
     drop(permit);
     drop(
         budget
-            .admit_auth(&origin, cap, deadline, &cancellation)
+            .admit_auth(&origin, deadline, &cancellation)
             .await
             .expect("permit released"),
     );
@@ -45,7 +43,7 @@ async fn oauth_admission_holds_permits_and_honors_cancellation_and_shared_cooldo
         .key_state(&LimiterKey::new("github.com", None), None)
         .cool_down(now_ms() + 60_000);
     let error = budget
-        .admit_auth(&origin, cap, deadline, &cancellation)
+        .admit_auth(&origin, deadline, &cancellation)
         .await
         .err()
         .expect("shared anonymous cooldown");

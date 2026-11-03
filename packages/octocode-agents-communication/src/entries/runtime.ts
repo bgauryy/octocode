@@ -21,7 +21,6 @@ export * as nativeIo from '../runtime/native-io.js';
 export * as ownerLock from '../runtime/owner-lock.js';
 export * as paths from '../runtime/paths.js';
 export * as peers from '../runtime/peers.js';
-export * as protocols from '../runtime/protocols.js';
 export * as proxy from '../runtime/proxy.js';
 export * as records from '../runtime/records.js';
 export * as registry from '../runtime/registry.js';

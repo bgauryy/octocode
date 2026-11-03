@@ -130,7 +130,12 @@ fn argument_evidence_pages_match_full_decode() {
                     include_provenance: true,
                     ..Default::default()
                 };
-                match run_with(&options, &workspace_policy(&dir.0), &NeverCancel, !full) {
+                let decode = if full {
+                    Decode::Full
+                } else {
+                    Decode::Selective
+                };
+                match run_with(&options, &workspace_policy(&dir.0), &NeverCancel, decode) {
                     Ok(out) | Err(out) => out,
                 }
             };
@@ -186,7 +191,11 @@ fn origin_pages_read_only_their_origin_blocks_and_match_full_decode() {
         let lazy = ask(&dir, "unresolved", "code.ts", offset, false);
         let full = ask(&dir, "unresolved", "code.ts", offset, true);
         assert_eq!(lazy.class, ExitClass::Success, "{}", lazy.value);
-        assert_eq!(lazy.value["pagination"]["totalItems"], 700, "{}", lazy.value);
+        assert_eq!(
+            lazy.value["pagination"]["totalItems"], 700,
+            "{}",
+            lazy.value
+        );
         assert!(
             lazy.value["rows"][0]["sourceOrigin"].is_object()
                 || lazy.value["rows"][0]["sourceOrigin"] == "identity",
@@ -272,12 +281,20 @@ fn grouped_callers_count_edges_per_file() {
             view: view.map(str::to_owned),
             ..Default::default()
         };
-        match run_with(&options, &workspace_policy(&dir.0), &NeverCancel, true) {
+        match run_with(
+            &options,
+            &workspace_policy(&dir.0),
+            &NeverCancel,
+            Decode::Selective,
+        ) {
             Ok(out) | Err(out) => out.value,
         }
     };
     let (edges, files) = (run(None), run(Some("files")));
     assert_eq!(files["pagination"]["totalItems"], 1, "{files}");
     assert_eq!(files["rows"][0]["file"], "code.ts", "{files}");
-    assert_eq!(files["rows"][0]["edges"], edges["pagination"]["totalItems"], "{files}");
+    assert_eq!(
+        files["rows"][0]["edges"], edges["pagination"]["totalItems"],
+        "{files}"
+    );
 }

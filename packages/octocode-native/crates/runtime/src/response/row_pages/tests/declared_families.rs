@@ -1,18 +1,18 @@
 use super::*;
 use crate::id::ToolId;
 use crate::tools::test_support::assert_row_contract;
+use octocode_io::cancellation::Cancellation;
 use std::collections::BTreeMap;
-use tokio_util::sync::CancellationToken;
 
 fn pages(tool: ToolId, data: Value) -> Vec<Value> {
     assert_row_contract(tool, &data);
     let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
-        .plan(700, &CancellationToken::new())
+        .plan(700, &Cancellation::new())
         .expect("valid plan");
     assert!(plan.total_pages > 1);
     (0..plan.total_pages)
         .flat_map(|page| {
-            plan.build_page(page, &[None], &[], &CancellationToken::new())
+            plan.build_page(page, &[None], &[], &Cancellation::new())
                 .expect("valid build_page")
         })
         .map(|row| {
@@ -47,14 +47,16 @@ fn take_records(target: &mut BTreeMap<String, Value>, source: &Value) {
 }
 
 #[test]
-fn clone_symlinks_page_once_with_sparse_scope_on_every_fragment() {
+fn clone_symlinks_and_sparse_scope_each_page_once() {
     let symlinks = names("link");
     let requested = json!(["src/a", "src/b"]);
     let data = json!({"bytes":123,"location":{"kind":"tree","localPath":"/workspace",
         "commitSha":"fixed","resolvedRef":"main","requestedPaths":requested,"symlinks":symlinks}});
     let mut seen = Vec::new();
+    let mut scopes = Vec::new();
     for row in pages(ToolId::GhCloneRepo, data) {
-        assert_eq!(row["location"]["requestedPaths"], requested);
+        // Evidence, not page context: whole, on the row's first part only.
+        scopes.extend(row["location"].get("requestedPaths").cloned());
         seen.extend(
             row["location"]["symlinks"]
                 .as_array()
@@ -64,6 +66,7 @@ fn clone_symlinks_page_once_with_sparse_scope_on_every_fragment() {
         );
     }
     assert_eq!(seen, symlinks);
+    assert_eq!(scopes, [requested]);
 }
 
 #[test]

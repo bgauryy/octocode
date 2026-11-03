@@ -144,7 +144,13 @@ export function parse(text) {
   return JSON.parse(json);
 }
 
-/** Workspace directories whose lint script runs oxlint; the package itself when it has no workspaces. */
+// The shared skills workspace runs its `lint:oxlint` from the skills/ folder, so that folder is its lint root.
+const LINT_ROOTS = { 'skills/common': 'skills' };
+
+/**
+ * The directories the workspaces' `lint:oxlint` scripts cover; the package itself when it has no workspaces.
+ * This is the repo's one oxlint run: repo-wide lint and verify run the workspaces' `lint:own` checks, not oxlint.
+ */
 function lintTargets() {
   const { workspaces } = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   if (!workspaces) return ['.'];
@@ -156,8 +162,9 @@ function lintTargets() {
     })
     .filter(dir => {
       const manifest = path.join(ROOT, dir, 'package.json');
-      return fs.existsSync(manifest) && /\boxlint\b/.test(JSON.parse(fs.readFileSync(manifest, 'utf8')).scripts?.lint ?? '');
-    });
+      return fs.existsSync(manifest) && JSON.parse(fs.readFileSync(manifest, 'utf8')).scripts?.['lint:oxlint'];
+    })
+    .map(dir => LINT_ROOTS[dir] ?? dir);
 }
 
 /** Runs oxlint with the root rules and no baseline over every workspace that lints with it. */

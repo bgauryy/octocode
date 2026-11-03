@@ -211,7 +211,7 @@ fn review_selection_packs_source_files_by_churn() {
         ]
     );
     // A tight budget leads with the files that fit whole; the larger
-    // ones follow (read through continuePatch), never dropped.
+    // ones follow (read through the patch page continuation), never dropped.
     assert_eq!(
         review_selection(&files, 2_000),
         [

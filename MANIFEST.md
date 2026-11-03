@@ -374,7 +374,7 @@ Each action operates with a **fresh context window**, utilizing only the *output
 The concrete tool workflows that apply this theory have one owner each:
 
 - [The Octocode protocol](docs/OCTOCODE_PROTOCOL.md): the research loop, what each evidence type proves, and measured strengths and limits.
-- [Workflows](docs/OCTOCODE_WORKFLOWS.md): how to choose and combine tools, what each result proves, and one diagram with the rules for each research flow, including `next` pages, `hints` leads, and `clasify`.
+- [Tool flow](skills/octocode-research/references/tool-flow.md): how to choose and combine tools, what each result proves, and one diagram with the rules for each research flow, including `next` pages, `hints` leads, and `clasify`.
 - [clasify](docs/OCTOCODE_CLASIFY.md): judging unread evidence before reading it.
 - [Tool reference](docs/OCTOCODE_TOOLS.md): every tool's fields, results, and continuations.
 - [Research skill](skills/octocode-research/SKILL.md): the executable research workflow for agents.

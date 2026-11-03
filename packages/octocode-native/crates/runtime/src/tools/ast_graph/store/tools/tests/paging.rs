@@ -78,6 +78,39 @@ fn a_page_ends_at_limit_or_the_response_budget() {
     assert_eq!(walked, ids(&whole), "the walk keeps snapshot order");
 }
 
+/// A page the budget cuts holds every row that fits: one more row would
+/// have overflowed the budget. Rows count as delivered (lean by default),
+/// not as projected before the lean view drops their provenance.
+#[test]
+fn a_budget_cut_page_holds_every_row_that_fits() {
+    let dir = Fixture::new();
+    let source = (0..120)
+        .map(|n| format!("export function f{n}(){{ missing{n}(); }}\n"))
+        .collect::<String>();
+    dir.write("app/a.ts", source);
+    call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let budget = crate::response::page_windows::page_budget(Some(WINDOW));
+    for operation in ["symbols", "unresolved"] {
+        let page = windowed(
+            &dir.0,
+            json!({"operation":operation,"path":"app","limit":1000}),
+        );
+        let next = page
+            .pointer("/next/nextPage/input/queries/0")
+            .unwrap_or_else(|| panic!("{operation}: the budget cuts the page: {page}"));
+        let following = windowed(&dir.0, next.clone());
+        let size = chars(&page);
+        assert!(size <= WINDOW, "{operation}: {size} exceeds the window");
+        // The separator before the next row is one character.
+        let with_next = size + 1 + chars(&following["rows"][0]);
+        assert!(
+            with_next > budget,
+            "{operation}: {} rows in {size} chars left room for the next row ({with_next} <= {budget})",
+            ids(&page).len()
+        );
+    }
+}
+
 #[test]
 fn engine_and_tool_cut_the_same_pages() {
     let dir = fixture();

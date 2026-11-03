@@ -7,7 +7,7 @@ use crate::response::stage::{isolate_output_rows, response_all_failed};
 fn mcp_from_rows(mut structured: Value) -> Value {
     assert!(isolate_output_rows("ghCloneRepo", &mut structured).expect("row isolation"));
     let all_failed = response_all_failed(&structured);
-    super::super::error::mcp_result(
+    let result = super::super::error::mcp_result(
         "ghCloneRepo",
         Ok(ToolOutcome {
             structured_content: crate::security::Sanitized::sealed(structured),
@@ -15,8 +15,12 @@ fn mcp_from_rows(mut structured: Value) -> Value {
             all_failed,
         }),
     )
-    .expect("MCP response")
-    .into_value()
+    .expect("MCP response");
+    json!({"content":[{"type":"text","text":result.text}],"isError":result.is_error})
+}
+
+fn payload(result: &Value) -> Value {
+    serde_json::from_str(result["content"][0]["text"].as_str().expect("text")).expect("JSON")
 }
 
 #[test]
@@ -26,7 +30,7 @@ fn malformed_single_row_is_an_error_in_both_mcp_channels() {
     ]}));
     assert_eq!(result["isError"], true);
     assert_eq!(
-        result["structuredContent"]["results"][0]["data"]["errorCode"],
+        payload(&result)["results"][0]["data"]["errorCode"],
         "outputContractViolation"
     );
     assert!(
@@ -51,12 +55,13 @@ fn malformed_row_in_mixed_batch_keeps_healthy_row_and_mcp_success_flag() {
         }}
     ]}));
     assert_eq!(result["isError"], false);
+    let payload = payload(&result);
     assert_eq!(
-        result["structuredContent"]["results"][0]["data"]["errorCode"],
+        payload["results"][0]["data"]["errorCode"],
         "outputContractViolation"
     );
     assert_eq!(
-        result["structuredContent"]["results"][1]["data"]["location"]["commitSha"],
+        payload["results"][1]["data"]["location"]["commitSha"],
         "abc"
     );
     assert!(

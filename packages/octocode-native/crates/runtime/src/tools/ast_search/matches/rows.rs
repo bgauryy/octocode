@@ -1,7 +1,7 @@
 //! Match rows and the diagnostics a scan reports.
-use super::query::MatchQuery;
+use super::query::{MatchQuery, Move};
 use crate::execution::cancel::CancellationCheck;
-use crate::id::ToolId;
+use crate::response::result::Continuation;
 use crate::response::result::ToolError;
 use crate::response::source_evidence::{self, ProjectionBudget, ProjectionLimits};
 use octocode_engine::structural::{StructuralDetailedMatch, StructuralDiagnostic};
@@ -209,11 +209,13 @@ pub(super) fn match_display_path(root: &std::path::Path, path: &str) -> String {
     super::super::rooted_display(root, relative)
 }
 
-pub(super) fn continuation_with(q: MatchQuery<'_>, changes: Value, snapshot: &str) -> Value {
-    let mut query = q.to_value();
-    query["snapshot"] = json!(snapshot);
-    let query = crate::response::result::with_changes(query, &changes);
-    crate::response::result::Continuation::continued(ToolId::AstSearch, query).build()
+/// `q` moved to `to`, as a continuation bound to `snapshot`.
+pub(super) fn continuation_with(
+    q: MatchQuery<'_>,
+    to: Move,
+    snapshot: &str,
+) -> Option<Continuation> {
+    Some(Continuation::continued_query(q.moved(to, snapshot)?))
 }
 
 pub(super) fn diag(d: &StructuralDiagnostic) -> Value {

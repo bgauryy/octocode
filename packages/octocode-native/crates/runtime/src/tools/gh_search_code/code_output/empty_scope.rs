@@ -5,7 +5,9 @@ use crate::response::result::Continuation;
 use crate::tools::gh_search_code::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
 use crate::tools::gh_shared::{RepoPath, ensure_calls};
 use octocode_github::ProviderError;
-use octocode_github::{GitHubTransport, ProviderErrorKind, ProviderErrorReason, RequestContext};
+use octocode_github::{
+    GitHubTransport, ProviderErrorKind, ProviderErrorReason, RepositoryMetadata, RequestContext,
+};
 use serde_json::{Value, json};
 
 /// GitHub answers a code search of a login that does not exist with an empty,
@@ -32,14 +34,17 @@ pub(in crate::tools::gh_search_code) async fn owner_exists(
 /// archived one is named, and an existing one leads to what verifies the
 /// absence; an owner-wide search leads to the owner's repositories.
 /// `broadened`: the search offers `broadenSearch`, which takes the root
-/// listing's place. Returns the repository's default branch when its
-/// metadata was read: the branch the code-search index covers.
+/// listing's place. `checked`: the metadata this request's rename check
+/// already read, so it is not read again. Returns the repository's default
+/// branch when its metadata was read: the branch the code-search index
+/// covers.
 pub(in crate::tools::gh_search_code) async fn empty_scope(
     value: &mut Value,
     diagnostics: &mut crate::response::result::ToolDiagnostics,
     query: &GhSearchCodeQuery,
     broadened: bool,
     transport: &GitHubTransport,
+    checked: Option<RepositoryMetadata>,
     context: &RequestContext,
 ) -> Result<Option<String>, ProviderError> {
     let GhSearchCodeQuery {
@@ -51,7 +56,10 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
         add_owner_lead(value, diagnostics, query.owner.as_str());
         return Ok(None);
     };
-    let metadata = transport.repository_metadata(owner, repo, context).await;
+    let metadata = match checked {
+        Some(metadata) => Ok(metadata),
+        None => transport.repository_metadata(owner, repo, context).await,
+    };
     let default_branch = metadata
         .as_ref()
         .ok()
@@ -73,9 +81,9 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
             "ghRepoArchived",
         ),
         // The repository exists: a scoped path is listed; a repo-wide search
-        // gets a local copy and the root layout to verify against.
+        // gets the root layout to verify against.
         _ => {
-            let hint = "No indexed match is unproven absence: check the source with the related[] ghStructure or ghCloneRepo request.";
+            let hint = "No indexed match is unproven absence: list the repository with the related[] ghStructure request, then narrow to a path.";
             diagnostics.hint(hint);
             let Some(scope) = query
                 .path_prefix
@@ -84,11 +92,8 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
             else {
                 // A path search of code leads to the same search of file
                 // contents (`findCode`): that targeted lead keeps the slots.
-                if !path_mode_given_code(query) {
-                    add_clone_lead(value, query, owner.as_str(), repo.as_str());
-                    if !broadened {
-                        add_root_lead(value, query, owner.as_str(), repo.as_str());
-                    }
+                if !path_mode_given_code(query) && !broadened {
+                    add_root_lead(value, query, owner.as_str(), repo.as_str());
                 }
                 return Ok(default_branch);
             };
@@ -151,21 +156,9 @@ fn add_owner_lead(
     value["calls"]["ownerRepositories"] = crate::tools::gh_shared::owner_listing(owner);
 }
 
-/// The index proves nothing about absence: a local clone of the searched ref
-/// is the check that does. Offered for a repository-wide search only: a path
-/// scope already leads to its listing.
-fn add_clone_lead(value: &mut Value, query: &GhSearchCodeQuery, owner: &str, repo: &str) {
-    let at = RepoPath {
-        reference: requested_ref(query),
-        ..RepoPath::root(owner, repo)
-    };
-    ensure_calls(value);
-    value["calls"]["cloneRepo"] = at.lead(ToolId::GhCloneRepo).build();
-}
-
-/// `cloneRepo` runs only where clone is available, so an empty repo-wide
-/// search with nothing to broaden also gets the root listing at the
-/// searched ref, which every surface runs.
+/// An empty repo-wide search with nothing to broaden gets the root listing at
+/// the searched ref: the scoped next step. A whole-repository clone is never
+/// offered for a miss; narrow with the listing first.
 fn add_root_lead(value: &mut Value, query: &GhSearchCodeQuery, owner: &str, repo: &str) {
     let at = RepoPath {
         reference: requested_ref(query),

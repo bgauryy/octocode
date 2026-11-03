@@ -2,7 +2,7 @@
 //! the provider sees original bytes, and the host receives only provenance.
 use super::url;
 use crate::execution::ExecutionContext;
-use crate::id::clasify_policy;
+use crate::id::{ToolId, clasify_policy};
 use crate::tools::judgment::{ClassificationError, referenced};
 use crate::tools::source_capture::SourceReader;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -102,8 +102,8 @@ fn acquire(
         ));
     }
     let query = &source["query"];
-    match tool {
-        "localFetch" => {
+    match ToolId::from_name(tool) {
+        Some(ToolId::LocalFetch) => {
             let path = dispatcher
                 .paths()
                 .validate_read(Path::new(query["path"].as_str().unwrap_or_default()))
@@ -145,10 +145,10 @@ fn acquire(
             };
             Ok((
                 bytes,
-                json!({"tool":"localFetch","query":{"path":path.canonical}}),
+                json!({"tool":ToolId::LocalFetch.as_str(),"query":{"path":path.canonical}}),
             ))
         }
-        "ghGetFileContent" => {
+        Some(ToolId::GhGetFileContent) => {
             let response = dispatcher.capture_github_content(
                 query,
                 context,
@@ -163,7 +163,7 @@ fn acquire(
             query["ref"] = json!(response.resolved_ref);
             Ok((
                 response.bytes.to_vec(),
-                json!({"tool":"ghGetFileContent","query":query}),
+                json!({"tool":ToolId::GhGetFileContent.as_str(),"query":query}),
             ))
         }
         _ => Err(invalid(

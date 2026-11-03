@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { declarations, nextHints, rowData, sourceLines } from './responses.mjs';
+import { declarations, lspLocations, nextHints, rowData, sourceLines } from './responses.mjs';
 
 const outlinePage = (symbol, continued) => ({ sc: { results: [{ data: { files: [{ path: 'source.ts', symbols: [symbol] }] }, ...(continued && { rowPart: { part: 2, of: 2, continues: { array: '/data/files', index: 0 } } }) }] } });
 
@@ -81,4 +81,16 @@ test('unchanged declared evidence collections never disappear as ancestor contex
   assert.deepEqual(first.flatMap(row => row.exportedAs ?? []), ['alias']);
   assert.deepEqual(next.flatMap(row => row.exportedAs ?? []), ['alias']);
   assert.deepEqual(next.map(row => row.occurrenceId), [undefined, 'second'], 'repeated alias evidence remains visible for the whole/page comparison');
+});
+
+const locations = data => lspLocations({ sc: { results: [{ data }] } });
+test('lspLocations gives every location form its path and range, and leaves out call rows', () => {
+  const displayRange = { startLine: 3, startCharacter: 5, endLine: 3 };
+  const row = { path: 'a.ts', displayRange, content: '3\tx', role: 'call' };
+  const { path: _path, ...grouped } = row;
+  assert.deepEqual(locations({ files: [{ path: 'a.ts', matches: [grouped] }] }), [row]);
+  assert.deepEqual(locations({ matches: [row] }), [row]);
+  assert.deepEqual(locations({ files: [{ path: 'a.ts', matches: [{ line: 3, column: 5, value: 'x' }] }] }), [{ path: 'a.ts', displayRange, content: 'x' }]);
+  assert.deepEqual(locations({ files: [{ path: 'a.ts', matches: [{ symbolName: 'f', line: 1, sites: [{ line: 2 }] }] }] }), []);
+  assert.deepEqual(locations({ files: [{ path: 'a.ts', matchCount: 2, lines: [1, 2] }] }), []);
 });

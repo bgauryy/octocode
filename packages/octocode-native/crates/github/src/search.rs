@@ -1,15 +1,14 @@
 //! GitHub search and repository reads: the request and page types; the
-//! searches, their response store and the repository reads are child modules.
+//! searches and repository reads are child modules.
 use serde::{Deserialize, Serialize};
 
 use super::{ProviderError, ProviderErrorKind};
 
-mod cache;
 mod code;
+mod read;
 mod repository;
 
-pub(crate) use cache::Lookup;
-pub(crate) use repository::{OwnerSources, REPOSITORY_MEMO_KEYS, RepositoryMemo};
+pub use read::SEARCH_RESULT_CAP;
 
 #[derive(Clone, Debug)]
 pub struct CodeSearchRequest {
@@ -41,7 +40,7 @@ pub struct CodeSearchPage {
     pub items: Vec<CodeSearchItem>,
     /// Organizations whose results GitHub withheld because the token is not
     /// SAML-authorized for them (`x-github-sso: partial-results`). A page
-    /// with any is never cached.
+    /// with any is incomplete.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sso_partial_organizations: Vec<u64>,
 }

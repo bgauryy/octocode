@@ -111,18 +111,22 @@ pub(super) fn cycle_members(out: &Value) -> Vec<Value> {
 /// The row offset where `out`'s next page resumes, when rows remain.
 pub(super) fn next_offset(out: &GraphOutput) -> Option<usize> {
     use super::store::{Channel, Resume};
-    out.next.iter().find_map(|(channel, resume)| match (channel, resume) {
-        (Channel::NextPage, Resume::Row { offset, .. }) => Some(*offset),
-        (Channel::NextPage, Resume::Query(next)) => next.offset,
-        _ => None,
-    })
+    out.next
+        .iter()
+        .find_map(|(channel, resume)| match (channel, resume) {
+            (Channel::NextPage, Resume::Row { offset, .. }) => Some(*offset),
+            (Channel::NextPage, Resume::Query(next)) => next.offset,
+            _ => None,
+        })
 }
 
 /// The graphQuery request that continues `out` on its next page.
 pub(super) fn next_query(out: &GraphOutput) -> Option<&super::store::QueryOptions> {
     use super::store::{Channel, Resume};
-    out.next.iter().find_map(|(channel, resume)| match (channel, resume) {
-        (Channel::NextPage, Resume::Query(next)) => Some(next.as_ref()),
-        _ => None,
-    })
+    out.next
+        .iter()
+        .find_map(|(channel, resume)| match (channel, resume) {
+            (Channel::NextPage, Resume::Query(next)) => Some(next.as_ref()),
+            _ => None,
+        })
 }

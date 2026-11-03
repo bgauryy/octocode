@@ -224,7 +224,7 @@ pub(super) fn type_document(
     content: &str,
     path: &str,
 ) -> Result<std::sync::Arc<GraphFactsDocument>, String> {
-    let document = crate::tools::declarations_cache::graph_facts(content, path)
+    let document = crate::tools::declarations::graph_facts(content, path)
         .ok_or_else(|| format!("Type heritage parsing unavailable for {path}"))?;
     // Every tree-sitter document carries the static syntax-only caveat; it
     // marks no gap. Any other diagnostic (recovered parse, deadline, Rust
@@ -252,7 +252,7 @@ pub(super) fn type_document(
 /// function or a variable has no extends/implements clause naming it, so a
 /// scan for it would report "no implementations" instead of "unanswered".
 pub(super) fn anchors_type_declaration(content: &str, file: &str, line: u32, name: &str) -> bool {
-    let Some(document) = crate::tools::declarations_cache::file_document(content, file) else {
+    let Some(document) = crate::tools::declarations::file_document(content, file) else {
         return false;
     };
     document.declarations.iter().any(|declaration| {

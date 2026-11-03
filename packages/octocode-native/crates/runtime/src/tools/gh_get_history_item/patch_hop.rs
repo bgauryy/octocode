@@ -3,10 +3,12 @@ use super::pr_menu::*;
 use super::{HistoryItemRequest, ItemOperation, Sections};
 use crate::id::ToolId;
 use crate::response::result::Continuation;
+use crate::response::result::wire_query;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_shared::commit::commit_pull_request;
 use crate::tools::gh_shared::ensure_calls;
+use octocode_contract_types::{GhGetHistoryItemQuery, GhSearchHistoryQuery};
 use serde_json::{Map, Value, json};
 
 /// Offer unfiltered patches as related work when a matching view selected
@@ -77,7 +79,11 @@ pub(super) fn selected_patch_files() -> usize {
 /// The patch continuation of a pull-request page: the same query (file
 /// page, filters, selection) at the page-stream cursor, narrowed to the
 /// patch surface.
-pub(super) fn patch_continuation(mut nq: Value, entry: &Value, q: &HistoryItemRequest) -> Value {
+pub(super) fn patch_continuation(
+    mut nq: Value,
+    entry: &Value,
+    q: &HistoryItemRequest,
+) -> Option<Value> {
     let read = q.sections();
     let patch_read = Sections::of([Section::Patches]);
     if read.has(Section::Files) {
@@ -121,7 +127,7 @@ impl DiffCursors {
     /// The cursors of a file page: its `nextPage`, read out of the block
     /// (a cursor rides the `next` continuation, never the block), and the
     /// patch-stream cursor of its unfinished patch window. The cursor is
-    /// internal state for `next.continuePatch`, never an output field.
+    /// internal state for `contentPagination.patches.next.nextPage`, never an output field.
     pub(super) fn of_file_page(
         files_page: &mut Value,
         patch_offset: Option<usize>,
@@ -197,7 +203,9 @@ pub(super) fn attach_diff_continuations(
         ] {
             remove_key(&mut nq, key);
         }
-        next.insert("nextCommitPage".into(), continuation(nq));
+        if let Some(call) = continuation(nq) {
+            out["contentPagination"]["commits"]["next"]["nextPage"] = call;
+        }
     }
     // A file page with unread patches continues them first: its window
     // that finishes the patches offers the next file page.
@@ -207,7 +215,9 @@ pub(super) fn attach_diff_continuations(
         remove_key(&mut nq, "offset");
         files_only(&mut nq, operation);
         pin_file_page_size(&mut nq, q, q.include_diff());
-        next.insert("nextFilePage".into(), continuation(nq));
+        if let Some(call) = continuation(nq) {
+            out["contentPagination"]["files"]["next"]["nextPage"] = call;
+        }
     }
     // Patches expand a file inventory into a fresh section read.
     if !q.include_diff() && base.get("sections").is_none() && cursors.files_listed {
@@ -225,7 +235,9 @@ pub(super) fn attach_diff_continuations(
         nq["offset"] = json!(offset);
         files_only(&mut nq, operation);
 
-        next.insert("continuePatch".into(), continuation(nq));
+        if let Some(call) = continuation(nq) {
+            out["contentPagination"]["patches"]["next"]["nextPage"] = call;
+        }
     }
     // The page's own continuations join the reads the page already offers
     // (an unpatched file's search), never replace them.
@@ -274,27 +286,22 @@ pub(super) fn commit_pull_request_lead(
     message: &str,
     sha: &str,
     q: &HistoryItemRequest,
-) -> (&'static str, Value) {
+) -> Option<(&'static str, Value)> {
     if let Some(number) = commit_pull_request(
         message,
         gh_get_history_item_query::owner(q),
         gh_get_history_item_query::repo(q),
     ) {
-        return (
-            "readPullRequest",
-            Continuation::related(
-                ToolId::GhGetHistoryItem,
-                json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"number":number}),
-            )
-            .build(),
-        );
+        let read = wire_query::<GhGetHistoryItemQuery>(
+            json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"number":number}),
+        )?;
+        return Some(("readPullRequest", Continuation::related_query(read).build()));
     }
-    (
+    let search = wire_query::<GhSearchHistoryQuery>(
+        json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"keywords":[sha]}),
+    )?;
+    Some((
         "findPullRequest",
-        Continuation::related(
-            ToolId::GhSearchHistory,
-            json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"keywords":[sha]}),
-        )
-        .build(),
-    )
+        Continuation::related_query(search).build(),
+    ))
 }

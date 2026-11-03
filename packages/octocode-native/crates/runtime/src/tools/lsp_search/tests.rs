@@ -13,6 +13,7 @@ use super::source::*;
 use super::walk::*;
 use super::*;
 use crate::id::ToolId;
+use crate::tools::test_support::checks::location_rows;
 use octocode_contract_types::ErrorCode;
 
 mod call_counts;
@@ -31,6 +32,7 @@ mod pagination;
 mod receipts;
 mod references;
 mod requests;
+mod revisions;
 mod server_context;
 mod servers;
 mod sources;

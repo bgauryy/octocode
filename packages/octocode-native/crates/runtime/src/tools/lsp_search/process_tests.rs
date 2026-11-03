@@ -9,7 +9,7 @@ use super::failure::LspFailure;
 use super::tests::{FAKE_SERVER_CLIENT, fake_server_pool};
 use crate::id::ToolId;
 use crate::tools::lsp_search::lsp_search_query;
-use crate::tools::test_support::checks::{Page, Walker, assert_absent, paths_in};
+use crate::tools::test_support::checks::{Page, Walker, assert_absent, location_rows, paths_in};
 use crate::tools::test_support::{Fixture, assert_row_contract, node_available, require_node};
 use octocode_contract_types::{ErrorCode, LspSearchQuery};
 use octocode_engine::error::ErrorKind;
@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod aliases;
+mod cold_start;
 mod definition_hops;
 mod definitions;
 mod document_sync;

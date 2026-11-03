@@ -2,6 +2,16 @@
 //! read and pruned.
 use super::*;
 
+/// A marker inside a snapshot directory: its modification time is the last
+/// time a reader used the snapshot.
+pub(super) const READ_LEASE_FILE: &str = "last-read";
+
+/// How long after its last read a snapshot that retention would remove stays
+/// queryable: a reader pages through one snapshot across tool calls, and a
+/// rebuild by another agent must not end that walk. Past it, the snapshot is
+/// idle and the next build prunes it; its ID then names its successor.
+pub(super) const READ_LEASE: std::time::Duration = std::time::Duration::from_secs(3600);
+
 /// `<workspace>/.octocode/graph`. The workspace is the caller's: the
 /// runtime names one ([`default_workspace`] of its own working directory)
 /// when the call does not, so the process directory never decides it.
@@ -57,6 +67,46 @@ pub(super) fn scope_slug(root: &Path, workspace: &Path) -> String {
         .take(64)
         .collect::<String>();
     if slug.is_empty() { "root".into() } else { slug }
+}
+
+/// The six hex digits that tell apart roots whose names map to one slug.
+pub(super) fn root_tag(root: &Path) -> String {
+    octocode_engine::digest::sha256(root.to_string_lossy().as_bytes())[..6].to_owned()
+}
+
+/// Records that a reader is using the snapshot in `dir`, renewing its lease.
+pub(super) fn renew_lease(dir: &Path) -> std::io::Result<()> {
+    std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(dir.join(READ_LEASE_FILE))?
+        .set_modified(std::time::SystemTime::now())
+}
+
+/// Whether a reader used the snapshot in `dir` within [`READ_LEASE`].
+fn leased(dir: &Path) -> bool {
+    std::fs::metadata(dir.join(READ_LEASE_FILE))
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.elapsed().ok())
+        .is_some_and(|idle| idle < READ_LEASE)
+}
+
+/// The newest snapshot of `root` when `id` is an ID this build allocates for
+/// that scope ([`next_snapshot_id`]) and no longer resolves: the snapshot
+/// that replaced it.
+pub(super) fn successor(home: &Path, workspace: &Path, root: &Path, id: &str) -> Option<String> {
+    let scope = format!("{}-{}", scope_slug(root, workspace), root_tag(root));
+    let sequence = id.split_once('-')?.1.strip_prefix(&scope)?;
+    let sequenced = |digits: &str| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
+    if !(sequence.is_empty() || sequence.strip_prefix('-').is_some_and(sequenced)) {
+        return None;
+    }
+    let root = root.to_string_lossy();
+    list_snapshots(home).into_iter().rev().find(|candidate| {
+        read_manifest(&home.join(candidate)).is_some_and(|manifest| manifest["root"] == root.as_ref())
+    })
 }
 
 /// `(compact, iso)` UTC timestamps: `20260928T101500Z`, `2026-09-28T10:15:00Z`.
@@ -123,7 +173,8 @@ pub(crate) fn list_snapshots(home: &Path) -> Vec<String> {
     ids
 }
 
-/// Removes older snapshots of `root` beyond `keep`, snapshots of any root
+/// Removes older snapshots of `root` beyond `keep` that no reader used within
+/// [`READ_LEASE`] (a rebuild never ends a walk in progress), snapshots of any root
 /// in an older format (no query of this build can read them; a newer
 /// format belongs to a newer build and stays), and abandoned temp dirs.
 /// Snapshots are grouped by the root they scanned, never by their scope
@@ -147,10 +198,11 @@ pub(super) fn prune(home: &Path, root: &Path, keep: usize) -> Vec<String> {
         }
     }
     let excess = same_scope.len().saturating_sub(keep.max(1));
-    for id in outdated
+    let idle = same_scope
         .into_iter()
-        .chain(same_scope.into_iter().take(excess))
-    {
+        .take(excess)
+        .filter(|id| !leased(&home.join(id)));
+    for id in outdated.into_iter().chain(idle) {
         if std::fs::remove_dir_all(home.join(&id)).is_ok() {
             removed.push(id);
         }

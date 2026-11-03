@@ -75,7 +75,7 @@ test('linked worktrees discover cross-vendor peers but preserve actual bindings 
 
 test('cross-worktree requests complete with one correlated final reply and both acknowledgements', t => {
   const f = fixture(t);
-  const sent = f.call(f.main, 'send_message', { to: f.b, question: 'Review the topic checkout', key: 'review-topic', conversationId: 'worktree-review' }, f.a);
+  const sent = f.call(f.main, 'send_message', {parts: [{ text: 'Review the topic checkout' }], replyRequired: true,  to: f.b, key: 'review-topic', contextId: 'worktree-review' }, f.a);
   assert.equal(sent.recipients, 1);
   const received = f.call(f.topic, 'fetch', { incoming: true, type: 'message' }, f.b).items;
   assert.equal(received.length, 1);
@@ -84,33 +84,33 @@ test('cross-worktree requests complete with one correlated final reply and both 
   assert.equal(received[0].branch, 'main');
   assert.equal(received[0].data.messageId, sent.id);
   assert.throws(() => f.call(f.topic, 'complete', { message: sent.id }, f.b), /requires a final answer/);
-  const finished = f.call(f.topic, 'complete', { message: sent.id, outcome:'done',reply:{conclusion:'Reviewed feature/topic; compatibility is preserved.'} }, f.b);
+  const finished = f.call(f.topic, 'complete', { message: sent.id, outcome:"completed",reply:[{ data: {conclusion:'Reviewed feature/topic; compatibility is preserved.'} }] }, f.b);
   assert.equal(finished.completed, true);
-  assert.equal(f.call(f.topic, 'complete', { message: sent.id, outcome:'done',reply:{conclusion:'Reviewed feature/topic; compatibility is preserved.'} }, f.b).id, finished.id);
+  assert.equal(f.call(f.topic, 'complete', { message: sent.id, outcome:"completed",reply:[{ data: {conclusion:'Reviewed feature/topic; compatibility is preserved.'} }] }, f.b).id, finished.id);
   assert.deepEqual(f.call(f.topic, 'inbox', {}, f.b).items, []);
   const answer = f.call(f.main, 'fetch', { incoming: true, type: 'message' }, f.a).items[0];
   assert.equal(answer.path, f.topic);
   assert.equal(answer.branch, 'feature/topic');
   assert.equal(answer.data.replyTo, sent.id);
-  assert.equal(answer.data.conversationId, 'worktree-review');
+  assert.equal(answer.data.contextId, 'worktree-review');
   assert.equal(answer.data.replyRequired, false);
   f.call(f.main, 'complete', { message: answer.data.messageId }, f.a);
   assert.deepEqual(f.call(f.main, 'inbox', {}, f.a).items, []);
   assert.deepEqual(f.call(f.topic, 'fetch', { type: 'message' }, f.c).items, [], 'Repository coordination does not expose another participant conversation');
   for (const [workspace, identity] of [[f.clone, f.d], [f.outside, f.e]]) {
     assert.deepEqual(f.call(workspace, 'fetch', { type: 'message' }, identity).items, []);
-    assert.throws(() => f.call(f.main, 'send_message', { to: identity, body: 'Wrong repository' }, f.a), /Unknown session in this repository/);
+    assert.throws(() => f.call(f.main, 'send_message', {parts: [{ text: 'Wrong repository' }],  to: identity, }, f.a), /Unknown session in this repository/);
   }
 });
 
 test('topics and broadcasts include linked checkout recipients and exclude other repositories', t => {
   const f = fixture(t);
   for (const [workspace, identity] of [[f.topic, f.b], [f.clone, f.d], [f.outside, f.e]]) f.call(workspace, 'subscribe', { topics: ['api'] }, identity);
-  const topic = f.call(f.main, 'send_message', { topic: 'api', body: 'API evidence is ready' }, f.a);
+  const topic = f.call(f.main, 'send_message', {parts: [{ text: 'API evidence is ready' }],  topic: 'api', }, f.a);
   assert.equal(topic.recipients, 1);
   assert.equal(f.call(f.topic, 'inbox', {}, f.b).items[0].id, topic.id);
   assert.deepEqual(f.call(f.topic, 'inbox', {}, f.c).items, []);
-  const broadcast = f.call(f.main, 'notify_all', { body: 'Repository handoff is ready' }, f.a);
+  const broadcast = f.call(f.main, "send_message", { to: '*', parts: [{ text: 'Repository handoff is ready' }]}, f.a);
   assert.equal(broadcast.recipients, 2);
   assert.deepEqual(f.call(f.main, 'inbox', {}, f.a).items, [], 'Sender is not a broadcast recipient');
   assert.deepEqual(f.call(f.topic, 'inbox', {}, f.b).items.map((row: JsonRecord) => row.id), [topic.id, broadcast.id]);

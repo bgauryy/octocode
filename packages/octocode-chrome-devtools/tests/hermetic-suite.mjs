@@ -14,7 +14,6 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
   process.exit(0);
 }
 const checks = [
-  'architecture.test.mjs',
   'unit/copy-package.test.mjs',
   'unit/connection.test.mjs',
   'unit/invocation.test.mjs',

@@ -1,7 +1,7 @@
 // Live-harness evidence: the database rows and worker events a trial collects, and the pure graders that name each check.
 import type { Reply } from '../script-support.ts';
 
-export interface MessageRow { id: number; sender: string; target: string; body: string; replyTo: number | null; replyRequired: number; wake: string }
+export interface MessageRow { id: number; sender: string; target: string; parts: { text?: string; [key: string]: unknown }[]; replyTo: number | null; replyRequired: number; wake: string }
 export interface DeliveryRow { message: number; recipient: string; acknowledgedAt: number | null }
 export interface DispatchRow { message: number; recipient: string; transport: string; state: string; submittedAt: number | null; error: string | null }
 export interface SessionRow { id: string; name: string; vendor: string; vendorSession: string | null; expiresAt: number }
@@ -16,7 +16,7 @@ export type WorkerEvent = Reply;
 /** A request the soak controller sent and the answer it expects. */
 export interface SoakRequest { id: number; recipient: string; expected: string; sentAt: number }
 
-type GradedMessage = Pick<MessageRow, 'id' | 'sender' | 'target' | 'body' | 'replyTo'>;
+type GradedMessage = Pick<MessageRow, 'id' | 'sender' | 'target' | 'parts' | 'replyTo'>;
 export interface Verdict { passed: boolean; checks: Checks }
 
 export function gradeCollaboration({ messages, deliveries, request, notice, sender, receiver, expected, passiveTurns, initialMessages = [] }: {
@@ -27,7 +27,7 @@ export function gradeCollaboration({ messages, deliveries, request, notice, send
   const checks = {
     requestAcknowledged: acknowledged(request),
     noticeAcknowledged: acknowledged(notice),
-    correlatedAnswer: replies.length === 1 && replies[0].body.trim() === expected,
+    correlatedAnswer: replies.length === 1 && replies[0].parts.map(part => part.text ?? '').join('\n').trim() === expected,
     noticeHasNoReply: !messages.some(row => row.replyTo === notice),
     noReplyLoop: messages.every(row => initialMessages.includes(row.id) || [request, notice].includes(row.id) || replies.some(reply => reply.id === row.id)),
     passiveDoesNotStartTurn: passiveTurns === 0,
@@ -47,7 +47,7 @@ export function gradeHandoff({ messages, deliveries, leases, request, owner, wor
     askedOwner: asked.length >= 1,
     noOverlap: acquired.every(row => releasedAt !== null && row.acquiredAt >= releasedAt),
     acquiredAfterRelease: acquired.length >= 1,
-    correlatedAnswer: replies.length === 1 && replies[0].body.trim() === expected,
+    correlatedAnswer: replies.length === 1 && replies[0].parts.map(part => part.text ?? '').join('\n').trim() === expected,
     requestAcknowledged: deliveries.some(row => row.message === request && row.recipient === worker && row.acknowledgedAt !== null),
   };
   return { passed: Object.values(checks).every(Boolean), checks };
@@ -59,7 +59,7 @@ export function gradePagedRead({ messages, deliveries, request, worker, expected
 }): Verdict {
   const replies = messages.filter(row => row.replyTo === request && row.sender === worker);
   const checks = {
-    correlatedAnswer: replies.length === 1 && replies[0].body.trim() === expected,
+    correlatedAnswer: replies.length === 1 && replies[0].parts.map(part => part.text ?? '').join('\n').trim() === expected,
     requestAcknowledged: deliveries.some(row => row.message === request && row.recipient === worker && row.acknowledgedAt !== null),
   };
   return { passed: Object.values(checks).every(Boolean), checks };
@@ -72,7 +72,7 @@ export function gradeConcurrentWave({ messages, deliveries, dispatches, requests
   const checks = {
     exactCorrelatedAnswers: requests.every(request => {
       const replies = answers.filter(answer => answer.replyTo === request.id);
-      return replies.length === 1 && replies[0].body.trim() === request.expected;
+      return replies.length === 1 && replies[0].parts.map(part => part.text ?? '').join('\n').trim() === request.expected;
     }),
     requestsAcknowledged: requests.every(request => deliveries.some(delivery => delivery.message === request.id && delivery.recipient === request.recipient && delivery.acknowledgedAt !== null)),
     requestsSubmitted: requests.every(request => dispatches.some(dispatch => dispatch.message === request.id && dispatch.recipient === request.recipient && dispatch.state === 'submitted' && dispatch.submittedAt !== null)),

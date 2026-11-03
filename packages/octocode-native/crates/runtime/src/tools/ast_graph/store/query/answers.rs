@@ -24,7 +24,7 @@ pub(super) fn stats(
         "graph": g.summary(),
         "operation": "stats",
         "octocodeVersion": m["octocodeVersion"],
-        "scan": m["scan"],
+        "scan": super::super::manifest::scan_disclosure(&m["scan"]),
         "counts": m["counts"],
         "imports": m["imports"],
         "calls": m["calls"],
@@ -112,7 +112,7 @@ pub(super) fn symbols(
     range: std::ops::Range<usize>,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<(Map<String, Value>, Page), GraphOutput> {
-    let mut window = Window::budgeted(range, g.page_budget);
+    let mut window = Window::budgeted(range, g.row_budget());
     let mut listed = std::collections::HashSet::new();
     for &root in roots {
         let mut stack = vec![(root, 0u32)];

@@ -81,7 +81,8 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
     let read = open().map_err(VerifyReadError::from).and_then(|opened| {
         let mut reader = std::io::BufReader::new(HashingReader {
             inner: opened,
-            hasher: matches!(expected, Expected::Stored(_)).then(Sha256::new),
+            hasher: matches!(expected, Expected::Stored(_))
+                .then(octocode_engine::digest::HashWriter::default),
         });
         let read = read_verification_lines(&mut reader, &windows, last_line, cancel)?;
         let digest = drain_digest(reader, cancel)?;
@@ -113,7 +114,10 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
                 redact_key_block_lines(matched.line, &matched.value, &read.key_ranges, |n| {
                     read.retained.get(&(n as usize)).map(String::as_str)
                 });
-            matched.value = security.sanitize_text(&kept, Some(source)).content;
+            matched.value = security
+                .sanitize_text(&kept, Some(source))
+                .content
+                .into_owned();
             continue;
         }
         let line = matched.line as usize;
@@ -135,7 +139,8 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
             verified = Verification::Unverified;
             continue;
         };
-        let sanitized = security.sanitize_text(&window.join("\n"), Some(source));
+        let joined = window.join("\n");
+        let sanitized = security.sanitize_text(&joined, Some(source));
         if !sanitized.has_secrets {
             continue;
         }
@@ -146,6 +151,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
                 security
                     .sanitize_text(window[line - lo], Some(source))
                     .content
+                    .into_owned()
             };
         }
     }
@@ -166,7 +172,7 @@ pub(in crate::tools::local_search) enum Verification {
 /// Passes reads through, hashing them when a digest is wanted.
 pub(in crate::tools::local_search) struct HashingReader<R> {
     pub(in crate::tools::local_search) inner: R,
-    pub(in crate::tools::local_search) hasher: Option<Sha256>,
+    pub(in crate::tools::local_search) hasher: Option<octocode_engine::digest::HashWriter>,
 }
 
 impl<R: std::io::Read> std::io::Read for HashingReader<R> {
@@ -205,7 +211,7 @@ pub(in crate::tools::local_search) fn drain_digest<R: std::io::Read>(
     Ok(reader
         .into_inner()
         .hasher
-        .map(|hasher| hasher.finalize().into()))
+        .map(octocode_engine::digest::HashWriter::finalize))
 }
 
 /// Value shown in place of a match whose source could not be re-read for the

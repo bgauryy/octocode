@@ -58,8 +58,7 @@ fn declarations_end_the_chain_and_bindings_hop() {
             Landing::Unknown,
         ),
     ] {
-        let document =
-            crate::tools::declarations_cache::file_document(source, file).expect("parse");
+        let document = crate::tools::declarations::file_document(source, file).expect("parse");
         assert_eq!(lands(&document, at.0, at.1), expected, "{file} {at:?}");
     }
 }

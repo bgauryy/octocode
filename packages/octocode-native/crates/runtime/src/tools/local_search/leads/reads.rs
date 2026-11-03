@@ -44,13 +44,7 @@ impl Found<'_> {
                 if (definition.end + 1).saturating_sub(definition.start) as usize
                     <= crate::tools::source_view::BLOCK_MAX_LINES =>
             {
-                Some(declaration_read(
-                    query,
-                    self.root,
-                    file,
-                    definition.start,
-                    definition.end,
-                ))
+                declaration_read(query, self.root, file, definition.start, definition.end)
             }
             Some((file, _)) => read_handoff(query, self.root, file),
             None => self
@@ -98,7 +92,7 @@ impl Found<'_> {
             return None;
         }
         let listing =
-            leading_binary_listing(self.query, &merge_binary_groups(skipped, &cut_groups));
+            leading_binary_listing(self.query, &merge_binary_groups(skipped, &cut_groups))?;
         let warning = if skipped.is_empty() {
             // The cut files' own warning carries the count.
             String::new()

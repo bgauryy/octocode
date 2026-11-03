@@ -24,7 +24,7 @@ function freeze(dir, out) {
 
 // The snapshot of `section` (an absolute directory inside the workspace) and the path its queries repeat.
 async function ingest(section, out, exclude, onProgress) {
-  const run = async (path) => ({ path, snap: await graphBuild({ path, ...(exclude.length ? { exclude } : {}) }, { onProgress }) });
+  const run = async (path) => ({ path, snap: await graphBuild({ path, ...(exclude.length ? { excludeDirs: exclude } : {}) }, { onProgress }) });
   try {
     return { ...(await run(section)), frozen: false };
   } catch (e) {

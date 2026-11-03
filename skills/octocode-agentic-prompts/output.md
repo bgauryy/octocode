@@ -6,7 +6,7 @@ Deliver task content only; no probe output or process metadata.
 
 ## Response
 
-Prompts in the requested format. Edit: full replacement, change summary, verification. Review: affected text, behavioral effect, repair.
+Prompts in the requested format. For ready-to-paste task prompts, follow [question selection and prompt labels](references/question-selection.md). Edit: full replacement, change summary, verification. Review: affected text, behavioral effect, repair.
 
 A standalone review or new prompt with no destination goes to `<workspace>/.octocode/octocode-agentic-prompts/<YYYY-MM-DD>-<slug>.md`; a user-named path wins; a small chat edit needs no file.
 

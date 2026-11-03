@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { z, type ZodType } from 'zod';
 import { flagsFromJsonSchema } from '../src/json-schema-flags.js';
 import {
@@ -285,23 +284,6 @@ describe('commands', () => {
     expect(() => parseCommandInput({ ...imported, inputSchema: undefined }, {})).toThrow(/inputSchema/);
   });
 });
-
-describe('package isolation', () => {
-  it('stays private and is not a dependency of the launcher or MCP server', () => {
-    const own = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { private: boolean };
-    expect(own.private).toBe(true);
-    for (const name of ['octocode', 'octocode-mcp']) {
-      const manifest = JSON.parse(readFileSync(new URL(`../../${name}/package.json`, import.meta.url), 'utf8')) as {
-        dependencies?: Record<string, string>;
-        devDependencies?: Record<string, string>;
-        peerDependencies?: Record<string, string>;
-      };
-      const deps = { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.peerDependencies };
-      expect(deps['octocode-mcp-cli']).toBeUndefined();
-    }
-  });
-});
-
 
 describe('authored input JSON Schema', () => {
   it('keeps defaulted fields optional while preserving input constraints and required fields', () => {

@@ -119,7 +119,7 @@ pub(super) async fn issue(
     let want_comments = sections.has(Section::Comments);
     // A comment-body hop (`offset` > 0 with the discussion) continues the
     // comment bodies of its first window. The issue body is not shown again
-    // (its own `continueBody` reads it at its own offset), but its first
+    // (its own body page reads it at its own offset), but its first
     // window still counts against the page, so the hop pages exactly the
     // comments that window showed.
     let comment_hop = want_comments

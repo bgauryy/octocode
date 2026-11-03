@@ -64,7 +64,7 @@ pub(super) fn annotate(
     // Importer recovery opened and verified every file that mentions the
     // name, so an inferred project no longer hides importers. A window with
     // later windows left was flagged by `Importers::annotate`, which names
-    // the window and its `next.nextImporterPage`.
+    // the window and its `next.nextPage`.
     let (reason, warning) = match row
         .pointer("/coverage/importerScan")
         .and_then(Value::as_str)

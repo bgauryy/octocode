@@ -22,7 +22,9 @@ fn match_miss_leads_to_directory_search() {
     );
     assert_eq!(
         search["input"]["queries"][0]["path"],
-        t.0.to_string_lossy().as_ref(),
+        // The file is named as its row names it, relative to the root, so
+        // its directory is the root.
+        ".",
         "{next}"
     );
 }
@@ -204,7 +206,6 @@ fn an_insensitive_miss_runs_its_patterns_once() {
             &NeverCancel,
             None,
             None,
-            &Default::default(),
         );
         assert_eq!(r.status, ReadStatus::Empty, "{r:?}");
         RUST_REGEX_RUNS.with(std::cell::Cell::get)

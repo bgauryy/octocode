@@ -77,3 +77,20 @@ Claude/Codex child events can carry the parent's session ID. The messaging hook 
 - `lease-check`: shared `check_write` admission for the guards; never run it on its own.
 
 `db export` excludes evidence documents; back them up separately ([operations](OPERATIONS.md#retention)). Delivery semantics: [service protocol](SERVICE_PROTOCOL.md).
+
+## MCP initialization and provider hooks
+
+The MCP server gates `init` on its connection binding, not files on disk. Pass `--session` when a hook, extension or native adapter already owns the communication identity. Otherwise the unbound server exposes only `init`; it creates a managed identity and then signals a tool-list change. An exact current `vendorSession` reuses one existing live identity without taking ownership; an ambiguous or expired match is refused. `init` never installs hooks. See [the MCP contract](INTERFACES.md#use-mcp-without-the-skill).
+
+| Provider | Package integration | What proves the current binding | Delivery while idle |
+| --- | --- | --- | --- |
+| Claude Code | Generated session/prompt/post-tool/end hooks; optional native socket | Validated current hook event or exact native attachment | Hooks wait for events; native wake depends on host policy |
+| Codex | Generated session/prompt/post-tool/end hooks; optional app-server attachment | Validated current hook event or loaded native thread | Hooks wait for events; native delivery can request a turn |
+| Grok Build | Generated project hooks; optional leader socket | Trusted, loaded hooks and current event, or exact ACP attachment | Hooks wait for events; native socket supports action delivery |
+| Cursor | Generated camelCase hooks using the conversation ID | Current event with the correct workspace and conversation | Hooks wait for events; no package native wake adapter |
+| Pi | Package extension and inbox bridge | Successful extension session binding | Extension can trigger an action-mail turn |
+| OpenCode | Server API attachment and listener; optional separate edit guard | Exact live native session and listener binding | Native action delivery can request a turn |
+
+A configuration file proves only that a file exists. Providers may merge user, project, managed or plugin settings, require project trust, disable hooks, or load extensions separately. No received event means the hook state is unknown. MCP alone cannot establish the host's effective hook state or wake idle agents. An exact binding is the usable signal; do not infer an identity from peer names or copy another agent's session.
+
+Provider contracts: [Claude hooks](https://code.claude.com/docs/en/hooks), [Codex hooks](https://developers.openai.com/codex/hooks/), [Cursor hooks](https://cursor.com/docs/hooks), [Grok hooks](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md), [Pi extensions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md), and [OpenCode server API](https://opencode.ai/docs/server/). Package tests cover emitted configuration, identity and delivery contracts with fixtures; they do not prove a particular user's live host configuration.

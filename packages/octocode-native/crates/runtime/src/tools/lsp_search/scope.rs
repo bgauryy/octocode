@@ -36,13 +36,15 @@ use std::time::{Duration, SystemTime};
 
 mod ignored_index;
 mod paths;
+#[cfg(test)]
+pub(super) mod probe;
 mod reach;
 mod scan;
 mod text;
 pub(super) use paths::{canonical, canonical_uri, widest_authorized_dir, with_canonical_memo};
 use paths::{explicit_root, family_include, search_root};
-pub(super) use scan::IgnoredMentions;
-use scan::{Fingerprint, scan_text, shared_fingerprint};
+use scan::{Fingerprint, fingerprint, scan_text};
+pub(super) use scan::{IgnoredMentions, same_file, written_since};
 pub(super) use text::imports_in_code;
 
 /// Project files whose edits change what a language server answers.
@@ -69,24 +71,14 @@ const PROJECT_FILES: [&str; 20] = [
     ".clangd",
 ];
 
-/// A file modified this recently also hashes its content: some filesystems
-/// keep coarse mtimes, so a same-second edit keeps its length and mtime.
-const FRESH_MTIME: Duration = Duration::from_secs(2);
-/// A larger unsettled source disables cache reuse rather than reading it
-/// whole merely to decide whether a lexical scan may be reused.
-const FRESH_CONTENT_MAX_BYTES: usize = 1024 * 1024;
-
-/// Text scans by `(root, include, symbol, scope fingerprint, policy)`. The
-/// fingerprint covers every family file under the root, so an unchanged
-/// fingerprint proves the scan would find the same files; a scan without a
-/// fingerprint (walk past its bounds) is never stored.
-/// The 256 most recently used are kept.
-static TEXT_SCANS: octocode_io::memo::Memo<String, BTreeSet<String>> =
-    octocode_io::memo::Memo::new(octocode_io::memo::MemoLimits {
-        max_entries: 256,
-        max_weight: 256,
-        keep_newest: false,
-    });
+/// A file modified this recently before a fingerprint's instant also hashes
+/// its content: some filesystems keep coarse mtimes, so a same-second edit
+/// keeps its length and mtime. The fingerprint proves a continuation's
+/// scope revision and the watched-file diff, so both need it.
+pub(super) const FRESH_MTIME: Duration = Duration::from_secs(2);
+/// A larger unsettled source leaves the walk without a fingerprint rather
+/// than reading it whole: the revision then covers the anchor text alone.
+pub(super) const FRESH_CONTENT_MAX_BYTES: usize = 1024 * 1024;
 
 /// The reach of the anchor's declaration of one symbol, once read (`None`:
 /// no bound is known).
@@ -112,12 +104,8 @@ pub(super) struct Scope {
     /// files the server may still compile; `None` when unknown.
     server_root: Option<PathBuf>,
     text: Mutex<Option<TextScan>>,
-    /// Digest of every family and project file under `root`, when the
-    /// request computed one within its bounds (see `fingerprint`).
-    fingerprint: Mutex<Option<String>>,
-    /// The files that fingerprint covers (relative path → stamp), for the
-    /// file events a watching server is owed (see `watched_files_sync`).
-    walk_entries: Mutex<Option<Arc<BTreeMap<String, String>>>>,
+    /// This request's one scope walk, once made ([`Self::walked`]).
+    walked: Mutex<Option<Walked>>,
     /// Canonical files the language server's answer covers (listed, or
     /// verified as importers), recorded by the operation.
     answered: Mutex<BTreeSet<String>>,
@@ -144,8 +132,7 @@ impl Scope {
             include,
             server_root: None,
             text: Mutex::new(None),
-            fingerprint: Mutex::new(None),
-            walk_entries: Mutex::new(None),
+            walked: Mutex::new(None),
             answered: Mutex::new(BTreeSet::new()),
             code_uses: Arc::new(Mutex::new(HashMap::new())),
             site: Mutex::new(None),
@@ -190,35 +177,41 @@ impl Scope {
         scope
     }
 
-    /// Record the scope fingerprint this request computed; text scans under
-    /// it are shared with later requests that compute the same one.
-    pub(super) fn set_fingerprint(&self, fingerprint: String) {
-        if let Ok(mut slot) = self.fingerprint.lock() {
-            *slot = Some(fingerprint);
-        }
+    /// Whether this request already walked its scope.
+    pub(super) fn is_walked(&self) -> bool {
+        self.walked
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some()
     }
 
-    /// Record the walk entries behind the fingerprint.
-    pub(super) fn set_walk_entries(&self, entries: Arc<BTreeMap<String, String>>) {
-        if let Ok(mut slot) = self.walk_entries.lock() {
-            *slot = Some(entries);
-        }
-    }
-
-    /// The walk entries behind this request's fingerprint, if any.
-    pub(super) fn walk_entries(&self) -> Option<Arc<BTreeMap<String, String>>> {
-        self.walk_entries
+    /// The request's one scope walk: the first caller walks (as of
+    /// `observed`, see [`Self::walk_fingerprint`]) and every later caller
+    /// reuses it, whatever instant it would have observed. Its two
+    /// consumers are the continuation revision (its digest) and the
+    /// watched-file diff (its entries), and a request that needs neither
+    /// never walks. A stopped walk is not kept.
+    pub(super) async fn walked(
+        &self,
+        observed: SystemTime,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<Walked, LspFailure> {
+        if let Some(walked) = self
+            .walked
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
-    }
-
-    /// The scope fingerprint this request computed, if any.
-    pub(super) fn fingerprint(&self) -> Option<String> {
-        self.fingerprint
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+        {
+            return Ok(walked);
+        }
+        let walked = Walked {
+            observed,
+            fingerprint: self.walk_fingerprint(observed, cancel).await?,
+        };
+        if let Ok(mut slot) = self.walked.lock() {
+            *slot = Some(walked.clone());
+        }
+        Ok(walked)
     }
 
     /// Whether the server's answer covers `file` (canonical path).
@@ -227,6 +220,37 @@ impl Scope {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .contains(file)
+    }
+
+    /// Whether a file the server's answer covers under the scope root is
+    /// gone: a file removed after the server read it leaves no stamp for a
+    /// later walk to compare. Files outside the root (and non-file URIs)
+    /// are not this scope's to prove.
+    pub(super) async fn answered_removed(
+        &self,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<bool, LspFailure> {
+        let root = PathBuf::from(&self.root);
+        let answered = self
+            .answered
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|file| Path::new(file).starts_with(&root))
+            .cloned()
+            .collect::<Vec<_>>();
+        if answered.is_empty() {
+            return Ok(false);
+        }
+        let removed = blocking_cancellable(cancel, move |stopped| {
+            answered.iter().take_while(|_| !stopped()).any(|file| {
+                std::fs::symlink_metadata(file)
+                    .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+            })
+        })
+        .await?;
+        // A check the request stopped proves nothing.
+        Ok(removed.unwrap_or(true))
     }
 
     /// Record files (paths or `file://` uris) the server's answer covers.
@@ -274,40 +298,32 @@ impl Scope {
             .then_some(file)
     }
 
-    /// The key of this scope's index under `policy`.
-    fn index_key(&self, policy: &PathPolicy) -> String {
-        format!(
-            "{}\u{0}{}\u{0}{policy:?}",
-            self.root,
-            self.include.join("\u{0}")
-        )
-    }
-
-    /// Start building this scope's ignored-file index under `policy` on a
-    /// background thread (see `ignored_index`), unless one is held or
-    /// building. Nothing waits for it.
-    pub(super) fn warm_ignored_index(&self, policy: &PathPolicy) {
-        ignored_index::start(
-            self.index_key(policy),
-            PathBuf::from(&self.root),
-            self.include.clone(),
-            policy.clone(),
-        );
-    }
-
-    /// This request's scope fingerprint ([`WalkInputs::fingerprint`]) on a
-    /// blocking worker that follows `cancel`. A walk with no fingerprint
-    /// (the request stopped it, or a file could not be stamped) is counted
-    /// as failed in the LSP trace (`lsp.trace`): the request then reuses no
-    /// response and sends no watched-file events, and that is never silent.
+    /// This request's scope fingerprint as of `observed`
+    /// ([`WalkInputs::fingerprint`]) on a blocking worker that follows
+    /// `cancel`. A walk with no fingerprint (the request stopped it, or a
+    /// file could not be stamped or digested) is counted as failed in the
+    /// LSP trace (`lsp.trace`): the request's revision then covers the
+    /// anchor text alone and it sends no watched-file events, and that is
+    /// never silent.
     pub(super) async fn walk_fingerprint(
         &self,
+        observed: SystemTime,
         cancel: &dyn CancellationCheck,
     ) -> Result<Option<Fingerprint>, LspFailure> {
         let walked = self.walk_inputs();
+        #[cfg(test)]
+        let probe = probe::current();
+        #[cfg(test)]
+        if let Some(work) = &probe {
+            work.walks
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         let measured = octocode_engine::lsp::diagnostics::Phase::ScopeFingerprint
             .measure(async {
-                match blocking_cancellable(cancel, move |stopped| walked.fingerprint(stopped)).await
+                match blocking_cancellable(cancel, move |stopped| {
+                    walked.fingerprint(observed, stopped)
+                })
+                .await
                 {
                     Ok(Some(Some(found))) => Ok(found),
                     Ok(_) => Err(None),
@@ -316,7 +332,14 @@ impl Scope {
             })
             .await;
         match measured {
-            Ok(found) => Ok(Some(found)),
+            Ok(found) => {
+                #[cfg(test)]
+                if let Some(work) = &probe {
+                    work.stamped
+                        .fetch_add(found.1.len(), std::sync::atomic::Ordering::Relaxed);
+                }
+                Ok(Some(found))
+            }
             Err(None) => Ok(None),
             Err(Some(failure)) => Err(failure),
         }
@@ -332,6 +355,14 @@ impl Scope {
     }
 }
 
+/// A scope walk: the instant it observed the scope at, and its
+/// fingerprint (`None` when the walk proved none).
+#[derive(Clone)]
+pub(super) struct Walked {
+    pub(super) observed: SystemTime,
+    pub(super) fingerprint: Option<Fingerprint>,
+}
+
 /// What the scope fingerprint walks: the scope root and its family globs.
 pub(super) struct WalkInputs {
     root: PathBuf,
@@ -341,17 +372,21 @@ pub(super) struct WalkInputs {
 
 impl WalkInputs {
     /// Digest of every family and project file under the scope (relative
-    /// path, length, mtime; content too for a fresh mtime), so any edit,
-    /// addition, or removal changes it; one walk for the queries that ask
-    /// at once ([`shared_fingerprint`]). `None` when the request stopped
-    /// the walk or a file could not be stamped.
-    pub(super) fn fingerprint(&self, stopped: &(dyn Fn() -> bool + Sync)) -> Option<Fingerprint> {
-        shared_fingerprint(
+    /// path, length, mtime; content too for an mtime near `observed`), so
+    /// any edit, addition, or removal changes it. `None` when the request
+    /// stopped the walk or a file could not be stamped.
+    pub(super) fn fingerprint(
+        &self,
+        observed: SystemTime,
+        stopped: &(dyn Fn() -> bool + Sync),
+    ) -> Option<Fingerprint> {
+        fingerprint(
             &scan::FingerprintScope {
                 root: &self.root,
                 server_root: self.server_root.as_deref(),
                 include: &self.include,
             },
+            observed,
             stopped,
         )
     }

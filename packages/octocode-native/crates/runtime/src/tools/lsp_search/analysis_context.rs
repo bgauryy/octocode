@@ -1,8 +1,7 @@
 //! Observed diagnostic health, separate from server readiness and binding.
 use super::failure::mark_anchor_line_errors;
 use super::lsp_search_query;
-use crate::id::ToolId;
-use octocode_contract_types::LspSearchQuery;
+use octocode_contract_types::{LspDocumentOperation, LspSearchQuery};
 use serde_json::{Value, json};
 
 pub(super) fn annotate_diagnostics(
@@ -77,16 +76,14 @@ fn attach_diagnostics(row: &mut Value, query: &LspSearchQuery) {
     let Some(path) = lsp_search_query::path(query) else {
         return;
     };
-    let mut diagnostic = json!({"operation":"diagnostic", "path":path});
-    let original = lsp_search_query::to_row(query);
-    for field in ["workspaceRoot", "rustContext"] {
-        if let Some(value) = original.get(field).filter(|value| !value.is_null()) {
-            diagnostic[field] = value.clone();
-        }
-    }
+    let Some(diagnostic) =
+        lsp_search_query::document_lead(LspDocumentOperation::Diagnostic, path, Some(query))
+    else {
+        return;
+    };
     crate::response::result::attach_related(
         row,
-        crate::response::result::Continuation::related(ToolId::LspSearch, diagnostic).build(),
+        crate::response::result::Continuation::related_query(diagnostic).build(),
     );
 }
 

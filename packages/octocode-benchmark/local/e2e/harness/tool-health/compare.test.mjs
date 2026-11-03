@@ -8,24 +8,26 @@ const response = (cursor, line) => ({ results: [{ index: 0, data: {
   next: { more: { kind: 'continue', tool: 'localFetch', input: { cursor } } },
 } }] });
 const graphBuildReceipt = (extra = {}) => ({ results: [{ index: 0, data: {
-  id: 'snapshot', reused: true, counts: { nodes: 8, edges: 7 }, ...extra,
+  id: 'snapshot', counts: { nodes: 8, edges: 7 }, ...extra,
 } }] });
 const timingEvidence = totalMs => ({ results: [{ index: 0, data: { content: JSON.stringify({ totalMs }) } }] });
 const cloneReceipt = (clonedAt, commitSha = 'a'.repeat(40)) => ({ results: [{ index: 0, data: {
   location: { kind: 'repo', localPath: '/checkout', commitSha, resolvedRef: commitSha, clonedAt },
 } }] });
 const cloneTimingEvidence = clonedAt => ({ results: [{ index: 0, data: { content: JSON.stringify({ clonedAt }) } }] });
+const stats = id => ({ related: [{ kind: 'related', tool: 'graphQuery', input: { queries: [{ operation: 'stats', path: '.', graph: id }] } }] });
 
 test('surface comparison preserves source evidence while accepting independent issued handles', () => {
   assert.equal(firstDiff(parityView(response('cli', 4), 'localFetch'), parityView(response('mcp', 4), 'localFetch')), null);
   assert.match(firstDiff(parityView(response('cli', 4), 'localFetch'), parityView(response('mcp', 5), 'localFetch')), /content/);
 });
 
-test('graph build parity compares snapshot evidence and reuse, and elapsed text stays evidence', () => {
-  const reference = parityView(graphBuildReceipt(), 'graphBuild');
-  assert.equal(firstDiff(reference, parityView(graphBuildReceipt(), 'graphBuild')), null);
-  for (const changed of [{ id: 'other' }, { reused: false }, { counts: { nodes: 9, edges: 7 } }]) {
-    assert.ok(firstDiff(reference, parityView(graphBuildReceipt(changed), 'graphBuild')));
+test('graph build parity compares snapshot evidence but not the per-build snapshot id, and elapsed text stays evidence', () => {
+  const reference = parityView(graphBuildReceipt(stats('snapshot')), 'graphBuild');
+  assert.equal(firstDiff(reference, parityView(graphBuildReceipt(stats('snapshot')), 'graphBuild')), null);
+  assert.equal(firstDiff(reference, parityView(graphBuildReceipt({ id: 'other', ...stats('other') }), 'graphBuild')), null);
+  for (const changed of [{ scan: { filesScanned: 2 } }, { counts: { nodes: 9, edges: 7 } }]) {
+    assert.ok(firstDiff(reference, parityView(graphBuildReceipt({ ...stats('snapshot'), ...changed }), 'graphBuild')));
   }
   assert.ok(firstDiff(parityView(timingEvidence(9), 'localFetch'), parityView(timingEvidence(5), 'localFetch')));
 });

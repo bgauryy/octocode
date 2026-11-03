@@ -21,7 +21,9 @@ pub(super) async fn materialize_page(
     context: &RequestContext,
     value: &mut Value,
 ) -> Result<Option<MaterializeResume>, ProviderError> {
-    let offset = query.materialize_offset.map_or(0, crate::num::usize_of);
+    let offset = query
+        .materialize_offset
+        .map_or(0, octocode_engine::num::saturating_usize);
     let snapshot = Snapshot {
         owner: &query.owner,
         repo: &query.repo,
@@ -63,6 +65,25 @@ pub(super) async fn materialize_page(
         value["calls"]["expandDepth"] = expand_depth(query, scope, commit_sha, first)?;
     }
     let mut location = outcome.location;
+    // The first write of a listing leads into the local tools: the best file
+    // it wrote, read from the copy.
+    if offset == 0
+        && page.current == 1
+        && let Some(local) = location["localPath"].as_str()
+    {
+        let skipped = location["skipped"]
+            .as_array()
+            .map_or_else(Vec::new, |paths| {
+                paths.iter().filter_map(Value::as_str).collect::<Vec<_>>()
+            });
+        let end = outcome.next_offset.unwrap_or(page.entries.len());
+        let written = page.entries[..end]
+            .iter()
+            .filter(|entry| !skipped.contains(&entry.path.as_str()));
+        if let Some(read) = local_entry_read(query, written, scope, Path::new(local)) {
+            value["calls"]["read"] = read;
+        }
+    }
     // The checkout is complete only when this listing wrote everything it
     // names: no later page or offset, no folder below the depth, no skip.
     let finished = resume.is_none() && unwritten.is_empty() && !outcome.skipped;
@@ -177,8 +198,8 @@ pub(crate) fn materialize_root(home: &Path) -> PathBuf {
 /// Write `entries[offset..]` under the locked, content-verified snapshot,
 /// reading up to [`READ_CONCURRENCY`] files ahead and writing them in
 /// listing order, so the write caps stop at the same entry as a serial
-/// walk. A cached file is reused only when its actual bytes match the recorded
-/// identity. `location.localPath` is the listed directory.
+/// walk. Every requested file is acquired from GitHub; returned files remain
+/// available for inspection. `location.localPath` is the listed directory.
 pub(super) async fn materialize_tree(
     provider: &GitHubProvider,
     snapshot: &Snapshot<'_>,
@@ -203,7 +224,6 @@ pub(super) async fn materialize_tree(
     };
     {
         use futures_util::StreamExt as _;
-        let store = &store;
         // Up to READ_CONCURRENCY reads run ahead of the writer; a slow file
         // holds back only the writes after it, never the next reads.
         let mut reads = futures_util::stream::iter(&entries[offset..])
@@ -217,9 +237,6 @@ pub(super) async fn materialize_tree(
                 {
                     return (entry, Acquired::Oversized);
                 }
-                if store.reusable(entry).await {
-                    return (entry, Acquired::Reused);
-                }
                 // Bytes, admitted by the one text rule: a file it refuses
                 // is the typed binary-file failure, skipped as unreadable.
                 let read = provider
@@ -229,7 +246,6 @@ pub(super) async fn materialize_tree(
                             repo: snapshot.repo.to_owned(),
                             path: entry.path.clone(),
                             reference: Some(snapshot.commit.to_owned()),
-                            force_refresh: false,
                         },
                         context,
                     )

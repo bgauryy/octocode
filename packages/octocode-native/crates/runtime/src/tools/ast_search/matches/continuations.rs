@@ -2,12 +2,16 @@
 //! expansions, the read of its top hits, and the terminal end of a query
 //! some grammar of the scope does not compile.
 use super::query::MatchQuery;
+use super::query::Move;
 use super::reads::read_top_hits;
 use super::rows::continuation_with;
 use super::types::{Group, ScanCut, Scope};
 use crate::id::ToolId;
 use crate::response::result::ToolError;
-use octocode_contract_types::ErrorCode;
+use crate::response::result::insert_next;
+use octocode_contract_types::{
+    AstSearchChannel, AstSearchQuerySyntaxTree, AstSearchQuerySyntaxTreeOperation, ErrorCode,
+};
 use serde_json::{Value, json};
 
 /// Files whose grammar the query does not compile in are on no page of any
@@ -43,32 +47,57 @@ pub(super) fn attach_match_continuations(
     cut: ScanCut,
     more: bool,
     snapshot: &str,
-) {
+) -> Result<(), ToolError> {
     let truncated = cut.truncated;
-    let page = q.page().max(1) as usize;
-    let match_page = q.match_page().max(1) as usize;
+    let page = u64::from(q.page().max(1));
+    let match_page = u64::from(q.match_page().max(1));
     let has_more_matches = page_groups.iter().any(|group| group.more_matches);
     let has_truncated_captures = page_groups.iter().any(|group| group.truncated_captures);
     // The scan continues after the files this window evaluated
     // (`scanOffset`), so the lead is offered once the window's last file page
     // is reached.
-    let expand_scan = super::super::scan_window::expand_scan(truncated, cut.resume).map(
-        |window| json!({"scanOffset":window.scan_offset,"page":1,"matchPage":1,"snapshot":null}),
-    );
+    let expand_scan = super::super::scan_window::expand_scan(truncated, cut.resume)
+        .map(|window| u64::from(window.scan_offset));
     // Finish each file page's matches before advancing the file/scan axis.
     // Otherwise every match page reissues the same next file or scan window.
-    let next_page = (more && !has_more_matches).then_some(page + 1);
-    let next_match_page = has_more_matches.then_some(match_page + 1);
-    let with = |changes: Value| continuation_with(q, changes, snapshot);
-    if let Some(next_page) = next_page {
+    // The row's own walk therefore leads to the split files' next match page,
+    // and to the next file page only once every file on this page has shown
+    // its last match. A split file's pagination states only that it has more.
+    // A continuation that cannot be built is a defect of this response, not
+    // an absent lead: `hasMore` never stands without its call.
+    let with = |to: Move| {
+        continuation_with(q, to, snapshot).ok_or_else(|| {
+            ToolError::new(
+                ErrorCode::OutputContractViolation,
+                format!("astSearch could not build the continuation for {to:?}"),
+            )
+        })
+    };
+    let row_call = if has_more_matches {
+        // One call reads the next match page of every split file on this
+        // page, so the row's walk holds it and no file's pager repeats it.
+        Some(with(Move::MatchPage(match_page + 1))?)
+    } else if more {
         // A new file page restarts per-file match pagination.
-        out["calls"] = json!({"nextPage":with(json!({"page":next_page,"matchPage":1}))});
+        Some(with(Move::FilePage(page + 1))?)
+    } else {
+        None
+    };
+    if let Some(call) = row_call {
+        out["calls"] = json!({});
+        insert_next(&mut out["calls"], AstSearchChannel::NextPage, call);
+        // The row's `pagination` says its walk goes on, though every file
+        // is listed when a match page is what remains.
+        if let Some(pagination) = out.get_mut("pagination").and_then(Value::as_object_mut) {
+            pagination.insert("hasMore".into(), json!(true));
+        }
     }
-    if let Some(next_match_page) = next_match_page {
-        out["calls"]["nextMatchPage"] = with(json!({"matchPage":next_match_page}));
-    }
-    if let Some(expand) = expand_scan.filter(|_| !more && !has_more_matches) {
-        out["calls"]["expandScan"] = with(expand);
+    if let Some(offset) = expand_scan.filter(|_| !more && !has_more_matches) {
+        insert_next(
+            &mut out["calls"],
+            AstSearchChannel::ExpandScan,
+            with(Move::ScanWindow(offset))?,
+        );
         super::super::scan_window::mark_resumed(out);
     }
     // The lean structural representation may withhold a body or captures.
@@ -86,14 +115,14 @@ pub(super) fn attach_match_continuations(
     {
         out["calls"]["read"] = read;
     }
+    Ok(())
 }
 /// A query that does not compile against one file leads to that file's
 /// syntax tree, where the node shapes a pattern or rule names are read.
 pub(super) fn tree_repair(mut error: ToolError, q: MatchQuery<'_>, scope: &Scope) -> ToolError {
     if error.code == ErrorCode::InvalidPattern && error.calls.is_none() {
-        error.calls = Some(Box::new(
-            json!({ "viewSyntax": tree_lead(q, scope, &scope.canonical, None) }),
-        ));
+        error.calls = tree_lead(q, scope, &scope.canonical, None)
+            .map(|lead| Box::new(json!({ "viewSyntax": lead })));
     }
     error
 }
@@ -105,19 +134,24 @@ pub(super) fn tree_lead(
     scope: &Scope,
     file: &std::path::Path,
     line: Option<u64>,
-) -> Value {
+) -> Option<Value> {
     // One bounded page: the nodes at `line` (the statement that spells the
     // query's anchor), else the file's first nodes, with the rest a page on.
-    let mut tree = json!({"operation":"syntaxTree","path":file.to_string_lossy()});
-    if let Some(line) = line {
-        tree["line"] = json!(line);
-    }
-    if scope.is_file
-        && let Some(language) = q.language()
-    {
-        tree["parser"] = json!(language);
-    }
-    crate::response::result::Continuation::related(ToolId::AstSearch, tree).build()
+    let tree = AstSearchQuerySyntaxTree {
+        line: line.and_then(std::num::NonZeroU64::new),
+        main_goal: None,
+        named_only: true,
+        operation: AstSearchQuerySyntaxTreeOperation::SyntaxTree,
+        page: std::num::NonZeroU64::MIN,
+        parser: match q.language().filter(|_| scope.is_file) {
+            Some(language) => Some(language.parse().ok()?),
+            None => None,
+        },
+        path: file.to_string_lossy().as_ref().try_into().ok()?,
+        reasoning: None,
+        snapshot: None,
+    };
+    Some(crate::response::result::Continuation::related_query(tree).build())
 }
 
 /// The first line of `file` that spells a literal every match must contain,

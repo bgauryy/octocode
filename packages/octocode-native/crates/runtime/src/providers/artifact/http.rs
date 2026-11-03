@@ -1,5 +1,4 @@
 use super::ArtifactError;
-use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
 use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use std::fmt;
@@ -7,7 +6,6 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::ops::ControlFlow;
 use std::pin::Pin;
-use std::time::Duration;
 use url::Url;
 
 mod client;
@@ -15,59 +13,6 @@ mod system;
 
 pub(crate) use client::RegistryClient;
 pub use system::SystemArtifactHttp;
-
-/// One runtime's registry answers and release facts. A disk directory
-/// keeps them across CLI processes; without one they stay in memory.
-pub struct ArtifactCache(std::sync::Arc<Store<serde_json::Value>>);
-
-impl ArtifactCache {
-    pub fn new(dir: Option<std::path::PathBuf>) -> Self {
-        Self(std::sync::Arc::new(Store::new(CacheConfig::default(), dir)))
-    }
-}
-
-/// A registry answer lives five minutes: a new release shows up soon.
-const REGISTRY_ANSWER: CacheClass = CacheClass::Volatile {
-    ttl: Duration::from_secs(300),
-};
-
-/// A read's key: the registry host scoped by the exact credential
-/// ([`octocode_github::Partition`]), so one token's answers never serve
-/// another caller.
-fn cache_key(url: &Url, accept: &str, authorization: Option<&SecretString>) -> CacheKey {
-    // One URL can answer in several representations (npm's abbreviated
-    // packument); the default JSON keeps its historical key.
-    let resource = if accept == JSON {
-        url.as_str().to_owned()
-    } else {
-        format!("{accept} {url}")
-    };
-    CacheKey {
-        namespace: "artifact".into(),
-        scope: octocode_github::Partition::new(url.host_str().unwrap_or("registry"), authorization)
-            .identity()
-            .to_owned(),
-        resource,
-    }
-}
-
-/// Release facts are public: one unscoped namespace.
-fn fact_key(resource: &str) -> CacheKey {
-    CacheKey {
-        namespace: "artifact-fact".into(),
-        scope: String::new(),
-        resource: resource.to_owned(),
-    }
-}
-
-/// Page cursors of public registry searches: one unscoped namespace.
-fn cursor_key(resource: &str) -> CacheKey {
-    CacheKey {
-        namespace: "artifact-cursor".into(),
-        scope: String::new(),
-        resource: resource.to_owned(),
-    }
-}
 
 pub(crate) const JSON: &str = "application/json";
 /// npm's abbreviated packument: versions and dist-tags without readmes.

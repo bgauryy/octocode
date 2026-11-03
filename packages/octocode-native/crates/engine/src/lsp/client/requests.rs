@@ -1,17 +1,17 @@
-//! Query requests: the typed LSP methods, the response cache, and the
+//! Query requests: the typed LSP methods, selected provider evidence, and the
 //! content-modified retry loop.
 
 use super::snippets::snippets_from_locations;
 use super::{
-    CONTENT_MODIFIED_RETRIES, CONTENT_MODIFIED_RETRY_DELAY_MS, CachedResponse, NativeLspClient,
-    REQUEST_TIMEOUT_MS, RESPONSE_SCOPE, SnippetReadPolicy,
+    CONTENT_MODIFIED_RETRIES, CONTENT_MODIFIED_RETRY_DELAY_MS, NativeLspClient, REQUEST_TIMEOUT_MS,
+    RESPONSE_SCOPE, SnippetReadPolicy,
 };
 use crate::error::{Error, Result};
 use crate::lsp::transport::{JsonRpcConnection, WaitBudget};
 use crate::lsp::types::LspCodeSnippet;
 use crate::lsp::uri::path_to_uri;
 use serde_json::{Value, json};
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::Arc;
 use tokio::time::Duration;
 
 impl NativeLspClient {
@@ -27,11 +27,11 @@ impl NativeLspClient {
         .await
     }
 
-    /// `textDocument/documentSymbol`, shared with the response cache (a
+    /// `textDocument/documentSymbol`, shared with selected provider evidence (a
     /// reused answer is not copied).
     pub async fn get_document_symbols(&self, file_path: String) -> Result<Arc<Value>> {
         let uri = path_to_uri(&file_path)?;
-        self.cached_request(
+        self.provider_request(
             "textDocument/documentSymbol",
             json!({ "textDocument": { "uri": uri } }),
             None,
@@ -127,7 +127,7 @@ impl NativeLspClient {
             params["previousResultId"] = json!(result_id);
         }
         let report = self
-            .cached_request("textDocument/diagnostic", params, None)
+            .provider_request("textDocument/diagnostic", params, None)
             .await?;
         let full = match (report.get("kind").and_then(Value::as_str), previous) {
             (Some("unchanged"), Some(previous)) => {
@@ -217,58 +217,67 @@ impl NativeLspClient {
             params["context"] = json!({ "includeDeclaration": include_declaration });
         }
         let result = self
-            .cached_request(request.method(), params, settle)
+            .provider_request(request.method(), params, settle)
             .await?;
         snippets_from_locations(&result, policy).await
     }
 
     async fn request(&self, method: &str, params: Value) -> Result<Value> {
-        self.cached_request(method, params, None)
+        self.provider_request(method, params, None)
             .await
             .map(Arc::unwrap_or_clone)
     }
 
-    /// `method` under the current [`RESPONSE_SCOPE`], once every open
-    /// document matches its file: a reused answer is shared, not copied,
-    /// and only one given since the open documents' text last changed is
-    /// reused, by a scope that allows reuse or by the call that asked for
-    /// it. A `settle` request keys its answer apart from the plain one and
-    /// waits `settle` only when it reaches the server.
-    async fn cached_request(
+    /// Read one method's answer from this operation's selected evidence, or
+    /// ask the server and retain it for this operation's later pages.
+    async fn provider_request(
         &self,
         method: &str,
         params: Value,
         settle: Option<Duration>,
     ) -> Result<Arc<Value>> {
-        let (reuse, generation, call) = RESPONSE_SCOPE
+        let (call, answers) = RESPONSE_SCOPE
             .try_with(|scope| {
                 let scope = scope.borrow();
-                (scope.reuse, scope.generation.clone(), scope.call)
+                (scope.call, scope.answers.clone())
             })
             .unwrap_or_default();
         self.sync_open_documents_for(call).await?;
         let settle = settle.map(|settle| self.settle(settle));
-        if generation.is_empty() {
-            if let Some(settle) = settle {
-                tokio::time::sleep(settle).await;
-            }
-            return self.send_request(method, params).await.map(Arc::new);
-        }
-        let variant = if settle.is_some() { "settled" } else { "" };
-        let epoch = self.inner.content_epoch.load(Ordering::Acquire);
-        let key = format!("{generation}\u{0}{epoch}\u{0}{variant}\u{0}{method}\u{0}{params}");
-        if let Some(hit) = self.inner.responses.get(&key)
-            && (reuse || (call.is_some() && hit.call == call))
-        {
-            return Ok(hit.value);
+        // The digest identifies the request without retaining its server
+        // configuration (environment, initialization options) or parameters
+        // in the answers a continuation persists.
+        let key = crate::digest::sha256(
+            json!([
+                &self.inner.config,
+                method,
+                &params,
+                settle.map(|duration| duration.as_nanos())
+            ])
+            .to_string()
+            .as_bytes(),
+        );
+        if let Some(value) = answers.as_ref().and_then(|answers| {
+            answers
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0
+                .get(&key)
+                .cloned()
+        }) {
+            return Ok(value);
         }
         if let Some(settle) = settle {
             tokio::time::sleep(settle).await;
         }
         let value = Arc::new(self.send_request(method, params).await?);
-        self.inner
-            .responses
-            .insert(key, CachedResponse::new(Arc::clone(&value), call));
+        if let Some(answers) = answers {
+            answers
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0
+                .insert(key, Arc::clone(&value));
+        }
         Ok(value)
     }
 

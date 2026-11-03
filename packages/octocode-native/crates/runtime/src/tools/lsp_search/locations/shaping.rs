@@ -84,11 +84,11 @@ pub(in super::super) async fn apply_context_lines(
     let start_line = location
         .pointer("/range/start/line")
         .and_then(Value::as_u64)
-        .map_or(0, crate::num::usize_of);
+        .map_or(0, octocode_engine::num::saturating_usize);
     let range_end = location
         .pointer("/range/end/line")
         .and_then(Value::as_u64)
-        .map_or(start_line, crate::num::usize_of);
+        .map_or(start_line, octocode_engine::num::saturating_usize);
     let end_character = location
         .pointer("/range/end/character")
         .and_then(Value::as_u64)
@@ -126,7 +126,9 @@ pub(in super::super) const MAX_DECLARATION_CONTENT_LINES: usize = 60;
 /// declaration body and end it with a marker naming the omitted source lines,
 /// so a class definition does not ship its whole body. Returns the localFetch
 /// continuation that reads exactly the omitted lines.
-pub(in super::super) fn cap_declaration_content(location: &mut Value) -> Option<Value> {
+pub(in super::super) fn cap_declaration_content(
+    location: &mut Value,
+) -> Option<crate::response::result::Continuation> {
     let content = location.get("content").and_then(Value::as_str)?;
     let lines = content.split('\n').collect::<Vec<_>>();
     if lines.len() <= MAX_DECLARATION_CONTENT_LINES {
@@ -136,7 +138,7 @@ pub(in super::super) fn cap_declaration_content(location: &mut Value) -> Option<
     let start = location
         .pointer("/displayRange/startLine")
         .and_then(Value::as_u64)
-        .map(crate::num::usize_of);
+        .map(octocode_engine::num::saturating_usize);
     let path = location.get("uri").and_then(Value::as_str).map(uri_to_path);
     let rest = start.map(|start| {
         (
@@ -145,13 +147,13 @@ pub(in super::super) fn cap_declaration_content(location: &mut Value) -> Option<
         )
     });
     let read = match (&path, rest) {
-        (Some(path), Some((from, to))) => Some(
-            crate::response::result::Continuation::continued(
-                ToolId::LocalFetch,
-                json!({"path": path, "ranges": [{"startLine":from,"endLine":to}]}),
-            )
-            .build(),
-        ),
+        (Some(path), Some((from, to))) => u64::try_from(from)
+            .ok()
+            .zip(u64::try_from(to).ok())
+            .and_then(|window| {
+                crate::tools::source_view::local_fetch_query::ranges_lead(path, &[window])
+            })
+            .map(crate::response::result::Continuation::continued_query),
         _ => None,
     };
     let marker = match (rest, read.is_some()) {

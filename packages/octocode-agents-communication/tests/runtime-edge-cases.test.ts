@@ -56,7 +56,7 @@ test('a raw hook whose stdout reader closed early records the offer uncertain, a
   const f = fixture(t);
   const sender = f.join('sender'), receiver = f.join('receiver');
   f.call('attach', { transport: 'raw' }, receiver);
-  const sent = f.call('send_message', { to: receiver, body: 'must not be lost' }, sender);
+  const sent = f.call('send_message', {parts: [{ text: 'must not be lost' }],  to: receiver, }, sender);
   const { code } = await withClosedReader(['hook', '{"format":"text"}', ...f.flags, '--session', receiver]);
   assert.equal(code, 0, 'a consumer closing the pipe is not a failure');
   const [row]: JsonRecord[] = f.db().prepare('SELECT message,state,error FROM dispatches').all();
@@ -76,7 +76,7 @@ test('a host post-tool hook whose stdout reader closed early records the offer u
   const hook = () => ['host-hook', '--vendor', 'claude', ...f.flags];
   execFileSync(binary, hook(), { input: event('SessionStart'), encoding: 'utf8' });
   const [{ id: receiver }]: JsonRecord[] = f.db().prepare('SELECT id FROM sessions').all();
-  const sent = f.call('send_message', { to: receiver, body: 'host mail' }, f.join('sender'));
+  const sent = f.call('send_message', {parts: [{ text: 'host mail' }],  to: receiver, }, f.join('sender'));
   const { code } = await withClosedReader(hook(), event('PostToolUse'));
   assert.equal(code, 0);
   const [row] = f.db().prepare('SELECT message,state FROM dispatches').all();
@@ -141,13 +141,13 @@ test('a backslash is an ordinary filename character on POSIX', { skip: process.p
 
 test('blank text is what the whitespace set of the previous runtime empties: U+0085, U+001C, U+001F and U+2028 are blank, U+FEFF and U+200B are not', t => {
   const f = fixture(t), sender = f.join('sender'), receiver = f.join('receiver');
-  for (const body of ['\x85', '\x1c', '\x1f', '\u2028', ' \t\n']) assert.match(f.fails('send_message', { to: receiver, body }, sender) ?? '', /blank|Invalid/, JSON.stringify(body));
-  for (const body of ['\ufeff', '\u200b', 'a']) assert.equal(f.fails('send_message', { to: receiver, body }, sender), null, JSON.stringify(body));
+  for (const body of ['\x85', '\x1c', '\x1f', '\u2028', ' \t\n']) assert.match(f.fails('send_message', {parts: [{ text: body }],  to: receiver, }, sender) ?? '', /blank|Invalid/, JSON.stringify(body));
+  for (const body of ['\ufeff', '\u200b', 'a']) assert.equal(f.fails('send_message', {parts: [{ text: body }],  to: receiver, }, sender), null, JSON.stringify(body));
 });
 
 test('reasoning is non-blank by the previous runtime \\S, so U+FEFF counts as a character and U+0085 does not', t => {
   const f = fixture(t), sender = f.join('sender'), receiver = f.join('receiver');
-  const send = (reasoning: string) => f.fails('send_message', { to: receiver, body: 'x', reasoning }, sender);
+  const send = (reasoning: string) => f.fails('send_message', {parts: [{ text: 'x' }],  to: receiver, reasoning }, sender);
   assert.equal(send('\ufeff'), null);
   for (const reasoning of ['\x85', '\x1c', '\u2003']) assert.match(send(reasoning) ?? '', /Invalid/, JSON.stringify(reasoning));
 });
@@ -226,20 +226,20 @@ test('an integer request id beyond 2^53 is refused, not echoed as a different id
 test('tools/call with arguments:null is an invalid tool call, not an empty argument object', t => {
   const f = fixture(t), session = f.join('agent');
   const rows = mcp(f, session, [
-    '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"peers","arguments":{}}}',
-    '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"peers","arguments":null}}',
-    '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"peers"}}',
+    '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agents","arguments":{"type":"list","input":{}}}}',
+    '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agents","arguments":null}}',
+    '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"agents"}}',
   ]);
   assert.equal(rows[0].result.isError, undefined);
   assert.equal(rows[1].result.isError, true);
-  assert.equal(rows[2].result.isError, undefined, 'omitted arguments still default to {}');
+  assert.equal(rows[2].result.isError, true, 'omitted family arguments do not supply the required operation type');
 });
 
 test('an MCP tool defect names its type like the CLI, while expected refusals keep their plain message', t => {
   const f = fixture(t), session = f.join('agent');
   const deep = '['.repeat(30000) + ']'.repeat(30000);
   const rows = mcp(f, session, [
-    `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"peers","arguments":{"x":${deep}}}}`,
+    `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agents","arguments":{"type":"list","input":{"x":${deep}}}}}`,
     '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nope","arguments":{}}}',
   ]);
   assert.equal(rows[0].result.isError, true);
@@ -279,7 +279,7 @@ test('UUID acceptance removes every urn: and uuid: marker, as the previous runti
 test('a view cursor may use the standard base64 alphabet, as the previous runtime decoding accepted', async t => {
   const f = storeFixture(t);
   const sender = await f.join('sender'), receiver = await f.join('receiver');
-  for (const body of ['one', 'two', 'three']) await f.call(sender, 'send_message', { to: receiver, body });
+  for (const body of ['one', 'two', 'three']) await f.call(sender, 'send_message', {parts: [{ text: body }],  to: receiver, });
   const cursor = { entity: 'message', id: 3, filters: {}, pad: '??????' };
   const standard = Buffer.from(JSON.stringify(cursor)).toString('base64');
   assert.match(standard, /[+/]/, 'the fixture must use a standard-only character');

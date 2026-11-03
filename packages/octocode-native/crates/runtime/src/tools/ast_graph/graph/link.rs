@@ -38,7 +38,9 @@ pub(super) fn cargo_linking(
     crates.within(&b.root)
 }
 
-/// Link one scanned file, unless its fact schema is unsupported.
+/// Link one scanned file. Its facts are of the current schema: extraction
+/// writes it, and every reused or checkpointed entry passes
+/// `GraphFactsReuseContext::accepts`, which checks it.
 pub(super) fn link_entry(
     built: &mut BuiltGraph,
     inputs: &LinkInputs,
@@ -47,19 +49,6 @@ pub(super) fn link_entry(
 ) {
     let file = normalize(&entry.relative_path);
     let parsed: GraphFactsDocument = entry.facts;
-    if parsed.schema_version != octocode_engine::signatures::GRAPH_FACTS_SCHEMA_VERSION {
-        built.files_skipped += 1;
-        built.diagnostics.push(Diagnostic::new(
-            file,
-            None,
-            DiagnosticCode::FactsSchemaUnsupported,
-            format!(
-                "unsupported graph-fact schema version: {}",
-                parsed.schema_version
-            ),
-        ));
-        return;
-    }
     let counts = entry
         .reference_counts
         .into_iter()
@@ -79,7 +68,7 @@ pub(super) fn is_rust(file: &str) -> bool {
 }
 
 pub(super) fn sanitize(security: &ContentSecurity, text: &str) -> String {
-    security.sanitize_text(text, None).content
+    security.sanitize_text(text, None).content.into_owned()
 }
 
 /// Per-scan inputs every file's linking reads.

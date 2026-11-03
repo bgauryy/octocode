@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[expect(
-    clippy::print_stderr,
-    reason = "explicit resource-profile test emits its measured accounting receipt"
-)]
 fn admission_boundary_and_large_projection_profiles() {
     for raw_limit in [1 << 20, 8 << 20] {
         for scalar in ['x', '中', '😀'] {
@@ -85,10 +81,6 @@ fn admission_boundary_and_large_projection_profiles() {
 }
 
 #[test]
-#[expect(
-    clippy::print_stderr,
-    reason = "explicit resource-profile test emits its measured accounting receipt"
-)]
 fn temporary_pricing_bounds_one_origin_and_preserves_cumulative_work() {
     let text = "x".repeat(100_000);
     let mut retained = budget();

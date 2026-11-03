@@ -1,9 +1,8 @@
 //! Listing pages: pinned commits, deep pages, omitted entries, the fetch cap and shared reads.
 use super::*;
-use crate::tools::gh_shared::test_support::{MemoryCache, default_context, one_shot_provider};
+use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
 use crate::tools::gh_structure;
 use octocode_contract_types::GhStructureQuery;
-use octocode_github::GitHubProvider;
 use octocode_github::mock_http::mount_json;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
@@ -157,7 +156,7 @@ async fn tree_fallback_walk_reads_every_directory() {
 /// A listing without a ref names its default branch from one
 /// repository lookup per repository, not one per call.
 #[tokio::test]
-async fn the_default_branch_is_looked_up_once_per_repository() {
+async fn the_default_branch_is_looked_up_on_each_request() {
     let server = MockServer::builder().start().await;
     mount_ref(&server, "HEAD").await;
     Mock::given(method("GET"))
@@ -166,7 +165,7 @@ async fn the_default_branch_is_looked_up_once_per_repository() {
             ResponseTemplate::new(200)
                 .set_body_json(json!({"default_branch":"main","full_name":"a/b"})),
         )
-        .expect(1)
+        .expect(2)
         .mount(&server)
         .await;
     mount_listing(
@@ -175,8 +174,7 @@ async fn the_default_branch_is_looked_up_once_per_repository() {
         json!([{"name":"a.rs","path":"a.rs","type":"file","size":1}]),
     )
     .await;
-    let provider =
-        GitHubProvider::new(one_shot_provider(&server).transport, MemoryCache::default());
+    let provider = one_shot_provider(&server);
     let context = default_context();
     let home_dir = crate::tools::test_support::Fixture::new();
     let home = home_dir.0.clone();
@@ -190,10 +188,9 @@ async fn the_default_branch_is_looked_up_once_per_repository() {
     }
 }
 
-/// Concurrent rows on one commit share one recursive tree read: the later
-/// rows wait for the first and list from the tree it cached.
+/// Concurrent rows each read the pinned recursive tree.
 #[tokio::test]
-async fn concurrent_rows_on_one_commit_read_its_tree_once() {
+async fn concurrent_rows_on_one_commit_read_its_tree_independently() {
     let server = MockServer::builder().start().await;
     mount_ref(&server, "main").await;
     let tree = octocode_github::mock_http::Delayed::new(
@@ -208,8 +205,7 @@ async fn concurrent_rows_on_one_commit_read_its_tree_once() {
         .respond_with(tree.clone())
         .mount(&server)
         .await;
-    let provider =
-        GitHubProvider::new(one_shot_provider(&server).transport, MemoryCache::default());
+    let provider = one_shot_provider(&server);
     let context = default_context();
     let home = crate::tools::test_support::Fixture::new();
     let row = |depth: u32| -> GhStructureQuery {
@@ -228,5 +224,5 @@ async fn concurrent_rows_on_one_commit_read_its_tree_once() {
         let out = out.expect("listing");
         assert_eq!(out.data["commitSha"], TREE_SHA, "{}", out.data);
     }
-    assert_eq!(tree.arrivals.count(), 1, "one recursive tree GET");
+    assert_eq!(tree.arrivals.count(), 3, "independent recursive tree GETs");
 }

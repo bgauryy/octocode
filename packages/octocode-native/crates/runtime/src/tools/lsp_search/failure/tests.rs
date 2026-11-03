@@ -38,7 +38,7 @@ fn ignored_recovery_deduplicates_queries_and_reserves_room_for_unfinished_scope(
     let files = (0..4).map(|i| format!("/r/f{i}.js")).collect::<Vec<_>>();
     let mut repeated = files.clone();
     repeated.extend(files.clone());
-    let lead = ignored_text_lead("x", &scope, &repeated, true);
+    let lead = ignored_text_lead("x", &scope, &repeated, true).expect("lead");
     let rows = lead["input"]["queries"].as_array().expect("queries");
     assert_eq!(rows.len(), LISTED_TEXT_FILES);
     for (row, path) in rows.iter().zip(&files) {
@@ -51,7 +51,7 @@ fn ignored_recovery_deduplicates_queries_and_reserves_room_for_unfinished_scope(
     assert_eq!(rows[4]["includeIgnored"], true);
 
     let scope = super::super::scope::Scope::new("/r".into(), Vec::new());
-    let lead = ignored_text_lead("x", &scope, &["/r".into(), "/r".into()], true);
+    let lead = ignored_text_lead("x", &scope, &["/r".into(), "/r".into()], true).expect("lead");
     assert_eq!(
         lead["input"]["queries"].as_array().expect("queries").len(),
         1
@@ -78,14 +78,14 @@ fn ignored_recovery_overflow_keeps_out_of_family_and_nested_paths_searchable() {
         root.path().to_string_lossy().into_owned(),
         vec!["*.ts".into()],
     );
-    let exact = ignored_text_lead("needle", &scope, &files, false);
+    let exact = ignored_text_lead("needle", &scope, &files, false).expect("lead");
     assert_eq!(
         exact["input"]["queries"].as_array().expect("queries").len(),
         5
     );
     assert_eq!(run_rows(&exact, root.path()), vec![1; 5]);
 
-    let unfinished = ignored_text_lead("needle", &scope, &files, true);
+    let unfinished = ignored_text_lead("needle", &scope, &files, true).expect("lead");
     let rows = unfinished["input"]["queries"].as_array().expect("queries");
     assert_eq!(rows.len(), 2);
     assert!(rows[0].get("include").is_none());
@@ -97,7 +97,7 @@ fn ignored_recovery_overflow_keeps_out_of_family_and_nested_paths_searchable() {
     let sixth = root.path().join("f.js");
     std::fs::write(&sixth, "needle();\n").expect("sixth source");
     files.push(sixth.to_string_lossy().into_owned());
-    let complete = ignored_text_lead("needle", &scope, &files, false);
+    let complete = ignored_text_lead("needle", &scope, &files, false).expect("lead");
     assert_eq!(
         complete["input"]["queries"]
             .as_array()
@@ -117,14 +117,20 @@ fn the_text_lead_finds_the_word_in_a_scope_and_in_listed_files() {
         root.path().to_string_lossy().into_owned(),
         vec!["*.py".into()],
     );
-    let wide = text_search_lead("get", &scope.root, &scope.include, None).build();
+    let wide = text_search_lead("get", &scope.root, &scope.include, None)
+        .expect("lead")
+        .build();
     assert_eq!(run_rows(&wide, root.path()), vec![2], "{wide}");
     let files = vec![file.to_string_lossy().into_owned()];
-    let listed = text_search_lead("get", &scope.root, &scope.include, Some(&files)).build();
+    let listed = text_search_lead("get", &scope.root, &scope.include, Some(&files))
+        .expect("lead")
+        .build();
     assert_eq!(run_rows(&listed, root.path()), vec![2], "{listed}");
     // A name whose edge is not a word character has no `\b` there.
     std::fs::write(&file, "$store = 1\n$stored = 2\n").expect("source");
-    let dollar = text_search_lead("$store", &scope.root, &scope.include, None).build();
+    let dollar = text_search_lead("$store", &scope.root, &scope.include, None)
+        .expect("lead")
+        .build();
     assert_eq!(run_rows(&dollar, root.path()), vec![1], "{dollar}");
 }
 

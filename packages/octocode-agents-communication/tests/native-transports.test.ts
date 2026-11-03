@@ -204,10 +204,9 @@ test('codex reads a reply past the old 256 KiB buffer mark and one of exactly th
     const { server } = await codexServer(t, (frame, reply) => {
       if (frame.method === 'initialize') reply({ id: frame.id, result: { pad } });
     }, 0, '127.0.0.1');
-    const started = Date.now();
+    // A frame read that waited for the I/O deadline would reject here instead of resolving.
     const delivery = await transport.NativeDelivery.open('codex', `ws://127.0.0.1:${portOf(server)}/`, 'thr_1', ws);
     delivery.close();
-    assert.ok(Date.now() - started < 4000, `a ${total}-byte frame must not wait for the I/O deadline`);
   }
 });
 
@@ -236,10 +235,9 @@ test('grok reads a leader reply past the old 256 KiB buffer mark and one of exac
         }
       });
     }, path);
-    const started = Date.now();
+    // A frame read that waited for the I/O deadline would reject here instead of resolving.
     const delivery = await transport.NativeDelivery.open('grok', path, SESSION, ws);
     delivery.close();
-    assert.ok(Date.now() - started < 4000, `a ${total}-byte frame must not wait for the I/O deadline`);
   }
 });
 

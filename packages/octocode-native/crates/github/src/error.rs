@@ -73,7 +73,7 @@ impl ProviderErrorKind {
     pub const fn code(self) -> ErrorCode {
         match self {
             Self::Authentication => ErrorCode::Authentication,
-            Self::Permission => ErrorCode::Permission,
+            Self::Permission => ErrorCode::PermissionDenied,
             Self::NotFound => ErrorCode::NotFound,
             Self::Validation => ErrorCode::InvalidInput,
             Self::RateLimited => ErrorCode::RateLimited,
@@ -83,7 +83,7 @@ impl ProviderErrorKind {
             Self::ResponseTooLarge => ErrorCode::ResponseTooLarge,
             Self::RedirectDenied => ErrorCode::RedirectDenied,
             Self::Decode => ErrorCode::Decode,
-            Self::Configuration => ErrorCode::Configuration,
+            Self::Configuration => ErrorCode::Config,
             Self::CredentialStoreUnavailable => ErrorCode::CredentialStoreUnavailable,
             Self::Server => ErrorCode::Server,
             Self::Unavailable => ErrorCode::Unavailable,
@@ -234,7 +234,7 @@ mod tests {
     fn every_kind_serializes_as_its_error_code() {
         let expected = [
             "authentication",
-            "permission",
+            "permissionDenied",
             "notFound",
             "invalidInput",
             "rateLimited",
@@ -244,7 +244,7 @@ mod tests {
             "responseTooLarge",
             "redirectDenied",
             "decode",
-            "configuration",
+            "config",
             "credentialStoreUnavailable",
             "server",
             "unavailable",

@@ -11,15 +11,7 @@ fn default_read_budget_walk_reconstructs_every_source_byte() {
         let mut joined = String::new();
         let mut pages = 0;
         loop {
-            let page = execute_local_fetch(
-                &query,
-                &paths,
-                &Safe,
-                &NeverCancel,
-                Some(budget),
-                None,
-                &Default::default(),
-            );
+            let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(budget), None);
             assert_eq!(page.error_code, None, "{page:?}");
             joined.push_str(page.content.as_deref().expect("content"));
             pages += 1;
@@ -44,15 +36,7 @@ fn utf8_byte_progress_reconstructs_the_complete_line() {
     let mut query = q(&path);
     let mut joined = String::new();
     loop {
-        let page = execute_local_fetch(
-            &query,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            Some(100),
-            None,
-            &Default::default(),
-        );
+        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(100), None);
         assert_eq!(page.pagination.as_ref().expect("page").offset, joined.len());
         joined.push_str(page.content.as_deref().expect("content"));
         let Some(next) = page.next.and_then(|next| next.continue_window) else {

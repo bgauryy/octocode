@@ -32,6 +32,7 @@ fn unique_reference_resolution_does_not_project_discarded_candidate_evidence() {
         options: &options,
         flags: Flags::parse(&options).unwrap(),
         cancel: &NeverCancel,
+        pending: Default::default(),
     };
     assert_eq!(query.resolve("a.ts#only", None).unwrap(), 0);
     assert_eq!(query.resolve("only", None).unwrap(), 0);

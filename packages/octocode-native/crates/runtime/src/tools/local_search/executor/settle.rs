@@ -41,6 +41,7 @@ pub(super) fn settle_row(
     page: &Page<'_>,
     rows: Annotated<'_>,
     mut next: Option<Value>,
+    continuation_missing: bool,
 ) -> Result<LocalSearchResult, ToolError> {
     let PageScope {
         query,
@@ -72,7 +73,7 @@ pub(super) fn settle_row(
         capped,
         page.leftover_matches,
         coverage.gap(),
-        next.is_none(),
+        continuation_missing,
     );
     let mut hints = coverage.empty_hints(empty);
     if empty
@@ -142,9 +143,10 @@ fn route_beyond_pages(
     next: &mut Option<Value>,
 ) {
     if let Some(keep_globs) = lists_scope
+        && let Some(listing) = scope_listing(query, keep_globs)
         && let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut()
     {
-        map.insert("viewTree".into(), scope_listing(query, keep_globs));
+        map.insert("viewTree".into(), listing);
     }
     if next
         .as_ref()
@@ -251,13 +253,9 @@ pub(crate) fn search_stats(
                 first: scanned.first_error.clone(),
             }),
         binary_skipped: None,
-        test_code_excluded: scanned.test_code_excluded.and_then(|excluded| {
-            crate::tools::test_code::Excluded {
-                files: excluded.files,
-                lines: excluded.lines,
-            }
-            .stated()
-        }),
+        test_code_excluded: scanned
+            .test_code_excluded
+            .and_then(octocode_engine::types::TestCodeExcluded::stated),
     }
 }
 

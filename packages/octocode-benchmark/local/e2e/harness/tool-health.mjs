@@ -27,7 +27,7 @@
 // per-credential search pacing never queues one tool behind another and every
 // tool runs in parallel. Performance checks are separate from default correctness.
 //
-// Usage: node packages/octocode-benchmark/local/e2e/harness/tool-health.mjs [tool,...] [--deep] [--performance]
+// Usage: node packages/octocode-benchmark/local/e2e/harness/tool-health.mjs [tool[,tool]...]... [--deep] [--performance]
 //   --deep  explore further: more non-page leads per seed and longer page walks
 // Output: one line per tool, a summary line, results/tool-health.json; exit 1 on any FAIL.
 import os from 'node:os';
@@ -43,6 +43,7 @@ import { transportPagesProblem } from './tool-health/compare.mjs';
 import { runTool } from './tool-health/run-tool.mjs';
 import { startSurfaces } from './tool-health/surfaces.mjs';
 import { formatCheckSummary, summarizeChecks } from './tool-health/check-summary.mjs';
+import { createInputCoverage, primaryInputChecks } from './tool-health/input-coverage.mjs';
 
 const started = performance.now();
 const FIXTURE = path.join(FIXTURES, 'tool-health');
@@ -50,9 +51,14 @@ const args = process.argv.slice(2);
 const DEEP = args.includes('--deep');
 const PERFORMANCE = args.includes('--performance');
 if (PERFORMANCE && process.env.OCTOCODE_LIVE !== '1') throw new Error('--performance requires OCTOCODE_LIVE=1; default tests use mocks and do not assert wall-clock latency');
-const selected = args.find(a => !a.startsWith('--'))?.split(',');
 const CONCURRENCY = 8;
 const TOOLS = new Set(contract.tools.map(t => t.name));
+const unknownFlags = args.filter(a => a.startsWith('--') && a !== '--deep' && a !== '--performance');
+if (unknownFlags.length) throw new Error(`unknown flag ${unknownFlags.join(', ')}; flags: --deep, --performance`);
+const named = args.filter(a => !a.startsWith('--')).flatMap(a => a.split(',')).filter(Boolean);
+const unknownTools = named.filter(t => !TOOLS.has(t));
+if (unknownTools.length) throw new Error(`unknown tool ${unknownTools.join(', ')}; tools: ${[...TOOLS].join(', ')}`);
+const selected = named.length ? named : undefined;
 
 // Compile before serving mocks so synchronous schema compilation cannot delay
 // provider responses during tool calls.
@@ -61,6 +67,7 @@ const { validateOutput, validateInput, validateExactInput } = contractValidators
 const surfaces = await startSurfaces(FIXTURE);
 const { cliArgs } = surfaces;
 const outputSchemas = new Map(contract.tools.map(tool => [tool.name, tool.outputSchema]));
+const inputCoverage = createInputCoverage(contract.tools);
 
 // ---- run
 const report = { at: new Date().toISOString(), deep: DEEP, performance: PERFORMANCE, environment: { platform: process.platform, arch: process.arch, node: process.version, kernel: os.release(), parallelism: os.availableParallelism(), services: process.env.OCTOCODE_LIVE === '1' ? 'loopback providers; real LSP integration' : 'hermetic loopback providers; mock LSP' }, tools: [], coverage: {} };
@@ -94,7 +101,7 @@ try {
   const driver = createDriver({ validate: validateOutput, validateInput, validateTransport: transportPagesProblem, tools: TOOLS, schemaOf: tool => outputSchemas.get(tool) });
   surfaceServer.close();
   surfaceServer = null;
-  const suite = { driver, surfaces, deep: DEEP, performance: PERFORMANCE, validateOutput, validateInput, validateExactInput, advanced: ADVANCED };
+  const suite = { driver, surfaces, deep: DEEP, performance: PERFORMANCE, validateOutput, validateInput, validateExactInput, advanced: ADVANCED, inputCoverage };
 
   // One job per tool: each tool and surface has its own credential, so none waits on another's pacing.
   const queue = contractTools.filter(t => CASES[t] && (!selected || selected.includes(t))).map(t => [t, CASES[t]]);
@@ -124,6 +131,17 @@ try {
   await surfaces.close();
 }
 const count = s => report.tools.filter(t => t.status === s).length;
+report.coverage.inputValues = inputCoverage.report();
+const primaryChecks = primaryInputChecks(report.coverage.inputValues, report.tools.map(tool => tool.tool));
+for (const result of report.tools) {
+  result.checks.push(...primaryChecks.filter(check => check.tool === result.tool));
+  result.checkSummary = summarizeChecks(result.checks);
+  const failure = result.checks.find(check => check.ok === false);
+  if (failure) {
+    result.status = 'FAIL';
+    result.firstFailure ??= `${failure.check}: ${failure.detail}`;
+  }
+}
 report.provenance.stable = !!report.provenance.native && report.provenance.native.sha256 === nativeBinaryStamp()?.sha256;
 if (!report.provenance.stable) { console.log('FAIL provenance — native artifact missing or changed during the run'); exitCode = 1; }
 if (count('FAIL')) {

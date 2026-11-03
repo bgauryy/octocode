@@ -45,7 +45,7 @@ impl<'a> Projector<'a> {
         }
         let mut package_nodes = BTreeMap::<String, u32>::new();
         for (name, eco) in packages {
-            let id = crate::num::u32_of_usize(self.nodes.len());
+            let id = octocode_engine::num::saturating_u32(self.nodes.len());
             self.nodes.push(NodeRec {
                 kind: NodeKind::Package,
                 flags: 0,

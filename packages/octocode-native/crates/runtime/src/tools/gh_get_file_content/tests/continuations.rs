@@ -125,7 +125,6 @@ async fn the_shared_read_leaves_room_for_the_github_row_envelope() {
         body.as_bytes(),
         Path::new("src/lib.rs"),
         &crate::tools::source_view::SourceFacts {
-            views: Default::default(),
             modified: None,
             window: Some(1 << 20),
             beside: 0,
@@ -238,6 +237,7 @@ async fn unknown_windows_fill_each_call_before_the_next() {
         &fixture_context(Duration::from_secs(10), 1 << 22),
         Some(2 * body.len()),
         shaping,
+        &mut None,
     )
     .await
     .expect("read");

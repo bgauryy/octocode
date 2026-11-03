@@ -1,6 +1,7 @@
 //! Real process trees: CPU clocks, the tree walk and teardown.
 
 use super::*;
+use crate::process::identity::ProcessTable;
 use std::time::{Duration, Instant};
 
 fn python_available() -> bool {
@@ -134,7 +135,16 @@ fn tree_walk_and_kill_reach_a_setsid_grandchild() {
             .expect("spawn python")
     };
     let grandchild = wait_for_pid_file(&pid_file);
-    assert!(descendants(child.id()).contains(&grandchild));
+    let found = descendants(child.id());
+    let seen = found
+        .iter()
+        .find(|process| process.pid == grandchild)
+        .expect("the setsid grandchild is a descendant");
+    assert_eq!(
+        identity::LiveTable.start(grandchild),
+        Some(seen.start),
+        "the walk reads the same start time a signal is checked against"
+    );
     assert!(tree_rss_bytes(child.id()).is_some_and(|rss| rss > 0));
     kill_tree(child.id());
     let _ = child.wait();

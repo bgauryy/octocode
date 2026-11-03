@@ -162,7 +162,7 @@ async fn classification_reads_sanitized_evidence_and_replay_preserves_it() {
     assert_eq!(data["files"].as_array().map(Vec::len), Some(1));
     assert_eq!(data["files"][0]["path"], "src/selected.rs");
     assert!(data["files"][0]["lines"].is_array());
-    assert!(data["files"][0]["matches"].is_array());
+    assert!(data["files"][0].get("matches").is_none());
 
     let broad = query();
     let (unprojected, _) = select(capture(&server, &broad, &runtime).await, &broad, &runtime);
@@ -215,7 +215,7 @@ async fn classification_reads_sanitized_evidence_and_replay_preserves_it() {
     assert!(
         files
             .iter()
-            .all(|file| file["lines"].is_array() && file["matches"].is_array())
+            .all(|file| file["lines"].is_array() && file.get("matches").is_none())
     );
     assert_eq!(recorded.lock().expect("recorded states").len(), 2);
 }

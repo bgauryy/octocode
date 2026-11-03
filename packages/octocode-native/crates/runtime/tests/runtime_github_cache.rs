@@ -6,24 +6,23 @@ use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
+/// A persistent runtime keeps no GitHub content across a restart: the next
+/// process reads the pinned file afresh, unconditionally (no ETag round
+/// trip), and answers the same evidence.
 #[tokio::test]
-async fn github_cache_survives_runtime_close() {
+async fn a_restarted_persistent_runtime_reads_github_content_afresh() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/source.rs"))
-        .respond_with(|request: &Request| {
-            if request.headers.get("if-none-match").is_some() {
-                ResponseTemplate::new(304)
-            } else {
-                ResponseTemplate::new(200)
-                    .insert_header("etag", "\"v1\"")
-                    .set_body_json(json!({
-                        "type":"file", "encoding":"base64",
-                        "content":STANDARD.encode("source body\n")
-                    }))
-            }
-        })
-        .expect(1)
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("etag", "\"v1\"")
+                .set_body_json(json!({
+                    "type":"file", "encoding":"base64",
+                    "content":STANDARD.encode("source body\n")
+                })),
+        )
+        .expect(2)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -45,10 +44,13 @@ async fn github_cache_survives_runtime_close() {
         .iter()
         .filter(|request| request.url.path().contains("/contents/"))
         .collect();
-    // The body is keyed by the commit SHA, so the surviving disk entry is
-    // served as is: no conditional (304) round trip after a restart.
-    assert_eq!(contents.len(), 1);
-    assert!(contents[0].headers.get("if-none-match").is_none());
+    // Each process reads GitHub itself; neither read is conditional.
+    assert_eq!(contents.len(), 2);
+    assert!(
+        contents
+            .iter()
+            .all(|request| request.headers.get("if-none-match").is_none())
+    );
     second.close().await;
 }
 
@@ -130,11 +132,11 @@ async fn memory_storage_mode_does_not_persist_github_content_to_disk() {
     second.close().await;
 }
 
-/// Repository and history searches follow the code-search cache policy: an
-/// identical repeat in the same session is answered from the cache, with no
-/// request and no wait for the 2 s search spacing.
+/// An identical repository or history search repeated in one session asks
+/// GitHub every time and answers the same evidence; pacing follows the
+/// reported quota, so the repeats wait for no fixed search spacing.
 #[tokio::test]
-async fn repeated_repository_and_history_searches_are_cache_hits() {
+async fn repeated_repository_and_history_searches_reach_github_each_time() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
@@ -145,7 +147,7 @@ async fn repeated_repository_and_history_searches_are_cache_hits() {
                        "created_at": null, "updated_at": null, "pushed_at": null,
                        "language": "Rust", "homepage": null, "license": null}]
         })))
-        .expect(1)
+        .expect(4)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -156,7 +158,7 @@ async fn repeated_repository_and_history_searches_are_cache_hits() {
                        "user": {"login": "alice"}, "labels": [],
                        "pull_request": {"merged_at": "2026-01-01T00:00:00Z"}}]
         })))
-        .expect(1)
+        .expect(4)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -188,16 +190,18 @@ async fn repeated_repository_and_history_searches_are_cache_hits() {
     let elapsed = started.elapsed();
     assert!(
         elapsed < std::time::Duration::from_secs(1),
-        "six cached repeats took {elapsed:?}"
+        "six repeats took {elapsed:?}"
     );
+    server.verify().await;
     runtime.close().await;
 }
 
-/// A branch resolves once per session: a file read and a later commit read
-/// of several file batches on the same branch share the memoized single-flight
-/// resolution, so `commits/{branch}` is requested once.
+/// A branch resolves once per call: a file read and a later commit read of
+/// several file batches on the same branch each resolve it afresh (no
+/// session memo), and every batch of the commit read reads the one SHA its
+/// call pinned.
 #[tokio::test]
-async fn a_file_read_and_a_multi_batch_commit_read_resolve_one_branch_once() {
+async fn each_call_resolves_its_branch_once_and_batches_read_the_pinned_sha() {
     const SHA: &str = "2222222222222222222222222222222222222222";
     let server = MockServer::builder().start().await;
     let base_url = server.uri();
@@ -268,12 +272,16 @@ async fn a_file_read_and_a_multi_batch_commit_read_resolve_one_branch_once() {
         .iter()
         .filter(|request| request.url.path() == "/api/v3/repos/a/b/commits/main")
         .count();
-    assert_eq!(resolutions, 1, "one branch resolution per session");
+    assert_eq!(resolutions, 2, "one branch resolution per call");
+    let batches = requests
+        .iter()
+        .filter(|request| request.url.path().contains("/commits/"))
+        .filter(|request| request.url.path() != "/api/v3/repos/a/b/commits/main")
+        .collect::<Vec<_>>();
+    assert!(batches.len() > 1, "a multi-batch read");
     assert!(
-        requests
+        batches
             .iter()
-            .filter(|request| request.url.path().contains("/commits/"))
-            .skip(1)
             .all(|request| request.url.path().ends_with(SHA)),
         "the commit batches read the pinned SHA"
     );

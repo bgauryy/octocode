@@ -8,9 +8,9 @@ fn stale_rows(dir: &Path) -> (Value, Value) {
 
 /// A linking config (tsconfig, package.json, ...) beside the sources or up
 /// the repository is a build input: editing, adding or removing one makes
-/// the snapshot stale and stops ingest from reusing it, like a source edit.
+/// the snapshot stale, like a source edit. A new build captures the changed input.
 #[test]
-fn config_inputs_make_a_snapshot_stale_and_block_reuse() {
+fn config_inputs_make_a_snapshot_stale_and_rebuild_fresh() {
     let dir = fixture();
     dir.write("app/tsconfig.json", "{\"compilerOptions\":{}}");
     dir.write("package.json", "{\"name\":\"repo\"}");
@@ -19,7 +19,7 @@ fn config_inputs_make_a_snapshot_stale_and_block_reuse() {
         ExitClass::Success
     );
     assert_eq!(stale_rows(dir.0.as_path()).0, json!(true));
-    assert_eq!(ingest_fixture(dir.0.as_path(), None).value["reused"], true);
+    assert_fresh_build(&ingest_fixture(dir.0.as_path(), None));
 
     dir.write(
         "app/tsconfig.json",
@@ -33,7 +33,7 @@ fn config_inputs_make_a_snapshot_stale_and_block_reuse() {
         )
     );
     let rebuilt = ingest_fixture(dir.0.as_path(), None);
-    assert_ne!(rebuilt.value["reused"], true, "{}", rebuilt.value);
+    assert_fresh_build(&rebuilt);
     assert_eq!(stale_rows(dir.0.as_path()).0, json!(true));
 
     dir.write(
@@ -48,7 +48,7 @@ fn config_inputs_make_a_snapshot_stale_and_block_reuse() {
             {"file": "package.json", "status": "added", "config": true},
         ])
     );
-    assert_ne!(ingest_fixture(dir.0.as_path(), None).value["reused"], true);
+    assert_fresh_build(&ingest_fixture(dir.0.as_path(), None));
 }
 
 /// `stale` rescans the scope like ingest: a source added since ingest is
@@ -79,8 +79,11 @@ fn stale_reports_sources_added_since_ingest() {
         "{}",
         out.value
     );
-    assert!(reingest["input"]["queries"][0]["path"].is_string(), "{reingest}");
-    assert_ne!(ingest_fixture(dir.0.as_path(), None).value["reused"], true);
+    assert!(
+        reingest["input"]["queries"][0]["path"].is_string(),
+        "{reingest}"
+    );
+    assert_fresh_build(&ingest_fixture(dir.0.as_path(), None));
 }
 
 /// A snapshot published before snapshot bounds became build refusals may

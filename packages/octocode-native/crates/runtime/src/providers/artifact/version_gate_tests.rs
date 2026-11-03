@@ -16,7 +16,6 @@ async fn an_exact_only_ecosystem_refuses_a_version_range() {
         budget: &budget,
         npm_registry: None,
         allow_private_registry: false,
-        cache: None,
         tags: None,
     };
     for (ecosystem, name, range) in [

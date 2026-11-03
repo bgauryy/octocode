@@ -1,8 +1,8 @@
 use super::*;
 use crate::id::ToolId;
 use crate::tools::test_support::assert_row_contract;
+use octocode_io::cancellation::Cancellation;
 use std::collections::BTreeMap;
-use tokio_util::sync::CancellationToken;
 
 #[test]
 fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context() {
@@ -45,14 +45,14 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
                 "answered":21,"error":0,"unsupported":0,"unassessed":0}}));
     }
     let original = json!({"operation":"sections","resources":resources,"questions":questions,
-        "next":{"nextSectionPage":{"kind":"continue","tool":"clasify","input":{"cursor":"cursor1.saved-assessment"}}}});
+        "next":{"nextPage":{"kind":"continue","tool":"clasify","input":{"cursor":"cursor1.saved-assessment"}}}});
     assert_row_contract(ToolId::Clasify, &original);
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":original})],
         &[None],
         ToolId::Clasify,
     )
-    .plan(1_800, &CancellationToken::new())
+    .plan(1_800, &Cancellation::new())
     .expect("valid plan");
     assert!(
         plan.total_pages > 1,
@@ -62,13 +62,13 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
     let (mut definitions, mut next_calls) = (0, 0);
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &CancellationToken::new())
+            .build_page(page, &[None], &[], &Cancellation::new())
             .expect("valid build_page")
         {
             let data = &row["data"];
             assert_row_contract(ToolId::Clasify, data);
             definitions += usize::from(data.get("questions").is_some());
-            if data["next"].get("nextSectionPage").is_some() {
+            if data["next"].get("nextPage").is_some() {
                 next_calls += 1;
                 assert_eq!(row["rowPart"]["part"], row["rowPart"]["of"]);
             }

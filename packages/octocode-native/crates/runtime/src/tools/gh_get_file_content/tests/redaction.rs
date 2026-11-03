@@ -18,8 +18,8 @@ impl ContentScan for Counting {
         self.sizes.lock().expect("sizes").push(text.len());
         Safe.sanitize(text, path)
     }
-    fn redact_key_blocks(&self, content: &str) -> (String, bool) {
-        (content.replace("KEYBODY", "[KEY]"), true)
+    fn redact_key_blocks<'a>(&self, content: &'a str) -> (std::borrow::Cow<'a, str>, bool) {
+        (content.replace("KEYBODY", "[KEY]").into(), true)
     }
 }
 
@@ -27,8 +27,7 @@ impl ContentScan for Counting {
 fn line_pages_scan_only_their_window_and_keep_redaction() {
     let body = format!("TOKEN KEYBODY\n{}", "line of text\n".repeat(4000));
     let scanner = Counting::default();
-    let memo = SanitizedViewMemo::new();
-    let security = MemoizedScan::new(&scanner, &memo);
+    let security = &scanner;
     let mut pages = Vec::new();
     for offset in [0, 100, 200] {
         let request: LocalFetchQuery = serde_json::from_value(json!({
@@ -40,7 +39,7 @@ fn line_pages_scan_only_their_window_and_keep_redaction() {
             body.as_bytes(),
             Path::new("big.txt"),
             &Default::default(),
-            &security,
+            security,
             &NeverCancel,
         );
         pages.push(page.content.unwrap_or_default());
@@ -56,8 +55,7 @@ fn line_pages_scan_only_their_window_and_keep_redaction() {
     let before = scanner.scans.load(std::sync::atomic::Ordering::SeqCst);
     assert!(pages[0].starts_with("[REDACTED] [KEY]\n"), "{}", pages[0]);
     assert_eq!(pages[1], "line of text\n".repeat(100));
-    // The memo still serves repeated full views (byte/fullContent pages):
-    // a new view is scanned once, then reused.
+    // Independent reads scan the current bytes every time.
     security
         .sanitize("x".repeat(20_000).as_str(), Path::new("other"))
         .expect("scan");
@@ -66,7 +64,7 @@ fn line_pages_scan_only_their_window_and_keep_redaction() {
         .expect("scan");
     assert_eq!(
         scanner.scans.load(std::sync::atomic::Ordering::SeqCst),
-        before + 1
+        before + 2
     );
 }
 

@@ -53,12 +53,11 @@ process.stdin.on('data', (d) => {
 });
 "#;
 
-/// A warm repeat of an incoming TS operation under an unchanged response
-/// generation asks the server nothing, authorizes and reads each snippet
+/// A fresh repeat of an incoming TS operation asks the server again, authorizes and reads each snippet
 /// file once per request (however many responses name it), and answers
 /// exactly what the cold call did.
 #[test]
-fn warm_references_repeat_sends_no_requests_and_reads_each_file_once() {
+fn repeated_references_ask_again_and_read_each_file_once() {
     use crate::execution::cancel::NeverCancel;
     use crate::tools::lsp_search::ops::Operation;
     use crate::tools::lsp_search::source::SourceCache;
@@ -113,9 +112,9 @@ fn warm_references_repeat_sends_no_requests_and_reads_each_file_once() {
             let (client, paths, query, path, root) = (&client, &paths, &query, &path, &root);
             let authorized = Arc::clone(&authorized);
             let generation = ResponseScope {
-                reuse: true,
                 generation: "anchor+fingerprint".into(),
                 call: None,
+                ..Default::default()
             };
             RESPONSE_SCOPE.scope(
                 std::cell::RefCell::new(generation),
@@ -132,7 +131,6 @@ fn warm_references_repeat_sends_no_requests_and_reads_each_file_once() {
                         root.to_string_lossy().into_owned(),
                         vec!["*.ts".into()],
                     );
-                    scope.set_fingerprint(format!("warm-reuse-{}", std::process::id()));
                     let mut sources = SourceCache::new(paths);
                     Operation {
                         client,
@@ -166,8 +164,8 @@ fn warm_references_repeat_sends_no_requests_and_reads_each_file_once() {
         assert_eq!(warm, cold);
         assert_eq!(
             requests(),
-            cold_requests,
-            "the warm repeat asked the server"
+            2 * cold_requests,
+            "a fresh repeat executes the same provider requests"
         );
         assert_eq!(authorized.load(Ordering::SeqCst), 3);
         client.stop().await.expect("fixture server closed");

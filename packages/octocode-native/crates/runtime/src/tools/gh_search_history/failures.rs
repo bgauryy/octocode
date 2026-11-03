@@ -32,7 +32,7 @@ pub(super) async fn follow_rename(
                 }
                 Some(vec![warning])
             }
-            Rescope::Missing(_) | Rescope::Stands => None,
+            Rescope::Missing(_) | Rescope::Stands(_) => None,
         },
     )
 }

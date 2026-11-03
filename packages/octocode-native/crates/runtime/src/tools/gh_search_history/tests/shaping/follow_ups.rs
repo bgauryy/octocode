@@ -21,7 +21,7 @@ fn read_pr_prefers_the_first_merged_row() {
     ];
     assert_eq!(read_target(&open, is_merged), Some(0));
     assert_eq!(read_target(&[], is_merged), None);
-    let read = pr_read_query("o", "r", 13825);
+    let read = serde_json::to_value(pr_read_query("o", "r", 13825)).expect("plain data");
     assert_eq!(read["number"], 13825);
     assert_eq!(read["sections"], json!(["body", "files"]));
     assert!(read.get("pageSize").is_none(), "{read}");
@@ -37,7 +37,7 @@ fn read_issue_prefers_a_completed_issue() {
     ];
     let target = read_target(&rows, is_completed).expect("rows");
     assert_eq!(item_number(&rows[target]), Some(3));
-    let read = issue_read_query("o", "r", 3);
+    let read = serde_json::to_value(issue_read_query("o", "r", 3)).expect("plain data");
     assert_eq!(read["sections"], json!(["body", "comments"]), "{read}");
 }
 

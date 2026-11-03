@@ -14,7 +14,7 @@ pub(crate) fn source_matches(
 ) -> Option<bool> {
     // Ingest never reads a source beyond this bound. A different size cannot
     // have the recorded digest, and a file grown past the parser bound must
-    // invalidate reuse without allocating it in full.
+    // prove the snapshot stale without allocating it in full.
     const MAX_INGEST_SOURCE_BYTES: usize =
         octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES as usize;
     let meta = std::fs::metadata(path).ok()?;
@@ -29,63 +29,6 @@ pub(crate) fn source_matches(
     }
     let content = crate::tools::source::read_bounded(path, MAX_INGEST_SOURCE_BYTES).ok()?;
     Some(octocode_engine::digest::sha256(&content) == digest)
-}
-
-/// The newest published snapshot of `root`, with its manifest.
-pub(super) fn newest_of_root(home: &Path, root: &Path) -> Option<(String, Value)> {
-    let root_text = root.to_string_lossy();
-    list_snapshots(home).into_iter().rev().find_map(|id| {
-        let manifest = read_manifest(&home.join(&id))?;
-        (manifest["root"] == root_text.as_ref()).then_some((id, manifest))
-    })
-}
-
-/// The receipt of the latest snapshot of `root` when nothing it covers
-/// changed: same scan options, same octocode and format version, and no
-/// [`snapshot_changes`]. Read-only: the caller points `latest` at it under
-/// the build lock.
-pub(super) fn reuse_current(
-    home: &Path,
-    root: &Path,
-    options: &IngestOptions,
-    paths: &PathPolicy,
-    registry_identity: &str,
-) -> Option<Value> {
-    let (id, manifest) = newest_of_root(home, root)?;
-    let same_options = manifest["formatVersion"] == format::FORMAT_VERSION
-        && analysis_current(&manifest)
-        && manifest["registryIdentity"] == registry_identity
-        && manifest["scan"]["excludeDir"] == json!(options.exclude_dir)
-        && manifest["scan"]["languageGlobs"] == language_globs_json(&options.language_globs);
-    if !same_options {
-        return None;
-    }
-    let dir = home.join(&id);
-    let bytes = read_graph_file(&dir.join(GRAPH_FILE)).ok()?;
-    let (tables, digest) = format::decode_files(&bytes).ok()?;
-    if manifest["graph"]["sha256"].as_str() != Some(digest.as_str()) {
-        return None;
-    }
-    let freshness = snapshot_changes(paths, root, &tables, &manifest, true);
-    if !freshness.changes.is_empty() {
-        return None;
-    }
-    Some(json!({
-        "id": id,
-        "dir": dir.to_string_lossy(),
-        "root": manifest["root"],
-        "reused": true,
-        "diagnostics": manifest["diagnostics"]["byCode"],
-        "buildMs": 0,
-        "bytes": manifest["graph"]["bytes"],
-        "sha256": manifest["graph"]["sha256"],
-        "counts": manifest["counts"],
-        "calls": manifest["calls"],
-        "argumentCoverage": manifest["argumentCoverage"],
-        "extraction": {"parsedFiles":0,"reusedFiles":manifest["scan"]["filesScanned"],"resumedFiles":0},
-        "linkage": manifest["linkage"],
-        "scan": manifest["scan"],
-    }))
 }
 
 /// The linking configs a build of the snapshot's files read (see
@@ -172,7 +115,7 @@ pub(crate) struct Freshness {
 /// (`manifest` its manifest): a source edited or removed (digests, a settled
 /// stamp skipping the hash), a source added (a rescan with the ingest's
 /// exclusions), and a linking config edited, removed or added. The one
-/// freshness check behind ingest reuse and `query stale`; `first_only`
+/// freshness check behind query freshness and `query stale`; `first_only`
 /// stops at the first difference.
 pub(crate) fn snapshot_changes(
     paths: &PathPolicy,

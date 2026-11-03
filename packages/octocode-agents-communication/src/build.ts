@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { emitCatalogTypes } from './catalog-types.ts';
+import { emitCatalog } from './emit-catalog.ts';
 import { emitDeclarations } from './emit-types.ts';
 import { libraryEntries, root } from './entry-points.ts';
 import { errorMessage, isReply } from './script-support.ts';
@@ -9,6 +10,8 @@ import { errorMessage, isReply } from './script-support.ts';
 // schema.sql, catalog.json, unicode16.json, the dashboard and the docs the runtime serves are inlined, so dist/ needs no assets/ directory.
 const config = join(root, '../octocode-config/dist/index.js');
 if (!existsSync(config)) throw Error('Build @octocodeai/config before the communication runtime');
+// catalog.json is generated from the Zod sources in src/catalog, before anything reads it.
+emitCatalog();
 // The validator compiles catalog patterns with JavaScript's `u` flag, so a pattern that does not compile fails the build here.
 const patterns: string[] = [];
 (function collect(value: unknown): void {

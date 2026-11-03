@@ -222,7 +222,7 @@ async fn pr_file_list_stopped_by_the_provider_cap_is_not_complete() {
     );
     assert_eq!(data["terminalLimit"], true, "{data}");
     assert_eq!(
-        data["providerLimit"]["reason"], "providerFileListLimit",
+        data["providerLimit"]["reason"], "providerFileLimit",
         "{data}"
     );
     assert_eq!(data["providerLimit"]["listed"], 3000, "{data}");
@@ -230,7 +230,7 @@ async fn pr_file_list_stopped_by_the_provider_cap_is_not_complete() {
     assert!(
         data["partialReasons"]
             .as_array()
-            .is_some_and(|reasons| reasons.contains(&json!("providerFileListLimit"))),
+            .is_some_and(|reasons| reasons.contains(&json!("providerFileLimit"))),
         "{data}"
     );
 }
@@ -256,7 +256,11 @@ async fn pr_inventory_page_reports_the_provider_total() {
         support::inventory_len(&data["pullRequests"][0]["files"]),
         250
     );
-    assert!(data["next"].get("nextFilePage").is_none());
+    assert!(
+        data["pullRequests"][0]["contentPagination"]["files"]["next"]
+            .get("nextPage")
+            .is_none()
+    );
 }
 
 /// An `include` scope that matches no changed file is an empty row (a

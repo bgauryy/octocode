@@ -171,7 +171,7 @@ async fn renaming_imports(
         };
         let (path, symbol) = (file.clone(), symbol.to_owned());
         let found = super::super::blocking_cancellable(cancel, move |_| {
-            crate::tools::declarations_cache::file_document(&source.content, &path)
+            crate::tools::declarations::file_document(&source.content, &path)
                 .map(|document| aliasing_imports(&document, &symbol, &sites))
                 .unwrap_or_default()
         })

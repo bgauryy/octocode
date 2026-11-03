@@ -5,7 +5,7 @@ use super::evidence_closure::{chars, exact_closure, fixture};
 use super::*;
 use crate::id::ToolId;
 use crate::tools::test_support::assert_row_contract;
-use tokio_util::sync::CancellationToken;
+use octocode_io::cancellation::Cancellation;
 
 #[test]
 fn exact_tail_boundary_includes_row_part_without_losing_closure_or_rows() {
@@ -13,7 +13,7 @@ fn exact_tail_boundary_includes_row_part_without_losing_closure_or_rows() {
     let catalog = data["sourceEvidence"].clone();
     let expected = data["rows"].as_array().unwrap().clone();
     assert_row_contract(ToolId::GraphQuery, &data);
-    let token = CancellationToken::new();
+    let token = Cancellation::new();
     // Two adjacent results plus their exact closure serialize to 8,472 chars.
     // The old tail packing admitted them at 8,473, then added rowPart afterward.
     let budget = 8_473;
@@ -58,7 +58,7 @@ fn first_only_oversized_context_does_not_enlarge_later_nested_pages() {
             "evidence":{"members":expected}}]
     });
     assert_row_contract(ToolId::GraphQuery, &data);
-    let token = CancellationToken::new();
+    let token = Cancellation::new();
     let budget = 2_000;
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":data})],

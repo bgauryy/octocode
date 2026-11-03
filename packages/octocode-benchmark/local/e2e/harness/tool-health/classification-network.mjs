@@ -90,10 +90,9 @@ function capturedImage(result, bytes, ref) {
 
 function imageEffects(fixture, packets, entry) {
   const { ref, bytes, result, ordinal } = entry;
-  const expected = ref[0] === 'a' ? 1 : 2;
-  return packets.length === expected && fixture.requests.length === ordinal
+  return packets.length === ordinal && fixture.requests.length === ordinal
     && same(fixture.requests.at(-1), { method: 'GET', ref })
-    && (ref[0] === 'c' ? result.replayed === true : packets.at(-1)?.request.assets?.screen?.data_base64 === bytes.toString('base64'));
+    && result.replayed !== true && packets.at(-1)?.request.assets?.screen?.data_base64 === bytes.toString('base64');
 }
 
 export async function githubImageChecks(ctx, surface, provider) {
@@ -111,10 +110,10 @@ export async function githubImageChecks(ctx, surface, provider) {
     const [first, changed, sameBytes] = saved;
     const ref = fixture.revisions.keys().next().value;
     const replay = data(await ctx.call(ctx.q(fixture.query(ref)), surface));
-    checks.push(['remoteImage.originalReplay', capturedImage(replay, PNG, ref) && replay.replayed === true
+    checks.push(['remoteImage.originalFresh', capturedImage(replay, PNG, ref) && replay.replayed !== true
       && same(replay.answers, first.answers) && replay.assets.screen.snapshot === first.assets.screen.snapshot
       && changed.assets.screen.snapshot !== first.assets.screen.snapshot && sameBytes.assets.screen.snapshot === first.assets.screen.snapshot
-      && fs.readFileSync(first.assets.screen.path).equals(PNG) && fixture.requests.length === 3 && provider.sent.length === before + 2,
+      && fs.readFileSync(first.assets.screen.path).equals(PNG) && fixture.requests.length === 4 && provider.sent.length === before + 4,
     { snapshots: saved.map(item => item.assets.screen.snapshot), acquisitions: fixture.requests.length, inference: provider.sent.length - before }]);
   } finally { fixture.close(); }
   return checks;

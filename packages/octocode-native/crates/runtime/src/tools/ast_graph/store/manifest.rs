@@ -7,6 +7,23 @@ pub(super) fn analysis_current(manifest: &Value) -> bool {
         && manifest["octocodeVersion"] == env!("CARGO_PKG_VERSION")
 }
 
+/// The manifest's scan record as an answer states it. The manifest keeps
+/// every scan fact for freshness checks; an answer states only those that carry
+/// information (a cut, an exclude, a parser glob): zero counts, empty lists
+/// and false flags, older snapshots' included, are left out.
+pub(super) fn scan_disclosure(scan: &Value) -> Value {
+    let mut scan = scan.clone();
+    if let Some(facts) = scan.as_object_mut() {
+        facts.retain(|_, value| {
+            !(value == &json!(0)
+                || value == &json!(false)
+                || value.as_array().is_some_and(Vec::is_empty)
+                || value.as_object().is_some_and(serde_json::Map::is_empty))
+        });
+    }
+    scan
+}
+
 pub(super) struct ManifestInput<'a> {
     pub(super) id: &'a str,
     pub(super) scope: &'a str,
@@ -22,15 +39,6 @@ pub(super) struct ManifestInput<'a> {
     pub(super) build_ms: u64,
     pub(super) registry: octocode_engine::signatures::languages::RegistryView<'a>,
     pub(super) registry_identity: &'a str,
-}
-
-/// The manifest's `scan.languageGlobs`: absent when no glob was given.
-pub(super) fn language_globs_json(globs: &BTreeMap<String, Vec<String>>) -> Value {
-    if globs.is_empty() {
-        Value::Null
-    } else {
-        json!(globs)
-    }
 }
 
 pub(super) fn manifest(input: &ManifestInput) -> Value {

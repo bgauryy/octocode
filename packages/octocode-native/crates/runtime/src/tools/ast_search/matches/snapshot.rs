@@ -2,7 +2,6 @@
 //! before a continuation page reuses it.
 use super::query::MatchQuery;
 use super::types::{Scan, Scope};
-use crate::id::ToolId;
 use crate::response::result::ToolError;
 use octocode_contract_types::ErrorCode;
 use serde_json::json;
@@ -69,8 +68,7 @@ pub(super) fn interrupted_rescan(q: MatchQuery<'_>, scan: &Scan) -> Option<ToolE
         "The rescan for this page stopped at the structural match deadline, so it cannot be checked against the earlier pages; the source is unchanged.",
     );
     error.calls = Some(Box::new(json!({
-        "retry": crate::response::result::Continuation::continued(ToolId::AstSearch, q.to_value())
-            .build()
+        "retry": crate::response::result::Continuation::continued_query(q.query()).build()
     })));
     Some(error)
 }

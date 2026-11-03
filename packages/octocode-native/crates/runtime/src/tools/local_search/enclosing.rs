@@ -1,8 +1,9 @@
 //! Enclosing declarations of search hits, from the same declaration outline
-//! behind astSearch `symbols` (and its content-keyed cache).
+//! behind astSearch `symbols`.
 //!
 //! A hit row names the innermost declaration around its line as
-//! `enclosing: {symbolName, kind, line, endLine}` (`line` is the name line),
+//! `declarations: [{symbolName, kind, line, endLine}]` on the file and an
+//! `enclosing` index on the hit (`line` is the name line),
 //! so a caller can cite or address the function a hit sits in without
 //! reading it: `symbolName` + `line` anchor lspSearch, `line`–`endLine` is a
 //! localFetch range. A hit on a declaration's own name line names the
@@ -14,7 +15,6 @@
 
 use super::{handoff::*, types::*};
 use crate::security::ContentSecurity;
-use sha2::{Digest, Sha256};
 
 /// One declaration of a file's outline, 1-based lines.
 struct Declaration {
@@ -32,11 +32,11 @@ pub(super) struct Outline {
 
 impl Outline {
     /// The outline of `source`; `None` when no extractor supports the file.
-    /// It reads the typed declarations parse every reader of the file
-    /// shares ([`crate::tools::declarations_cache::file_document`]): one
-    /// parse per source version, never a JSON round trip.
+    /// It reads the typed declarations document of one fresh parse
+    /// ([`crate::tools::declarations::file_document`]), owned by this
+    /// request and never a JSON round trip.
     pub(super) fn of(source: &str, canonical_path: &str) -> Option<Self> {
-        let document = crate::tools::declarations_cache::file_document(source, canonical_path)?;
+        let document = crate::tools::declarations::file_document(source, canonical_path)?;
         let declarations = document
             .declarations
             .iter()
@@ -155,7 +155,7 @@ pub(super) fn shown_bytes(
     let limit = octocode_engine::signatures::MAX_PARSE_SIZE;
     let bytes = super::sources::read_entry(source, limit)?;
     if let super::sources::Expected::Stored(stored) = expected
-        && stored != Some(<[u8; 32]>::from(Sha256::digest(&bytes)))
+        && stored != Some(octocode_engine::digest::sha256_digest(&bytes))
     {
         return None;
     }
@@ -202,9 +202,10 @@ pub(super) fn annotate_match_keys(
         if keys.is_empty() {
             continue;
         }
-        let added = octocode_engine::json_size::bytes(&crate::tools::match_keys::MatchKeys(&keys))
-            .unwrap_or(usize::MAX)
-            .saturating_add(MATCH_KEYS_FIELD_CHARS);
+        let added =
+            octocode_engine::json_size::bytes(&crate::tools::match_keys::MatchKeyRows(&keys))
+                .unwrap_or(usize::MAX)
+                .saturating_add(MATCH_KEYS_FIELD_CHARS);
         if over_budget == 0 && used.saturating_add(added) <= page_budget {
             used += added;
             file.match_keys = keys;
@@ -249,8 +250,8 @@ pub(super) fn row_lines(row: &SearchMatch) -> Vec<u32> {
 }
 
 /// Name the enclosing declaration of every hit row of a page's files
-/// and find the first shown hit that declares `symbol`. Each hit carries
-/// the complete declaration, even when a response splits the file.
+/// and find the first shown hit that declares `symbol`. A file lists each
+/// declaration once and a hit names its own by index.
 /// Each file is parsed once. The page cut charged the names' size, so a
 /// name is never traded for budget; rows of a file over 1 MiB are counted
 /// in the returned note, never dropped silently.
@@ -307,9 +308,11 @@ pub(super) fn annotate_enclosing(
         names.push(row_owners(&outline, matches, declaring));
     }
     for (file, names) in files.iter_mut().zip(names) {
+        let mut declarations = Vec::new();
         for (row, name) in file.matches.iter_mut().flatten().zip(names) {
-            row.enclosing = name;
+            row.enclosing = name.map(|name| index_of(&mut declarations, name));
         }
+        file.declarations = declarations;
     }
 
     let note = (oversized_rows > 0).then(|| {
@@ -345,6 +348,18 @@ pub(super) fn outlined_language(source: &std::path::Path) -> bool {
 /// Each row's enclosing declaration, on every row inside one: so no row
 /// reads as having none. With `declaring` (a declaration search), only rows that declare
 /// that symbol are named.
+/// `name`'s index in `declarations`, listing it there the first time.
+fn index_of(declarations: &mut Vec<super::types::Enclosing>, name: super::types::Enclosing) -> u32 {
+    let index = declarations
+        .iter()
+        .position(|known| *known == name)
+        .unwrap_or_else(|| {
+            declarations.push(name);
+            declarations.len() - 1
+        });
+    octocode_engine::num::saturating_u32(index)
+}
+
 pub(super) fn row_owners(
     outline: &super::enclosing::Outline,
     rows: &[SearchMatch],

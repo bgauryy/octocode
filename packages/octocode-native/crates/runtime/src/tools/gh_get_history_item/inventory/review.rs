@@ -58,7 +58,7 @@ pub(in crate::tools::gh_get_history_item) fn review_selection(
     ranked.sort_by_key(|(rank, _, _)| *rank);
     // Files that fit one call's budget come first (packed, most changed
     // first), so the first read delivers whole patches; the rest follow in
-    // rank order and arrive through `continuePatch`.
+    // rank order and arrive through the patch page continuation.
     let mut used = 0usize;
     let mut packed = Vec::new();
     let mut rest = Vec::new();

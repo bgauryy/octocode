@@ -15,11 +15,13 @@ async fn invoke(
             .expect("CLI result")
             .structured_content
             .into_value(),
-        Channel::Mcp => runtime
-            .run_mcp("paths-mcp".into(), tool.into(), input)
-            .await
-            .expect("MCP result")["structuredContent"]
-            .clone(),
+        Channel::Mcp => {
+            let result = runtime
+                .run_mcp("paths-mcp".into(), tool.into(), input)
+                .await
+                .expect("MCP result");
+            crate::support::mcp_payload(&result)
+        }
     };
     checks::assert_output_contract(tool, &value);
     value

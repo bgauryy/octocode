@@ -18,7 +18,8 @@ async fn both_surfaces_reject_invalid_requests_and_execute_the_same_typed_range(
             .unwrap();
         assert_eq!(mcp["isError"], true, "{mcp}");
         assert_eq!(
-            mcp["structuredContent"]["errorCode"], "invalidInput",
+            crate::support::mcp_payload(&mcp)["errorCode"],
+            "invalidInput",
             "{mcp}"
         );
         let cli = runtime
@@ -40,7 +41,7 @@ async fn both_surfaces_reject_invalid_requests_and_execute_the_same_typed_range(
     assert!(content.contains("selected"));
     assert!(!content.contains("first") && !content.contains("last"));
     assert_eq!(
-        mcp["structuredContent"]["results"][0]["data"]["content"],
+        crate::support::mcp_payload(&mcp)["results"][0]["data"]["content"],
         content
     );
     runtime.close().await;

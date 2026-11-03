@@ -105,7 +105,7 @@ lists every Cargo dependency between them.
 | Crate | Owns | Depends on |
 |---|---|---|
 | `crates/engine` | Reusable algorithms: search, AST, signatures, graph facts, minification, the language-server pool | none |
-| `crates/io` | Cross-crate primitives: owner-only atomic writes, `flock` waits, environment reads, the HTTP client policy, the in-process memo, keyed single flight, stderr notices ([`lib.rs`](crates/io/src/lib.rs)) | none |
+| `crates/io` | Cross-crate primitives: owner-only atomic writes, `flock` waits, environment reads, the HTTP client policy, lock-free request cancellation, the in-process memo, keyed single flight, stderr notices ([`lib.rs`](crates/io/src/lib.rs)) | none |
 | `crates/github` | GitHub protocol and transport, retries, `Partition` ([`lib.rs`](crates/github/src/lib.rs)) | `io` |
 | `crates/contract-types` | The tool wire types generated from the contract (`include!`s `packages/octocode-config/contract/tool_types.rs`) | none |
 | `crates/runtime` (`octocode-native`) | `ToolRuntime`: config, credentials, contracts, availability, tools, responses | `io`, `engine`, `github`, `contract-types` |
@@ -187,8 +187,8 @@ tool server, started automatically). Exit codes are printed by
 
 Every read-only tool call (all tools except `ghCloneRepo` and `graphBuild`, which write)
 runs on `octocode serve`, so a later page reuses what an earlier call computed,
-as it does in one MCP session: page memos, stored scans, outlines, symbol
-pages, graph reports, and warm language servers. The first call of a workspace
+as it does in one MCP session: issued pages, stored scans and continuation-selected symbol evidence, alongside
+live language servers. Fresh requests recompute their results. The first call of a workspace
 starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
 (a 0700 directory only the owner can enter).
 
@@ -206,10 +206,9 @@ starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
   sees the caller's. The server keeps a runtime per directory and environment
   (up to `MAX_RUNTIMES`), on one shared language-server pool, so directories of
   one repository share one rust-analyzer.
-- **Credentials.** A remembered `gh` or stored credential expires after the
-  resolver's memo TTL, so `gh auth switch`, a logout, or a rotated token reaches
-  a warm server within it; `octocode auth login` and `logout` stop every warm
-  server.
+- **Credentials.** Each request reloads `gh` or stored credentials, so account
+  switching, logout and token rotation reach the next request. `octocode auth
+  login` and `logout` also stop every warm server.
 - **Same output.** Stdout, the exit code, and stderr (configuration warnings,
   and the warnings a call raises, such as an unusable credential store or
   rate-limit state file) match an in-process call. Ctrl-C cancels the call on

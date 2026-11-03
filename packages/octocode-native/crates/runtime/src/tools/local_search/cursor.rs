@@ -4,13 +4,13 @@
 use super::layout::*;
 use super::local_search_query;
 use crate::id::ToolId;
-use crate::num::u32_of_usize;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::Continuation;
 use crate::response::result::ToolError;
 use crate::response::result::query_value;
 use octocode_contract_types::{ErrorCode, LocalSearchQuery};
 use octocode_engine::digest::{Nulls, canonical_json};
+use octocode_engine::num::saturating_u32;
 use serde_json::{Value, json};
 
 /// The page's continuations, and whether rows remain in its own files.
@@ -25,7 +25,7 @@ pub(super) fn cursor(
     policy_key: String,
     selection: Option<&str>,
     cancelled: &dyn Fn() -> bool,
-) -> (Option<Value>, bool) {
+) -> Result<(Option<Value>, Option<Value>, bool), ToolError> {
     let page = local_search_query::page(query).max(1);
     let match_page = local_search_query::match_page(query).max(1);
     let streamed = layout.streamed;
@@ -40,7 +40,7 @@ pub(super) fn cursor(
                     && parsed
                         .files
                         .iter()
-                        .any(|f| u32_of_usize(f.matches.len()) > layout.matches_per)))))
+                        .any(|f| saturating_u32(f.matches.len()) > layout.matches_per)))))
     .then(|| result_identity.to_owned());
     if snapshot.is_some()
         && let Some(scan) = reusable
@@ -54,10 +54,10 @@ pub(super) fn cursor(
     let leftover_matches = !layout.list
         && !streamed
         && layout.shown.iter().any(|(index, _)| {
-            u32_of_usize(parsed.files[*index].matches.len())
+            saturating_u32(parsed.files[*index].matches.len())
                 > match_page.saturating_mul(layout.matches_per)
         });
-    let next = build_next(
+    let (next, match_next) = build_next(
         query,
         page,
         layout.total_pages,
@@ -65,8 +65,8 @@ pub(super) fn cursor(
         match_page,
         snapshot.as_deref(),
         selection,
-    );
-    (next, leftover_matches)
+    )?;
+    Ok((next, match_next, leftover_matches))
 }
 
 /// A continuation whose snapshot no longer describes the source; `next.restart`
@@ -95,7 +95,7 @@ pub(super) fn build_next(
     match_page: u32,
     snapshot: Option<&str>,
     selection: Option<&str>,
-) -> Option<Value> {
+) -> Result<(Option<Value>, Option<Value>), ToolError> {
     let mut map = serde_json::Map::new();
     let mut base = query_value(q);
     if let Some(token) = selection {
@@ -105,8 +105,8 @@ pub(super) fn build_next(
         base["snapshot"] = json!(snapshot);
     }
     let next_match_page = leftover_matches.then(|| match_page as usize + 1);
-    // Rows left in the shown files (`nextMatchPage`) and later files
-    // (`nextPage`) are both offered on the page that opens a file group
+    // Rows left in the shown files (`pagination.next.nextPage`) and later
+    // files (row `next.nextPage`) are both offered on the opening file-group page
     // (matchPage 1), so the caller goes depth-first or breadth-first. A
     // middle match page of the same group does not offer `nextPage` again;
     // the page that ends the group does, so a page with later files always
@@ -127,15 +127,20 @@ pub(super) fn build_next(
     {
         map.insert("nextPage".into(), call);
     }
-    if let Some(next_match_page) = next_match_page {
-        let mut n = base;
-        n["matchPage"] = json!(next_match_page);
-        map.insert(
-            "nextMatchPage".into(),
-            Continuation::continued(ToolId::LocalSearch, n).build(),
-        );
-    }
-    (!map.is_empty()).then_some(Value::Object(map))
+    let match_next = next_match_page
+        .map(|next_match_page| {
+            let mut changes = json!({"matchPage": next_match_page});
+            if let Some(token) = selection {
+                changes["selection"] = json!(token);
+            }
+            if let Some(snapshot) = snapshot {
+                changes["snapshot"] = json!(snapshot);
+            }
+            local_search_query::edited(q, &changes)
+                .map(|query| Continuation::continued_query(query).build())
+        })
+        .transpose()?;
+    Ok(((!map.is_empty()).then_some(Value::Object(map)), match_next))
 }
 
 /// Snapshot identity: the [`query_key`] (the validated root plus every
@@ -162,7 +167,7 @@ pub(super) fn fingerprint(
         .optional(Some(stats.match_count.unwrap_or(0)))
         .optional(Some(stats.matched_lines.unwrap_or(0)))
         .optional(Some(
-            stats.files_matched.unwrap_or(u32_of_usize(files.len())),
+            stats.files_matched.unwrap_or(saturating_u32(files.len())),
         ))
         .optional(Some(stats.files_searched.unwrap_or(0)))
         .number(u64::from(stats.capped.unwrap_or(false)))

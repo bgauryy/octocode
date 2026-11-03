@@ -164,14 +164,13 @@ pub(super) fn document_symbols_payload(
         "pagination": pagination
     });
     offer_next_page(query, &mut row, next_page);
-    if let (Some(path), Some(read)) = (lsp_search_query::path(query), outline_read(&page)) {
+    if let (Some(path), Some(window)) = (lsp_search_query::path(query), outline_read(&page))
+        && let Some(read) =
+            crate::tools::source_view::local_fetch_query::ranges_lead(path, &[window])
+    {
         crate::response::result::attach_related(
             &mut row,
-            crate::response::result::Continuation::related_input(
-                ToolId::LocalFetch,
-                json!({ "queries": [{ "path": path, "ranges": [read] }] }),
-            )
-            .build(),
+            crate::response::result::Continuation::related_query(read).build(),
         );
     }
     row
@@ -179,7 +178,7 @@ pub(super) fn document_symbols_payload(
 
 /// The line range of an outline page's first top-level multi-line
 /// declaration (its name line to its last line), else its first symbol's.
-pub(super) fn outline_read(page: &[Value]) -> Option<Value> {
+pub(super) fn outline_read(page: &[Value]) -> Option<(u64, u64)> {
     let span = |symbol: &Value| {
         let line = symbol.get("line")?.as_u64()?;
         let end = symbol
@@ -194,5 +193,5 @@ pub(super) fn outline_read(page: &[Value]) -> Option<Value> {
         .filter_map(span)
         .find(|(line, end)| end > line)
         .or_else(|| page.iter().find_map(span))?;
-    Some(json!({"startLine":line,"endLine":end}))
+    Some((line, end))
 }

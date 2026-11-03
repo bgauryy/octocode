@@ -24,7 +24,7 @@ function openWriter(f: ReturnType<typeof fixture>) {
  return db;
 }
 function insert(db: DatabaseSync, session: string, key: string) {
- const id = db.prepare('INSERT INTO messages(sender,target,body,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)').run(session, session, `record ${key}`, key, Date.now() + 60000, 'Verify export consistency').lastInsertRowid;
+ const id = db.prepare('INSERT INTO messages(sender,target,parts,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)').run(session, session, JSON.stringify([{ text: `record ${key}` }]), key, Date.now() + 60000, 'Verify export consistency').lastInsertRowid;
  db.prepare('INSERT INTO deliveries(message,recipient) VALUES(?,?)').run(id, session);
  return Number(id);
 }
@@ -39,7 +39,7 @@ test('export includes committed WAL and all workspaces, preserves source, verifi
   const sourceHash = digest(f.database), walHash = digest(`${f.database}-wal`);
   const destination = join(f.workspace, 'archive.sqlite'), result = f.export(destination);
   assert.equal(result.path, destination); assert.equal(result.source, f.database);
-  assert.equal(result.scope, 'all-workspaces'); assert.equal(result.schemaVersion, 7);
+  assert.equal(result.scope, 'all-workspaces'); assert.ok(result.schemaVersion > 7);
   assert.equal(result.includesWorkspaceDocuments, false); assert.match(result.documents, /Preserve referenced workspace/);
   assert.equal(result.sha256, digest(destination)); assert.equal(result.bytes, statSync(destination).size);
   assert.equal(result.integrity, 'ok'); assert.equal(typeof result.directorySynced, 'boolean');
@@ -105,7 +105,7 @@ test('two racing exports publish one complete snapshot without clobbering', asyn
 
 test('export remains transactionally consistent while a WAL writer commits batches', async t => {
  const f = fixture(t), stop = join(f.workspace, 'stop'), destination = join(f.workspace, 'live.sqlite');
- const source = `const {DatabaseSync}=require('node:sqlite');const fs=require('fs');const db=new DatabaseSync(${JSON.stringify(f.database)});db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA wal_autocheckpoint=0');let n=0;const insert=db.prepare('INSERT INTO messages(sender,target,body,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)');const delivery=db.prepare('INSERT INTO deliveries(message,recipient) VALUES(?,?)');function batch(){db.exec('BEGIN IMMEDIATE');for(let i=0;i<10;i++){const id=insert.run(${JSON.stringify(f.session)},${JSON.stringify(f.session)},'payload'.repeat(100),'batch-'+n++,Date.now()+60000,'Verify consistent live snapshot').lastInsertRowid;delivery.run(id,${JSON.stringify(f.session)});}db.exec('COMMIT');}batch();process.stdout.write('READY\\n');function loop(){if(fs.existsSync(${JSON.stringify(stop)})){db.close();return;}batch();setTimeout(loop,1);}loop();`;
+ const source = `const {DatabaseSync}=require('node:sqlite');const fs=require('fs');const db=new DatabaseSync(${JSON.stringify(f.database)});db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA wal_autocheckpoint=0');let n=0;const insert=db.prepare('INSERT INTO messages(sender,target,parts,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)');const delivery=db.prepare('INSERT INTO deliveries(message,recipient) VALUES(?,?)');function batch(){db.exec('BEGIN IMMEDIATE');for(let i=0;i<10;i++){const id=insert.run(${JSON.stringify(f.session)},${JSON.stringify(f.session)},JSON.stringify([{text:'payload'.repeat(100)}]),'batch-'+n++,Date.now()+60000,'Verify consistent live snapshot').lastInsertRowid;delivery.run(id,${JSON.stringify(f.session)});}db.exec('COMMIT');}batch();process.stdout.write('READY\\n');function loop(){if(fs.existsSync(${JSON.stringify(stop)})){db.close();return;}batch();setTimeout(loop,1);}loop();`;
  const writer = spawn(process.execPath, ['-e', source]); let error = ''; writer.stderr.on('data', chunk => error += chunk);
  const closed = once(writer, 'close');
  try {

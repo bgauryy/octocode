@@ -1,6 +1,6 @@
 //! Content-verified materialization snapshots and their filesystem transaction.
-use super::{MATERIALIZE_FILE_BYTES, Snapshot, TreeEntry, materialize_root, write_error};
-use crate::private_file::{BeneathDir, open_beneath, read_limited};
+use super::{Snapshot, materialize_root, write_error};
+use crate::private_file::{BeneathDir, read_limited};
 use octocode_github::{ProviderError, ProviderErrorKind, RequestContext};
 use octocode_io::lock::{LockError, LockedFile, lock_within};
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,6 @@ struct Manifest {
 
 pub(super) struct Store {
     pub(super) root: PathBuf,
-    home: PathBuf,
     parent: Arc<BeneathDir>,
     manifest_name: OsString,
     manifest: Manifest,
@@ -144,13 +143,12 @@ impl Store {
             .await?;
             if nonempty {
                 return Err(storage_error(
-                    "Materialize directory has files but no identity manifest; use a fresh cache directory",
+                    "Materialize directory has files but no identity manifest; use a fresh output directory",
                 ));
             }
         }
         let store = Self {
             root,
-            home,
             parent,
             manifest_name,
             manifest,
@@ -160,32 +158,6 @@ impl Store {
             store.save().await?;
         }
         Ok(store)
-    }
-
-    pub(super) async fn reusable(&self, entry: &TreeEntry) -> bool {
-        let Some(expected) = self
-            .manifest
-            .files
-            .get(&entry.path)
-            .filter(|identity| Some(identity.bytes) == entry.size)
-            .cloned()
-        else {
-            return false;
-        };
-        if !crate::tools::gh_shared::is_repo_relative(&entry.path) {
-            return false;
-        }
-        let (home, path) = (self.home.clone(), self.root.join(&entry.path));
-        tokio::task::spawn_blocking(move || {
-            let file = open_beneath(&home, &path)?;
-            if file.metadata()?.len() != expected.bytes {
-                return Ok(false);
-            }
-            let bytes = read_limited(file, MATERIALIZE_FILE_BYTES as u64)?;
-            Ok::<_, io::Error>(FileIdentity::of(&bytes) == expected)
-        })
-        .await
-        .is_ok_and(|result| result.is_ok_and(|same| same))
     }
 
     pub(super) async fn record(

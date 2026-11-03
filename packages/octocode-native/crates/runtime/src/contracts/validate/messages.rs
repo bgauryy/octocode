@@ -158,6 +158,7 @@ fn misplaced_request_field(tool_name: &str, issue: &ValidationIssue) -> Option<b
     let tool = crate::id::ToolId::from_name(tool_name)?;
     let input = &crate::contracts::tool_contract(tool).ok()?["inputSchema"];
     input["anyOf"].as_array()?.iter().find_map(|form| {
+        let form = crate::contracts::resolve_ref(form, &input["$defs"]);
         let properties = form["properties"].as_object()?;
         properties
             .contains_key(field.as_str())

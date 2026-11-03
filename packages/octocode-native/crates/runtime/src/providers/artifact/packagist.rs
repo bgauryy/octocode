@@ -154,7 +154,7 @@ mod tests {
             "require-dev": {"phpunit/phpunit": "^10"}});
         let http = RouteHttp::always(json!({"packages": {"monolog/monolog": [entry]}}));
         let b = test_budget();
-        let client = RegistryClient::uncached(&http, &b);
+        let client = RegistryClient::new(&http, &b);
         let q = exact_query(ArtifactType::Packagist, "monolog/monolog");
         let state = ArtifactProviderState::default();
         let page = packagist(&q, &state, &client).await.expect("packagist");
@@ -170,7 +170,7 @@ mod tests {
         let bare = RouteHttp::always(
             json!({"packages": {"monolog/monolog": [{"name": "monolog/monolog", "version": "1.0.0"}]}}),
         );
-        let client = RegistryClient::uncached(&bare, &b);
+        let client = RegistryClient::new(&bare, &b);
         let page = packagist(&q, &state, &client).await.expect("packagist");
         assert_eq!(page.artifacts[0].dependencies, Some(Vec::new()));
         assert_eq!(page.artifacts[0].published_at, None);

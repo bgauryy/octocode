@@ -10,20 +10,10 @@ use crate::response::result::FailureKind;
 use crate::security::{CheckedQuery, Sanitized};
 use octocode_contract_types::ErrorCode;
 
+use crate::cache::{CONTINUATION_IDLE, CONTINUATION_RETENTION};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use std::time::Duration;
-
-/// How long saved work outlives its last use: every read of a saved
-/// response or an issued handle restarts it ([`crate::cache::CacheClass::Idle`]),
-/// so a walk stays alive while its pages are read.
-pub(super) const RETENTION_IDLE: Duration = Duration::from_secs(600);
-
-/// The lifetime class of saved responses and issued handles.
-pub(super) const RETENTION: crate::cache::CacheClass = crate::cache::CacheClass::Idle {
-    ttl: RETENTION_IDLE,
-};
 
 /// Immutable settled output. Page reads never consult its original sources.
 #[derive(Serialize, Deserialize)]
@@ -48,22 +38,12 @@ pub(super) struct PageReplayMemo {
 }
 
 impl PageReplayMemo {
-    pub(super) fn cache_config() -> crate::cache::CacheConfig {
-        // No entry count: the byte budgets alone bound retention, so a burst
-        // of small saved responses or handles never evicts an active walk.
-        crate::cache::CacheConfig {
-            max_entries: usize::MAX,
-            max_bytes: 32 * 1024 * 1024,
-            disk_bytes: 128 * 1024 * 1024,
-        }
-    }
-
     pub(super) fn new(config: &ConfigOutput, cwd: &std::path::Path) -> Self {
         let persistent = config::is_persistent_storage_enabled(&config.resolved);
         let policy = replay_policy(config, cwd, ROW_PLAN_VERSION);
         Self {
             store: crate::cache::Store::new(
-                Self::cache_config(),
+                crate::cache::CacheConfig::derived(),
                 persistent.then(|| crate::cache::Directory::ResponsePages.path(&config.home)),
             ),
             policy,
@@ -92,8 +72,12 @@ impl PageReplayMemo {
         // the envelope (its row plan, bytes or text).
         let weight = octocode_engine::json_size::bytes(&replay)
             .map_or(usize::MAX, |bytes| bytes.saturating_mul(2));
-        self.store
-            .put_confirmed(Self::key(cursor, &self.policy), replay, weight, RETENTION)
+        self.store.put_confirmed(
+            Self::key(cursor, &self.policy),
+            replay,
+            weight,
+            CONTINUATION_RETENTION,
+        )
     }
 }
 
@@ -116,7 +100,7 @@ mod tests;
 mod refusal_tests;
 
 pub(super) fn page_expiry() -> String {
-    crate::civil_date::iso8601_millis_after(RETENTION_IDLE)
+    crate::civil_date::iso8601_millis_after(CONTINUATION_IDLE)
 }
 
 /// Why saved work does not answer a cursor. Each cause has its own text,
@@ -150,7 +134,7 @@ pub(super) struct RefusalScope {
 /// The `responseSnapshotExpired` error for `refusal`: its cause, then the
 /// recovery every refusal shares.
 pub(super) fn snapshot_expired(refusal: Refusal, scope: RefusalScope) -> RuntimeError {
-    let lifetime = RETENTION_IDLE.as_secs();
+    let lifetime = CONTINUATION_IDLE.as_secs();
     let cause = match refusal {
         Refusal::Malformed => {
             "Malformed cursor: it is not an issued handle (edited, truncated or invented).".into()
@@ -211,7 +195,6 @@ pub(super) fn page_replay_key(
     indices: &[usize],
     credential: Option<&octocode_github::ResolvedCredential>,
 ) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
     // A request-supplied token partitions replays: one caller's page never
     // answers another caller's continuation.
     let credential = credential
@@ -223,10 +206,9 @@ pub(super) fn page_replay_key(
         "indices": indices,
         "credential": credential,
     });
-    Sha256::digest(
+    octocode_engine::digest::sha256_digest(
         octocode_engine::digest::canonical_json(identity, octocode_engine::digest::Nulls::Drop)
             .to_string()
             .as_bytes(),
     )
-    .into()
 }

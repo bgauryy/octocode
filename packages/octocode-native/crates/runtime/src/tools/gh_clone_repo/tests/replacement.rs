@@ -175,69 +175,6 @@ fn dirty_checkout_preserves_tracked_untracked_ignored_and_user_metadata_names() 
 }
 
 #[test]
-fn refresh_rechecks_user_changes_written_while_fetching() {
-    struct LateWriteRunner {
-        inner: RewriteRunner,
-        target: Mutex<Option<PathBuf>>,
-    }
-    impl GitRunner for LateWriteRunner {
-        fn run(
-            &self,
-            request: &GitRunRequest<'_>,
-            control: &GitRunControl<'_>,
-        ) -> Result<GitOutput, CloneError> {
-            let output = self.inner.run(request, control)?;
-            if request.label == "read checkout HEAD"
-                && request
-                    .args
-                    .iter()
-                    .any(|argument| argument.to_string_lossy().contains("clone-tmp"))
-                && let Some(target) = self.target.lock().expect("target lock").take()
-            {
-                fs::write(
-                    target.join("during-fetch.txt"),
-                    "concurrent user evidence\n",
-                )
-                .expect("write owned late marker");
-            }
-            Ok(output)
-        }
-        fn run_nul_records(
-            &self,
-            request: &GitRunRequest<'_>,
-            control: &GitRunControl<'_>,
-            record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-        ) -> Result<GitOutput, CloneError> {
-            self.inner.run_nul_records(request, control, record)
-        }
-    }
-    let fixture = Fixture::shared();
-    let (root, home) = home_root();
-    let policy = test_support::workspace_policy(&root.0);
-    let endpoint = api_github_endpoint();
-    let runner = LateWriteRunner {
-        inner: fixture_runner(&fixture),
-        target: Mutex::new(None),
-    };
-    let config = CloneConfig::persistent(&home);
-    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
-    let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
-    let checkout = PathBuf::from(fresh.location.local_path);
-    *runner.target.lock().expect("target lock") = Some(checkout.clone());
-    let error = clone_pinned(&fixture, &GhCloneRepoQuery { ..query() }, &context)
-        .expect_err("preserve late write");
-    assert_eq!(error.code, ErrorCode::CheckoutDirty);
-    assert_eq!(
-        fs::read_to_string(checkout.join("during-fetch.txt")).expect("late marker"),
-        "concurrent user evidence\n"
-    );
-    assert_eq!(
-        git_output(&checkout, &["rev-parse", "HEAD"]).trim(),
-        fixture.first_commit
-    );
-}
-
-#[test]
 fn uppercase_commit_refs_replace_the_same_destination() {
     let fixture = Fixture::shared();
     let (root, home) = home_root();
@@ -321,4 +258,68 @@ fn local_commits_and_refs_are_preserved_before_replacement() {
         assert_eq!(git_output(path, &["rev-parse", "HEAD"]), head, "{kind}");
         assert_eq!(git_output(path, &["for-each-ref"]), refs, "{kind}");
     }
+}
+
+/// A checkout the user puts at the destination while the stage is fetched
+/// (the destination lock only serializes Octocode) is never replaced.
+#[test]
+fn checkout_appearing_at_the_destination_while_fetching_is_preserved() {
+    struct LateCheckoutRunner {
+        inner: RewriteRunner,
+        /// Where the user's checkout is parked, and where it reappears.
+        parked: Mutex<Option<(PathBuf, PathBuf)>>,
+    }
+    impl GitRunner for LateCheckoutRunner {
+        fn run(
+            &self,
+            request: &GitRunRequest<'_>,
+            control: &GitRunControl<'_>,
+        ) -> Result<GitOutput, CloneError> {
+            let output = self.inner.run(request, control)?;
+            if request.label == "read checkout HEAD"
+                && request
+                    .args
+                    .iter()
+                    .any(|argument| argument.to_string_lossy().contains("clone-tmp"))
+                && let Some((parked, destination)) = self.parked.lock().expect("parked").take()
+            {
+                fs::rename(&parked, &destination).expect("restore user checkout");
+                fs::write(destination.join("during-fetch.txt"), "user evidence\n")
+                    .expect("write late marker");
+            }
+            Ok(output)
+        }
+        fn run_nul_records(
+            &self,
+            request: &GitRunRequest<'_>,
+            control: &GitRunControl<'_>,
+            record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
+        ) -> Result<GitOutput, CloneError> {
+            self.inner.run_nul_records(request, control, record)
+        }
+    }
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = LateCheckoutRunner {
+        inner: fixture_runner(&fixture),
+        parked: Mutex::new(None),
+    };
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
+    let checkout = PathBuf::from(first.location.local_path);
+
+    // The destination vanishes, so the next call fetches a stage, and the
+    // user's checkout reappears there before it is published.
+    let parked = checkout.with_extension("parked");
+    fs::rename(&checkout, &parked).expect("park checkout");
+    *runner.parked.lock().expect("parked") = Some((parked, checkout.clone()));
+    let error = clone_pinned(&fixture, &query(), &context).expect_err("preserve late checkout");
+    assert_eq!(error.code, ErrorCode::CheckoutDirty);
+    assert_eq!(
+        fs::read_to_string(checkout.join("during-fetch.txt")).expect("late marker"),
+        "user evidence\n"
+    );
 }

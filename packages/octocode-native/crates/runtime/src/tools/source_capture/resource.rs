@@ -102,7 +102,7 @@ pub(crate) fn capture(
             let (text, canonical, snapshot) = dispatcher
                 .capture_local_text(&query, context)
                 .map_err(|error| local_recovery(error, &query, dispatcher))?;
-            let check = json!({"tool":"localFetch","query":{"path":query["path"],"snapshot":snapshot},"canonical":canonical});
+            let check = json!({"tool":ToolId::LocalFetch.as_str(),"query":{"path":query["path"],"snapshot":snapshot},"canonical":canonical});
             (text, canonical, snapshot, Some(check))
         }
         ToolId::GhGetFileContent => {
@@ -240,8 +240,8 @@ pub(crate) fn selected_ranges(
                 .ok()
                 .map(|range| {
                     (
-                        crate::num::usize_of(range.start_line.get()),
-                        crate::num::usize_of(range.end_line.get()),
+                        octocode_engine::num::saturating_usize(range.start_line.get()),
+                        octocode_engine::num::saturating_usize(range.end_line.get()),
                     )
                 })
                 .filter(|(start, end)| start <= end)

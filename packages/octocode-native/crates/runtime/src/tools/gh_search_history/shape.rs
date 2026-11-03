@@ -2,7 +2,7 @@
 //! partial state.
 use super::{HistoryOperation, HistorySearch, leads, rows};
 use crate::id::ToolId;
-use crate::response::result::remove_null_fields;
+use crate::response::result::{insert_next, remove_null_fields};
 use crate::tools::gh_search_history::gh_search_history_query;
 use crate::tools::gh_shared::commit;
 use crate::tools::gh_shared::{SearchCompleteness, SearchWindow, apply_partial, pick_rows};
@@ -139,8 +139,14 @@ pub(super) fn shape(
     {
         map.remove("pagination");
     }
-    if paging.more {
-        value["calls"]["nextPage"] = leads::next_page(query, paging.page + 1);
+    if paging.more
+        && let Some(next) = leads::next_page(query, paging.page + 1)
+    {
+        insert_next(
+            &mut value["calls"],
+            octocode_contract_types::GhSearchHistoryChannel::NextPage,
+            next,
+        );
     }
     remove_null_fields(&mut value);
     mark_empty(&mut value, paging.more);

@@ -1,10 +1,6 @@
 # Scoring (by hand)
 
-Three arms per question — **A** Octocode, **B** gh+RTK, **C** gh+Headroom. **The judge's
-written reasoning is the evidence; the number only summarizes it** — a score with no
-reasoning behind it is not usable. Each answer is scored on **correctness (0–10), research
-depth (1–5), workflow (1–5)** — rubric and per-answer reasoning live in
-[JUDGING.md](JUDGING.md) — plus one measured quantity defined here:
+Each judge scores two blinded answers for the same question and pass. Apply the [rubric](JUDGING.md) for correctness (0–10), research depth (1–5) and workflow (1–5). Retain the judge’s reasoning for each score.
 
 - **Measured tool-transcript chars** (labeled "total chars through the model" in reports) —
   model-in (tool output pulled into context) **+** model-out (commands/args + final answer),

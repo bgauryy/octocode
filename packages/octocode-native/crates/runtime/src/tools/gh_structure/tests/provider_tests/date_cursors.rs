@@ -59,9 +59,9 @@ async fn date_chunks_keep_the_query_and_return_every_entry_once() {
     assert_eq!(names, expected);
 }
 
-/// A listing page longer than one dated batch says so in the two places an
-/// agent reads first: the standard page lead and a warning naming how many
-/// entries remain and why; `pagination` never reads as complete.
+/// A listing longer than one dated batch pages at the batch: the standard
+/// page lead, a `pagination` that counts the calls the walk needs, and a
+/// warning that the default `limit` is lowered to the batch and why.
 #[tokio::test]
 async fn entries_past_one_dated_batch_are_led_as_the_next_page() {
     let server = server().await;
@@ -79,10 +79,9 @@ async fn entries_past_one_dated_batch_are_led_as_the_next_page() {
     assert!(data.pointer("/next/nextPage/input").is_some(), "{data}");
     assert_eq!(data["pagination"]["hasMore"], true, "{data}");
     assert_eq!(data["pagination"]["totalItems"], 170, "{data}");
+    assert_eq!(data["pagination"]["page"], 1, "{data}");
+    assert_eq!(data["pagination"]["totalPages"], 2, "{data}");
     let warnings = data["warnings"].to_string();
-    assert!(
-        warnings.contains("70 more entries") && warnings.contains("next page"),
-        "{data}"
-    );
+    assert!(warnings.contains("limit 300 is lowered to 100"), "{data}");
     crate::tools::test_support::assert_row_contract(ToolId::GhStructure, data);
 }

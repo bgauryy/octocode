@@ -26,25 +26,55 @@ async fn a_followed_repository_redirect_marks_the_name_renamed() {
     .await;
     let provider = provider(&server).await;
     let context = with_token("secret", Duration::from_secs(5), 1 << 20);
-    assert!(!provider.transport.followed_rename("a", "b"));
+    assert!(!context.followed_rename("a", "b"));
     let sha = provider
         .transport
         .commit_sha("a", "b", "main", &context)
         .await
         .expect("followed");
     assert_eq!(sha, "f".repeat(40));
-    assert!(provider.transport.followed_rename("A", "b"));
+    assert!(context.followed_rename("A", "b"));
     let _ = provider
         .transport
         .commit_sha("x", "y", "main", &context)
         .await;
-    assert!(!provider.transport.followed_rename("x", "y"));
-    // Clones share what was learned.
-    assert!(provider.transport.clone().followed_rename("a", "b"));
+    assert!(!context.followed_rename("x", "y"));
+    // Context clones share observations, independent requests do not.
+    assert!(context.clone().followed_rename("a", "b"));
+    assert!(!with_token("secret", Duration::from_secs(5), 1024).followed_rename("a", "b"));
+}
+
+/// A metadata read names the repository's canonical `full_name` for the
+/// rest of its request only; another request has observed nothing.
+#[tokio::test]
+async fn a_metadata_read_names_the_canonical_repository_for_its_request() {
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b",
+        200,
+        serde_json::json!({"default_branch":"main","full_name":"c/d"}),
+    )
+    .await;
+    let provider = provider(&server).await;
+    let context = with_token("secret", Duration::from_secs(5), 1 << 20);
+    assert_eq!(context.read_full_name("a", "b"), None);
+    provider
+        .transport
+        .repository_metadata("a", "b", &context)
+        .await
+        .expect("metadata");
+    assert_eq!(
+        context.clone().read_full_name("A", "b").as_deref(),
+        Some("c/d")
+    );
+    assert_eq!(context.read_full_name("x", "y"), None);
+    let other = with_token("secret", Duration::from_secs(5), 1024);
+    assert_eq!(other.read_full_name("a", "b"), None);
 }
 
 #[tokio::test]
-async fn concurrent_repository_metadata_reads_share_one_request() {
+async fn concurrent_repository_metadata_reads_are_independent() {
     let server = MockServer::builder().start().await;
     let repository = Delayed::new(
         Duration::from_millis(150),
@@ -70,24 +100,24 @@ async fn concurrent_repository_metadata_reads_share_one_request() {
     assert_eq!(a.expect("metadata").default_branch, "main");
     assert_eq!(b.expect("metadata").full_name.as_deref(), Some("o/r"));
     assert_eq!(c.expect("repository").full_name, "o/r");
-    assert_eq!(hits.count(), 1, "one GET /repos/o/r");
-    // A later read in the same batch window is served from the memo.
+    assert_eq!(hits.count(), 3, "each read sends GET /repos/o/r");
+    // A later read also consults GitHub.
     transport
         .repository_metadata("o", "r", &context)
         .await
-        .expect("memo");
-    assert_eq!(hits.count(), 1, "memoized");
+        .expect("metadata");
+    assert_eq!(hits.count(), 4);
     // Another credential never reads this one's answer.
     let other = with_token("other", Duration::from_secs(5), 1 << 20);
     transport
         .repository_metadata("o", "r", &other)
         .await
         .expect("other credential");
-    assert_eq!(hits.count(), 2, "memo is per credential");
+    assert_eq!(hits.count(), 5);
 }
 
 #[tokio::test]
-async fn a_failed_repository_read_is_not_memoized() {
+async fn a_failed_repository_read_is_reported_on_each_request() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r"))

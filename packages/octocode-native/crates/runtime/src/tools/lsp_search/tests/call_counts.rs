@@ -79,7 +79,7 @@ fn file_level_partial_clears_when_text_files_match() {
     );
     assert_eq!(partial["isPartial"], true, "{partial}");
     // The importer cap is a window, not a terminal limit:
-    // `next.nextImporterPage` verifies the unchecked candidates.
+    // `next.nextPage` verifies the unchecked candidates.
     assert!(partial.get("terminalLimit").is_none(), "{partial}");
     assert_eq!(partial["coverage"]["textOnlyFiles"], 1, "{partial}");
     let lead = &crate::tools::test_support::checks::related_call(&partial, "localSearch", |_| true)

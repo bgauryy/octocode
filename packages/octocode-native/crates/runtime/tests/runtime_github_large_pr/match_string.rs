@@ -231,8 +231,8 @@ async fn match_string_covers_every_file_page_in_one_call() {
         );
     }
     assert!(
-        data.get("next")
-            .and_then(|n| n.get("nextFilePage"))
+        data["pullRequests"][0]["contentPagination"]["files"]["next"]
+            .get("nextPage")
             .is_none(),
         "{data}"
     );

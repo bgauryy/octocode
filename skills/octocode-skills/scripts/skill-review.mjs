@@ -147,7 +147,6 @@ function checkFrontmatter({ dir, name, skill, add }) {
 function checkLayout({ dir, name, files, texts, skill, add }) {
   // A single-file skill (SKILL.md only, the Agent Skills minimum) owns its output inline.
   if (files.length !== 1) {
-    if (!files.includes('README.md')) add('ERROR', 'readme-missing', 'README.md is missing.');
     if (!files.includes('output.md')) add('ERROR', 'output-missing', 'output.md is missing.');
     if (![...localPaths(skill)].some((path) => resolve(dir, path) === join(dir, 'output.md'))) add('WARN', 'output-route-missing', 'Link the output format from SKILL.md using any descriptive label.');
   }
@@ -342,7 +341,10 @@ function selfTestCollections(dir, skill) {
   if (review(single).findings.length) throw new Error('a single-file skill was rejected: ' + JSON.stringify(review(single).findings));
   writeFileSync(join(single, 'notes.md'), '# Notes\n');
   if (skillDirs(join(single, 'notes.md'), true)[0] !== join(single, 'notes.md')) throw new Error('non-directory collection root was silently skipped');
-  if (!['readme-missing', 'output-missing'].every((code) => review(single).findings.some((item) => item.code === code))) throw new Error('a multi-file skill without README.md and output.md passed');
+  if (!review(single).findings.some((item) => item.code === 'output-missing')) throw new Error('a multi-file skill without output.md passed');
+  writeFileSync(join(single, 'output.md'), '# Output\n\nSave under .octocode/single-skill/.\n');
+  writeFileSync(join(single, 'SKILL.md'), readFileSync(join(single, 'SKILL.md'), 'utf8') + '\nSee [output](output.md).\n');
+  if (review(single).findings.length) throw new Error('a multi-file skill with a linked output guide needs no README: ' + JSON.stringify(review(single).findings));
 }
 
 function selfTest() {

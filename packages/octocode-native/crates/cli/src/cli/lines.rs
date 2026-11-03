@@ -1,8 +1,9 @@
 //! Text output for a terminal or a pipe. A single-row `localSearch`,
 //! `astSearch`, `lspSearch` or `structureSearch files` result prints its
 //! standard line format on stdout, as rg, ast-grep and fd do:
-//! `path:line:text` hits, or with context `rg --heading` blocks (the path,
-//! then `line:text` hits and `line-text` context, `--` between groups),
+//! one `path:line:text` hit, or with several hits or context `rg --heading`
+//! blocks (the path, then `line:text` hits and `line-text` context, `--`
+//! between groups),
 //! `path:line: kind name` declarations, one path per line, `path:line`, or
 //! `path:count`. Every other field of
 //! the result goes to stderr as `# key: value` notes, so stdout pipes cleanly
@@ -66,6 +67,46 @@ pub(super) fn render(
     Some(lines)
 }
 
+/// An `lspSearch` answer's location rows, each with its path: `matches`, or
+/// the `files[].matches` a location answer groups them in. Call rows and the
+/// files view have no `displayRange` and print as their own shapes.
+fn location_rows(data: &Map<String, Value>) -> Option<Vec<Value>> {
+    if let Some(Value::Array(matches)) = data.get("matches") {
+        return Some(matches.clone());
+    }
+    let files = data.get("files")?.as_array()?;
+    let mut rows = Vec::new();
+    for file in files {
+        let path = file.get("path")?;
+        for row in file.get("matches")?.as_array()? {
+            row.get("displayRange")?;
+            let mut row = row.as_object()?.clone();
+            row.insert("path".into(), path.clone());
+            rows.push(Value::Object(row));
+        }
+    }
+    Some(rows)
+}
+
+/// `matches` with each hit's `enclosing` index replaced by the declaration it
+/// names, so a line can state it.
+fn with_declarations(matches: Value, declarations: Option<&Value>) -> Value {
+    let Value::Array(mut rows) = matches else {
+        return matches;
+    };
+    for row in &mut rows {
+        let named = row
+            .get("enclosing")
+            .and_then(Value::as_u64)
+            .and_then(|index| declarations?.get(usize::try_from(index).ok()?))
+            .cloned();
+        if let (Some(named), Some(row)) = (named, row.as_object_mut()) {
+            row.insert("enclosing".into(), named);
+        }
+    }
+    Value::Array(rows)
+}
+
 fn render_data(
     tool: ToolId,
     structured: &Value,
@@ -83,13 +124,14 @@ fn render_data(
     let row = single_row(structured)?;
     let data = row.get("data")?.as_object()?;
     if tool == ToolId::LspSearch
-        && let Some(Value::Array(matches)) = data.get("matches")
+        && let Some(matches) = location_rows(data)
     {
         let mut out = Vec::new();
         let mut file_notes = Vec::new();
-        locations(matches, &mut out, &mut file_notes)?;
+        locations(&matches, &mut out, &mut file_notes)?;
         let mut data = data.clone();
         data.shift_remove("matches");
+        data.shift_remove("files");
         return Some(Lines {
             out: out.join("\n"),
             notes: notes(structured, query, row, data, file_notes, cwd),
@@ -136,7 +178,10 @@ fn render_data(
             }
             continue;
         }
-        let matches = rest.shift_remove("matches");
+        let declarations_of_file = rest.shift_remove("declarations");
+        let matches = rest
+            .shift_remove("matches")
+            .map(|matches| with_declarations(matches, declarations_of_file.as_ref()));
         let count = ["matchCount", "matchedLineCount"]
             .into_iter()
             .find_map(|key| rest.get(key).and_then(Value::as_u64).map(|n| (key, n)));

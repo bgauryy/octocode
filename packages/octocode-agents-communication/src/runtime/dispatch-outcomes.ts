@@ -5,8 +5,7 @@ import { execute, query, rowInteger, rowText, transaction } from './database.js'
 import type { Dispatched } from './delivery-types.js';
 import { ValidationError } from './errors.js';
 import { retryKey } from './expiry.js';
-import { notice } from './leases.js';
-import { MAX_RETRIES } from './protocols.js';
+import { notice } from './message-content.js';
 import { append } from './records.js';
 import type { StoreHost } from './store-types.js';
 import { now } from './timing.js';
@@ -14,6 +13,7 @@ import { jsonEqual } from './validation.js';
 
 /** A budget deferral reoffers mail at a later hook event; it is not a retry. */
 export const BUDGET_DEFERRAL = 'Host context budget; offered at a later hook event';
+export const MAX_RETRIES = 3;
 const RETRY_BACKOFF_MS = 2000;
 
 /** Records the outcome of an offer: submitted, or uncertain when `error` is given. Staged rows are never replayed. */
@@ -38,7 +38,7 @@ export function releaseDispatch(host: StoreHost, session: string, items: readonl
 
 /**
  * Bounded retry: the first reoffer is immediate, later ones back off exponentially, and after MAX_RETRIES the
- * runtime stops and tells the message sender with an SBAR blocker.
+ * runtime stops and tells the message sender with a delivery failure notice.
  */
 export function retryDelivery(host: StoreHost, session: string, input: RetryDeliveryInput): CommandResults['retry_delivery'] {
   catalog.command('retry_delivery', input);
@@ -51,12 +51,7 @@ export function retryDelivery(host: StoreHost, session: string, input: RetryDeli
       const sender = query(host.db, 'SELECT sender FROM messages WHERE id=?', [input.message]);
       const key = retryKey(input.message, session);
       if (sender.length && rowText(sender[0], 'sender') !== session && !query(host.db, 'SELECT 1 FROM messages WHERE sender=? AND key=?', [session, key]).length) {
-        notice(host.db, session, rowText(sender[0], 'sender'), 'blocker', {
-          situation: `Message ${input.message} failed delivery to ${identity.name} after ${retries.length} retries`,
-          background: input.reason,
-          assessment: 'More retries could duplicate work; the message stays pending',
-          recommendation: 'Check the recipient, then send a new request with a new key or let this one expire',
-        }, key, 'action', at);
+        notice(host.db, { sender: session, target: rowText(sender[0], 'sender'), parts: [{ text: `Message ${input.message} failed delivery to ${identity.name} after ${retries.length} retries. ${input.reason}. More retries could duplicate work; the message stays pending. Check the recipient, then send a new request with a new key or let this one expire.` }], key, wake: 'action' }, at);
       }
       return { ready: false, exhausted: true, retries: retries.length, guidance: 'Retry budget spent and the sender was told; leave the message pending' };
     }

@@ -34,6 +34,7 @@ fn a_failed_importer_request_marks_the_row_partial() {
             &paths,
             &execution,
             None,
+            crate::tools::lsp_search::test_answers(),
         ))
         .expect("row");
     assert_row_contract(ToolId::LspSearch, &row);
@@ -103,6 +104,7 @@ fn importer_recovery_without_declarations_keeps_import_bindings() {
                 &paths,
                 &execution,
                 None,
+                crate::tools::lsp_search::test_answers(),
             ))
             .expect("row");
         assert_row_contract(ToolId::LspSearch, &row);
@@ -163,11 +165,12 @@ fn symlinked_twins_list_each_site_once_under_its_real_path() {
                 &paths,
                 &execution,
                 None,
+                crate::tools::lsp_search::test_answers(),
             ))
             .expect("row");
         assert_row_contract(ToolId::LspSearch, &row);
         let mut sites = Vec::new();
-        for site in row["matches"].as_array().expect("full reference locations") {
+        for site in location_rows(&row) {
             let path = Path::new(site["path"].as_str().expect("path"));
             let path = path.strip_prefix(&root).unwrap_or(path);
             sites.push((
@@ -223,11 +226,12 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
             &paths,
             &execution,
             None,
+            crate::tools::lsp_search::test_answers(),
         ))
         .expect("row");
     assert_row_contract(ToolId::LspSearch, &row);
     assert!(
-        row["matches"]
+        row["files"]
             .as_array()
             .is_some_and(|files| files.iter().any(|file| file["path"]
                 .as_str()
@@ -235,7 +239,7 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
         "{row}"
     );
     assert!(
-        !row["matches"]
+        !row["files"]
             .as_array()
             .is_some_and(|files| files.iter().any(|file| file["path"]
                 .as_str()

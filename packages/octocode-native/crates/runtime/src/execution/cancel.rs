@@ -17,7 +17,9 @@ pub(crate) fn deadline_of(cancel: &dyn CancellationCheck) -> std::time::Instant 
         .deadline()
         .unwrap_or_else(|| std::time::Instant::now() + super::lifecycle::MAX_TIMEOUT)
 }
+#[cfg(test)]
 pub(crate) struct NeverCancel;
+#[cfg(test)]
 impl CancellationCheck for NeverCancel {
     fn check(&self) -> Result<(), String> {
         Ok(())

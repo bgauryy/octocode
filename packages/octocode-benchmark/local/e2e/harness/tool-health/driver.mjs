@@ -41,7 +41,7 @@ export function metadataOf(json) {
 export function createDriver({ validate, validateInput = () => null, validateTransport = () => null, tools, schemaOf }) {
   async function explore(tool, input, { surface, call, maxCalls = 8, maxPages = Infinity, rows = () => undefined, allow = [] }) {
     const report = { tool, surface, input, calls: [], failures: [], skipped: [], graph: new Set(), chains: [], budgetCut: 0, converged: 0, metadata: [] };
-    const fail = (check, detail, at) => report.failures.push({ check, detail: short(detail, 400), at });
+    const fail = (check, detail, at) => report.failures.push({ check, detail, at });
     const identity = (name, request) => `${name} ${canon(request)}`;
     const root = { tool, input, label: 'seed', depth: 0, ancestors: new Set(), children: [], executed: false };
     const seen = new Map([[identity(tool, input), root]]);
@@ -78,7 +78,7 @@ export function createDriver({ validate, validateInput = () => null, validateTra
           : `${item.label} > ${lead.container}.${lead.key}`;
         const source = `${item.label}|${item.tool}|${canon(graphInput(item.input))}`;
         report.graph.add(`${source} --${lead.kind}:${lead.kind === 'related' ? 'related' : lead.path}--> ${lead.tool} ${canon(graphInput(lead.input))}`);
-        if (repeatedLead({ lead, item, id, here, seen, report, fail })) continue;
+        if (repeatedLead({ lead, item, id, here, seen, report, fail, failed: !['ok', 'empty', 'outOfRange'].includes(cls) })) continue;
         const child = { ...lead, label, depth: lead.kind === 'continue' ? item.depth + 1 : 0, ancestors: new Set([...item.ancestors, identity(item.tool, item.input)]), children: [], executed: false };
         if (lead.kind === 'continue' && lead.key === 'responsePagination.next') child.responseGroup = group;
         seen.set(id, child);
@@ -94,7 +94,10 @@ export function createDriver({ validate, validateInput = () => null, validateTra
           if (child.depth >= maxPages) { fail('page.cap', `${lead.key} still has required work after ${maxPages} pages`, label); if (item.chain) item.chain.capped = true; continue; }
           attachChain({ child, item, json, rows, report, fail });
           item.children.push(child);
-          required.push(child);
+          // Finish the captured response before advancing any tool-level work.
+          // JSON property order carries no pagination scheduling semantics.
+          if (child.responseGroup) required.unshift(child);
+          else required.push(child);
         } else optional.push(child);
       }
       item.executed = true;
@@ -110,7 +113,11 @@ export function createDriver({ validate, validateInput = () => null, validateTra
   return { explore, graphParity };
 }
 
-function repeatedLead({ lead, item, id, here, seen, report, fail }) {
+function repeatedLead({ lead, item, id, here, seen, report, fail, failed }) {
+  // A failed call that offers its own request again offers a retry: an exact
+  // replay to run after the provider's delay, not new work and not a cycle.
+  // The failure itself is judged where the call is (lead.execution, the case).
+  if (failed && seen.get(id) === item) return true;
   if (here.has(id)) {
     if (lead.kind === 'continue') fail('lead.repeat', `${lead.path} repeats required work in this response`, item.label);
     else report.converged += 1;

@@ -2,11 +2,11 @@
 //! rows grouped by directory ([`super::listing`] runs it).
 use super::probe::FilterProbe;
 
-use crate::num::u32_of;
 use crate::response::result::ToolError;
 use octocode_contract_types::{
-    StructureSearchQueryFilesSort, StructureSearchQueryTree, StructureSearchQueryTreeEntryType,
+    StructureSearchQueryTree, StructureSearchQueryTreeEntryType, StructureSearchSort,
 };
+use octocode_engine::num::saturating_u32;
 use octocode_engine::types::IgnorePolicy;
 use octocode_engine::types::{EntryType, FileSystemQueryOptions};
 
@@ -16,15 +16,18 @@ use octocode_engine::types::{EntryType, FileSystemQueryOptions};
 /// Omitted, a listing shows `path`'s children; a filter (`include`,
 /// `extensions`, `entryType`) searches every level, like ghStructure.
 fn walk_depth(query: &StructureSearchQueryTree) -> u32 {
-    u32_of(query.max_depth.get())
+    saturating_u32(query.max_depth.get())
 }
 
 super::listing::listing_fields!(StructureSearchQueryTree {
     /// Rows grouped by directory.
     const LAYOUT: &'static str = "workspaceRelativeTreeGroups";
     /// An outline lists in walk order.
-    fn sort(&self) -> StructureSearchQueryFilesSort {
-        StructureSearchQueryFilesSort::Variant1 { by: octocode_contract_types::StructureSearchQueryFilesSortVariant1By::Traversal, order: octocode_contract_types::StructureSearchQueryFilesSortVariant1Order::Asc }
+    fn sort(&self) -> StructureSearchSort {
+        StructureSearchSort::AscOnly(octocode_contract_types::StructureSearchSortAscOnly {
+            by: octocode_contract_types::StructureSearchSortAscOnlyBy::Traversal,
+            order: octocode_contract_types::StructureSearchSortAscOnlyOrder::Asc,
+        })
     }
     /// An outline walks its whole scope, so it knows how many rows matched.
     fn early_exit(&self) -> bool {
@@ -52,7 +55,7 @@ super::listing::listing_fields!(StructureSearchQueryTree {
                 StructureSearchQueryTreeEntryType::File => EntryType::File,
                 StructureSearchQueryTreeEntryType::Directory => EntryType::Directory,
             }),
-            exclude: (!self.exclude.is_empty()).then(|| self.exclude.clone()),
+            exclude: crate::tools::variant_field::non_empty(&self.exclude),
             ..Default::default()
         }
     }

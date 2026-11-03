@@ -54,11 +54,12 @@ test('MCP document publication enforces and exposes the canonical intent contrac
   const f = fixture(t), input = { name: 'mcp.md', content: 'Evidence for the path audit.' };
   const frames = [
     { jsonrpc: '2.0', id: 1, method: 'tools/list' },
-    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'share_document', arguments: input } },
-    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'share_document', arguments: { ...input, reasoning: 'Explain why this path needs review' } } },
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'documents', arguments: { type: 'publish', input } } },
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'documents', arguments: { type: 'publish', input: { ...input, reasoning: 'Explain why this path needs review' } } } },
   ].map(frame => JSON.stringify(frame)).join('\n') + '\n';
   const rows = execFileSync(binary, ['mcp', '--workspace', f.workspace, '--database', f.database, '--session', f.a.id], { input: frames, encoding: 'utf8' }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
-  assert.ok(rows[0].result.tools.find((tool: JsonRecord) => tool.name === 'share_document').inputSchema.required.includes('reasoning'));
+  const publish = rows[0].result.tools.find((tool: JsonRecord) => tool.name === 'documents').inputSchema.oneOf.find((branch: JsonRecord) => branch.properties.type.const === 'publish');
+  assert.ok(publish.properties.input.required.includes('reasoning'));
   assert.equal(rows[1].result.isError, true);
   assert.match(rows[1].result.content[0].text, /reasoning/);
   assert.equal(JSON.parse(rows[2].result.content[0].text).document.reasoning, 'Explain why this path needs review');
@@ -158,7 +159,7 @@ test('large document stays on disk once, compact messages reference it, audit re
   assert.equal(readFileSync(join(f.workspace, result.document.path), 'utf8'), content);
   assert.deepEqual(await f.callAsync('share_document', { name, content }, f.b.id), { created: false, document: result.document });
   await assert.rejects(f.callAsync('share_document', { name, content: 'replacement' }, f.a.id), /immutable/);
-  const sent = f.call('send_message', { to: f.b.id, body: `Review ${result.document.path}`, key: name }, f.a.id);
+  const sent = f.call('send_message', {parts: [{ text: `Review ${result.document.path}` }],  to: f.b.id, key: name }, f.a.id);
   assert.ok(sent.id > 0);
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   const rows = db.prepare("SELECT * FROM records WHERE type='document'").all();
@@ -166,7 +167,9 @@ test('large document stays on disk once, compact messages reference it, audit re
   assert.equal(rows[0].from, f.a.id);
   assert.deepEqual(JSON.parse(String(rows[0].data)), result.document);
   assert.ok(String(rows[0].data).length < 400);
-  assert.ok(Number(only(db.prepare('SELECT length(body) AS n FROM messages').get()).n) < 100);
+  const stored = only(db.prepare('SELECT parts FROM messages').get());
+  assert.ok(String(stored.parts).length < 100);
+  assert.deepEqual(JSON.parse(String(stored.parts)), [{ text: `Review ${result.document.path}` }]);
 });
 
 test('document reads use byte paging without repeating or splitting Unicode and detect edits', t => {
@@ -324,22 +327,24 @@ test('Pi bound tools send large document JSON over stdin and retain cancellation
   registerBoundTools({ registerTool: tool => registered.set(tool.name, boundTool(tool)) }, binding);
   const content = 'quoted "words" \\ slash\n🙂\t\u0000'.repeat(20000), name = 'pi-large.md';
   assert.ok(Buffer.byteLength(content) > 400000);
-  await assert.rejects(registeredTool('share_document').execute('missing-intent', { name, content }), /reasoning/);
-  const shared = await registeredTool('share_document').execute('publish', { name, content, reasoning: 'Share large Unicode evidence through the Pi bridge' });
+  await assert.rejects(registeredTool('documents').execute('missing-intent', { type: 'publish', input: { name, content } }), /reasoning/);
+  const shared = await registeredTool('documents').execute('publish', { type: 'publish', input: { name, content, reasoning: 'Share large Unicode evidence through the Pi bridge' } });
   assert.equal(shared.details.created, true);
   assert.equal(shared.details.document.bytes, Buffer.byteLength(content));
   assert.equal(readFileSync(join(f.workspace, shared.details.document.path), 'utf8'), content);
-  const page = await registeredTool('read_document').execute('read', { name, limit: 100 });
+  const page = await registeredTool('documents').execute('read', { type: 'read', input: { name, limit: 100 } });
   assert.ok(content.startsWith(page.details.content));
-  assert.ok(page.details.next.input.offset > 0);
+  assert.equal(page.details.next.command, 'documents');
+  assert.equal(page.details.next.input.type, 'read');
+  assert.ok(page.details.next.input.input.offset > 0);
   const controller = new AbortController(); controller.abort();
-  await assert.rejects(registeredTool('share_document').execute('aborted', { name: 'aborted.md', content }, controller.signal), /abort/i);
+  await assert.rejects(registeredTool('documents').execute('aborted', { type: 'publish', input: { name: 'aborted.md', content } }, controller.signal), /abort/i);
   // A child rejecting its arguments before consuming stdin must reject, not emit unhandled EPIPE.
   const earlyExit = new Map<string, BoundTool>();
   registerBoundTools({ registerTool: tool => earlyExit.set(tool.name, boundTool(tool)) }, { ...binding, binary: process.execPath });
-  const earlyExitTool = earlyExit.get('share_document');
-  assert.ok(earlyExitTool, 'share_document is registered');
-  await assert.rejects(earlyExitTool.execute('early-exit', { name, content }));
+  const earlyExitTool = earlyExit.get('documents');
+  assert.ok(earlyExitTool, 'documents is registered');
+  await assert.rejects(earlyExitTool.execute('early-exit', { type: 'publish', input: { name, content } }));
 });
 
 

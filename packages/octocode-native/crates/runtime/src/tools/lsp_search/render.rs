@@ -179,8 +179,8 @@ impl<'a> Pages<'a> {
 }
 
 /// The page a continuation asks for next, and the snapshot that pins it. The
-/// cursor rides `next.nextPage` (see [`super::failure::offer_next_page`]),
-/// never the pagination block.
+/// cursor rides `pagination.next.nextPage` (see
+/// [`super::failure::offer_next_page`]).
 pub(super) struct NextPage {
     pub(super) page: usize,
     pub(super) snapshot: String,

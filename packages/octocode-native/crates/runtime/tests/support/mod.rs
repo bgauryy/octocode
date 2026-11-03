@@ -93,9 +93,19 @@ impl Run for ToolRuntime {
             }
             Err(error) => Err(error),
         };
-        octocode_native::runtime::error::mcp_result(&tool, result)
-            .map(octocode_native::runtime::error::McpResult::into_value)
+        octocode_native::runtime::error::mcp_result(&tool, result).map(|result| {
+            json!({"content":[{"type":"text","text":result.text}],"isError":result.is_error})
+        })
     }
+}
+
+/// Parse the one JSON text block of an actual text-only MCP result.
+pub fn mcp_payload(result: &Value) -> Value {
+    assert!(result.get("structuredContent").is_none(), "{result}");
+    let content = result["content"].as_array().expect("MCP content");
+    assert_eq!(content.len(), 1, "{result}");
+    serde_json::from_str(content[0]["text"].as_str().expect("MCP JSON text"))
+        .expect("valid MCP JSON text")
 }
 
 pub async fn call(

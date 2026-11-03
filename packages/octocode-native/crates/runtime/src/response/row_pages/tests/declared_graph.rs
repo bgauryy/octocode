@@ -1,16 +1,16 @@
 use super::*;
 use crate::id::ToolId;
+use octocode_io::cancellation::Cancellation;
 use std::collections::BTreeMap;
-use tokio_util::sync::CancellationToken;
 
 fn fragments(data: Value, tool: ToolId, budget: usize) -> Vec<Value> {
     let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
-        .plan(budget, &CancellationToken::new())
+        .plan(budget, &Cancellation::new())
         .expect("valid plan");
     assert!(plan.total_pages > 1, "fixture must exercise fragmentation");
     (0..plan.total_pages)
         .flat_map(|page| {
-            plan.build_page(page, &[None], &[], &CancellationToken::new())
+            plan.build_page(page, &[None], &[], &Cancellation::new())
                 .expect("valid build_page")
         })
         .collect()
@@ -69,16 +69,24 @@ fn every_graph_evidence_fragment_preserves_capabilities_and_validates() {
         "rows":results,"pagination":{"page":1,"totalItems":40,"hasMore":false},"argumentCoverage":expected,"edges":["calls","passes"],
         "scan":{"excludeDir":["vendor","generated"]},"sourceEvidence":descriptors});
     let mut seen = Vec::new();
+    let mut described = Vec::new();
     for row in fragments(data, ToolId::GraphQuery, 1700) {
         let data = &row["data"];
         crate::tools::test_support::assert_row_contract(ToolId::GraphQuery, data);
-        assert_eq!(data["argumentCoverage"], expected);
+        // Disclosures ride every fragment; the row's evidence arrives once, whole.
         assert_eq!(data["sourceEvidence"], descriptors);
-        assert_eq!(data["edges"], json!(["calls", "passes"]));
-        assert_eq!(data["scan"]["excludeDir"], json!(["vendor", "generated"]));
+        if data.get("argumentCoverage").is_some() {
+            described.push(json!([
+                data["argumentCoverage"],
+                data["edges"],
+                data["scan"]
+            ]));
+        }
         seen.extend(data["rows"].as_array().expect("results").iter().cloned());
     }
     assert_eq!(seen, results);
+    let scan = json!({"excludeDir":["vendor", "generated"]});
+    assert_eq!(described, [json!([expected, ["calls", "passes"], scan])]);
 }
 
 fn items(label: &str, count: usize) -> Value {
@@ -91,7 +99,7 @@ fn items(label: &str, count: usize) -> Value {
 
 #[test]
 fn declared_sibling_evidence_is_delivered_once_for_large_and_small_lists() {
-    for size in [1, 30] {
+    for size in [1, 30, 125] {
         let mut data = json!({"operation":"impact","rows":(0..30).map(|index| json!({"id":format!("result-{index}"),"roles":["test","generated"]})).collect::<Vec<_>>()});
         let paths = [
             "/summary/changed",
@@ -159,12 +167,18 @@ fn nested_declared_arrays_and_keyed_records_preserve_every_item() {
         json!({"id":id,"evidence":evidence,"controls":["scope confirmed"],"emptyContext":[],"coordinates":[[0,1],[2,3]]})
     }).collect::<Vec<_>>();
     let mut actual = BTreeMap::<String, Vec<Value>>::new();
+    let mut described = BTreeMap::<String, Vec<Value>>::new();
     for part in fragments(json!({"rows":rows}), ToolId::GraphQuery, 1700) {
         for row in part["data"]["rows"].as_array().expect("results") {
             let id = row["id"].as_str().expect("stable finding identity");
-            assert_eq!(row["controls"], json!(["scope confirmed"]));
-            assert_eq!(row["emptyContext"], json!([]));
-            assert_eq!(row["coordinates"], json!([[0, 1], [2, 3]]));
+            // A continued finding names itself; its other fields arrive once.
+            if row.get("controls").is_some() {
+                described.entry(id.to_owned()).or_default().push(json!([
+                    row["controls"],
+                    row["emptyContext"],
+                    row["coordinates"]
+                ]));
+            }
             for (field, value) in row["evidence"].as_object().expect("evidence") {
                 if field == "textMentions" {
                     for (name, sites) in value.as_object().expect("names") {
@@ -183,6 +197,11 @@ fn nested_declared_arrays_and_keyed_records_preserve_every_item() {
         }
     }
     assert_eq!(actual, expected);
+    let context = json!([["scope confirmed"], [], [[0, 1], [2, 3]]]);
+    assert_eq!(described.len(), 3);
+    for (id, seen) in described {
+        assert_eq!(seen, std::slice::from_ref(&context), "{id}");
+    }
 }
 
 #[test]
@@ -190,13 +209,14 @@ fn graph_build_pruning_pages_do_not_split_capability_metadata() {
     let pruned = items("snapshot", 40);
     let expected = json!({"nodes":3,"edges":2});
     let mut actual = Vec::new();
+    let mut counts = Vec::new();
     for row in fragments(
         json!({"id":"new","pruned":pruned,"counts":expected}),
         ToolId::GraphBuild,
         900,
     ) {
         crate::tools::test_support::assert_row_contract(ToolId::GraphBuild, &row["data"]);
-        assert_eq!(row["data"]["counts"], expected);
+        counts.extend(row["data"].get("counts").cloned());
         actual.extend(
             row["data"]["pruned"]
                 .as_array()
@@ -206,6 +226,7 @@ fn graph_build_pruning_pages_do_not_split_capability_metadata() {
         );
     }
     assert_eq!(json!(actual), pruned);
+    assert_eq!(counts, [expected], "whole, on the first part only");
 }
 
 #[test]

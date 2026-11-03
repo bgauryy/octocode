@@ -117,20 +117,31 @@ pub(super) fn ambiguous_graph(spec: &str, candidates: &[String]) -> Failure {
     Box::new(out)
 }
 
+/// How a query decodes its snapshot. Production reads only the authenticated
+/// blocks an operation needs; tests also decode the whole file, the oracle
+/// the selective reader must match.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Decode {
+    Selective,
+    #[cfg(test)]
+    Full,
+}
+
 pub(super) fn load(
     options: &QueryOptions,
     paths: &PathPolicy,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<Graph, Failure> {
-    load_with(options, paths, cancel, true)
+    load_with(options, paths, cancel, Decode::Selective)
 }
 
 pub(super) fn load_with(
     options: &QueryOptions,
     paths: &PathPolicy,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
-    selective: bool,
+    decode: Decode,
 ) -> Result<Graph, Failure> {
+    let selective = decode == Decode::Selective;
     let (dir, explicit_path) = locate(options)?;
     let dir = paths
         .validate(&dir)
@@ -188,50 +199,27 @@ pub(super) fn load_with(
         .ok_or_else(|| fail(ErrorCode::Decode, "graph manifest digest is missing"))?;
     let point = selective && matches!(options.op.as_str(), "node" | "find" | "candidates");
     let evidence = matches!(options.op.as_str(), "witnesses" | "unresolved");
-    let tables_kind = if evidence {
-        format!("evidence:{}", options.op)
-    } else if point {
-        format!("point:{}", matches!(options.op.as_str(), "node" | "find"))
-    } else {
-        "topology".to_owned()
-    };
-    let reuse = (selective && options.reuse_snapshot)
-        .then(|| super::opened::Key::of(&dir, expected, tables_kind))
-        .flatten();
-    let cached = reuse.as_ref().and_then(super::opened::check_out);
-    let (t, selective, validation) = if let Some((tables, reader)) = cached {
-        (tables, Some(std::cell::RefCell::new(reader)), None)
-    } else if selective {
-        let mut reader =
-            super::super::format::SnapshotReader::open(&dir.join(GRAPH_FILE), expected, cancel)
-                .map_err(|message| decode_failure(message, cancel))?;
-        let tables = if evidence {
-            reader.evidence_tables(options.op == "witnesses", cancel)
-        } else if point {
-            reader.point_tables(matches!(options.op.as_str(), "node" | "find"), cancel)
-        } else {
-            reader.topology_tables(cancel)
-        }
-        .map_err(|message| decode_failure(message, cancel))?;
-        (tables, Some(std::cell::RefCell::new(reader)), None)
-    } else {
-        let bytes = read_graph_file(&dir.join(GRAPH_FILE))
-            .map_err(|message| fail(ErrorCode::Decode, message))?;
-        let (tables, digest) = decode_with_cancel(&bytes, cancel)
+    let (t, selective, validation) = match decode {
+        Decode::Selective => {
+            let mut reader =
+                super::super::format::SnapshotReader::open(&dir.join(GRAPH_FILE), expected, cancel)
+                    .map_err(|message| decode_failure(message, cancel))?;
+            let tables = if evidence {
+                reader.evidence_tables(options.op == "witnesses", cancel)
+            } else if point {
+                reader.point_tables(matches!(options.op.as_str(), "node" | "find"), cancel)
+            } else {
+                reader.topology_tables(cancel)
+            }
             .map_err(|message| decode_failure(message, cancel))?;
-        if digest != expected {
-            return Err(fail(
-                ErrorCode::Decode,
-                "graph.bin does not match its manifest digest; rebuild graph",
-            ));
+            (tables, Some(std::cell::RefCell::new(reader)), None)
         }
-        let validation = super::super::format::full_validation(&bytes, &tables)
-            .map_err(|message| fail(ErrorCode::Decode, message))?;
-        (tables, None, Some(validation))
+        #[cfg(test)]
+        Decode::Full => full_decode(&dir, expected, cancel)?,
     };
     let id = manifest["id"].as_str().unwrap_or_default().to_owned();
     #[cfg(not(test))]
-    let _ = validation;
+    let _: Option<Value> = validation;
     Ok(Graph {
         explicit_path: explicit_path.then_some(dir),
         id,
@@ -240,9 +228,37 @@ pub(super) fn load_with(
         selective,
         #[cfg(test)]
         validation,
-        reuse,
         ..Default::default()
     })
+}
+
+#[cfg(test)]
+type FullDecode = (
+    super::super::format::GraphTables,
+    Option<std::cell::RefCell<super::super::format::SnapshotReader>>,
+    Option<Value>,
+);
+
+/// The whole snapshot decoded and validated at once: the test oracle.
+#[cfg(test)]
+fn full_decode(
+    dir: &Path,
+    expected: &str,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<FullDecode, Failure> {
+    let bytes = super::super::read_graph_file(&dir.join(GRAPH_FILE))
+        .map_err(|message| fail(ErrorCode::Decode, message))?;
+    let (tables, digest) = super::super::format::decode_with_cancel(&bytes, cancel)
+        .map_err(|message| decode_failure(message, cancel))?;
+    if digest != expected {
+        return Err(fail(
+            ErrorCode::Decode,
+            "graph.bin does not match its manifest digest; rebuild graph",
+        ));
+    }
+    let validation = super::super::format::full_validation(&bytes, &tables)
+        .map_err(|message| fail(ErrorCode::Decode, message))?;
+    Ok((tables, None, Some(validation)))
 }
 
 pub(super) fn decode_failure(

@@ -5,7 +5,7 @@ use super::*;
 /// An importer window with no verified site is a step of a continuing scan,
 /// not an empty answer: the request goes on to the next window, so a later
 /// page always lists sites or ends the scan, and the sites past the silent
-/// windows are one `next.nextImporterPage` away.
+/// windows are one `next.nextPage` away.
 #[test]
 fn importer_windows_without_sites_are_skipped_not_returned_empty() {
     if !require_node() {
@@ -102,7 +102,7 @@ fn a_first_page_of_silent_windows_with_more_to_scan_is_not_empty() {
             "{operation}: {first}"
         );
         assert!(
-            first["next"]["nextImporterPage"].is_object(),
+            first["next"]["nextPage"].is_object(),
             "{operation}: {first}"
         );
         assert!(
@@ -120,7 +120,7 @@ fn a_first_page_of_silent_windows_with_more_to_scan_is_not_empty() {
 /// A request skips at most [`crate::tools::lsp_search::importers::MAX_WINDOWS_PER_REQUEST`] windows. A
 /// page that ends there with no site says so plainly: it is a successful
 /// page of a scan that continues (never an `empty` result), its note names
-/// the candidates verified, and `next.nextImporterPage` reaches the rest.
+/// the candidates verified, and `next.nextPage` reaches the rest.
 #[test]
 fn a_capped_run_of_silent_windows_is_a_page_of_a_continuing_scan() {
     if !require_node() {
@@ -136,7 +136,7 @@ fn a_capped_run_of_silent_windows_is_a_page_of_a_continuing_scan() {
             capped.get("status").is_none(),
             "{operation}: a page of a continuing scan is not an empty result: {capped}"
         );
-        assert!(capped["next"]["nextImporterPage"].is_object(), "{capped}");
+        assert!(capped["next"]["nextPage"].is_object(), "{capped}");
         assert_eq!(capped["isPartial"], true, "{capped}");
         let said = capped.to_string();
         assert!(
@@ -147,15 +147,11 @@ fn a_capped_run_of_silent_windows_is_a_page_of_a_continuing_scan() {
         // candidates, never as a second "page" count.
         assert!(!said.contains("importer page"), "{operation}: {capped}");
         assert!(
-            pages[2].row[if operation == "references" {
-                "matches"
-            } else {
-                "files"
-            }]
-            .as_array()
-            .is_some_and(|files| files.iter().any(|file| file["path"]
-                .as_str()
-                .is_some_and(|path| path.ends_with("z000.ts")))),
+            pages[2].row["files"]
+                .as_array()
+                .is_some_and(|files| files.iter().any(|file| file["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with("z000.ts")))),
             "{operation}"
         );
     };
@@ -184,7 +180,7 @@ fn a_silent_first_window_goes_on_to_the_next_in_one_call() {
         assert_eq!(pages.len(), 1, "{operation}: one call");
         let first = &pages[0].row;
         assert!(lists_path(first, "z000.ts"), "{operation}: {first}");
-        assert!(first["next"].get("nextImporterPage").is_none(), "{first}");
+        assert!(first["next"].get("nextPage").is_none(), "{first}");
         assert!(first.get("isPartial").is_none(), "{operation}: {first}");
     };
     tokio::runtime::Runtime::new()
@@ -225,7 +221,7 @@ fn candidates_importing_another_module_are_checked_without_a_window() {
     let row = &pages[0].row;
     assert!(lists_path(row, "f000.ts"), "{row}");
     assert!(!lists_path(row, "m000.ts"), "{row}");
-    assert!(row["next"].get("nextImporterPage").is_none(), "{row}");
+    assert!(row["next"].get("nextPage").is_none(), "{row}");
     assert!(row.get("isPartial").is_none(), "{row}");
     assert_eq!(row["coverage"]["importerScan"], "complete", "{row}");
     assert!(

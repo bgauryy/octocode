@@ -85,7 +85,8 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
     )
     .await;
     assert_eq!(result["pagination"]["totalItems"], 2, "{result}");
-    let rows = result["matches"].as_array().expect("rows");
+    let rows = location_rows(&result);
+    assert_eq!(rows.len(), 2, "{result}");
     assert!(
         rows.iter().all(|row| row["content"] == unavailable),
         "the unavailable reason is kept as content: {result}"

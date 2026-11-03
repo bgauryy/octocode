@@ -28,7 +28,7 @@ pub(super) fn cut_page<'a>(
     q: &'a LocalFetchQuery,
     view: &View,
     ext: &super::super::extraction::Extraction,
-    source: &Source,
+    source: &Source<'_>,
     facts: &SourceFacts,
     source_path: &std::path::Path,
     security: &impl ContentScan,
@@ -89,7 +89,7 @@ pub(super) fn cut_page<'a>(
 /// source anchors.
 pub(super) fn page_result(
     cut: CutPage,
-    source: &Source,
+    source: &Source<'_>,
     ext: &super::super::extraction::Extraction,
     view: &View,
     selection_outcome: Option<&super::super::selection::Chosen>,
@@ -105,6 +105,9 @@ pub(super) fn page_result(
     let q = q.as_ref();
     let mut warnings = source.warnings.clone();
     warnings.extend(ext.warnings.iter().cloned());
+    if local_fetch_query::offset(asked).unwrap_or(0) == 0 {
+        warnings.extend(view.note.iter().cloned());
+    }
     warnings.extend(scanned.warnings);
     let pg = scanned.page;
     let source_redactions = if source.redacted_lines.is_empty() {
@@ -165,6 +168,7 @@ pub(super) fn page_result(
         crate::tools::match_keys::line_key_paths(source_path, &source.text, &matched_lines);
     let (chars, ret_bytes, ret_lines) = result_counts(&pg.text);
     let minified_away = pg.text.is_empty() && view.mode.is_some() && !out_of_range;
+    let budget_cut = budget_cut_hint(read, &pg.pagination, out_of_range);
     let mut result = LocalFetchResult {
         path: local_fetch_query::path(q).to_owned(),
         source_sha256: Some(source.sha256.clone()),
@@ -188,7 +192,7 @@ pub(super) fn page_result(
         returned_lines: Some(ret_lines),
         pagination: Some(pg.pagination),
         // A capped regex scan selected a prefix of the matches.
-        is_partial: ((next.as_ref().is_some_and(NextCalls::leaves_more) && !out_of_range)
+        is_partial: ((next.as_ref().is_some_and(NextCalls::leaves_unread) && !out_of_range)
             || ext.match_limited)
             .then_some(true),
         partial_reasons: if ext.match_limited {
@@ -201,6 +205,7 @@ pub(super) fn page_result(
         selection: selection_outcome.map(|chosen| chosen.outcome.receipt.clone()),
         ..LocalFetchResult::blank(ReadStatus::Success)
     };
+    result.hints.extend(budget_cut);
     // The view removed every selected line (a comment-only range read
     // minified): an empty read whose lead is the same read as is.
     if minified_away && source.bytes > 0 {
@@ -222,6 +227,29 @@ pub(super) fn page_result(
         result.status = ReadStatus::Empty;
     }
     result
+}
+
+/// Why a line page ended short of the caller's `limit` with more to read:
+/// the response budget sized it (`responseChars`), nothing was lost, and
+/// `next.nextPage` reads on. `None` when no `limit` was asked, or the
+/// page reached it.
+fn budget_cut_hint(
+    read: &LocalFetchQuery,
+    pagination: &Pagination,
+    out_of_range: bool,
+) -> Option<String> {
+    let limit = local_fetch_query::line_limit(read);
+    (pagination.unit == ReadProgressUnit::Lines
+        && pagination.has_more
+        && !out_of_range
+        && limit != usize::MAX
+        && pagination.length < limit)
+        .then(|| {
+            format!(
+                "This page holds {} lines, short of limit {limit}: the response budget sized it, no line is lost; next.nextPage reads on, and a larger responseChars lengthens the page.",
+                pagination.length
+            )
+        })
 }
 
 /// The hint of a read whose minified view removed every selected line.

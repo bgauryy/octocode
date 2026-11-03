@@ -1,6 +1,6 @@
 # Octocode configuration
 
-Start here to configure Octocode for the CLI or an MCP client. This page owns tool availability, feature opt-ins, file precedence, storage and caches. The [generated settings reference](generated/CONFIG_SETTINGS.md) is the complete list of setting names, environment variables, defaults, types and ranges. Internal limits are [fixed](#fixed-internal-limits).
+Start here to configure Octocode for the CLI or an MCP client. This page owns tool availability, feature opt-ins, file precedence, storage and retained work. The [generated settings reference](generated/CONFIG_SETTINGS.md) is the complete list of setting names, environment variables, defaults, types and ranges. Internal limits are [fixed](#fixed-internal-limits).
 
 Related guides own [credentials and login](AUTHENTICATION.md), [tool inputs and workflows](OCTOCODE_TOOLS.md), [MCP client setup and lifecycle](OCTOCODE_MCP.md), [CLI commands](OCTOCODE_CLI.md), and [security boundaries](SECURITY.md).
 
@@ -56,7 +56,7 @@ Restart MCP after changing configuration. Use the client's `tools/list` to confi
 
 ## Where everything lives
 
-The **Octocode home** is one folder shared by the CLI, the MCP server, the VS Code extension, and installed skills: `~/.octocode` on macOS and Linux, `%USERPROFILE%\.octocode` on Windows. `XDG_CONFIG_HOME` and `APPDATA` are not used. To move it, set `OCTOCODE_HOME=/custom/path` for every product. Use [cache clearing](OCTOCODE_CLI.md#clear-tool-caches) to remove reusable state while preserving checkouts. Current clone outputs live in `clones/`; older versions stored them under `tmp/clone/`. Deleting `credentials.json` and `.key` signs you out.
+The **Octocode home** is one folder shared by the CLI, the MCP server, the VS Code extension, and installed skills: `~/.octocode` on macOS and Linux, `%USERPROFILE%\.octocode` on Windows. `XDG_CONFIG_HOME` and `APPDATA` are not used. To move it, set `OCTOCODE_HOME=/custom/path` for every product. Use [cache clearing](OCTOCODE_CLI.md#clear-tool-caches) to remove retained work while preserving checkouts. Current clone outputs live in `clones/`; older versions stored them under `tmp/clone/`. Deleting `credentials.json` and `.key` signs you out.
 
 | Path in the home | Owner | What it holds |
 |---|---|---|
@@ -66,16 +66,14 @@ The **Octocode home** is one folder shared by the CLI, the MCP server, the VS Co
 | `.credentials.lock` | Octocode | Serializes credential writes between processes. |
 | `skills/` | Octocode | Skills installed with `npx octocode skill install`; hosts such as Claude, Cursor, or Codex link to these copies. |
 | `stats.json` | Octocode | Clasify calls and tokens. Written only when `storage.stats` (`OCTOCODE_ENABLE_STATS=1`) is on and storage is persistent. |
-| `tmp/response/` | cache | GitHub file bodies and directory listings, shared by CLI and MCP to save rate limit. |
-| `clones/` | output | Fresh `ghCloneRepo` checkouts, keyed by owner, repo, commit, sparse selection, history depth, and GitHub host. Clean destinations are replaced; local edits are preserved. |
-| `tmp/artifact/`, `tmp/outline/`, `tmp/judgment/` | cache | Registry responses, source outlines, and classification answers. |
-| `tmp/response-pages/`, `tmp/continuations/`, `tmp/section-assessments/` | retained work | Saved pages, issued continuations, and section assessments. Clearing them invalidates their handles. |
-| `tmp/capture/url/` | cache | Captured URL text and images, retained for 24 hours. |
-| `tmp/materialize/v3/` | cache | Files `ghStructure` materialized at an immutable commit SHA. A manifest beside each commit directory lists the files; a directory without its manifest is cleared, never reused. |
+| `clones/` | output | `ghCloneRepo` checkouts, keyed by owner, repo, commit, sparse selection, history depth, and GitHub host. A clean checkout at the resolved commit is reused; one with local edits is refused and kept. |
+| `tmp/response-pages/`, `tmp/continuations/`, `tmp/section-assessments/`, `tmp/lsp-answers/`, `tmp/graph-rows/` | retained work | Saved pages, issued continuations, section assessments, the LSP provider evidence selected by a continuation, and the complete ordered rows of a graphQuery `issues`, `impact` or `drift` answer, so its later pages slice them instead of computing them again. Clearing them invalidates their handles; a graph page whose rows are gone computes them again. |
+| `tmp/capture/url/` | output | Freshly captured URL text and images exposed through inspection paths, retained for 24 hours. Fresh URL requests fetch again. |
+| `tmp/materialize/v3/` | output | Files materialized at an immutable commit SHA for local inspection. Fresh materialization reacquires bytes; its manifest records published files. |
 | `tmp/ratelimit/` | coordination | Last-known GitHub rate-limit state, shared across processes. |
 | `tmp/clone-locks/`, `tmp/clone-tmp/`, `tmp/git-home/` | working state | Per-repository clone locks, staging, and an isolated git home. |
 
-One home holds one user's caches and clone outputs. Every clone call checks the caller's GitHub access and fetches a fresh checkout; local tools can read checkouts under `clones/`. On a host that serves several users or tokens, give each tenant its own `OCTOCODE_HOME`.
+One home holds one user's retained work and outputs. Every clone call checks the caller's GitHub access and resolves the ref to a commit; it fetches that commit unless a checkout of it is already verified (HEAD is the commit, no local changes), which it reuses; local tools can read checkouts under `clones/`. On a host that serves several users or tokens, give each tenant its own `OCTOCODE_HOME`.
 
 Clone git runs without your git config. It keeps `PATH`, the proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, either case), and CA bundles (`SSL_CERT_FILE`, `SSL_CERT_DIR`, `GIT_SSL_CAINFO`, `GIT_SSL_CAPATH`, `CURL_CA_BUNDLE`) from the runtime environment; a project `.env` cannot set them.
 
@@ -85,21 +83,23 @@ A skill without a project writes reports and state to a named home folder, for e
 
 ### Cache storage and lifecycle
 
-CLI and MCP share the file-based cache roots under `OCTOCODE_HOME`; there is no database or editor-local storage.
+Fresh tool requests do not reuse cached results. GitHub and registry calls fetch again; classification evaluates again; local reads, AST and LSP requests recompute their answers. CLI and MCP retain the exact evidence and progress behind issued continuations under `OCTOCODE_HOME`; there is no database or editor-local storage.
 
-`storage.mode: "persistent"` is the default. Set `storage.mode: "memory"` in `<OCTOCODE_HOME>/.octocoderc` (all workspaces) or `<workspace>/.octocode/.octocoderc` (one workspace), or set `OCTOCODE_STORAGE_MODE=memory`, to keep reusable results and continuation state in RAM only. This applies to GitHub responses, registry answers, outlines, classification answers and saved pages. Each runtime uses its own resolved policy and home; one runtime cannot enable another runtime's disk cache.
+`storage.mode: "persistent"` is the default. Set `storage.mode: "memory"` in `<OCTOCODE_HOME>/.octocoderc` (all workspaces) or `<workspace>/.octocode/.octocoderc` (one workspace), or set `OCTOCODE_STORAGE_MODE=memory`, to keep continuation state in RAM only. Each runtime uses its own resolved policy and home. Persistent state is read from disk without a duplicate memory copy; memory state lasts only within its runtime.
 
-Memory mode disables clone, directory and exact-file materialization, disk-cache reads and writes, automatic maintenance, rate-limit mirrors and stats writes. File reads still return content without a materialized `localPath`. Explicit graph builds still publish their requested snapshots under the workspace's `.octocode/graph/`, but keep extraction intermediates in memory and never save `.facts` checkpoints. The setting does not delete existing files or credentials; managed language-server installations are separate from tool-result caching.
+Memory mode disables clone, directory and exact-file materialization, persisted continuation reads and writes, automatic maintenance, rate-limit mirrors and stats writes. File reads still return content without a materialized `localPath`. Explicit graph builds still publish their requested snapshots under the workspace's `.octocode/graph/`, but keep extraction intermediates in memory and never save `.facts` checkpoints. The setting does not delete existing files or credentials; managed language-server installations, compiled programs, HTTP connections and live language-server protocol state are separate operational resources.
 
 | Concern | Behavior |
 |---|---|
 | Cleanup | At most one sweep per 24 hours (`tmp/.last-cache-maintenance`). Aged materialized snapshots are removed under their own locks; old tree staging, rate-limit mirrors and URL captures are swept by age. Entry stores enforce their own TTL and byte budgets. Clone outputs are never expired or evicted. |
 | When | Synchronously at native runtime start: once per CLI process and at MCP server start. No background timer. Skipped in `memory` mode or when `tmp/` does not exist. |
-| Failure | Best-effort; an unavailable or read-only cache home never blocks the CLI or MCP startup. |
+| Failure | Best-effort; an unavailable or read-only state home never blocks the CLI or MCP startup. |
 | Ownership | Only Octocode-owned directories; other `tmp/` content stays. |
-| Manual | Stop separate MCP processes, then run `npx octocode cache clear` from the workspace. It drains warm CLI servers and clears the configured home's tool caches plus this workspace's graph extraction checkpoints. See [cache clearing](OCTOCODE_CLI.md#clear-tool-caches). |
+| Manual | Stop separate MCP processes, then run `npx octocode cache clear` from the workspace. It drains warm CLI servers and clears the configured home's retained work plus this workspace's graph extraction checkpoints. See [cache clearing](OCTOCODE_CLI.md#clear-tool-caches). |
 
-GitHub responses are cached in memory (4,096 entries, 64 MiB) and, with persistent storage, in `tmp/response/`. File bodies and directory listings (`ghGetFileContent`, the listings `ghStructure` reads) are fresh for 60 seconds, then revalidated by ETag; bodies read at a commit SHA are never revalidated. Search pages (`ghSearchCode`, `ghSearchRepo`, and the `ghSearchHistory` searches) are served from cache for 60 seconds with no request or spacing wait; a page GitHub marks incomplete is never stored. REST history reads (pull-request and commit lists, `ghGetHistoryItem`) send a conditional request every call, so a `304` skips the body. Registry responses and immutable release facts use RAM in both modes and `tmp/artifact/` in persistent mode. Mutable registry answers expire after five minutes. Outlines use runtime-owned RAM and optional `tmp/outline/` entries. Entry and byte limits are per store, not an aggregate process-memory limit. Disk eviction uses entry expiry and oldest disk access; a RAM hit does not update disk recency. Published cache entries stay within each store’s disk byte budget. Writers serialize admission across processes and reserve space before publishing; capacity pressure evicts the oldest entries in batches. The budget counts entry headers and bodies, excluding filesystem allocation overhead, bookkeeping and one temporary atomic-write copy. Failed writes and deletions can temporarily overcount usage; the next pressure or expiry scan reconciles it. Cache writes are not synced to durable storage, so this accounting bound does not guarantee recovery after an OS crash or power loss.
+Published graph snapshots, materialized files and captures are inspectable outputs. Graph extraction checkpoints support interrupted jobs and are discarded after successful publication. Response pages and section assessments keep settled evidence so pagination does not repeat upstream requests or inference; issuing a new request performs fresh work. Credential selection also reloads its source on every request.
+
+Retained-work limits are derived from one budget, not fixed numbers: memory state shares the process memory budget (an eighth of the memory available to the process, within 512 MiB to 2 GiB; a container's cgroup limit counts), and each store directory's disk budget equals that same value, which is also the largest single entry. They are per store, not a process-memory limit. Disk admission serializes writers and reserves space before publication. Entry headers and bodies count toward the budget; filesystem allocation, bookkeeping and one temporary atomic-write copy do not. Failed writes are reported to the continuation owner, which must return complete evidence or an explicit refusal instead of issuing an unreachable handle. Existing retired result-cache directories can be removed with `cache clear`.
 
 ### `.env` — environment fallback
 
@@ -118,7 +118,7 @@ EXA_API_KEY=...           # neural/category search — https://dashboard.exa.ai/
 - CLI and MCP load both files.
 - **Home-only keys** are skipped in a workspace `.env` and listed under `skippedProtected` in `npx octocode config --json`, including when the home `.env` sets the same key. The list is generated from the contract: [home-only environment variables](generated/CONFIG_SETTINGS.md#home-only-environment-variables). GitHub tokens and the classification key are accepted in either file.
 - A workspace may **narrow** some home-only switches, never widen them: `OCTOCODE_STORAGE_MODE=memory` (opt the project out of persistence), `OCTOCODE_ENABLE_LOCAL=false`, `OCTOCODE_ENABLE_CLONE=false`, and `OCTOCODE_REDACT_EMAILS=true` apply from a workspace `.env` or `.octocoderc`; the widening value is skipped there (`skippedProtected` for `.env`, a `workspace_config_protected` warning for `.octocoderc`). The local/clone switches affect [MCP exposure](#tool-availability-cli-and-mcp).
-- Internal limits (timeouts, retries, waits, page size, caches, concurrency, selection budgets) are not settings: no `.env` or `.octocoderc` can change them. See [fixed internal limits](#fixed-internal-limits).
+- Internal limits (timeouts, retries, waits, page size, retained work, concurrency, selection budgets) are not settings: no `.env` or `.octocoderc` can change them. See [fixed internal limits](#fixed-internal-limits).
 - Empty values normally allow fallback. A present-but-blank `OCTOCODE_CLASSIFICATION_API` disables classification and blocks file fallback.
 - Both files always block these OS and runtime keys; set them in the shell, CI, or the MCP `env` block: `PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `PWD`, `TMPDIR`, `NODE_OPTIONS`, `PYTHON`, `OCTOCODE_HOME`.
 - Credential aliases resolve by source first, then by [alias priority](AUTHENTICATION.md#token-environment-variables). Metadata shows names and source files, never values. Keep credential files out of version control.
@@ -240,16 +240,15 @@ These are code constants, not settings (one owner: `RuntimeLimits` in `packages/
 |---|---|
 | Network request timeout | 30 s |
 | Retries after a failed request | 3 |
-| Longest GitHub rate-limit wait | 45 s |
 | Automatic response page | 20,000 characters (`responseChars` per call, up to 50,000) |
 | URL captures | 24 h retention |
 | Classification requests in flight per endpoint | 10 |
 | Context selection per operation | 64 candidates, 131,072 characters, 10 s |
 | Language-server memory | 25% of host RAM, between 4096 and 8192 MiB (per-server `maxMemoryMb` overrides) |
 
-Response-cache sizes and the tool-call budget (300 s, one for every surface: CLI, warm server and MCP; an embedder may set its own) are fixed too.
+Saved-page sizes and the tool-call budget (300 s, one for every surface: CLI, warm server and MCP; an embedder may set its own) are fixed too.
 
-- **GitHub rate limits:** a call waits out a primary or secondary limit, search spacing, or a full code-search window (10 searches a minute) for up to 45 s and then sends; a longer wait fails at once with `rateLimited` and `retryAfter`. Waiting does not spend the request timeout, but the tool call's own deadline still bounds it, and 45 s stays under the 60 s tool-call timeout some MCP hosts apply. Processes sharing a token reserve search slots under one file lock on `tmp/ratelimit/` (keyed by host and a token hash, never the token), so together they stay within one window and keep the spacing. A stamp expires with its window, so a crashed process never wedges it; a stamp dated more than two minutes ahead is ignored. If the file or its directory cannot be read, written or locked, the call goes ahead under this process's own pacing and one warning goes to stderr.
+- **GitHub rate limits:** a call waits out a primary or secondary limit or search pacing, and fails at once with `rateLimited` and `retryAfter` (plus `next.retry`) only when the reset or `retry-after` falls after the tool call's own deadline; no fixed wait cap or client-side window decides. `retry-after` wins over the reset header. Waiting does not spend the request timeout. While a wait of a second or more lasts, the call reports it (the limit, seconds left, and why: quota reset or `retry-after`, secondary cooldown, or search pacing) when it starts and every 10 s after: an MCP client that sent `_meta.progressToken` receives each line as `notifications/progress` before the result, so a host that resets its timeout on progress keeps the call alive; a CLI call prints the same lines on stderr (through a warm server, with the call's other notices once it ends). Search and code-search pacing follow the quota GitHub reports for each resource (`x-ratelimit-resource`, `-remaining`, `-reset`): planned searches the remaining quota covers go back-to-back, and only searches beyond it are spread over the time until reset. Until a response reports the `code_search` quota, planning assumes GitHub's documented default for authenticated code search, 10 a minute ([search rate limit](https://docs.github.com/en/rest/search/search#rate-limit)); this is an assumption, not a cap, and the first response replaces it (so does any quota window that has ended). Processes sharing a token share the last quota GitHub reported and the start of each paced search through one file lock on `tmp/ratelimit/` (keyed by host and a token hash, never the token); a start stamp dated more than two minutes ahead is ignored, so a crashed process never wedges it. If the file or its directory cannot be read, written or locked, the call goes ahead under this process's own pacing and one warning goes to stderr.
 - **Classification gate:** one process-wide gate per provider endpoint allows 10 requests in flight; one tool call may use up to three quarters. Throttling (429/503/529) halves the gate, `Retry-After` pauses every caller, and the gate recovers gradually.
 - **Context selection:** units the budget leaves unassessed stay unknown and never spill into the default evidence body; recovery: [context selection](OCTOCODE_TOOLS.md#context-selection).
 

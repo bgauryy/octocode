@@ -6,14 +6,14 @@ use crate::id::ToolId;
 use crate::response::cursor::issued;
 use crate::runtime::engine::cursors::{Pending, SavedWork};
 use crate::runtime::engine::{Channel, ToolRuntime};
-use std::time::Instant;
-use tokio_util::sync::CancellationToken;
+use octocode_io::cancellation::Cancellation;
+use std::time::{Duration, Instant};
 
 const PERSISTENT: &[(&str, &str)] = &[("OCTOCODE_STORAGE_MODE", "persistent")];
 
 fn context() -> ExecutionContext {
     ExecutionContext {
-        cancellation: CancellationToken::new(),
+        cancellation: Cancellation::new(),
         deadline: Instant::now() + Duration::from_secs(30),
         response_window: None,
         github_credential: None,
@@ -79,7 +79,7 @@ async fn an_unknown_cursor_names_expiry_and_the_actual_storage_mode() {
             "{message}"
         );
         assert!(
-            message.contains(&format!("{} seconds", RETENTION_IDLE.as_secs())),
+            message.contains(&format!("{} seconds", CONTINUATION_IDLE.as_secs())),
             "{message}"
         );
         assert!(!message.contains("memory"), "{message}");

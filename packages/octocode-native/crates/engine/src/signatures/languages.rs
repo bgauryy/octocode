@@ -216,6 +216,21 @@ pub fn find_entry(ext: &str) -> Option<&'static LanguageEntry> {
     LANGUAGE_TABLE.iter().find(|e| e.extensions.contains(&ext))
 }
 
+/// Markup and single-file components whose script blocks hold JavaScript
+/// (`<script>import { run } from './cmd'</script>`, an MDX `import`): no
+/// registry grammar parses them, so no [`LanguageEntry`] can list them, yet
+/// a name in them may load an export as one in source code does. The one
+/// list of them: a grammar added for one of these extensions makes its entry
+/// here redundant (a test fails until it is removed).
+pub const SCRIPT_BEARING_MARKUP: &[&str] = &["vue", "svelte", "astro", "mdx", "html", "htm"];
+
+/// Whether a file with `extension` (lowercase, no dot) can reference code:
+/// a registry grammar parses it, or it is [`SCRIPT_BEARING_MARKUP`].
+#[must_use]
+pub fn may_reference_code(extension: &str) -> bool {
+    find_entry(extension).is_some() || SCRIPT_BEARING_MARKUP.contains(&extension)
+}
+
 /// Whether `entry` is the grammar `selector` names: its name, language id,
 /// or one of its extensions (ASCII case-insensitive).
 fn names(entry: &LanguageEntry, selector: &str) -> bool {

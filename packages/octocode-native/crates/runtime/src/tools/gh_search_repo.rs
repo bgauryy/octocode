@@ -14,7 +14,7 @@ mod tests;
 use crate::id::ToolId;
 use crate::response::result::{Continuation, ToolData};
 use crate::tools::gh_shared::{
-    GhFailure, SearchWindow, add_next, pick_rows, rerun_renamed, search_failure,
+    GhFailure, Rerun, SearchWindow, add_next, pick_rows, rerun_renamed, search_failure,
     search_may_be_renamed, with_search_repair,
 };
 use octocode_contract_types::{ErrorCode, GhSearchRepoQuery, GitHubArchive};
@@ -87,7 +87,9 @@ pub(crate) async fn execute(
         let rerun = |renamed: GhSearchRepoQuery| async move {
             Box::pin(execute(provider, &renamed, context)).await
         };
-        if let Some(output) = rerun_renamed(provider, query, owner, repo, context, rerun).await? {
+        if let Rerun::Renamed(output) =
+            rerun_renamed(provider, query, owner, repo, context, rerun).await?
+        {
             return Ok(output);
         }
     }

@@ -53,7 +53,11 @@ fn rust_bare_calls_do_not_resolve_same_named_methods() {
         o.edges = vec!["calls".into()];
         o.confidence = Some("high".into());
     });
-    assert_eq!(cycles.value["pagination"]["totalItems"], 0, "{}", cycles.value);
+    assert_eq!(
+        cycles.value["pagination"]["totalItems"], 0,
+        "{}",
+        cycles.value
+    );
 }
 
 #[test]

@@ -1,9 +1,10 @@
 //! Recovery for a file a caller named that is not where it said: the
 //! structureSearch listing that finds it by stem, and the sibling a
 //! mistyped name was likely meant for.
-use crate::id::ToolId;
+use super::files_listing::files_listing;
 use crate::response::result::Continuation;
-use serde_json::{Value, json};
+use octocode_contract_types::{StructureSearchQuery, StructureSearchQueryFiles};
+use serde_json::Value;
 use std::path::Path;
 
 /// A listing of files named like `requested` from `root`: its stem (the name
@@ -16,13 +17,14 @@ pub(crate) fn find_file(root: &str, requested: &str) -> Option<Value> {
         Some((stem, _)) if !stem.is_empty() => format!("{}.*", escape_glob(stem)),
         _ => escape_glob(&name),
     };
-    (!include.is_empty()).then(|| {
-        Continuation::related(
-            ToolId::StructureSearch,
-            json!({"operation": "files", "path": root, "include": [include]}),
-        )
-        .build()
-    })
+    if include.is_empty() {
+        return None;
+    }
+    let listing = StructureSearchQueryFiles {
+        include: vec![include],
+        ..files_listing(root)?
+    };
+    Some(Continuation::related_query(StructureSearchQuery::from(listing)).build())
 }
 
 /// Names [`closest_name`] reads at most: past them it cannot prove a name

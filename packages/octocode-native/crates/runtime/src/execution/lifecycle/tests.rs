@@ -131,6 +131,39 @@ async fn dropping_caller_cancels_and_releases_blocking_work() {
     assert_eq!(runtime.active_requests(), 0);
 }
 
+/// The cancel every interface sends (MCP `notifications/cancelled`, CLI
+/// Ctrl-C, a warm-server client that leaves) names the request: running work
+/// sees it at its next check, without an await, and the call ends cancelled.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancel_by_request_id_stops_running_work_at_its_next_check() {
+    let runtime = runtime();
+    let entered = Arc::new(Notify::new());
+    let stopped = Arc::new(AtomicBool::new(false));
+    let job = {
+        let runtime = runtime.clone();
+        let entered = entered.clone();
+        let stopped = stopped.clone();
+        tokio::spawn(async move {
+            run(&runtime, "by-id", move |context| {
+                entered.notify_one();
+                spin_until_stopped(&context);
+                stopped.store(context.cancellation.is_cancelled(), Ordering::SeqCst);
+                context.check()
+            })
+            .await
+        })
+    };
+    entered.notified().await;
+    assert!(runtime.cancel("by-id"));
+    let outcome = tokio::time::timeout(Duration::from_secs(5), job)
+        .await
+        .expect("a cancel stops running work")
+        .expect("join");
+    assert_eq!(outcome, Err(ExecutionError::Cancelled));
+    assert!(stopped.load(Ordering::SeqCst), "the work saw the cancel");
+    assert_eq!(runtime.active_requests(), 0);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn timeout_is_observed_before_return_and_worker_panic_releases_slot() {
     let runtime = RequestRuntime::new(RequestLimits {

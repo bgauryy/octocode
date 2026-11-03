@@ -3,39 +3,58 @@
 // precision or starts failing to ingest; recall and timing changes are reported.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isMainModule } from './lib/entrypoint.mjs';
+import { workflowStatuses } from './lib/battery-status.mjs';
 
 const HELP = `Usage: bench-compare.mjs <before.json> <after.json> [--json]
 
 Prints one Markdown row per grammar. Exit 0 no regression, 1 regression, 2 bad input.`;
 
-const metric = (row) => ({
-  ok: Boolean(row) && !row.ingest?.error && row.ingest?.exit === 0,
-  recall: row?.recall?.recall ?? null,
-  precision: row?.recall?.precision ?? null,
-  link: row?.ingest?.callLinkRate ?? null,
-  ms: row?.ingest?.ms ?? null,
-  // Older runs kept 5-file samples; only complete lists can name newly missed files.
-  missed: row?.recall?.missed ?? null,
-  extra: row?.recall?.extra ?? null,
-});
+const metric = row => {
+  const ingest = row?.ingest ?? {}, recall = row?.recall ?? {};
+  return {
+    ok: Boolean(row) && !ingest.error && ingest.exit === 0,
+    recall: recall.recall ?? null, precision: recall.precision ?? null,
+    link: ingest.callLinkRate ?? null, ms: ingest.ms ?? null,
+    // Only complete lists can name newly missed files.
+    missed: recall.missed ?? null, extra: recall.extra ?? null,
+    workflows: workflowStatuses(row),
+  };
+};
+const added = (before, after) => before && after ? after.filter(file => !before.includes(file)) : [];
+
+function metricNotes(beforeRow, afterRow, before, after) {
+  const notes = [];
+  if (!beforeRow) notes.push('new row');
+  if (!afterRow) notes.push('not run');
+  else if (before.ok && !after.ok) notes.push('ingest failed');
+  if (before.precision !== null && after.precision !== null && after.precision < before.precision) notes.push('precision down');
+  if (before.recall !== null && after.recall !== null && after.recall < before.recall) notes.push('recall down');
+  return notes;
+}
+
+function workflowNotes(before, after) {
+  const notes = [];
+  let failed = false;
+  for (const stage of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (stage === 'ingest') continue;
+    const prior = before[stage], current = after[stage];
+    if (JSON.stringify(prior) !== JSON.stringify(current)) notes.push(`${stage}: ${prior?.exit ?? 'not run'} → ${current?.exit ?? 'not run'}`);
+    if (prior && [0, 1].includes(prior.exit) && (!current || ![0, 1].includes(current.exit) || current.error)) failed = true;
+  }
+  if (failed) notes.push('workflow failed');
+  return { notes, failed };
+}
 
 export function compare(before, after) {
-  const langs = [...new Set([...before, ...after].map((row) => row.lang))].sort();
-  return langs.map((lang) => {
-    const b = metric(before.find((row) => row.lang === lang));
-    const a = metric(after.find((row) => row.lang === lang));
-    const notes = [];
-    if (!before.some((row) => row.lang === lang)) notes.push('new row');
-    if (!after.some((row) => row.lang === lang)) notes.push('not run');
-    else if (b.ok && !a.ok) notes.push('ingest failed');
-    if (b.precision !== null && a.precision !== null && a.precision < b.precision) notes.push('precision down');
-    if (b.recall !== null && a.recall !== null && a.recall < b.recall) notes.push('recall down');
-    const regression = notes.includes('ingest failed') || notes.includes('precision down');
-    const added = (x, y) => (x && y ? y.filter((f) => !x.includes(f)) : []);
-    const newMissed = added(b.missed, a.missed);
-    const newExtra = added(b.extra, a.extra);
-    return { lang, before: b, after: a, notes, regression, newMissed, newExtra };
+  const langs = [...new Set([...before, ...after].map(row => row.lang))].toSorted((a, b) => a.localeCompare(b));
+  return langs.map(lang => {
+    const beforeRow = before.find(row => row.lang === lang), afterRow = after.find(row => row.lang === lang);
+    const b = metric(beforeRow), a = metric(afterRow);
+    const workflow = workflowNotes(b.workflows, a.workflows);
+    const notes = [...metricNotes(beforeRow, afterRow, b, a), ...workflow.notes];
+    const regression = notes.includes('ingest failed') || notes.includes('precision down') || workflow.failed;
+    return { lang, before: b, after: a, notes, regression, newMissed: added(b.missed, a.missed), newExtra: added(b.extra, a.extra) };
   });
 }
 
@@ -65,7 +84,7 @@ function main(argv) {
   return rows.some((row) => row.regression) ? 1 : 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (e) {

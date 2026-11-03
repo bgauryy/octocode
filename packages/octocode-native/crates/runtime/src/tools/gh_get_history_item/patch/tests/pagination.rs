@@ -76,18 +76,21 @@ fn patch_pagination_counts_unfinished_files_and_continues_the_same_page() {
         "patches": pagination["patches"].clone()
     }}]});
     promote_pr_continuations(&mut out, &request, &Remainder::default());
-    let next = &out["calls"]["continuePatch"]["input"]["queries"][0];
+    let next = &out["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"]["input"]
+        ["queries"][0];
     assert_eq!(next["sections"], json!(["patches"]), "{out}");
     assert!(next.get("include").is_none(), "{next}");
     assert_eq!(next["page"], 2, "{next}");
     assert_eq!(next["offset"], 2);
     assert_eq!(
-        out["calls"].as_object().map(serde_json::Map::len),
+        out["pullRequests"][0]["contentPagination"]["patches"]["next"]
+            .as_object()
+            .map(serde_json::Map::len),
         Some(1),
         "{out}"
     );
     crate::contracts::validate_built_query("ghGetHistoryItem", next.clone())
-        .expect("continuePatch is a valid ghGetHistoryItem query");
+        .expect("the patch continuation is a valid ghGetHistoryItem query");
 }
 
 /// A patch window fills most of the automatic response page: a 100k-char

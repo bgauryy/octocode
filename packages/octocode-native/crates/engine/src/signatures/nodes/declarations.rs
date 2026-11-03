@@ -144,17 +144,21 @@ pub(in crate::signatures) fn declaration<'t>(
             declarator_name(node).map(|name| ("constant", name))
         }
         // Python module-level `NAME = value`.
-        "expression_statement"
-            if node
-                .parent()
-                .is_some_and(|parent| parent.kind() == "module") =>
-        {
+        "expression_statement" => {
+            // Reject non-assignment statements before resolving the parent:
+            // tree-sitter finds a node's parent by searching from the root.
             let assignment = node
                 .named_child(0)
                 .filter(|child| child.kind() == "assignment")?;
             let left = assignment
                 .child_by_field_name("left")
                 .filter(|left| left.kind() == "identifier")?;
+            if !node
+                .parent()
+                .is_some_and(|parent| parent.kind() == "module")
+            {
+                return None;
+            }
             let name = node_text(left, content)?;
             let constant =
                 name.chars().any(char::is_alphabetic) && !name.chars().any(char::is_lowercase);
@@ -172,16 +176,31 @@ pub(in crate::signatures) fn declaration<'t>(
 /// read from (a doc comment sits above the header), so its range is the
 /// declaration's; the name node still places `line`.
 pub(in crate::signatures) fn declaration_extent(node: Node<'_>) -> Node<'_> {
-    let mut extent = node;
-    while let Some(parent) = extent.parent()
-        && matches!(
-            parent.kind(),
-            "template_declaration" | "decorated_definition"
-        )
-    {
-        extent = parent;
-    }
-    extent
+    let mut current = node;
+    declaration_extent_from_parents(
+        node,
+        std::iter::from_fn(move || {
+            current = current.parent()?;
+            Some(current)
+        }),
+    )
+}
+
+/// As [`declaration_extent`], using an already known nearest-first parent
+/// chain so a traversal need not search from the root for each occurrence.
+pub(in crate::signatures) fn declaration_extent_from_parents<'t>(
+    node: Node<'t>,
+    parents: impl Iterator<Item = Node<'t>>,
+) -> Node<'t> {
+    parents
+        .take_while(|parent| {
+            matches!(
+                parent.kind(),
+                "template_declaration" | "decorated_definition"
+            )
+        })
+        .last()
+        .unwrap_or(node)
 }
 
 fn modifier_words<'c>(node: Node<'_>, content: &'c str) -> Vec<&'c str> {

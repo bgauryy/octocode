@@ -225,7 +225,11 @@ async fn a_missing_path_at_a_ref_names_the_ref_and_its_commit() {
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/v1"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(sha))
+        .respond_with(octocode_github::mock_http::Sequence::new(vec![
+            ResponseTemplate::new(200).set_body_string(sha),
+            ResponseTemplate::new(200).set_body_string("f".repeat(40)),
+        ]))
+        .expect(1)
         .mount(&server)
         .await;
     mount_json(

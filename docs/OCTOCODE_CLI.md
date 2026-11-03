@@ -31,9 +31,10 @@ Stop separate MCP processes and other tool calls, then run:
 octocode cache clear --json
 ```
 
-The command drains and stops warm CLI servers, then removes GitHub response,
-registry, outline, judgment, saved-page, continuation, section-assessment,
-materialization and URL-capture caches under the configured home. It also removes
+The command drains and stops warm CLI servers, then removes saved pages,
+continuations, section assessments, materialized files and URL captures under
+the configured home. It also removes retired GitHub, registry, outline and
+judgment result-cache directories. It also removes
 the current workspace's `.octocode/graph/.facts` extraction checkpoints. Repeat
 from each workspace whose graph checkpoints you want removed. The JSON receipt
 lists removed directories and `restartMcp: true`: separate MCP processes own their
@@ -75,7 +76,7 @@ octocode localFetch '{"cursor":"<issued cursor>"}'
 
 ### Text output
 
-Text mode renders readable evidence on stdout and guidance on stderr, on a terminal or a pipe, for every tool. A single-row search, listing or outline prints one line per hit, file or declaration (`path:line:text`, `path:count  [term count …]`); any other result prints every field as indented `key: value` lines, a multi-line value as a `key: |` block. A batch prints each row under `## results[N]` and prefixes that row's stderr notes the same way. Nothing is clipped. Emitted next steps use the same JSON input as MCP. Use JSON mode for programmatic reconstruction and exact row metadata.
+Text mode renders readable evidence on stdout and guidance on stderr, on a terminal or a pipe, for every tool. A single-row search, listing or outline prints one line per hit, file or declaration (`path:line:text`, `path:count  [term count …]`), a file with several hits under its path once, as `rg --heading` (`line:text`, a declaration note only where it changes); any other result prints every field as indented `key: value` lines, a multi-line value as a `key: |` block. A batch prints each row under `## results[N]` and prefixes that row's stderr notes the same way. Nothing is clipped. Emitted next steps use the same JSON input as MCP. Use JSON mode for programmatic reconstruction and exact row metadata.
 
 ### Reading a JSON result
 
@@ -93,7 +94,7 @@ Input failures report `errorCode:"invalidInput"` and the invalid fields. Correct
 | 1 | Every row empty or out of range |
 | 2 | Invalid input |
 | 3 | Not found |
-| 4 | Authentication or permission failure |
+| 4 | Authentication or permission-denial failure (`permissionDenied`) |
 | 5 | Execution failure or unavailable saved state |
 | 7 | Rate limited |
 | 130 | Interrupted |

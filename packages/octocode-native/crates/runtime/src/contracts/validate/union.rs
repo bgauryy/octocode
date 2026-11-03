@@ -16,7 +16,7 @@ use selectors::{
     render_selector, selector_literals, selectors_accept, sibling_selector_values,
 };
 use serde_json::Value;
-use siblings::{annotate_sibling_branch_fields, branch_object};
+use siblings::{annotate_allowed_fields, annotate_sibling_branch_fields, branch_object};
 use std::cell::Cell;
 
 thread_local! {
@@ -297,6 +297,7 @@ fn reference(
     widen_literal_issues(&mut selected, &allowed);
     name_missing_alternatives(&mut selected, &missing_sets, path.len());
     annotate_sibling_branch_fields(&mut selected, root, branches, value);
+    annotate_allowed_fields(&mut selected, root, branches, value, path);
     annotate_sibling_selectors(&mut selected, root, branches, value, path);
     annotate_forbidden_fields(&mut selected, root, branches, value, path);
     annotate_missing_selector(&mut selected, root, branches, value, path);

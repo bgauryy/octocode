@@ -1,10 +1,9 @@
-//! The Contents API walk: one directory read per folder, memoized per commit.
+//! The Contents API walk: one directory read per folder.
 use super::*;
 
 /// The Contents API walk, one directory read per folder the listing
 /// reaches, level by level with up to [`READ_CONCURRENCY`] reads in flight;
-/// a complete walk is kept under its commit ([`WalkMemo`]). No read count
-/// ends it: GitHub sets no such rule, and its rate limits and the request
+/// no read count ends it: GitHub sets no such rule, and its rate limits and the request
 /// deadline are typed failures, never a silent cut. After a truncated recursive tree (`split`), a folder with more
 /// than one level left to list is read whole from its own recursive subtree,
 /// so a large repository costs one read per subtree instead of per folder.
@@ -16,11 +15,6 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
 ) -> Result<Traversal, ProviderError> {
     use futures_util::StreamExt as _;
     let at = *listing;
-    // Every tree page re-runs the walk; reuse a complete one of the commit.
-    let memo = WalkMemo::of(provider, &at, context);
-    if let Some(walk) = memo.get(provider).await {
-        return Ok(walk);
-    }
     let mut traversal = Traversal::default();
     // The directories of the next level: path and its tree SHA when its
     // parent listing named it. The first level is the requested root.
@@ -110,69 +104,7 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
         level = below;
         depth += 1;
     }
-    if traversal.failed_subtrees == 0 {
-        memo.put(provider, &traversal).await;
-    }
     Ok(traversal)
-}
-
-/// Where a complete Contents walk of one listing is kept: by repository,
-/// commit, root and depth, under the cache partition of the request. The
-/// key's version names the walk's shape (omitted entries as a path list;
-/// v4: no walk is cut at a fetch count, so no stored walk is a cut one).
-struct WalkMemo {
-    partition: Option<octocode_github::Partition>,
-    key: String,
-    commit: String,
-}
-
-impl WalkMemo {
-    fn of(provider: &GitHubProvider, listing: &Listing<'_>, context: &RequestContext) -> Self {
-        let Listing {
-            owner,
-            repo,
-            branch,
-            root,
-            max_depth,
-        } = *listing;
-        Self {
-            partition: provider.transport.cache_partition(context, None).ok(),
-            key: format!(
-                "{}:{branch}:{root}:{max_depth}",
-                repo_key("git-tree-walk-v4", owner, repo),
-            ),
-            commit: branch.to_owned(),
-        }
-    }
-
-    async fn get(&self, provider: &GitHubProvider) -> Option<Traversal> {
-        let cached = provider
-            .transport
-            .cache
-            .get(self.partition.as_ref()?, &self.key)
-            .await?;
-        serde_json::from_slice(&cached.bytes).ok()
-    }
-
-    async fn put(&self, provider: &GitHubProvider, traversal: &Traversal) {
-        if let (Some(partition), Ok(bytes)) = (&self.partition, serde_json::to_vec(traversal)) {
-            provider
-                .transport
-                .cache
-                .put(
-                    partition,
-                    self.key.clone(),
-                    octocode_github::CachedContent {
-                        etag: None,
-                        bytes: bytes.into(),
-                        resolved_ref: self.commit.clone(),
-                        has_more: false,
-                    },
-                    octocode_github::Retention::Pinned,
-                )
-                .await;
-        }
-    }
 }
 
 /// A directory past the Contents API's entry cap, read whole from its own

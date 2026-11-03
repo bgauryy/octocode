@@ -37,7 +37,12 @@ pub(super) fn ask(dir: &Fixture, op: &str, target: &str, offset: usize, full: bo
         include_provenance: true,
         ..Default::default()
     };
-    match run_with(&options, &workspace_policy(&dir.0), &NeverCancel, !full) {
+    let decode = if full {
+        Decode::Full
+    } else {
+        Decode::Selective
+    };
+    match run_with(&options, &workspace_policy(&dir.0), &NeverCancel, decode) {
         Ok(out) | Err(out) => out,
     }
 }

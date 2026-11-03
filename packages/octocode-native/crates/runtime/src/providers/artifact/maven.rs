@@ -3,9 +3,9 @@ use super::util::{endpoint, object_for, parse_url, required, rows, string, total
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, TerminalLimit,
 };
-use crate::num::usize_of;
 use crate::providers::artifact::query::artifact_search_query;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
+use octocode_engine::num::saturating_usize;
 /// Compile-once XML/coordinate patterns. `maven-metadata.xml` and POM parsing
 /// run per lookup; compiling these constant patterns on every call (and once
 /// per extracted tag in the old `field` closure) was pure waste.
@@ -53,7 +53,7 @@ pub(crate) async fn maven(
         ArtifactType::Maven,
     )?
     .iter()
-    .skip(usize_of(offset))
+    .skip(saturating_usize(offset))
     .take(size)
     .map(|value| {
         let row = object_for(value, ArtifactType::Maven)?;

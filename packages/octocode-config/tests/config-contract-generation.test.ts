@@ -1,7 +1,11 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { contractFromDeclaration } from '../scripts/config-contract/declaration/index.ts';
+import { contractSchema } from '../scripts/config-contract/schema.ts';
+import { generateConfigContract } from '../scripts/generate-config-contract.ts';
 import {
   CONFIG_FIELDS,
   ENV_CREDENTIAL_VARS,
@@ -21,6 +25,26 @@ function loadJson(path: string): unknown {
 }
 
 describe('generated config contract', () => {
+  it.each(generateConfigContract().map(file => [basename(file.path), file] as const))(
+    'keeps committed %s equal to what the Zod declaration generates',
+    (_name, file) => {
+      expect(readFileSync(file.path, 'utf8')).toBe(file.content);
+    }
+  );
+
+  it('validates the declaration with the Zod schema and rejects undeclared fields', () => {
+    const contract = contractFromDeclaration();
+    expect(contractSchema.safeParse(contract).success).toBe(true);
+    expect(contractSchema.safeParse({ ...contract, removed: {} }).success).toBe(false);
+    const github = contract.sections.github;
+    expect(github).toBeDefined();
+    const tampered = {
+      ...contract,
+      sections: { ...contract.sections, github: { ...github, unknownPolicy: true } },
+    };
+    expect(contractSchema.safeParse(tampered).success).toBe(false);
+  });
+
   it('validates the authoritative declaration with the shared meta-schema', () => {
     const ajv = new Ajv2020({ allErrors: true, strict: false });
     const schema = loadJson(schemaPath) as Record<string, unknown>;

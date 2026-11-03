@@ -55,6 +55,6 @@ export async function trio(t: TestContext, options?: Parameters<typeof fixture>[
     assert.ok(item, `Inbox of ${session} has no message ${id}`);
     return item;
   };
-  const body = async (session: string, id: number) => (await find(session, id)).body;
-  return { ...f, alice, bob, carol, inbox, find, body };
+  const parts = async (session: string, id: number) => (await find(session, id)).parts;
+  return { ...f, alice, bob, carol, inbox, find, parts };
 }

@@ -134,15 +134,7 @@ fn selected_line_walk_keeps_byte_fallback_and_every_source_byte() {
     );
     let (mut text, mut units, mut pages) = (String::new(), Vec::new(), 0);
     loop {
-        let page = execute_local_fetch(
-            &query,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            None,
-            Some(&selection),
-            &Default::default(),
-        );
+        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, Some(&selection));
         assert_eq!(page.error_code, None, "{page:?}");
         assert_eq!(
             page.selection.as_ref().map(|receipt| receipt.status),
@@ -232,15 +224,7 @@ fn full_content_resumes_numbered_lines_after_one_oversized_line() {
     );
     let mut pages = Vec::new();
     loop {
-        let page = execute_local_fetch(
-            &query,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            Some(20_000),
-            None,
-            &Default::default(),
-        );
+        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(20_000), None);
         assert_eq!(page.error_code, None, "{page:?}");
         let next = page.next.clone().and_then(|next| next.continue_window);
         pages.push(page);

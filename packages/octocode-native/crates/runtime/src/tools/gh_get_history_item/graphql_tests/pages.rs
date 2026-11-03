@@ -215,8 +215,9 @@ async fn a_graphql_first_page_is_served_though_more_remain() {
     assert_eq!(shown.len(), 40, "{}", out.data);
     assert_eq!(shown[0]["body"], "comment 0", "{}", out.data);
     assert_eq!(
-        out.data
-            .pointer("/next/nextCommentPage/input/queries/0/page"),
+        out.data.pointer(
+            "/pullRequests/0/contentPagination/comments/next/nextPage/input/queries/0/page"
+        ),
         Some(&json!(2)),
         "{}",
         out.data

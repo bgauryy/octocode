@@ -55,6 +55,31 @@ fn every_view_delivers_each_matching_file_or_line_once_at_multiple_budgets() {
 }
 
 #[test]
+fn match_pages_continue_from_their_file_pagination() {
+    let root = tempfile::tempdir().expect("fixture");
+    fs::write(
+        root.path().join("a.txt"),
+        (1..=400)
+            .map(|line| format!("needle {line}\n"))
+            .collect::<String>(),
+    )
+    .expect("source");
+    let (walk, pages) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["needle"],"matchPage":2}),
+        Some(500),
+    );
+    assert!(!walk.rows.is_empty());
+    assert!(pages.len() > 1);
+    assert!(
+        pages
+            .iter()
+            .any(|page| { page["files"][0]["pagination"]["next"]["nextPage"].is_object() })
+    );
+    assert!(pages.iter().all(|page| page["next"]["nextPage"].is_null()));
+}
+
+#[test]
 fn overlapping_context_windows_reconstruct_every_requested_source_line_once() {
     let root = tempfile::tempdir().expect("fixture");
     let source: Vec<String> = (1..=240)
@@ -188,6 +213,55 @@ fn every_page_keeps_enclosing_declaration_coordinates() {
             }
         }
     }
+}
+
+/// Hits in one declaration share its entry, and the entry states it whole.
+#[test]
+fn a_file_lists_each_declaration_once_and_hits_name_it_by_index() {
+    let files = [(
+        "a.rs",
+        "fn first() {\n    needle();\n    needle();\n}\nfn second() {\n    needle();\n}\n",
+    )];
+    let result = search_fixture(
+        &files,
+        ls_query(serde_json::json!({"matchString":["needle"]}), None),
+    );
+    let file = &result["files"][0];
+    let declarations = file["declarations"].as_array().expect("declarations");
+    assert_eq!(declarations.len(), 2, "{result}");
+    assert_eq!(declarations[0]["symbolName"], "first");
+    assert_eq!(declarations[0]["line"], 1);
+    assert_eq!(declarations[0]["endLine"], 4);
+    assert_eq!(declarations[1]["symbolName"], "second");
+    let owners = file["matches"]
+        .as_array()
+        .expect("matches")
+        .iter()
+        .map(|row| row["enclosing"].as_u64().expect("index"))
+        .collect::<Vec<_>>();
+    assert_eq!(owners, [0, 0, 1]);
+}
+
+/// `matchOnly` selects each hit's text and place; the content view is the one
+/// that names its enclosing declaration.
+#[test]
+fn match_only_rows_name_no_enclosing_declaration() {
+    let files = [("a.rs", "fn owner() {\n    needle();\n}\n")];
+    let row = |view: &str| {
+        let result = search_fixture(
+            &files,
+            ls_query(
+                serde_json::json!({"matchString":["needle"],"view":view}),
+                None,
+            ),
+        );
+        result["files"][0]["matches"][0].clone()
+    };
+    assert_eq!(row("content")["enclosing"], 0);
+    let hit = row("matchOnly");
+    assert_eq!(hit["value"], "needle");
+    assert_eq!(hit["line"], 2);
+    assert!(hit.get("enclosing").is_none(), "{hit}");
 }
 
 #[test]

@@ -5,7 +5,7 @@ import { execFileSync, spawn } from './helpers.ts';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { JsonRecord } from './json-record.ts';
-import { binary, only, tempWorkspace, waitFor, withReasoning } from './helpers.ts';
+import { binary, only, tempWorkspace, withReasoning } from './helpers.ts';
 
 function fixture(t: TestContext){
  const workspace = tempWorkspace(t, 'communication-leases-', {real:true}), database=join(workspace,'communication.sqlite');
@@ -41,7 +41,9 @@ test('conflict reports held leases; internal alias/parent overlap fails without 
 test('stalled owner lease expires without heartbeat renewing it; stale ID cannot affect new owner',async t=>{
  const f=fixture(t),old=f.call(f.a,'lock',{path:'stalled',ttlMs:1000}).lease;
  f.call(f.a,'heartbeat');assert.equal(f.call(f.b,'lock',{path:'stalled'}).ok,false);
- const fresh=(await waitFor(()=>{const taken=f.call(f.b,'lock',{path:'stalled'});return taken.ok&&taken;},{message:'The stalled lease was not released after its ttl'})).lease;assert.ok(fresh.id>old.id);
+ const db=new DatabaseSync(f.database);db.prepare('UPDATE leases SET expiresAt=? WHERE id=?').run(Date.now()-1,old.id);db.close();
+ const taken=f.call(f.b,'lock',{path:'stalled'});assert.equal(taken.ok,true,'The stalled lease was not released after its ttl');
+ const fresh=taken.lease;assert.ok(fresh.id>old.id);
  assert.equal(f.call(f.a,'renew',{leaseId:old.id}).renewed,false);assert.equal(f.call(f.a,'unlock',{leaseId:old.id}).released,false);
  assert.equal(f.call(f.b,'renew',{leaseId:fresh.id}).renewed,true);
 });

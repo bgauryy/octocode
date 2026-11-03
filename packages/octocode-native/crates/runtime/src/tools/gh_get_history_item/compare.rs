@@ -7,11 +7,12 @@ use super::pr_menu::{base_public_query, remove_key};
 use super::util::{str_at, usize_at};
 use super::window::COMPARE_FILE_LIMIT;
 use super::{HistoryItemRequest, ItemOperation, fetch, validation};
-use crate::id::ToolId;
 use crate::response::paging::push_warnings;
+use crate::response::result::wire_query;
 use crate::response::result::{Continuation, ToolData};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
+use octocode_contract_types::GhGetHistoryItemQuery;
 use octocode_github::{GitHubProvider, GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
@@ -147,7 +148,7 @@ pub(super) async fn compare(
     // A head behind its base (refs given in reverse) changes nothing this
     // way round: the swapped comparison reads the `behindBy` commits.
     if out["status"] == "empty" && usize_at(&raw, "/behind_by") > 0 {
-        leads.push(("swapRefs", swapped_refs(query)));
+        leads.extend(swapped_refs(query).map(|swap| ("swapRefs", swap)));
     }
     leads.extend(capped_file_leads(
         query,
@@ -187,14 +188,14 @@ pub(super) async fn compare(
 }
 
 /// The same comparison with `baseRef` and `headRef` exchanged, from its first page.
-fn swapped_refs(query: &HistoryItemRequest) -> Value {
+fn swapped_refs(query: &HistoryItemRequest) -> Option<Value> {
     let mut swapped = base_public_query(query, ItemOperation::Compare);
     for key in ["page", "offset"] {
         remove_key(&mut swapped, key);
     }
     swapped["baseRef"] = json!(gh_get_history_item_query::head(query));
     swapped["headRef"] = json!(gh_get_history_item_query::base(query));
-    Continuation::related(ToolId::GhGetHistoryItem, swapped).build()
+    Some(Continuation::related_query(wire_query::<GhGetHistoryItemQuery>(swapped)?).build())
 }
 
 /// One comparison page as GitHub answers it, with both ends pinned to
@@ -227,7 +228,7 @@ async fn read_comparison(
     // The head commit is the last of the comparison, often past this commit
     // page: resolve a movable head (branch, tag) to the commit read so the
     // row and every continuation name one comparison; the resolution is the
-    // memoized single flight every GitHub read of the ref shares. A
+    // current resolution, carried by every continuation. A
     // cross-repository `owner:ref` head is pinned below, from the
     // comparison's own commits.
     let head = if head.contains(':') || octocode_github::is_full_sha(head) {
@@ -238,15 +239,13 @@ async fn read_comparison(
                 gh_get_history_item_query::owner(query),
                 gh_get_history_item_query::repo(query),
                 Some(head),
-                false,
                 context,
             )
             .await?
     };
     let refs = format!("{base}...{head}");
     // GitHub pages the commit list; the changed files come whole with any
-    // page, so a files-only read asks for the first commit page: the URL
-    // (cache key) the row's first read already fetched.
+    // page, so a files-only read asks for the first commit page.
     let (commit_page, commit_per) = if wants_commits { (page, per) } else { (1, per) };
     let (raw, link_more) = fetch(
         transport,

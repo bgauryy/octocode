@@ -1,24 +1,20 @@
 //! One lazy selection flow for tool requests and read-only auth inspection.
 mod backend;
+mod call;
 use super::super::login;
 use super::{StoredCredentials, configured_credential_host, normalize_host};
 use crate::config::ConfigOutput;
 use backend::{AuthBackend, SystemBackend};
+pub(crate) use call::CallSelection;
 use octocode_github::{CredentialSource, ProviderError, ProviderErrorKind, ResolvedCredential};
 use octocode_io::budget::{BudgetStop, RequestBudget};
 use secrecy::ExposeSecret;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     future::Future,
     sync::{Arc, Mutex},
-    time::{Duration, Instant, SystemTime},
+    time::SystemTime,
 };
-
-/// How long a request credential (or "no credential") is remembered: a
-/// login, logout, `gh auth switch`, or token rotation made in another process
-/// is picked up within it, without a restart of a long-lived host (an MCP
-/// session, the CLI's warm server).
-const MEMO_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum AuthMode {
@@ -46,31 +42,12 @@ impl AuthSelection {
     }
 }
 
-/// A request credential remembered for one host.
-struct Remembered {
-    selection: Option<AuthSelection>,
-    at: Instant,
-    /// When a remembered stored credential must be refreshed; past it the
-    /// entry is a miss, so the next request reloads and refreshes.
-    refresh_due: Option<SystemTime>,
-    /// The warning the selection was made with, said again by each request
-    /// that reuses it, as a fresh selection would.
-    notice: Option<String>,
-}
-
 pub struct Authentication {
     config: Arc<ConfigOutput>,
-    /// Request credentials resolve once per host per [`MEMO_TTL`]: a `gh`
-    /// spawn or a store read per query row is pure overhead.
-    memo: Mutex<HashMap<String, Remembered>>,
     /// Host partitions of the tokens GitHub rejected in this process. A
     /// rejected stored or `gh` token is skipped, so the next request falls
     /// back as a fresh selection would instead of sending it again.
     rejected: Mutex<HashSet<octocode_github::Partition>>,
-    /// Request resolutions take turns per host: the rows of a cold batch
-    /// wait for the first one's answer in the memo instead of each reading
-    /// the store or spawning `gh`.
-    flights: octocode_io::flight::KeyedFlight<String, ()>,
     /// The wall clock token expiry is judged by; tests move it forward
     /// instead of sleeping past a refresh time.
     now: fn() -> SystemTime,
@@ -79,9 +56,7 @@ impl Authentication {
     pub fn new(config: Arc<ConfigOutput>) -> Self {
         Self {
             config,
-            memo: Mutex::default(),
             rejected: Mutex::default(),
-            flights: octocode_io::flight::KeyedFlight::transient(),
             now: SystemTime::now,
         }
     }
@@ -89,8 +64,8 @@ impl Authentication {
     fn expired(&self, stored: &StoredCredentials) -> bool {
         login::refresh_due(stored).is_some_and(|due| (self.now)() >= due)
     }
-    /// GitHub rejected `credential` for `host` (HTTP 401): drop the
-    /// remembered selection so the next request selects again, skipping it.
+    /// GitHub rejected `credential` for `host` (HTTP 401): subsequent
+    /// requests skip it while selecting from the current credential sources.
     pub(crate) fn reject(&self, host: &str, credential: Option<&ResolvedCredential>) {
         let host = normalize_host(host);
         if let Some(credential) = credential {
@@ -102,10 +77,6 @@ impl Authentication {
                     Some(credential.secret()),
                 ));
         }
-        self.memo
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&host);
     }
     fn is_rejected(&self, host: &str, token: &str) -> bool {
         let token = secrecy::SecretString::from(token);
@@ -113,30 +84,6 @@ impl Authentication {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .contains(&octocode_github::Partition::new(host, Some(&token)))
-    }
-    fn remembered(&self, host: &str) -> Option<(Option<AuthSelection>, Option<String>)> {
-        let memo = self
-            .memo
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let entry = memo.get(host)?;
-        let live =
-            entry.at.elapsed() < MEMO_TTL && entry.refresh_due.is_none_or(|due| (self.now)() < due);
-        live.then(|| (entry.selection.clone(), entry.notice.clone()))
-    }
-    fn remember(&self, host: &str, resolved: &Resolved) {
-        self.memo
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(
-                host.to_owned(),
-                Remembered {
-                    selection: resolved.selection.clone(),
-                    at: Instant::now(),
-                    refresh_due: resolved.refresh_due,
-                    notice: resolved.notice.clone(),
-                },
-            );
     }
     pub async fn resolve(
         &self,
@@ -156,16 +103,25 @@ impl Authentication {
     }
     /// Inspect local credentials afresh without token refresh or network access.
     /// A credential this runtime rejected cannot authorize a saved response.
-    pub(crate) async fn inspect_response_identity(
+    async fn inspect_identity_with(
         &self,
         host: &str,
         budget: &RequestBudget,
+        backend: &impl AuthBackend,
     ) -> Result<String, ProviderError> {
-        let selection = self.resolve(host, AuthMode::Inspect, budget).await?;
-        if selection
-            .as_ref()
-            .is_some_and(|selected| self.is_rejected(host, selected.token()))
-        {
+        let selection = self
+            .resolve_with(host, AuthMode::Inspect, budget, backend)
+            .await?;
+        self.selection_identity(host, selection.as_ref())
+    }
+
+    /// The identity of `selection`, refused when this runtime saw GitHub reject it.
+    fn selection_identity(
+        &self,
+        host: &str,
+        selection: Option<&AuthSelection>,
+    ) -> Result<String, ProviderError> {
+        if selection.is_some_and(|selected| self.is_rejected(host, selected.token())) {
             return Err(ProviderError::new(
                 ProviderErrorKind::Authentication,
                 "The current GitHub credential was rejected.",
@@ -173,9 +129,7 @@ impl Authentication {
         }
         Ok(octocode_github::Partition::new(
             host,
-            selection
-                .as_ref()
-                .map(|selected| selected.credential.secret()),
+            selection.map(|selected| selected.credential.secret()),
         )
         .identity()
         .to_owned())
@@ -199,29 +153,7 @@ impl Authentication {
                 username: None,
             }));
         }
-        let ticket = (mode == AuthMode::Request).then(|| self.flights.join(host.clone()));
-        let _turn = match &ticket {
-            Some(ticket) => Some(
-                budget
-                    .wait(ticket.turn())
-                    .await
-                    .map_err(resolution_stopped)?,
-            ),
-            None => None,
-        };
-        if mode == AuthMode::Request
-            && let Some((selection, notice)) = self.remembered(&host)
-        {
-            if let Some(notice) = notice {
-                octocode_io::notice::raise(ANONYMOUS_NOTICE, notice);
-            }
-            return Ok(selection);
-        }
-        let resolved = self.resolve_stored(&host, mode, budget, backend).await?;
-        if mode == AuthMode::Request {
-            self.remember(&host, &resolved);
-        }
-        Ok(resolved.selection)
+        self.resolve_stored(&host, mode, budget, backend).await
     }
     async fn resolve_stored(
         &self,
@@ -229,7 +161,7 @@ impl Authentication {
         mode: AuthMode,
         budget: &RequestBudget,
         backend: &impl AuthBackend,
-    ) -> Result<Resolved, ProviderError> {
+    ) -> Result<Option<AuthSelection>, ProviderError> {
         let host = host.to_owned();
         // Keychain calls are blocking OS operations. Await their worker to completion,
         // then check the budget before starting any further I/O. Expiry is
@@ -249,7 +181,7 @@ impl Authentication {
         let mut storage_error = None;
         match stored {
             Ok(Some((stored, source))) if mode == AuthMode::Inspect || !self.expired(&stored) => {
-                return Ok(Resolved::stored(stored, source));
+                return Ok(Some(stored_selection(stored, source)));
             }
             Ok(Some((_, source))) => {
                 let client_id = Some(login::client_id_for_host(
@@ -271,7 +203,7 @@ impl Authentication {
                     )),
                 };
                 match refreshed {
-                    Ok(Some(stored)) => return Ok(Resolved::stored(stored, source)),
+                    Ok(Some(stored)) => return Ok(Some(stored_selection(stored, source))),
                     Ok(None) => {} // Deleted while waiting: never reuse the stale token.
                     Err(error) if error.is_cancelled_or_timed_out() => return Err(error),
                     Err(error) => storage_error = Some(error),
@@ -284,10 +216,10 @@ impl Authentication {
         if let Some(token) = backend.gh(&host, budget).await?
             && !(mode == AuthMode::Request && self.is_rejected(&host, token.expose_secret()))
         {
-            return Ok(Resolved::untimed(Some(AuthSelection {
+            return Ok(Some(AuthSelection {
                 credential: ResolvedCredential::new(token, CredentialSource::GhCli),
                 username: None,
-            })));
+            }));
         }
         match storage_error {
             // No token and no usable store (headless, CI, sandboxed home):
@@ -298,13 +230,10 @@ impl Authentication {
             {
                 let notice = anonymous_notice(&host);
                 octocode_io::notice::raise(ANONYMOUS_NOTICE, notice.clone());
-                Ok(Resolved {
-                    notice: Some(notice),
-                    ..Resolved::untimed(None)
-                })
+                Ok(None)
             }
             Some(error) => Err(error),
-            None => Ok(Resolved::untimed(None)),
+            None => Ok(None),
         }
     }
 }
@@ -317,30 +246,10 @@ fn anonymous_notice(host: &str) -> String {
         "[octocode] warning: no GitHub credential for {host} and the secure credential store is unavailable; GitHub tools run unauthenticated (60 requests/hour). Set GITHUB_TOKEN or run octocode auth login for a higher limit."
     )
 }
-/// A selection and when it must be refreshed.
-struct Resolved {
-    selection: Option<AuthSelection>,
-    refresh_due: Option<SystemTime>,
-    /// A warning the selection was made with.
-    notice: Option<String>,
-}
-impl Resolved {
-    fn untimed(selection: Option<AuthSelection>) -> Self {
-        Self {
-            selection,
-            refresh_due: None,
-            notice: None,
-        }
-    }
-    fn stored(stored: StoredCredentials, source: CredentialSource) -> Self {
-        Self {
-            notice: None,
-            refresh_due: login::refresh_due(&stored),
-            selection: Some(AuthSelection {
-                credential: ResolvedCredential::new(stored.token.token, source),
-                username: (!stored.username.is_empty()).then_some(stored.username),
-            }),
-        }
+fn stored_selection(stored: StoredCredentials, source: CredentialSource) -> AuthSelection {
+    AuthSelection {
+        credential: ResolvedCredential::new(stored.token.token, source),
+        username: (!stored.username.is_empty()).then_some(stored.username),
     }
 }
 

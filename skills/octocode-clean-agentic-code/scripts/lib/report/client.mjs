@@ -141,7 +141,7 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
       art.innerHTML = kit.parse(f.body);
       $$('img', art).forEach(img => {
         const raw = img.getAttribute('src');
-        if (f.images?.[raw]) img.src = f.images[raw];
+        if (f.images && Object.hasOwn(f.images, raw)) img.src = f.images[raw];
         img.addEventListener('error', () => {
           if (img.nextElementSibling?.classList.contains('image-error')) return;
           const note = document.createElement('p'); note.className = 'image-error';

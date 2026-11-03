@@ -85,17 +85,46 @@ impl Serialize for MatchKeys<'_> {
     }
 }
 
-/// `serialize_with` form of [`MatchKeys`].
-pub(crate) fn serialize<S: serde::Serializer>(
+/// localSearch's `matchKeys` on the wire: `[{"line": <line>, "key": "<key path>"}]` in line order.
+pub(crate) struct MatchKeyRows<'a>(pub(crate) &'a [(usize, String)]);
+
+impl Serialize for MatchKeyRows<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut rows = serializer.serialize_seq(Some(self.0.len()))?;
+        for (line, key) in self.0 {
+            rows.serialize_element(&MatchKeyRow { line: *line, key })?;
+        }
+        rows.end()
+    }
+}
+
+#[derive(Serialize)]
+struct MatchKeyRow<'a> {
+    line: usize,
+    key: &'a str,
+}
+
+/// `serialize_with` form of [`MatchKeyRows`].
+pub(crate) fn serialize_rows<S: serde::Serializer>(
     keys: &[(usize, String)],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
-    MatchKeys(keys).serialize(serializer)
+    MatchKeyRows(keys).serialize(serializer)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rows_keep_line_order_with_numeric_lines() {
+        let keys = vec![(12, "a.b".to_owned()), (100, "c".to_owned())];
+        assert_eq!(
+            serde_json::to_value(MatchKeyRows(&keys)).expect("serializable"),
+            serde_json::json!([{"line": 12, "key": "a.b"}, {"line": 100, "key": "c"}])
+        );
+    }
 
     #[test]
     fn only_json_and_toml_extensions_count() {

@@ -136,11 +136,11 @@ async fn the_read_lead_returns_the_classified_capture() {
 }
 
 /// B210: an identical row recaptures its local source on every call, so an
-/// edit that keeps the size and restores the modification time still
-/// reaches the provider; only unchanged bytes replay a saved judgment.
+/// edit that keeps the size and restores the modification time is judged on
+/// its new bytes; no call replays a saved judgment.
 #[tokio::test]
 async fn an_identical_row_rejudges_a_local_source_after_an_edit() {
-    let server = provider(2).await;
+    let server = provider(3).await;
     let workspace = Workspace::new();
     let original = "Restart the service after rotation.\n";
     let edited = "Never restart; keys reload live now\n";
@@ -160,8 +160,8 @@ async fn an_identical_row_rejudges_a_local_source_after_an_edit() {
         first["results"][0]["data"].get("replayed").is_none(),
         "{first}"
     );
-    assert_eq!(
-        unchanged["results"][0]["data"]["replayed"], true,
+    assert!(
+        unchanged["results"][0]["data"].get("replayed").is_none(),
         "{unchanged}"
     );
     workspace.write("ops/runbook.md", edited);
@@ -177,9 +177,10 @@ async fn an_identical_row_rejudges_a_local_source_after_an_edit() {
         "{after_edit}"
     );
     let states = sent(&server).await;
-    assert_eq!(states.len(), 2);
+    assert_eq!(states.len(), 3);
     assert_eq!(states[0]["state"]["text"], original);
-    assert_eq!(states[1]["state"]["text"], edited);
+    assert_eq!(states[1]["state"]["text"], original);
+    assert_eq!(states[2]["state"]["text"], edited);
     runtime.close().await;
 }
 

@@ -19,8 +19,8 @@ pub(crate) fn state_fields(tool: ToolId) -> &'static BTreeSet<String> {
                 super::schema_facts::property_schemas(schema, defs, name)
                     .iter()
                     .any(|field| {
-                        field["x-cursor"] == true
-                            || super::schema_facts::resolve_ref(field, defs)["x-cursor"] == true
+                        super::schema_facts::schema_keyword(field, defs, "x-cursor")
+                            == Some(&serde_json::Value::Bool(true))
                     })
             })
             .map(str::to_owned)

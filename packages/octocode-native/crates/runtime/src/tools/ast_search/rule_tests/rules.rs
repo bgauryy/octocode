@@ -82,7 +82,7 @@ fn a_rule_object_continues_as_written() {
         1,
     )
     .expect("object rule");
-    let continuation = object["next"]["nextMatchPage"]["input"]["queries"][0].clone();
+    let continuation = object["next"]["nextPage"]["input"]["queries"][0].clone();
     assert_eq!(continuation["rule"], rule, "{object}");
     assert!(serde_json::from_value::<AstSearchQuery>(continuation).is_ok());
 }
@@ -153,7 +153,7 @@ fn owned_core_context_continuations_keep_the_entire_query() {
     )
     .expect("first page");
     assert_eq!(first["matchCount"], 2, "{first}");
-    let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
     assert_eq!(next["rule"], rule, "{first}");
     crate::contracts::validate_built_query("astSearch", next.clone())
         .expect("continuation is in contract");
@@ -168,7 +168,6 @@ fn owned_core_context_continuations_keep_the_entire_query() {
         first["files"][0]["matches"][0],
         second["files"][0]["matches"][0]
     );
-    assert!(second["next"].get("nextMatchPage").is_none(), "{second}");
 }
 
 #[test]

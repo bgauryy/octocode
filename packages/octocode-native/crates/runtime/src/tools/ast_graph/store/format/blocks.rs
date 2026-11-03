@@ -224,7 +224,7 @@ fn directory_and_bodies(
         out.extend(offset.to_le_bytes());
         out.extend((bytes.len() as u64).to_le_bytes());
         out.extend(count.to_le_bytes());
-        out.extend(Sha256::digest(bytes));
+        out.extend(octocode_engine::digest::sha256_digest(bytes));
         offset += bytes.len() as u64;
     }
     for (_, _, _, bytes) in chunks {
@@ -242,7 +242,7 @@ pub(super) fn digest(tag: &[u8; 4], bytes: &[u8]) -> Result<[u8; 32], String> {
     let bytes = bytes
         .get(..length)
         .ok_or("graph section directory is truncated")?;
-    Ok(Sha256::digest(bytes).into())
+    Ok(octocode_engine::digest::sha256_digest(bytes))
 }
 
 pub(super) fn unpack(tag: &[u8; 4], bytes: &[u8]) -> Result<Vec<u8>, String> {
@@ -257,7 +257,7 @@ pub(super) fn unpack(tag: &[u8; 4], bytes: &[u8]) -> Result<Vec<u8>, String> {
             .zip(usize::try_from(block.offset + block.len).ok())
             .and_then(|(start, end)| bytes.get(start..end))
             .ok_or("graph record block is outside its section")?;
-        if Sha256::digest(body).as_slice() != block.digest {
+        if octocode_engine::digest::sha256_digest(body).as_slice() != block.digest {
             return Err("graph record block checksum mismatch".into());
         }
         if tag == b"SRCO" {

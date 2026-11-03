@@ -2,45 +2,20 @@
 use super::*;
 use crate::execution::cancel::CancellationCheck;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::{
+    fs::File,
+    io::{Read, Seek, SeekFrom},
+};
 
 mod evidence_pages;
 mod lookup;
 mod records;
+#[cfg(test)]
+mod validation;
 use lookup::Degrees;
 pub(super) use lookup::{encode_lookup, validate_lookup};
-
-pub(crate) fn full_validation(
-    bytes: &[u8],
-    tables: &GraphTables,
-) -> Result<serde_json::Value, String> {
-    let mut header = Reader::new(&bytes[8..HEADER_LEN], "header");
-    header.fixed_u32()?;
-    let count = usize::try_from(header.fixed_u32()?).map_err(|_| "graph header overflows")?;
-    let mut total = 1 + count;
-    let mut directory = Reader::new(&bytes[HEADER_LEN..], "directory");
-    let span = |value: u64| usize::try_from(value).map_err(|_| "graph directory overflows");
-    for _ in 0..count {
-        let tag = directory.take(4)?;
-        let (offset, len) = (span(directory.fixed_u64()?)?, span(directory.fixed_u64()?)?);
-        directory.take(32)?;
-        if tag == b"NODE" || tag == b"DECL" {
-            let (_, blocks) = blocks::parse(
-                bytes
-                    .get(offset..offset + len)
-                    .ok_or("graph block section is truncated")?,
-                len as u64,
-            )?;
-            total += blocks.len();
-        }
-    }
-    Ok(
-        serde_json::json!({"scope":"fullSnapshot", "checkedBlocks":total, "totalBlocks":total,
-        "bytesRead":bytes.len(), "snapshotBytes":bytes.len(), "decodedNodes":tables.nodes.len(),
-        "decodedEdges":tables.edges.len(), "decodedWitnesses":tables.witnesses.len()}),
-    )
-}
+#[cfg(test)]
+pub(crate) use validation::full_validation;
 
 #[derive(Debug)]
 struct SectionRef {
@@ -59,7 +34,7 @@ pub(crate) struct SnapshotReader {
     node_cache: Option<(usize, Vec<NodeRec>)>,
     declaration_cache: Option<(usize, Vec<DeclarationRec>)>,
     sources: Option<sources::SourceTable>,
-    bytes_read: u64,
+    pub(crate) bytes_read: u64,
     snapshot_bytes: u64,
     decoded_nodes: usize,
     decoded_edges: usize,
@@ -99,7 +74,7 @@ impl SnapshotReader {
         let expected_header = r.take(32)?;
         let mut directory = vec![0; count * TABLE_ENTRY_LEN];
         file.read_exact(&mut directory).map_err(|e| e.to_string())?;
-        let digest = Sha256::digest(&directory);
+        let digest = octocode_engine::digest::sha256_digest(&directory);
         if digest.as_slice() != expected_header || hex::encode(digest) != expected {
             return Err("graph directory checksum does not match its manifest".into());
         }
@@ -166,7 +141,7 @@ impl SnapshotReader {
                 return Err("graph block directory exceeds section".into());
             }
             let directory = reader.read_at(offset, length as u64, cancel)?;
-            if Sha256::digest(&directory).as_slice() != digest {
+            if octocode_engine::digest::sha256_digest(&directory).as_slice() != digest {
                 return Err("graph block directory checksum mismatch".into());
             }
             let parsed = blocks::parse(&directory, len)?;
@@ -230,7 +205,7 @@ impl SnapshotReader {
             block.digest,
         );
         let bytes = self.read_at(offset, len, cancel)?;
-        if Sha256::digest(&bytes).as_slice() != digest {
+        if octocode_engine::digest::sha256_digest(&bytes).as_slice() != digest {
             return Err("graph record block checksum mismatch".into());
         }
         self.checked.insert((tag, Some(index)));
@@ -244,12 +219,6 @@ impl SnapshotReader {
         self.point
     }
 
-    /// Whether origins and source records are read through this reader
-    /// rather than from decoded tables.
-    pub(crate) fn reads_sources(&self) -> bool {
-        self.point || self.evidence.is_some()
-    }
-
     pub(crate) fn topology_tables(
         &mut self,
         cancel: &dyn CancellationCheck,
@@ -257,8 +226,12 @@ impl SnapshotReader {
         let mut sections = BTreeMap::new();
         let tags = self.sections.keys().copied().collect::<Vec<_>>();
         for tag in tags {
-            // Occurrence evidence and the strings only it references.
-            if matches!(&tag, b"STRE" | b"WITN" | b"UNRS") {
+            // Evidence is authenticated and decoded only for the records an
+            // answer renders. Topology traversals need none of these bodies.
+            if matches!(
+                &tag,
+                b"STRE" | b"WITN" | b"UNRS" | b"SRCE" | b"SRCO" | b"DECL"
+            ) {
                 continue;
             }
             let bytes = self.section(tag, cancel)?;
@@ -382,19 +355,5 @@ impl SnapshotReader {
             .filter(|(_, count)| **count != 0)
             .map(|(kind, count)| (kind.as_str(), u64::from(*count)))
             .collect()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn validation(&self) -> serde_json::Value {
-        let total = 1
-            + self.sections.len()
-            + self
-                .blocks
-                .values()
-                .map(|(_, blocks)| blocks.len())
-                .sum::<usize>();
-        serde_json::json!({"scope":"accessedBlocks", "checkedBlocks":1 + self.checked.len(), "totalBlocks":total,
-            "bytesRead":self.bytes_read, "snapshotBytes":self.snapshot_bytes,
-            "decodedNodes":self.decoded_nodes, "decodedEdges":self.decoded_edges, "decodedWitnesses":self.decoded_occurrences})
     }
 }

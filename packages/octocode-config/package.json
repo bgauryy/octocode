@@ -16,7 +16,8 @@
     "esbuild": "^0.28.2",
     "typescript": "^6.0.3",
     "vite": "^8.3.4",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.4",
+    "zod": "^4.6.7"
   },
   "engines": {
     "node": "^24.15.0"
@@ -58,11 +59,14 @@
     "clean": "rm -rf dist/ coverage/",
     "generate:config-contract": "node scripts/generate-config-contract.ts",
     "generate:tool-contract": "node scripts/generate-tool-contract.ts",
-    "lint": "node scripts/generate-config-contract.ts --check && yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint:own": "node scripts/generate-config-contract.ts --check",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
     "test": "vitest run --coverage",
     "test:tokens:acceptance": "cd ../.. && node packages/octocode-config/tests/token-precedence.acceptance.mjs",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
-    "verify": "yarn lint && yarn typecheck && yarn test && yarn build"
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test && yarn build",
+    "verify": "yarn verify:own && yarn lint:oxlint"
   },
   "type": "module",
   "types": "./dist/index.d.ts"

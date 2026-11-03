@@ -14,7 +14,6 @@ import { RESERVED_KEY_PREFIXES } from './expiry.js';
 import { health } from './health.js';
 import * as leases from './leases.js';
 import { peerContext, peersChanged } from './peers.js';
-import { answerSlots, finishRequest, isRequest, messageSlots, wakesByDefault } from './protocols.js';
 import { fetch, record } from './records.js';
 import { inboxItem, sessionRow, type Session } from './rows.js';
 import { Registration, register } from './registry.js';
@@ -24,15 +23,15 @@ import type { AttachmentHost } from './store-types.js';
 import { stripNulls } from './store-types.js';
 import { truncateCodePoints } from './text.js';
 import { HOUR_MS, now } from './timing.js';
-import { jsonEqual, parseObject, type JsonObject } from './validation.js';
+import { jsonEqual } from './validation.js';
 import { compact, dumps } from './json-text.js';
 import { checkScope, coordinationScope, scopeWorkspaces, storedScope } from './workspace.js';
 import { realpath } from './paths.js';
 
-const INBOX_COLUMNS = 'm.id,m.sender,s.name AS senderName,m.kind,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo,m.replyRequired FROM deliveries d JOIN messages m ON m.id=d.message JOIN sessions s ON s.id=m.sender';
+const INBOX_COLUMNS = 'm.id,m.sender,s.name AS senderName,m.parts,m.outcome,m.reasoning,m.topic,m.expiresAt,m.wake,m.contextId,m.replyTo,m.replyRequired FROM deliveries d JOIN messages m ON m.id=d.message JOIN sessions s ON s.id=m.sender';
 
 /** What `send` stores: a send_message input, or the final reply `complete` builds from its own input. */
-type Outgoing = SendMessageInput & { replyTo?: number; slots?: JsonObject; outcome?: CompleteInput['outcome'] };
+type Outgoing = SendMessageInput & { replyTo?: number; outcome?: CompleteInput['outcome'] };
 
 export class Store implements AttachmentHost, DeliveryApi {
   readonly workspace: string;
@@ -161,9 +160,7 @@ export class Store implements AttachmentHost, DeliveryApi {
     lock_many: (session, input) => leases.lockMany(this, session, input),
     renew: (session, input) => leases.renew(this, session, input),
     unlock: (session, input) => leases.unlock(this, session, input),
-    send_message: (session, input) => this.send(session, input, false, false),
-    // notify_all's input is a subset of send_message's.
-    notify_all: (session, input) => this.send(session, { ...input }, true, false),
+    send_message: (session, input) => this.send(session, input),
     complete: (session, input) => this.complete(session, input),
   };
 
@@ -179,11 +176,8 @@ export class Store implements AttachmentHost, DeliveryApi {
 
   private complete(session: string, input: CompleteInput): CommandResults['complete'] {
     if ('reply' in input) {
-      const [slots, body] = answerSlots(this, session, input);
-      // The outcome also travels in reasoning, which inbox returns beside the BLUF body.
-      const reasoning = `Outcome: ${input.outcome}` + ('reasoning' in input ? '; ' + input.reasoning : '');
-      catalog.text({ reasoning }, 'reasoning');
-      return this.send(session, { replyTo: input.message, body, slots, outcome: input.outcome, reasoning, key: `complete:${input.message}`, wake: 'action' }, false, true);
+      const reasoning = input.reasoning ?? 'Final result';
+      return this.send(session, { replyTo: input.message, parts: input.reply!, outcome: input.outcome, reasoning, key: `complete:${input.message}`, wake: 'action' }, true);
     }
     return transaction(this.db, () => {
       this.known(session);
@@ -198,57 +192,44 @@ export class Store implements AttachmentHost, DeliveryApi {
     });
   }
 
-  send(session: string, input: Outgoing, broadcast?: boolean, completing?: false): CommandResults['send_message'];
-  send(session: string, input: Outgoing, broadcast: boolean, completing: true): Extract<CommandResults['complete'], { id: number }>;
-  send(session: string, input: Outgoing, broadcast = false, completing = false): CommandResults['send_message'] | Extract<CommandResults['complete'], { id: number }> {
-    if (!completing && 'replyTo' in input) throw new ValidationError('Final replies require complete with message and reply');
-    if (!broadcast && (('to' in input && 'topic' in input) || !['to', 'topic', 'replyTo'].some(key => key in input))) throw new ValidationError('Supply exactly one of to or topic. For replies use complete with message and reply.');
-    let target: string | null = broadcast ? '*' : 'to' in input ? catalog.text(input, 'to') : 'topic' in input ? catalog.text(input, 'topic') : null;
+  private send(session: string, input: Outgoing, completing?: false): CommandResults['send_message'];
+  private send(session: string, input: Outgoing, completing: true): Extract<CommandResults['complete'], { id: number }>;
+  private send(session: string, input: Outgoing, completing = false): CommandResults['send_message'] | Extract<CommandResults['complete'], { id: number }> {
+    const broadcast = input.to === '*';
+    let target: string | null = input.to ?? input.topic ?? null;
     const reasoning = catalog.text(input, 'reasoning');
-    // The kind decides the policy: requests owe an answer; requests and blockers wake.
-    const kind = completing ? 'answer' : catalog.kindOf(input);
-    const replyRequired = isRequest(kind);
+    const replyRequired = !completing && (input.replyRequired ?? false);
     const duration = catalog.ttl(input, HOUR_MS);
-    const wake: string = input.wake ?? (wakesByDefault(kind) ? 'action' : 'passive');
-    const key = 'key' in input ? catalog.text(input, 'key') : randomUUID();
+    const wake = input.wake ?? (replyRequired ? 'action' : 'passive');
+    const key = input.key ?? randomUUID();
     if (!completing && RESERVED_KEY_PREFIXES.some(prefix => key.startsWith(prefix))) throw new ValidationError(`Keys beginning ${RESERVED_KEY_PREFIXES.join(', ')} are reserved for final replies and runtime notices`);
     return transaction(this.db, () => {
       this.known(session);
       if ('to' in input && !broadcast) target = this.resolvePeer(target!);
-      let slots: JsonObject | null;
-      let body: string;
-      let conversation: string | undefined;
-      if (completing) {
-        // `complete` always supplies both.
-        slots = input.slots!;
-        body = input.body!;
-      } else {
-        [slots, body, conversation] = messageSlots(this, session, kind, input, target);
-      }
-      catalog.text({ body }, 'body');
+      let conversation = input.contextId;
       let replySender: string | null = null;
       if (input.replyTo !== undefined) {
-        const parents = query(this.db, 'SELECT m.conversationId,m.sender,m.replyRequired FROM messages m JOIN sessions s ON s.id=m.sender WHERE m.id=? AND s.workspace IN (SELECT value FROM json_each(?)) AND (m.sender=? OR EXISTS(SELECT 1 FROM deliveries d WHERE d.message=m.id AND d.recipient=?))', [input.replyTo, dumps(this.sharedWorkspaces()), session, session]);
+        const parents = query(this.db, 'SELECT m.contextId,m.sender,m.replyRequired FROM messages m JOIN sessions s ON s.id=m.sender WHERE m.id=? AND s.workspace IN (SELECT value FROM json_each(?)) AND (m.sender=? OR EXISTS(SELECT 1 FROM deliveries d WHERE d.message=m.id AND d.recipient=?))', [input.replyTo, dumps(this.sharedWorkspaces()), session, session]);
         if (!parents.length) throw new ValidationError(`Unknown message ${input.replyTo} for this session. Use data.messageId from fetch or item.id from inbox, never a recordId.`);
         const parent = parents[0]!;
         if (!parent.replyRequired) throw new ValidationError(`Message ${input.replyTo} is informational and accepts no reply. Handle it with complete using message or messages only; start a new direct request for new work`);
-        conversation = rowOptionalText(parent, 'conversationId');
+        conversation = rowOptionalText(parent, 'contextId');
         replySender = rowText(parent, 'sender');
       }
       target = target ?? replySender;
       if (target === null) throw new ValidationError('Reply parent has no sender');
       if (completing && (replySender !== target || !query(this.db, 'SELECT 1 FROM deliveries WHERE message=? AND recipient=?', [input.replyTo!, session]).length)) throw new ValidationError('Completion requires replying to a message received by this session');
-      const receipt = (id: number, recipients: number, effects: ReturnType<typeof finishRequest> = {}, offline = false): CommandResults['send_message'] | Extract<CommandResults['complete'], { id: number }> => {
+      const receipt = (id: number, recipients: number, offline = false): CommandResults['send_message'] | Extract<CommandResults['complete'], { id: number }> => {
         if (!completing) return { id, recipients, ...(offline ? { recipientOffline: true as const } : {}) };
         execute(this.db, 'UPDATE deliveries SET acknowledgedAt=? WHERE message=? AND recipient=? AND acknowledgedAt IS NULL', [now(), input.replyTo!, session]);
-        return { id, recipients, ...(offline ? { recipientOffline: true as const } : {}), completed: true, count: 1, ...effects };
+        return { id, recipients, ...(offline ? { recipientOffline: true as const } : {}), completed: true, count: 1 };
       };
       const existing = query(this.db, 'SELECT * FROM messages WHERE sender=? AND key=?', [session, key]);
       if (existing.length) {
         const row = existing[0]!;
-        const expected: Row = { target, kind, body, topic: input.topic, reasoning, wake, conversationId: conversation, replyTo: input.replyTo, replyRequired, ttlMs: duration };
-        if (Object.entries(expected).some(([field, value]) => (row[field] ?? null) !== (value ?? null)) || !jsonEqual(rowOptionalText(row, 'slots') === undefined ? null : parseObject(rowText(row, 'slots'), 'message slots'), slots ?? null))
-          throw new ValidationError(completing ? 'Final reply already stored with different content; use send_message for new work' : 'Message key reused with different content (target, topic, body, reasoning, wake, correlation or ttlMs); use a new key');
+        const expected: Row = { target, outcome: input.outcome, topic: input.topic, reasoning, wake, contextId: conversation, replyTo: input.replyTo, replyRequired, ttlMs: duration };
+        if (Object.entries(expected).some(([field, value]) => (row[field] ?? null) !== (value ?? null)) || !jsonEqual(JSON.parse(rowText(row, 'parts')), input.parts))
+          throw new ValidationError(completing ? 'Final reply already stored with different content; use send_message for new work' : 'Message key reused with different content (target, topic, parts, outcome, reasoning, wake, correlation or ttlMs); use a new key');
         return receipt(rowInteger(row, 'id'), this.deliveryCount(rowInteger(row, 'id')));
       }
       if (completing && query(this.db, 'SELECT 1 FROM deliveries WHERE message=? AND recipient=? AND acknowledgedAt IS NOT NULL', [input.replyTo!, session]).length) throw new ValidationError('Message already completed without this reply; send_message for new work');
@@ -259,10 +240,9 @@ export class Store implements AttachmentHost, DeliveryApi {
         offline = this.peer(target).expiresAt <= now();
         recipients = [{ id: target }];
       } else recipients = query(this.db, 'SELECT s.id FROM sessions s JOIN subscriptions t ON s.id=t.session WHERE t.topic=? AND s.workspace IN (SELECT value FROM json_each(?)) AND s.expiresAt>? AND s.id<>?', [target, dumps(this.sharedWorkspaces()), now(), session]).map(row => ({ id: rowText(row, 'id') }));
-      const id = this.db.run('INSERT INTO messages(sender,target,topic,body,key,expiresAt,reasoning,wake,conversationId,replyTo,ttlMs,replyRequired,kind,slots) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [session, target, input.topic ?? null, body, key, now() + duration, reasoning, wake, conversation ?? null, input.replyTo ?? null, duration, replyRequired, kind, slots === null ? null : compact(slots)] as SqlValue[]).lastInsertRowid;
+      const id = this.db.run('INSERT INTO messages(sender,target,topic,parts,key,expiresAt,reasoning,wake,contextId,replyTo,ttlMs,replyRequired,outcome) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)', [session, target, input.topic ?? null, compact(input.parts), key, now() + duration, reasoning, wake, conversation ?? null, input.replyTo ?? null, duration, replyRequired, input.outcome ?? null] as SqlValue[]).lastInsertRowid;
       for (const recipient of recipients) execute(this.db, 'INSERT INTO deliveries(message,recipient) VALUES(?,?)', [id, recipient.id]);
-      const effects = completing ? finishRequest(this, session, input.replyTo!, id, input.outcome!, now()) : {};
-      return receipt(id, this.deliveryCount(id), effects, offline);
+      return receipt(id, this.deliveryCount(id), offline);
     });
   }
 

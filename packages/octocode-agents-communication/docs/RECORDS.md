@@ -21,7 +21,7 @@ Writers emit full coordination and lease snapshots. A crash creates no out recor
 | Record types | `data` fields (`?` optional) | Writer |
 | --- | --- | --- |
 | `coordinate.in`, `coordinate.update`, `coordinate.profile`, `coordinate.out` | name, vendor, vendorSession?, task, status, expiresAt | join/resume, heartbeat, set_status, leave |
-| `message` | messageId, kind, body (rendered from the kind's slots), ttlMs, expiresAt, reasoning, wake, replyRequired, key?, topic?, conversationId?, replyTo?; oversized delivered references add bodyOmitted? and next? | send_message, notify_all, complete |
+| `message` | messageId, parts, ttlMs, expiresAt, reasoning, wake, replyRequired, outcome?, key?, topic?, contextId?, replyTo?; oversized delivered references add contentOmitted? and next? | send_message, complete |
 | `lease.acquired`, `lease.renewed`, `lease.removed` | leaseId, path, kind, expiresAt, reasoning | lock/lock_many, renew/heartbeat, unlock/leave/prune |
 | `subscription.added`, `subscription.removed` | topic | subscribe/leave |
 | `attachment.created`, `attachment.updated` | transport, endpoint (nullable) | attach |
@@ -48,7 +48,7 @@ An authorized operator audit can use `view` or a `db export` snapshot.
 Participant-scoped `fetch` is not a whole-repository conversation audit.
 
 ```sh
-agent fetch '{"incoming":true,"type":"message","limit":20}'
+agent inbox '{"after":0}'
 agent fetch '{"types":["coordinate.in","coordinate.out"],"from":"PEER_DB_ID","limit":20}'
 agent fetch '{"type":"memory","search":"API compatibility","branch":"feature/api","limit":20}'
 agent fetch '{"type":"dispatch.uncertain","where":{"messageId":17},"current":true}'
@@ -61,7 +61,7 @@ agent record '{"type":"checkpoint","data":{"goal":"Review API","done":["src/api.
 
 ## Read complete pages
 
-Call each `next.command` with `next.input` unchanged and the same binding until no `next` remains, including after empty pages. `after` is exclusive; `through` fixes the scan ceiling so concurrent writes cannot move it. A page holds at most 100 records within a 16 KiB target; an oversized record stays intact with a diagnostic. Oversized hook references carry `data.bodyOmitted:true` and `data.next`: follow it before acting, since a reference is not the full message.
+Call each `next.command` with `next.input` unchanged and the same binding until no `next` remains, including after empty pages. `after` is exclusive; `through` fixes the scan ceiling so concurrent writes cannot move it. A page holds at most 100 records within a 16 KiB target; an oversized record stays intact with a diagnostic. Oversized hook references carry `data.contentOmitted:true` and `data.next`: follow it before acting, since a reference is not the full message.
 
 ## Write generic records
 

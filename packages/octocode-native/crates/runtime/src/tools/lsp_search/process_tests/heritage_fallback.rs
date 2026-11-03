@@ -73,9 +73,7 @@ fn type_hierarchy_falls_back_when_the_server_has_no_type_hierarchy() {
             .await
             .unwrap_or_else(|error| panic!("{operation} fails without a hierarchy: {error:?}"));
             assert_eq!(row["lsp"]["source"], source, "{row}");
-            let paths = row["matches"]
-                .as_array()
-                .expect("matches")
+            let paths = location_rows(&row)
                 .iter()
                 .map(|found| found["path"].as_str().unwrap_or_default().to_owned())
                 .collect::<Vec<_>>();
@@ -156,9 +154,7 @@ fn subtypes_fall_back_to_a_labelled_heritage_scan_when_implementation_fails() {
         .await
         .unwrap_or_else(|error| panic!("a failed implementation request falls back: {error:?}"));
         assert_eq!(row["lsp"]["source"], "native-graph-facts", "{row}");
-        let found = row["matches"]
-            .as_array()
-            .expect("matches")
+        let found = location_rows(&row)
             .iter()
             .map(|found| {
                 Path::new(found["path"].as_str().unwrap_or_default())
@@ -308,9 +304,7 @@ fn implementation_on_a_type_falls_back_to_the_labelled_heritage_scan() {
         .unwrap_or_else(|error| panic!("a type anchor falls back: {error:?}"));
     assert_eq!(row["lsp"]["source"], "native-graph-facts", "{row}");
     assert_eq!(row["operation"], "implementation", "{row}");
-    let files = row["matches"]
-        .as_array()
-        .expect("matches")
+    let files = location_rows(&row)
         .iter()
         .map(|found| {
             Path::new(found["path"].as_str().unwrap_or_default())

@@ -48,6 +48,7 @@ async fn run_row(
         paths,
         execution,
         None,
+        crate::tools::lsp_search::test_answers(),
     )
     .await
     .expect("row")

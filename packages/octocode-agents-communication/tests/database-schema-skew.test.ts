@@ -29,7 +29,7 @@ test('a database with an older schema version is refused with a clear error and 
   const info = JSON.parse(execFileSync(binary, ['db', 'info', '--workspace', workspace, '--database', database], { encoding: 'utf8' }));
   assert.equal(info.compatible, false);
   assert.equal(info.schemaVersion, 6);
-  assert.equal(info.expectedSchemaVersion, 7);
+  assert.ok(info.expectedSchemaVersion > 7);
   assert.equal(digest(), before);
   const check = new DatabaseSync(database, { readOnly: true });
   assert.equal(only(check.prepare('PRAGMA user_version').get()).user_version, 6);

@@ -1,6 +1,11 @@
 //! The read a listing's first page leads to.
 use super::{EntryKind, Row};
-use serde_json::{Value, json};
+use crate::response::result::Continuation;
+use octocode_contract_types::{
+    LocalFetchQuery, LocalFetchQueryContent0, LocalFetchQueryContent0View, LocalFetchQuerySymbols,
+    LocalFetchQuerySymbolsView,
+};
+use serde_json::Value;
 
 /// A related read on a listing's first page (`rows`): the best-ranked file
 /// ([`read_rank`](crate::tools::root_read::read_rank), the ranking
@@ -38,14 +43,33 @@ pub(crate) fn read_lead(rows: &[Row], root: &std::path::Path) -> Option<Value> {
     } else {
         root.join(&row.path)
     };
-    let mut query = json!({"path": path.to_string_lossy()});
-    if crate::tools::outlines(&row.path) {
-        query["view"] = json!("symbols");
-    }
-    Some(
-        crate::response::result::Continuation::related(crate::id::ToolId::LocalFetch, query)
-            .build(),
-    )
+    let path = path.to_string_lossy();
+    let query: LocalFetchQuery = if crate::tools::outlines(&row.path) {
+        LocalFetchQuerySymbols {
+            limit: None,
+            main_goal: None,
+            path: path.as_ref().try_into().ok()?,
+            read_progress: None,
+            reasoning: None,
+            snapshot: None,
+            view: LocalFetchQuerySymbolsView::Symbols,
+        }
+        .into()
+    } else {
+        LocalFetchQueryContent0 {
+            classification: None,
+            limit: None,
+            main_goal: None,
+            path: path.as_ref().try_into().ok()?,
+            read_progress: None,
+            reasoning: None,
+            selection: None,
+            snapshot: None,
+            view: LocalFetchQueryContent0View::Content,
+        }
+        .into()
+    };
+    Some(Continuation::related_query(query).build())
 }
 
 /// Largest file a listing's read lead points at by preference: a lead

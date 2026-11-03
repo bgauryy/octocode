@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isMainModule } from './lib/entrypoint.mjs';
 import { ROOT } from './lib/workspaces.mjs';
 
 const REGISTRY = 'https://registry.npmjs.org';
@@ -30,7 +30,7 @@ const outIndex = args.indexOf('--out');
 const out = path.resolve(
   outIndex >= 0 ? args[outIndex + 1] : path.join(ROOT, 'packages/octocode-native/homebrew/octocode.rb')
 );
-const requested = args.find((arg, index) => !arg.startsWith('--') && index !== outIndex + 1);
+const requested = args.find((arg, index) => !arg.startsWith('--') && args[index - 1] !== '--out');
 
 async function json(url) {
   const response = await fetch(url);
@@ -126,4 +126,4 @@ async function main() {
   console.log('  Next: copy it to bgauryy/homebrew-octocode Formula/octocode.rb, then brew audit + brew install there.');
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
+if (isMainModule(import.meta.url)) await main();

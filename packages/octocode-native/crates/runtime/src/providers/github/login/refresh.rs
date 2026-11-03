@@ -6,8 +6,8 @@ use super::{
 };
 use crate::civil_date::unix_secs;
 use octocode_github::{CredentialSource, ProviderError, ProviderErrorKind};
+use octocode_io::cancellation::Cancellation;
 use std::time::{Duration, Instant};
-use tokio_util::sync::CancellationToken;
 
 /// How long a refresher waits for another process to finish its refresh:
 /// the OAuth call's own admission wait plus its HTTP timeout.
@@ -245,7 +245,7 @@ pub(super) async fn exchange_refresh_token(
     refresh_token: &str,
 ) -> Result<RefreshedToken, ProviderError> {
     let client = &login_client()?;
-    let token: TokenResponse = auth_call(endpoints, &CancellationToken::new(), async {
+    let token: TokenResponse = auth_call(endpoints, &Cancellation::new(), async {
         post_form(
             client,
             endpoints,

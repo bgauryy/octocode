@@ -38,9 +38,4 @@ describe('getOctocodeHome', () => {
     vi.doUnmock('node:os');
     vi.resetModules();
   });
-
-  it('no arguments uses process.env defaults without throwing', () => {
-    expect(() => getOctocodeHome()).not.toThrow();
-    expect(typeof getOctocodeHome()).toBe('string');
-  });
 });

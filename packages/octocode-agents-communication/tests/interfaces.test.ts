@@ -19,15 +19,15 @@ test('MCP and CLI report the published manifest version', () => {
 test('all canonical operations expose contextual help with no unexplained flags', () => {
   const spec = createCommunicationCli();
   // Every catalog command, with spaces as dashes, plus the two record-type discovery commands the CLI adds.
-  assert.deepEqual(spec.commands.map(command => command.name).toSorted(), [...catalog.catalog().commands.map((command: { name: string }) => command.name.replaceAll(' ', '-')), 'schema-type', 'schema-types'].toSorted());
+  assert.deepEqual(spec.commands.map(command => command.name).toSorted(), [...catalog.catalog().commands.map((command: { name: string }) => command.name.replaceAll(' ', '-')), 'agents', 'messages', 'leases', 'documents', 'records', 'schema-type', 'schema-types'].toSorted());
   for (const command of spec.commands) {
     assert.ok(commandHelp(spec, command).includes(command.description), command.name);
     for (const flag of command.flags) assert.ok(flag.description, `${command.name}.${flag.property}`);
   }
   const send = spec.commands.find(c => c.name === 'send_message');
   assert.ok(send);
-  assert.throws(() => parseCommandInput(send, { body: 'x', reasoning: 'x', session: 'id' }));
-  assert.throws(() => parseCommandInput(send, { to: 'peer', topic: 'topic', body: 'x', reasoning: 'x', session: 'id' }));
+  assert.throws(() => parseCommandInput(send, { parts: [{ text: 'x' }], reasoning: 'x', session: 'id' }));
+  assert.throws(() => parseCommandInput(send, { to: 'peer', topic: 'topic', parts: [{ text: 'x' }], reasoning: 'x', session: 'id' }));
   assert.match(commandHelp(spec, send), /EXAMPLES[\s\S]*--to/);
   const complete = spec.commands.find(c => c.name === 'complete');
   assert.ok(complete);
@@ -44,7 +44,7 @@ test('CLI preserves identities and leases across invocations; default MCP borrow
   const input = [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } } },
     { jsonrpc: '2.0', id: 2, method: 'tools/list' },
-    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'locks', arguments: {} } },
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'leases', arguments: { type: 'list', input: {} } } },
   ].map(message => JSON.stringify(message)).join('\n') + '\n';
   const output = execFileSync(process.execPath, [entry, '--session', identity.id, '--workspace', workspace, '--database', join(workspace, 'db.sqlite')], { input, encoding: 'utf8', timeout: 10000 }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
   const reply = (id: number): JsonRecord => {
@@ -53,7 +53,7 @@ test('CLI preserves identities and leases across invocations; default MCP borrow
     return row;
   };
   assert.equal(reply(1).result.serverInfo.version, manifest.version);
-  assert.ok(reply(2).result.tools.some((tool: JsonRecord) => tool.name === 'send_message'));
+  assert.ok(reply(2).result.tools.some((tool: JsonRecord) => tool.name === 'messages'));
   assert.equal(reply(3).result.isError, undefined);
   assert.equal(launch(['locks', ...bound]).items.length, 1);
   assert.equal(launch(['db-info', ...common]).compatible, true);

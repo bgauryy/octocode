@@ -21,25 +21,6 @@ pub(in crate::tools::gh_structure) fn missing_ref(
     missing
 }
 
-pub(in crate::tools::gh_structure) fn root_is_directory(
-    tree: &octocode_github::TreeResponse,
-    root: &str,
-) -> Result<(), ProviderError> {
-    if root.is_empty() {
-        return Ok(());
-    }
-    match tree.tree.iter().find(|entry| entry.path == root) {
-        Some(entry) if entry.kind != "tree" => Err(not_a_directory(root, git_kind(entry))),
-        Some(_) => Ok(()),
-        // A complete tree without the root: the path does not exist at this
-        // commit, as the contents API would answer (404).
-        None => Err(ProviderError::new(
-            ProviderErrorKind::NotFound,
-            format!("Path \"{root}\" not found"),
-        )),
-    }
-}
-
 /// A tree listing of a path that is not a directory, typed for its repair: a
 /// file or a symlink ([`ProviderErrorReason::PathIsFile`]) is read (a read
 /// follows a symlink to its file), and a submodule

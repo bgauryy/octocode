@@ -1,13 +1,15 @@
 //! A search pinned to a ref the default-branch index does not cover.
 use super::requested_ref;
-use crate::id::ToolId;
 use crate::response::paging::push_warnings;
 use crate::response::result::Continuation;
-use crate::tools::gh_shared::{RepoPath, ensure_calls};
-use octocode_contract_types::GhSearchCodeQuery;
+use crate::tools::gh_shared::ensure_calls;
+use octocode_contract_types::{
+    GhSearchCodeQuery, GhStructureQuery, GhStructureQueryTree, GhStructureQueryTreeOperation,
+};
 use octocode_github::ProviderError;
 use octocode_github::{ProviderErrorKind, RequestContext};
 use serde_json::{Value, json};
+use std::num::NonZeroU64;
 
 /// A search pinned to a ref other than the default-branch head: its files
 /// come from the default-branch index, so files only at the ref are missing
@@ -49,28 +51,45 @@ pub(in crate::tools::gh_search_code) async fn disclose_index_ref(
     // Rows not at the ref were moved or renamed there: search their names
     // across the whole tree (a moved file may leave the searched path).
     let moved = moved_names(value);
-    let at = RepoPath {
-        owner,
-        repo: repo.as_str(),
-        path: if moved.is_empty() {
-            query
-                .path_prefix
-                .as_deref()
-                .map_or("", |path| path.as_str())
-        } else {
-            ""
-        },
-        reference: Some(at_ref.as_deref().unwrap_or(reference)),
+    let path = if moved.is_empty() {
+        query
+            .path_prefix
+            .as_deref()
+            .map_or("", |path| path.as_str())
+    } else {
+        ""
     };
-    let mut listing = at.row();
-    listing["operation"] = json!("tree");
-    if !moved.is_empty() {
-        listing["include"] = json!(moved);
-    }
-    let lead = Continuation::related(ToolId::GhStructure, listing).build();
-    ensure_calls(value);
-    if let Some(next) = value.get_mut("calls").and_then(Value::as_object_mut) {
-        next.shift_insert(0, "viewRepo".to_owned(), lead);
+    let listing = moved
+        .iter()
+        .map(|name| name.as_str().try_into().ok())
+        .collect::<Option<Vec<_>>>()
+        .zip(owner.try_into().ok())
+        .zip(repo.as_str().try_into().ok())
+        .zip(at_ref.as_deref().unwrap_or(reference).try_into().ok())
+        .map(
+            |(((include, owner), repo), reference)| GhStructureQueryTree {
+                date_offset: None,
+                include,
+                limit: NonZeroU64::new(300).unwrap_or(NonZeroU64::MIN),
+                main_goal: None,
+                materialize: None,
+                materialize_offset: None,
+                max_depth: None,
+                operation: GhStructureQueryTreeOperation::Tree,
+                owner,
+                page: None,
+                path: (!path.is_empty()).then(|| path.to_owned()),
+                reasoning: None,
+                ref_: Some(reference),
+                repo,
+            },
+        );
+    if let Some(listing) = listing {
+        let lead = Continuation::related_query(GhStructureQuery::from(listing)).build();
+        ensure_calls(value);
+        if let Some(next) = value.get_mut("calls").and_then(Value::as_object_mut) {
+            next.shift_insert(0, "viewRepo".to_owned(), lead);
+        }
     }
     Ok(())
 }
@@ -105,7 +124,7 @@ async fn commit_or_none(
     context: &RequestContext,
 ) -> Result<Option<String>, ProviderError> {
     match provider
-        .resolve_reference(owner, repo, reference, false, context)
+        .resolve_reference(owner, repo, reference, context)
         .await
     {
         Ok(sha) => Ok(Some(sha)),

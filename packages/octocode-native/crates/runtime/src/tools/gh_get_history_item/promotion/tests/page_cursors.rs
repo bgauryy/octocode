@@ -1,6 +1,18 @@
 //! Page continuations: comment, compare, issue and file pages carry their own cursor and pinned grid, and only unreached axes are partial.
 use super::*;
 
+fn diff_page<'a>(out: &'a Value, axis: &str) -> &'a Value {
+    &out["contentPagination"][axis]["next"]["nextPage"]
+}
+
+fn row_page<'a>(out: &'a Value, row: &str, axis: &str) -> &'a Value {
+    &out[row][0]["contentPagination"][axis]["next"]["nextPage"]
+}
+
+fn pr_page<'a>(out: &'a Value, axis: &str) -> &'a Value {
+    row_page(out, "pullRequests", axis)
+}
+
 /// A cut comment body continues with the one text offset (`offset`),
 /// on the same comment page, reading only comments: every pull-request
 /// text surface windows with `offset`, as an issue's do.
@@ -15,7 +27,7 @@ fn a_cut_comment_body_continues_with_offset_on_its_comment_page() {
         "commentBody":{"hasMore":true,"nextOffset":500}
     }}]});
     promote_pr_continuations(&mut out, &query, &Remainder::default());
-    let next = &out["calls"]["continueCommentBody"]["input"]["queries"][0];
+    let next = &pr_page(&out, "commentBody")["input"]["queries"][0];
     assert_eq!(next["offset"], 500, "{out}");
     assert_eq!(next["page"], 2, "{out}");
     assert_eq!(next["sections"], json!(["comments"]), "{next}");
@@ -52,14 +64,15 @@ fn compare_pages_are_offered_once_with_their_own_cursor_only() {
         None,
         cursors,
     );
-    let next = first["calls"].as_object().expect("next");
-    assert!(next.get("nextFilePage").is_none(), "{first}");
-    let commits = &first["calls"]["nextPage"]["input"]["queries"][0];
-    for key in ["page", "offset", "length"] {
+    assert!(diff_page(&first, "files").is_null(), "{first}");
+    let commits = &diff_page(&first, "commits")["input"]["queries"][0];
+    assert_eq!(commits["page"], 2, "{commits}");
+    assert_eq!(commits["sections"], json!(["commits"]), "{commits}");
+    for key in ["offset", "length"] {
         assert!(commits.get(key).is_none(), "{key}: {commits}");
     }
     assert_eq!(
-        first["calls"]["continuePatch"]["input"]["queries"][0]["offset"],
+        diff_page(&first, "patches")["input"]["queries"][0]["offset"],
         5000
     );
 
@@ -75,11 +88,8 @@ fn compare_pages_are_offered_once_with_their_own_cursor_only() {
         None,
         cursors,
     );
-    let names = last["calls"]
-        .as_object()
-        .map(|next| next.keys().cloned().collect::<Vec<_>>());
-    assert_eq!(names, Some(vec!["nextFilePage".to_owned()]), "{last}");
-    let files = &last["calls"]["nextFilePage"]["input"]["queries"][0];
+    let files = &diff_page(&last, "files")["input"]["queries"][0];
+    assert!(files.is_object(), "{last}");
     assert_eq!(files["page"], 2, "{files}");
     assert!(files.get("offset").is_none(), "{files}");
 }
@@ -101,26 +111,29 @@ fn char_offset_continuations_narrow_content_to_their_own_surface() {
         "comments":{"hasMore":true,"nextPage":2}
     }}]});
     promote_pr_continuations(&mut out, &query, &Remainder::default());
-    let next = &out["calls"];
+    let next = &out["pullRequests"][0]["contentPagination"];
     assert_eq!(
-        next["continueBody"]["input"]["queries"][0]["sections"],
+        next["body"]["next"]["nextPage"]["input"]["queries"][0]["sections"],
         json!(["body"])
     );
-    assert_eq!(next["continueBody"]["input"]["queries"][0]["offset"], 12000);
     assert_eq!(
-        next["continueReviewBody"]["input"]["queries"][0]["sections"],
+        next["body"]["next"]["nextPage"]["input"]["queries"][0]["offset"],
+        12000
+    );
+    assert_eq!(
+        next["reviewBody"]["next"]["nextPage"]["input"]["queries"][0]["sections"],
         json!(["reviews"])
     );
     assert_eq!(
-        next["continuePatch"]["input"]["queries"][0]["sections"],
+        next["patches"]["next"]["nextPage"]["input"]["queries"][0]["sections"],
         json!(["patches"])
     );
     assert!(
-        next["continuePatch"]["input"]["queries"][0]
+        next["patches"]["next"]["nextPage"]["input"]["queries"][0]
             .get("content")
             .is_none()
     );
-    let comments = &next["nextCommentPage"]["input"]["queries"][0];
+    let comments = &next["comments"]["next"]["nextPage"]["input"]["queries"][0];
     assert!(comments.get("offset").is_none(), "{comments}");
     assert_eq!(comments["page"], 2);
 }
@@ -138,16 +151,16 @@ fn issue_pages_use_the_published_include_spelling() {
         "comments":{"hasMore":true,"nextPage":2}
     }}]});
     promote_issue_continuations(&mut out, &query, &Remainder::default());
-    let body = &out["calls"]["continueBody"]["input"]["queries"][0];
+    let body = &row_page(&out, "issues", "body")["input"]["queries"][0];
     assert_eq!(body["sections"], json!(["body"]), "{out}");
     assert!(body.get("content").is_none(), "{out}");
-    let comments = &out["calls"]["nextCommentPage"]["input"]["queries"][0];
+    let comments = &row_page(&out, "issues", "comments")["input"]["queries"][0];
     assert_eq!(comments["sections"], json!(["comments"]), "{out}");
     assert!(comments.get("content").is_none(), "{out}");
 }
 
 /// A budget-sized file page (no `pageSize`, no patches) carries the page
-/// size its grid was cut on in `nextFilePage`, so the continuation reads
+/// size its grid was cut on in the file page continuation, so the continuation reads
 /// the same grid under any batch share; a caller's `pageSize` and a patch
 /// page (fixed batch) carry nothing new. `readPatches` from an inventory
 /// page opens the patch page that holds the page's first file.
@@ -163,7 +176,7 @@ fn budget_sized_file_pages_pin_their_grid_on_the_continuation() {
             "files":{"hasMore":true,"nextPage":2}
         }}]});
         promote_pr_continuations(&mut out, query, &Remainder::default());
-        out["calls"]["nextFilePage"]["input"]["queries"][0].clone()
+        pr_page(&out, "files")["input"]["queries"][0].clone()
     };
     let pr = |fields: Value| {
         crate::tools::gh_get_history_item::util::merge(
@@ -202,7 +215,7 @@ fn budget_sized_file_pages_pin_their_grid_on_the_continuation() {
         out
     };
     let out = compare(2, 10_000);
-    let files = &out["calls"]["nextFilePage"]["input"]["queries"][0];
+    let files = &diff_page(&out, "files")["input"]["queries"][0];
     assert_eq!(
         (&files["page"], &files["pageSize"]),
         (&json!(3), &json!(166)),
@@ -235,14 +248,8 @@ fn cursors_ride_next_and_is_partial_marks_only_unreached_axes() {
     }}]});
     promote_pr_continuations(&mut out, &pr, &Remainder::default());
     assert!(out.get("isPartial").is_none(), "{out}");
-    assert_eq!(
-        out["calls"]["nextFilePage"]["input"]["queries"][0]["page"],
-        2
-    );
-    assert_eq!(
-        out["calls"]["continueBody"]["input"]["queries"][0]["offset"],
-        10
-    );
+    assert_eq!(pr_page(&out, "files")["input"]["queries"][0]["page"], 2);
+    assert_eq!(pr_page(&out, "body")["input"]["queries"][0]["offset"], 10);
     let pages = &out["pullRequests"][0]["contentPagination"];
     assert!(pages["body"].get("nextOffset").is_none(), "{out}");
     assert!(pages["files"].get("nextPage").is_none(), "{out}");
@@ -253,7 +260,7 @@ fn cursors_ride_next_and_is_partial_marks_only_unreached_axes() {
     }}]});
     promote_pr_continuations(&mut out, &pr, &Remainder::default());
     assert_eq!(out["isPartial"], true, "{out}");
-    assert!(out.get("calls").is_none(), "{out}");
+    assert!(pr_page(&out, "files").is_null(), "{out}");
 
     let issue = HistoryItemRequest::from_row(json!({
         "operation":"issue","owner":"a","repo":"b","number":1,"sections":["comments"]
@@ -265,7 +272,7 @@ fn cursors_ride_next_and_is_partial_marks_only_unreached_axes() {
     promote_issue_continuations(&mut out, &issue, &Remainder::default());
     assert!(out.get("isPartial").is_none(), "{out}");
     assert_eq!(
-        out["calls"]["nextCommentPage"]["input"]["queries"][0]["page"],
+        row_page(&out, "issues", "comments")["input"]["queries"][0]["page"],
         2
     );
     assert!(

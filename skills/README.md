@@ -1,6 +1,6 @@
 # Octocode skills
 
-These published Agent Skills guide research, design, writing, measurement, tool use, and agent-workflow execution. Each folder has `SKILL.md` for agent activation and workflow; most also ship `output.md` for result formats and a short `README.md` for people, while a single-file skill such as Roast keeps everything in `SKILL.md`. The shared authoring standard is in [octocode-skills](octocode-skills/SKILL.md).
+These published Agent Skills guide research, design, writing, measurement, tool use, and agent-workflow execution. Start at the linked skill. Multi-file skills have an output guide. A separate README serves readers who need setup, examples or operating instructions. The shared authoring standard is in [octocode-skills](octocode-skills/SKILL.md).
 
 Saved skill output lives under the project's `.octocode/` folder: reports and authored artifacts (research reports, RFCs, briefs, reviews, eval runs) in `<workspace>/.octocode/<skill-name>/`, and runtime captures and scratch files in its `tmp/` subfolder, so every file a skill writes stays under its own folder. A path the user names takes precedence; edits to the project's own code, docs, prompts, or skills stay at their source paths.
 
@@ -9,23 +9,24 @@ Report-oriented skills bundle the shared renderer with no npm dependencies, `scr
 | Skill | Use when |
 |---|---|
 | [Get started](octocode-get-started/) | Understand Octocode, install CLI/MCP and skills, configure scope and credentials, and verify a first task. |
-| [Research](octocode-research/) | A code, repository, or change-impact claim needs evidence. |
+| [Research](octocode-research/SKILL.md) | A code, repository, or change-impact claim needs evidence. |
+| [PR Review](octocode-pr-review/SKILL.md) | A pull request, branch, or local diff needs a merge verdict with proven findings. |
 | [Workflows](octocode-workflows/) | An orchestrator must select actors, sequence a multi-actor workflow, merge evidence, or resume it. |
 | [Scraping](octocode-scraping/) | Public pages need fetching or a reusable source corpus. |
 | [Chrome DevTools](octocode-chrome-devtools/) | A live browser is needed for rendering, interaction, or diagnostics. |
 | [Brainstorming](octocode-brainstorming/) | An open idea or claim needs independent research directions and current, checked evidence. |
 | [Graph View](octocode-graph-view/) | Map repository structure, retain graph evidence, and optionally render an interactive viewer. |
 | [Architect](octocode-architect/) | A software boundary or refactor needs an architecture decision. |
-| [RFC Generator](octocode-rfc-generator/) | A consequential technical choice needs its decision, design, and plan in one RFC. |
+| [RFC Generator](octocode-rfc-generator/SKILL.md) | A consequential technical choice needs its decision, design, and plan in one RFC. |
 | [Roast](octocode-roast/) | A blunt, evidence-backed code critique is requested. |
-| [Clean Agentic Code](octocode-clean-agentic-code/) | Proven code or instruction redundancy should be removed. |
-| [Documentation](octocode-documentation/) | Technical documentation needs writing, repair, or review. |
-| [Agentic Prompts](octocode-agentic-prompts/) | Prompts or agent flows need a behavioral rewrite. |
+| [Clean Agentic Code](octocode-clean-agentic-code/SKILL.md) | Proven code or instruction redundancy should be removed. |
+| [Documentation](octocode-documentation/SKILL.md) | Technical documentation needs writing, repair, or review. |
+| [Agentic Prompts](octocode-agentic-prompts/SKILL.md) | Prompts or agent flows need a behavioral rewrite, or past conversations need a prompting audit. |
 | [Skills](octocode-skills/) | Agent Skills need creation, review, tuning, or installation. |
-| [Eval Benchmark](octocode-eval-benchmark/) | A change needs a measured baseline and verdict. |
+| [Eval Benchmark](octocode-eval-benchmark/SKILL.md) | A change needs a measured baseline and verdict. |
 | [Agents Communication](octocode-agents-communication/) | Agents or sessions need shared messages, evidence, or handoffs. |
 
-These are public skills. Repository-only development helpers live in [skills-dev](../skills-dev/) and are not part of the public selection catalog.
+These are public skills. Repository-only development helpers live in [skills-dev](../skills-dev/) and are not part of the public selection catalog. A skill whose frontmatter sets `metadata.excluded-hosts` (space-separated host IDs) stays installable by the octocode CLI but is skipped by a listed host that honors it; Get started names `octocode-code`, whose own setup it would contradict.
 
 ## Install and review
 

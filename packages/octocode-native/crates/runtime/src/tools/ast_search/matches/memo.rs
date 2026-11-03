@@ -10,26 +10,6 @@ use serde_json::json;
 /// Scans kept for the continuation pages of a multi-page result.
 pub(super) static SCANS: super::super::memo::ScanMemo<Scan> = super::super::memo::ScanMemo::new();
 
-/// One scan per distinct query at a time: identical rows of one batch wait
-/// for the first one's scan and its start time (the memo's settle check).
-pub(super) static SCAN_FLIGHT: octocode_io::flight::KeyedFlight<
-    String,
-    Option<(std::sync::Arc<Scan>, std::time::SystemTime)>,
-> = octocode_io::flight::KeyedFlight::transient();
-
-/// The flight a row joins: every query field but its page cursors (rows that
-/// differ only in the page they show scan alike), plus the scan inputs the
-/// query does not name.
-pub(super) fn flight_key(q: MatchQuery<'_>, scan_key: &str) -> String {
-    let mut row = q.to_value();
-    if let Some(fields) = row.as_object_mut() {
-        for field in ["page", "matchPage", "snapshot"] {
-            fields.shift_remove(field);
-        }
-    }
-    crate::digest::json_sha256(&json!([row, scan_key]))
-}
-
 /// The scan inputs a `match` snapshot does not digest; a stored scan is
 /// served only to a page with the same ones. The row shape is one of them:
 /// a priced scan's prices are the sizes of rows of that shape.
@@ -137,25 +117,14 @@ pub(super) fn stored_scan(
     }
 }
 
-/// A fresh scan of the row's scope and when it started. Identical rows
-/// running at once (one batch) share one scan: the first scans, the others
-/// take its scan from the flight's slot.
-pub(super) fn shared_scan(
+/// A fresh scan of the row's scope and when it started. Every request owns
+/// its scan: identical concurrent requests do not share one.
+pub(super) fn fresh_scan(
     q: MatchQuery<'_>,
     scope: &Scope,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
-    key: &str,
 ) -> Result<(std::sync::Arc<Scan>, std::time::SystemTime), ToolError> {
-    let ticket = SCAN_FLIGHT.join(flight_key(q, key));
-    // Rows run on blocking workers, never on an async one. A waiter
-    // stops on its own cancellation while another request scans.
-    let mut slot = ticket
-        .blocking_turn_until(|| cancel.check())
-        .map_err(ToolError::cancelled)?;
-    if let Some((scan, started)) = slot.as_ref() {
-        return Ok((std::sync::Arc::clone(scan), *started));
-    }
     let started = octocode_engine::stamp::settle_clock();
     let mut scan = if scope.is_file {
         scan_file(q, scope, paths, cancel)?
@@ -164,11 +133,7 @@ pub(super) fn shared_scan(
     };
     cancel.check().map_err(ToolError::cancelled)?;
     sort_files(q, &mut scan.files);
-    let scan = std::sync::Arc::new(scan);
-    // Only a scan that completed is shared; a failed one
-    // leaves the next row to scan itself.
-    *slot = Some((std::sync::Arc::clone(&scan), started));
-    Ok((scan, started))
+    Ok((std::sync::Arc::new(scan), started))
 }
 
 /// Keep a fresh scan for the continuation pages of its result, watched for

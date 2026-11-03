@@ -1,18 +1,11 @@
-//! A renamed repository: its memoized canonical name and the rescope of a read or search.
+//! Resolve a renamed repository and rescope a read or search.
 use super::{push_warning_front, repository_not_found};
 use crate::response::result::ToolData;
 use octocode_github::{
-    GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
+    GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RepositoryMetadata,
+    RequestContext,
 };
 use serde_json::json;
-
-/// How long a repository's canonical name is remembered.
-const CANONICAL_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// The memo of a repository's canonical `owner/repo`.
-fn canonical_key(owner: &str, repo: &str) -> String {
-    format!("repo-canonical:{owner}/{repo}").to_ascii_lowercase()
-}
 
 /// `full_name` split into owner and repository when it names another
 /// repository than `owner/repo` (case-insensitive).
@@ -23,35 +16,7 @@ fn renamed_to(owner: &str, repo: &str, full_name: &str) -> Option<(String, Strin
         .then(|| (to_owner.to_owned(), to_repo.to_owned()))
 }
 
-/// Remember `owner/repo`'s canonical `full_name` (from repository metadata
-/// a tool already read) for later calls and processes.
-pub(crate) async fn remember_canonical(
-    provider: &GitHubProvider,
-    owner: &str,
-    repo: &str,
-    full_name: &str,
-    context: &RequestContext,
-) {
-    if let Ok(partition) = provider.transport.cache_partition(context, None) {
-        provider
-            .transport
-            .cache
-            .put(
-                &partition,
-                canonical_key(owner, repo),
-                octocode_github::CachedContent {
-                    etag: None,
-                    bytes: full_name.as_bytes().to_vec().into(),
-                    resolved_ref: String::new(),
-                    has_more: false,
-                },
-                octocode_github::Retention::Expires(CANONICAL_TTL),
-            )
-            .await;
-    }
-}
-
-/// How [`canonical_repo`] learns a rename its memo does not hold.
+/// How [`canonical_repo`] learns a rename.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RenameCheck {
     /// Only when a request to the repository already followed GitHub's
@@ -75,15 +40,16 @@ pub(crate) async fn canonical_repo(
     Ok(
         match canonical_scope(provider, owner, repo, context, check).await? {
             CanonicalScope::Renamed(canonical) => Some(canonical),
-            CanonicalScope::Stands | CanonicalScope::Missing(_) => None,
+            CanonicalScope::Stands(_) | CanonicalScope::Missing(_) => None,
         },
     )
 }
 
 /// What [`canonical_scope`] learned of a repository's name.
 enum CanonicalScope {
-    /// The name stands (case aside), or it cannot be checked.
-    Stands,
+    /// The name stands (case aside), or it cannot be checked; with the
+    /// metadata the check read, when it read it.
+    Stands(Option<RepositoryMetadata>),
     /// GitHub serves it under this `(owner, repo)`.
     Renamed((String, String)),
     /// The metadata read answered 404: the caller's not-found failure, so
@@ -91,9 +57,10 @@ enum CanonicalScope {
     Missing(ProviderError),
 }
 
-/// [`canonical_repo`], telling a missing repository apart. The memo answers
-/// first; past it, `check` decides whether one (memoized) metadata read is
-/// spent. Only a cancelled or timed-out read fails.
+/// [`canonical_repo`], telling a missing repository apart. A metadata read
+/// this request already made names the repository; past it, `check`
+/// decides whether metadata is needed. Only a cancelled or timed-out read
+/// fails.
 async fn canonical_scope(
     provider: &GitHubProvider,
     owner: &str,
@@ -101,29 +68,19 @@ async fn canonical_scope(
     context: &RequestContext,
     check: RenameCheck,
 ) -> Result<CanonicalScope, ProviderError> {
-    let Ok(partition) = provider.transport.cache_partition(context, None) else {
-        return Ok(CanonicalScope::Stands);
-    };
-    if let Some(cached) = provider
-        .transport
-        .cache
-        .get(&partition, &canonical_key(owner, repo))
-        .await
-    {
-        return Ok(std::str::from_utf8(&cached.bytes)
-            .ok()
-            .and_then(|full_name| renamed_to(owner, repo, full_name))
-            .map_or(CanonicalScope::Stands, CanonicalScope::Renamed));
+    if let Some(full_name) = context.read_full_name(owner, repo) {
+        return Ok(renamed_to(owner, repo, &full_name)
+            .map_or(CanonicalScope::Stands(None), CanonicalScope::Renamed));
     }
-    if check == RenameCheck::Redirected && !provider.transport.followed_rename(owner, repo) {
-        return Ok(CanonicalScope::Stands);
+    if check == RenameCheck::Redirected && !context.followed_rename(owner, repo) {
+        return Ok(CanonicalScope::Stands(None));
     }
-    let full_name = match provider
+    let metadata = match provider
         .transport
         .repository_metadata(owner, repo, context)
         .await
     {
-        Ok(meta) => meta.full_name,
+        Ok(metadata) => metadata,
         Err(error) if error.is_cancelled_or_timed_out() => {
             return Err(error);
         }
@@ -132,13 +89,16 @@ async fn canonical_scope(
                 error.with_reason(ProviderErrorReason::RepositoryNotFound),
             ));
         }
-        Err(_) => None,
+        Err(_) => return Ok(CanonicalScope::Stands(None)),
     };
-    let Some(full_name) = full_name else {
-        return Ok(CanonicalScope::Stands);
-    };
-    remember_canonical(provider, owner, repo, &full_name, context).await;
-    Ok(renamed_to(owner, repo, &full_name).map_or(CanonicalScope::Stands, CanonicalScope::Renamed))
+    match metadata
+        .full_name
+        .as_deref()
+        .and_then(|full_name| renamed_to(owner, repo, full_name))
+    {
+        Some(canonical) => Ok(CanonicalScope::Renamed(canonical)),
+        None => Ok(CanonicalScope::Stands(Some(metadata))),
+    }
 }
 
 /// Whether a search scoped to one repository answered what a rename could
@@ -167,13 +127,23 @@ pub(crate) enum Rescope {
     },
     /// The repository does not exist: the search's not-found failure.
     Missing(ProviderError),
-    /// The name stands, or cannot be checked.
-    Stands,
+    /// The name stands, or cannot be checked; with the metadata the check
+    /// read, so the search's own scope check need not read it again.
+    Stands(Option<RepositoryMetadata>),
+}
+
+/// What [`rerun_renamed`] made of a search a rename could explain.
+pub(crate) enum Rerun {
+    /// The search's output under the canonical name, stating the rename.
+    Renamed(ToolData),
+    /// The name stands: the search's own answer is final; with the
+    /// metadata the check read, when it read it.
+    Stands(Option<RepositoryMetadata>),
 }
 
 /// The rescope of a search scoped to `owner/repo` whose answer
 /// [`search_may_be_renamed`] could explain. GitHub search never follows a
-/// rename, so one (memoized) metadata read names the canonical repository
+/// rename, so one metadata read names the canonical repository
 /// the search reruns against. Only a cancelled or timed-out read fails.
 pub(crate) async fn rescope_on_rename(
     provider: &GitHubProvider,
@@ -189,7 +159,7 @@ pub(crate) async fn rescope_on_rename(
                 repo: to_repo,
             },
             CanonicalScope::Missing(error) => Rescope::Missing(error),
-            CanonicalScope::Stands => Rescope::Stands,
+            CanonicalScope::Stands(metadata) => Rescope::Stands(metadata),
         },
     )
 }
@@ -232,8 +202,8 @@ pub(crate) async fn canonical_query<Q: serde::Serialize + serde::de::Deserialize
 
 /// A search scoped to `owner/repo` whose empty answer a rename could
 /// explain ([`search_may_be_renamed`]), run again by `rerun` under the
-/// canonical name, its output stating the rename first; `None` when the
-/// name stands. A missing repository is the search's not-found failure.
+/// canonical name, its output stating the rename first ([`Rerun`]). A
+/// missing repository is the search's not-found failure.
 pub(crate) async fn rerun_renamed<Q, F, Fut>(
     provider: &GitHubProvider,
     query: &Q,
@@ -241,7 +211,7 @@ pub(crate) async fn rerun_renamed<Q, F, Fut>(
     repo: &str,
     context: &RequestContext,
     rerun: F,
-) -> Result<Option<ToolData>, ProviderError>
+) -> Result<Rerun, ProviderError>
 where
     Q: serde::Serialize + serde::de::DeserializeOwned,
     F: FnOnce(Q) -> Fut,
@@ -255,12 +225,12 @@ where
         } => {
             let mut output = rerun(with_repo(query, &owner, &repo)?).await?;
             push_warning_front(&mut output.data, warning);
-            Ok(Some(output))
+            Ok(Rerun::Renamed(output))
         }
         // The repository check already failed: the empty page's own check
         // of it would read the same 404 again.
         Rescope::Missing(error) => Err(error),
-        Rescope::Stands => Ok(None),
+        Rescope::Stands(metadata) => Ok(Rerun::Stands(metadata)),
     }
 }
 /// The one warning a read states for a renamed repository.

@@ -205,16 +205,19 @@ export function jsonCall(file: string, workspace: string, database: string, opti
   return (command: string, input?: unknown, session?: string): JsonRecord => JSON.parse(execFileSync(file, args(command, input, session), { encoding: 'utf8', ...options }));
 }
 
-export const reasoningCommands = ['send_message', 'notify_all', 'lock', 'lock_many', 'share_document'];
+export const reasoningCommands = ['send_message', 'lock', 'lock_many', 'share_document'];
 /** Adds a default reasoning to commands that require one; explicit input wins. */
 export const withReasoning = (command: string, input: Record<string, unknown>): Record<string, unknown> => reasoningCommands.includes(command)
   ? { reasoning: `Verify ${command} behavior in this isolated regression fixture`, ...input }
   : input;
 
-/** Valid slot payloads for the message kinds, shared by the store and CLI protocol tests. */
-export const task = (extra = {}) => ({ objective: 'Review storage', output: 'Findings', done: 'Given v7, when migrated, then tests pass', ...extra });
-export const decision = (extra = {}) => ({ question: 'Which store?', options: ['sqlite', 'postgres'], recommendation: 'sqlite', default: 'sqlite', ...extra });
-export const restate = (request: number) => ({ request, objective: 'Review storage', done: 'tests pass' });
-export const sbar = { situation: 'CI red', background: 'main', assessment: 'flaky', recommendation: 'rerun' };
-export const issue = { what: 'crash', where: 'a.ts:3', when: 'on save', who: 'unknown', why: 'unknown', how: 'save twice', howMuch: 'every save' };
-export const answer = (message: number, conclusion = 'Done', extra: Record<string, unknown> = {}) => ({ message, outcome: 'done', reply: { conclusion }, ...extra });
+/** A plain-text message part for tests that do not need structured JSON content. */
+export const textParts = (text: string) => [{ text }];
+/** Opaque structured payload used to prove policy-shaped data has no runtime effects. */
+export const dataParts = (data: unknown) => [{ data }];
+/** Extracts only text parts so assertions cannot accidentally rely on a removed body projection. */
+export const messageText = (parts: unknown): string => {
+  assert.ok(Array.isArray(parts), 'message parts are an array');
+  return parts.filter((part): part is { text: string } => typeof part === 'object' && part !== null && 'text' in part && typeof part.text === 'string').map(part => part.text).join('');
+};
+export const answer = (message: number, conclusion = 'Done', extra: Record<string, unknown> = {}) => ({ message, outcome: 'completed', reply: textParts(conclusion), ...extra });

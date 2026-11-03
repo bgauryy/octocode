@@ -14,10 +14,10 @@ const state = {
   sender: 'controller',
   requests: [{ id: 1, recipient: 'pi', expected: '15' }, { id: 2, recipient: 'codex', expected: '20' }],
   messages: [
-    { id: 1, sender: 'controller', target: 'pi', body: '7+8', replyTo: null },
-    { id: 2, sender: 'controller', target: 'codex', body: '11+9', replyTo: null },
-    { id: 3, sender: 'pi', target: 'controller', body: '15', replyTo: 1 },
-    { id: 4, sender: 'codex', target: 'controller', body: '20', replyTo: 2 },
+    { id: 1, sender: 'controller', target: 'pi', parts: [{ text: '7+8' }], replyTo: null },
+    { id: 2, sender: 'controller', target: 'codex', parts: [{ text: '11+9' }], replyTo: null },
+    { id: 3, sender: 'pi', target: 'controller', parts: [{ text: '15' }], replyTo: 1 },
+    { id: 4, sender: 'codex', target: 'controller', parts: [{ text: '20' }], replyTo: 2 },
   ],
   deliveries: [{ message: 1, recipient: 'pi', acknowledgedAt: 10 }, { message: 2, recipient: 'codex', acknowledgedAt: 20 }],
   dispatches: [{ message: 1, recipient: 'pi', state: 'submitted', submittedAt: 5 }, { message: 2, recipient: 'codex', state: 'submitted', submittedAt: 15 }],
@@ -27,11 +27,11 @@ test('concurrent grading requires exact, correlated, acknowledged native submiss
   assert.equal(gradeConcurrentWave(state).passed, true);
   for (const invalid of [
     { ...state, messages: state.messages.filter(message => message.id !== 4) },
-    { ...state, messages: state.messages.map(message => message.id === 4 ? { ...message, body: '21' } : message) },
+    { ...state, messages: state.messages.map(message => message.id === 4 ? { ...message, parts: [{ text: '21' }] } : message) },
     { ...state, messages: state.messages.map(message => message.id === 4 ? { ...message, sender: 'claude' } : message) },
     { ...state, messages: state.messages.map(message => message.id === 4 ? { ...message, target: 'other' } : message) },
     { ...state, messages: [...state.messages, { ...state.messages[3], id: 5 }] },
-    { ...state, messages: [...state.messages, { id: 6, sender: 'pi', target: 'codex', replyTo: null, body: 'unexpected' }] },
+    { ...state, messages: [...state.messages, { id: 6, sender: 'pi', target: 'codex', replyTo: null, parts: [{ text: 'unexpected' }] }] },
     { ...state, deliveries: state.deliveries.map(delivery => ({ ...delivery, acknowledgedAt: null })) },
     { ...state, dispatches: state.dispatches.map(dispatch => ({ ...dispatch, state: 'uncertain' })) },
   ]) assert.equal(gradeConcurrentWave(invalid).passed, false);
@@ -47,16 +47,16 @@ test('importing or calling the soak cannot launch paid work without opt-in and v
 });
 
 // --- qa: collaboration grading ---
-type GradedMessage = Pick<MessageRow, 'id' | 'sender' | 'target' | 'body' | 'replyTo'>;
+type GradedMessage = Pick<MessageRow, 'id' | 'sender' | 'target' | 'parts' | 'replyTo'>;
 interface Collaboration { request: number; notice: number; sender: string; receiver: string; expected: string; passiveTurns: number; messages: GradedMessage[]; deliveries: DeliveryRow[]; initialMessages?: number[] }
 
 function collaborationFixture(): Collaboration {
   return {
     request: 2, notice: 1, sender: 'sender', receiver: 'receiver', expected: '13', passiveTurns: 0,
     messages: [
-      { id: 1, sender: 'sender', target: 'receiver', body: 'FYI', replyTo: null },
-      { id: 2, sender: 'sender', target: 'receiver', body: 'Question', replyTo: null },
-      { id: 3, sender: 'receiver', target: 'sender', body: '13', replyTo: 2 },
+      { id: 1, sender: 'sender', target: 'receiver', parts: [{ text: 'FYI' }], replyTo: null },
+      { id: 2, sender: 'sender', target: 'receiver', parts: [{ text: 'Question' }], replyTo: null },
+      { id: 3, sender: 'receiver', target: 'sender', parts: [{ text: '13' }], replyTo: 2 },
     ],
     deliveries: [
       { message: 1, recipient: 'receiver', acknowledgedAt: 100 },
@@ -67,7 +67,7 @@ function collaborationFixture(): Collaboration {
 
 test('live-host grade requires the answer and exact message correlation', () => {
   assert.equal(gradeCollaboration(collaborationFixture()).passed, true);
-  for (const change of [(row: GradedMessage) => row.body = '12', (row: GradedMessage) => row.replyTo = 1, (row: GradedMessage) => row.target = 'someone-else']) {
+  for (const change of [(row: GradedMessage) => row.parts = [{ text: '12' }], (row: GradedMessage) => row.replyTo = 1, (row: GradedMessage) => row.target = 'someone-else']) {
     const input = collaborationFixture(); change(input.messages[2]);
     assert.equal(gradeCollaboration(input).passed, false);
   }
@@ -76,7 +76,7 @@ test('live-host grade requires the answer and exact message correlation', () => 
 test('host submission alone cannot pass without handling or with a reply loop', () => {
   const missing = collaborationFixture(); missing.deliveries[0].acknowledgedAt = null;
   assert.equal(gradeCollaboration(missing).passed, false);
-  const loop = collaborationFixture(); loop.messages.push({ id: 4, sender: 'receiver', target: 'sender', body: 'FYI received', replyTo: 1 });
+  const loop = collaborationFixture(); loop.messages.push({ id: 4, sender: 'receiver', target: 'sender', parts: [{ text: 'FYI received' }], replyTo: 1 });
   assert.equal(gradeCollaboration(loop).passed, false);
   const passive = collaborationFixture(); passive.passiveTurns = 1;
   assert.equal(gradeCollaboration(passive).passed, false);
@@ -85,7 +85,7 @@ test('host submission alone cannot pass without handling or with a reply loop', 
 test('authorized startup reports are separate from duplicate answers to the request', () => {
   const startup = collaborationFixture();
   startup.initialMessages = [4];
-  startup.messages.push({ id: 4, sender: 'receiver', target: 'sender', body: 'Ready', replyTo: null });
+  startup.messages.push({ id: 4, sender: 'receiver', target: 'sender', parts: [{ text: 'Ready' }], replyTo: null });
   assert.equal(gradeCollaboration(startup).passed, true);
   const duplicate = collaborationFixture();
   duplicate.messages.push({ ...duplicate.messages[2], id: 4 });
@@ -96,9 +96,9 @@ test('authorized startup reports are separate from duplicate answers to the requ
 const owner = 'owner', worker = 'worker', request = 1;
 const base = {
   messages: [
-    { id: 1, sender: 'sender', target: worker, body: 'lock it', replyTo: null },
-    { id: 2, sender: worker, target: owner, body: 'Need access', replyTo: null },
-    { id: 4, sender: worker, target: 'sender', body: 'LOCKED', replyTo: 1 },
+    { id: 1, sender: 'sender', target: worker, parts: [{ text: 'lock it' }], replyTo: null },
+    { id: 2, sender: worker, target: owner, parts: [{ text: 'Need access' }], replyTo: null },
+    { id: 4, sender: worker, target: 'sender', parts: [{ text: 'LOCKED' }], replyTo: 1 },
   ],
   deliveries: [{ message: 1, recipient: worker, acknowledgedAt: 50 }],
   leases: [{ id: 9, path: '/w/src/api.ts', owner: worker, acquiredAt: 30 }],
@@ -114,23 +114,52 @@ test('handoff grading requires asking, no overlap, acquisition after release and
 });
 
 test('paged read grading accepts only the exact final-page code once', () => {
-  const value = { messages: [{ id: 3, sender: worker, target: 'sender', body: ' CODE-1 ', replyTo: request }], deliveries: base.deliveries, request, worker, expected: 'CODE-1' };
+  const value = { messages: [{ id: 3, sender: worker, target: 'sender', parts: [{ text: ' CODE-1 ' }], replyTo: request }], deliveries: base.deliveries, request, worker, expected: 'CODE-1' };
   assert.equal(gradePagedRead(value).passed, true);
-  assert.equal(gradePagedRead({ ...value, messages: [...value.messages, { id: 5, sender: worker, target: 'sender', body: 'CODE-1', replyTo: request }] }).passed, false);
+  assert.equal(gradePagedRead({ ...value, messages: [...value.messages, { id: 5, sender: worker, target: 'sender', parts: [{ text: 'CODE-1' }], replyTo: request }] }).passed, false);
   assert.equal(gradePagedRead({ ...value, expected: 'CODE-2' }).passed, false);
 });
 
 test('tool stats count rejected complete calls across host trace shapes', () => {
   const stats = toolStats([
-    { type: 'tool-call', callId: 'a', tool: 'mcp__communication__complete' },
+    { type: 'tool-call', callId: 'a', tool: 'mcp__communication__messages', input: {type: 'complete', input: {message: 1}} },
     { type: 'tool-result', callId: 'a', isError: true },
-    { type: 'tool-call', callId: 'b', tool: 'complete' },
-    { type: 'tool-result', callId: 'b', tool: 'complete', error: null },
-    { type: 'tool-call', callId: 'c', tool: 'lock' },
-    { type: 'tool-result', callId: 'c', tool: 'lock', error: 'conflict' },
+    { type: 'tool-call', callId: 'b', tool: 'messages', input: {type: 'complete', input: {message: 2}} },
+    { type: 'tool-result', callId: 'b', tool: 'messages', error: null },
+    { type: 'tool-call', callId: 'c', tool: 'leases' },
+    { type: 'tool-result', callId: 'c', tool: 'leases', error: 'conflict' },
   ]);
   assert.deepEqual({ calls: stats.calls, errors: stats.errors, completeErrors: stats.completeErrors }, { calls: 3, errors: 2, completeErrors: 1 });
-  assert.deepEqual(stats.byTool.complete, { calls: 2, errors: 1 });
+  assert.deepEqual(stats.byTool.messages, { calls: 2, errors: 1, unknown: 1 });
+});
+
+test('tool stats distinguish nested MCP errors from unclassified Codex results', () => {
+  const stats = toolStats([
+    { type: 'tool-call', callId: 'a', tool: 'messages', input: { type: 'complete' } },
+    { type: 'tool-result', callId: 'a', result: { isError: true, content: [{ type: 'text', text: 'Invalid input' }] } },
+    { type: 'tool-call', callId: 'b', tool: 'messages', input: { type: 'complete' } },
+    { type: 'tool-result', callId: 'b', result: { content: [{ type: 'text', text: 'Invalid input: /outcome is not an allowed value' }] } },
+    { type: 'tool-call', callId: 'c', tool: 'documents' },
+    { type: 'tool-result', callId: 'c', isError: false, result: { content: [{ type: 'text', text: 'error is a useful word' }] } },
+  ]);
+  assert.equal(stats.errors, 1);
+  assert.equal(stats.completeErrors, 1);
+  assert.equal(stats.unknown, 1);
+  assert.equal(stats.completeUnknown, 1);
+});
+
+test('tool stats report unmatched calls and per-tool uncertainty', () => {
+  const stats = toolStats([
+    { type: 'tool-call', callId: 'a', tool: 'messages', input: { type: 'complete' } },
+    { type: 'tool-call', callId: 'b', tool: 'documents', input: { type: 'read' } },
+    { type: 'tool-result', callId: 'b', isError: false },
+    { type: 'tool-call', callId: 'c', tool: 'documents' },
+    { type: 'tool-result', callId: 'c', result: { content: [{ type: 'text', text: 'error' }] } },
+  ]);
+  assert.equal(stats.unknown, 2);
+  assert.equal(stats.completeUnknown, 1);
+  assert.deepEqual(stats.byTool.messages, { calls: 1, errors: 0, unknown: 1 });
+  assert.deepEqual(stats.byTool.documents, { calls: 2, errors: 0, unknown: 1 });
 });
 
 // --- entry point and preflight: nothing here starts a vendor process ---

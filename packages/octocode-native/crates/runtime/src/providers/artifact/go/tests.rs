@@ -81,7 +81,7 @@ async fn go_parses_exact_module_lookup() {
         module.clone(),
     )])
     .bytes("/github.com/gin-gonic/gin/@v/v1.9.1.mod", go_mod);
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let page = go(&q, &ArtifactProviderState::default(), &client)
         .await
         .expect("go");
@@ -102,7 +102,7 @@ async fn go_parses_exact_module_lookup() {
         ])
     );
     let http = RouteHttp::routes(vec![("/v1/module/github.com/gin-gonic/gin", module)]);
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let page = go(&q, &ArtifactProviderState::default(), &client)
         .await
         .expect("go without go.mod");
@@ -125,7 +125,7 @@ async fn go_package_paths_rejected_as_modules_read_the_package_endpoint() {
                 "version": "v0.61.0", "synopsis": "Package http2 implements the HTTP/2 protocol."}),
         );
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let q = exact_query(ArtifactType::Go, "golang.org/x/net/http2");
     let page = go(&q, &ArtifactProviderState::default(), &client)
         .await
@@ -146,7 +146,7 @@ async fn go_package_paths_rejected_as_modules_read_the_package_endpoint() {
     ];
     assert_eq!(paths(&http)[..2], lookups, "{:?}", paths(&http));
     let unknown = RouteHttp::new().status("/v1/module/golang.org/x/net/http2", 400, rejection);
-    let client = RegistryClient::uncached(&unknown, &b);
+    let client = RegistryClient::new(&unknown, &b);
     let error = go(&q, &ArtifactProviderState::default(), &client)
         .await
         .expect_err("rejected by both endpoints");
@@ -181,7 +181,7 @@ async fn go_pinned_versions_resolve_the_pinned_release() {
         ),
     ]);
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let lookup = |version: Option<&str>| {
         let mut fields = json!({"operation":"resolve","ecosystem":"go","packageName":"github.com/open-telemetry/opentelemetry-go"});
         if let Some(version) = version {
@@ -233,7 +233,7 @@ async fn go_vanity_modules_take_the_release_commit_from_the_proxy() {
         ),
     ]);
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let query = artifact_query(
         json!({"operation":"resolve","ecosystem":"go","packageName":"go.opentelemetry.io/otel/sdk","version":"v1.30.0"}),
         None,

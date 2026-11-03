@@ -3,9 +3,9 @@ use super::*;
 #[test]
 fn pre_cancelled_requests_stop_every_transient_operation() {
     let catalog = indexed(100, true);
-    let fresh = CancellationToken::new();
+    let fresh = Cancellation::new();
     let set = catalog.dependencies(&origin(0, true), &fresh).unwrap();
-    let cancelled = CancellationToken::new();
+    let cancelled = Cancellation::new();
     cancelled.cancel();
 
     let mut original_row = json!({"sourceEvidence":descriptors(2, true)});
@@ -44,7 +44,7 @@ fn pre_cancelled_requests_stop_every_transient_operation() {
 
 #[test]
 fn cancellation_does_not_poison_catalogs_or_later_replay() {
-    let first = CancellationToken::new();
+    let first = Cancellation::new();
     let mut row = json!({"data":{"sourceEvidence":descriptors(100, true)}});
     let catalog = Catalog::take(&mut row, &first).unwrap().unwrap();
     let old_set = catalog.dependencies(&origin(0, true), &first).unwrap();
@@ -55,7 +55,7 @@ fn cancellation_does_not_poison_catalogs_or_later_replay() {
         Err(DependencyError::Cancelled)
     ));
 
-    let replay = CancellationToken::new();
+    let replay = Cancellation::new();
     let new_set = catalog.dependencies(&origin(0, true), &replay).unwrap();
     assert_eq!(catalog.selected(&old_set, &replay).unwrap(), expected);
     assert_eq!(catalog.selected(&new_set, &replay).unwrap(), expected);
@@ -73,7 +73,7 @@ fn cancellation_does_not_poison_catalogs_or_later_replay() {
 fn ordinary_foreign_owner_error_keeps_accumulator_unchanged() {
     let catalog = indexed(100, true);
     let other = indexed(100, true);
-    let token = CancellationToken::new();
+    let token = Cancellation::new();
     let mut set = catalog.dependencies(&origin(0, true), &token).unwrap();
     let before = catalog.selected(&set, &token).unwrap();
     let chars = catalog.chars(&set).unwrap();

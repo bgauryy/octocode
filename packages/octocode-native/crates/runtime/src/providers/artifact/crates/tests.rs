@@ -37,7 +37,6 @@ async fn crates_exact_versions_carry_the_packaging_commit_or_release_tag() {
     let client = RegistryClient {
         http: &http,
         budget: &b,
-        cache: None,
         tags: Some(&tags),
     };
     let state = ArtifactProviderState::default();
@@ -126,7 +125,7 @@ async fn crates_rows_list_runtime_dependencies() {
 async fn crates_versions_resolve_from_the_crate_response() {
     let http = RouteHttp::routes(vec![("/api/v1/crates/serde", serde_crate_document())]);
     let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
+    let client = RegistryClient::new(&http, &b);
     let state = ArtifactProviderState::default();
     let lookup = |query: ArtifactSearchQuery| {
         let client = &client;
@@ -179,7 +178,7 @@ async fn crate_lookup(
     budget: &RequestBudget,
     query: &ArtifactSearchQuery,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    let client = RegistryClient::uncached(http, budget);
+    let client = RegistryClient::new(http, budget);
     crates(query, &ArtifactProviderState::default(), &client).await
 }
 

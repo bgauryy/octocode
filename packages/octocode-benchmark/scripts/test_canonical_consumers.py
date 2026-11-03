@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 class ProviderPing(BaseHTTPRequestHandler):
     def do_GET(self):
+        self.server.requests.append(self.path)
         self.send_response(200 if self.path == '/v1/models' else 404)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
@@ -35,6 +36,8 @@ class CurrentConsumerTests(unittest.TestCase):
         self.lab = self.root / 'lab'
         self.lab.mkdir()
         provider = ThreadingHTTPServer(('127.0.0.1', 0), ProviderPing)
+        provider.requests = []
+        self.provider = provider
         self.addCleanup(provider.server_close)
         self.addCleanup(provider.shutdown)
         Thread(target=provider.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True).start()
@@ -55,6 +58,7 @@ class CurrentConsumerTests(unittest.TestCase):
     def test_local_model_schema_and_cursor_walk_preserve_every_line(self):
         tools = capture_schemas(self.binary, self.root / 'schema')
         self.assertEqual({tool['function']['name'] for tool in tools}, LOCAL_READERS)
+        self.assertEqual(self.provider.requests, [], 'schema discovery does not contact a provider')
         lines = [f'line {i}: evidence 界😀' for i in range(1, 301)]
         (self.lab / 'source.txt').write_text('\n'.join(lines) + '\n')
         pending = [{'queries': [{'path': 'source.txt'}], 'responseChars': 900}]
@@ -90,10 +94,11 @@ class CurrentConsumerTests(unittest.TestCase):
         receipt = probe(server, True, True, cwd=self.lab, forbidden=forbidden)
         self.assertTrue(receipt['ok'], json.dumps(receipt['problems']))
         self.assertEqual([row['tool'] for row in receipt['denials']], ['localFetch', 'clasify', 'clasify:disabledRemote'])
-        for denial in receipt['denials'][:2]:
-            row = denial['response']['structuredContent']['results'][0]
+        payloads = [json.loads(denial['response']['content'][0]['text']) for denial in receipt['denials']]
+        for payload in payloads[:2]:
+            row = payload['results'][0]
             self.assertEqual(row['data']['errorCode'], 'outsideAllowedRoots')
-        remote = receipt['denials'][2]['response']['structuredContent']
+        remote = payloads[2]
         self.assertIn('ghGetFileContent, which is disabled in this runtime', remote['error'])
         self.assertNotIn('private evaluator evidence', json.dumps(receipt['denials']))
 

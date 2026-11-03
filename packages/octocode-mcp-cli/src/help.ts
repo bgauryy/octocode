@@ -53,9 +53,10 @@ function flagValueSchema(flag: Flag, root: JsonSchema): JsonSchema | undefined {
   return asSchema(asSchema(root.properties)?.[flag.property]);
 }
 
-function sampleJson(schema: JsonSchema, root: JsonSchema, depth = 0): unknown {
+function sampleJson(schema: JsonSchema, root: JsonSchema, ancestors: ReadonlySet<JsonSchema> = new Set()): unknown {
   const resolved = deref(root, schema);
-  if (depth > 4) return {};
+  if (ancestors.has(resolved)) return {};
+  const seen = new Set(ancestors).add(resolved);
   if (resolved.const !== undefined) return resolved.const;
   if (Object.prototype.hasOwnProperty.call(resolved, 'default') && resolved.type !== 'object' && resolved.type !== 'array') {
     return resolved.default;
@@ -70,21 +71,21 @@ function sampleJson(schema: JsonSchema, root: JsonSchema, depth = 0): unknown {
       merged.properties = { ...(asSchema(merged.properties) ?? {}), ...(asSchema(part.properties) ?? {}) };
       merged.required = [...new Set([...(Array.isArray(merged.required) ? merged.required : []), ...(Array.isArray(part.required) ? part.required : [])])];
     }
-    return sampleJson(merged, root, depth + 1);
+    return sampleJson(merged, root, seen);
   }
   const alternative = schemaList(resolved.anyOf)[0] ?? schemaList(resolved.oneOf)[0];
   if (alternative) {
-    if (!asSchema(resolved.properties) && !asSchema(alternative.properties)) return sampleJson(alternative, root, depth + 1);
+    if (!asSchema(resolved.properties) && !asSchema(alternative.properties)) return sampleJson(alternative, root, seen);
     const { anyOf: _anyOf, oneOf: _oneOf, ...base } = resolved;
     return sampleJson({ ...base, ...alternative,
       properties: { ...(asSchema(base.properties) ?? {}), ...(asSchema(alternative.properties) ?? {}) },
       required: [...new Set([...(Array.isArray(base.required) ? base.required : []), ...(Array.isArray(alternative.required) ? alternative.required : [])])],
-    }, root, depth + 1);
+    }, root, seen);
   }
   const type = Array.isArray(resolved.type) ? resolved.type.find(item => item !== 'null') : resolved.type;
   if (type === 'array') {
     const items = asSchema(resolved.items);
-    return items ? [sampleJson(items, root, depth + 1)] : [];
+    return items ? [sampleJson(items, root, seen)] : [];
   }
   if (type === 'object' || asSchema(resolved.properties)) {
     const properties = asSchema(resolved.properties) ?? {};
@@ -92,7 +93,7 @@ function sampleJson(schema: JsonSchema, root: JsonSchema, depth = 0): unknown {
     const value: Record<string, unknown> = {};
     for (const key of required) {
       const child = asSchema(properties[key]);
-      value[key] = child ? sampleJson(child, root, depth + 1) : null;
+      value[key] = child ? sampleJson(child, root, seen) : null;
     }
     return value;
   }

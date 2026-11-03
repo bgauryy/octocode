@@ -1,12 +1,14 @@
 //! The pull-request read menu: the public query a continuation starts from,
 //! the section menu, and the merge-commit read.
-use super::patch::locate::{distinctive_added_lines, parent_windows};
+use super::patch::locate::{distinctive_added_lines, hunk_windows};
 use super::util::merge;
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation, Sections};
 use crate::id::ToolId;
+use crate::response::result::wire_query;
 use crate::response::result::{Continuation, remove_nulls, restart_query};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
+use octocode_contract_types::{GhGetFileContentQuery, GhGetHistoryItemQuery};
 use octocode_engine::text::test_paths::is_test_path;
 use serde_json::{Map, Value, json};
 
@@ -45,8 +47,8 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
 }
 
 /// An executable `ghGetHistoryItem` continuation.
-pub(super) fn continuation(q: Value) -> Value {
-    Continuation::continued(ToolId::GhGetHistoryItem, q).build()
+pub(super) fn continuation(q: Value) -> Option<Value> {
+    Some(Continuation::continued_query(wire_query::<GhGetHistoryItemQuery>(q)?).build())
 }
 
 /// The recovery of a `matchString` that hit no patch line (a pull
@@ -251,19 +253,14 @@ pub(super) fn read_at_merge(
         .rev()
         .max_by_key(|(churn, _, _)| *churn)
         .map(|(_, path, lines)| (path, lines))?;
-    Some(
-        Continuation::related(
-            ToolId::GhGetFileContent,
-            json!({
-                "owner": gh_get_history_item_query::owner(query),
-                "repo": gh_get_history_item_query::repo(query),
-                "ref": sha,
-                "path": path,
-                "matchString": lines,
-            }),
-        )
-        .build(),
-    )
+    let read = wire_query::<GhGetFileContentQuery>(json!({
+        "owner": gh_get_history_item_query::owner(query),
+        "repo": gh_get_history_item_query::repo(query),
+        "ref": sha,
+        "path": path,
+        "matchString": lines,
+    }))?;
+    Some(Continuation::related_query(read).build())
 }
 
 /// Added plus removed lines of a provider file.
@@ -303,11 +300,14 @@ pub(super) fn first_unpatched(
 /// `readAtCommit` and `readParent`: the first file GitHub sent without a
 /// patch (its change is in no response, so both sides are read whole), else
 /// the change's most-changed code file (a test, doc or other file only when
-/// no code file has a patch), read whole at the new side and, over its
-/// hunks' old-side windows, at the old side (its pre-rename path). An added
-/// file has no parent read, a removed one no new-side read. Only files the
-/// read selected are candidates. Missing patches require source recovery;
-/// delivered patches offer their source as optional related work.
+/// no code file has a patch), read over its hunks' windows at each side: the
+/// new-side windows at the new side, the old-side windows at the old side
+/// (its pre-rename path). A side the diff has no lines on (an added file's
+/// old side, a removed file's new side, a pure addition's or removal's
+/// other side) has no read, so a delivered patch never leads to a whole-file
+/// read. Only files the read selected are candidates: `selected` names the
+/// files the page shows. Missing patches require source recovery; delivered
+/// patches offer their source as optional related work.
 pub(super) fn change_reads(
     owner: &str,
     repo: &str,
@@ -334,29 +334,25 @@ pub(super) fn change_reads(
     let path = file.get("filename").and_then(Value::as_str).unwrap_or("");
     let status = file.get("status").and_then(Value::as_str).unwrap_or("");
     let patch = file.get("patch").and_then(Value::as_str).unwrap_or("");
-    let source_read = |row| {
-        if missing_patch.is_some() {
-            Continuation::continued(ToolId::GhGetFileContent, row)
-        } else {
-            Continuation::related(ToolId::GhGetFileContent, row)
-        }
-        .build()
+    let source_read = |row: Value| {
+        let read = wire_query::<GhGetFileContentQuery>(row)?;
+        Some(
+            if missing_patch.is_some() {
+                Continuation::continued_query(read)
+            } else {
+                Continuation::related_query(read)
+            }
+            .build(),
+        )
     };
-    let mut reads = Vec::new();
-    if let Some(new_ref) = sides.new_ref.filter(|_| status != "removed") {
-        reads.push((
-            "readAtCommit",
-            source_read(json!({"owner": owner, "repo": repo, "path": path, "ref": new_ref})),
-        ));
-    }
-    if let Some(old_ref) = sides.old_ref.filter(|_| status != "added") {
-        let old_path = file
-            .get("previous_filename")
-            .and_then(Value::as_str)
-            .unwrap_or(path);
-        let mut row = json!({"owner": owner, "repo": repo, "path": old_path, "ref": old_ref});
-        let ranges = parent_windows(patch);
-        if !ranges.is_empty() {
+    // A file with no patch has no hunks to bound a read: both sides read whole.
+    let side_read = |path: &str, reference: &str, mark: char| {
+        let mut row = json!({"owner": owner, "repo": repo, "path": path, "ref": reference});
+        if missing_patch.is_none() {
+            let ranges = hunk_windows(patch, mark);
+            if ranges.is_empty() {
+                return None;
+            }
             row["ranges"] = json!(
                 ranges
                     .iter()
@@ -364,7 +360,22 @@ pub(super) fn change_reads(
                     .collect::<Vec<_>>()
             );
         }
-        reads.push(("readParent", source_read(row)));
+        source_read(row)
+    };
+    let mut reads = Vec::new();
+    if let Some(new_ref) = sides.new_ref.filter(|_| status != "removed")
+        && let Some(read) = side_read(path, new_ref, '+')
+    {
+        reads.push(("readAtCommit", read));
+    }
+    if let Some(old_ref) = sides.old_ref.filter(|_| status != "added") {
+        let old_path = file
+            .get("previous_filename")
+            .and_then(Value::as_str)
+            .unwrap_or(path);
+        if let Some(read) = side_read(old_path, old_ref, '-') {
+            reads.push(("readParent", read));
+        }
     }
     reads
 }

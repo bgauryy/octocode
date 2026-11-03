@@ -56,7 +56,9 @@ async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
                     .iter()
                     .map(|c| c["commitSha"].as_str().expect("sha").to_owned()),
             );
-            let Some(next) = data.pointer("/next/nextCommitPage/input") else {
+            let Some(next) =
+                data.pointer("/pullRequests/0/contentPagination/commits/next/nextPage/input")
+            else {
                 break data;
             };
             let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
@@ -82,7 +84,7 @@ async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
                 last["providerLimit"]["reason"], "providerCommitListLimit",
                 "{last}"
             );
-            assert!(last["next"].get("nextCommitPage").is_none(), "{last}");
+            assert!(page["next"].get("nextPage").is_none(), "{last}");
         } else {
             assert_ne!(last["terminalLimit"], true, "{last}");
             assert_eq!(page["countScope"], "complete", "{last}");
@@ -153,7 +155,7 @@ async fn commit_file_boundary_is_a_lower_bound_with_or_without_a_final_link() {
                     .expect("path")
                     .to_owned()
             }));
-            let Some(next) = data.pointer("/next/nextFilePage/input") else {
+            let Some(next) = data.pointer("/contentPagination/files/next/nextPage/input") else {
                 break data;
             };
             let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
@@ -193,7 +195,12 @@ async fn commit_file_boundary_is_a_lower_bound_with_or_without_a_final_link() {
                 "{last}"
             );
         }
-        assert!(last["next"].get("nextFilePage").is_none(), "{last}");
+        assert!(
+            last["contentPagination"]["files"]["next"]
+                .get("nextPage")
+                .is_none(),
+            "{last}"
+        );
     }
 }
 

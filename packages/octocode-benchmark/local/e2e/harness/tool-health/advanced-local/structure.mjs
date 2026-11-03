@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { structureFiles } from '../../responses.mjs';
 import { equal, orderedEqual, fixturePath, relative, scenario } from './helpers.mjs';
+import { contract } from '../../contract.mjs';
+import { finiteInputDomains } from '../input-coverage.mjs';
 
 const scope = fixturePath('structure');
 const allFiles = ['structure/a.txt', 'structure/empty.txt', 'structure/large.txt', 'structure/sub/deep.txt', 'structure/sub/deeper/end.log'];
@@ -42,11 +44,28 @@ async function treeAndOrder(ctx, surface, checks) {
   equal(checks, `structure.resumed-cap.${surface}`, project(ctx, capped.data).map(file => file.path), allFiles);
 }
 
+async function views(ctx, surface, checks) {
+  const domains = finiteInputDomains(contract.tools.find(tool => tool.name === 'structureSearch').querySchema);
+  const values = name => domains.find(domain => domain.path.join('.') === name).values;
+  const expected = allFiles.filter(file => file.split('/').length <= 3);
+  for (const operation of values('operation')) for (const view of values('view')) {
+    const label = `structure.${operation}.${view}`;
+    const result = await scenario(ctx, 'structureSearch', surface, { label,
+      query: { path: scope, operation, view, entryType: 'file', maxDepth: 2, limit: 1 }, checks, responseChars: 300 });
+    const observed = project(ctx, result.data);
+    equal(checks, `${label}.paths.${surface}`, observed.map(file => file.path), expected);
+    checks.push([`${label}.projection.${surface}`, observed.length > 0 && observed.every(file => view === 'paths'
+      ? file.size === undefined && file.totalLines === undefined
+      : file.size === fs.statSync(path.join(ctx.cwd, fixturePath(file.path))).size), JSON.stringify(observed)]);
+  }
+}
+
 export async function advancedStructure(ctx) {
   const checks = [];
   for (const surface of ctx.surfaces) {
     await filters(ctx, surface, checks);
     await treeAndOrder(ctx, surface, checks);
+    await views(ctx, surface, checks);
   }
   return checks;
 }

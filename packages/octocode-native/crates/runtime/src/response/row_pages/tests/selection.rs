@@ -1,5 +1,5 @@
 use super::*;
-use tokio_util::sync::CancellationToken;
+use octocode_io::cancellation::Cancellation;
 
 /// Vary row shapes, volatile facts and page budgets while preserving every
 /// ordered match and independent row context. Page boundaries may improve.
@@ -55,28 +55,26 @@ fn budget_selection_preserves_every_row_across_varied_shapes() {
             volatile.clone(),
             crate::id::ToolId::LocalSearch,
             &block,
-            &CancellationToken::new(),
+            &Cancellation::new(),
         )
         .expect("valid source");
 
         let originals = structured["results"].as_array().expect("rows");
+        let mut notes = vec![Vec::new(); originals.len()];
         let mut seen = vec![Vec::new(); originals.len()];
         let mut parts = vec![Vec::new(); originals.len()];
         let mut provider_facts = vec![0; originals.len()];
         for page in 0..source.plan.total_pages {
             for row in source
                 .plan
-                .build_page(page, &volatile, &[], &CancellationToken::new())
+                .build_page(page, &volatile, &[], &Cancellation::new())
                 .expect("page")
             {
                 let index = row["index"].as_u64().expect("index") as usize;
                 let part = row["rowPart"]["part"].as_u64().unwrap_or(1);
                 let of = row["rowPart"]["of"].as_u64().unwrap_or(1);
                 parts[index].push((part, of));
-                assert_eq!(
-                    row["data"]["note"], originals[index]["data"]["note"],
-                    "case {case}"
-                );
+                notes[index].extend(row["data"].get("note").cloned());
                 for file in row["data"]["files"].as_array().expect("files") {
                     assert_eq!(file["path"], "a");
                     seen[index]
@@ -112,6 +110,16 @@ fn budget_selection_preserves_every_row_across_varied_shapes() {
             assert_eq!(
                 provider_facts[index],
                 usize::from(volatile[index].is_some())
+            );
+            // Row evidence outside the paged collection arrives once.
+            assert_eq!(
+                notes[index],
+                originals[index]["data"]
+                    .get("note")
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                "case {case} row {index}"
             );
         }
         if source.plan.total_pages == 1 {

@@ -1,22 +1,17 @@
-//! One file's bytes at a commit: the contents read, its cache entry and
-//! single flight, and the git-blob fallback past the contents size cap.
+//! One file's bytes at a commit and the blob fallback past the contents size cap.
 use bytes::Bytes;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, ETAG, HeaderValue};
 
 use super::payload::{DirectoryEntry, decode_content, parse_content_payload};
-use super::{
-    CachedContent, ContentRequest, ContentResponse, GitHubProvider, Retention, is_full_sha,
-};
-use crate::{
-    Partition, ProviderError, ProviderErrorKind, RequestContext, RequestSpec, ResponsePage,
-};
+use super::{ContentRequest, ContentResponse, GitHubProvider, is_full_sha};
+use crate::{ProviderError, ProviderErrorKind, RequestContext, RequestSpec, ResponsePage};
 
 /// GitHub's raw media type: a file's own bytes instead of a JSON payload.
 const RAW_MEDIA_TYPE: &str = "application/vnd.github.raw";
 
 impl GitHubProvider {
     /// A file's own bytes at a commit: the one GitHub file read (auth,
-    /// commit identity, cache, single flight, the blob fallback past 1 MB).
+    /// commit identity and the blob fallback past 1 MB).
     /// Whether the bytes are text is the caller's rule, not the provider's.
     pub async fn get_file_bytes(
         &self,
@@ -32,28 +27,6 @@ impl GitHubProvider {
             ));
         }
         let resolved_ref = self.resolve_commit(request, context).await?;
-        let partition = self.transport.cache_partition(context, None)?;
-        let key = cache_key(request, &resolved_ref);
-        // Single flight: identical concurrent reads wait for the first and
-        // then read what it cached; a waiter stops on its own cancellation
-        // or deadline, not the holder's.
-        let ticket = content_flights().join((partition.clone(), key.clone()));
-        let _turn = context.budget.wait(ticket.turn()).await?;
-        // The cache key holds the resolved commit SHA, so a cached body is
-        // immutable: it is served without asking GitHub again. A movable ref
-        // stays fresh through its own resolution, not through this entry.
-        if !request.force_refresh
-            && let Some(value) = self.transport.cache.get(&partition, &key).await
-        {
-            return Ok(ContentResponse {
-                bytes: value.bytes,
-                resolved_ref: value.resolved_ref,
-                etag: value.etag,
-                from_cache: true,
-                raw_response_bytes: 0,
-                blob: None,
-            });
-        }
         let spec = self.contents_spec(request, &resolved_ref)?;
         let page = match self.transport.execute(spec, context).await {
             Ok(page) => page,
@@ -61,21 +34,9 @@ impl GitHubProvider {
                 let (bytes, raw_response_bytes, blob) = self
                     .fetch_via_directory_and_blob(request, &resolved_ref, context)
                     .await?;
-                let stored = CachedContent {
-                    etag: None,
-                    bytes: bytes.clone(),
-                    resolved_ref: resolved_ref.clone(),
-                    has_more: false,
-                };
-                self.transport
-                    .cache
-                    .put(&partition, key, stored, Retention::Pinned)
-                    .await;
                 return Ok(ContentResponse {
                     bytes,
                     resolved_ref,
-                    etag: None,
-                    from_cache: false,
                     raw_response_bytes,
                     blob,
                 });
@@ -83,26 +44,9 @@ impl GitHubProvider {
             Err(error) => return Err(error),
         };
         let (bytes, raw_response_bytes, blob) = self.page_bytes(request, &page, context).await?;
-        let etag = page
-            .headers
-            .get("etag")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned);
-        let stored = CachedContent {
-            etag: etag.clone(),
-            bytes: bytes.clone(),
-            resolved_ref: resolved_ref.clone(),
-            has_more: false,
-        };
-        self.transport
-            .cache
-            .put(&partition, key, stored, Retention::Pinned)
-            .await;
         Ok(ContentResponse {
             bytes,
             resolved_ref,
-            etag,
-            from_cache: false,
             raw_response_bytes,
             blob,
         })
@@ -252,11 +196,6 @@ impl GitHubProvider {
     }
 }
 
-/// The process's in-flight content reads, one per `(credential, read)`.
-fn content_flights() -> &'static crate::KeyedFlight<(Partition, String), ()> {
-    static FLIGHTS: crate::KeyedFlight<(Partition, String), ()> = crate::KeyedFlight::transient();
-    &FLIGHTS
-}
 fn validate_name(value: &str) -> Result<(), ProviderError> {
     if value.is_empty() || value == "." || value == ".." || value.contains('/') {
         Err(ProviderError::new(
@@ -266,10 +205,4 @@ fn validate_name(value: &str) -> Result<(), ProviderError> {
     } else {
         Ok(())
     }
-}
-fn cache_key(request: &ContentRequest, resolved_ref: &str) -> String {
-    crate::cache_key::fields_key(
-        "github-content",
-        &[&request.owner, &request.repo, &request.path, resolved_ref],
-    )
 }

@@ -111,7 +111,10 @@ pub(crate) fn drop_echoes(structured: &mut Value, queries: &[Value], row_indices
         return;
     };
     for row in rows {
-        let Some(index) = row["index"].as_u64().map(crate::num::usize_of) else {
+        let Some(index) = row["index"]
+            .as_u64()
+            .map(octocode_engine::num::saturating_usize)
+        else {
             continue;
         };
         let Some(query) = row_indices

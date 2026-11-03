@@ -28,17 +28,14 @@ pub enum HttpMethod {
 /// Octokit plugin-retry parity: `max_attempts` = retries + 1; 5xx/network
 /// backoff is full-jitter from `base_delay`; a 5xx `retry-after` longer than
 /// `max_retry_after` fails fast. A rate-limit wait (primary or secondary
-/// limit, search spacing, the code-search window) longer than
-/// `max_rate_limit_wait` fails fast with `retryAfter` instead; a shorter one
-/// is credited to the request budget, so it never spends the request time.
+/// limit, search pacing) has no cap of its own: it is credited to the request
+/// budget, so it never spends the request time, and fails fast with
+/// `retryAfter` only when it would end past the call's deadline.
 #[derive(Clone, Debug)]
 pub struct RetryPolicy {
     pub max_attempts: u8,
     pub base_delay: Duration,
     pub max_retry_after: Duration,
-    /// The runtime sets its constant rate-limit wait; the transport's own
-    /// default is the retry-after cap.
-    pub max_rate_limit_wait: Duration,
 }
 impl RetryPolicy {
     /// The 5xx/network backoff: full jitter from `base_delay`, no floor.
@@ -56,7 +53,6 @@ impl Default for RetryPolicy {
             max_attempts: 4,
             base_delay: Duration::from_millis(250),
             max_retry_after: Duration::from_secs(10),
-            max_rate_limit_wait: Duration::from_secs(10),
         }
     }
 }
@@ -93,11 +89,91 @@ impl RequestSpec {
 pub struct RequestContext {
     pub budget: RequestBudget,
     credential: Option<ResolvedCredential>,
+    /// What this request observed: what it saw, never a later one's.
+    journal: Arc<evidence::Journal>,
 }
 impl RequestContext {
     pub fn new(budget: RequestBudget, credential: Option<ResolvedCredential>) -> Self {
-        Self { budget, credential }
+        Self {
+            budget,
+            credential,
+            journal: Arc::default(),
+        }
     }
+
+    /// This request resumes an issued continuation that owns `evidence`:
+    /// a request it recorded is answered from it, with nothing sent.
+    #[must_use]
+    pub fn resuming(mut self, evidence: Arc<ProviderEvidence>) -> Self {
+        self.journal = Arc::new(evidence::Journal::resuming(evidence));
+        self
+    }
+
+    /// Whether the continuation this request resumes owns the answer to `spec`.
+    pub(crate) fn journal_answers(&self, spec: &RequestSpec) -> bool {
+        self.journal.answers(spec)
+    }
+
+    /// Every answer and fact this request observed so far, replayed ones
+    /// included: what a continuation it issues owns.
+    pub fn evidence(&self) -> ProviderEvidence {
+        self.journal.evidence()
+    }
+
+    /// The `full_name` a `/repos/{owner}/{repo}` read of this request
+    /// returned: the repository's canonical name as this request saw it.
+    pub fn read_full_name(&self, owner: &str, repo: &str) -> Option<String> {
+        self.journal.note(&repository_note("fullName", owner, repo))
+    }
+
+    /// Remember the `full_name` a `/repos/{owner}/{repo}` read returned.
+    pub(crate) fn record_full_name(&self, owner: &str, repo: &str, full_name: &str) {
+        self.journal.set_note(
+            repository_note("fullName", owner, repo),
+            full_name.to_owned(),
+        );
+    }
+
+    /// The listing route this request found for `owner`'s repositories.
+    pub(crate) fn owner_route(&self, owner: &str) -> Option<String> {
+        self.journal
+            .note(&format!("ownerRoute:{}", owner.to_ascii_lowercase()))
+    }
+
+    pub(crate) fn record_owner_route(&self, owner: &str, route: &str) {
+        self.journal.set_note(
+            format!("ownerRoute:{}", owner.to_ascii_lowercase()),
+            route.to_owned(),
+        );
+    }
+
+    /// GitHub redirected a request under `/repos/{owner}/{repo}` to the
+    /// repository's id: the name is stale (renamed or transferred).
+    pub fn followed_rename(&self, owner: &str, repo: &str) -> bool {
+        self.journal
+            .note(&repository_note("renamed", owner, repo))
+            .is_some()
+    }
+
+    /// Remember the repository a followed `/repos/{owner}/{repo}/…` →
+    /// `/repositories/<id>/…` redirect names.
+    fn record_rename(&self, from: &Url, to: &Url) {
+        if !to.path().contains("/repositories/") {
+            return;
+        }
+        let Some(segments) = from.path_segments() else {
+            return;
+        };
+        let segments = segments.collect::<Vec<_>>();
+        let Some(at) = segments.iter().position(|segment| *segment == "repos") else {
+            return;
+        };
+        if let (Some(owner), Some(repo)) = (segments.get(at + 1), segments.get(at + 2)) {
+            self.journal
+                .set_note(repository_note("renamed", owner, repo), String::new());
+        }
+    }
+
     /// An anonymous request with a fresh `timeout` budget.
     pub fn with_timeout(timeout: Duration, max_body_bytes: usize) -> Self {
         Self::new(RequestBudget::with_timeout(timeout, max_body_bytes), None)
@@ -205,41 +281,8 @@ pub struct GitHubTransport {
     budget: Arc<GitHubBudget>,
     state_dir: Option<PathBuf>,
     pub graphql_enabled: bool,
-    /// Response cache for reads made on the transport (search pages and
-    /// history reads): a repeated search, even from a new CLI process,
-    /// sends no request, so it spends no search budget and waits for no
-    /// search spacing. Transport handles share it.
-    pub cache: Arc<dyn super::ConditionalCache>,
-    /// `owner/repo` (lowercase) whose requests GitHub redirected to
-    /// `/repositories/<id>`: a renamed repository. Transport handles share it.
-    renamed: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
-    /// Repository metadata reads, shared by the rows of a batch.
-    pub(crate) repositories: Arc<super::search::RepositoryMemo>,
-    /// Where each owner's repositories are listed from, per credential.
-    pub(crate) owners: Arc<super::search::OwnerSources>,
 }
 impl GitHubTransport {
-    /// Forget repository routing and metadata after the caller drains its requests.
-    pub fn clear_metadata(&self) {
-        self.repositories.clear_idle();
-        self.renamed
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
-    }
-
-    /// Share HTTP connections and rate-limit admission while retaining no
-    /// reusable response or repository results in this execution scope.
-    pub fn uncached(&self) -> Self {
-        Self {
-            cache: Arc::new(super::NoCache),
-            repositories: Arc::new(super::KeyedFlight::transient()),
-            renamed: Arc::default(),
-            owners: Arc::default(),
-            ..self.clone()
-        }
-    }
-
     /// A transport admitting its requests through `budget`: production
     /// passes [`GitHubBudget::global`] (or [`GitHubBudget::paced`]).
     pub fn new(
@@ -260,44 +303,7 @@ impl GitHubTransport {
             budget,
             state_dir: None,
             graphql_enabled: true,
-            cache: Arc::new(super::NoCache),
-            renamed: Arc::default(),
-            repositories: Arc::new(super::KeyedFlight::retained(
-                super::search::REPOSITORY_MEMO_KEYS,
-            )),
-            owners: Arc::default(),
         })
-    }
-
-    /// GitHub redirected a request under `/repos/{owner}/{repo}` to the
-    /// repository's id: the name is stale (renamed or transferred).
-    pub fn followed_rename(&self, owner: &str, repo: &str) -> bool {
-        let key = format!("{owner}/{repo}").to_ascii_lowercase();
-        self.renamed
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains(&key)
-    }
-
-    /// Remember the repository a followed `/repos/{owner}/{repo}/…` →
-    /// `/repositories/<id>/…` redirect names.
-    fn record_rename(&self, from: &Url, to: &Url) {
-        if !to.path().contains("/repositories/") {
-            return;
-        }
-        let Some(segments) = from.path_segments() else {
-            return;
-        };
-        let segments = segments.collect::<Vec<_>>();
-        let Some(at) = segments.iter().position(|segment| *segment == "repos") else {
-            return;
-        };
-        if let (Some(owner), Some(repo)) = (segments.get(at + 1), segments.get(at + 2)) {
-            self.renamed
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .insert(format!("{owner}/{repo}").to_ascii_lowercase());
-        }
     }
 
     /// Mirror blocking rate-limit facts under `dir` so separate processes
@@ -310,38 +316,20 @@ impl GitHubTransport {
         &self.endpoint
     }
 
-    pub fn cache_partition(
-        &self,
-        context: &RequestContext,
-        session: Option<&str>,
-    ) -> Result<super::Partition, ProviderError> {
-        let partition = super::Partition::new(
-            self.endpoint.rest(&[])?.as_str(),
-            context
-                .resolved_credential()
-                .map(ResolvedCredential::secret),
-        );
-        Ok(match session {
-            Some(session) => partition.within(session),
-            None => partition,
-        })
-    }
-
     /// Refuse a row's `searches` code searches before the first is sent when
-    /// they cannot all start within the rate-limit cap and the request's
-    /// deadline (the wait bound `execute` applies to each).
+    /// they cannot all start before the request's deadline (the wait bound
+    /// `execute` applies to each).
     pub fn code_search_batch_refusal(
         &self,
         searches: usize,
         context: &RequestContext,
     ) -> Option<ProviderError> {
-        let cap = self.retry.max_rate_limit_wait;
-        let deadline = context.budget.admission_deadline(cap);
+        let deadline = context.budget.admission_deadline();
         self.key_state(context.resolved_credential())
-            .code_search_batch_refusal(searches, self.budget.config(), cap, deadline)
+            .code_search_batch_refusal(searches, self.budget.config(), deadline)
     }
 
-    /// Code searches the request credential's window still has room for.
+    /// Code searches the credential's reported (or assumed) quota still covers.
     pub fn code_search_room(&self, context: &RequestContext) -> usize {
         self.key_state(context.resolved_credential())
             .code_search_room(self.budget.config())
@@ -360,8 +348,8 @@ impl GitHubTransport {
     }
 
     /// Whether GraphQL can be attempted now for this credential: false while
-    /// the key's graphql bucket (or a secondary cooldown) blocks longer than
-    /// the retry cap. Replaces the old permanent per-host skip.
+    /// the key's graphql bucket (or a secondary cooldown) blocks past the
+    /// request's deadline. Replaces the old permanent per-host skip.
     pub fn graphql_available(&self, context: &RequestContext) -> bool {
         let state = self.key_state(context.resolved_credential());
         state.refresh_from_disk();
@@ -370,8 +358,7 @@ impl GitHubTransport {
             .is_none_or(|block| {
                 let wait = block.wait(now_ms());
                 block.circuit.is_none()
-                    && wait <= self.retry.max_rate_limit_wait
-                    && Instant::now() + wait < context.budget.wait_until
+                    && Instant::now() + wait < context.budget.admission_deadline()
             })
     }
 }
@@ -382,8 +369,16 @@ pub const HTTP_USER_AGENT: &str = "octocode-native";
 /// Upper bound for one 5xx/network backoff sleep.
 const MAX_BACKOFF: Duration = Duration::from_secs(8);
 
+/// The name of a request fact about `owner/repo`, in GitHub's
+/// case-insensitive spelling.
+fn repository_note(fact: &str, owner: &str, repo: &str) -> String {
+    format!("{fact}:{}", format!("{owner}/{repo}").to_ascii_lowercase())
+}
+
 mod attempts;
+mod evidence;
 mod execute;
+pub use evidence::{ProviderAnswer, ProviderEvidence};
 mod response;
 #[cfg(test)]
 mod response_error_tests;

@@ -24,44 +24,39 @@ Renew before expiry: renewal never revives an expired lease, and an expired iden
 
 ## Request, progress, and final answer
 
-The kind sets the reply policy and wake ([kinds](../OPERATING.md#send-and-handle-messages)): requests wake the recipient (`wake:"action"`) and need an answer through `complete`, while a `blocker` wakes without owing one. Explicit `wake` overrides urgency only. Final answers from `complete` wake the asker. A recipient cannot reply to an FYI: if you need an answer, send a request. A topic request wakes every subscriber, each owing an answer.
-Action schedules handling within the recipient's authorized task; it grants no new objective or permissions.
-A request (or any `wake:"action"` message) that expires unacknowledged stops being offered for delivery. Submitted context may already have reached the recipient, and work may still be in progress; a late `complete` can acknowledge it and return the final answer. On your next `heartbeat` you receive an SBAR blocker whose situation reads `Request N expired before <names> acknowledged it` (once per message, naming the unacknowledged recipients); for a `decision` its assessment states that the default applies. Inspect `health` and the recipient before deciding whether to send a new request with a new key.
+Send a message as parts. Set `replyRequired:true` when the recipient owes a correlated result; it defaults to `false`. The payload is opaque to the runtime. Task objective, constraints, evidence references, and progress are shared as text, JSON data, URLs, or named artifacts, but none of those fields trigger implicit validation or side effects.
 
-`Receive → retrieve full body → perform requested work → complete with outcome and reply → sender acknowledges answer`.
+`Receive → inspect all parts → do the authorized work → complete with outcome and reply → sender reads and acknowledges the answer`.
 
 ```sh
-agent send_message '{"to":"api-reviewer","task":{"objective":"Review the src/api.ts response-type change for compatibility","inputs":["src/api.ts","clients pin v2"],"output":"List of risks","done":"Every changed export checked and risks listed","checkBack":true},"reasoning":"Resolve API review before handoff","key":"api-review-1","conversationId":"api-review"}'
-agent inbox
-agent fetch '{"incoming":true,"type":"message","limit":20}'
-# checkBack:true: request is a pending task you received; send this before completing it (refused and canceled need none):
-agent send_message '{"to":"coordinator","checkback":{"request":MESSAGE_ID_FROM_DATA,"objective":"Review src/api.ts compatibility","done":"Every changed export checked"},"reasoning":"Confirm the task"}'
-# Use data.messageId from fetch, after checking the requested work:
-agent complete '{"message":MESSAGE_ID_FROM_DATA,"outcome":"done","reply":{"conclusion":"No breaking change","evidence":[{"claim":"Exports unchanged","source":"src/api.ts:42"}],"unknowns":["Client v1 behavior"]}}'
-# Acknowledge handled FYIs and answers without creating another reply:
+agent send_message '{"to":"api-reviewer","parts":[{"text":"Review the src/api.ts response change for compatibility. Return risks and supporting evidence."}],"replyRequired":true,"reasoning":"Resolve API review before handoff","key":"api-review-1","contextId":"api-review"}'
+agent inbox '{"after":0}'
+# Use the message id from inbox, after checking the requested work:
+agent complete '{"message":MESSAGE_ID,"outcome":"completed","reply":[{"text":"No breaking change. Evidence: exports remain unchanged at src/api.ts:42."}]}'
+# A handled notice or answer needs no reply or outcome:
 agent complete '{"messages":[FYI_ID,ANSWER_ID]}'
 ```
 
-A fetched `{recordId:16,data:{messageId:1,...}}` completes with `message:1`, never `message:16`.
-Progress is a `delta` (optionally with a `phase` such as `verify`, rendered first: `Delta update\nPhase: verify\nChanges:…`) with a new send key and the same `conversationId`; a `checkback` inherits its request's conversation. Neither completes the request nor sets `replyTo`. A `checkback` goes to the sender of a pending `task` you received (any other request kind is refused); a repeated check-back is accepted and its content is not compared with the task.
-Rendered bodies: a reply's `confidence` is high, medium or low and its stored body starts `BLUF\nOutcome: <value>`. A `handoff` renders `Handoff packet`. RACI `informed` peers never saw the request, so their copy of the final answer reads `BLUF\nRe <kind> <id>: <headline>\nOutcome: …`, where the headline is the request's first text slot cut at 200 characters. Reply fields, outcomes and `blocker` versus `delta`: [operating guide](../OPERATING.md#send-and-handle-messages).
+Request outcomes are `completed`, `failed`, `rejected`, or `canceled`. A fetched `{recordId:16,data:{messageId:1,...}}` uses `message:1`, never `recordId:16`. An unfinished request stays pending. A send receipt proves storage, a transport receipt only proves the adapter's reported submission, acknowledgement records handling, and the outcome records the recipient's report; none establishes correctness or approval.
+
+Progress is a new message with the same `contextId` and a new idempotency key; it does not answer or acknowledge the request. A request that needs input can remain pending while the recipient sends another message to ask. Explicit `replyRequired` and `wake` are independent: action schedules delivery, while only `replyRequired` controls the completion contract. No message payload implicitly copies recipients, transfers leases, pins or rewrites evidence, or changes expiry policy.
 
 ## Purpose, limits, and retries
 
 `reasoning` is the purpose, up to 512 UTF-8 bytes; it is not private reasoning.
-Message bodies, including rendered protocol bodies, allow 16,384 UTF-16 units. Put larger evidence in an immutable document.
+Message parts have no application-level size cap; host delivery can return a `contentOmitted` reference with a continuation when context exceeds its budget. Use an immutable document for reusable evidence with verified content hash and discovery metadata; URL parts are references and are never fetched automatically.
 Message `ttlMs` ranges from 1 second to 1 day.
 An idempotency `key` identifies unchanged input. Preserve payload, routing, and branch when retrying.
-Use a new key for changed content. `conversationId` connects progress and final replies.
+Use a new key for changed content. `contextId` connects progress and final replies.
 If Pi reports a failed/timed-out send or record, retain its exposed idempotency key and inspect history; retry unchanged input with that key only when needed.
 A committed write can produce a later error. A new tool-call ID creates a different automatic key.
 
 ## Topics and shared evidence
 
 `subscribe {"topics":["api"]}` replaces subscriptions; `[]` clears them.
-Send `{topic:"api",body,reasoning}` to current subscribers.
-Use `notify_all` for current active peers, excluding the sender.
-Topic and broadcast defaults are passive with no required reply.
+Send `{topic:"api",parts:[{text:"…"}],reasoning}` to current subscribers.
+Use `send_message` with `to:"*"` for all current active peers, excluding the sender. Set `replyRequired:true` only when each recipient is expected to return a result.
+Wake and reply requirements are explicit message fields; fanout recipients are fixed at send time.
 Recipients are fixed at send time. Later joiners receive no old fanout.
 `share_document` accepts up to 1 MiB UTF-8; pass large JSON on stdin with `-`. Names are immutable: choose a new name for a revision; an ADR revision sets `supersedes` to the published document it replaces. Usage scopes (request, turn, cumulative) are alternatives, never summed; absent counts are unknown, not zero.
 

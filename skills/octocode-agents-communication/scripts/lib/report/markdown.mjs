@@ -79,7 +79,7 @@ export function mdKit() {
     return f[1][0] === fence[0] && f[1].length >= fence.length && !l.trim().slice(f[1].length).trim() ? null : fence;
   };
   function definitions(lines) {
-    const refs = {}, notes = {}, body = [];
+    const refs = Object.create(null), notes = Object.create(null), body = [];
     let fence = null;
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
@@ -347,7 +347,7 @@ export function mdKit() {
   const toneOf = (text, context = '') => {
     const t = String(text).trim().replace(/[.:]$/, '');
     if (!t || t.length > 14) return '';
-    if (context && GOOD_SCALE.test(context) && SCALE[t.toLowerCase()]) return SCALE[t.toLowerCase()];
+    if (context && GOOD_SCALE.test(context) && Object.hasOwn(SCALE, t.toLowerCase())) return SCALE[t.toLowerCase()];
     for (const [rx, tone] of TONES) if (rx.test(t)) return tone;
     return '';
   };

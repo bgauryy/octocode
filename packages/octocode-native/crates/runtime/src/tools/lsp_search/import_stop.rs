@@ -85,7 +85,7 @@ pub(super) fn stays_on_import(
 /// module specifier; `None` when the file's imports cannot be read. The
 /// imports come from the digest-cached declarations parse.
 fn import_bindings(content: &str, file: &str) -> Option<HashMap<Spot, String>> {
-    let facts = crate::tools::declarations_cache::file_document(content, file)?;
+    let facts = crate::tools::declarations::file_document(content, file)?;
     Some(
         facts
             .imports

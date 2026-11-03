@@ -1,6 +1,8 @@
 //! `Importers`: per-file anchors, owned files, coverage digests, settling a
 //! silent page, and disclosing ignored or capped scans.
 use super::*;
+use crate::response::result::{Continuation, insert_next};
+use octocode_contract_types::LspSearchChannel;
 
 impl Importers {
     /// One anchor per file for location requests (`references`).
@@ -115,8 +117,9 @@ impl Importers {
     /// name may be a hidden importer, and one the import check could not
     /// decide is not ruled out: the row is partial, counts each kind, names
     /// the deciding rules, and leads to exactly those files. Files that only
-    /// spell the name are no evidence of a hidden importer: the row keeps
-    /// only the lead over them. A scan that stopped at its bound left the
+    /// spell the name were checked and import nothing of it: they are no
+    /// evidence and no lead, so a finished scan without evidence or nested
+    /// repositories leaves none. A scan that stopped at its bound left the
     /// rest unverified: its lead is over the scope, which holds the files it
     /// found and those it did not reach, and without evidence the row is
     /// partial and says the scan did not finish. Nested repositories the scan
@@ -158,22 +161,19 @@ impl Importers {
             .chain(&ignored.unchecked)
             .cloned()
             .collect::<Vec<_>>();
-        let spelled = if evidence.is_empty() {
-            &ignored.files
-        } else {
-            &evidence
-        };
         let nested = ignored.nested_repositories.iter().map(|repo| {
             Path::new(&scope.root)
                 .join(repo)
                 .to_string_lossy()
                 .into_owned()
         });
-        let listed = spelled.iter().cloned().chain(nested).collect::<Vec<_>>();
-        crate::response::result::attach_related(
-            row,
-            ignored_text_lead(name, scope, &listed, ignored.unfinished),
-        );
+        let listed = evidence.iter().cloned().chain(nested).collect::<Vec<_>>();
+        if listed.is_empty() && !ignored.unfinished {
+            return;
+        }
+        if let Some(lead) = ignored_text_lead(name, scope, &listed, ignored.unfinished) {
+            crate::response::result::attach_related(row, lead);
+        }
         if evidence.is_empty() {
             if ignored.unfinished {
                 crate::response::paging::mark_partial(row, IGNORED_REASON, &[]);
@@ -213,7 +213,7 @@ impl Importers {
     /// Record the scan on the row's coverage so readers and
     /// `inferred_project::annotate` know importers were checked. A window
     /// with later windows left is partial (not a terminal limit), and every
-    /// location page of it carries `next.nextImporterPage`: the same query
+    /// location page of it carries `next.nextPage`: the same query
     /// on each page, so the same content-addressed cursor, which a reader
     /// that follows every lead verifies once.
     pub(in super::super) fn annotate(
@@ -250,16 +250,13 @@ impl Importers {
         let Some(window) = self.window.as_ref().filter(|window| window.more()) else {
             return;
         };
-        let mut base = lsp_search_query::to_row(query);
-        if let Some(fields) = base.as_object_mut() {
-            fields.remove("page");
-        }
-        let Some(next_importers) = crate::response::paging::next_page_call(
-            crate::id::ToolId::LspSearch,
-            base,
-            "importerPage",
-            usize::try_from(window.page).map_or(usize::MAX, |page| page.saturating_add(1)),
-            &[("snapshot", json!(window.digest()))],
+        let Ok(next_importers) = lsp_search_query::edited(
+            query,
+            &json!({
+                "page": null,
+                "importerPage": window.page.saturating_add(1),
+                "snapshot": window.digest(),
+            }),
         ) else {
             return;
         };
@@ -274,6 +271,10 @@ impl Importers {
             );
             flag_partial(row, query, CAPPED_REASON, Some(&warning), scope);
         }
-        row["next"]["nextImporterPage"] = next_importers;
+        insert_next(
+            &mut row["next"],
+            LspSearchChannel::NextPage,
+            Continuation::continued_query(next_importers),
+        );
     }
 }

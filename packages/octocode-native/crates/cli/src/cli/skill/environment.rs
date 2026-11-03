@@ -12,7 +12,7 @@ pub(super) fn status(runtime: &ToolRuntime, name: &str, github_auth: bool) -> Va
     };
     let github_skill = matches!(
         name,
-        "octocode-research" | "octocode-rfc-generator" | "octocode-roast"
+        "octocode-research" | "octocode-pr-review" | "octocode-rfc-generator" | "octocode-roast"
     );
     let github_ready = github_auth || ENV_TOKEN_VARS.iter().any(|key| set(key));
     if github_skill {

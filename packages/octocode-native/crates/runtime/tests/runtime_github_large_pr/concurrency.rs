@@ -40,7 +40,7 @@ async fn selected_patch_scan_reads_file_batches_concurrently() {
 
 /// Rows of one call share one patch budget, so two large patch
 /// reads fit one response page instead of spilling into response
-/// pagination; each row keeps its own exact `continuePatch`.
+/// pagination; each row keeps its own exact patch continuation.
 #[tokio::test]
 async fn patch_rows_in_one_call_share_one_budget() {
     let server = MockServer::builder().start().await;
@@ -91,24 +91,27 @@ async fn patch_rows_in_one_call_share_one_budget() {
         // Half the default window each (one budget), not a whole window each.
         assert!((4_000..=20_000).contains(&taken), "row {index}: {taken}");
         assert!(
-            data["next"]["continuePatch"].is_object(),
+            data["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"].is_object(),
             "row {index}: {data}"
         );
     }
     runtime.close().await;
 }
 
-/// A later comment page of a large PR does not re-scan every provider batch
-/// one round trip at a time: with the PR's comment count in hand, the
-/// batches load at once, and the page holds exactly its comments.
+/// A later filtered review-comment read prefetches the PR's count and scans
+/// that provider span concurrently within one call. An unfiltered page needs
+/// only its own provider batch, so separate continuation calls need not
+/// overlap. Every selected body survives the response and collection pages.
 #[tokio::test]
-async fn later_review_comment_pages_load_provider_batches_concurrently() {
+async fn filtered_review_comment_pages_load_provider_batches_concurrently() {
     let server = MockServer::builder().start().await;
     let mut raw = pr(1);
     raw["review_comments"] = json!(600);
     // The clock starts at the first provider request: building the HTTP
     // client (system proxy lookup) is a one-time cost, not a batch scan.
     let first_request = std::sync::Arc::new(std::sync::OnceLock::<Instant>::new());
+    let comment_arrivals = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let delay = Duration::from_millis(500);
     let pr_template = ResponseTemplate::new(200).set_body_json(raw);
     let arrival = first_request.clone();
     Mock::given(method("GET"))
@@ -128,7 +131,7 @@ async fn later_review_comment_pages_load_provider_batches_concurrently() {
             })
             .collect::<Vec<_>>();
         let mut response = ResponseTemplate::new(200)
-            .set_delay(Duration::from_millis(500))
+            .set_delay(delay)
             .set_body_json(Value::Array(comments));
         if page < 6 {
             response = response.insert_header(
@@ -141,20 +144,37 @@ async fn later_review_comment_pages_load_provider_batches_concurrently() {
                 .as_str(),
             );
         }
+        let arrivals = comment_arrivals.clone();
         Mock::given(method("GET"))
             .and(path("/api/v3/repos/a/b/pulls/9/comments"))
             .and(query_param("page", page.to_string()))
-            .respond_with(response)
+            .respond_with(move |_: &wiremock::Request| {
+                arrivals
+                    .lock()
+                    .expect("comment arrivals")
+                    .push((page, Instant::now()));
+                response.clone()
+            })
             .mount(&server)
             .await;
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let mut input = json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["reviewComments"]}]});
+    let mut input = json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":9,
+        "sections":["reviewComments"],"matchString":["note"]}]});
     let mut bodies = Vec::new();
-    for hop in 0..100 {
+    let mut seen_inputs = std::collections::BTreeSet::new();
+    let mut call_arrivals = Vec::new();
+    loop {
+        assert!(
+            seen_inputs.insert(input.to_string()),
+            "repeated page: {input}"
+        );
+        let arrival_start = comment_arrivals.lock().expect("comment arrivals").len();
         let result = support::run(&runtime, "ghGetHistoryItem", input).await;
-        if hop == 0 {
+        call_arrivals
+            .push(comment_arrivals.lock().expect("comment arrivals")[arrival_start..].to_vec());
+        if seen_inputs.len() == 1 {
             assert!(first_request.get().expect("PR read").elapsed() < Duration::from_millis(1800));
         }
         let data = result.data();
@@ -169,14 +189,11 @@ async fn later_review_comment_pages_load_provider_batches_concurrently() {
             .structured_content
             .pointer("/responsePagination/next")
             .or_else(|| {
-                data["next"].as_object().and_then(|calls| {
-                    calls
-                        .values()
-                        .find(|call| call["tool"] == "ghGetHistoryItem")
-                })
+                data.pointer("/pullRequests/0/contentPagination/reviewComments/next/nextPage")
             });
         let Some(next) = next else { break };
         assert!(next["input"]["cursor"].is_string());
+        assert_eq!(next["tool"], "ghGetHistoryItem");
         input = next["input"].clone();
     }
     assert_eq!(bodies.len(), 600);
@@ -186,6 +203,39 @@ async fn later_review_comment_pages_load_provider_batches_concurrently() {
             .collect::<std::collections::BTreeSet<_>>()
             .len(),
         600
+    );
+    assert_eq!(
+        bodies
+            .iter()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>(),
+        (0..600).map(|index| format!("note {index}")).collect(),
+        "every requested review body is recovered"
+    );
+    let pages = comment_arrivals
+        .lock()
+        .expect("comment arrivals")
+        .iter()
+        .map(|(page, _)| *page)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(pages, (1..=6).collect(), "every provider page is read");
+    let later = call_arrivals
+        .iter()
+        .map(|arrivals| {
+            let mut pages = arrivals
+                .iter()
+                .filter(|(page, _)| *page > 1)
+                .copied()
+                .collect::<Vec<_>>();
+            pages.sort_by_key(|(_, at)| *at);
+            pages
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        later.iter().any(|pages| pages
+            .windows(2)
+            .any(|pair| pair[0].0 != pair[1].0 && pair[1].1.duration_since(pair[0].1) < delay)),
+        "provider batches within each filtered call were sequential: {later:?}"
     );
     runtime.close().await;
 }

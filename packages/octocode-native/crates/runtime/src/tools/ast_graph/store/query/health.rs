@@ -1,8 +1,8 @@
 //! Snapshot health: diagnostics, unlinked imports, staleness and the
 //! re-ingest call.
 use super::*;
-use crate::id::ToolId;
 use crate::response::result::Continuation;
+use octocode_contract_types::GraphBuildQuery;
 
 pub(super) fn diagnostics(g: &Graph, filter: Option<&str>) -> Page {
     let rows =
@@ -54,7 +54,7 @@ pub(super) fn unlinked_path_imports(g: &Graph, file: u32) -> Vec<Value> {
 /// The related graphBuild call that rebuilds the snapshot of `manifest`
 /// with its own scan options: its root (workspace-relative), excluded
 /// directories and parser globs.
-pub(super) fn reingest_call(manifest: &Value) -> Value {
+pub(super) fn reingest_call(manifest: &Value) -> Option<Value> {
     let scan = &manifest["scan"];
     let root = manifest["root"].as_str().unwrap_or_default();
     let path = manifest["workspace"]
@@ -76,7 +76,7 @@ pub(super) fn reingest_call(manifest: &Value) -> Value {
         .as_array()
         .filter(|dirs| !dirs.is_empty())
     {
-        row.insert("exclude".into(), json!(exclude));
+        row.insert("excludeDirs".into(), json!(exclude));
     }
     if let Some(globs) = scan["languageGlobs"]
         .as_object()
@@ -84,7 +84,8 @@ pub(super) fn reingest_call(manifest: &Value) -> Value {
     {
         row.insert("parserGlobs".into(), json!(globs));
     }
-    Continuation::related(ToolId::GraphBuild, Value::Object(row)).build()
+    let build: GraphBuildQuery = typed_row(Value::Object(row))?;
+    Some(Continuation::related_query(build).build())
 }
 
 /// What changed under the snapshot's root since ingest: sources edited,
@@ -110,8 +111,8 @@ pub(super) fn stale(g: &Graph, paths: &PathPolicy) -> (Map<String, Value>, Page)
     extra.insert("checked".into(), json!(g.t.digests.len()));
     let fresh = rows.is_empty() && analysis_current;
     extra.insert("fresh".into(), json!(fresh));
-    if !fresh {
-        extra.insert("reingest".into(), reingest_call(&g.manifest));
+    if !fresh && let Some(call) = reingest_call(&g.manifest) {
+        extra.insert("reingest".into(), call);
     }
     (
         extra,

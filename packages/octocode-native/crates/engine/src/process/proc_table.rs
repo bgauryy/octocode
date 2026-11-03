@@ -4,10 +4,25 @@
 
 use std::path::Path;
 
-/// `(pid, ppid)` from one `/proc/<pid>/stat` line: `pid (comm) state ppid …`.
-/// `comm` is the executable name and may itself hold spaces, `(` and `)`, so
-/// the fields after it are located from the *last* `)`.
-pub(super) fn parse_proc_stat(stat: &str) -> Option<(u32, u32)> {
+use super::Process;
+
+/// The identity fields of one `/proc/<pid>/stat` record, read together so
+/// the parent link and the start time belong to the same process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ProcStat {
+    pub(super) pid: u32,
+    pub(super) ppid: u32,
+    /// `starttime`: clock ticks after boot.
+    pub(super) start: u64,
+}
+
+/// [`ProcStat`] from one `/proc/<pid>/stat` line: `pid (comm) state ppid …
+/// starttime …`. `comm` is the executable name and may itself hold spaces,
+/// `(` and `)`, so the fields after it are located from the *last* `)`.
+pub(super) fn parse_proc_stat(stat: &str) -> Option<ProcStat> {
+    /// `starttime` is field 22 of proc(5); counting from `state` (field 3),
+    /// it is 17 fields after `ppid`.
+    const START_AFTER_PPID: usize = 17;
     let open = stat.find(" (")?;
     let pid = stat[..open].trim().parse().ok()?;
     let close = stat.rfind(')')?;
@@ -17,7 +32,15 @@ pub(super) fn parse_proc_stat(stat: &str) -> Option<(u32, u32)> {
     let mut fields = stat[close + 1..].split_whitespace();
     let _state = fields.next()?;
     let ppid = fields.next()?.parse().ok()?;
-    Some((pid, ppid))
+    let start = fields.nth(START_AFTER_PPID)?.parse().ok()?;
+    Some(ProcStat { pid, ppid, start })
+}
+
+/// [`ProcStat`] of `pid` under a `/proc`-layout directory; `None` when the
+/// process is gone or its `stat` names another pid.
+pub(super) fn read_proc_stat(proc_root: &Path, pid: u32) -> Option<ProcStat> {
+    let stat = std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat")).ok()?;
+    parse_proc_stat(&stat).filter(|stat| stat.pid == pid)
 }
 
 /// Resident bytes from one `/proc/<pid>/statm` line (`size resident …`, in
@@ -50,32 +73,30 @@ pub(super) fn read_proc_cpu_ticks(proc_root: &Path, pid: u32) -> Option<u64> {
     parse_proc_stat_cpu_ticks(&stat)
 }
 
-/// `(pid, ppid)` of every process under a `/proc`-layout directory, read in
+/// [`ProcStat`] of every process under a `/proc`-layout directory, read in
 /// one pass. Entries that are not numeric, vanish mid-scan, or whose `stat`
 /// is unreadable or names another pid are skipped. Plain file I/O, so the
 /// Linux reader runs against a synthetic tree on any host.
-pub(super) fn read_proc_table(proc_root: &Path) -> Vec<(u32, u32)> {
+pub(super) fn read_proc_table(proc_root: &Path) -> Vec<ProcStat> {
     std::fs::read_dir(proc_root)
         .into_iter()
         .flatten()
         .flatten()
         .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
-        .filter_map(|pid| {
-            let stat =
-                std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat")).ok()?;
-            let (stat_pid, ppid) = parse_proc_stat(&stat)?;
-            (stat_pid == pid).then_some((pid, ppid))
-        })
+        .filter_map(|pid| read_proc_stat(proc_root, pid))
         .collect()
 }
 
-/// `pid → direct children` over a `(pid, ppid)` snapshot.
-pub(super) fn children_from_table(table: Vec<(u32, u32)>) -> impl Fn(u32) -> Vec<u32> {
+/// `pid → direct children` over a [`ProcStat`] snapshot.
+pub(super) fn children_from_table(table: Vec<ProcStat>) -> impl Fn(u32) -> Vec<Process> {
     move |parent| {
         table
             .iter()
-            .filter(|&&(pid, ppid)| ppid == parent && pid != parent)
-            .map(|&(pid, _)| pid)
+            .filter(|stat| stat.ppid == parent && stat.pid != parent)
+            .map(|stat| Process {
+                pid: stat.pid,
+                start: stat.start,
+            })
             .collect()
     }
 }

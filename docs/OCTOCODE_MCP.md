@@ -2,7 +2,7 @@
 
 The Octocode MCP server exposes Octocode's research tools to AI coding clients over stdio. The server is the native binary's `octocode mcp` command; `octocode-mcp` is a thin Node launcher that starts it. The binary owns protocol framing, tool listing, tool behavior, configuration, security policy, providers, credentials, caches, and stats. MCP and `npx octocode <toolName> '<json>'` share the same schemas, runners, validation, response envelope, pagination, and secret redaction.
 
-Tool fields and the shared call contract (batch envelopes, indexed results, `next` continuations, `related` calls, and prose `hints`): [How every tool call works](OCTOCODE_TOOLS.md#how-every-tool-call-works). Settings: [CONFIGURATION.md](CONFIGURATION.md). Tokens: [AUTHENTICATION.md](AUTHENTICATION.md).
+Tool fields and the shared call contract (batch envelopes, indexed results, `next` continuations, `related` calls, and prose `hints`): [Tool data and handoff contract](TOOL_DATA_CONTRACT.md). Settings: [CONFIGURATION.md](CONFIGURATION.md). Tokens: [AUTHENTICATION.md](AUTHENTICATION.md).
 
 `npx octocode-mcp` needs Node.js (it starts the platform binary and forwards stdio). The standalone `octocode` binary serves MCP without Node: `octocode mcp`. Public Agent Skills are installed through the CLI’s embedded bundle, not an MCP tool. See [CLI interfaces](OCTOCODE_CLI.md) and [skill installation](OCTOCODE_CLI.md#skill--agent-skills).
 
@@ -56,7 +56,7 @@ The contract has 16 tools. [Configuration](CONFIGURATION.md#tool-availability-cl
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
 
-- `ghCloneRepo` writes a fresh checkout on every call; `graphBuild` writes and prunes derived snapshots under workspace `.octocode/graph`. Their MCP annotations reflect those writes. `graphQuery` reads snapshots. The implementations are shared with the CLI.
+- `ghCloneRepo` writes a checkout unless it reuses a verified one of the same commit; `graphBuild` writes and prunes derived snapshots under workspace `.octocode/graph`. Their MCP annotations reflect those writes. `graphQuery` reads snapshots. The implementations are shared with the CLI.
 - `clasify` and inline `classification` use a configured provider credential. Questions, source capture and recovery are covered by the [classification guide](OCTOCODE_CLASIFY.md); exposure is covered by the configuration matrix above.
 - Tools take up to 5 `queries` per call; `graphBuild` accepts one. MCP publishes input schemas, titles, and descriptions, not output schemas.
 - Server instructions are one static prompt within the `MAX_MCP_INSTRUCTION_BYTES` UTF-8 limit in `@octocodeai/octocode-core/mcp`, a project instruction-size budget: cross-tool order, envelope, paging and evidence rules. Tool-specific rules, output (`Returns:`) notes and clasify guidance live in each tool's description, so they arrive only with the listed tool. The CLI adds a `<cli>` line and the grammar inventory; MCP clients get schemas through `tools/list`.

@@ -137,7 +137,7 @@ impl Graph {
         })
     }
 
-    /// Runs `f` on the snapshot's source table; a point reader reads and
+    /// Runs `f` on the snapshot's source table; a selective reader reads and
     /// authenticates it on first use.
     fn with_sources<R>(
         &self,
@@ -155,9 +155,7 @@ impl Graph {
         cancel: &dyn CancellationCheck,
         f: impl FnOnce(&SourceTable) -> Result<R, GraphOutput>,
     ) -> Result<R, GraphOutput> {
-        if let Some(reader) = &self.selective
-            && reader.borrow().reads_sources()
-        {
+        if let Some(reader) = &self.selective {
             let mut reader = reader.borrow_mut();
             if reference != NONE {
                 reader

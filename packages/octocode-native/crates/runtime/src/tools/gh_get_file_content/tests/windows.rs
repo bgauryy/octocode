@@ -294,9 +294,9 @@ async fn the_response_window_sizes_the_read_page() {
 }
 
 #[tokio::test]
-async fn saved_windows_reuse_cached_bytes_or_reacquire_only_the_pinned_commit() {
+async fn saved_windows_reacquire_only_the_pinned_commit() {
     let sha = "0123456789abcdef0123456789abcdef01234567";
-    for cached in [false, true] {
+    {
         let server = MockServer::builder().start().await;
         mount_json(
             &server,
@@ -312,27 +312,18 @@ async fn saved_windows_reuse_cached_bytes_or_reacquire_only_the_pinned_commit() 
             .respond_with(ResponseTemplate::new(200).set_body_json(
                 json!({"type":"file","encoding":"base64","content":STANDARD.encode(body)}),
             ))
-            .expect(if cached { 1 } else { 3 })
+            .expect(3)
             .mount(&server)
             .await;
         let provider = mock_provider(&server, RetryPolicy::default());
-        let provider = if cached {
-            GitHubProvider::new(
-                provider.transport,
-                crate::tools::gh_shared::test_support::MemoryCache::default(),
-            )
-        } else {
-            provider
-        };
         let first = read(
             &provider,
-            json!({"owner":"a","repo":"b","path":"source.txt","ref":"main","refresh":true}),
+            json!({"owner":"a","repo":"b","path":"source.txt","ref":"main"}),
         )
         .await;
         let row =
             first.file.calls.expect("saved window")["nextPage"]["input"]["queries"][0].clone();
         assert_eq!(row["ref"], sha);
-        assert_eq!(row["refresh"], true);
         assert!(
             row["readProgress"]["offset"]
                 .as_u64()
@@ -350,13 +341,11 @@ async fn saved_windows_reuse_cached_bytes_or_reacquire_only_the_pinned_commit() 
                 .count(),
             1
         );
-        if cached {
-            assert_eq!(
-                requests.len(),
-                before,
-                "cached saved reads make no provider requests"
-            );
-        }
+        assert_eq!(
+            requests.len(),
+            before + 2,
+            "each resumed read reacquires pinned bytes"
+        );
         server.verify().await;
     }
 }

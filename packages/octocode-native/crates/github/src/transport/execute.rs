@@ -24,20 +24,23 @@ impl GitHubTransport {
         // One physical-attempt budget for the whole operation: HTTP retries
         // inside `execute_counted` and the semantic retries below share it.
         let mut attempt: u8 = 0;
+        let spec = RequestSpec::graphql(
+            self.endpoint.graphql(),
+            serde_json::json!({ "query": query, "variables": variables }),
+        );
         loop {
             let page = self
-                .execute_counted(
-                    RequestSpec::graphql(
-                        self.endpoint.graphql(),
-                        serde_json::json!({ "query": query, "variables": variables }),
-                    ),
-                    context,
-                    &mut attempt,
-                )
+                .execute_counted(spec.clone(), context, &mut attempt)
                 .await?;
             let parsed: GraphQlPage = serde_json::from_slice(&page.body).map_err(|_| {
+                context.journal.forget(&spec);
                 ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub GraphQL response")
             })?;
+            // An answer with errors is a failure a later ask may not repeat:
+            // it is never evidence a continuation replays.
+            if !parsed.errors.is_empty() {
+                context.journal.forget(&spec);
+            }
             if parsed.errors.iter().any(GraphQlError::is_rate_limited) {
                 // GraphQL primary limit arrives as HTTP 200 + errors[].type.
                 let state = self.key_state(context.resolved_credential());
@@ -46,8 +49,7 @@ impl GitHubTransport {
                 state.exhaust(GitHubResource::Graphql.bucket(), reset);
                 let wait = self.budget.config().reset_wait(reset);
                 if attempt + 1 < self.retry.max_attempts
-                    && wait <= self.retry.max_rate_limit_wait
-                    && Instant::now() + wait < context.budget.wait_until
+                    && Instant::now() + wait < context.budget.admission_deadline()
                 {
                     attempt += 1;
                     continue;
@@ -105,8 +107,15 @@ impl GitHubTransport {
         context: &RequestContext,
         attempt: &mut u8,
     ) -> Result<ResponsePage, ProviderError> {
+        // A resumed continuation's evidence answers what it recorded.
+        if let Some(answer) = context.journal.replay(&spec) {
+            return answer;
+        }
         let mut failed = None;
-        let result = self.run_attempts(spec, context, &mut failed, attempt).await;
+        let result = self
+            .run_attempts(spec.clone(), context, &mut failed, attempt)
+            .await;
+        context.journal.record(&spec, &result);
         if let (Err(error), Some(cause)) = (&result, failed)
             && error.kind != ProviderErrorKind::Cancelled
         {

@@ -7,7 +7,7 @@ octocode <tool> (CLI) ────────┐
                              ├──▶ Rust ToolRuntime
 octocode mcp (stdio MCP) ─────┘       ├── generated octocode-core contracts
                                       ├── config and security policy
-                                      ├── providers, credentials, and caches
+                                      ├── providers, credentials, and retained work
                                       ├── tool orchestration and responses
                                       └── octocode-engine primitives
 ```
@@ -34,11 +34,11 @@ The runtime owns all 16 catalog tools ([tools reference](../../docs/OCTOCODE_TOO
 
 `clasify` exposes model discovery, whole-resource evaluation and section assessment. An evaluation row holds keyed `noul`/`choice`/`score` questions over exactly one literal `content` or one `source`, with image assets available for supported primitives. `tools/source_capture` captures a source completely through the same authorized readers a direct call runs (contract validation, input security, the reader's path policy and redaction, output sanitization), following every content page pinned to the first page's file snapshot or commit; a selection over the state limit (`clasify.semanticPolicy.maxStateChars`) fails its row instead of being judged in part. A URL source is fetched over HTTPS under the address policy and saved as a capture file that a `localFetch` lead reads back. The row returns the provider's validated answers unchanged, the model that answered, its usage, and for a source an executable `next.read` continuation of exactly what was judged. Optional `context` is included in the question instructions; captured text is not returned as another body. A failed row keeps its own error; siblings keep their answers.
 
-`tools/judgment` is the one evaluator behind retrieval `classification` and `clasify`: prepared state, provider questions, optional captured image assets and capability options in; validated answers, model and usage out. It owns the provider client, request batching (all questions over one state in one request when the serialized group fits the headroom, else one request per question), response validation (`providers/classification/jev.rs`), retries (`octocode_github::Backoff`, `classify_status`, `read_bounded`), the process-wide endpoint gate (`providers/classification/gate.rs`, bounded by the runtime's constant classification concurrency, idle gates dropped past 64), and accounting. Its judgment cache is runtime-owned: a `cache::Store` (memory always; `<home>/tmp/judgment` on disk only under persistent storage; 256 entries, 8 MiB, 30-minute TTL) keyed by the credential `Partition`, model, state, questions, image bytes and capability options, with one `KeyedFlight` so identical concurrent evaluations make one request. Only complete validated evaluations are cached; a replay reports `replayed: true` and the original usage. The same authenticated transport exposes the provider model catalog, accounted separately from inference. Inline selection returns its per-call receipt independently of persistent stats. Image source capture reuses local access policy, GitHub content by resolved commit, HTTPS address checks, and the existing capture store; it sends bytes internally and returns only provenance and a saved inspection path. Retrieval compiles each atomic question through the contract's `classifierTemplate` into a Score question (`tools/selection/judge.rs`). `tools/selection` applies the core selection policy and partitions candidates into selected, excluded and unknown. It saves decisions in the `selection` plan, binds source identity, template and optional classification context, and replays without new provider calls. Code search selects its sanitized provider page at the response boundary (`ToolOutput::selects_provider_page`); local search and both fetch tools select before their own pagination. The receipt exposes selected, excluded, and unknown coverage; required unfiltered recovery is an explicit continuation. The [context selection rule](../../docs/OCTOCODE_TOOLS.md#context-selection) owns those semantics.
+`tools/judgment` is the one evaluator behind retrieval `classification` and `clasify`: prepared state, provider questions, optional captured image assets and capability options in; validated answers, model and usage out. It owns the provider client, request batching (all questions over one state in one request when the serialized group fits the headroom, else one request per question), response validation (`providers/classification/jev.rs`), retries (`octocode_github::Backoff`, `classify_status`, `read_bounded`), the process-wide endpoint gate (`providers/classification/gate.rs`, bounded by the runtime's constant classification concurrency, idle gates dropped past 64), and accounting. Every fresh evaluation sends its prepared input to the provider and accounts for the actual request; completed judgments are not reused across calls. A section continuation retains its own settled cells as work already performed. The same authenticated transport exposes the provider model catalog, accounted separately from inference. Inline selection returns its per-call receipt independently of persistent stats. Image source capture reuses local access policy, GitHub content by resolved commit, HTTPS address checks, and the existing capture store; it sends bytes internally and returns only provenance and a saved inspection path. Retrieval compiles each atomic question through the contract's `classifierTemplate` into a Score question (`tools/selection/judge.rs`). `tools/selection` applies the core selection policy and partitions candidates into selected, excluded and unknown. It saves decisions in the `selection` plan, binds source identity, template and optional classification context, and replays without new provider calls. Code search selects its sanitized provider page at the response boundary (`ToolOutput::selects_provider_page`); local search and both fetch tools select before their own pagination. The receipt exposes selected, excluded, and unknown coverage; required unfiltered recovery is an explicit continuation. The [context selection rule](../../docs/OCTOCODE_TOOLS.md#context-selection) owns those semantics.
 
-`clasify operation:"sections"` shares those readers and the evaluator. `tools/source_sections` owns source-coordinate geometry used by localFetch selection and section planning; it reuses declaration parsing and UTF-8 line indexes. `tools/source_capture/resource` acquires one complete authorized text capture, preserving original bytes for planning before sanitization. The section executor retains only sanitized target/context state, shared questions, immutable source identity and per-question outcomes. It checks the retained-plan budget while adding units. Answers are emitted once their section is settled; pending work stays in coverage counts and `next.nextSectionPage`. Invalid provider answers fail their own cells while valid siblings survive, with one usage receipt per actual request.
+`clasify operation:"sections"` shares those readers and the evaluator. `tools/source_sections` owns source-coordinate geometry used by localFetch selection and section planning; it reuses declaration parsing and UTF-8 line indexes. `tools/source_capture/resource` acquires one complete authorized text capture, preserving original bytes for planning before sanitization. The section executor retains only sanitized target/context state, shared questions, immutable source identity and per-question outcomes. It checks the retained-plan budget while adding units. Answers are emitted once their section is settled; pending work stays in coverage counts and `pagination.next.nextPage`. Invalid provider answers fail their own cells while valid siblings survive, with one usage receipt per actual request.
 
-The runtime owns section sessions separately from saved display pages. Work tokens bind access, source identity, questions, model and policy; a persistent transaction lock and fresh disk reads serialize cross-process progress. Active work is saved before inference so an interrupted request is reported as unassessed instead of automatically repeated. Local work revalidates the original locator, canonical path and snapshot; settled replay performs no inference. Section plans expire after 30 minutes and are bounded by eight entries, 32 MiB in memory and 128 MiB on disk. These are retained-state limits, not a process RSS ceiling. Memory-only CLI calls reject plans requiring continuation before inference; long-lived MCP sessions and persistent CLI storage can resume them. The user-facing contract is in [the classification guide](../../docs/OCTOCODE_CLASIFY.md#research-text-sections-across-resources).
+The runtime owns section sessions separately from saved display pages. Work tokens bind access, source identity, questions, model and policy; a persistent transaction lock and fresh disk reads serialize cross-process progress. Active work is saved before inference so an interrupted request is reported as unassessed instead of automatically repeated. Local work revalidates the original locator, canonical path and snapshot; settled replay performs no inference. Section plans expire after 30 minutes and are bounded by the byte budgets in `PageReplayMemo::cache_config`. These are retained-state limits, not a process RSS ceiling. Memory-only CLI calls reject plans requiring continuation before inference; long-lived MCP sessions and persistent CLI storage can resume them. The user-facing contract is in [the classification guide](../../docs/OCTOCODE_CLASIFY.md#clasify-sections-map-questions-across-many-files).
 
 Search and fetch never hand off to `clasify`, and emit no automatic reread lead of evidence they already returned.
 
@@ -54,11 +54,11 @@ Production imports point one way: `id`/`num` → `contracts` → `policy` → `c
 | `execution` | The request kernel: `ExecutionContext`/`ExecutionError`, cooperative cancellation, the runtime's code limits, and per-runtime tool availability | Anything from response, providers, tools or runtime |
 | `runtime` | Admission, dispatch and ordered bulk orchestration (execution codes include `responseTooLarge` and `unroutedTool`). `runtime/error.rs` is the one projection of a rejected call: `tool_error_result` builds the `{error, details?, errorCode}` envelope and its one-line text for CLI JSON, the terminal, the warm server and MCP | CLI presentation or MCP SDK types |
 | `policy` / `security` | Path, content, command, and secret policy; the one error scrubber (`scrub_error_text` / `scrub_error_payload`) shared by the CLI and MCP | Interface-specific behavior |
-| `providers` / `cache` | Remote DTOs (GitHub, artifact registries, classification and its Jev wire validator), HTTP, retries, credentials, endpoint caches | CLI or MCP framing |
+| `providers` / `cache` | Remote DTOs (GitHub, artifact registries, classification and its Jev wire validator), HTTP, retries, credentials, retained continuation state | CLI or MCP framing |
 | `tools` | Public operations composed from shared runtime services and engine primitives | Independent config, auth, or response systems |
 | `response` | Contract-checked indexed rows, evidence-preserving pagination, typed continuations, sanitized rendering, and the result vocabulary tools write (`result`, `paging`, `page_windows`, `numbered`, `output`, `outcome`, `exit` classification) | Tool execution |
 | `tools/lsp_search` + `runtime/domain_dispatch` | Runtime composition around the engine language-server pool (pool owned by the runtime engine, dispatched and prewarmed through `domain_dispatch`) | A second lifecycle implementation |
-| `tools/<shared>` (the list, each module's purpose and its layer live in `tools/module_boundaries/tool_edges.rs` `SHARED_LAYERS`; the helpers in `tools.rs` are its lowest layer) | Logic two or more tools use: for example `empty_walk` (why an empty local walk is empty and the minimal flags that lift it), `leads` (follow-up queries one tool offers into another), `declarations_cache`, `gh_shared`, `source_view` (the one view engine over fetched source text: localFetch and ghGetFileContent render through it), `source_capture` (its `SourceReader` trait is how clasify reads through the runtime's dispatcher without naming it) | Tool-specific behavior. The guard rejects every tool-to-tool and shared-to-tool edge, and every shared-to-shared edge that does not point to a lower layer (for example `selection` and `source_capture` import `judgment`, never the reverse). |
+| `tools/<shared>` (the list, each module's purpose and its layer live in `tools/module_boundaries/tool_edges.rs` `SHARED_LAYERS`; the helpers in `tools.rs` are its lowest layer) | Logic two or more tools use: for example `empty_walk` (why an empty local walk is empty and the minimal flags that lift it), `leads` (follow-up queries one tool offers into another), `declarations`, `gh_shared`, `source_view` (the one view engine over fetched source text: localFetch and ghGetFileContent render through it), `source_capture` (its `SourceReader` trait is how clasify reads through the runtime's dispatcher without naming it) | Tool-specific behavior. The guard rejects every tool-to-tool and shared-to-tool edge, and every shared-to-shared edge that does not point to a lower layer (for example `selection` and `source_capture` import `judgment`, never the reverse). |
 | `tools/ast_graph/store` | Persisted code graph behind `graphBuild` and `graphQuery`: immutable snapshots under `<workspace>/.octocode/graph/` | Tool schemas or MCP registration |
 | `crates/cli` | Arguments, human output, and shell exits | Node, duplicated tools, or use-case decisions (`runtime/auth.rs` decides what `auth login`/`status`/`logout` do; the CLI prints) |
 | `crates/cli/src/cli/mcp_server/` | The stdio MCP server: tool and instruction listing composed from the embedded presentation and runtime catalog (`listing.rs`), request dispatch into the runtime and era-specific response metadata (`handler.rs`), startup, signals and shutdown (`mcp_server.rs`) | Tool behavior or contract text |
@@ -78,87 +78,68 @@ an outer row catch. Consumers call each engine operation at its defining module.
 Six crates, and these Cargo edges only: `engine`, `io` and `contract-types` are
 leaves; `github` → `io`, `contract-types`; `runtime` → `io`, `engine`, `github`,
 `contract-types`; `cli` → `io`, `runtime`, `engine`, `github`, `contract-types`. `crates/runtime` is a pure `rlib`.
-`crates/io` owns the primitives the crates above the engine share, among them
-the one in-process memo outside the engine and the keyed single flight around it
-([`crates/io/src/lib.rs`](crates/io/src/lib.rs) lists them and the engine's own caches).
-`crates/io` also owns the provider-neutral HTTP rules every client shares
-(`budget`: `RequestBudget`; `retry`: `Backoff`, `classify_status`,
-`is_retryable_send`, `read_bounded`, `retry_after_delay`) and Gregorian day math
-(`civil`). `crates/github` owns GitHub protocol and transport services, plus
-`Partition` (an origin scoped by a digest of the exact credential; every cache,
-limiter and rejection set derives from it) and `credential_host`, which artifact
-HTTP and the classification transport reuse.
-GitHub content reads take one flight per `(partition, commit, path)`, and a cached
-body at a resolved commit is served without revalidation; a movable ref stays
-fresh through its own memoized resolution. Runtime keeps configuration,
-credential selection, cache policy, and generated tool contracts. `crates/cli`
-owns the `octocode` binary (CLI and MCP server). All six crates inherit one workspace version and remain
+`crates/io` owns shared I/O, request cancellation (`cancellation::Cancellation`,
+the one signal every check reads lock-free), request budgets, retries, HTTP
+clients, locks and bounded storage for in-progress continuations. `crates/github` owns the GitHub
+protocol and transport. `Partition` binds an origin to the exact credential for
+rate admission, authorization and rejection state. Runtime owns configuration,
+credential selection and generated tool contracts; `crates/cli` owns the native
+CLI and MCP server. All six crates inherit one workspace version and remain
 unpublished Cargo packages.
 
-`octocode_io::memo::Memo` owns strict in-process entry and weight limits, shared
-`Arc` payloads and per-entry TTL. It uses the `lru` crate for recency and an ordered
-deadline index for expiry: insertion visits expired and evicted entries rather than
-scanning the entire cache. Replacing or removing an entry removes its old deadline.
-Already-expired values cannot evict live work. Clearing also releases map capacity.
-The weak memo registry lets maintenance clear initialized tool-local statics without
-retaining dropped runtimes. Source/page identities still partition global scan memos.
+Fresh tool calls acquire and compute their results afresh. There are no reusable
+GitHub response, registry response, judgment, prepared-source, sanitized-source,
+outline, parsed-facts or decoded-graph result stores. A request carries the commit
+it actually resolved through both success and recovery paths. GitHub materialization
+always reacquires bytes; returned files and capture paths remain inspectable outputs.
 
-The runtime owns its provider, outline, judgment and saved-work stores. Each uses
-RAM in both storage modes; `cache::Directory` inventories the optional persistent
-tiers under `<home>/tmp/`. Outline ownership follows the runtime rather than a
-first-initialized global home. Store keys share one `Arc<CacheKey>` between the LRU
-and deadline index, avoiding duplicate key strings for expiring entries.
+Continuation storage has one authoritative location. Persistent stores read disk
+on every access and hold no duplicate in-process copy; memory-only stores retain
+state only within their runtime. `cache::Directory` inventories persisted work.
+The shared bounded memory store uses an LRU and ordered expiry index to retire
+issued work; it never answers a fresh query with a previous query's result.
 
-Disk admission holds a per-store OS lock and persists an upper bound on entry
-bytes before atomic publication. The existing atomic stream writer writes the
-header and borrowed body separately, avoiding another body-sized RAM buffer.
-Interrupted process writes and reader deletions can overcount;
-missing or corrupt accounting triggers a full scan. Expiry maintenance scans at
-most once per minute unless capacity pressure requires reconciliation. Pressure
-also frees one eighth of the budget as headroom, amortizing oldest-access eviction.
-The strict bound covers published entry headers and bodies; bookkeeping, filesystem
-allocation and one atomic-write staging copy are outside it. Writes are not
-fsynced, so the accounting bound does not guarantee recovery after an OS crash
-or power loss. Lock contention or
-I/O failure skips disk retention and makes `put_confirmed` return false. The RAM
-tier remains usable. Cache clearing requires separate MCP processes to stop so
-no writer retains a lock in a removed directory.
+Disk admission holds a per-store OS lock and reserves entry bytes before atomic
+publication. Headers and bodies are written separately without another body-sized
+buffer. Interrupted writes can overcount; reconciliation scans restore accounting.
+The bound covers entry headers and bodies, excluding filesystem allocation,
+bookkeeping and one atomic-write staging copy. Writes are not fsynced, so recovery
+after an OS crash or power loss is not guaranteed. Failed retention is explicit:
+`put_confirmed` returns false, and callers must not issue an unreachable continuation.
 
-Provider cache disk work runs on bounded blocking
-workers; RAM hits avoid that hop. Strict `put_confirmed` and transactional
-`get_current` retain their synchronous saved-work guarantees. Moka remains in the
-engine's recomputable parsed-facts and language-server response caches. We chose
-`lru` for the shared store because guaranteed admission and immediate byte limits
-matter for continuations; asynchronous admission would change that contract.
+Graph builds publish requested snapshots in either storage mode. Persistent builds
+retain extraction checkpoints only for interrupted work; successful publication
+retires the matching job generation. Published snapshots are authoritative outputs.
+Graph topology uses dense node/string IDs and bidirectional compressed adjacency
+arrays; queries decode only their required tables and selected evidence blocks.
+Clone outputs use fresh staging and atomic publication under `<home>/clones/`,
+replace only clean destinations, and have no TTL or eviction.
 
-Graph builds publish requested snapshots in either storage mode; only persistent
-mode saves reusable `.facts` extraction checkpoints. `ghCloneRepo` uses an uncached
-provider scope, fresh staging and atomic publication under `<home>/clones/`. It
-replaces only clean destinations and retains no metadata or response replay. Clone
-outputs have no TTL or eviction. HTTP connections and rate-limit admission remain
-shared operational state.
+Live language servers, synchronized documents, request IDs, HTTP connections,
+rate-limit admission, compiled grammar/regex programs and installed toolchains are
+operational state. Saved pages, ongoing scans and section assessments are the
+specific evidence and progress addressed by issued continuations.
 
-`ToolRuntime::clear_caches` drains and closes its runtime, waits for cache I/O,
-clears process memos and parsed facts, and removes inventoried home caches and the
-current workspace's graph checkpoints. The CLI first requests acknowledged shutdown
-of warm servers. Other runtimes/processes must be quiesced by the owner; separate
-MCP processes must restart. This avoids filesystem polling or cross-process locks
-on every tool call. Clone outputs, graph snapshots, credentials, installations and
-rate-limit coordination remain intact. `runtime/maintenance.rs` separately performs
-the existing best-effort daily age sweep of derived captures and materializations.
+`ToolRuntime::clear_caches` drains and closes its runtime, clears retained process
+work, and removes inventoried home state and workspace extraction checkpoints.
+The CLI first requests acknowledged shutdown of warm servers. Separate MCP
+processes must stop and restart. Published graphs, clone outputs, credentials,
+installations and rate-limit coordination remain intact. Daily maintenance ages
+inspectable captures and materializations according to their retention policy.
 
 Public continuations use one issued-handle registry (`runtime/engine/cursors`). Each
 opaque handle selects a target tool, the complete normalized request, and either
 typed tool progress or an immutable response page. Handles bind the surface,
 credentials, policy, workspace and contract; public inputs cannot edit that state.
-The registry retains handles for 120 seconds, subject to its entry and byte budgets.
+The registry and its selected provider answers share the idle lifetime declared in
+`cache::CONTINUATION_IDLE`, subject to their byte budgets.
 A per-request trace records GitHub credential partitions used by direct tools and
 indirect captures. Local auth inspection must match before saved work is retained
 and replayed; it never refreshes credentials. Responses with no saved work need no
 cursor authorization.
 
-Saved output pages retain complete settled evidence in a separate cache, bounded
-by eight entries, 32 MiB in memory and 128 MiB on disk. Reading these pages performs
+Saved output pages retain complete settled evidence in a separate store, bounded
+by the byte budgets in `PageReplayMemo::cache_config`. Reading these pages performs
 no source acquisition or inference. Tool continuations resume their declared work:
 local sources remain snapshot-bound, and GitHub source reads remain pinned to the
 captured commit. Missing or expired handles fail explicitly. Memory storage lasts
@@ -180,15 +161,12 @@ The engine's top-level modules are layered too (`ENGINE_LAYERS` in the same `too
 
 Tension: the engine is described as algorithms, not policy, yet it owns the language-server pool and its process IO (`lsp/pool.rs`, `lsp/client.rs`). Those stay in the engine so the CLI daemon and the MCP server share one pool; moving them out is a design decision, not a cleanup. No lower engine module imports `lsp`, so the move stays open.
 
-AST declaration extraction indexes local export aliases by symbol name in the engine
-and polls cancellation during outline construction. Runtime owns a bounded cache of
-private declaration JSON for single-file symbol requests (128 entries, 32 MiB,
-cache class `Immutable`: an entry never expires, because its key holds the
-source-content hash; size and entry caps evict it). Each request validates workspace access and reads current source
-before lookup; the key includes canonical path, parser choice, and a source-content
-hash. Source edits invalidate pagination snapshots, and policy shaping runs on every
-request. Directory extraction is not cached. Parsing occurs outside the cache lock;
-failed or cancelled extraction is never retained.
+Source reads own one decoded buffer. Sanitization borrows unchanged text and owns
+only replacements; selected views use flat LF offsets into that buffer instead of
+allocating one string per source line. A request passes its parsed declaration
+document explicitly to consumers. Source edits invalidate continuation snapshots.
+Declaration and LSP result reuse is restricted to the evidence already selected
+for an active continuation, never a fresh request.
 
 ## GitHub authentication
 
@@ -214,7 +192,9 @@ and timeout/cancellation paths kill and reap the child. Discovery and refresh
 share the request deadline; cancellation and timeout do not start another fallback.
 OS keychain calls run on blocking workers and are awaited before checking the
 budget again: an OS keychain prompt cannot be forcibly cancelled by the resolver.
-The selected credential is pinned before transport/cache work begins. Local
+Every request reloads credentials from its configured source; account switches,
+logout and token rotation take effect on the next request. The selected credential
+is pinned before transport work begins. Local
 tools and catalog inspection perform no credential discovery.
 
 `CredentialStore` takes the resolved Octocode home from config. New logins and
@@ -235,13 +215,13 @@ Config remains the shared home/dotenv policy owner; core contracts are unchanged
 
 `crates/engine/src/signatures/languages.rs` is the sole native grammar inventory. Structural search/rewrite, signatures, graph facts, syntax inspection, directory language filters, and LSP grammar adapters derive from that registry; built-in language-server routing comes from a separate server table (`lsp/config/catalog.rs`). Counts, grammar features, and per-language coverage: [SUPPORTED_LANGUAGES_AND_FEATURES.md](docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md). An astSearch rule is a JSON object, decoded once into the engine's typed rule; YAML files are read as source text only.
 
-`RegistryView` separates structural search, syntax inspection, rendered outlines and fact capabilities. It can admit a versioned facts provider without requiring a Tree-sitter grammar; operation admission and the capability catalog use the same immutable view. Core's fingerprinted `AnalysisCapabilities` schema owns the served shape, including grammar-independent source decoding. Graph caches and manifests include registry identity.
+`RegistryView` separates structural search, syntax inspection, rendered outlines and fact capabilities. It can admit a versioned facts provider without requiring a Tree-sitter grammar; operation admission and the capability catalog use the same immutable view. Core's fingerprinted `AnalysisCapabilities` schema owns the served shape, including grammar-independent source decoding. Graph manifests include registry identity.
 
 `signatures::extract_graph_facts` returns a typed `GraphFactsDocument` directly to
 LSP fallbacks. Importer checks share that document between name matching and
 module reachability; each consumer keeps its own parse-quality policy. AST symbol
 requests retain declaration-only extraction, while graph scans retain reference
-counts and their existing fact cache.
+counts from the same extraction.
 
 `engine::text::analysis` binds immutable parser templates to each admitted raw source and composes observed spans through representation maps. Runtime `tools::source_evidence` projects complete origins and descriptor closures through generated wire types; graph storage persists captured correspondence instead of reconstructing it from current files. [Source correspondence](docs/engine/SOURCE_CORRESPONDENCE.md) owns public coordinate meanings, paging and resource limits.
 
@@ -264,7 +244,7 @@ Every local tool walks under one policy owned by `engine::search::walk` and one 
 
 - Native runtime absence fails closed at every Node interface.
 - Requests are admitted before asynchronous work starts and own cleanup through completion.
-- Cancellation, worker handles, HTTP clients, caches, and LSP clients are runtime-owned resources.
+- Cancellation, worker handles, HTTP clients, retained work, and LSP clients are runtime-owned resources.
 - Credentials are pinned per request and never copied into public responses.
 - Every completed row is checked against its generated tool output contract.
 - Pagination and continuations retain the query identity needed to resume safely.
@@ -289,7 +269,7 @@ Core also derives `pageContextFields` from output field requirements and roles. 
 
 `config` reports the config and dotenv paths, key names, and config warnings. `config set` and `config unset` use `config/edit.rs` for locked atomic edits, sharing the dotenv parser and generated protected-key policy. They preserve unrelated lines and never return values.
 
-Configuration policy is independently owned by `@octocodeai/config` in `config-contract.json`. The config generator validates that declaration against its meta-schema (Ajv) and commits it pre-validated. Native `build.rs` does not re-run meta-schema validation; it renders Rust config structs, defaults, environment policy, and generic resolver/validator metadata into `OUT_DIR` and fails closed on any missing or mistyped field it reads. Generated files are not hand edited.
+Configuration policy is independently owned by `@octocodeai/config`: a Zod declaration in `scripts/config-contract/declaration/`, which the config generator validates and emits as `config-contract.json` (plus its JSON Schema). A config test fails if the emitted files drift from the declaration. Native `build.rs` does not re-run meta-schema validation; it renders Rust config structs, defaults, environment policy, and generic resolver/validator metadata into `OUT_DIR` and fails closed on any missing or mistyped field it reads. Generated files are not hand edited.
 
 ## Bundled skills
 

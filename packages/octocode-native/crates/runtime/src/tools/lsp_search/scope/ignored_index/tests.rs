@@ -1,5 +1,6 @@
 use super::*;
 use crate::tools::test_support::workspace_policy;
+use std::collections::HashSet;
 
 fn fixture() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().expect("dir");
@@ -17,11 +18,9 @@ fn scope_of(root: &Path) -> Scope {
     Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".to_owned()])
 }
 
-/// The index lists the ignored family files once; every later request,
-/// for any name, reads only those files under the same index, which
-/// follows the snapshot: an added ignored file is listed next time.
+/// Every request selects its current ignored files and preserves exact name matches.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_index_is_built_once_per_snapshot_and_serves_every_name() {
+async fn ignored_files_are_scanned_per_request_and_include_every_name() {
     let (_dir, root) = fixture();
     write(&root.join(".gitignore"), "gen/\n");
     write(
@@ -55,7 +54,7 @@ async fn the_index_is_built_once_per_snapshot_and_serves_every_name() {
     assert_eq!(index.files.len(), 51, "{index:?}");
     assert!(index.complete);
 
-    // Another name reads the same index.
+    // Another name independently selects the same source files.
     let other = scope
         .ignored_text_files("g", &skip, &policy, cancel)
         .await
@@ -66,7 +65,10 @@ async fn the_index_is_built_once_per_snapshot_and_serves_every_name() {
         .await
         .expect("index")
         .expect("held");
-    assert!(Arc::ptr_eq(&index, &again), "a held index is reused");
+    assert!(
+        !Arc::ptr_eq(&index, &again),
+        "each request owns its ignored-file scan"
+    );
 
     // A new ignored file changes its directory's stamp: rebuilt.
     write(&root.join("gen/new.ts"), "f();\n");
@@ -84,116 +86,11 @@ async fn the_index_is_built_once_per_snapshot_and_serves_every_name() {
     assert_eq!(narrowed.files.len(), 11, "{narrowed:?}");
 }
 
-/// An index whose walk stopped at its bounds lists what it reached and
-/// leaves the scan unfinished: never read as "no ignored file".
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_incomplete_index_reports_an_unfinished_scan() {
-    let (_dir, root) = fixture();
-    write(&root.join(".gitignore"), "gen/\n");
-    write(&root.join("a.ts"), "export function f() {}\n");
-    let reached = root.join("gen/g.ts");
-    write(&reached, "f();\n");
-    let policy = workspace_policy(&root);
-    let scope = scope_of(&root);
-    INDEXES.insert(
-        scope.index_key(&policy),
-        IgnoredIndex {
-            files: vec![reached.to_string_lossy().into_owned()],
-            complete: false,
-            ..IgnoredIndex::default()
-        },
-        1,
-        Some(INCOMPLETE_TTL),
-    );
-    let found = scope
-        .ignored_text_files(
-            "f",
-            &HashSet::new(),
-            &policy,
-            &crate::execution::cancel::NeverCancel,
-        )
-        .await
-        .expect("scan");
-    assert!(found.unfinished, "{found:?}");
-    assert_eq!(found.files, [reached.to_string_lossy()], "{found:?}");
-}
-
-/// A request waits for the index a walk is building, however long the walk
-/// takes, so requests that arrive while it runs (several at once, under a
-/// loaded host) all get the whole answer, never a shorter one; a request
-/// that ends while it waits (cancelled, or past its deadline) fails as
-/// cancelled instead of answering with an unfinished scan.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn requests_wait_for_a_building_index_until_it_lands_or_they_end() {
-    struct Ends(std::sync::atomic::AtomicBool);
-    impl CancellationCheck for Ends {
-        fn check(&self) -> Result<(), String> {
-            if self.0.load(std::sync::atomic::Ordering::SeqCst) {
-                Err("deadline".to_owned())
-            } else {
-                Ok(())
-            }
-        }
-    }
-    let (_dir, root) = fixture();
-    write(&root.join(".gitignore"), "gen/\n");
-    write(&root.join("a.ts"), "export function f() {}\n");
-    for index in 0..20 {
-        write(&root.join(format!("gen/g{index}.ts")), "f();\n");
-    }
-    let policy = workspace_policy(&root);
-    let scope = scope_of(&root);
-    let key = scope.index_key(&policy);
-    // A walk in progress: the building mark is held while requests wait.
-    let mark = || {
-        BUILDING
-            .lock()
-            .expect("lock")
-            .get_or_insert_with(HashSet::new)
-            .insert(key.clone());
-    };
-    mark();
-    let skip = HashSet::new();
-    let ends = Ends(false.into());
-    let (ended, ()) = tokio::join!(
-        scope.ignored_text_files("f", &skip, &policy, &ends),
-        async {
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            ends.0.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
-    );
-    assert!(
-        matches!(&ended, Err(failure) if failure.code == octocode_contract_types::ErrorCode::Cancelled),
-        "a request that ends while it waits fails, not answers short: {ended:?}"
-    );
-    let cancel = &crate::execution::cancel::NeverCancel;
-    let waiting = (0..6).map(|_| scope.ignored_text_files("f", &skip, &policy, cancel));
-    let release = async {
-        // Busy the host while the requests wait, then let the walk land.
-        let load = (0..8)
-            .map(|_| tokio::task::spawn_blocking(|| (0..2_000_000_u64).fold(0, u64::wrapping_add)))
-            .collect::<Vec<_>>();
-        for task in load {
-            task.await.expect("load");
-        }
-        // The walk lands as a background build does: index first, mark last.
-        let index = build(&root, &scope.include, &policy, &|| false);
-        INDEXES.insert(key.clone(), index, 1, None);
-        drop(Building(key.clone()));
-    };
-    let (answers, ()) = tokio::join!(futures_util::future::join_all(waiting), release);
-    for answer in answers {
-        let answer = answer.expect("scan");
-        assert!(!answer.unfinished, "{answer:?}");
-        assert_eq!(answer.files.len(), 20, "{answer:?}");
-    }
-}
-
 /// Saving a tracked file by rename changes its directory's stamp but adds
 /// nothing ignored: the index holds. A new file that ignore rules hide in a
 /// tracked directory, or a new directory, stales it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_tracked_directory_edit_keeps_the_index_unless_it_hides_a_file() {
+async fn tracked_edits_and_new_ignored_files_are_observed() {
     let (_dir, root) = fixture();
     write(&root.join(".gitignore"), "gen/\n*.gen.ts\n");
     write(&root.join("src/a.ts"), "export function f() {}\n");
@@ -216,13 +113,16 @@ async fn a_tracked_directory_edit_keeps_the_index_unless_it_hides_a_file() {
     );
     std::fs::rename(root.join("src/a.ts.tmp"), root.join("src/a.ts")).expect("rename");
     let saved = held().await;
-    assert!(Arc::ptr_eq(&first, &saved), "an edit keeps the index");
+    assert_eq!(
+        first.files, saved.files,
+        "tracked edits preserve the selected ignored files"
+    );
     // A generated file the rules hide, beside tracked ones.
     write(&root.join("src/b.gen.ts"), "f();\n");
     let regenerated = held().await;
     assert!(
         !Arc::ptr_eq(&saved, &regenerated),
-        "a hidden file stales it"
+        "a hidden file is selected by a new scan"
     );
     assert!(
         regenerated
@@ -236,44 +136,66 @@ async fn a_tracked_directory_edit_keeps_the_index_unless_it_hides_a_file() {
     let widened = held().await;
     assert!(
         !Arc::ptr_eq(&regenerated, &widened),
-        "a new directory stales it"
+        "each scan owns the current directory state"
     );
 }
 
-/// The index walk runs to completion however long it takes; only its
-/// memory bound (the index memo's byte budget) stops it, and an index cut
-/// there says so: it is incomplete, and a request reading it reports the
-/// ignored scan unfinished, with the files the walk reached.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn only_the_memory_bound_cuts_the_index_walk_and_a_cut_is_disclosed() {
+#[test]
+fn a_cancelled_discovery_is_incomplete_and_a_new_request_reads_every_file() {
     let (_dir, root) = fixture();
     write(&root.join(".gitignore"), "gen/\n");
-    write(&root.join("a.ts"), "export function f() {}\n");
-    for index in 0..40 {
-        write(&root.join(format!("gen/g{index:02}.ts")), "f();\n");
+    for index in 0..120 {
+        write(&root.join(format!("gen/g{index:03}.ts")), "f();\n");
+    }
+    let policy = workspace_policy(&root);
+    let include = ["*.ts".to_owned()];
+    let checks = std::sync::atomic::AtomicUsize::new(0);
+    let cut = build(&root, &include, &policy, &|| {
+        checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 10
+    });
+    assert!(!cut.complete);
+    assert!(cut.files.len() < 120);
+    let whole = build(&root, &include, &policy, &|| false);
+    assert!(whole.complete);
+    assert_eq!(
+        whole.files,
+        (0..120)
+            .map(|index| root
+                .join(format!("gen/g{index:03}.ts"))
+                .to_string_lossy()
+                .into_owned())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_requests_get_complete_independent_scans_and_cancellation_is_an_error() {
+    struct Ended;
+    impl CancellationCheck for Ended {
+        fn check(&self) -> Result<(), String> {
+            Err("deadline".into())
+        }
+    }
+    let (_dir, root) = fixture();
+    write(&root.join(".gitignore"), "gen/\n");
+    for index in 0..20 {
+        write(&root.join(format!("gen/g{index}.ts")), "f();\n");
     }
     let policy = workspace_policy(&root);
     let scope = scope_of(&root);
-    let whole = build_within(&root, &scope.include, &policy, &|| false, INDEX_BYTES);
-    assert!(whole.complete, "{whole:?}");
-    assert_eq!(whole.files.len(), 40);
-    assert!(whole.bytes > 0 && whole.bytes <= INDEX_BYTES);
-    // A bound below what the whole index weighs cuts it.
-    let cut = build_within(&root, &scope.include, &policy, &|| false, whole.bytes / 2);
-    assert!(!cut.complete, "{cut:?}");
+    let skip = std::collections::HashSet::new();
+    let ended = scope.ignored_text_files("f", &skip, &policy, &Ended).await;
     assert!(
-        cut.files.len() < 40 && cut.bytes <= whole.bytes / 2,
-        "{cut:?}"
+        matches!(ended, Err(ref failure) if failure.code == octocode_contract_types::ErrorCode::Cancelled),
+        "{ended:?}"
     );
-    INDEXES.insert(scope.index_key(&policy), cut, 1, Some(INCOMPLETE_TTL));
-    let found = scope
-        .ignored_text_files(
-            "f",
-            &HashSet::new(),
-            &policy,
-            &crate::execution::cancel::NeverCancel,
-        )
-        .await
-        .expect("scan");
-    assert!(found.unfinished, "{found:?}");
+    let answers = futures_util::future::join_all((0..6).map(|_| {
+        scope.ignored_text_files("f", &skip, &policy, &crate::execution::cancel::NeverCancel)
+    }))
+    .await;
+    for answer in answers {
+        let answer = answer.expect("scan");
+        assert!(!answer.unfinished);
+        assert_eq!(answer.files.len(), 20);
+    }
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,21 @@ import { localCli } from './lib.mjs';
 import { tempDir } from './test-tmp.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+for (const [script, args] of Object.entries({ 'preflight.mjs': ['--json'], 'wiki.mjs': ['--help'], 'render.mjs': ['--help'] })) {
+  test(`a symlinked skill dispatches ${script} like the canonical path`, () => {
+    const cwd = tempDir('graph-view-install-');
+    const installed = join(cwd, 'installed');
+    symlinkSync(dirname(here), installed, 'junction');
+    // Preflight must report a missing CLI even when no Octocode build is installed.
+    const options = { cwd, encoding: 'utf8', env: { ...process.env, OCTOCODE_CLI: join(cwd, 'absent-cli') } };
+    const direct = spawnSync(process.execPath, [join(here, script), ...args], options);
+    const linked = spawnSync(process.execPath, [join(installed, 'scripts', script), ...args], options);
+    assert.ok(direct.stdout, direct.stderr);
+    assert.equal(linked.status, direct.status, linked.stderr);
+    assert.equal(linked.stdout, direct.stdout);
+  });
+}
 
 // A browser-side frame: masked, optionally not final, optionally a continuation.
 function clientFrame(text, { fin = true, opcode = 1 } = {}) {

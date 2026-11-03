@@ -75,7 +75,6 @@ pub struct ToolRuntime {
     limits: RuntimeLimits,
     paths: Arc<PathPolicy>,
     security: Arc<ContentSecurity>,
-    github_cache: super::github_cache::GitHubContentCache,
     github_services: Arc<
         std::sync::OnceLock<Result<super::github::GitHubServices, octocode_github::ProviderError>>,
     >,
@@ -84,17 +83,11 @@ pub struct ToolRuntime {
     /// stops the servers on close; a runtime given a shared pool leaves them
     /// to the pool's owner and to its other runtimes.
     owns_lsp_pool: bool,
-    /// Sanitized full views of recently paged local files (this runtime's
-    /// security policy only), so each localFetch page skips a full rescan.
-    local_views: Arc<crate::security::scan::SanitizedViewMemo>,
-    source_views: Arc<crate::tools::source_view::ViewCache>,
     /// Pre-paging envelopes of recent paged responses (this runtime's config
     /// and workspace only), so a later page skips re-executing the batch.
     page_replays: Arc<PageReplayMemo>,
     cursors: Arc<cursors::Registry>,
     section_sessions: Arc<crate::tools::clasify::sections::Sessions>,
-    /// Registry answers for artifactSearch; disk persistence follows storage.mode.
-    artifact_cache: Arc<crate::providers::artifact::ArtifactCache>,
     /// Resolved from config and surface without provider requests. Provider
     /// failures are request-local and do not remove an advertised tool.
     availability: Arc<crate::execution::availability::ToolAvailability>,
@@ -102,6 +95,9 @@ pub struct ToolRuntime {
     evaluator: crate::tools::judgment::Evaluator,
     selection_available: bool,
     lsp_execution_config: Arc<crate::tools::lsp_search::LspExecutionConfig>,
+    lsp_answers: Arc<crate::tools::lsp_search::ContinuationAnswers>,
+    /// Complete graph answer rows its first page retained for continuations.
+    graph_rows: Arc<crate::tools::ast_graph::store::SavedRows>,
     /// The sandbox workspace root (configured workspaceRoot, else host cwd).
     workspace_root: PathBuf,
     /// The built-in classification provider.
@@ -129,15 +125,14 @@ impl ToolRuntime {
     pub async fn close(&self) {
         self.begin_close();
         self.requests.close().await;
-        let _io = crate::cache::async_io::drain().await;
         if self.owns_lsp_pool {
             self.lsp_pool.clear_all().await;
         }
-        self.github_cache.clear_memory();
-        self.source_views.clear_memory();
         self.page_replays.store.clear_memory();
         self.cursors.clear_memory();
         self.section_sessions.clear_memory();
+        self.lsp_answers.clear_memory();
+        self.graph_rows.clear_memory();
     }
     pub fn inspect_config(&self) -> config::ConfigInspectorData {
         config::inspector_data(&self.input, &self.config)
@@ -170,14 +165,14 @@ impl ToolRuntime {
 
     /// Start the language servers of the runtime's workspace in the
     /// background, for a host that serves calls from now on (`octocode mcp`
-    /// after `initialize`): none when `lsp.prewarm` is `off` or `lspSearch`
-    /// is unavailable; the workspace's main language under `targeted`, its
-    /// top languages under `all` (each start is a whole-project index). See
+    /// after `initialize`): only under `lsp.prewarm` `all`, its top languages,
+    /// and only while `lspSearch` is available. Each start is a whole-project
+    /// index, up to gigabytes for a session that may never call `lspSearch`,
+    /// so `targeted` waits for a result that offers such a call. See
     /// [`crate::tools::lsp_search::prewarm::workspace::schedule_workspace`].
     pub fn prewarm_lsp_workspace(&self, handle: &tokio::runtime::Handle) {
         let starts = match self.config.resolved.lsp.prewarm {
-            crate::config::LspPrewarm::Off => return,
-            crate::config::LspPrewarm::Targeted => 1,
+            crate::config::LspPrewarm::Off | crate::config::LspPrewarm::Targeted => return,
             crate::config::LspPrewarm::All => crate::tools::lsp_search::prewarm::MAX_PREWARM_KEYS,
         };
         if !self.is_available(ToolId::LspSearch.as_str()) {

@@ -50,15 +50,16 @@ async fn cap_is_terminal_only_after_the_last_reachable_page() {
     use wiremock::MockServer;
 
     let server = MockServer::builder().start().await;
-    mount_json(
+    octocode_github::mock_http::mount_search_index(
         &server,
         "/api/v3/search/issues",
-        200,
-        json!({
-            "total_count": 1001, "incomplete_results": false,
-            "items": [{"number": 3, "title": "Fix", "state": "open", "user": {"login": "dev"},
-                "repository_url": "https://api.github.com/repos/acme/widget"}]
-        }),
+        (1..=1001)
+            .map(|number| {
+                json!({"number": number, "title": "Fix", "state": "open",
+                "user": {"login": "dev"},
+                "repository_url": "https://api.github.com/repos/acme/widget"})
+            })
+            .collect(),
     )
     .await;
     let provider = one_shot_provider(&server);
@@ -107,7 +108,11 @@ async fn cap_is_terminal_only_after_the_last_reachable_page() {
             })["input"]["queries"][0];
         assert_eq!(
             (&read["owner"], &read["repo"], &read["number"]),
-            (&json!("acme"), &json!("widget"), &json!(3)),
+            (
+                &json!("acme"),
+                &json!("widget"),
+                &data["pullRequests"][0]["number"]
+            ),
             "{data}"
         );
     }
@@ -218,7 +223,7 @@ async fn a_capped_search_names_one_narrowing_lead() {
     assert!(row.get("page").is_none(), "{row}");
     let row = lead(json!({"operation":"commit","owner":"o","repo":"r","keywords":["fix"]})).await;
     assert_eq!(
-        row["filters"]["committedAt"]["to"], "2026-02-01T12:00:00Z",
+        row["filters"]["committedAt"]["include"][0]["to"], "2026-02-01T12:00:00Z",
         "{row}"
     );
     // Oldest first: the window continues after the page's last row.

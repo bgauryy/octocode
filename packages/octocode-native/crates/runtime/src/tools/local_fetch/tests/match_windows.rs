@@ -13,15 +13,7 @@ fn exact_line_and_continuation_union() {
 
     let mut joined = String::new();
     loop {
-        let r = execute_local_fetch(
-            &req,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            Some(4),
-            None,
-            &Default::default(),
-        );
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel, Some(4), None);
         assert_eq!(r.status, ReadStatus::Success);
         joined.push_str(
             r.content
@@ -137,15 +129,7 @@ fn paged_match_windows_map_source_ranges_around_marker() {
     let mut lines = Vec::new();
     let mut pages = 0;
     loop {
-        let row = execute_local_fetch(
-            &query,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            Some(56),
-            None,
-            &Default::default(),
-        );
+        let row = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(56), None);
         assert_eq!(row.error_code, None, "{row:?}");
         content.push_str(row.content.as_deref().expect("content"));
         for range in &row.source_line_ranges {
@@ -182,15 +166,7 @@ fn long_line_matches_preserve_every_byte_and_explicit_context() {
         );
         let mut joined = String::new();
         loop {
-            let out = execute_local_fetch(
-                &request,
-                &paths,
-                &Safe,
-                &NeverCancel,
-                Some(1000),
-                None,
-                &Default::default(),
-            );
+            let out = execute_local_fetch(&request, &paths, &Safe, &NeverCancel, Some(1000), None);
             joined.push_str(out.content.as_deref().expect("content"));
             let Some(next) = out.next.and_then(|next| next.continue_window) else {
                 break;
@@ -252,15 +228,7 @@ fn match_ranges_cover_only_the_page_that_shows_them() {
     let mut matched = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     loop {
-        let out = execute_local_fetch(
-            &query,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            Some(32),
-            None,
-            &Default::default(),
-        );
+        let out = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(32), None);
         assert_eq!(out.error_code, None);
         for range in &out.source_line_ranges {
             for line in range.start..=range.end {

@@ -11,6 +11,14 @@ fn bounded_read_rejects_oversize_instead_of_truncating() {
 #[cfg(unix)]
 #[test]
 fn beneath_open_never_follows_a_swapped_directory_or_file() {
+    // The no-follow walk materialization reads through: the file's directory
+    // held beneath `boundary`, then the file opened from it.
+    let open_beneath = |boundary: &Path, path: &Path| -> io::Result<File> {
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return Err(not_regular());
+        };
+        BeneathDir::open(boundary, parent)?.open_file(name)
+    };
     let dir = tempfile::tempdir().unwrap();
     let boundary = dir.path().join("root");
     let outside = dir.path().join("outside");

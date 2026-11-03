@@ -3,7 +3,17 @@ use super::*;
 use serde_json::Value;
 
 const CHILD: &str = "OCTOCODE_LSP_ENV_FIXTURE";
-const TOOLCHAIN_ENV: &[&str] = &["RUSTUP_HOME", "CARGO_HOME", "RUSTUP_TOOLCHAIN"];
+const TOOLCHAIN_ENV: &[&str] = &[
+    "RUSTUP_HOME",
+    "CARGO_HOME",
+    "RUSTUP_TOOLCHAIN",
+    "DOTNET_ROOT",
+    "DOTNET_ROOT_ARM",
+    "DOTNET_ROOT_ARM64",
+    "DOTNET_ROOT_X64",
+    "DOTNET_ROOT_X86",
+    "DOTNET_ROOT(x86)",
+];
 const CREDENTIALS: &[&str] = &[
     "GITHUB_TOKEN",
     "AWS_SECRET_ACCESS_KEY",
@@ -33,6 +43,9 @@ fn toolchain_environment_reaches_the_server_without_inheriting_credentials() {
             .env("CARGO_HOME", home.path().join("cargo"))
             .env("RUSTUP_TOOLCHAIN", "fixture-toolchain")
             .kill_on_drop(true);
+        for key in TOOLCHAIN_ENV.iter().filter(|key| key.starts_with("DOTNET_ROOT")) {
+            child.env(key, home.path().join(key));
+        }
         for key in CREDENTIALS {
             child.env(key, "fixture-credential-must-not-reach-server");
         }

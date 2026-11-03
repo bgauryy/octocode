@@ -6,9 +6,11 @@ pub(super) async fn execute_tree(
     query: &GhStructureQueryTree,
     context: &RequestContext,
     home: &Path,
+    read_commit: &mut Option<String>,
 ) -> Result<ToolData, ProviderError> {
     let scope = Scope::of(query)?;
     let (resolved_branch, commit_sha) = resolve_listing_ref(provider, query, context).await?;
+    *read_commit = Some(commit_sha.clone());
     // A listing is read, dated and continued under the canonical name:
     // later requests skip the redirect, and every lead names the
     // repository as it is now.
@@ -32,27 +34,20 @@ pub(super) async fn execute_tree(
     let mut traversal = traverse(provider, &listing, context).await?;
     scope.select(&mut traversal);
     let page = ListingPage::of(query, &traversal.entries);
-    let page_dates = date_page(provider, query, &commit_sha, &page, context).await;
-    let dating = PageDating {
-        undated: page_dates.undated,
-        failed: page_dates.warning.is_some(),
-    };
-    let date_offset = query
-        .date_offset
-        .map_or(0, crate::num::usize_of)
-        .min(page.entries.len());
-    let shown_entries = if query.materialize != Some(true) {
-        &page.entries[date_offset
-            ..date_offset
-                .saturating_add(dates::DATED_PER_PAGE)
-                .min(page.entries.len())]
-    } else {
-        page.entries
-    };
+    let page_dates = date_page(
+        provider,
+        query,
+        &commit_sha,
+        &traversal.entries,
+        &page,
+        context,
+    )
+    .await;
+    let dating_failed = page_dates.warning.is_some();
     let mut value = json!({
         "owner": query.owner,
         "repo": query.repo,
-        "files": build_structure(shown_entries, &page_dates.entries),
+        "files": build_structure(page.entries, &page_dates.entries),
         "summary": summary(&traversal.entries),
         "resolvedRef": resolved_branch,
     });
@@ -62,6 +57,11 @@ pub(super) async fn execute_tree(
     }
     page.paginate(&mut value);
     dates::attach(&mut value, page_dates);
+    if query.materialize != Some(true)
+        && let Some(warning) = dates::cap_warning(&page)
+    {
+        crate::response::paging::push_warnings(&mut value, [warning]);
+    }
     let mut output = ToolData::from(Value::Null);
     let materialize_resume = if query.materialize == Some(true) {
         materialize_page(
@@ -98,11 +98,10 @@ pub(super) async fn execute_tree(
         &mut value,
         &pinned,
         &page,
-        traversal.failed_subtrees > 0 || dating.failed,
+        traversal.failed_subtrees > 0 || dating_failed,
         query.materialize == Some(true),
         materialize_resume,
     )?;
-    dates::expand(&mut value, &pinned, &page, dating.undated)?;
     // A resumed materialize page (offset > 0) is anchored by `location`:
     // its first call already listed these entries.
     let resumed = query.materialize == Some(true)
@@ -124,8 +123,7 @@ pub(super) async fn execute_tree(
         // A materialized listing continues with the local tools at
         // `location.localPath`; re-listing the tree it just returned adds
         // nothing.
-    } else if date_offset == 0
-        && page.current == 1
+    } else if page.current == 1
         && let Some(read) = entry_read(&pinned, &traversal.entries, &commit_sha)
     {
         value["calls"]["read"] = read;
@@ -174,36 +172,33 @@ fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<Value> {
     Some(lead)
 }
 
-/// What dating a listing page left: entries no date reached, and whether
-/// the dating request failed (the same page retries it).
-#[derive(Default)]
-struct PageDating {
-    undated: usize,
-    failed: bool,
-}
-
-/// A listing includes last-change dates in bounded GraphQL batches.
-/// Saved `dateOffset` progress reaches entries beyond the current batch.
-/// A materialized page hands its files to local tools and stays undated.
+/// A listing page's last-change dates: the page's own entries, in one
+/// bounded batch of GraphQL requests ([`dates::DATED_PER_PAGE`] at most). A
+/// materialized page hands its files to local tools and stays undated.
 async fn date_page(
     provider: &GitHubProvider,
     query: &GhStructureQueryTree,
     commit_sha: &str,
+    listing: &[TreeEntry],
     page: &ListingPage<'_>,
     context: &RequestContext,
 ) -> dates::PageDates {
     if query.materialize == Some(true) {
         return dates::PageDates::default();
     }
+    // Where the page's window starts in the listing (`ListingPage::of`).
+    let start = page
+        .current
+        .saturating_sub(1)
+        .saturating_mul(page.per_page)
+        .min(page.total_entries);
     dates::page_dates(
         provider,
         &query.owner,
         &query.repo,
         commit_sha,
-        &page.entries[query
-            .date_offset
-            .map_or(0, crate::num::usize_of)
-            .min(page.entries.len())..],
+        listing,
+        start..start.saturating_add(page.entries.len()),
         context,
     )
     .await

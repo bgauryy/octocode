@@ -1,55 +1,124 @@
 use super::*;
 
-/// The reference for one byte page: a whole pass, no index.
-fn whole_pass(source: &std::fs::File, want: Want) -> Streamed {
-    stream(source, &[want], &NeverCancel)
-        .expect("stream")
-        .0
-        .pop()
-        .expect("window")
-}
-
-fn assert_same_window(a: &Streamed, b: &Streamed) {
-    assert_eq!(a.window, b.window);
-    assert_eq!(
-        (a.first, a.last, a.key_lines, a.origin.base, a.origin.total),
-        (b.first, b.last, b.key_lines, b.origin.base, b.origin.total)
+/// Independent selected-source oracle: whole source lines and security classification,
+/// with no streaming/window implementation in its construction.
+fn assert_source_window(source: &str, want: Want, actual: &Streamed) {
+    let mut keys = crate::security::KeyBlockState::default();
+    let lines = source
+        .split_inclusive('\n')
+        .map(|line| {
+            let key = keys.push_line(line.trim_end_matches(['\r', '\n']));
+            let text = if key {
+                format!("{}\n", crate::security::key_fragment_placeholder())
+            } else {
+                line.to_owned()
+            };
+            (text, key)
+        })
+        .collect::<Vec<_>>();
+    let selected = lines
+        .iter()
+        .skip(want.first - 1)
+        .take(want.last - want.first + 1)
+        .map(|(line, _)| line.as_str())
+        .collect::<String>();
+    let mut base = want.from.min(selected.len());
+    while base < selected.len() && !selected.is_char_boundary(base) {
+        base += 1;
+    }
+    let mut end = (base + WINDOW_BYTES).min(selected.len());
+    if end < selected.len() {
+        if let Some(newline) = selected.as_bytes()[base..end]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+        {
+            end = base + newline + 1;
+        } else {
+            while !selected.is_char_boundary(end) {
+                end -= 1;
+            }
+        }
+    }
+    let expected = &selected.as_bytes()[base..end];
+    assert!(
+        actual.window == expected,
+        "exact selected bytes at {}: actual {} bytes, expected {} bytes, first difference {:?}",
+        want.from,
+        actual.window.len(),
+        expected.len(),
+        actual
+            .window
+            .iter()
+            .zip(expected)
+            .position(|(actual, expected)| actual != expected)
     );
-    assert_eq!((&a.digest, a.total_lines), (&b.digest, b.total_lines));
+    assert_eq!(actual.origin.total, selected.len());
+    assert_eq!(
+        actual.origin.base,
+        if expected.is_empty() { 0 } else { base }
+    );
+    let first = want.first
+        + selected.as_bytes()[..base]
+            .iter()
+            .filter(|&&b| b == b'\n')
+            .count();
+    let last = if expected.is_empty() {
+        want.last.min(lines.len())
+    } else {
+        first + expected.iter().filter(|&&b| b == b'\n').count()
+            - usize::from(expected.ends_with(b"\n"))
+    };
+    assert_eq!(
+        actual.first,
+        if expected.is_empty() {
+            want.first
+        } else {
+            first
+        }
+    );
+    assert_eq!(actual.last, last);
+    assert_eq!(
+        actual.key_lines,
+        lines
+            .iter()
+            .skip(want.first - 1)
+            .take(last.saturating_sub(want.first - 1))
+            .filter(|(_, key)| *key)
+            .count()
+    );
+    assert_eq!(actual.total_lines, lines.len());
+    assert_eq!(
+        actual.digest,
+        octocode_engine::digest::sha256(source.as_bytes())
+    );
 }
 
-/// Byte pages of one giant line, once the source is indexed, read about
-/// one window each wherever their offset sits, and hold what a whole
-/// pass holds: the window, its place in the line and the line's size.
+/// Every byte page proves the whole source and selects exactly its requested bytes.
 #[test]
 fn a_late_byte_page_costs_what_an_early_one_does() {
     let line: Vec<u8> = (0..6 * WINDOW_BYTES)
         .map(|at| b'a' + u8::try_from(at % 26).expect("letter"))
         .collect();
+    let text = String::from_utf8(line.clone()).expect("ASCII");
     let file = temp(&line);
     let source = opened(file.path());
-    let stamp = crate::tools::source::cache_stamp(&source.metadata().expect("meta"));
-    let path = file.path().canonicalize().expect("canonical");
     let page = |from: usize| Want::bytes(1, 1, from);
     let whole = Blocks(Default::default());
-    read_windows(&source, &path, stamp, &[page(0)], &whole).expect("index");
+    stream(&source, &[page(0)], &whole).expect("source pass");
     let whole = whole.0.into_inner();
     let mut costs = Vec::new();
     for from in [0, WINDOW_BYTES, 5 * WINDOW_BYTES - 7] {
         let blocks = Blocks(Default::default());
-        let paged = read_windows(&source, &path, stamp, &[page(from)], &blocks)
+        let paged = stream(&source, &[page(from)], &blocks)
             .expect("page")
             .pop()
             .expect("window");
-        assert_same_window(&paged, &whole_pass(&source, page(from)));
+        assert_source_window(&text, page(from), &paged);
         costs.push(blocks.0.into_inner());
     }
-    // A page reads its window and at most one view-point gap before it
-    // (64 KiB copy blocks, one partial block each), wherever it starts.
-    let bound = (WINDOW_BYTES + VIEW_POINT_BYTES) / (64 * 1024) + 2;
     assert!(
-        costs.iter().all(|&cost| cost <= bound) && bound * 3 < whole,
-        "pages {costs:?}, bound {bound}, whole pass {whole} blocks"
+        costs.iter().all(|&cost| cost == whole),
+        "each page proves the source once: {costs:?}, whole {whole}"
     );
 }
 
@@ -63,21 +132,19 @@ fn byte_pages_over_many_lines_match_a_whole_pass() {
         .collect();
     let file = temp(text.as_bytes());
     let source = opened(file.path());
-    let stamp = crate::tools::source::cache_stamp(&source.metadata().expect("meta"));
-    let path = file.path().canonicalize().expect("canonical");
     let page = |from: usize| Want::bytes(3, 38, from);
-    read_windows(&source, &path, stamp, &[page(0)], &NeverCancel).expect("index");
+    stream(&source, &[page(0)], &NeverCancel).expect("source pass");
     let line_start = text
         .split_inclusive('\n')
         .take(9)
         .map(str::len)
         .sum::<usize>();
     for from in [0, 1, 999_999, line_start, 2 * WINDOW_BYTES + 3, text.len()] {
-        let paged = read_windows(&source, &path, stamp, &[page(from)], &NeverCancel)
+        let paged = stream(&source, &[page(from)], &NeverCancel)
             .expect("page")
             .pop()
             .expect("window");
-        assert_same_window(&paged, &whole_pass(&source, page(from)));
+        assert_source_window(&text, page(from), &paged);
     }
 }
 
@@ -95,16 +162,14 @@ fn byte_pages_over_a_key_block_match_a_whole_pass() {
     text.push('\n');
     let file = temp(text.as_bytes());
     let source = opened(file.path());
-    let stamp = crate::tools::source::cache_stamp(&source.metadata().expect("meta"));
-    let path = file.path().canonicalize().expect("canonical");
     let page = |from: usize| Want::bytes(1, 5, from);
-    read_windows(&source, &path, stamp, &[page(0)], &NeverCancel).expect("index");
+    stream(&source, &[page(0)], &NeverCancel).expect("source pass");
     for from in [0, 2 * WINDOW_BYTES, 3 * WINDOW_BYTES, 4 * WINDOW_BYTES + 50] {
-        let paged = read_windows(&source, &path, stamp, &[page(from)], &NeverCancel)
+        let paged = stream(&source, &[page(from)], &NeverCancel)
             .expect("page")
             .pop()
             .expect("window");
-        assert_same_window(&paged, &whole_pass(&source, page(from)));
+        assert_source_window(&text, page(from), &paged);
         assert!(!String::from_utf8_lossy(&paged.window).contains("SECRET"));
     }
 }
@@ -115,49 +180,36 @@ fn byte_pages_over_a_key_block_match_a_whole_pass() {
 /// past the range's end.
 #[test]
 fn byte_pages_with_points_inside_a_key_block_match_a_whole_pass() {
-    let mut text = "x".repeat(2 * VIEW_POINT_BYTES + 17);
+    let mut text = "x".repeat(2 * BYTE_LOOKBEHIND + 17);
     text.push_str("\r\n-----BEGIN PRIVATE KEY-----\r\n");
-    text.push_str(&"A".repeat(2 * VIEW_POINT_BYTES + 5));
+    text.push_str(&"A".repeat(2 * BYTE_LOOKBEHIND + 5));
     text.push_str("\r\n!!");
-    text.push_str(&"B".repeat(VIEW_POINT_BYTES + 3));
+    text.push_str(&"B".repeat(BYTE_LOOKBEHIND + 3));
     text.push_str("\r\n-----END PRIVATE KEY-----\r\n\r\n");
-    text.push_str(&"€".repeat(VIEW_POINT_BYTES));
+    text.push_str(&"€".repeat(BYTE_LOOKBEHIND));
     let file = temp(text.as_bytes());
     let source = opened(file.path());
-    let stamp = crate::tools::source::cache_stamp(&source.metadata().expect("meta"));
-    let path = file.path().canonicalize().expect("canonical");
     let page = |from: usize| Want::bytes(1, 7, from);
-    let first = read_windows(&source, &path, stamp, &[page(0)], &NeverCancel)
-        .expect("index")
+    let first = stream(&source, &[page(0)], &NeverCancel)
+        .expect("source pass")
         .pop()
         .expect("window");
     let total = first.origin.total;
     for from in [
         1,
-        VIEW_POINT_BYTES + 1,
-        2 * VIEW_POINT_BYTES + 18,
+        BYTE_LOOKBEHIND + 1,
+        2 * BYTE_LOOKBEHIND + 18,
         total / 2,
         total - WINDOW_BYTES / 2,
         total - 1,
         total,
         total + 9,
     ] {
-        let paged = read_windows(&source, &path, stamp, &[page(from)], &NeverCancel)
+        let paged = stream(&source, &[page(from)], &NeverCancel)
             .expect("page")
             .pop()
             .expect("window");
-        let whole = whole_pass(&source, page(from));
-        assert_eq!(paged.window, whole.window, "from {from}");
-        assert_eq!(
-            (paged.first, paged.last, paged.key_lines, paged.origin.total),
-            (whole.first, whole.last, whole.key_lines, whole.origin.total),
-            "from {from}"
-        );
-        assert_eq!(paged.origin.base, whole.origin.base, "from {from}");
-        assert_eq!(
-            (&paged.digest, paged.total_lines),
-            (&whole.digest, whole.total_lines)
-        );
+        assert_source_window(&text, page(from), &paged);
         // The base64 body stays replaced; the `!!` line is not base64,
         // so it ends the block (`LineShape::Other`) and shows as text.
         assert!(
@@ -175,8 +227,30 @@ fn an_empty_window_after_a_key_block_shrank_the_view_has_no_base() {
     text.push_str(&"A".repeat(5_000));
     text.push_str("\n-----END PRIVATE KEY-----\n");
     let file = temp(text.as_bytes());
-    let streamed = whole_pass(&opened(file.path()), Want::bytes(1, 3, 2_000));
+    let want = Want::bytes(1, 3, 2_000);
+    let streamed = stream(&opened(file.path()), &[want], &NeverCancel)
+        .expect("stream")
+        .pop()
+        .expect("window");
+    assert_source_window(&text, want, &streamed);
     assert!(streamed.window.is_empty());
     assert!(streamed.origin.total < 2_000);
     assert_eq!(streamed.origin.base, 0);
+}
+
+/// A key line whose placeholder no longer fits behind the lines held ends
+/// the window before it, uncounted: the next page reads it.
+#[test]
+fn a_key_line_whose_placeholder_does_not_fit_ends_the_window_before_it() {
+    let mut text = "x".repeat(WINDOW_BYTES - 10);
+    text.push_str("\n-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\ntail\n");
+    let file = temp(text.as_bytes());
+    let want = Want::lines(1, 5);
+    let streamed = stream(&opened(file.path()), &[want], &NeverCancel)
+        .expect("stream")
+        .pop()
+        .expect("window");
+    assert_source_window(&text, want, &streamed);
+    assert_eq!(streamed.last, 1);
+    assert_eq!(streamed.key_lines, 0);
 }

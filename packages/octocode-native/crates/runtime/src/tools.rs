@@ -1,12 +1,12 @@
 pub(crate) mod artifact_search;
-pub mod ast_graph;
+pub(crate) mod ast_graph;
 pub(crate) mod ast_rule;
 pub(crate) mod ast_search;
 pub(crate) mod bounded_process;
 pub(crate) mod clasify;
 #[cfg(test)]
 mod contract_bounds_tests;
-pub(crate) mod declarations_cache;
+pub(crate) mod declarations;
 pub(crate) mod empty_walk;
 pub(crate) mod gh_clone_repo;
 pub(crate) mod gh_get_file_content;

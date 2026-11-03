@@ -1,6 +1,6 @@
 use super::{
     DependencyError, Fragment, FragmentArena, FragmentKind, Planned, RecordSplit, Window,
-    continues_chars, enclosing_element, mark_continuations, size,
+    continues_chars, enclosing_element, lean_later_context, mark_continuations, size,
 };
 use serde_json::{Map, Value};
 
@@ -26,6 +26,13 @@ impl FragmentArena {
                 },
                 out,
             )?;
+            // The rest went first, so even this split's head is a later part.
+            lean_later_context(
+                &mut row,
+                &pointer,
+                self.page_context,
+                self.collection_routes,
+            );
         }
         let contexts = self.contexts(row, &pointer, catalog, window.cancelled)?;
         let enclosing = enclosing_element(&contexts[0].value, &pointer);

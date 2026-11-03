@@ -2,23 +2,23 @@
 //! processes honor each other's limits.
 use super::{KeyState, key_state::KeyFacts, now_ms};
 use crate::ProviderError;
+use octocode_io::cancellation::Cancellation;
 use octocode_io::{budget::pause, lock::TryLock};
 use std::{
-    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant, SystemTime},
 };
-use tokio_util::sync::CancellationToken;
 
-/// The longest a write that cannot be cancelled waits for a peer's lock
-/// before it goes ahead unlocked, as on a filesystem without lock support.
+/// The longest a write that cannot be cancelled waits for a peer's lock.
+/// Past it the write is deferred, never made unlocked: the facts stay in
+/// memory and the next write carries them ([`KeyState::persist_with`]).
 const WRITE_LOCK_WAIT: Duration = Duration::from_secs(1);
 /// How far past now a peer's start stamp may lie and still count. A start is
-/// reserved at most one wait ahead (the 60 s code-search window plus the
-/// spacing chain, inside the tool deadline), so a stamp beyond this comes from
-/// a clock that jumped or a damaged file, never from a live reservation, and
-/// it must not hold the window until its own time arrives.
+/// reserved at most one quota window ahead (the spacing chain until the
+/// bucket resets, inside the tool deadline), so a stamp beyond this comes
+/// from a clock that jumped or a damaged file, never from a live reservation,
+/// and it must not hold the group until its own time arrives.
 const PEER_STAMP_HORIZON_MS: u64 = 120_000;
 
 /// Say on stderr, once per process ([`octocode_io::notice`]), that the shared
@@ -79,13 +79,13 @@ impl KeyFacts {
     /// Keep the most restrictive of two views (memory vs. disk).
     pub(super) fn merge(&mut self, other: Self, now_ms: u64) {
         for (name, bucket) in other.buckets {
-            if bucket.remaining != 0 || bucket.reset.saturating_mul(1000) <= now_ms {
+            if bucket.reset.saturating_mul(1000) <= now_ms {
                 continue;
             }
             let replace = self
                 .buckets
                 .get(&name)
-                .is_none_or(|current| current.reset < bucket.reset || current.remaining > 0);
+                .is_none_or(|current| bucket.restricts_more_than(current));
             if replace {
                 self.buckets.insert(name, bucket);
             }
@@ -99,33 +99,19 @@ impl KeyFacts {
             let entry = self.last_start_ms.entry(group).or_default();
             *entry = (*entry).max(stamp);
         }
-        // The views overlap, but distinct reservations can share a millisecond.
-        // Keep the larger count per timestamp without counting mirrored slots twice.
-        let mut window = BTreeMap::<u64, [usize; 2]>::new();
-        for (side, stamps) in [&self.code_search_ms, &other.code_search_ms]
-            .into_iter()
-            .enumerate()
-        {
-            for &stamp in stamps {
-                let peer_beyond_horizon = side == 1 && stamp > horizon;
-                if stamp.saturating_add(60_000) > now_ms && !peer_beyond_horizon {
-                    window.entry(stamp).or_default()[side] += 1;
-                }
-            }
-        }
-        self.code_search_ms = window
-            .into_iter()
-            .flat_map(|(stamp, [local, peer])| std::iter::repeat_n(stamp, local.max(peer)))
-            .collect();
     }
 
-    /// Only facts that can block a future request are persisted.
+    /// Only facts that can block or pace a future request are persisted:
+    /// exhausted buckets and the live quota of quota-paced groups.
     pub(super) fn blocking_view(&self, now_ms: u64) -> Self {
         Self {
             buckets: self
                 .buckets
                 .iter()
-                .filter(|(_, b)| b.remaining == 0 && b.reset.saturating_mul(1000) > now_ms)
+                .filter(|(name, b)| {
+                    (b.remaining == 0 || super::Group::paces_bucket(name))
+                        && b.reset.saturating_mul(1000) > now_ms
+                })
                 .map(|(name, b)| (name.clone(), *b))
                 .collect(),
             cooldown_until_ms: if self.cooldown_until_ms > now_ms {
@@ -138,12 +124,6 @@ impl KeyFacts {
                 .iter()
                 .filter(|(_, stamp)| stamp.saturating_add(60_000) > now_ms)
                 .map(|(group, stamp)| (group.clone(), *stamp))
-                .collect(),
-            code_search_ms: self
-                .code_search_ms
-                .iter()
-                .copied()
-                .filter(|stamp| stamp.saturating_add(60_000) > now_ms)
                 .collect(),
             circuit_failures: 0,
             circuit_open_until_ms: 0,
@@ -205,7 +185,7 @@ impl KeyState {
     pub(super) async fn reserve_shared<R>(
         &self,
         deadline: Instant,
-        cancellation: &CancellationToken,
+        cancellation: &Cancellation,
         reserve: impl FnOnce(&mut KeyFacts) -> R,
     ) -> Result<R, ProviderError> {
         let path = self
@@ -270,10 +250,19 @@ impl KeyState {
         };
         // Serialize read-merge-write across processes: without it, two CLI
         // processes read the same file and the later rename drops the other's
-        // start stamps and window slots. Released on drop. A
-        // filesystem without lock support, or a peer that holds the lock
-        // past `WRITE_LOCK_WAIT`, degrades to the unlocked write.
-        let _lock = lock_file_blocking(&path, Instant::now() + WRITE_LOCK_WAIT);
+        // start stamps and window slots. Released on drop. Only a filesystem
+        // without lock support writes unlocked (as every process on it does).
+        // A lock not taken in time defers the write: `adjust` lands in the
+        // in-memory facts, which the next write merges in, so a skipped write
+        // costs freshness while an unlocked one could drop a peer's facts.
+        let _lock = match lock_file_blocking(&path, Instant::now() + WRITE_LOCK_WAIT) {
+            WriteLock::Held(lock) => Some(lock),
+            WriteLock::Unsupported => None,
+            WriteLock::Unavailable => {
+                adjust(&mut self.facts());
+                return;
+            }
+        };
         let now = now_ms();
         let mut view = self.facts().blocking_view(now);
         let on_disk = read_state(&path);
@@ -335,7 +324,7 @@ fn open_lock_file(path: &Path) -> Option<std::fs::File> {
 async fn lock_file(
     path: &Path,
     deadline: Instant,
-    cancellation: &CancellationToken,
+    cancellation: &Cancellation,
 ) -> Result<Option<octocode_io::lock::LockedFile>, ProviderError> {
     let Some(mut file) = open_lock_file(path) else {
         return Ok(None);
@@ -355,25 +344,38 @@ async fn lock_file(
     }
 }
 
-/// [`lock_file`] for synchronous writers: `None` when the lock is not taken by
-/// `deadline`, so a stalled peer cannot hold the caller indefinitely.
-fn lock_file_blocking(path: &Path, deadline: Instant) -> Option<octocode_io::lock::LockedFile> {
-    let file = open_lock_file(path)?;
+/// What a synchronous writer's lock attempt yields.
+enum WriteLock {
+    /// The peer lock is held: the read-merge-write is serialized.
+    Held(octocode_io::lock::LockedFile),
+    /// The filesystem refuses the lock operation itself (no lock support).
+    Unsupported,
+    /// A peer holds the lock past the deadline, or the lock file cannot be
+    /// opened: an unlocked write could drop a peer's facts.
+    Unavailable,
+}
+
+/// [`lock_file`] for synchronous writers, bounded by `deadline` so a stalled
+/// peer cannot hold the caller indefinitely.
+fn lock_file_blocking(path: &Path, deadline: Instant) -> WriteLock {
+    let Some(file) = open_lock_file(path) else {
+        return WriteLock::Unavailable;
+    };
     match octocode_io::lock::lock_within(
         file,
         deadline.saturating_duration_since(Instant::now()),
         octocode_io::lock::LOCK_POLL,
     ) {
-        Ok(lock) => Some(lock),
-        Err(octocode_io::lock::LockError::Busy) => None,
+        Ok(lock) => WriteLock::Held(lock),
+        Err(octocode_io::lock::LockError::Busy) => WriteLock::Unavailable,
         Err(octocode_io::lock::LockError::Io(error)) => {
             warn_unshared("lock", path, &error);
-            None
+            WriteLock::Unsupported
         }
     }
 }
 
 #[cfg(test)]
-mod shared_window_tests;
+mod recovery_tests;
 #[cfg(test)]
 mod tests;

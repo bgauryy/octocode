@@ -15,7 +15,7 @@ function fixture(t: TestContext){
  call('attach',{transport:'claude',endpoint:join(workspace,'unused.sock'),vendorSession:'native-recipient'},b);
  const db=new DatabaseSync(database);t.after(()=>{db.close();rmSync(workspace,{recursive:true,force:true});});
  const event={hook_event_name:'Stop',stop_hook_active:false,session_id:'native-recipient',cwd:workspace};
- const send=(wake='action')=>call('send_message',{to:b,[wake==='action'?'question':'body']:'DO NOT REPLAY THIS BODY',reasoning:'Complete requested review',wake},a).id;
+ const send=(wake='action')=>call('send_message',{to:b,parts:[{text:'DO NOT REPLAY THIS BODY'}],replyRequired:wake==='action',reasoning:'Complete requested review',wake},a).id;
  const offer=()=>{call('attach',{transport:'raw'},b);call('hook',{format:'json'},b);call('attach',{transport:'claude',endpoint:join(workspace,'unused.sock'),vendorSession:'native-recipient'},b);};
  return {call,a,b,db,event,send,workspace,offer};
 }
@@ -60,7 +60,7 @@ test('Pi completion checks require bound raw identity and only list submitted pe
  const f=fixture(t),pi=f.call('join',{name:'pi',vendor:'pi',vendorSession:'pi-bound'}).id;
  f.call('attach',{transport:'raw',vendorSession:'pi-bound'},pi);
  const event={...f.event,session_id:'pi-bound'};
- const id=f.call('send_message',{to:pi,body:'passive body',reasoning:'Verify bounded recovery',wake:'passive'},f.a).id;
+ const id=f.call('send_message',{parts: [{ text: 'passive body' }], to:pi,reasoning:'Verify bounded recovery',wake:'passive'},f.a).id;
  assert.deepEqual(f.call('completion-check',event,pi),{});
  f.call('hook',{format:'json',consumer:'pi:pi-bound'},pi);
  const result=f.call('completion-check',event,pi);assert.deepEqual(result.pending,[id]);

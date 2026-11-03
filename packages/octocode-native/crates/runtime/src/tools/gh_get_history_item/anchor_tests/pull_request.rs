@@ -256,3 +256,62 @@ async fn pr_commit_rows_are_the_shared_commit_row_with_their_body() {
         "{data}"
     );
 }
+
+/// A pull-request page whose patch window shows a prefix of the files: the
+/// diff's side reads name only files it shows (their bounds are the page's
+/// numbered lines), while the merge-commit read names the pull request's
+/// most-changed code file even past the window, located by text.
+#[tokio::test]
+async fn pr_side_reads_stay_on_the_page_and_the_merge_read_spans_the_pr() {
+    let server = MockServer::builder().start().await;
+    let added = |name: &str, count: usize| {
+        let lines = (1..=count)
+            .map(|line| format!("+{name} {line}: distinctive line\n"))
+            .collect::<String>();
+        json!({"filename":format!("src/{name}.ts"),"status":"modified","additions":count,
+            "deletions":0,"sha":name,"patch":format!("@@ -1,0 +1,{count} @@\n{lines}")})
+    };
+    let files = json!([added("alpha", 20), added("beta", 20), added("gamma", 60)]);
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1",
+        200,
+        json!({"number":1,"title":"Fix","state":"closed","user":{"login":"ada"},
+            "merged_at":"2024-01-02T00:00:00Z","merge_commit_sha":MERGE_BASE,
+            "head":{"sha":HEAD,"ref":"fix"},"base":{"sha":BASE,"ref":"main"},
+            "changed_files":3,"additions":100,"deletions":0,"created_at":"2024-01-01T00:00:00Z"}),
+    )
+    .await;
+    mount_json(&server, "/api/v3/repos/o/r/pulls/1/files", 200, files).await;
+    let out = read_with_budget(
+        &server,
+        json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
+            "sections":["patches"]}),
+        Some(300),
+    )
+    .await;
+    let shown = out["pullRequests"][0]["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .filter_map(|file| file["path"].as_str())
+        .collect::<Vec<_>>();
+    assert!(!shown.is_empty(), "{out}");
+    assert!(!shown.contains(&"src/gamma.ts"), "window cuts gamma: {out}");
+    let mut side_reads = 0;
+    let mut merge_paths = Vec::new();
+    for lead in checks::leads(&out)
+        .into_iter()
+        .filter(|lead| lead.tool == "ghGetFileContent")
+    {
+        let path = lead.query["queries"][0]["path"].as_str().expect("path");
+        if lead.query["queries"][0]["ref"] == MERGE_BASE {
+            merge_paths.push(path.to_owned());
+        } else {
+            side_reads += 1;
+            assert!(shown.contains(&path), "side read of unshown {path}: {out}");
+        }
+    }
+    assert!(side_reads > 0, "a shown file has a side read: {out}");
+    assert_eq!(merge_paths, ["src/gamma.ts"], "{out}");
+}

@@ -66,7 +66,7 @@ pub(super) fn is_sparse_path(path: &str) -> bool {
 pub(super) fn web_root(endpoint: &GitHubEndpoint) -> Result<url::Url, CloneError> {
     let base = endpoint
         .rest(&[])
-        .map_err(|error| CloneError::new(ErrorCode::Configuration, error.message))?;
+        .map_err(|error| CloneError::new(ErrorCode::Config, error.message))?;
     let secure = base.scheme() == "https"
         || (base.scheme() == "http" && octocode_github::is_loopback(&base));
     if !secure
@@ -106,7 +106,7 @@ pub(super) fn repository_url(
 
 fn unsupported_endpoint() -> CloneError {
     CloneError::new(
-        ErrorCode::Configuration,
+        ErrorCode::Config,
         "ghCloneRepo requires an HTTPS GitHub API endpoint (plain http only on loopback): https://api.github.com or a GitHub Enterprise endpoint ending in /api/v3, without credentials or query parameters. Use ghGetFileContent for other API proxies.",
     )
 }

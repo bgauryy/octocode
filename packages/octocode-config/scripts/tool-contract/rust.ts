@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isObject, type Json } from './json.ts';
 import { keepReachable, nativeIdentifiers } from './rust-reach.ts';
+import { dataTypeName, errorDataTypeName, queryBranches, queryTypeName, renderDispatch, type ChannelRegistry, type ErrorChannels } from './rust-dispatch.ts';
 
 export const TYPIFY_VERSION = '0.8.0';
 
@@ -31,10 +32,9 @@ function requireTypify(): void {
 /**
  * The bundle as native needs it. Representation changes, applied here
  * and never to the published bundle:
- * - the per-tool `*Output` roots are dropped: native checks outputs against
- *   the JSON schema, so the types typify would expand from them (most of the
- *   file) are dead code; core-named shared definitions (`Selection`,
- *   `ArtifactType`, …) stay because native builds output fields from them;
+ * - the per-tool `*Output` roots stay: `keepReachable` drops every generated
+ *   type native does not name, so only the row data defs it names
+ *   (`LocalSearchData`) and what they reach are emitted;
  * - an `anyOf` over closed objects becomes `oneOf`, which typify emits as an
  *   enum (it flattens `anyOf` into a struct of optional subtypes). serde
  *   decodes such an enum by trying variants in order, so an input matching
@@ -44,6 +44,9 @@ function requireTypify(): void {
  * - ref-site titles/descriptions are annotations, not validation. typify's
  *   intersection merger rejects them; canonical definitions keep their names.
  */
+/** Whether a def is one tool's success or error row data (`LocalSearchData`, `GhCloneRepoErrorData`). */
+const isRowData = (name: string): boolean => name.endsWith('Data');
+
 export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Json } {
   const defs: { [key: string]: Json } = isObject(bundle.$defs) ? bundle.$defs : {};
   const closed = (branch: Json, seen = new Set<string>()): boolean => {
@@ -57,13 +60,37 @@ export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Js
     }
     return branch.type === 'object' && branch.additionalProperties === false;
   };
-  const enumUnions = (value: Json): Json => {
-    if (Array.isArray(value)) return value.map(enumUnions);
+  // An output row (a `*Data` def) is only serialized by native, and its rows
+  // are open: a union of different rows (named defs, or objects whose property
+  // sets differ) is an enum there too, with validation left to the JSON schema.
+  // Branches over one property set are attribution overlays (the same fields
+  // with another one required); those stay an `anyOf`, which typify merges
+  // into one struct.
+  const rowUnion = (branches: Json[]): boolean => {
+    const shapes = branches.map((branch) => {
+      if (branch === null || typeof branch !== 'object' || Array.isArray(branch)) return undefined;
+      // A named branch is judged by the def it names.
+      const ref = branch.$ref;
+      const target = typeof ref === 'string' && ref.startsWith('#/$defs/') ? defs[ref.slice('#/$defs/'.length)] : undefined;
+      if (typeof ref === 'string' && !isObject(target)) return ref;
+      const row = isObject(target) ? target : branch;
+      const properties = row.properties;
+      if (row.type !== 'object' || properties === null || typeof properties !== 'object' || Array.isArray(properties)) return undefined;
+      return JSON.stringify(Object.keys(properties).toSorted());
+    });
+    return shapes.every((shape) => shape !== undefined) && new Set(shapes).size > 1;
+  };
+  const enumUnions = (value: Json, output: boolean): Json => {
+    if (Array.isArray(value)) return value.map((child) => enumUnions(child, output));
     if (value === null || typeof value !== 'object') return value;
-    const walked = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, enumUnions(child)]));
+    const walked = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, enumUnions(child, output)]));
     normalizeNativeKeywords(walked);
     const branches = walked.anyOf;
-    if (Array.isArray(branches) && branches.length > 1 && branches.every((branch) => closed(branch))) {
+    if (
+      Array.isArray(branches) &&
+      branches.length > 1 &&
+      (branches.every((branch) => closed(branch)) || (output && rowUnion(branches)))
+    ) {
       const { anyOf: _anyOf, ...rest } = walked;
       return { ...rest, oneOf: branches };
     }
@@ -72,9 +99,7 @@ export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Js
   return {
     ...bundle,
     $defs: Object.fromEntries(
-      Object.entries(defs)
-        .filter(([name]) => !name.endsWith('Output'))
-        .map(([name, schema]) => [name, enumUnions(schema)])
+      Object.entries(defs).map(([name, schema]) => [name, enumUnions(schema, isRowData(name))])
     ),
   };
 }
@@ -97,7 +122,19 @@ function normalizeNativeKeywords(schema: { [key: string]: Json }): void {
 /** The native crates whose sources name the generated types they use. */
 export const NATIVE_CRATES = fileURLToPath(new URL('../../../octocode-native/crates', import.meta.url));
 
-export function renderRust(header: string, bundleJson: string, roots = nativeIdentifiers(NATIVE_CRATES)): string {
+/** The tools and continuation channels the typed call dispatch is generated from. */
+export type Dispatch = { tools: readonly string[]; channels: ChannelRegistry; errorChannels: ErrorChannels };
+
+/** The roots native names, plus each tool's query and row data types the generated dispatch names. */
+export const withDispatchRoots = (roots: Set<string>, tools: readonly string[]): Set<string> =>
+  new Set([...roots, ...tools.flatMap(tool => [queryTypeName(tool), dataTypeName(tool), errorDataTypeName(tool)])]);
+
+export function renderRust(
+  header: string,
+  bundleJson: string,
+  roots = nativeIdentifiers(NATIVE_CRATES),
+  dispatch?: Dispatch
+): string {
   requireTypify();
   const scratch = mkdtempSync(join(tmpdir(), 'octocode-tool-types-'));
   try {
@@ -129,7 +166,7 @@ export function renderRust(header: string, bundleJson: string, roots = nativeIde
         .split('\n')
         .filter((line) => !line.startsWith('#![') && !line.startsWith('//!'))
         .join('\n'),
-      roots
+      dispatch ? withDispatchRoots(roots, dispatch.tools) : roots
     ).trim();
     // Validated string newtypes format like the `String` they wrap.
     const display = [...generated.matchAll(/^pub struct (\w+)\(::std::string::String\);$/gm)]
@@ -141,7 +178,10 @@ export function renderRust(header: string, bundleJson: string, roots = nativeIde
 }`
       )
       .join('\n');
-    return `${header}\n${unicodePatterns(generated)}\n${display}\n`;
+    const calls = dispatch
+      ? `\n${renderDispatch(dispatch.tools, dispatch.channels, dispatch.errorChannels, queryBranches(generated, dispatch.tools))}`
+      : '';
+    return `${header}\n${unicodePatterns(generated)}\n${display}${calls}\n`;
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }

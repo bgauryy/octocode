@@ -171,7 +171,8 @@ fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
         assert_eq!(lead["tool"], "localSearch", "{lead}");
         let row = &lead["input"]["queries"][0];
         assert_eq!(row["matchString"], serde_json::json!(["x"]), "{lead}");
-        assert_eq!(row["path"], p.to_string_lossy().as_ref(), "{lead}");
+        // The lead names the file as the row does: relative to the root.
+        assert_eq!(row["path"], "dense.txt", "{lead}");
     }
 }
 
@@ -199,7 +200,6 @@ fn paged_regex_read_past_the_match_limit_keeps_its_search_lead() {
         &NeverCancel,
         None,
         None,
-        &Default::default(),
     );
     assert!(
         result.warnings.iter().any(|w| w.contains("match limit")),

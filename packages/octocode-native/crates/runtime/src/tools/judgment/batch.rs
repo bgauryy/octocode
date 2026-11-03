@@ -344,7 +344,6 @@ fn judged(parts: Vec<(Response, u64)>) -> Result<Judged, ClassificationError> {
         output_tokens: 0,
         provider_calls: 0,
         known_usage_calls: 0,
-        replayed: false,
     };
     let mut model_mismatch = false;
     for (part, calls) in parts {

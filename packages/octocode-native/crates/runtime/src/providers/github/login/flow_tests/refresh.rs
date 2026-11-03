@@ -217,7 +217,7 @@ async fn failed_reauthentication_preserves_existing_home_login() {
         login_device_flow_with_store(
             &endpoints(&server),
             "client",
-            &CancellationToken::new(),
+            &Cancellation::new(),
             &|value| store.save(value),
             TEST_SECOND,
         )

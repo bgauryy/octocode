@@ -28,6 +28,7 @@ fn shaped_files_retain_repository_and_commit_identity() {
                             sha.clone(),
                             FileHits::Lines {
                                 lines: vec!["1\tneedle".into()],
+                                matched: vec![1],
                                 first: 1,
                                 last: 1,
                                 best: 1,

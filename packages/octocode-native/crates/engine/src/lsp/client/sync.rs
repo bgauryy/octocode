@@ -56,8 +56,8 @@ impl NativeLspClient {
     /// the same rule.
     ///
     /// Returns the readiness string (`progressIdle`, `settledWithoutProgress`, or
-    /// `timeout`) for the wait, and `None` for a document already waited
-    /// for, which does not wait again.
+    /// `timeout`) for the wait, and `None` for a document whose wait completed.
+    /// A timed-out load still owes a wait on the next call.
     pub async fn open_document_and_wait(
         &self,
         file_path: String,
@@ -108,11 +108,13 @@ impl NativeLspClient {
         if let Some(pending) = pending {
             pending.finish(readiness);
         }
-        self.inner
-            .open_docs
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .mark_waited(&uri);
+        if readiness != Readiness::Timeout {
+            self.inner
+                .open_docs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .mark_waited(&uri);
+        }
         Ok(Some(readiness.as_str().to_owned()))
     }
 
@@ -204,9 +206,6 @@ impl NativeLspClient {
                 Ok(()) => open_docs.record(&uri, next_version, &file_path, digest),
                 Err(_) => open_docs.rollback(&uri, next_version),
             }
-        }
-        if notification.is_ok() && next_version > 1 {
-            self.inner.content_epoch.fetch_add(1, Ordering::AcqRel);
         }
         // Close the document the cap evicted (if any) so both our bookkeeping
         // and the server's document set stay bounded. Best-effort: a stopped or
@@ -341,8 +340,6 @@ impl NativeLspClient {
         if !was_open {
             return Ok(());
         }
-        let closed = notify_close(&connection, uri).await;
-        self.inner.content_epoch.fetch_add(1, Ordering::AcqRel);
-        closed
+        notify_close(&connection, uri).await
     }
 }

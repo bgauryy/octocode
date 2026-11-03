@@ -145,11 +145,15 @@ async fn a_provider_that_is_down_under_clasify_context_shows_reads_and_code_page
     let github = MockServer::builder().start().await;
     let sha = "1111111111111111111111111111111111111111";
     let body = "fn recovery() {}\nfn other() { recovery(); }\n";
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/commits/main"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
-        .mount(&github)
-        .await;
+    // `main` for the pinned file read; `HEAD` for code search, whose hit
+    // lines are read at the default branch's commit.
+    for reference in ["main", "HEAD"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/commits/{reference}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
+            .mount(&github)
+            .await;
+    }
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src%2Fa.rs"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({

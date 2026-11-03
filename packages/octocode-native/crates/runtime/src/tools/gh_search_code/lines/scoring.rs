@@ -14,27 +14,94 @@ pub(super) fn covering_window(
     needles: &[String],
     declares: impl Fn(usize) -> bool,
 ) -> Option<(usize, usize)> {
+    if needles.is_empty() {
+        return (0..hits.len())
+            .min_by_key(|&index| !declares(index))
+            .map(|index| (index, index));
+    }
+    let coverage = KeywordCoverage::new(hits, lowered, needles);
+    let mut counts = vec![0usize; needles.len()];
+    let mut missing = needles.len();
+    let mut end = 0;
     // ((opened by no declaration, span, start), (start, end)).
     type Ranked = ((bool, usize, usize), (usize, usize));
     let mut chosen: Option<Ranked> = None;
     for start in 0..hits.len() {
-        let mut missing: Vec<&String> = needles.iter().collect();
-        for end in start..hits.len() {
-            let span = hits[end].index - hits[start].index;
-            if span > MAX_WINDOW_LINES {
-                break;
+        while missing != 0
+            && end < hits.len()
+            && hits[end].index - hits[start].index <= MAX_WINDOW_LINES
+        {
+            for keyword in coverage.at(end) {
+                if counts[keyword] == 0 {
+                    missing -= 1;
+                }
+                counts[keyword] += 1;
             }
-            missing.retain(|needle| !lowered[hits[end].index].contains(needle.as_str()));
-            if missing.is_empty() {
+            end += 1;
+        }
+        if missing == 0 {
+            let last = end - 1;
+            let span = hits[last].index - hits[start].index;
+            // A declaration cannot improve a narrower or earlier declaration
+            // window. Prove that before its full-file uniqueness check.
+            if chosen
+                .as_ref()
+                .is_none_or(|(best, _)| (false, span, start) < *best)
+            {
                 let rank = (!declares(start), span, start);
                 if chosen.as_ref().is_none_or(|(best, _)| rank < *best) {
-                    chosen = Some((rank, (start, end)));
+                    chosen = Some((rank, (start, last)));
                 }
-                break;
+            }
+        }
+        for keyword in coverage.at(start) {
+            counts[keyword] -= 1;
+            if counts[keyword] == 0 {
+                missing += 1;
             }
         }
     }
     chosen.map(|(_, window)| window)
+}
+
+/// Each hit occupies consecutive membership words. Keyword ids are set bits,
+/// so dense matches use one bit per keyword rather than one machine index.
+/// Window movement updates dense counters without repeating substring searches.
+struct KeywordCoverage {
+    words: Vec<u64>,
+    width: usize,
+}
+
+impl KeywordCoverage {
+    fn new(hits: &[Hit], lowered: &[String], needles: &[String]) -> Self {
+        let width = needles.len().div_ceil(u64::BITS as usize);
+        let mut words = vec![0; hits.len() * width];
+        for (hit, row) in hits.iter().zip(words.chunks_exact_mut(width)) {
+            for (index, needle) in needles.iter().enumerate() {
+                if lowered[hit.index].contains(needle.as_str()) {
+                    row[index / u64::BITS as usize] |= 1 << (index % u64::BITS as usize);
+                }
+            }
+        }
+        Self { words, width }
+    }
+
+    fn at(&self, hit: usize) -> impl Iterator<Item = usize> + '_ {
+        self.words[hit * self.width..(hit + 1) * self.width]
+            .iter()
+            .enumerate()
+            .flat_map(|(word, &bits)| {
+                let mut bits = bits;
+                std::iter::from_fn(move || {
+                    if bits == 0 {
+                        return None;
+                    }
+                    let bit = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    Some(word * u64::BITS as usize + bit)
+                })
+            })
+    }
 }
 
 /// Lines on each side of a hit searched for the goal's other terms.
@@ -123,3 +190,6 @@ fn hit_shape(lower: &str, after: usize, declares: bool) -> usize {
     }
     if declares { 2 } else { 1 }
 }
+
+#[cfg(test)]
+mod tests;

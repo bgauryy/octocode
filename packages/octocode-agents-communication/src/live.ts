@@ -18,19 +18,31 @@ interface PendingRequest { id: number; recipient: string; stillPending: boolean 
 interface SoakCase { name: string; passed: boolean; checks?: Checks; answers?: number[]; requests?: SoakRequest[]; pendingDuringSecond?: PendingRequest[]; elapsedMs?: number; identities?: SessionRow[] }
 interface Notice { id: number; recipient: string }
 
-export interface ToolStats { calls: number; errors: number; completeErrors: number; byTool: Record<string, { calls: number; errors: number }> }
+export interface ToolStats { calls: number; errors: number; completeErrors: number; unknown: number; completeUnknown: number; byTool: Record<string, { calls: number; errors: number; unknown: number }> }
 
 /** Tool-error counts from `run --trace` events; a rejected complete usually means a wrong ID. */
 export function toolStats(events: WorkerEvent[]): ToolStats {
-  const calls = new Map<unknown, unknown>(), stats: ToolStats = { calls: 0, errors: 0, completeErrors: 0, byTool: {} };
+  const calls = new Map<unknown, WorkerEvent>(), stats: ToolStats = { calls: 0, errors: 0, completeErrors: 0, unknown: 0, completeUnknown: 0, byTool: {} };
   for (const event of events) {
-    if (event.type === 'tool-call') { calls.set(event.callId, event.tool); stats.calls++; }
+    if (event.type === 'tool-call') { calls.set(event.callId, event); stats.calls++; }
     if (event.type !== 'tool-result') continue;
-    const tool = String(event.tool || calls.get(event.callId) || 'unknown').split('__').pop() ?? 'unknown';
-    const failed = event.isError === true || (event.error !== undefined && event.error !== null);
-    const entry = stats.byTool[tool] ??= { calls: 0, errors: 0 };
+    const call = calls.get(event.callId);
+    calls.delete(event.callId);
+    const tool = String(event.tool || call?.tool || 'unknown').split('__').pop() ?? 'unknown';
+    const type = isReply(call?.input) ? call.input.type : undefined;
+    const result = isReply(event.result) ? event.result : undefined;
+    const failed = event.isError === true || result?.isError === true || (event.error !== undefined && event.error !== null);
+    const unknown = !failed && event.isError !== false && result?.isError !== false;
+    const entry = stats.byTool[tool] ??= { calls: 0, errors: 0, unknown: 0 };
     entry.calls++;
-    if (failed) { stats.errors++; entry.errors++; if (tool === 'complete') stats.completeErrors++; }
+    if (failed) { stats.errors++; entry.errors++; if (tool === 'messages' && type === 'complete') stats.completeErrors++; }
+    if (unknown) { stats.unknown++; entry.unknown++; if (tool === 'messages' && type === 'complete') stats.completeUnknown++; }
+  }
+  for (const call of calls.values()) {
+    const tool = String(call.tool || 'unknown').split('__').pop() ?? 'unknown';
+    const entry = stats.byTool[tool] ??= { calls: 0, errors: 0, unknown: 0 };
+    entry.calls++; entry.unknown++; stats.unknown++;
+    if (tool === 'messages' && isReply(call.input) && call.input.type === 'complete') stats.completeUnknown++;
   }
   return stats;
 }
@@ -45,10 +57,10 @@ const TRIALS: Record<string, (context: TrialContext) => Promise<TrialOutcome>> =
   async qa({ box, worker, sender, nonce, wait, initialMessages }) {
     const receiver = sessionOf(worker);
     const before = turnsOf(worker);
-    const notice = messageId(await box.cli('send_message', { to: receiver, body: 'Informational update: the sample batch contains 4 red items and 9 blue items.', reasoning: 'Share sample data for the next task', key: `${nonce}-notice`, wake: 'passive' }, sender));
+    const notice = messageId(await box.cli('send_message', { to: receiver, parts: [{ text: 'Informational update: the sample batch contains 4 red items and 9 blue items.' }], reasoning: 'Share sample data for the next task', key: `${nonce}-notice`, wake: 'passive' }, sender));
     await pause(2000);
     const passiveTurns = turnsOf(worker) - before;
-    const request = messageId(await box.cli('send_message', { to: receiver, question: 'How many items are in the sample batch described in the informational update? Reply with only the total number.', reasoning: 'Obtain the total for the sample batch', key: `${nonce}-request`, wake: 'action' }, sender));
+    const request = messageId(await box.cli('send_message', { to: receiver, parts: [{ text: 'How many items are in the sample batch described in the informational update? Reply with only the total number.' }], replyRequired: true, reasoning: 'Obtain the total for the sample batch', key: `${nonce}-request`, wake: 'action' }, sender));
     await wait(() => {
       const done = box.rows().deliveries.filter(row => [notice, request].includes(row.message) && row.recipient === receiver);
       return done.length === 2 && done.every(row => row.acknowledgedAt !== null);
@@ -64,14 +76,14 @@ const TRIALS: Record<string, (context: TrialContext) => Promise<TrialOutcome>> =
     const receiver = sessionOf(worker);
     const owner = text((await box.cli('join', { name: 'api-owner', vendor: 'generic' })).id, 'owner id'); sessions.push(owner);
     const lease = object((await box.cli('lock', { path: 'src/api.ts', reasoning: 'Owner is finishing an API edit', ttlMs: 600000 }, owner)).lease, 'lease');
-    const request = messageId(await box.cli('send_message', { to: receiver, question: 'Acquire an edit lease on src/api.ts with the lock tool, then reply with only the word LOCKED. Do not edit any file. If another agent holds it, coordinate with that owner and retry after it releases.', reasoning: 'Verify cooperative lease handoff', key: `${nonce}-request`, wake: 'action' }, sender));
+    const request = messageId(await box.cli('send_message', { to: receiver, parts: [{ text: 'Acquire an edit lease on src/api.ts with leases type acquire, then reply with only the word LOCKED. Do not edit any file. If another agent holds it, coordinate with that owner and retry after it releases.' }], replyRequired: true, reasoning: 'Verify cooperative lease handoff', key: `${nonce}-request`, wake: 'action' }, sender));
     await wait(() => box.rows().messages.some(row => row.sender === receiver && row.target === owner), 'worker asking the lease owner');
     const ask = box.rows().messages.find(row => row.sender === receiver && row.target === owner);
     if (!ask) throw new Error('The worker question to the lease owner disappeared');
     // The runtime grants a queued waiter inside the unlock transaction.
     const releasedAt = Date.now(); await box.cli('unlock', { leaseId: lease.id }, owner);
-    if (ask.replyRequired) await box.cli('complete', { message: ask.id, outcome: 'done', reply: { conclusion: 'Released src/api.ts; go ahead.' } }, owner);
-    else { await box.cli('complete', { message: ask.id }, owner); await box.cli('send_message', { to: receiver, body: 'Released src/api.ts; go ahead.', reasoning: 'Hand off the released lease', key: `${nonce}-released`, wake: 'action' }, owner); }
+    if (ask.replyRequired) await box.cli('complete', { message: ask.id, outcome: 'completed', reply: [{ text: 'Released src/api.ts; go ahead.' }] }, owner);
+    else { await box.cli('complete', { message: ask.id }, owner); await box.cli('send_message', { to: receiver, parts: [{ text: 'Released src/api.ts; go ahead.' }], reasoning: 'Hand off the released lease', key: `${nonce}-released`, wake: 'action' }, owner); }
     await wait(() => box.rows().deliveries.some(row => row.message === request && row.acknowledgedAt !== null), 'worker completing the request');
     return { ...gradeHandoff({ ...box.rows(), request, owner, worker: receiver, releasedAt, expected: 'LOCKED' }), request };
   },
@@ -80,7 +92,7 @@ const TRIALS: Record<string, (context: TrialContext) => Promise<TrialOutcome>> =
     const code = 'CODE-' + randomUUID().slice(0, 8).toUpperCase();
     const filler = Array.from({ length: 600 }, (_, i) => `Line ${i + 1}: routine evidence that does not answer the question.`).join('\n');
     await box.cli('share_document', { name: 'handoff-evidence.md', content: `${filler}\nFinal line: the release code is ${code}.\n`, reasoning: 'Large evidence for a paged read' }, sender);
-    const request = messageId(await box.cli('send_message', { to: receiver, question: 'Read the shared document handoff-evidence.md completely (follow every next page) and reply with only the release code stated on its final line.', reasoning: 'Verify paged evidence reads', key: `${nonce}-request`, wake: 'action' }, sender));
+    const request = messageId(await box.cli('send_message', { to: receiver, parts: [{ text: 'Read the shared document handoff-evidence.md completely (follow every next page) and reply with only the release code stated on its final line.' }], replyRequired: true, reasoning: 'Verify paged evidence reads', key: `${nonce}-request`, wake: 'action' }, sender));
     await wait(() => box.rows().deliveries.some(row => row.message === request && row.acknowledgedAt !== null), 'worker completing the request');
     return { ...gradePagedRead({ ...box.rows(), request, worker: receiver, expected: code }), request };
   },
@@ -157,8 +169,8 @@ export function harnessSha256(entry = fileURLToPath(import.meta.url)): string {
 export interface TrialsSummary {
   vendor: string; model: string; version: string; runs: number; flows: string[];
   operatingSha256: string; protocolSha256: string; harnessSha256: string; scope: string;
-  byFlow: Record<string, { passed: number; total: number; completeErrors: number; toolErrors: number; medianMs: number | undefined }>;
-  output: string; passed: boolean;
+  byFlow: Record<string, { passed: number; total: number; completeErrors: number; toolErrors: number; unknownToolResults: number; unknownCompleteResults: number; medianMs: number | undefined }>;
+  output: string; behavioralPassed: boolean; passed: boolean;
 }
 
 export async function liveTrials(options: LiveOptions): Promise<TrialsSummary> {
@@ -188,7 +200,7 @@ export async function liveTrials(options: LiveOptions): Promise<TrialsSummary> {
   }));
   const byFlow = Object.fromEntries(flows.map(flow => {
     const rows = results.filter(row => row.flow === flow);
-    return [flow, { passed: rows.filter(row => row.passed).length, total: rows.length, completeErrors: rows.reduce((n, row) => n + row.tools.completeErrors, 0), toolErrors: rows.reduce((n, row) => n + row.tools.errors, 0), medianMs: rows.map(row => row.durationMs).sort((a, b) => a - b)[Math.floor(rows.length / 2)] }];
+    return [flow, { passed: rows.filter(row => row.passed).length, total: rows.length, completeErrors: rows.reduce((n, row) => n + row.tools.completeErrors, 0), toolErrors: rows.reduce((n, row) => n + row.tools.errors, 0), unknownToolResults: rows.reduce((n, row) => n + row.tools.unknown, 0), unknownCompleteResults: rows.reduce((n, row) => n + row.tools.completeUnknown, 0), medianMs: rows.map(row => row.durationMs).sort((a, b) => a - b)[Math.floor(rows.length / 2)] }];
   }));
   const summary: TrialsSummary = {
     vendor, model, version: hostVersion, runs, flows,
@@ -197,7 +209,8 @@ export async function liveTrials(options: LiveOptions): Promise<TrialsSummary> {
     scope: 'Account-backed live trials; each trial uses a fresh workspace, database and worker',
     byFlow,
     output,
-    passed: Object.values(byFlow).every(flow => flow.passed >= Math.ceil(flow.total * 0.9) && flow.completeErrors === 0),
+    behavioralPassed: Object.values(byFlow).every(flow => flow.passed >= Math.ceil(flow.total * 0.9)),
+    passed: Object.values(byFlow).every(flow => flow.passed >= Math.ceil(flow.total * 0.9) && flow.completeErrors === 0 && flow.unknownCompleteResults === 0),
   };
   writeFileSync(join(output, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
   return summary;
@@ -263,7 +276,7 @@ export async function liveSoak(options: LiveOptions): Promise<SoakResult> {
     const nonce = randomUUID();
     const ask = async (worker: Worker, wave: number, round: string, a: number, b: number, reasoning: string): Promise<SoakRequest> => {
       const recipient = sessionOf(worker);
-      const sent = await cli('send_message', { to: recipient, question: `What is ${a} + ${b}? Reply with only the total.`, reasoning, key: `${nonce}-${wave}-${worker.vendor}-${round}`, wake: 'action' }, controller);
+      const sent = await cli('send_message', { to: recipient, parts: [{ text: `What is ${a} + ${b}? Reply with only the total.` }], replyRequired: true, reasoning, key: `${nonce}-${wave}-${worker.vendor}-${round}`, wake: 'action' }, controller);
       return { id: messageId(sent), recipient, expected: String(a + b), sentAt: Date.now() };
     };
     for (let wave = 1; wave <= waves; wave++) {
@@ -294,7 +307,7 @@ export async function liveSoak(options: LiveOptions): Promise<SoakResult> {
       const turns = workers.map(turnsOf);
       const sentNotices = await Promise.all(workers.map(async (worker): Promise<Notice> => {
         const recipient = sessionOf(worker);
-        return { id: messageId(await cli('send_message', { to: recipient, body: `Informational update: wave ${wave} finished.`, reasoning: 'Check quiet persistent delivery across heartbeat intervals', key: `${nonce}-${wave}-${worker.vendor}-passive`, wake: 'passive' }, controller)), recipient };
+        return { id: messageId(await cli('send_message', { to: recipient, parts: [{ text: `Informational update: wave ${wave} finished.` }], reasoning: 'Check quiet persistent delivery across heartbeat intervals', key: `${nonce}-${wave}-${worker.vendor}-passive`, wake: 'passive' }, controller)), recipient };
       }));
       notices.push(...sentNotices);
       const idleStarted = Date.now();

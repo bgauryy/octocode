@@ -36,7 +36,9 @@
   "scripts": {
     "build": "node tools/build.mjs",
     "clean": "rm -rf dist/",
-    "lint": "prettier --check \"src/**/*.{ts,mts}\" \"tools/**/*.mjs\" \"tests/**/*.mjs\" && node tools/check.mjs && yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint:own": "prettier --check \"src/**/*.{ts,mts}\" \"tools/**/*.mjs\" \"tests/**/*.mjs\" && node tools/check.mjs",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "test": "node tests/hermetic-suite.mjs",
     "test:live": "node tests/live-suite.mjs",
@@ -45,7 +47,8 @@
     "test:cli": "node tests/protocol-suite.mjs --transport typed-cli",
     "test:webmcp": "node tests/webmcp-tools.check.mjs",
     "test:cdp-all": "node tests/cdp-all-suite.mjs",
-    "verify": "yarn build && yarn lint && yarn typecheck && yarn test && yarn test:protocol && yarn test:mcp && yarn test:cli && yarn test:cdp-all && yarn test:webmcp && yarn test:package",
+    "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test && yarn test:protocol && yarn test:mcp && yarn test:cli && yarn test:cdp-all && yarn test:webmcp && yarn test:package",
+    "verify": "yarn verify:own && yarn lint:oxlint",
     "prepack": "yarn build",
     "test:package": "node tools/release-smoke.mjs",
     "format": "prettier --write \"src/**/*.{ts,mts}\" \"tools/**/*.mjs\" \"tests/**/*.mjs\""

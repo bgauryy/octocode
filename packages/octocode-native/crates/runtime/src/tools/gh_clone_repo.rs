@@ -17,7 +17,6 @@ use octocode_github::{
 use pin::pin;
 use plan::execute_clone;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use validate::validate_query;
@@ -242,7 +241,7 @@ pub async fn run(
 ) -> Result<CloneResult, CloneFailure> {
     require_persistent_storage(context.config.persistent)?;
     let provider = GitHubProvider {
-        transport: provider.transport.uncached(),
+        transport: provider.transport.clone(),
     };
     let provider = &provider;
     let request = request.map_err(CloneFailure::Provider)?;
@@ -299,7 +298,7 @@ fn check_control(context: &CloneContext<'_>) -> Result<(), CloneError> {
 }
 
 fn hash(value: &str, characters: usize) -> String {
-    let mut digest = Sha256::new();
+    let mut digest = octocode_engine::digest::HashWriter::default();
     digest.update(value.as_bytes());
     hex::encode(digest.finalize())[..characters].to_owned()
 }

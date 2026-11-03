@@ -90,7 +90,9 @@ pub(crate) async fn rubygems(
     // A page that crosses an API page boundary reads the next one; a short
     // API page is the last.
     let size = artifact_search_query::page_size(query);
-    let offset = state.offset.map_or(0, crate::num::usize_of);
+    let offset = state
+        .offset
+        .map_or(0, octocode_engine::num::saturating_usize);
     let mut api_page = offset / RUBYGEMS_PAGE_ROWS + 1;
     let mut skip = offset % RUBYGEMS_PAGE_ROWS;
     let mut artifacts = Vec::new();
@@ -177,7 +179,7 @@ mod tests {
             .json(&search(5), gem_rows(120, 30))
             .json(&search(6), gem_rows(150, 12));
         let b = test_budget();
-        let client = RegistryClient::uncached(&http, &b);
+        let client = RegistryClient::new(&http, &b);
         let query = discovery(ArtifactType::Rubygems, json!({"page": 6}));
         let state = super::super::ArtifactProviderState {
             offset: Some(110),
@@ -203,7 +205,7 @@ mod tests {
         assert_eq!(last.artifacts.len(), 12);
         assert_eq!(last.next_state, None);
         let oversized = RouteHttp::always(gem_rows(0, 31));
-        let client = RegistryClient::uncached(&oversized, &b);
+        let client = RegistryClient::new(&oversized, &b);
         let error = rubygems(&query, &Default::default(), &client)
             .await
             .expect_err("31 rows");
@@ -225,7 +227,7 @@ mod tests {
                     {"name": "bundler", "requirements": ">= 1.15.0"}]}
         }));
         let b = test_budget();
-        let client = RegistryClient::uncached(&http, &b);
+        let client = RegistryClient::new(&http, &b);
         let page = rubygems(
             &exact_query(ArtifactType::Rubygems, "rails"),
             &Default::default(),

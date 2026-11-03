@@ -4,8 +4,9 @@
 //! directory that exists.
 use super::{CloneContext, GhCloneRepoQuery, git};
 use crate::id::ToolId;
-use crate::response::result::{Continuation, query_row};
+use crate::response::result::Continuation;
 use crate::tools::leads::find_file::closest_name;
+use octocode_contract_types::{GhCloneRepoQueryPathsItem, GhCloneRepoQueryRef};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -53,8 +54,6 @@ pub(super) fn sparse_next(
         .build();
         return Some(json!({"viewTree": lead}));
     }
-    let mut row = query_row(query, &[]);
-    row["ref"] = json!(commit);
     let corrected = |requested: &str| {
         let trimmed = requested.trim_end_matches('/');
         corrections
@@ -62,8 +61,18 @@ pub(super) fn sparse_next(
             .find(|(missing, _)| *missing == trimmed)
             .map_or_else(|| requested.to_owned(), |(_, close)| close.clone())
     };
-    row["paths"] = query.paths.iter().map(|path| corrected(path)).collect();
-    let lead = Continuation::related(ToolId::GhCloneRepo, row).build();
+    let paths = query
+        .paths
+        .iter()
+        .map(|path| GhCloneRepoQueryPathsItem::try_from(corrected(path).as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    let repair = GhCloneRepoQuery {
+        paths,
+        ref_: Some(GhCloneRepoQueryRef::try_from(commit.as_str()).ok()?),
+        ..query.clone()
+    };
+    let lead = Continuation::related_query(repair).build();
     Some(json!({"repair": lead}))
 }
 

@@ -45,14 +45,22 @@ function missingSuffix(error: unknown): string | undefined {
     : undefined;
 }
 
-/** `OCTOCODE_NATIVE_BIN` when the shared development-override rule honours it. */
+/**
+ * `OCTOCODE_NATIVE_BIN` when the shared development-override rule honours it.
+ * An ignored override is said on stderr (stdout carries the CLI result or the
+ * MCP stream), so a caller testing a candidate binary knows it is not running.
+ */
 async function devOverride(
   env: NodeJS.ProcessEnv
 ): Promise<string | undefined> {
   const requested = env.OCTOCODE_NATIVE_BIN?.trim();
   if (!requested) return undefined;
   const { devOverridesAllowed } = await import('@octocodeai/config');
-  return devOverridesAllowed(env, devOverrideOptions) ? requested : undefined;
+  if (devOverridesAllowed(env, devOverrideOptions)) return requested;
+  process.stderr.write(
+    `octocode: OCTOCODE_NATIVE_BIN is ignored with NODE_ENV=${env.NODE_ENV ?? '(unset)'}; set NODE_ENV=development to run ${requested}\n`
+  );
+  return undefined;
 }
 
 /** This platform's package, fetched from the registry at `version`. */

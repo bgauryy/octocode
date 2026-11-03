@@ -1,20 +1,21 @@
 //! The search window: its last whole page, per-extension windows and the merged multi-extension walk.
 use super::*;
 
-/// A search of `pages` total results at 20 a page: GitHub answers every
-/// page with the same `total_count`.
+/// A search of `total` results (`src/busy.rs`, `src/calm.rs`, then others),
+/// answered at any `page`/`per_page` as GitHub does.
 async fn mount_counted_search(server: &MockServer, total: usize) {
-    let item = |name: &str| {
-        json!({"name":name,"path":format!("src/{name}"),"sha":"1","html_url":"https://x",
-            "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}})
-    };
-    Mock::given(method("GET"))
-        .and(path("/api/v3/search/code"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count":total,"incomplete_results":false,"items":[item("busy.rs"), item("calm.rs")]
-        })))
-        .mount(server)
-        .await;
+    let items = (0..total)
+        .map(|index| {
+            let name = match index {
+                0 => "busy.rs".to_owned(),
+                1 => "calm.rs".to_owned(),
+                _ => format!("f{index}.rs"),
+            };
+            json!({"name":name,"path":format!("src/{name}"),"sha":"1","html_url":"https://x",
+                "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}})
+        })
+        .collect::<Vec<_>>();
+    octocode_github::mock_http::mount_search_index(server, "/api/v3/search/code", items).await;
 }
 
 /// A page past GitHub's 1,000-result window repairs to the search's last
@@ -190,34 +191,28 @@ fn merged_pages_list_every_github_page_once_and_fill_each_page() {
     }
 }
 
-/// A multi-extension walk never asks an exhausted extension again and
-/// fills its pages from the live one: 12 `.ts` files and no `.rs` at
-/// pageSize 6 list 3 + 6 + 3 files over 3 pages, every file once, in 5
-/// searches (4 for `.ts`, 1 for `.rs`) instead of 8.
+/// A multi-extension walk rechecks page-one totals on each independent
+/// request, then fills later pages from live extensions:100 `.ts` files and
+/// no `.rs` produce25 +50 +25 files, every file once.
 #[tokio::test]
 async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
     let server = MockServer::builder().start().await;
-    for page in 1..=4 {
-        let items = (0..25)
-            .map(|file| {
-                let name = format!("p{page}_{file}.ts");
-                json!({"name":name,"path":name,"sha":"1","html_url":"https://x",
-                 "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}})
-            })
-            .collect::<Vec<_>>();
-        Mock::given(method("GET"))
-            .and(path("/api/v3/search/code"))
-            .and(wiremock::matchers::query_param_contains(
-                "q",
-                "extension:ts",
-            ))
-            .and(wiremock::matchers::query_param("page", page.to_string()))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "total_count":100,"incomplete_results":false,"items":items
-            })))
-            .mount(&server)
-            .await;
-    }
+    let items = (0..100)
+        .map(|index| {
+            let name = format!("p{}_{}.ts", index / 25 + 1, index % 25);
+            json!({"name":name,"path":name,"sha":"1","html_url":"https://x",
+             "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}})
+        })
+        .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .and(wiremock::matchers::query_param_contains(
+            "q",
+            "extension:ts",
+        ))
+        .respond_with(octocode_github::mock_http::SearchIndex(items))
+        .mount(&server)
+        .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
         .and(wiremock::matchers::query_param_contains(
@@ -228,11 +223,10 @@ async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
             ResponseTemplate::new(200)
                 .set_body_json(json!({"total_count":0,"incomplete_results":false,"items":[]})),
         )
-        .expect(1)
+        .expect(3)
         .mount(&server)
         .await;
-    let mut provider = one_shot_provider(&server);
-    provider.transport.cache = std::sync::Arc::new(MemoryCache::default());
+    let provider = one_shot_provider(&server);
     let mut sizes = Vec::new();
     let mut listed = Vec::new();
     for page in 1.. {
@@ -258,6 +252,24 @@ async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
     unique.dedup();
     assert_eq!(unique.len(), 100, "{listed:?}");
     assert_eq!(listed.len(), 100, "{listed:?}");
-    let searches = server.received_requests().await.unwrap_or_default().len();
-    assert_eq!(searches, 5, "4 .ts pages and one .rs page");
+    let requests = server.received_requests().await.unwrap_or_default();
+    assert_eq!(
+        requests.len(),
+        9,
+        "six .ts reads and three page-one .rs probes"
+    );
+    for request in requests.iter().filter(|request| {
+        request
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "q" && value.contains("extension:rs"))
+    }) {
+        assert!(
+            request
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == "page" && value == "1"),
+            "exhausted searches have no later-page request"
+        );
+    }
 }

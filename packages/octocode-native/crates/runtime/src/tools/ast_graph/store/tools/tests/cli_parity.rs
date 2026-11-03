@@ -101,7 +101,9 @@ fn issues_detector_choices_are_the_engine_detectors() {
         "items",
     )
     .expect("detectors items");
-    let declared = items["enum"]
+    let contract = crate::contracts::parsed_contract().expect("contract");
+    let declared = crate::contracts::schema_keyword(items, &contract["$defs"], "enum")
+        .expect("enum keyword")
         .as_array()
         .expect("an enum")
         .iter()

@@ -12,6 +12,10 @@ fn missing_local_path_is_not_found_other_errors_are_execution() {
         failure_kind(ErrorCode::FileAccessFailed),
         FailureKind::Execution
     );
+    assert_eq!(
+        failure_kind(ErrorCode::PermissionDenied),
+        FailureKind::Permission
+    );
 }
 
 /// A row failed after execution (classification of a provider page)

@@ -25,7 +25,9 @@ pub(in crate::tools::ast_graph::store) fn redact_secrets(
     #[cfg(test)]
     PASSES.with(|passes| passes.set(passes.get() + 1));
     for source in &mut tables.sources.descriptors.snapshots {
-        source.path = security.sanitize_text(&source.path, None).content;
+        if let std::borrow::Cow::Owned(path) = security.sanitize_text(&source.path, None).content {
+            source.path = path;
+        }
     }
     let digests = tables
         .digests
@@ -46,42 +48,30 @@ pub(in crate::tools::ast_graph::store) fn redact_secrets(
         start = end;
     }
     // Batches are independent: scan them on every core.
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    let redacted = std::thread::scope(|scope| {
-        let workers = (0..crate::tools::workers::workers(batches.len(), None))
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut redacted = Vec::new();
-                    while let Some(batch) =
-                        batches.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-                    {
-                        let scanned = batch.clone().filter(|index| !digests.contains(index));
-                        let text = scanned
-                            .clone()
-                            .map(|index| strings[index].as_str())
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        if security.sanitize_text(&text, None).has_secrets {
-                            redacted.extend(scanned.filter_map(|index| {
-                                let result = security.sanitize_text(&strings[index], None);
-                                result.has_secrets.then_some((index, result.content))
-                            }));
-                        }
-                    }
-                    redacted
-                })
-            })
-            .collect::<Vec<_>>();
-        workers
-            .into_iter()
-            .flat_map(|worker| {
-                // A failed scan must not publish unredacted strings.
-                worker
-                    .join()
-                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-            })
+    // A panicking scan panics the build: it must not publish unredacted strings.
+    let workers = crate::tools::workers::workers(batches.len(), None);
+    let redacted = crate::tools::workers::each_parallel(&mut batches, workers, |batch| {
+        let scanned = batch.clone().filter(|index| !digests.contains(index));
+        let text = scanned
+            .clone()
+            .map(|index| strings[index].as_str())
             .collect::<Vec<_>>()
-    });
+            .join("\n");
+        if !security.sanitize_text(&text, None).has_secrets {
+            return Vec::new();
+        }
+        scanned
+            .filter_map(|index| {
+                let result = security.sanitize_text(&strings[index], None);
+                result
+                    .has_secrets
+                    .then(|| (index, result.content.into_owned()))
+            })
+            .collect()
+    })
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
     if redacted.is_empty() {
         return;
     }

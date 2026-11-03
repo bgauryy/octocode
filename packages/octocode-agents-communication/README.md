@@ -1,8 +1,8 @@
 # Octocode agents communication
 
 Use this MCP server and `/cli` interface to coordinate agents across linked Git worktrees.
-Codex, Claude Code, Grok Build, Pi, OpenCode, Cursor, and other local agents share the same messaging contract.
-One Node.js runtime and SQLite database (built-in `node:sqlite`) provide discovery, requests/replies, advisory path leases, documents, memories, and events.
+Codex, Claude Code, Grok Build, Pi, OpenCode, Cursor, and other local agents share one local messaging contract.
+One Node.js runtime and SQLite database (built-in `node:sqlite`) provide agent discovery, messages and per-recipient request outcomes, advisory path leases, immutable evidence documents, memories, and events. The model borrows A2A terminology for message parts, correlated requests, and artifacts; requests remain messages and named documents provide artifact storage. It is not an A2A wire implementation or remote endpoint.
 
 ```mermaid
 flowchart LR
@@ -22,7 +22,7 @@ Each agent keeps its own identity and worktree path; all participants share one 
 | --- | --- |
 | Identify collaborators | `join`, `binding`, `peers`, `set_status`, `heartbeat`, `resume`, `leave`: keep a separate live identity for each agent. |
 | Request work and finish it | `send_message`, `inbox`, `inbox wait`, `complete`: correlate the final answer and acknowledge handled work. |
-| Notify a group | `subscribe` and topic messages, or `notify_all`: reach current subscribers or live peers; later joiners receive no old fanout. |
+| Reach a group | `subscribe` and topic messages, or `send_message` to `"*"`: recipients are snapshotted at send time; later joiners receive no old fanout. |
 | Coordinate edits | `lock`, `lock_many`, `renew`, `unlock`, `locks`, `check_paths`, `check_write`: reserve files or trees, queue conflicts, and check ownership. |
 | Share larger evidence | `share_document`, `read_document`, `context`: publish immutable documents and discover relevant notes. |
 | Query history and findings | `record`, `fetch`, `activity`, `record_usage`: retain memories, events, Git evidence, and measured usage. |
@@ -47,13 +47,13 @@ Requirements and the companion skill: [installation](docs/INSTALLATION.md).
 
 ## Requirements and limits
 
-- **Runtime:** Node.js `^24.15.0` and its built-in `node:sqlite`; nothing else to install ([installation](docs/INSTALLATION.md#install-the-cli-and-companion-skill)). Existing databases open unchanged.
+- **Runtime:** Node.js `^24.15.0` and its built-in `node:sqlite`; nothing else to install ([installation](docs/INSTALLATION.md#install-the-cli-and-companion-skill)). Schema v8 refuses older database files without changing them. Use the old compatible binary to finish or export v7 data, retain that database, then select a fresh explicit `--database` path for v8.
 - **Upgrading:** run one runtime per database. Earlier releases held the delivery-owner lock as a file lock and this one holds a socket, so the two do not exclude each other: stop every old `listen`, `dispatch` and `run` before starting new ones ([DB.md](docs/DB.md#cleanup-and-conformance)).
 - **Database path:** SQLite opens at most 504 bytes of resolved path (symlinks followed); a longer `--database` is refused with the length and the limit ([DB.md](docs/DB.md#identity-and-discovery)).
 - **Numbers:** `5.0` is the integer `5`; `5.5` still fails an `integer` field ([entry points](docs/INTERFACES.md#supply-cli-input)).
 - **`activity` `pathRegex`:** a JavaScript `RegExp` with the `u` flag under a timeout; other dialects' syntax is refused ([commands](docs/COMMANDS.md#activity-pathregex)).
 - **Worker cleanup:** a managed `run` worker killed outright leaves a watchdog that kills the vendor's process group on POSIX; Windows has no equivalent and leaks the vendor process tree ([service protocol](docs/SERVICE_PROTOCOL.md#identity-and-capabilities)). The Windows named-pipe owner lock is untested.
-- **Messages:** a `checkBack:true` task gates `complete`, and RACI-informed peers receive a copy of the final answer ([guide](OPERATING.md#send-and-handle-messages)).
+- **Messages:** requests, progress, and notices use the same `parts` envelope. Reply requirements and context IDs are explicit; task content has no implicit effects on leases, recipients, or evidence references.
 
 ## Start with the CLI
 
@@ -66,33 +66,33 @@ agent heartbeat '{"ttlMs":600000,"task":"Review API compatibility","status":"bus
 comm peers
 ```
 
-Confirm both sessions appear in `peers`. In `coordinator`, send the request. A `task` (Task contract) is a request that owes an answer; a `body` is an FYI:
+Confirm both sessions appear in `peers`. In `coordinator`, send a message containing text parts. Set `replyRequired` when you expect a correlated request outcome:
 
 ```sh
-agent send_message '{"to":"api-reviewer","task":{"objective":"Review src/api.ts for compatibility","inputs":["src/api.ts diff"],"output":"List of risks","done":"Each changed export checked and risks listed"},"reasoning":"Resolve API compatibility before handoff","key":"api-review-1","conversationId":"api-review"}'
+agent send_message '{"to":"api-reviewer","parts":[{"text":"Review src/api.ts for compatibility. Return a list of risks with evidence."}],"replyRequired":true,"reasoning":"Resolve API compatibility before handoff","key":"api-review-1","contextId":"api-review"}'
 ```
 
 In the recipient, read pending mail using its own binding:
 
 ```sh
-agent fetch '{"incoming":true,"type":"message","limit":20}'
+agent inbox '{"after":0}'
 ```
 
-After doing the requested work, use the request's `items[].data.messageId` as the number passed to `--message` and complete with outcome and reply:
+After doing the requested work, use its message `id` and complete with an explicit outcome and reply parts:
 
 ```sh
-agent complete --message RECEIVED_MESSAGE_ID --outcome done --reply '{"conclusion":"The response shape is compatible","evidence":[{"claim":"Exports unchanged","source":"src/api.ts:42"}]}'
+agent complete '{"message":RECEIVED_MESSAGE_ID,"outcome":"completed","reply":[{"text":"The response shape is compatible. Evidence: src/api.ts:42; exports are unchanged."}]}'
 ```
 
 `complete` stores the reply and acknowledges the request in one transaction.
 In `coordinator`, read and acknowledge the answer without another reply:
 
 ```sh
-agent fetch '{"incoming":true,"type":"message","limit":20}'
-agent complete --message ANSWER_MESSAGE_ID
+agent inbox '{"after":0}'
+agent complete '{"message":ANSWER_MESSAGE_ID}'
 ```
 
-Replace `ANSWER_MESSAGE_ID` with that answer's `data.messageId` (`recordId` is only a history cursor). Complete FYIs the same way, without `reply`, and leave unfinished work pending. Every message kind and its protocol is in [OPERATING.md](OPERATING.md#send-and-handle-messages).
+Replace `ANSWER_MESSAGE_ID` with the answer's message `id`. Complete an FYI with `message` or `messages` only. Leave unfinished requests pending; a receipt or acknowledgement proves neither task success nor approval. See [workflow details](docs/WORKFLOW.md#request-progress-and-final-answer).
 
 Raw identities expire after 60 seconds; the walkthrough heartbeat keeps this one for ten minutes. Renew before expiry ([presence rules](docs/WORKFLOW.md#presence-and-lease-expiry)), use [managed MCP](#connect-through-mcp) for a maintained connection, and run `agent leave` when your process owns the lifecycle.
 
@@ -147,9 +147,13 @@ For a host that accepts an `mcpServers` configuration, merge this entry into its
 }
 ```
 
+For agent-selected initialization, omit `--managed`, `--vendor` and `--name`: only `init` is exposed until it establishes the identity, then discovery switches to the capability tools. This tests whether a binding was supplied, not whether hook files exist.
+
 Use the actual vendor and a unique name; each independent agent needs its own identity. Other configuration formats take the same command and arguments.
 
-`--tools` selects `messaging` (messages and status), `review` (adds documents, context and records), `editing` (adds leases), or a comma-separated tool list. Bound tools take JSON input without workspace or identity arguments; `schema tools --tools review` shows their definitions.
+`--tools` selects `messaging` (messages, topics and status), `review` (adds documents, context and records), `editing` (adds leases and file coverage checks), or a comma-separated tool list. Bound tools use `{type,input}` without workspace or identity arguments; `schema tools --tools review` shows their definitions.
+
+The server supplies operating instructions at MCP initialization, so an agent can use it without loading the companion skill or invoking the CLI. See [the MCP agent contract](docs/INTERFACES.md#use-mcp-without-the-skill) for profile contents and the request/reply and editing workflows.
 
 ## Choose delivery for your host
 
@@ -169,7 +173,7 @@ Hooks: [host setup](docs/HOST_SETUP.md#install-messaging-hooks). Native endpoint
 
 ## Query records and recover
 
-Every message, lease, document, memory and event is a typed record. Record discovery, queries, paging and writes (`record` notifies no one): [records](docs/RECORDS.md); SQL contract: [database protocol](docs/DB.md).
+Messages, delivery state, recipient-reported outcomes, leases, evidence documents, memories and audit events are distinct concepts. Unified records provide history; `record` writes memory, event, or checkpoint data and notifies no one. See [records](docs/RECORDS.md) and the [database protocol](docs/DB.md).
 
 Delivery diagnostics (`health`, which exits zero even when it reports `attention`), the read-only `view` dashboard, uncertain offers, crash recovery, export and retention: [operations](docs/OPERATIONS.md) and [commands](docs/COMMANDS.md).
 
@@ -212,4 +216,4 @@ node packages/octocode-agents-communication/src/live.ts --live --vendor codex --
 node packages/octocode-agents-communication/src/live.ts --live --vendor claude --model MODEL_ID --runs 10 --output /absolute/new-results
 ```
 
-`qa` runs one isolated request, reply and acknowledgement (plus a passive notice that must not start a turn); Codex uses its configured model, Pi and Claude need `--model`. Without `--scenarios` the harness runs `qa`, `lock-handoff` and `paged-read` in fresh workspaces, writes per-trial JSON plus `summary.json`, which passes when every scenario passes at least 90% of trials with no rejected `complete` call. One pass does not establish reliability. The `soak` scenario uses all three hosts and is documented in [operations](docs/OPERATIONS.md#verify-concurrent-native-workers).
+`qa` runs one isolated request, reply and acknowledgement (plus a passive notice that must not start a turn); Codex uses its configured model, Pi and Claude need `--model`. Without `--scenarios` the harness runs `qa`, `lock-handoff` and `paged-read` in fresh workspaces, writes per-trial JSON plus `summary.json`, where `behavioralPassed` requires every scenario to pass at least 90% of trials. Overall `passed` also requires no rejected `complete` calls and no `complete` results with unknown status, including calls without a result. Tool statistics report unknown results separately, both overall and per tool. One pass does not establish reliability. The `soak` scenario uses all three hosts and is documented in [operations](docs/OPERATIONS.md#verify-concurrent-native-workers).

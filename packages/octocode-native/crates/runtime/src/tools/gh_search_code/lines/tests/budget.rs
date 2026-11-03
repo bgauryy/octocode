@@ -21,10 +21,20 @@ fn parallel_scans_keep_page_order() {
     let keywords = ["needle".to_owned()];
     let serial: Vec<FileHits> = files
         .iter()
-        .map(|&(bytes, path)| scan(bytes, path, &keywords, "", &Passthrough))
+        .map(|&(bytes, path)| scan(bytes, path, &keywords, "", Window::default(), &Passthrough))
         .collect();
     assert_eq!(
-        scan_all(&files, &keywords, "", &Passthrough, &test_context()).unwrap(),
+        scan_all(
+            &files,
+            &Listing {
+                keywords: &keywords,
+                goal: "",
+                window: Window::default()
+            },
+            &Passthrough,
+            &test_context()
+        )
+        .unwrap(),
         serial
     );
     assert!(matches!(serial[1], FileHits::Unmatched));
@@ -254,14 +264,26 @@ fn stopped_scan_all_propagates_errors_instead_of_unavailable_hits() {
     context.budget.cancellation.cancel();
     let result = scan_all(
         &[(b"needle", "a.rs")],
-        &["needle".into()],
-        "",
+        &Listing {
+            keywords: &["needle".into()],
+            goal: "",
+            window: Window::default(),
+        },
         &Passthrough,
         &context,
     );
     assert_eq!(result.unwrap_err().kind, ProviderErrorKind::Cancelled);
     let mut context = test_context();
     context.budget.deadline = std::time::Instant::now();
-    let result = scan_all(&[], &[], "", &Passthrough, &context);
+    let result = scan_all(
+        &[],
+        &Listing {
+            keywords: &[],
+            goal: "",
+            window: Window::default(),
+        },
+        &Passthrough,
+        &context,
+    );
     assert_eq!(result.unwrap_err().kind, ProviderErrorKind::Timeout);
 }

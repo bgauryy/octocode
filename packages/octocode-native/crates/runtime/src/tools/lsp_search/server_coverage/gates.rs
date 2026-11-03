@@ -55,10 +55,9 @@ pub(super) fn annotate_rust(
     if continues_a_page(query) {
         return;
     }
-    crate::response::result::attach_related(
-        row,
-        super::super::failure::next_action(query, CFG_REASON),
-    );
+    if let Some(rerun) = super::super::failure::next_action(query, CFG_REASON) {
+        crate::response::result::attach_related(row, rerun);
+    }
 }
 
 /// Which `cfg` gate a scan looks for.
@@ -154,9 +153,12 @@ pub(super) fn gated_files_mentioning(
             .metadata()
             .is_ok_and(|meta| meta.len() <= MAX_FILE_BYTES)
             .then(|| {
-                crate::tools::source::read_bounded(path, crate::num::usize_of(MAX_FILE_BYTES))
-                    .ok()
-                    .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
+                crate::tools::source::read_bounded(
+                    path,
+                    octocode_engine::num::saturating_usize(MAX_FILE_BYTES),
+                )
+                .ok()
+                .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
             })
             .flatten();
         match text {

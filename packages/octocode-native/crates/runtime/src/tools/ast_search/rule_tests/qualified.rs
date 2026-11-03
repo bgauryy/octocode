@@ -112,7 +112,7 @@ fn a_continuation_page_does_not_repeat_the_note() {
     )
     .expect("first page");
     assert_eq!(qualified_notes(&first).len(), 1, "{first}");
-    let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
     assert!(next.is_object(), "a second match page: {first}");
     let second = run_window(&root.0, next, window).expect("second page");
     assert!(qualified_notes(&second).is_empty(), "{second}");

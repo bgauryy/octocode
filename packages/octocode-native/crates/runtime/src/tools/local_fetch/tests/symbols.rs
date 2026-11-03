@@ -1,4 +1,4 @@
-//! The symbols view: outlines, redactions, gutters, spans and the cache.
+//! The symbols view: outlines, redactions, gutters and spans.
 
 use super::*;
 use octocode_contract_types::ReadView;
@@ -8,10 +8,8 @@ use octocode_contract_types::ReadView;
 /// lacks.
 #[test]
 fn a_symbols_outline_names_lines_a_redaction_left_unparseable() {
-    let store = crate::cache::Store::new(crate::cache::CacheConfig::default(), None);
     let source = "pub fn a() -> u8 {\n    let key = 1;\n[REDACTED-PRIVATEKEYFRAGMENT]\n    key\n}\n\npub fn b() {}\n";
     let view = crate::tools::source_view::outline::symbols_view(
-        &store,
         source,
         "k.rs",
         Path::new("/fixture/k.rs"),
@@ -25,21 +23,13 @@ fn a_symbols_outline_names_lines_a_redaction_left_unparseable() {
     assert!(!warning.contains("grammar lacks"), "{warning}");
 }
 
-/// A symbols view is kept in memory and on disk across calls, so it renders
-/// from the redacted source: neither tier, nor the outline, holds a secret
-/// of the file, and the view names the line its render redacted.
+/// The symbols outline contains only redacted source and names each changed line.
 #[test]
-fn a_kept_symbols_view_never_holds_a_secret_of_the_source() {
-    let dir = tempfile::tempdir().expect("dir");
-    let store = crate::cache::Store::new(
-        crate::cache::CacheConfig::default(),
-        Some(dir.path().to_owned()),
-    );
+fn a_symbols_view_never_holds_a_secret_of_the_source() {
     let token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
     let source = format!("pub const GH: &str = \"{token}\";\n\npub fn run() -> u8 {{\n    1\n}}\n");
     let security = crate::security::ContentSecurity::new();
     let view = crate::tools::source_view::outline::symbols_view(
-        &store,
         &source,
         "sec.rs",
         Path::new("/fixture/sec.rs"),
@@ -49,19 +39,6 @@ fn a_kept_symbols_view_never_holds_a_secret_of_the_source() {
     assert!(outline.contains("[REDACTED"), "{outline}");
     assert!(!outline.contains(token), "{outline}");
     assert_eq!(view.redacted_lines, vec![(1, 1)]);
-    let mut kept = 0;
-    for entry in fs::read_dir(dir.path()).expect("cache dir") {
-        let path = entry.expect("entry").path();
-        if path
-            .extension()
-            .is_some_and(|extension| extension == "entry")
-        {
-            let text = fs::read_to_string(&path).expect("cache file");
-            assert!(!text.contains("ghp_"), "{}: {text}", path.display());
-            kept += 1;
-        }
-    }
-    assert_eq!(kept, 1, "the view is on disk");
 }
 
 /// An outline page counts the placeholders its render put in, as a plain
@@ -215,9 +192,9 @@ fn a_symbols_outline_from_a_recovered_parse_names_the_skipped_lines() {
     );
 }
 
-/// A kept symbols view is served without scanning its source again.
+/// Each symbols request sanitizes its own source; no prior answer is retained.
 #[test]
-fn a_kept_symbols_view_is_served_without_a_rescan() {
+fn each_symbols_view_scans_its_own_source() {
     struct Counting(AtomicUsize);
     impl ContentScan for Counting {
         fn sanitize(
@@ -229,12 +206,10 @@ fn a_kept_symbols_view_is_served_without_a_rescan() {
             Ok((text.to_owned(), vec![]))
         }
     }
-    let store = crate::cache::Store::new(crate::cache::CacheConfig::default(), None);
     let scan = Counting(AtomicUsize::new(0));
     let source = "pub fn run() -> u8 {\n    1\n}\n";
     let view = |scan: &Counting| {
         crate::tools::source_view::outline::symbols_view(
-            &store,
             source,
             "run.rs",
             Path::new("/fixture/run.rs"),
@@ -245,8 +220,51 @@ fn a_kept_symbols_view_is_served_without_a_rescan() {
     let scans = scan.0.load(Ordering::SeqCst);
     assert!(scans > 0);
     let again = view(&scan);
-    assert!(std::sync::Arc::ptr_eq(&first, &again));
-    assert_eq!(scan.0.load(Ordering::SeqCst), scans, "a hit scans nothing");
+    assert_eq!(first, again);
+    assert_eq!(scan.0.load(Ordering::SeqCst), scans * 2);
+}
+
+/// Code past the parse limit has no outline to scan for: paging its compact
+/// fallback pays for neither a redaction pass nor a parse attempt. A document
+/// format outlines without a parse, so it still gets its keys.
+#[test]
+fn a_code_file_past_the_parse_limit_skips_the_outline_attempt() {
+    struct Counting(AtomicUsize);
+    impl ContentScan for Counting {
+        fn sanitize(
+            &self,
+            text: &str,
+            _: &Path,
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok((text.to_owned(), vec![]))
+        }
+    }
+    let scan = Counting(AtomicUsize::new(0));
+    let filler = "x".repeat(octocode_engine::signatures::MAX_PARSE_SIZE);
+    let code = format!("pub fn run() {{}}\n// {filler}\n");
+    let view = crate::tools::source_view::outline::symbols_view(
+        &code,
+        "big.rs",
+        Path::new("/fixture/big.rs"),
+        &scan,
+    );
+    assert_eq!(
+        view.outline,
+        Err(octocode_engine::signatures::OutlineUnavailable::TooLarge)
+    );
+    assert_eq!(scan.0.load(Ordering::SeqCst), 0);
+
+    let rows = "\"x\",\n".repeat(octocode_engine::signatures::MAX_PARSE_SIZE / 4);
+    let data = format!("{{\n\"name\": 1,\n\"long\": [\n{rows}\"x\"\n]\n}}\n");
+    let view = crate::tools::source_view::outline::symbols_view(
+        &data,
+        "big.json",
+        Path::new("/fixture/big.json"),
+        &scan,
+    );
+    assert!(view.outline.expect("key outline").contains("name"));
+    assert!(scan.0.load(Ordering::SeqCst) > 0);
 }
 
 /// A symbols outline names each multi-line declaration's line span.

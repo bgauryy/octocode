@@ -1,8 +1,8 @@
 use crate::id::ToolId;
-use crate::num::usize_of;
 use crate::response::result::ToolError;
 use crate::{execution::cancel::CancellationCheck, policy::path::PathPolicy};
 use octocode_contract_types::{AstSearchQuerySyntaxTree, ErrorCode};
+use octocode_engine::num::saturating_usize;
 use octocode_engine::structural::SyntaxTreeInspectOptions;
 use serde_json::{Value, json};
 
@@ -12,20 +12,20 @@ use render::render_tree_page;
 
 /// Engine-unit views over the generated `syntaxTree` query.
 pub(crate) mod ast_search_query_syntax_tree {
-    use crate::num::u32_of;
     use octocode_contract_types::AstSearchQuerySyntaxTree;
+    use octocode_engine::num::saturating_u32;
     pub(crate) fn language(query: &AstSearchQuerySyntaxTree) -> Option<String> {
         query.parser.as_ref().map(ToString::to_string)
     }
     pub(crate) fn page(query: &AstSearchQuerySyntaxTree) -> u32 {
-        u32_of(query.page.get())
+        saturating_u32(query.page.get())
     }
     pub(crate) fn snapshot(query: &AstSearchQuerySyntaxTree) -> Option<&str> {
         query.snapshot.as_deref().map(String::as_str)
     }
     /// The 1-based line whose covering node roots the tree (`line`).
     pub(crate) fn line(query: &AstSearchQuerySyntaxTree) -> Option<u32> {
-        query.line.map(|line| u32_of(line.get()))
+        query.line.map(|line| saturating_u32(line.get()))
     }
 }
 
@@ -145,7 +145,7 @@ fn view_snapshot(
 /// count, repaired by the same tree without `line` (the whole file).
 fn check_line(q: &AstSearchQuerySyntaxTree, line: u32, content: &str) -> Result<(), ToolError> {
     let total = content.lines().count();
-    if usize_of(line) <= total.max(1) {
+    if saturating_usize(line) <= total.max(1) {
         return Ok(());
     }
     let mut error = ToolError::new(
@@ -178,7 +178,7 @@ struct Walked {
 }
 
 static WALKS: crate::tools::page_memo::PageMemo<std::sync::Arc<Walked>> =
-    crate::tools::page_memo::PageMemo::new(std::time::Duration::from_secs(60), 8, 64 << 20);
+    crate::tools::page_memo::PageMemo::new();
 
 impl Walked {
     /// Rough heap bytes, the memo weight.
@@ -257,7 +257,7 @@ fn read_page(
     cancel: &dyn CancellationCheck,
 ) -> Result<TreePage, ToolError> {
     use crate::response::pages::PageFacts;
-    let page = usize_of(ast_search_query_syntax_tree::page(q));
+    let page = saturating_usize(ast_search_query_syntax_tree::page(q));
     let policy = budget.to_string();
     let stored = WALKS.get(snapshot, &policy, std::sync::Arc::clone);
     let walked = match stored {
@@ -293,7 +293,7 @@ fn read_page(
         }
     };
     let windows = &walked.windows;
-    let total = usize_of(walked.r.total_nodes);
+    let total = saturating_usize(walked.r.total_nodes);
     let more = windows.len() > page;
     let read_all = walked.r.next_offset.is_none();
     let facts = if read_all {
@@ -324,7 +324,7 @@ fn append_observed_window(
     start: u32,
     expected: u32,
 ) -> Result<(), ToolError> {
-    if rest.nodes.len() != usize_of(expected)
+    if rest.nodes.len() != saturating_usize(expected)
         || rest.nodes.iter().enumerate().any(|(index, node)| {
             u32::try_from(index)
                 .ok()

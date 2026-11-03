@@ -10,7 +10,6 @@ use super::local_search_query::{
     self, default_matches_per_file, default_page_size, streamed_layout,
 };
 use super::rows::rank_file_rows;
-use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 pub(super) use costs::{FilePrice, NamePricing};
@@ -18,6 +17,7 @@ use costs::{PageCosts, RowName};
 pub(super) use entries::{file_pagination, row_chars};
 use entries::{fits_whole, listed_file_chars};
 use octocode_contract_types::LocalSearchQuery;
+use octocode_engine::num::saturating_u32;
 use octocode_engine::types::SearchContext;
 use stream::{PageRows, StreamCosts, stream_pages};
 
@@ -87,13 +87,15 @@ impl Layout {
         let within_limit = local_search_query::limit(query).is_none_or(|limit| hits_total <= limit);
         let show_all =
             !list && within_limit && fits_whole(&parsed.files, page_budget, &costs, true) && {
-                let all = (0..parsed.files.len()).collect::<Vec<_>>();
-                pricing.price(&parsed.files, all)?;
-                costs.owners = pricing.priced.clone();
+                if priced_names {
+                    let all = (0..parsed.files.len()).collect::<Vec<_>>();
+                    pricing.price(&parsed.files, all)?;
+                    costs.owners = pricing.priced.clone();
+                }
                 fits_whole(&parsed.files, page_budget, &costs, false)
             };
         let matches_per = if show_all {
-            u32_of_usize(hits_total)
+            saturating_u32(hits_total)
         } else {
             default_matches_per_file()
         }
@@ -106,7 +108,7 @@ impl Layout {
         // source order.
         if !match_only {
             for file in &mut parsed.files {
-                if u32_of_usize(file.matches.len()) > matches_per {
+                if saturating_u32(file.matches.len()) > matches_per {
                     rank_file_rows(&mut file.matches);
                 }
             }
@@ -128,7 +130,7 @@ impl Layout {
         } else {
             Self::grid(query, parsed.files.len(), matches_per)
         };
-        let total_files = u32_of_usize(parsed.files.len());
+        let total_files = saturating_u32(parsed.files.len());
         // Content views emit a resolved context window per match row; windows of
         // nearby rows overlap, so merge them into one block per run of lines.
         // matchOnly carries exact spans, so it has no windows. A multiline
@@ -220,7 +222,7 @@ impl Layout {
             }
         }
         let mut pages = cut(costs, None);
-        let total_pages = u32_of_usize(pages.len()).max(1);
+        let total_pages = saturating_u32(pages.len()).max(1);
         let page = local_search_query::page(query).max(1) as usize;
         let shown = if page <= pages.len() {
             pages.swap_remove(page - 1)
@@ -228,7 +230,7 @@ impl Layout {
             Vec::new()
         };
         let rows: usize = files.iter().map(|file| file.matches.len()).sum();
-        Ok((shown, total_pages, None, u32_of_usize(rows)))
+        Ok((shown, total_pages, None, saturating_u32(rows)))
     }
 
     fn list_stream(
@@ -253,9 +255,9 @@ impl Layout {
         );
         (
             cut.range.map(|index| (index, 0..0)).collect(),
-            u32_of_usize(cut.pages),
+            saturating_u32(cut.pages),
             None,
-            u32_of_usize(files.len()),
+            saturating_u32(files.len()),
         )
     }
 
@@ -277,12 +279,12 @@ impl Layout {
         let shown = window
             .map(|index| (index, skip..skip.saturating_add(matches_per as usize)))
             .collect::<PageRows>();
-        let total_files = u32_of_usize(file_count);
+        let total_files = saturating_u32(file_count);
         (
             shown,
-            u32_of_usize(crate::response::page_windows::count_pages(
+            saturating_u32(crate::response::page_windows::count_pages(
                 file_count,
-                crate::num::usize_of(page_size),
+                octocode_engine::num::saturating_usize(page_size),
             )),
             Some(page_size),
             total_files,

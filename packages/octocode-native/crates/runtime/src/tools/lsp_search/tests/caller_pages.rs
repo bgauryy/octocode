@@ -1,43 +1,30 @@
-//! Caller pages: incoming walks, reused first pages and continuations
-//! that reach every row once.
+//! Caller pages: incoming walks, source revisions and continuations that
+//! reach every row once.
 
 use super::*;
 
 #[test]
-fn first_pages_of_incoming_walks_reuse_responses_keyed_by_scope_fingerprint() {
-    let callers = query(serde_json::json!({
-        "operation": "callers", "path": "/repo/a.ts", "symbolName": "f", "line": 1
-    }));
-    let reused = response_scope(&callers, "content".into(), Some("fp"));
-    assert!(reused.reuse);
-    assert_ne!(reused.generation, "content");
-    // Another fingerprint (any file edit) is another generation.
+fn incoming_continuations_bind_source_revision_but_fresh_calls_own_their_answers() {
+    let callers = query(
+        serde_json::json!({"operation":"callers", "path":"/repo/a.ts", "symbolName":"f", "line":1}),
+    );
+    let observed = std::time::SystemTime::now();
+    let first = response_scope(&callers, "content".into(), observed, Some("fp"));
+    let fresh = response_scope(&callers, "content".into(), observed, Some("fp"));
+    assert_eq!(first.generation, fresh.generation);
+    assert_ne!(first.call, fresh.call);
+    assert!(!std::sync::Arc::ptr_eq(
+        first.answers.as_ref().expect("answers"),
+        fresh.answers.as_ref().expect("answers")
+    ));
     assert_ne!(
-        response_scope(&callers, "content".into(), Some("fp2")).generation,
-        reused.generation
+        response_scope(&callers, "content".into(), observed, Some("fp2")).generation,
+        first.generation
     );
-    // No fingerprint (walk past its bounds): first pages ask the server.
-    let unbounded = response_scope(&callers, "content".into(), None);
-    assert!(!unbounded.reuse);
-    assert_eq!(unbounded.generation, "content");
-    // Hover always asks; its continuation keying is unchanged.
-    let hover = query(serde_json::json!({
-        "operation": "hover", "path": "/repo/a.ts", "symbolName": "f", "line": 1
-    }));
-    assert!(!response_scope(&hover, "content".into(), Some("fp")).reuse);
-    // A continuation page still reuses.
-    let page_two = requery(
-        &callers,
-        serde_json::json!({"page": 2, "snapshot": "lsp-v1:x"}),
-    );
-    assert!(response_scope(&page_two, "content".into(), None).reuse);
-    // So does a later importer window: its anchor answer is the one its
-    // candidate digest was cut from.
-    let window_two = requery(
-        &callers,
-        serde_json::json!({"importerPage": 2, "snapshot": "lsp-imp:x"}),
-    );
-    assert!(response_scope(&window_two, "content".into(), None).reuse);
+    // A walk that proved no fingerprint is its own revision of the scope.
+    let unfingerprinted = response_scope(&callers, "content".into(), observed, None).generation;
+    assert_ne!(unfingerprinted, first.generation);
+    assert_ne!(unfingerprinted, "content");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -108,7 +95,7 @@ fn page_names(row: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
-/// Walk a result set copying each `next.nextPage` unchanged under the one
+/// Walk a result set copying each `pagination.next.nextPage` unchanged under the one
 /// page `budget` every page of a walk is cut at: the walk reaches every row
 /// exactly once, in order.
 fn walk_pages(
@@ -126,7 +113,7 @@ fn walk_pages(
         let names = page_names(&row);
         assert!(!names.is_empty(), "page {call} moved: {row}");
         seen.extend(names);
-        let Some(next) = row.pointer("/next/nextPage/input/queries/0") else {
+        let Some(next) = row.pointer("/pagination/next/nextPage/input/queries/0") else {
             break;
         };
         q = serde_json::from_value(next.clone()).expect("executable continuation");
@@ -191,9 +178,10 @@ fn a_page_past_the_end_or_of_another_answer_never_skips_rows() {
         &q,
         items_payload(&q, "symbols", serde_json::json!(items), 600),
     );
-    let next: LspSearchQuery =
-        serde_json::from_value(first["next"]["nextPage"]["input"]["queries"][0].clone())
-            .expect("continuation");
+    let next: LspSearchQuery = serde_json::from_value(
+        first["pagination"]["next"]["nextPage"]["input"]["queries"][0].clone(),
+    )
+    .expect("continuation");
     // The answer changed: the digest no longer matches.
     let mut changed = items.clone();
     changed.pop();
@@ -220,7 +208,7 @@ fn a_forged_snapshot_is_a_stale_snapshot() {
         with_next(
             &q,
             items_payload(&q, "symbols", serde_json::json!(items), 600),
-        )["next"]["nextPage"]["input"]["queries"][0]
+        )["pagination"]["next"]["nextPage"]["input"]["queries"][0]
             .clone(),
     )
     .expect("continuation");
@@ -273,7 +261,7 @@ fn caller_pages_fill_the_budget_with_compact_rows() {
                 .flat_map(|file| file["matches"].as_array().into_iter().flatten())
                 .map(|call| call["symbolName"].as_str().expect("name").to_owned()),
         );
-        let Some(next) = row.pointer("/next/nextPage/input/queries/0") else {
+        let Some(next) = row.pointer("/pagination/next/nextPage/input/queries/0") else {
             break;
         };
         q = serde_json::from_value(next.clone()).expect("continuation");

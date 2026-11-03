@@ -197,7 +197,7 @@ async fn a_saml_sso_403_surfaces_the_authorization_url() {
     .await
     .expect("row");
     let data = row_data(&outcome);
-    assert_eq!(data["errorCode"], "permission", "{data}");
+    assert_eq!(data["errorCode"], "permissionDenied", "{data}");
     assert_eq!(data["ssoUrl"], url, "{data}");
     let hint = data["hints"].to_string();
     assert!(hint.contains("Authorize") && hint.contains("SSO"), "{data}");

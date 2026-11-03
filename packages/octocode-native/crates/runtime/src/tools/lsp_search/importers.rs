@@ -15,7 +15,7 @@
 //!
 //! Candidates are verified [`MAX_CANDIDATE_FILES`] per request. The sorted
 //! candidate list is cut into windows of that size; `importerPage` picks the
-//! window, and `next.nextImporterPage` (on each of the window's location
+//! window, and `next.nextPage` (on each of the window's location
 //! pages) carries the candidate digest as its `snapshot`, so every candidate is
 //! verified in exactly one window and a changed list restarts the walk.
 //! Before the list is cut, candidates whose imports name only other modules
@@ -59,14 +59,14 @@ pub(super) const MAX_CANDIDATE_FILES: usize = 24;
 /// Windows one request may verify. A window that holds no verified
 /// importer is followed by the next in the same request (it adds no site),
 /// up to this many windows or [`SKIP_BUDGET`] of wall time;
-/// `next.nextImporterPage` resumes after them.
+/// `next.nextPage` resumes after them.
 pub(super) const MAX_WINDOWS_PER_REQUEST: usize = 8;
 /// Wall time after which a request that has skipped silent windows stops
 /// skipping and returns its page of the continuing scan: one call stays
 /// within the time of a few windows however slow the server is.
 const SKIP_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
 /// Prefix of a candidate-list digest (the `snapshot` of
-/// `next.nextImporterPage`).
+/// `next.nextPage`).
 const DIGEST_PREFIX: &str = "lsp-imp:";
 /// Partial reason of a window that leaves later windows unverified.
 pub(super) const CAPPED_REASON: crate::response::paging::PartialReason =
@@ -127,7 +127,7 @@ pub(super) struct Importers {
 
 /// Which importer window a request verifies (`importerPage`, one-based),
 /// and the candidate digest a later window's first location page must
-/// match (`snapshot`, copied from `next.nextImporterPage`).
+/// match (`snapshot`, copied from `next.nextPage`).
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct WindowRequest<'a> {
     pub(super) page: u32,

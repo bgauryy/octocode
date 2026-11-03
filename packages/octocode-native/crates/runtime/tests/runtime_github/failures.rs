@@ -73,7 +73,7 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
         let outcome = call(
             &runtime,
             "ghGetFileContent",
-            json!({"owner": "a", "repo": "b", "path": name, "ref": sha, "refresh": true}),
+            json!({"owner": "a", "repo": "b", "path": name, "ref": sha}),
         )
         .await
         .expect("row-level error");
@@ -128,7 +128,7 @@ async fn anonymous_rate_limit_advises_authentication() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner": "a", "repo": "b", "path": "x.rs", "ref": sha, "refresh": true}),
+        json!({"owner": "a", "repo": "b", "path": "x.rs", "ref": sha}),
     )
     .await
     .expect("row-level error");

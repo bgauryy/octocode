@@ -4,9 +4,7 @@
 //! acquires remote files; both render through this engine,
 //! and `tools/local_search` sizes the reads it leads to by the same limits.
 mod block;
-mod cache;
 pub(crate) use block::BLOCK_MAX_LINES;
-pub use cache::ViewCache;
 pub(crate) mod extraction;
 pub(crate) use extraction::match_spans;
 mod key_outline;
@@ -15,6 +13,7 @@ pub(crate) mod outline;
 mod page_scan;
 pub(crate) mod pagination;
 pub(crate) mod prepare;
+pub(crate) mod retained;
 pub(crate) mod selection;
 mod types;
 mod view;

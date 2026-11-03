@@ -2,7 +2,7 @@
 
 `@octocodeai/config` is the private workspace package that owns Octocode
 home-directory resolution, `.env` policy, the configuration contract
-(`config-contract.json`), and the generated tool contract. The CLI launcher, MCP
+(Zod declaration emitting `config-contract.json`), and the generated tool contract. The CLI launcher, MCP
 server, extensions, and standalone skills bundle it. The native runtime resolves
 settings from the same contract; `npx octocode config` shows the result.
 
@@ -49,9 +49,11 @@ yarn workspace @octocodeai/config lint
 ```
 
 Configuration fields, defaults, environment bindings, trust policy, and
-validation constraints are edited only in `config-contract.json`. The
-TypeScript generator and native Rust build script independently validate that
-file against `config-contract.schema.json`. The TypeScript generator emits the
+validation constraints are edited only in the Zod declaration
+(`scripts/config-contract/declaration/`, shaped by `scripts/config-contract/schema.ts`).
+`generate:config-contract` validates it with Zod and emits `config-contract.json` and
+`config-contract.schema.json`; both are generated, guarded by a drift test and
+`check:config-contract`, and never hand-edited. The generator also emits the
 field metadata and defaults this package exports and the user settings
 reference; the native build emits the resolver the runtime uses.
 

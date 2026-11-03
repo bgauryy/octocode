@@ -24,14 +24,13 @@ use super::format::{
     EdgeKind, FLAG_EXPORTED, FLAG_LOCAL_USE, FLAG_TEST, GraphTables, NONE, NodeKind,
 };
 use super::tables::MODULE_DETAIL;
+use crate::id::ToolId;
 use crate::tools::ast_graph::algorithms::Cycles;
 use crate::tools::ast_graph::edges::{Load, RUST_MODULE, load};
 use crate::tools::ast_graph::graph::{OUTSIDE_ROOT, rust_module_child_dir};
 use crate::tools::ast_graph::paths::dirname;
-use crate::id::ToolId;
 use crate::tools::ast_graph::types::DiagnosticCode;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 mod components;
@@ -40,6 +39,7 @@ mod cycles;
 mod dead_code;
 mod deps;
 mod hubs;
+mod mentions;
 mod primitives;
 mod reach;
 mod view;
@@ -50,57 +50,31 @@ use cycles::*;
 use dead_code::*;
 use deps::*;
 use hubs::*;
+use mentions::*;
 pub(super) use primitives::tarjan;
 use primitives::*;
 use reach::*;
 use view::*;
 
-/// Every detector, in run order: a timing label, the detector names it
-/// reports, and the step. The one list `detectors` is checked against.
+/// Every detector, in run order: the detector names it reports, and the step. The one list `detectors` is checked against.
 const STEPS: &[DetectorStep] = &[
-    ("cycle", &["cycle"], detect_cycles),
-    ("dir-cycle", &["dir-cycle"], detect_dir_cycles),
+    (&["cycle"], detect_cycles),
+    (&["dir-cycle"], detect_dir_cycles),
+    (&["unreachable-file", "test-only"], detect_reachability),
     (
-        "reachability",
-        &["unreachable-file", "test-only"],
-        detect_reachability,
-    ),
-    (
-        "unused-export",
         &["unused-export", "export-only-local"],
         detect_unused_exports,
     ),
-    (
-        "dependencies",
-        &["undeclared-dependency"],
-        detect_dependencies,
-    ),
-    (
-        "boundary-violation",
-        &["boundary-violation"],
-        detect_boundaries,
-    ),
-    (
-        "unresolved-import",
-        &["unresolved-import"],
-        detect_unresolved,
-    ),
-    ("critical-file", &["critical-file"], detect_critical),
-    (
-        "single-point-of-failure",
-        &["single-point-of-failure"],
-        detect_spof,
-    ),
-    (
-        "components",
-        &["unstable-dependency", "main-sequence"],
-        detect_components,
-    ),
+    (&["undeclared-dependency"], detect_dependencies),
+    (&["boundary-violation"], detect_boundaries),
+    (&["unresolved-import"], detect_unresolved),
+    (&["critical-file"], detect_critical),
+    (&["single-point-of-failure"], detect_spof),
 ];
 
 /// Every detector name, in run order: the graphQuery `detectors` choices.
 pub(crate) fn detector_names() -> impl Iterator<Item = &'static str> {
-    STEPS.iter().flat_map(|(_, names, _)| names.iter().copied())
+    STEPS.iter().flat_map(|(names, _)| names.iter().copied())
 }
 
 /// Languages whose named imports link to declarations, so an export no
@@ -118,9 +92,6 @@ fn exports_judged(file: &str, kind: &str) -> bool {
 }
 
 const PACKAGE_SCOPED: &[&str] = &["go", "java", "scala", "csharp"];
-/// Declaration kinds (of [`octocode_engine::signatures::DECLARATION_KINDS`])
-/// that declare a contract, not an implementation.
-const ABSTRACT_KINDS: &[&str] = &["interface", "trait", "type"];
 
 /// A step that checks a finding: one call of `tool` with `row`.
 #[derive(Clone, Debug)]
@@ -183,7 +154,7 @@ pub(crate) struct Report {
 }
 
 fn stable_id(detector: &str, parts: &[&str]) -> String {
-    let mut hasher = Sha256::new();
+    let mut hasher = octocode_engine::digest::HashWriter::default();
     hasher.update(detector.as_bytes());
     for part in parts {
         hasher.update([0]);
@@ -195,6 +166,12 @@ fn stable_id(detector: &str, parts: &[&str]) -> String {
 /// Maps magnitude (members, dependents, count) into a `[0.6, 1.0]` factor.
 fn magnitude(size: usize) -> f64 {
     (0.6 + 0.08 * ((1 + size) as f64).log2()).min(1.0)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: the detector pipelines this thread has run.
+    pub(crate) static RUNS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Runs the selected detectors (all when `only` is empty) and ranks them.
@@ -213,31 +190,28 @@ pub(crate) fn run(
             ));
         }
     }
+    #[cfg(test)]
+    RUNS.with(|runs| runs.set(runs.get() + 1));
     let wants = |name: &str| only.is_empty() || only.iter().any(|o| o == name);
     let mut c = Ctx {
         v: View::new(t, entries),
         findings: Vec::new(),
         notes: Vec::new(),
     };
-    let mut timings = BTreeMap::<&str, u64>::new();
-    for &(label, detectors, step) in STEPS {
+    for &(detectors, step) in STEPS {
         if detectors.iter().any(|d| wants(d)) {
-            let started = std::time::Instant::now();
             step(&mut c);
-            timings.insert(label, crate::num::millis_of(started.elapsed()));
         }
     }
-    // Liveness spreads from mentioned `unreachable-file` subjects, so
-    // `test-only` keeps those findings through the mention scan.
+    // Liveness spreads from mentioned `unreachable-file` and `test-only`
+    // subjects, so `test-only` keeps unreachable findings through the scan.
     let spread = root.is_some() && wants("test-only");
     c.findings
         .retain(|f| wants(f.detector) || (spread && f.detector == "unreachable-file"));
     if let Some(root) = root {
-        let started = std::time::Instant::now();
-        tier_dead_code(&mut c.findings, root, &mut c.notes);
+        tier_dead_code(&c.v, &mut c.findings, root, &mut c.notes);
         spread_mentioned_liveness(&c.v, &mut c.findings);
         c.findings.retain(|f| wants(f.detector));
-        timings.insert("mention-scan", crate::num::millis_of(started.elapsed()));
     } else if c
         .findings
         .iter()
@@ -274,16 +248,13 @@ pub(crate) fn run(
             *roles.entry(role).or_default() += 1;
         }
     }
-    let health_started = std::time::Instant::now();
     let health = health(&c.v);
-    timings.insert("health", crate::num::millis_of(health_started.elapsed()));
     // The finding count is the page's totalItems plus summary.hiddenBelowTier.
     let summary = json!({
         "byDetector": by_detector,
         "entrypoints": {"total": c.v.entries.len(), "byRule": entries},
         "fileRoles": roles,
         "health": health,
-        "detectorMs": timings,
         "notes": c.notes,
         "method": "hypotheses ranked by severity × confidence × (0.5 + 0.5 × PageRank percentile); verify before acting",
     });

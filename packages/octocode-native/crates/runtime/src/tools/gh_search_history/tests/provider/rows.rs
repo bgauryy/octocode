@@ -105,14 +105,11 @@ async fn plain_issue_listing_pages_issue_search_without_pr_gaps() {
     Mock::given(method("GET"))
         .and(path("/api/v3/search/issues"))
         .and(query_param("q", "is:issue repo:o/full"))
-        .and(query_param("page", "2"))
-        .and(query_param("per_page", "50"))
         .and(query_param("sort", "created"))
         .and(query_param("order", "desc"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 101, "incomplete_results": false,
-            "items": [issue(6), issue(7), issue(8), issue(9), issue(10)]
-        })))
+        .respond_with(octocode_github::mock_http::SearchIndex(
+            (1..=101).map(issue).collect(),
+        ))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -138,7 +135,15 @@ async fn plain_issue_listing_pages_issue_search_without_pr_gaps() {
         }
     };
     let data = run(json!({"operation":"issue","owner":"o","repo":"full","page":2})).await;
-    assert_eq!(data["issues"].as_array().map(Vec::len), Some(5), "{data}");
+    // Page 2 at the default 50 a page: GitHub's results 51 to 100.
+    assert_eq!(
+        data["issues"].as_array().map(|rows| rows
+            .iter()
+            .map(|row| row["number"].clone())
+            .collect::<Vec<_>>()),
+        Some((51..=100).map(|n| json!(n)).collect()),
+        "{data}"
+    );
     assert_eq!(data["pagination"]["page"], 2, "{data}");
     // The cursor rides `next.nextPage` only, never the page block.
     assert_eq!(data.pointer("/pagination/nextPage"), None, "{data}");

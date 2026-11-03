@@ -29,8 +29,21 @@ pub(super) fn compiled_pattern(pattern: &str) -> Result<std::sync::Arc<Regex>, S
 /// The longest pattern an error quotes as the expected form.
 const READABLE_PATTERN_CHARS: usize = 40;
 
-/// Explain blank values directly. Other values name the field and its pattern;
-/// a long pattern uses the field's description when available.
+/// What a value of a JSON Schema `format` must be (2020-12 Validation
+/// §7.3: the RFC 3339 forms with an example), else the format's name.
+fn format_requirement(format: &str) -> String {
+    match format {
+        "date-time" => "a date-time (RFC 3339), e.g. 2026-10-01T00:00:00Z".into(),
+        "date" => "a full-date (RFC 3339), e.g. 2026-10-01".into(),
+        "time" => "a full-time (RFC 3339), e.g. 00:00:00Z".into(),
+        other => format!("in the {other} format"),
+    }
+}
+
+/// Explain blank values directly. Other values name the field and what it
+/// must be: its declared `format` (the published schema shows the format,
+/// not the pattern enforcing it), else its pattern; a long pattern uses the
+/// field's description when available.
 pub(super) fn pattern_message(
     value: &str,
     path: &[String],
@@ -46,6 +59,13 @@ pub(super) fn pattern_message(
         // A short pattern is the expected form; a pattern too long to read
         // falls back to the field's own note, when it has one. A
         // description of a field with a short pattern is usage prose.
+        if let Some(format) = schema.get("format").and_then(Value::as_str) {
+            let must = format_requirement(format);
+            return match field {
+                Some(field) => format!("\"{shown}\" is not a valid {field}: it must be {must}"),
+                None => format!("\"{shown}\" must be {must}"),
+            };
+        }
         return match (field, schema.get("description").and_then(Value::as_str)) {
             (_, Some(note)) if pattern.chars().count() > READABLE_PATTERN_CHARS => {
                 format!("\"{shown}\" does not match the expected form: {note}")
@@ -67,6 +87,7 @@ pub(super) fn describe_unreadable_pattern(issue: &mut ValidationIssue, note: &st
     };
     let unreadable = issue.rule_id == "schema.pattern"
         && schema.get("description").is_none()
+        && schema.get("format").is_none()
         && schema
             .get("pattern")
             .and_then(Value::as_str)

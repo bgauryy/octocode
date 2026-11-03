@@ -1,58 +1,27 @@
 ---
 name: octocode-graph-view
-description: "Map repository files, functions, imports and calls with the octocode graph, LSP and AST, live in a local browser viewer that grows page by page with progress, weighted graph metrics (PageRank, betweenness, cycles, communities, depth, coupling), tool calls and each node's file location. Produce a compact brief and retained graph data; investigate hubs, cycles and findings with independent evidence."
+description: "Map repository files, imports and calls in a live or headless graph. Use for an interactive architecture view, ranked hubs or cycles, and a source-backed brief with retained graph data."
 ---
 
 # Octocode Graph View
 
-Map the requested repository scope, keep every graph page as evidence, and separate structural leads from proven behavior.
+## Build the requested scope
 
-```mermaid
-flowchart LR
-  L[structureSearch pages: file skeleton] --> P[Plan chunks at package.json / Cargo.toml]
-  P --> G[graphBuild per chunk, in parallel; every graphQuery page streams]
-  G -- scopeTooBroad --> P
-  G --> S[Stitch imports and calls between chunks]
-  S --> X[LSP callees: hub functions and stitched calls]
-  X --> F[Verify every node against its file on disk]
-  F --> I[Weighted graph metrics: PageRank, betweenness, Tarjan cycles, Louvain, k-core, depth, coupling]
-  G & S & X & F & I -. events .-> V[Live viewer: progress, metrics, tools, node locations]
-  V -- click --> A[AST outline / LSP callers, callees, references]
-```
+Run from the target workspace. Start with `node <skill>/scripts/preflight.mjs` and disclose missing layers and their effect. Leave repository source untouched. Rust build scripts execute project code, so ask before enabling `rustContext.buildScripts`.
 
-## Work the requested scope
+| Need | Command |
+|---|---|
+| A person will watch | `node <skill>/scripts/serve.mjs <section>` opens the viewer. Give the printed URL for live progress and on-demand AST outlines or LSP callers, callees and references. |
+| Headless build or CI | `node <skill>/scripts/build.mjs <section>` writes the same graph, events and briefs. |
+| Reopen a finished run | `node <skill>/scripts/serve.mjs --replay <result-dir>` |
 
-1. Run `scripts/preflight.mjs` from the target workspace; disclose missing layers and their effect.
-2. Live view (default when a person will watch): `node <skill>/scripts/serve.mjs <section>` prints a local URL and opens it. Headless (agents, CI): `node <skill>/scripts/build.mjs <section>`. Both run the same pipeline and write the same result; flags and behavior: [commands](references/commands.md).
-3. Read `brief.txt` first, then `data.json` for the rows behind a claim. Every node and edge carries `loc` (path, absolute path, line or lines), and every node carries `check`: its file exists, every declaration and edge line falls inside it, and it has not changed since the snapshot (`ok`, `stale`, `missing`, `lines`). Rebuild before relying on a node whose check is not `ok`.
-4. Verify a lead before claiming it: exact source read, LSP identity and callers, a Hypothesis test for a defect ([evidence](references/evidence.md)). A graph or LSP label alone is triage.
-5. Write agent notes for each page in the build's `wiki.notesNeeded` (the communities holding most of the PageRank) from the source you verified, with `wiki.mjs note` ([wiki](references/wiki.md)); nothing else writes them, so until then `wiki.mjs lint` reports `empty-notes`.
-6. Add `model.json` beside `data.json` only when layers, runtime edges or flows answer the task ([modeling](references/modeling.md)); rerun `render.mjs`.
-7. Deliver per [output.md](output.md).
+The pipeline pages `structureSearch`, builds chunks in parallel at `package.json` and `Cargo.toml` boundaries, then stitches imports and calls. It preserves Rust crate boundaries where possible and attempts to split a chunk on `scopeTooBroad`. Use `--whole` when cross-package linkage matters more than early results. Splitting a Rust module tree can lose calls. See [commands](references/commands.md) for flags, phases, metrics and script owners.
 
-## Preserve meaning and evidence
+## Check a finding
 
-- Import edges are syntax-derived; calls carry provenance: `graph` (syntax linkage), `stitched` (exact name through an import between chunks, medium), `both` (graph and LSP agree), `lsp` (only the language server reports it). Take the union before claiming a caller count or absence: each engine misses calls the other finds.
-- Every page is kept: raw graph pages under `chunks/<id>/tmp/evidence/`, every event in `events.jsonl`; the viewer pages its lists ("Show more") and never drops rows. Report unbuilt chunks, files in no chunk, unresolved imports between chunks and skipped LSP.
-- Chunks follow package manifests so the viewer fills in early; `--whole` ingests one snapshot when cross-package linkage matters more than early feedback. Splitting a Rust module tree loses calls the single snapshot links; crates stay whole because each has its own Cargo.toml.
-- Do not change repository source as part of visualization. Rust build scripts run project code: never enable `rustContext.buildScripts` without asking.
+1. Read `brief.txt` for measured facts, then inspect the deciding rows in `data.json`. Nodes and edges carry `loc` with paths and lines. Check the file's `check.status` and `verification.staleCheck` before relying on a row. Rebuild for `stale`, `missing` or out-of-range `lines`. Disclose a failed freshness check.
+2. Imports are syntax evidence. For calls, `via` distinguishes graph linkage (`graph`), LSP alone (`lsp`) or agreement (`both`). A viewer edge labeled `stitched` was bound by exact name through a cross-chunk import; look for `stitched-import` in the saved call's `resolution`. Treat that name match as medium confidence. LSP probes hub functions and stitched call sources. For counts or absence, inspect the union and its coverage; verify consequential claims with an exact source read, symbol identity and LSP callers. Test a defect hypothesis using the [evidence rules](references/evidence.md).
+3. Write source-backed agent notes for every page listed in `wiki.notesNeeded` with `wiki.mjs note`. Run `wiki.mjs lint` to find `empty-notes` and stale pages. See [wiki operations](references/wiki.md). If the task needs layers, runtime edges or flows, add a [model overlay](references/modeling.md) matching the [schema](scheme/model.json) alongside `data.json`, then run `render.mjs` again.
+4. Deliver according to [output.md](output.md). The viewer pages rows with “Show more”; every raw graph page is under `chunks/<id>/tmp/evidence/` and events are in `events.jsonl`. Report unbuilt or split chunks, files outside chunks, unresolved cross-chunk imports, skipped LSP and partial results beside the claims they limit.
 
-## Resources
-
-| When | Read | Why |
-|---|---|---|
-| Build, serve, replay, flags, events | [commands](references/commands.md) | Exact commands, result layout, event protocol, script owners |
-| Explain architecture beyond imports | [modeling](references/modeling.md), [model schema](scheme/model.json) | Evidence-backed overlay for the brief |
-| Prove a consequential finding | [evidence](references/evidence.md) | Match claim to proof |
-| Deliver the result | [output.md](output.md) | Paths, coverage, what to report |
-| Answer viewer chat, refresh after edits | [chat](references/chat.md) | Inbox and channel modes, reply.mjs, security and limits |
-| Ask the graph (impact, path, cycle, callers, top) | [query](references/query.md) | Query language, strong vs weak edges, results that highlight on the graph |
-| Read, write or lint the code wiki (one page per community) | [wiki](references/wiki.md) | Page layout, notes conventions, freshness, lint kinds |
-
-## Related skills
-
-- `octocode-research` settles source and symbol claims; `octocode-architect` owns dependency, layering and refactor decisions.
-
-## Output
-
-Follow [output.md](output.md); report BLUF with claim–evidence and explicit gaps.
+Use [graph queries](references/query.md) for impacts, paths, cycles, callers and rankings, or [chat and refresh](references/chat.md) to answer through the viewer or update it after edits. Use `octocode-research` to settle code or symbol claims and `octocode-architect` for layering or refactor decisions.

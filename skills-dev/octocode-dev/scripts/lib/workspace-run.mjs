@@ -2,6 +2,7 @@
 // and the full repo `verify` gate.
 import { spawn, spawnSync } from 'node:child_process';
 import {
+  OWN_SCRIPTS,
   ROOT,
   SKILL_SCRIPT_POLICY,
   collectBuildDependencies,
@@ -27,10 +28,23 @@ function resolveScript(workspace, scriptName, preferScript) {
   return preferScript && scripts[preferScript] ? preferScript : scriptName;
 }
 
-export function runWorkspaceScript(workspaces, scriptName, preferScript) {
-  const eligibleWorkspaces = workspaces.filter(workspace =>
-    workspace.requiredScripts.includes(scriptName)
+/** The script a repo-wide run executes for a policy script: its oxlint-free variant, or undefined when that variant is absent. */
+function repoScript(workspace, name) {
+  const own = OWN_SCRIPTS[name];
+  if (!own) return name;
+  return workspace.packageJson.scripts?.[own] ? own : undefined;
+}
+
+/** Workspaces that run `scriptName`: the policy script, or an oxlint-free variant of it that the workspace declares. */
+function eligibleFor(workspaces, scriptName) {
+  const policyName = Object.keys(OWN_SCRIPTS).find(name => OWN_SCRIPTS[name] === scriptName) ?? scriptName;
+  return workspaces.filter(
+    workspace => workspace.requiredScripts.includes(policyName) && workspace.packageJson.scripts?.[scriptName]
   );
+}
+
+export function runWorkspaceScript(workspaces, scriptName, preferScript) {
+  const eligibleWorkspaces = eligibleFor(workspaces, scriptName);
 
   const orderedWorkspaces = topologicallySort(eligibleWorkspaces);
 
@@ -67,9 +81,7 @@ function runPrefixed(label, command, args) {
  * starts; running ones finish, then the run exits non-zero.
  */
 export async function runWorkspaceScriptParallel(workspaces, scriptName, preferScript) {
-  const eligibleWorkspaces = workspaces.filter(workspace =>
-    workspace.requiredScripts.includes(scriptName)
-  );
+  const eligibleWorkspaces = eligibleFor(workspaces, scriptName);
   const workspaceMap = getWorkspaceMap(eligibleWorkspaces);
   const results = new Map();
   let failed = false;
@@ -117,12 +129,13 @@ export function runVerify(workspaces) {
   runCommand('node', ['skills-dev/octocode-dev/scripts/docs-verify.mjs']);
 
   // A workspace with a verify script owns its complete gate; the rest run build/lint/test.
+  // Both run their oxlint-free variants: oxlint ran once, in the baseline pass before this.
   // Dependency order (package deps + BUILD_INPUTS) keeps generated inputs built first.
   for (const workspace of topologicallySort(workspaces)) {
-    const scripts = workspace.packageJson.scripts?.verify
+    const policy = workspace.packageJson.scripts?.verify
       ? ['verify']
       : SKILL_SCRIPT_POLICY.filter(name => workspace.requiredScripts.includes(name));
-    for (const script of scripts) {
+    for (const script of policy.map(name => repoScript(workspace, name)).filter(Boolean)) {
       console.log(`\n==> ${workspace.location}: ${script}`);
       runCommand('yarn', ['workspace', workspace.name, 'run', script]);
     }

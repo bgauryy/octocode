@@ -1,68 +1,91 @@
 //! Merging, viewing and writing the persisted limiter facts.
-use super::super::slots::{SlotPlan, Subject};
+use super::super::key_state::Bucket;
 use super::super::*;
 use super::KeyFacts;
 use reqwest::header::HeaderMap;
 
+/// A search quota GitHub reported is mirrored at once: the next process
+/// (a fresh registry on the same file) paces its first search from it
+/// instead of starting unpaced.
 #[test]
-fn code_search_window_merge_preserves_same_millisecond_reservations() {
-    let now = 1_000_000;
-    let stamp = now - 1;
-    for (local, peer, count) in [
-        (vec![stamp, stamp], vec![stamp, stamp], 2),
-        (vec![stamp, stamp], vec![stamp], 2),
-        (vec![stamp], vec![stamp, stamp], 2),
-        (vec![stamp, stamp], vec![stamp, stamp, stamp], 3),
-        (vec![stamp, stamp, stamp], vec![stamp, stamp], 3),
-    ] {
-        let mut facts = KeyFacts {
-            code_search_ms: local.into(),
-            ..KeyFacts::default()
-        };
-        facts.merge(
-            KeyFacts {
-                code_search_ms: peer.into(),
-                ..KeyFacts::default()
-            },
-            now,
-        );
-        assert_eq!(facts.code_search_ms, vec![stamp; count]);
-        let plan = SlotPlan::new(
-            Group::CodeSearch,
-            &ExecutorConfig {
-                code_search_per_minute: 2,
-                ..ExecutorConfig::relaxed()
-            },
-            true,
-            Duration::from_secs(1),
-            Instant::now() + Duration::from_secs(10),
-        );
-        assert!(
-            plan.refusal(plan.start(&facts, now), Subject::Request)
-                .is_some()
-        );
+fn a_reported_search_quota_reaches_the_next_process() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = LimiterKey::new("ghe.example", Some("tok"));
+    let reset = now_ms() / 1000 + 60;
+    let config = ExecutorConfig::octokit();
+    {
+        let budget = GitHubBudget::with_config(config.clone());
+        let state = budget.key_state(&key, Some(dir.path()));
+        let mut headers = HeaderMap::new();
+        let reset = reset.to_string();
+        for (name, value) in [
+            ("x-ratelimit-limit", "10"),
+            ("x-ratelimit-remaining", "9"),
+            ("x-ratelimit-reset", reset.as_str()),
+            ("x-ratelimit-resource", "search"),
+        ] {
+            headers.insert(name, value.parse().expect("header"));
+        }
+        state.observe(&headers, "search");
     }
+    let file = dir.path().join(key.file_name());
+    let raw: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&file).expect("state file")).expect("json");
+    assert!(
+        raw["buckets"]["search"].get("limit").is_none(),
+        "the unused reported limit must not be persisted: {raw}"
+    );
+    let budget = GitHubBudget::with_config(config.clone());
+    let state = budget.key_state(&key, Some(dir.path()));
+    state.refresh_from_disk();
+    let facts = state.facts();
+    let reported = Bucket {
+        remaining: 9,
+        reset,
+    };
+    assert_eq!(facts.buckets.get("search"), Some(&reported));
+    let now = now_ms();
+    assert_eq!(
+        config.spacing_ms(Group::Search, &facts, now, 1),
+        reported.spacing_ms(&config, now, 1)
+    );
+    assert_eq!(reported.spacing_ms(&config, now, 1), 0);
+    assert!(reported.spacing_ms(&config, now, 10) > 0);
 }
 
+/// Merging is idempotent and keeps the most restrictive view of a bucket:
+/// the later window, the lower count within one window, an exhausted one first;
+/// an ended window is dropped.
 #[test]
-fn code_search_window_merge_is_idempotent_sorted_and_expires_stamps() {
-    let now = 1_000_000;
-    let expired = now - 60_000;
-    let stamp = now - 2;
-    let mut facts = KeyFacts {
-        code_search_ms: vec![now - 1, stamp, stamp, expired].into(),
-        ..KeyFacts::default()
-    };
+fn bucket_merge_is_idempotent_and_keeps_the_most_restrictive_view() {
+    let now = 1_000_000_000;
+    let reset = now / 1000 + 60;
+    let bucket = |remaining, reset| Bucket { remaining, reset };
+    let mut facts = KeyFacts::default();
+    facts.buckets.insert("code_search".into(), bucket(7, reset));
     let peer = KeyFacts {
-        code_search_ms: vec![stamp, now - 1, expired - 1].into(),
+        buckets: [
+            ("code_search".to_owned(), bucket(4, reset)),
+            ("search".to_owned(), bucket(9, now / 1000 - 1)),
+        ]
+        .into(),
         ..KeyFacts::default()
     };
     for _ in 0..3 {
         facts.merge(peer.clone(), now);
-        assert_eq!(facts.code_search_ms, vec![stamp, stamp, now - 1]);
+        assert_eq!(facts.buckets.get("code_search"), Some(&bucket(4, reset)));
+        assert!(!facts.buckets.contains_key("search"), "an ended window");
         facts.merge(facts.clone(), now);
-        assert_eq!(facts.code_search_ms, vec![stamp, stamp, now - 1]);
+        assert_eq!(facts.buckets.get("code_search"), Some(&bucket(4, reset)));
     }
+    facts.merge(
+        KeyFacts {
+            buckets: [("code_search".to_owned(), bucket(9, reset))].into(),
+            ..KeyFacts::default()
+        },
+        now,
+    );
+    assert_eq!(facts.buckets.get("code_search"), Some(&bucket(4, reset)));
 }
 
 /// A rate-limit fact learned on an async worker never waits for the peer
@@ -178,12 +201,14 @@ fn concurrent_writers_keep_every_fact() {
     let dir = tempfile::tempdir().expect("tempdir");
     let key = LimiterKey::new("ghe.example", Some("tok"));
     let now = now_ms();
+    let budgets = (0..8).map(|_| GitHubBudget::relaxed()).collect::<Vec<_>>();
+    let states = budgets
+        .iter()
+        .map(|budget| budget.key_state(&key, Some(dir.path())))
+        .collect::<Vec<_>>();
     std::thread::scope(|scope| {
-        for writer in 0..8 {
-            let (dir, key) = (dir.path(), &key);
+        for (writer, state) in states.iter().enumerate() {
             scope.spawn(move || {
-                let budget = GitHubBudget::relaxed();
-                let state = budget.key_state(key, Some(dir));
                 for round in 0..25 {
                     state.persist_with(|view| {
                         view.last_start_ms.insert(format!("w{writer}-{round}"), now);
@@ -192,10 +217,60 @@ fn concurrent_writers_keep_every_fact() {
             });
         }
     });
+    // A write that met a busy lock was deferred in its writer's memory; the
+    // next write, the lock free, carries it.
+    for state in &states {
+        state.persist_with(|_| {});
+    }
     let disk: KeyFacts =
         serde_json::from_slice(&std::fs::read(dir.path().join(key.file_name())).expect("file"))
             .expect("json");
     assert_eq!(disk.last_start_ms.len(), 8 * 25);
+}
+
+/// A write that cannot take the peer lock in time is deferred, not made
+/// unlocked: the peer's write while it holds the lock keeps every fact, and
+/// the deferred fact reaches the file with the next write.
+#[test]
+fn a_write_past_a_held_lock_defers_instead_of_dropping_the_peers_facts() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = LimiterKey::new("ghe.example", Some("tok"));
+    let file = dir.path().join(key.file_name());
+    let budget = GitHubBudget::relaxed();
+    let state = budget.key_state(&key, Some(dir.path()));
+    let now = now_ms();
+    let facts = |names: &[&str]| {
+        let mut facts = KeyFacts::default();
+        for name in names {
+            facts.last_start_ms.insert((*name).to_owned(), now);
+        }
+        serde_json::to_vec(&facts).expect("json")
+    };
+    let mut sidecar = file.as_os_str().to_os_string();
+    sidecar.push(".lock");
+    let peer = octocode_io::lock::lock_within(
+        octocode_io::lock::open_lock_file(std::path::Path::new(&sidecar)).expect("sidecar"),
+        std::time::Duration::ZERO,
+        octocode_io::lock::LOCK_POLL,
+    )
+    .expect("the peer's lock");
+    std::fs::write(&file, facts(&["peer-a"])).expect("peer write");
+    state.persist_with(|view| {
+        view.last_start_ms.insert("mine".into(), now);
+    });
+    // The peer finishes its read-merge-write from what it read.
+    std::fs::write(&file, facts(&["peer-a", "peer-b"])).expect("peer write");
+    drop(peer);
+    state.persist_with(|_| {});
+    let disk: KeyFacts =
+        serde_json::from_slice(&std::fs::read(&file).expect("file")).expect("json");
+    let mut names = disk
+        .last_start_ms
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    assert_eq!(names, ["mine", "peer-a", "peer-b"]);
 }
 
 /// A peer's write in the same clock tick as the last one seen is still

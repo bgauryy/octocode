@@ -165,19 +165,6 @@ impl ArtifactHttp for RouteHttp {
     }
 }
 
-/// A registry no test may reach: any request fails the test.
-pub(crate) struct NoHttp;
-
-impl ArtifactHttp for NoHttp {
-    fn get<'a>(
-        &'a self,
-        req: ArtifactHttpRequest,
-        _budget: &'a RequestBudget,
-    ) -> ArtifactHttpFuture<'a> {
-        panic!("this test issues no registry request: {}", req.url)
-    }
-}
-
 /// Answers the n-th request with the n-th body (status 200); the last body
 /// answers every request after it. Counts the requests.
 pub(crate) struct SequenceHttp {

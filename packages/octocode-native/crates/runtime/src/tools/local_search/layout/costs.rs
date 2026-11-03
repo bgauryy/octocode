@@ -172,7 +172,10 @@ impl PageCosts {
         Self {
             prefix_chars,
             span_columns: shows_span_columns(query),
-            shows_names: !list_view(local_search_query::view(query)),
+            shows_names: {
+                let view = local_search_query::view(query);
+                !list_view(view) && view != local_search_query::View::MatchOnly
+            },
             owners: HashMap::new(),
         }
     }

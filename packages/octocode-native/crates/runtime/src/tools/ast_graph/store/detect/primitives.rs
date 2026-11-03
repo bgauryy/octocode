@@ -56,11 +56,11 @@ pub(super) fn feedback_arcs(members: &[u32], adj: &dyn Fn(u32) -> Vec<u32>) -> V
     }
     let mut out_deg = succ
         .iter()
-        .map(|s| crate::num::i64_of_usize(s.len()))
+        .map(|s| octocode_engine::num::saturating_i64(s.len()))
         .collect::<Vec<_>>();
     let mut in_deg = pred
         .iter()
-        .map(|p| crate::num::i64_of_usize(p.len()))
+        .map(|p| octocode_engine::num::saturating_i64(p.len()))
         .collect::<Vec<_>>();
     let mut alive = vec![true; k];
     let mut left_count = 0usize;

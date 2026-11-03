@@ -8,9 +8,9 @@ use super::scan::parser_extension;
 use super::scope::scope_extension;
 use super::types::{Scan, Scope};
 use crate::execution::cancel::CancellationCheck;
-use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::tools::ast_search::RowPaths;
+use octocode_contract_types::AstSearchQueryMatch0;
 use octocode_engine::structural::{QualifiedPattern, Rebuilt, pattern_qualifier};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -22,7 +22,7 @@ pub(super) struct QualifiedMiss {
     files: usize,
     /// The first longer spelling, as `path:line`.
     first: String,
-    query: Value,
+    query: AstSearchQueryMatch0,
 }
 
 /// [`QualifiedMiss`] of a first page whose `rule.pattern` is a `::` path
@@ -202,6 +202,6 @@ impl QualifiedMiss {
             None => out["diagnostics"] = json!([diagnostic]),
         }
         out["calls"]["broadenSearch"] =
-            crate::response::result::Continuation::related(ToolId::AstSearch, query).build();
+            crate::response::result::Continuation::related_query(query).build();
     }
 }

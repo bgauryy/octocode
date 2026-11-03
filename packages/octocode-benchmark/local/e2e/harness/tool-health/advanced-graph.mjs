@@ -3,9 +3,20 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { scenario } from './advanced-local/helpers.mjs';
 import { checkGraphLookup, prepareGraphLookup } from './advanced-graph-lookup.mjs';
+import { checkGraphImpact, prepareGraphImpact } from './advanced-graph-impact.mjs';
+import { contract } from '../contract.mjs';
+import { finiteInputDomains } from './input-coverage.mjs';
+import { firstDiff, parityView } from './compare.mjs';
 
 const data = result => result.json?.results?.[0]?.data;
 const input = query => ({ queries: [query] });
+// A build receipt states no reuse; the extraction record lives in the snapshot, so `stats` rows state it.
+const noReuseFlag = row => !Object.hasOwn(row, 'reused');
+const freshBuild = row => noReuseFlag(row) && row.extraction?.parsedFiles > 0
+  && row.extraction.parsedFiles === row.scan?.filesScanned && row.extraction.reusedFiles === 0;
+// The graph a receipt states, not the snapshot id or the digest: the digest also covers file stamps,
+// recorded only for settled files, so two builds of one graph can differ in digest.
+const sameGraph = (a, b) => ['counts', 'calls', 'linkage', 'scan'].every(key => JSON.stringify(a[key]) === JSON.stringify(b[key]));
 const argumentSource = [
   "import { imported_target } from './graph-argument-import';",
   'function argumentTarget() {}',
@@ -149,19 +160,25 @@ export const ADVANCED_GRAPH = {
       const cwd = path.join(ctx.cwd, scope);
       fs.cpSync(ctx.fixture, cwd, { recursive: true });
       const call = ctx.callOn(surface);
-      const initial = data(await call('graphBuild', input({ path: scope, keep: 10 })));
-      const reused = data(await call('graphBuild', input({ path: scope, keep: 10 })));
+      const initial = data(await call('graphBuild', input({ path: scope, keep: 10, refresh: false })));
+      const repeated = data(await call('graphBuild', input({ path: scope, keep: 10, refresh: false })));
       const initialStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: initial.id })));
-      checks.push([`graph.fresh.${surface}`, !initial.reused && initialStats.extraction?.parsedFiles > 0, JSON.stringify(initialStats.extraction)]);
-      checks.push([`graph.reuse.identity.${surface}`, initial.id === reused.id && reused.reused === true, JSON.stringify(reused)]);
+      checks.push([`graph.fresh.${surface}`, freshBuild(initialStats), JSON.stringify(initialStats.extraction)]);
+      const repeatedStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: repeated.id })));
+      checks.push([`graph.repeated-build.extracts-again.${surface}`, repeated.id !== initial.id && noReuseFlag(repeated) && freshBuild(repeatedStats)
+        && sameGraph(initial, repeated), JSON.stringify(repeatedStats.extraction)]);
+      const refreshed = data(await call('graphBuild', input({ path: scope, keep: 10, refresh: true })));
+      const refreshedStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: refreshed.id })));
+      checks.push([`graph.refresh.preserves-evidence.${surface}`, refreshed.id !== repeated.id && noReuseFlag(refreshed) && freshBuild(refreshedStats)
+        && sameGraph(initial, refreshed), JSON.stringify(refreshedStats.extraction)]);
       checks.push([`graph.storage.workspace.${surface}`, fs.existsSync(path.join(fs.realpathSync(ctx.cwd), '.octocode/graph', initial.id)), initial.id]);
       fs.writeFileSync(path.join(cwd, 'graph-health.ts'), 'export const graphHealthAdded = 1;\n');
       const stale = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: initial.id })));
       checks.push([`graph.stale.after-add.${surface}`, stale.freshness?.fresh === false, JSON.stringify(stale.freshness)]);
       const rebuilt = data(await call('graphBuild', input({ path: scope, keep: 10 })));
-      checks.push([`graph.rebuild.changed.${surface}`, rebuilt.id !== initial.id && !rebuilt.reused, rebuilt.id]);
+      checks.push([`graph.rebuild.changed.${surface}`, rebuilt.id !== initial.id && noReuseFlag(rebuilt), rebuilt.id]);
       const rebuiltStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: rebuilt.id })));
-      checks.push([`graph.rebuild.reuses-unchanged-extraction.${surface}`, rebuiltStats.extraction?.parsedFiles >= 1 && rebuiltStats.extraction?.reusedFiles > 0, JSON.stringify(rebuiltStats.extraction)]);
+      checks.push([`graph.rebuild.extracts-all-selected-files.${surface}`, freshBuild(rebuiltStats), JSON.stringify(rebuiltStats.extraction)]);
       const drift = data(await call('graphQuery', input({ path: scope, operation: 'drift', graph: rebuilt.id, baseline: initial.id })));
       checks.push([`graph.drift.added.${surface}`, JSON.stringify(drift).includes('graph-health.ts'), JSON.stringify(drift)]);
     }
@@ -175,21 +192,29 @@ export const ADVANCED_GRAPH = {
     fs.writeFileSync(path.join(ctx.cwd, 'graph-compact.ts'), compactArgumentSource);
     fs.writeFileSync(path.join(ctx.cwd, 'graph-formatted.ts'), compactArgumentSource.replaceAll(' ', '\n'));
     prepareGraphLookup(ctx.cwd);
+    prepareGraphImpact(ctx.cwd);
     const snapshot = data(await ctx.cliCall('graphBuild', input({ keep: 10 })));
     const files = data(await ctx.cliCall('graphQuery', input({ operation: 'find', target: '.ts', kind: 'file' })));
     const symbols = data(await ctx.cliCall('graphQuery', input({ operation: 'find', target: 'greet', kind: 'symbol' })));
     const file = files.rows[0].id;
     const symbol = symbols.rows[0].id;
     const checks = [];
-    for (const operation of ['stats', 'find', 'candidates', 'node', 'symbols', 'deps', 'dependents', 'callers', 'callees', 'path', 'walk', 'cycles', 'hubs', 'diagnostics', 'stale', 'impact', 'drift', 'witnesses', 'unresolved']) {
+    const operations = finiteInputDomains(contract.tools.find(tool => tool.name === 'graphQuery').querySchema).find(domain => domain.path.join('.') === 'operation').values;
+    for (const operation of operations) {
       const query = { operation, graph: snapshot.id };
       if (['candidates', 'node', 'callers', 'callees'].includes(operation)) query.target = symbol;
       if (['symbols', 'deps', 'dependents', 'walk', 'impact', 'path'].includes(operation)) query.target = file;
       if (operation === 'find') query.target = 'greet';
       if (operation === 'path') query.to = file;
       if (operation === 'drift') query.baseline = snapshot.id;
-      const result = await ctx.cliCall('graphQuery', input(query));
-      checks.push([`graph.operation.${operation}`, !result.isError && data(result)?.graph?.id === snapshot.id, result.text]);
+      const outputs = {};
+      for (const surface of ctx.surfaces) {
+        const result = await ctx.callOn(surface)('graphQuery', input(query));
+        checks.push([`graph.operation.${operation}.${surface}`, !result.isError && data(result)?.graph?.id === snapshot.id, result.text]);
+        outputs[surface] = parityView(result.json, 'graphQuery');
+      }
+      const difference = firstDiff(outputs.cli, outputs.mcp);
+      checks.push([`graph.operation.${operation}.parity`, !difference, difference ?? '']);
     }
     const witnesses = await scenario(ctx, 'graphQuery', 'cli', {
       label: 'graph.witnesses.paged', checks, responseChars: 600,
@@ -206,6 +231,22 @@ export const ADVANCED_GRAPH = {
     await checkArguments(ctx, snapshot.id, checks);
     await checkWhitespaceEvidence(ctx, snapshot.id, checks);
     await checkGraphLookup(ctx, snapshot.id, checks);
+    await checkGraphImpact(ctx, snapshot.id, checks);
+    await groupedViews(ctx, snapshot.id, checks);
     return checks;
   },
 };
+
+async function groupedViews(ctx, graph, checks) {
+  for (const surface of ctx.surfaces) for (const [operation, target, expectedFile] of [
+    ['callers', 'graph-evidence.ts#evidenceTarget', 'graph-evidence.ts'],
+    ['dependents', 'graph-argument-import.ts', 'graph-arguments.ts'],
+  ]) {
+    const base = { operation, graph, target, limit: 1 };
+    const plain = await scenario(ctx, 'graphQuery', surface, { label: `graph.${operation}.ungrouped`, query: base, checks, responseChars: 400 });
+    const grouped = await scenario(ctx, 'graphQuery', surface, { label: `graph.${operation}.files`, query: { ...base, view: 'files' }, checks, responseChars: 400 });
+    const edges = plain.data.flatMap(row => row.rows ?? []), rows = grouped.data.flatMap(row => row.rows ?? []);
+    checks.push([`graph.${operation}.file-counts.${surface}`, edges.length > 0 && rows.length === 1
+      && rows[0].file === expectedFile && rows[0].edges === edges.length, JSON.stringify({ edges, rows })]);
+  }
+}

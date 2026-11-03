@@ -29,7 +29,7 @@ export function advancedContext(run) {
   const explore = async (tool, input, surface, options = {}) => {
     const responses = [];
     const report = await suite.driver.explore(tool, input, {
-      surface, maxCalls: 1, maxPages: 200, ...options,
+      surface, maxCalls: 1, ...options,
       call: async (name, request) => {
         const result = await callOn(surface)(name, request);
         responses.push({ tool: name, input: request, result });

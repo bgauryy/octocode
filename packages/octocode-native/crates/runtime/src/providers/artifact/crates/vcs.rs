@@ -21,17 +21,7 @@ pub(super) async fn crate_vcs(
     version: &str,
     client: &RegistryClient<'_>,
 ) -> Option<(String, Option<String>)> {
-    // A published crate never changes: its VCS info (or its absence) is
-    // read from the archive once.
-    let resource = format!("crates:{name}@{version}:vcs");
-    let info = match client.fact(&resource).await {
-        Some(info) => info,
-        None => {
-            let info = archive_vcs_info(name, version, client).await?;
-            client.remember_fact(&resource, &info).await;
-            info
-        }
-    };
+    let info = archive_vcs_info(name, version, client).await?;
     let sha = commit_sha(info.pointer("/git/sha1"))?;
     Some((sha, string(info.get("path_in_vcs"))))
 }
@@ -169,7 +159,8 @@ impl TarScan {
                     self.state = self.header(&header);
                 }
                 TarState::Skip { remaining } => {
-                    let skipped = crate::num::usize_of(remaining).min(self.pending.len());
+                    let skipped =
+                        octocode_engine::num::saturating_usize(remaining).min(self.pending.len());
                     self.pending.drain(..skipped);
                     let skipped = u64::try_from(skipped).unwrap_or(u64::MAX);
                     if skipped < remaining {
@@ -185,8 +176,10 @@ impl TarScan {
                         return;
                     }
                     // Both fit: `padded` (>= `size`) is at most the held bytes.
-                    let body = self.pending[..crate::num::usize_of(size)].to_vec();
-                    self.pending.drain(..crate::num::usize_of(padded));
+                    let body =
+                        self.pending[..octocode_engine::num::saturating_usize(size)].to_vec();
+                    self.pending
+                        .drain(..octocode_engine::num::saturating_usize(padded));
                     self.state = TarState::Header;
                     if kind == b'L' {
                         let end = body

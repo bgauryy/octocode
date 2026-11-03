@@ -128,7 +128,7 @@ impl Linker<'_> {
                     );
                 }
                 _ => joined.push((
-                    Elem::Opaque(owner, crate::num::u32_of_usize(index)),
+                    Elem::Opaque(owner, octocode_engine::num::saturating_u32(index)),
                     Confidence::High,
                 )),
             }

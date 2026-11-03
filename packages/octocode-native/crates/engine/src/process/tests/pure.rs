@@ -21,16 +21,12 @@ impl FakeProc {
         Self(dir.path().to_path_buf(), dir)
     }
 
-    /// A process whose `stat` is `pid (comm) S ppid …` and whose
-    /// `statm` reports `resident` pages.
+    /// A process whose `stat` is `pid (comm) S ppid …` with start time
+    /// `start_of(pid)`, and whose `statm` reports `resident` pages.
     fn process(&self, pid: u32, comm: &str, ppid: u32, resident: u64) -> &Self {
         let dir = self.0.join(pid.to_string());
         std::fs::create_dir_all(&dir).expect("pid dir");
-        std::fs::write(
-            dir.join("stat"),
-            format!("{pid} ({comm}) S {ppid} {pid} {pid} 0 -1 4194560 100 0 0 0\n"),
-        )
-        .expect("stat");
+        std::fs::write(dir.join("stat"), stat_line(pid, comm, ppid, start_of(pid))).expect("stat");
         std::fs::write(
             dir.join("statm"),
             format!("1000 {resident} 50 10 0 200 0\n"),
@@ -40,10 +36,45 @@ impl FakeProc {
     }
 
     fn descendants(&self, root: u32) -> Vec<u32> {
-        let mut found = walk_descendants(root, children_from_table(read_proc_table(&self.0)));
-        found.sort_unstable();
-        found
+        let walked = walk_descendants(root, children_from_table(read_proc_table(&self.0)));
+        for process in &walked {
+            assert_eq!(
+                process.start,
+                start_of(process.pid),
+                "start read with the parent"
+            );
+        }
+        pids_sorted(walked)
     }
+}
+
+/// A full `/proc/<pid>/stat` line: `starttime` is field 22.
+fn stat_line(pid: u32, comm: &str, ppid: u32, start: u64) -> String {
+    format!(
+        "{pid} ({comm}) S {ppid} {pid} {pid} 0 -1 4194560 100 0 0 0 0 0 0 0 20 0 1 0 {start} 1000 50\n"
+    )
+}
+
+fn start_of(pid: u32) -> u64 {
+    u64::from(pid) * 10 + 7
+}
+
+/// A `(pid, ppid)` table whose start times are [`start_of`].
+fn table(links: &[(u32, u32)]) -> Vec<ProcStat> {
+    links
+        .iter()
+        .map(|&(pid, ppid)| ProcStat {
+            pid,
+            ppid,
+            start: start_of(pid),
+        })
+        .collect()
+}
+
+fn pids_sorted(found: Vec<Process>) -> Vec<u32> {
+    let mut pids: Vec<u32> = found.into_iter().map(|process| process.pid).collect();
+    pids.sort_unstable();
+    pids
 }
 
 #[test]
@@ -78,17 +109,28 @@ fn proc_cpu_ticks_are_read_per_pid() {
 
 #[test]
 fn stat_parsing_survives_hostile_comm_fields() {
-    assert_eq!(parse_proc_stat("42 (node) S 7 42 42 0"), Some((42, 7)));
-    assert_eq!(parse_proc_stat("42 (my server) R 7 1 1"), Some((42, 7)));
-    // `comm` holding `)`, `(`, and digits must not shift the fields.
-    assert_eq!(parse_proc_stat("42 (a) S 99 (b)) S 7 1 1"), Some((42, 7)));
-    assert_eq!(parse_proc_stat("42 ((x) 1 2) Z 7 1 1"), Some((42, 7)));
-    assert_eq!(parse_proc_stat("42 () S 7"), Some((42, 7)));
-    // Truncated or malformed lines yield nothing rather than a bogus ppid.
+    let expected = Some(ProcStat {
+        pid: 42,
+        ppid: 7,
+        start: 9_001,
+    });
+    for comm in ["node", "my server", "a) S 99 (b)", "(x) 1 2", ""] {
+        // `comm` holding spaces, `)`, `(`, and digits must not shift the fields.
+        assert_eq!(
+            parse_proc_stat(&stat_line(42, comm, 7, 9_001)),
+            expected,
+            "{comm}"
+        );
+    }
+    // Truncated or malformed lines yield nothing rather than a bogus ppid or
+    // start time.
+    let full = stat_line(42, "node", 7, 9_001);
+    let without_start = full.split(" 9001 ").next().expect("head");
+    assert_eq!(parse_proc_stat(without_start), None);
     assert_eq!(parse_proc_stat("42 (node) S"), None);
     assert_eq!(parse_proc_stat("42 (node"), None);
-    assert_eq!(parse_proc_stat("x (node) S 7"), None);
-    assert_eq!(parse_proc_stat("42 (node) S -1"), None);
+    assert_eq!(parse_proc_stat(&full.replacen("42", "x", 1)), None);
+    assert_eq!(parse_proc_stat(&full.replacen(" 7 ", " -1 ", 1)), None);
     assert_eq!(parse_proc_stat(""), None);
 }
 
@@ -135,7 +177,7 @@ fn synthetic_proc_tree_skips_vanished_zombie_and_mismatched_entries() {
     // A `stat` naming another pid (recycled/garbage) is not trusted.
     let bogus = proc.0.join("14");
     std::fs::create_dir_all(&bogus).expect("bogus dir");
-    std::fs::write(bogus.join("stat"), "99 (x) S 10 0 0").expect("stat");
+    std::fs::write(bogus.join("stat"), stat_line(99, "x", 10, 1)).expect("stat");
     assert_eq!(proc.descendants(10), vec![11, 12]);
     assert_eq!(read_proc_rss(&proc.0, 11, 4096), Some(0), "zombie");
     assert_eq!(read_proc_rss(&proc.0, 12, 4096), Some(5 * 4096));
@@ -146,36 +188,45 @@ fn synthetic_proc_tree_skips_vanished_zombie_and_mismatched_entries() {
 #[test]
 fn walk_terminates_on_cycles_self_parents_and_duplicates() {
     // 1 → 2 → 3 → 1 cycle, 4 parented to itself, 2 listed twice.
-    let table = vec![(2, 1), (3, 2), (1, 3), (4, 4), (5, 4), (2, 1)];
-    let mut found = walk_descendants(1, children_from_table(table.clone()));
-    found.sort_unstable();
-    assert_eq!(found, vec![2, 3], "root is never reported, cycle ends");
-    let mut from_self = walk_descendants(4, children_from_table(table));
-    from_self.sort_unstable();
-    assert_eq!(from_self, vec![5]);
-    // A lookup that reports a node as its own child still terminates.
+    let links = table(&[(2, 1), (3, 2), (1, 3), (4, 4), (5, 4), (2, 1)]);
+    let found = walk_descendants(1, children_from_table(links.clone()));
     assert_eq!(
-        walk_descendants(7, |pid| vec![pid, pid + 1]
+        pids_sorted(found),
+        vec![2, 3],
+        "root is never reported, cycle ends"
+    );
+    let from_self = walk_descendants(4, children_from_table(links));
+    assert_eq!(pids_sorted(from_self), vec![5]);
+    // A lookup that reports a node as its own child still terminates.
+    let found = walk_descendants(7, |pid| {
+        [pid, pid + 1]
             .into_iter()
             .filter(|&p| p < 10)
-            .collect()),
-        vec![8, 9]
-    );
+            .map(|pid| Process { pid, start: 0 })
+            .collect()
+    });
+    assert_eq!(pids_sorted(found), vec![8, 9]);
 }
 
 #[test]
 fn walk_handles_deep_trees_and_stops_at_the_process_bound() {
     // A 3 000-deep chain: iterative, so no stack overflow.
     let chain: Vec<(u32, u32)> = (1..=3_000).map(|pid| (pid + 1, pid)).collect();
-    assert_eq!(walk_descendants(1, children_from_table(chain)).len(), 3_000);
+    assert_eq!(
+        walk_descendants(1, children_from_table(table(&chain))).len(),
+        3_000
+    );
     // A fan-out beyond the bound is truncated at exactly the bound.
     let fan: Vec<(u32, u32)> = (2..=10_000).map(|pid| (pid, 1)).collect();
     assert_eq!(
-        walk_descendants(1, children_from_table(fan)).len(),
+        walk_descendants(1, children_from_table(table(&fan))).len(),
         MAX_TREE_PROCESSES
     );
     // Breadth-first order: every child before any grandchild.
-    let tree = vec![(2, 1), (3, 1), (4, 2), (5, 3)];
-    let order = walk_descendants(1, children_from_table(tree));
+    let tree = table(&[(2, 1), (3, 1), (4, 2), (5, 3)]);
+    let order: Vec<u32> = walk_descendants(1, children_from_table(tree))
+        .into_iter()
+        .map(|process| process.pid)
+        .collect();
     assert_eq!(&order[..2], &[2, 3]);
 }

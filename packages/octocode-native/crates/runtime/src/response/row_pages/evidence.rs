@@ -1,8 +1,8 @@
 //! Index source descriptors once and select their complete closure for each response fragment.
+use octocode_io::cancellation::Cancellation;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 
 mod sets;
 mod traversal;
@@ -66,7 +66,7 @@ impl Catalog {
     /// Consumes the catalog without cloning its records. On error the caller discards the row.
     pub(crate) fn take(
         row: &mut Value,
-        cancel: &CancellationToken,
+        cancel: &Cancellation,
     ) -> Result<Option<Self>, DependencyError> {
         check(cancel)?;
         let direct = row.get("sourceEvidence").is_some();
@@ -93,7 +93,7 @@ impl Catalog {
     fn from_value(
         value: Value,
         location: Location,
-        cancel: &CancellationToken,
+        cancel: &Cancellation,
     ) -> Result<Self, DependencyError> {
         check(cancel)?;
         let Value::Object(mut object) = value else {
@@ -181,7 +181,7 @@ impl Catalog {
     pub(crate) fn selected(
         &self,
         set: &DependencySet,
-        cancel: &CancellationToken,
+        cancel: &Cancellation,
     ) -> Result<Value, DependencyError> {
         check(cancel)?;
         self.check_owner(set)?;
@@ -208,7 +208,7 @@ impl Catalog {
         &self,
         row: &mut Value,
         set: &DependencySet,
-        cancel: &CancellationToken,
+        cancel: &Cancellation,
     ) -> Result<(), DependencyError> {
         check(cancel)?;
         self.check_owner(set)?;
@@ -243,7 +243,7 @@ fn parent_mut(
 fn index_rows(
     records: Vec<Value>,
     collection: &'static str,
-    cancel: &CancellationToken,
+    cancel: &Cancellation,
 ) -> Result<Rows, DependencyError> {
     let mut by_id = BTreeMap::new();
     let mut chars = Vec::new();
@@ -286,7 +286,7 @@ fn lookup(rows: &Rows, kind: usize, id: &str) -> Result<usize, DependencyError> 
         })
 }
 
-fn check(cancel: &CancellationToken) -> Result<(), DependencyError> {
+fn check(cancel: &Cancellation) -> Result<(), DependencyError> {
     if cancel.is_cancelled() {
         Err(DependencyError::Cancelled)
     } else {

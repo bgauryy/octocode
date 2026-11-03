@@ -1,55 +1,60 @@
 //! Tearing a process tree down and waiting on a child without reaping it.
 
 #[cfg(unix)]
-use super::descendants;
+use super::MAX_TREE_PROCESSES;
+#[cfg(unix)]
+use super::identity::{LiveTable, Process, ProcessTable, signal_process};
 
 /// SIGKILL `root`, its process group, and every descendant — including
-/// ones that left the group with `setsid`. The tree is frozen with SIGSTOP
-/// first (a few rounds, so children forked mid-walk are caught), then killed
-/// while the parent links still hold. `root` must not have been reaped yet,
-/// so neither its pid nor its group id can have been recycled.
+/// ones that left the group with `setsid`. `root` must not have been reaped
+/// yet, so neither its pid nor its group id can have been recycled; its
+/// descendants are not ours to reap, so each is signaled only while its pid
+/// still names the process the walk saw.
 #[cfg(unix)]
 pub fn kill_tree(root: u32) {
-    let Ok(root_pid) = i32::try_from(root) else {
+    tear_down(&LiveTable, root);
+}
+
+/// [`kill_tree`] over any [`ProcessTable`]. `root` is frozen first, so it
+/// cannot fork once the walk starts; the tree is then frozen and killed while
+/// the parent links still hold.
+#[cfg(unix)]
+pub(super) fn tear_down(table: &impl ProcessTable, root: u32) {
+    let Ok(root_pid) = libc::pid_t::try_from(root) else {
         return;
     };
     if root_pid <= 1 {
         return;
     }
-    let mut tree = Vec::new();
-    for _ in 0..3 {
-        let snapshot = descendants(root);
-        let grew = snapshot.iter().any(|pid| !tree.contains(pid));
-        for &pid in &snapshot {
-            if !tree.contains(&pid) {
-                signal(pid, libc::SIGSTOP);
-                tree.push(pid);
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-    signal(root, libc::SIGSTOP);
-    // SAFETY: `root` leads its own process group (spawned with
-    // `process_group(0)`) and is not reaped, so `-root` names exactly it.
-    unsafe {
-        libc::kill(-root_pid, libc::SIGKILL);
-    }
-    signal(root, libc::SIGKILL);
-    for pid in tree {
-        signal(pid, libc::SIGKILL);
+    table.signal_unreaped(root_pid, libc::SIGSTOP);
+    let tree = freeze_descendants(table, root);
+    // `root` leads its own process group (spawned with `process_group(0)`)
+    // and is not reaped, so `-root` names exactly that group.
+    table.signal_unreaped(-root_pid, libc::SIGKILL);
+    table.signal_unreaped(root_pid, libc::SIGKILL);
+    for process in tree {
+        signal_process(table, process, libc::SIGKILL);
     }
 }
 
+/// SIGSTOP every descendant of the frozen `root`, in walk order. A
+/// descendant can fork between a walk and its SIGSTOP, so the walk repeats
+/// until it finds no new process; every round adds one, and the tree is
+/// bounded by [`MAX_TREE_PROCESSES`]. Returns every process found.
 #[cfg(unix)]
-fn signal(pid: u32, signal: libc::c_int) {
-    if let Ok(pid) = i32::try_from(pid)
-        && pid > 1
-    {
-        // SAFETY: plain signal delivery to a positive pid.
-        unsafe {
-            libc::kill(pid, signal);
+fn freeze_descendants(table: &impl ProcessTable, root: u32) -> Vec<Process> {
+    let mut seen = std::collections::HashSet::new();
+    let mut tree = Vec::new();
+    loop {
+        let known = tree.len();
+        for process in table.descendants(root) {
+            if seen.insert(process) {
+                signal_process(table, process, libc::SIGSTOP);
+                tree.push(process);
+            }
+        }
+        if tree.len() == known || tree.len() >= MAX_TREE_PROCESSES {
+            return tree;
         }
     }
 }

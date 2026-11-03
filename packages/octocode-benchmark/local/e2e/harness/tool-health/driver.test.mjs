@@ -315,6 +315,26 @@ test('graph parity compares observed continuation routes, never token bytes', as
   assert.match(d.graphParity(await explore('cli-token'), await explore('mcp-token', 'u')), /graph differs/);
 });
 
+test('a failed call offering its own request as next.retry is a retry, while a page offering itself stays a cycle', async () => {
+  const limited = { errorCode: 'rateLimited', error: 'window full', retryable: true };
+  const failedSelf = surface((_tool, input) => input.cursor ? ok({ ...limited, next: { retry: continuation(input.cursor) } }) : ok({ next: { remaining: continuation('again') } }));
+  const failedReport = await driver().explore('t', { queries: [{}] }, { surface: 'cli', call: failedSelf.call });
+  assert.deepEqual(failedReport.failures.map(f => f.check), ['lead.execution']);
+  assert.equal(failedSelf.calls.length, 2, 'the retry is not executed');
+  const stuck = surface((_tool, input) => ok({ items: [], next: { remaining: continuation(input.cursor ?? 'again') } }));
+  const stuckReport = await driver().explore('t', { queries: [{}] }, { surface: 'cli', call: stuck.call });
+  assert.ok(stuckReport.failures.some(f => f.check === 'lead.repeat'));
+});
+
+test('graph parity compares snapshot-pinned routes by presence, never by the per-build snapshot id', async () => {
+  const d = driver();
+  const explore = async (snapshot, operation = 'stats') => d.explore('t', { queries: [{}] }, { surface: 'cli', call: surface((_tool, input) => input.queries?.[0]?.graph
+    ? ok({ related: [related('u', { queries: [{ graph: snapshot, operation: 'next' }] })] })
+    : ok({ related: [related('t', { queries: [{ graph: snapshot, operation }] })] })).call });
+  assert.equal(d.graphParity(await explore('build-2'), await explore('build-3')), null);
+  assert.match(d.graphParity(await explore('build-2'), await explore('build-3', 'issues')), /graph differs/);
+});
+
 test('declared calls resolve references, unions, and record entries without inspecting literal evidence', async () => {
   const { contract } = await import('../contract.mjs');
   const local = contract.tools.find(tool => tool.name === 'localSearch').outputSchema;

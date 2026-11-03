@@ -3,8 +3,10 @@
 
 use super::public::public_via;
 use super::{Expansion, HierarchyWalk, MAX_HIERARCHY_FAN_OUT, MAX_HIERARCHY_NODES};
-use crate::tools::lsp_search::failure::{LspFailure, continuation, partial_with_related_rerun};
+use crate::response::result::{Continuation, insert_next};
+use crate::tools::lsp_search::failure::{LspFailure, partial_with_related_rerun};
 use crate::tools::lsp_search::{LspSearchQuery, Op, lsp_search_query};
+use octocode_contract_types::LspSearchChannel;
 use resume::resume_query;
 use serde_json::{Value, json};
 
@@ -113,7 +115,7 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
     }
 
     row["clipped"] = json!(true);
-    let last_page = row.pointer("/next/nextPage").is_none();
+    let last_page = row.pointer("/pagination/next/nextPage").is_none();
     // Each parent resumes on its own: one that cannot be re-anchored (no
     // name or range) is a terminal limit for itself alone.
     // Many resume points share a file: each is read and line-indexed once.
@@ -121,7 +123,7 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
     let queries = resumes
         .iter()
         .map(|resume| resume_query(query, resume, &mut sources))
-        .collect::<Vec<Option<Value>>>();
+        .collect::<Vec<Option<LspSearchQuery>>>();
     let unanchored = queries.iter().filter(|query| query.is_none()).count();
     let queries =
         (unanchored < queries.len()).then(|| queries.into_iter().flatten().collect::<Vec<_>>());
@@ -164,11 +166,11 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
             // One flat continuation per parent, so the whole frontier is
             // executable: `continueWalk`, `continueWalk2`, ….
             for (index, query) in queries.into_iter().enumerate() {
-                let key = match index {
-                    0 => "continueWalk".to_owned(),
-                    _ => format!("continueWalk{}", index + 1),
-                };
-                row["next"][key] = continuation(query);
+                let call = Continuation::continued_query(query);
+                match index {
+                    0 => insert_next(&mut row["next"], LspSearchChannel::ContinueWalk, call),
+                    _ => row["next"][format!("continueWalk{}", index + 1)] = call.build(),
+                }
             }
             // The walk goes on past this page: its pages never say it ended,
             // and count only what this walk loaded.
@@ -214,18 +216,11 @@ fn offer_deeper_walk(
     if frontier == 0 || pages_remain {
         return;
     }
-    let mut next = lsp_search_query::to_row(query);
-    let Some(object) = next.as_object_mut() else {
+    // A related request is fresh: it drops this walk's cursors itself.
+    let Ok(deeper) = lsp_search_query::edited(query, &json!({"depth": depth + 1})) else {
         return;
     };
-    for field in crate::contracts::state_fields(crate::id::ToolId::LspSearch) {
-        object.remove(field);
-    }
-    object.insert("depth".into(), json!(depth + 1));
-    crate::response::result::attach_related(
-        row,
-        crate::response::result::Continuation::related(crate::id::ToolId::LspSearch, next).build(),
-    );
+    crate::response::result::attach_related(row, Continuation::related_query(deeper).build());
 }
 
 /// Every walk's TypeScript built-in library callees, each named once.

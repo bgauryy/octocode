@@ -145,15 +145,16 @@ export function sourcePath(entry, location, fallback) {
 }
 
 /**
- * lspSearch location rows in one shape: flat `data.matches` location
- * objects, or the compact per-file `data.files[].matches` reference rows
- * {line, column, endLine?, value?} long reference lists default to,
- * expanded to {path, displayRange, content}.
+ * lspSearch location rows in one shape, {path, displayRange, content, ...}:
+ * `data.files[].matches` rows grouped under their file, flat `data.matches`
+ * rows (a row naming no path stays flat), or compact per-file reference rows
+ * {line, column, endLine?, value?} expanded to that shape. Call rows (`sites`)
+ * are not locations.
  */
 export function lspLocations(entry, index = 0) {
   const payload = rowData(entry, index);
   if (Array.isArray(payload?.matches)) return payload.matches;
-  return (payload?.files ?? []).flatMap(file => (file.matches ?? []).filter(ref => ref && typeof ref.line === 'number' && !ref.sites).map(ref => ({
+  return (payload?.files ?? []).flatMap(file => (file.matches ?? []).filter(ref => ref && !ref.sites && (ref.displayRange || typeof ref.line === 'number')).map(ref => (ref.displayRange ? { path: file.path, ...ref } : {
     path: file.path,
     displayRange: { startLine: ref.line, startCharacter: ref.column, endLine: ref.endLine ?? ref.line },
     content: ref.value ?? '',

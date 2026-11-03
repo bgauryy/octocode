@@ -23,17 +23,30 @@ export function liveNames(host: SessionHost, exclude = ''): Set<string> {
   return new Set(query(host.db, 'SELECT name FROM sessions WHERE workspace IN (SELECT value FROM json_each(?)) AND expiresAt>? AND id<>?', [dumps(host.sharedWorkspaces()), now(), exclude]).map(row => rowText(row, 'name')));
 }
 
-export function join(host: SessionHost, input: JoinInput): CommandResults['join'] {
+/** Inserts one identity while the caller holds the database write transaction. */
+function createIdentity(host: SessionHost, input: JoinInput): CommandResults['join'] {
   const branch: string | null = input.branch !== undefined ? input.branch : currentBranch(host.workspace);
+  registerWorkspace(host.db, host.workspace, host.coordinationScope);
+  const id = randomUUID();
+  const name = host.uniqueName(catalog.text(input, 'name'));
+  const vendor = catalog.text(input, 'vendor');
+  if ('vendorSession' in input) catalog.text(input, 'vendorSession');
+  const expires = now() + SESSION_TTL_MS;
+  execute(host.db, 'INSERT INTO sessions(id,workspace,name,vendor,vendorSession,branch,expiresAt,task,status) VALUES(?,?,?,?,?,?,?,?,?)', [id, host.workspace, name, vendor, input.vendorSession ?? null, branch, expires, input.task ?? '', input.status ?? 'unknown']);
+  return { id, name, vendor, vendorSession: input.vendorSession, expiresAt: expires };
+}
+
+export function join(host: SessionHost, input: JoinInput): CommandResults['join'] {
+  return transaction(host.db, () => createIdentity(host, input));
+}
+
+/** Resolve an exact host binding or create once, atomically with hook registration. */
+export function initialize(host: SessionHost, input: JoinInput): { session: string; created: boolean } {
   return transaction(host.db, () => {
-    registerWorkspace(host.db, host.workspace, host.coordinationScope);
-    const id = randomUUID();
-    const name = host.uniqueName(catalog.text(input, 'name'));
-    const vendor = catalog.text(input, 'vendor');
-    if ('vendorSession' in input) catalog.text(input, 'vendorSession');
-    const expires = now() + SESSION_TTL_MS;
-    execute(host.db, 'INSERT INTO sessions(id,workspace,name,vendor,vendorSession,branch,expiresAt,task,status) VALUES(?,?,?,?,?,?,?,?,?)', [id, host.workspace, name, vendor, input.vendorSession ?? null, branch, expires, input.task ?? '', input.status ?? 'unknown']);
-    return { id, name, vendor, vendorSession: input.vendorSession, expiresAt: expires };
+    const matches = input.vendorSession === undefined ? [] : host.hostIdentities(input.vendor, input.vendorSession);
+    if (matches.length > 1) throw new ValidationError('Ambiguous host binding; supply the exact session at MCP startup');
+    if (matches.length === 1) return { session: host.known(matches[0].id).id, created: false };
+    return { session: createIdentity(host, input).id, created: true };
   });
 }
 

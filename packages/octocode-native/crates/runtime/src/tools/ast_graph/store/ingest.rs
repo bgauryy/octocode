@@ -1,5 +1,4 @@
-//! graphBuild: build, redact and publish a snapshot (or reuse the
-//! current one).
+//! graphBuild: extract, build, redact and publish a snapshot for each request.
 use super::*;
 use crate::tools::ast_graph::limits::{LIMITS, Limits};
 use crate::tools::ast_graph::progress;
@@ -74,35 +73,6 @@ pub(super) fn ingest_with_registry(
         Ok(identity) => identity,
         Err(error) => return GraphOutput::error(error.code, error.message),
     };
-    let root = paths
-        .validate(&options.path)
-        .ok()
-        .map(|valid| valid.canonical);
-    let newest = || {
-        root.as_deref()
-            .and_then(|root| newest_of_root(&home, root))
-            .map(|(id, _)| id)
-    };
-    let reuse = || {
-        let root = root.as_deref().filter(|_| !options.refresh)?;
-        reuse_current(&home, root, options, paths, &registry_identity)
-    };
-    // The scope's newest snapshot before building: another one under the
-    // lock was published meanwhile, and may make this build redundant.
-    let published_before = newest();
-    // An unchanged scope skips the build. The probe runs unlocked; under the
-    // lock the snapshot must still be the newest (or re-check as current).
-    if let Some(probe) = reuse() {
-        let lock = match publication::lock(&home, paths, cancel) {
-            Ok(lock) => lock,
-            Err(error) => return error,
-        };
-        let still_newest = probe["id"].as_str().map(str::to_owned) == newest();
-        if let Some(receipt) = if still_newest { Some(probe) } else { reuse() } {
-            return publication::point_latest(&home, receipt, started);
-        }
-        drop(lock);
-    }
     let scan = Scan {
         cargo,
         registry,
@@ -146,14 +116,6 @@ pub(super) fn ingest_with_registry(
         Ok(lock) => lock,
         Err(error) => return error,
     };
-    if newest() != published_before
-        && let Some(receipt) = reuse()
-    {
-        if let Err(error) = finish_checkpoint(options, &home, &built, &receipt) {
-            return error;
-        }
-        return publication::point_latest(&home, receipt, started);
-    }
     publish_snapshot(
         &Publish {
             options,
@@ -288,7 +250,7 @@ pub(super) fn build_for_ingest(
                 class: ExitClass::of(error.code),
                 next: Vec::new(),
                 #[cfg(test)]
-                validation: Value::Null,
+                validation: Box::default(),
                 value: json!({"error": error.message, "errorCode": error.code, "hints": error.hints}),
             })
         }

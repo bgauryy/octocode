@@ -102,7 +102,7 @@ pub(super) fn write_snapshot(
         directory.extend(blocks::digest(tag, &bytes).map_err(invalid_graph)?);
         offset = write_section(output, offset, &bytes, limit, cancel)?;
     }
-    let digest = Sha256::digest(&directory);
+    let digest = octocode_engine::digest::sha256_digest(&directory);
     output.seek(SeekFrom::Start(0)).map_err(io_error)?;
     output.write_all(MAGIC).map_err(io_error)?;
     output

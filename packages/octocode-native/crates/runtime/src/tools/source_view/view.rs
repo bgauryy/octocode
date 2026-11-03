@@ -1,6 +1,7 @@
 //! The view pipeline: one fetched source, one localFetch query, one result.
-//! Local and remote reads render through the same code and the caller's
-//! rendered-view cache; source acquisition stays with the caller.
+//! Local and remote reads use the same request-owned pipeline; source acquisition
+//! stays with the caller.
+#[cfg(test)]
 use super::extraction::extract;
 use super::types::*;
 use super::{no_match::*, outline::*, prepare::*};
@@ -19,7 +20,7 @@ use page::{cut_page, page_result};
 pub(crate) use classified::unsupported_selection;
 
 /// Shared post-acquisition content processing. Callers own source authorization,
-/// binary/transport limits, provenance and the view cache's persistence policy.
+/// binary/transport limits and provenance.
 pub fn process_fetched_content(
     q: &LocalFetchQuery,
     bytes: &[u8],
@@ -44,13 +45,13 @@ pub fn process_fetched_content(
     )
 }
 
-pub(crate) fn process_fetched_content_selected(
+pub(crate) fn process_fetched_content_selected<S: ContentScan>(
     q: &LocalFetchQuery,
     bytes: &[u8],
     source_path: &std::path::Path,
     provider_path: &str,
     facts: &SourceFacts,
-    security: &impl ContentScan,
+    security: &S,
     cancel: &impl CancellationCheck,
     selection: Option<&crate::tools::selection::Runtime>,
 ) -> LocalFetchResult {
@@ -60,6 +61,19 @@ pub(crate) fn process_fetched_content_selected(
     if let Some(refused) = refused_selection_input(q, &sha256) {
         return refused;
     }
+    // A continuation page of these bytes replays the view its cursor's
+    // first page built, and only cuts its own page from it.
+    let retention =
+        super::retained::Retention::of::<S>(q, &sha256, (source_path, provider_path), facts);
+    if let Some(kept) = retention.as_ref().and_then(|kept| kept.replay(q)) {
+        let page = Page {
+            source: &kept.source,
+            ext: &kept.ext,
+            view: &kept.view,
+            selection: None,
+        };
+        return render(q, page, facts, source_path, security, cancel);
+    }
     let mut source = match prepare_source(q, bytes, sha256, facts, source_path, security, cancel) {
         Ok(source) => source,
         Err(result) => return *result,
@@ -68,10 +82,15 @@ pub(crate) fn process_fetched_content_selected(
     // it: nothing after the extraction reads the source text of such a read.
     let extracted = if super::extraction::selects_whole(q) {
         Ok(super::extraction::Extraction::whole(
-            std::sync::Arc::unwrap_or_clone(std::mem::take(&mut source.text)),
+            std::mem::take(&mut source.text).into_owned(),
         ))
     } else {
-        extract(q, &source.text)
+        // A pattern or range read reuses the offsets its preparation built.
+        let offsets = source
+            .offsets
+            .take()
+            .unwrap_or_else(|| super::extraction::LineOffsets::new(&source.text));
+        super::extraction::extract_indexed(q, &source.text, &offsets)
     };
     let mut ext = match extracted {
         Ok(extraction) => extraction,
@@ -95,7 +114,6 @@ pub(crate) fn process_fetched_content_selected(
         source_path,
         security,
         &source.text,
-        &facts.views,
     );
     let selection_outcome = match select_view_chunks(
         &selection_input,
@@ -107,6 +125,50 @@ pub(crate) fn process_fetched_content_selected(
         Ok(outcome) => outcome,
         Err(result) => return *result,
     };
+    // A classified page's plan token, receipt and unfiltered leads ride the
+    // same row: the text window leaves room for them.
+    let selection = selection_outcome
+        .as_ref()
+        .map(|chosen| (chosen, chosen.row_chars(selection_input.query_json())));
+    let page = Page {
+        source: &source,
+        ext: &ext,
+        view: &view,
+        selection,
+    };
+    let result = render(q, page, facts, source_path, security, cancel);
+    if let Some(retention) = retention
+        && selection_outcome.is_none()
+    {
+        retention.keep(&result, source, ext, view);
+    }
+    result
+}
+
+/// The view a page is cut from, and a classified page's choice with the
+/// row characters it adds beside the text.
+struct Page<'a> {
+    source: &'a Source<'a>,
+    ext: &'a super::extraction::Extraction,
+    view: &'a View,
+    selection: Option<(&'a super::selection::Chosen, usize)>,
+}
+
+/// Cut this page from its view and build its row.
+fn render(
+    q: &LocalFetchQuery,
+    page: Page<'_>,
+    facts: &SourceFacts,
+    source_path: &std::path::Path,
+    security: &impl ContentScan,
+    cancel: &impl CancellationCheck,
+) -> LocalFetchResult {
+    let Page {
+        source,
+        ext,
+        view,
+        selection,
+    } = page;
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(
             local_fetch_query::path(q).to_owned(),
@@ -125,12 +187,9 @@ pub(crate) fn process_fetched_content_selected(
         ..facts.clone()
     };
     let facts = &own;
-    // A classified page's plan token, receipt and unfiltered leads ride the
-    // same row: the text window leaves room for them.
     let classified_facts;
-    let facts = match &selection_outcome {
-        Some(chosen) if facts.window.is_some() => {
-            let beside = chosen.row_chars(selection_input.query_json());
+    let facts = match selection {
+        Some((_, beside)) if facts.window.is_some() => {
             classified_facts = SourceFacts {
                 window: facts
                     .window
@@ -141,7 +200,7 @@ pub(crate) fn process_fetched_content_selected(
         }
         _ => facts,
     };
-    let cut = match cut_page(q, &view, &ext, &source, facts, source_path, security) {
+    let cut = match cut_page(q, view, ext, source, facts, source_path, security) {
         Ok(cut) => cut,
         Err(result) => return *result,
     };
@@ -154,20 +213,25 @@ pub(crate) fn process_fetched_content_selected(
     }
     page_result(
         cut,
-        &source,
-        &ext,
-        &view,
-        selection_outcome.as_ref(),
+        source,
+        ext,
+        view,
+        selection.map(|(chosen, _)| chosen),
         source_path,
         facts,
     )
 }
 
 /// The selected text in the view it is returned in (`mode` `None`: as is).
-struct View {
-    text: String,
-    mode: Option<ReadView>,
-    fallback: Option<ViewFallback>,
+pub(super) struct View {
+    pub(super) text: String,
+    pub(super) mode: Option<ReadView>,
+    pub(super) fallback: Option<ViewFallback>,
+    /// The view's note for its first page (an outline's recovered parse).
+    pub(super) note: Option<String>,
+    /// Every text the view and its source hold passed the source-wide
+    /// secret scan, so later pages may replay them (see `retained`).
+    pub(super) sanitized: bool,
 }
 
 /// Apply the requested `view` to the extracted text. A match read
@@ -180,7 +244,6 @@ fn select_view(
     source_path: &std::path::Path,
     security: &impl ContentScan,
     full_source: &str,
-    views: &super::ViewCache,
 ) -> View {
     let requested = local_fetch_query::view(q);
     let selected = std::mem::take(&mut ext.text);
@@ -188,13 +251,18 @@ fn select_view(
     // so the row carries no fallback notice. Byte windows address the
     // selected view (a numbered walk pages an oversized line by view bytes),
     // so they take no view of their own here.
+    // Their preparation scanned the whole source (see `prepare_source`).
     if local_fetch_query::has_matches(q) {
         return View {
             text: selected,
             mode: None,
             fallback: None,
+            note: None,
+            sanitized: true,
         };
     }
+    // A range read's source passed the same scan; a whole read's did not.
+    let scanned = local_fetch_query::has_ranges(q);
     // Every transformed view keeps the citation gutter (`N\t`): the standard
     // view numbers each kept line with its source line, the outline uses the
     // same separator in every language.
@@ -210,37 +278,33 @@ fn select_view(
         text,
         mode,
         fallback: None,
+        note: None,
+        sanitized: scanned,
     };
     match requested {
         ReadView::Content => view(selected, None),
         ReadView::Compact => view(standard_view(&selected), Some(ReadView::Compact)),
         ReadView::Symbols => {
-            match symbols_view(
-                &views.symbols,
-                &selected,
-                local_fetch_query::path(q),
-                source_path,
-                security,
-            )
-            .as_ref()
-            {
-                crate::tools::declarations_cache::SymbolsView {
+            match symbols_view(&selected, local_fetch_query::path(q), source_path, security) {
+                super::outline::SymbolsView {
                     outline: Ok(outline),
                     warning,
                     redacted_lines,
+                    sanitized,
                 } => {
-                    // An outline from a recovered parse says where it is blind,
-                    // once: on the outline's first page.
-                    if local_fetch_query::offset(q).unwrap_or(0) == 0 {
-                        ext.warnings.extend(warning.clone());
-                    }
                     // The outline shows the placeholders its render put in: the
                     // page counts them as source-wide redactions.
-                    add_redacted_lines(source_redactions, redacted_lines);
-                    view(outline.clone(), Some(ReadView::Symbols))
+                    add_redacted_lines(source_redactions, &redacted_lines);
+                    View {
+                        // An outline from a recovered parse says where it is
+                        // blind, once: on the outline's first page.
+                        note: warning,
+                        sanitized: sanitized || scanned,
+                        ..view(outline, Some(ReadView::Symbols))
+                    }
                 }
                 // `viewFallback` is the typed notice of the applied view.
-                crate::tools::declarations_cache::SymbolsView {
+                super::outline::SymbolsView {
                     outline: Err(reason),
                     ..
                 } => View {
@@ -251,6 +315,8 @@ fn select_view(
                         applied: ReadView::Compact,
                         reason: reason.as_str().into(),
                     }),
+                    note: None,
+                    sanitized: scanned,
                 },
             }
         }

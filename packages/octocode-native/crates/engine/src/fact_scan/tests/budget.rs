@@ -1,4 +1,4 @@
-//! Scan stamps, walk caps, time budgets, mapped scans and the facts cache weight.
+//! Scan stamps, walk caps, time budgets and mapped scans.
 
 use super::*;
 
@@ -136,21 +136,4 @@ fn a_mapped_scan_keeps_only_what_the_map_returns() {
     assert_eq!(scan.parsed, 40, "every file is parsed and counted");
     assert_eq!(scan.kept, [("entry-7.ts".to_owned(), "value7".to_owned())]);
     assert!(!scan.truncated);
-}
-
-/// The facts cache weighs estimated heap, not source bytes: facts of a
-/// small file with many declarations outweigh the file several times.
-#[test]
-fn cached_facts_are_weighed_by_their_heap_not_their_source() {
-    let source: String = (0..200)
-        .map(|index| format!("export const v{index} = {index};\n"))
-        .collect();
-    let extraction = crate::signatures::extract_graph_facts_with_metadata_inner(&source, "a.ts")
-        .expect("extract facts");
-    let weight = facts_heap_bytes(&extraction.facts, &extraction.reference_counts);
-    assert!(
-        weight > source.len() * 4,
-        "{weight} bytes for {} source bytes",
-        source.len()
-    );
 }

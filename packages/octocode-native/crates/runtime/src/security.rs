@@ -20,6 +20,6 @@ pub(crate) use walk::sanitize_json;
 /// fails closed to a redaction placeholder.
 pub fn scrub_error_text(text: &str) -> String {
     octocode_engine::security::sanitizer::sanitize_content(text, None)
-        .map(|result| result.content)
+        .map(|result| result.content.into_owned())
         .unwrap_or_else(|_| octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
 }

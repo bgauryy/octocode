@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // BENCHMARK, not a correctness test: run-all never runs it.
 // Latency and peak memory of representative workloads on the resolved native
-// binary (OCTOCODE_NATIVE_BIN overrides; measure a release build). Every case
+// binary (NODE_ENV=development opts into OCTOCODE_NATIVE_BIN; measure a release build). Every case
 // runs in a fresh `octocode mcp` under /usr/bin/time: the first call is cold,
 // then --repeat warm calls in the same process. The server's own peak is the
 // exact macOS peak footprint plus its sampled RSS; language servers and other
@@ -109,7 +109,7 @@ function cliCases() {
 function graphCases(run) {
   const root = path.join(REPOS, 'rust');
   if (!fs.existsSync(root)) return [];
-  const build = force => ['graphBuild', JSON.stringify({ queries: [{ path: root, exclude: ['target'], ...(force ? { force: true } : {}) }] }), '--json'];
+  const build = force => ['graphBuild', JSON.stringify({ queries: [{ path: root, excludeDirs: ['target'], ...(force ? { force: true } : {}) }] }), '--json'];
   const cold = run('graphBuild rust (forced cold)', build(true), {}, root);
   const id = (() => { try { return JSON.parse(cold.stdout).results[0].data.id; } catch { return null; } })();
   const rows = [{ ...cold, group: 'graph' }, { ...run('graphBuild rust (unchanged rebuild)', build(false), {}, root), group: 'graph' }];

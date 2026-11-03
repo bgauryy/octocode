@@ -1,243 +1,62 @@
-Load when reviewing a suspected Zod API or schema-design mistake.
+Load when a Zod API behaves unexpectedly or an existing v3 schema needs migration. Follow the rule for the observed symptom and verify its behavior with the installed version.
 
 # Zod Anti-Patterns
 
-## Table of Contents
-
-- Using parse() with try/catch instead of safeParse()
-- Sync parse with async refinements
-- Manual type definitions alongside schemas
-- Deprecated string format chaining (v4)
-- Using z.nativeEnum() (v4)
-- Using required_error/invalid_type_error (v4)
-- Assuming error formatters have the same shape
-- Throwing inside refinements or transforms
-- z.coerce.boolean() for string booleans
-- Assuming z.object() preserves unknown keys
-- z.union() for tagged objects
-- reportInput in production
-- z.lazy() for recursive schemas (v4)
-- Duplicating field definitions
-- Hand-rolling what Zod 4.1–4.4 now does natively
-
 ## Using parse() with try/catch instead of safeParse()
 
-```typescript
-// BAD: verbose, catches unrelated errors
-try {
-  const user = UserSchema.parse(data)
-  return { success: true, data: user }
-} catch (e) {
-  if (e instanceof z.ZodError) {
-    return { success: false, errors: e.issues }
-  }
-  throw e
-}
-
-// GOOD: discriminated result
-const result = UserSchema.safeParse(data)
-if (result.success) {
-  return { success: true, data: result.data }
-} else {
-  return { success: false, errors: result.error.issues }
-}
-```
+Use a result for an expected rejection and preserve throwing when the caller relies on it. [Parsing contract](../rules/parse-use-safeParse.md)
 
 ## Sync parse with async refinements
 
-```typescript
-// BAD: throws because refinement is async
-const Schema = z.email().refine(async (e) => !(await db.exists(e)))
-Schema.safeParse(data) // throws
-
-// GOOD: use safeParseAsync
-await Schema.safeParseAsync(data)
-```
+A synchronous parser may start the callback before throwing. Await the async parser. [Async refinements and transforms](../rules/parse-async-required.md)
 
 ## Manual type definitions alongside schemas
 
-```typescript
-// BAD: types drift from schema
-interface User {
-  name: string
-  email: string
-}
-
-const UserSchema = z.object({
-  name: z.string(),
-  email: z.email(),
-  age: z.number(), // added to schema, forgot interface
-})
-
-// GOOD: infer from schema
-type User = z.infer<typeof UserSchema>
-```
+Derive the input and output types from the same schema, especially across a transform. [Type inference](../rules/parse-infer-types.md)
 
 ## Deprecated string format chaining (v4)
 
-```typescript
-// BAD: deprecated in v4
-z.string().email()
-z.string().url()
-z.string().uuid()
-
-// GOOD: top-level format functions
-z.email()
-z.url()
-z.uuid()
-```
+When migrating chained format methods such as `z.string().email()`, use their v4 top-level counterparts. [String formats](../rules/migrate-string-formats.md)
 
 ## Using z.nativeEnum() (v4)
 
-```typescript
-enum Status { Active = "active", Inactive = "inactive" }
-
-// Deprecated in v4; still exported
-z.nativeEnum(Status)
-
-// GOOD: unified z.enum()
-z.enum(Status)
-```
+New v4 schemas can pass the TypeScript enum to `z.enum()`. The old API remains exported. [Enum migration](../rules/migrate-native-enum.md)
 
 ## Using required_error/invalid_type_error (v4)
 
-```typescript
-// BAD: removed in v4
-z.string({ required_error: "Required", invalid_type_error: "Not a string" })
-// Still supported but deprecated:
-z.number().min(5, { message: "Too small" })
-
-// GOOD: unified error parameter
-z.string({ error: "Required" })
-z.number().min(5, { error: "Too small" })
-z.number().min(5, "Too small") // shorthand
-```
+Use v4's `error` parameter for the removed options. The old `message` option is deprecated. [Error migration and shorthand](../rules/migrate-error-api.md)
 
 ## Assuming error formatters have the same shape
 
-```typescript
-// Different shape: _errors keys, not treeifyError properties/errors
-z.formatError(error)
-
-// GOOD: use the right formatter
-z.flattenError(error)   // for flat forms
-z.treeifyError(error)   // for nested structures
-z.prettifyError(error)  // for logging
-```
+Match the formatter to the consumer. A tree with `_errors` differs from one with `properties` and `errors`. [Formatter examples](../rules/error-formatting.md)
 
 ## Throwing inside refinements or transforms
 
-```typescript
-// BAD: bypasses Zod error handling
-z.number().refine((n) => {
-  if (n <= 0) throw new Error("Must be positive")
-  return true
-})
-
-z.string().transform((val) => {
-  const n = parseInt(val)
-  if (isNaN(n)) throw new Error("Not a number")
-  return n
-})
-
-// GOOD: return boolean from refine
-z.number().refine((n) => n > 0, { error: "Must be positive" })
-
-// GOOD: validate the whole decimal integer, not a parseInt prefix
-z.string().regex(/^[+-]?\d+$/)
-  .transform(Number)
-  .pipe(z.int())
-
-// BEST: pipe for staged parsing
-z.string().pipe(z.coerce.number()).pipe(z.number().positive())
-```
+For expected invalid input, emit a validation issue. When converting decimal strings, validate the entire input before converting because `parseInt` accepts prefixes. [Callback errors](../rules/refine-never-throw.md) · [Refine or transform](../rules/refine-vs-transform.md) · [Cross-field checks](../rules/refine-cross-field.md) · [Staged parsing](../rules/pattern-pipe.md)
 
 ## z.coerce.boolean() for string booleans
 
-```typescript
-// BAD: Boolean("false") === true
-z.coerce.boolean().parse("false") // true
-z.coerce.boolean().parse("0")     // true
-
-// GOOD: z.stringbool() handles string booleans correctly
-z.stringbool().parse("false") // false
-z.stringbool().parse("0")     // false
-```
+JavaScript treats the strings `"false"` and `"0"` as truthy. Use `z.stringbool()` when those inputs mean false. [Coercion pitfalls](../rules/schema-coercion-pitfalls.md)
 
 ## Assuming z.object() preserves unknown keys
 
-```typescript
-// BAD: unknown keys are silently stripped
-const data = { name: "Alice", role: "admin", debug: true }
-z.object({ name: z.string() }).parse(data)
-// { name: "Alice" } — role and debug are gone
-
-// GOOD: choose explicitly
-z.strictObject({ name: z.string() }) // rejects unknown
-z.looseObject({ name: z.string() })  // preserves unknown
-```
+Choose the object's unknown-key policy before forwarding or persisting parsed data. [Unknown keys](../rules/schema-object-unknowns.md)
 
 ## z.union() for tagged objects
 
-```typescript
-// BAD: sequential matching, poor error messages
-z.union([
-  z.object({ type: z.literal("a"), value: z.string() }),
-  z.object({ type: z.literal("b"), count: z.number() }),
-])
-
-// GOOD: O(1) dispatch on discriminator
-z.discriminatedUnion("type", [
-  z.object({ type: z.literal("a"), value: z.string() }),
-  z.object({ type: z.literal("b"), count: z.number() }),
-])
-```
+When branches have a shared discriminator, use it to select a branch and target errors. [Tagged unions](../rules/schema-union-discriminated.md)
 
 ## reportInput in production
 
-```typescript
-// BAD: leaks sensitive data into error logs
-app.post("/login", (req, res) => {
-  const result = schema.safeParse(req.body, { reportInput: true })
-  if (!result.success) {
-    logger.error(result.error.issues) // may contain passwords
-  }
-})
-
-// GOOD: omit raw input in every environment handling real data
-schema.safeParse(req.body)
-```
+Omit raw input in every environment handling real data. [Input privacy](../rules/error-input-security.md)
 
 ## z.lazy() for recursive schemas (v4)
 
-```typescript
-// Supported: lazy recursion may need an explicit TypeScript annotation
-const Tree = z.object({
-  value: z.string(),
-  children: z.lazy(() => z.array(Tree)),
-})
-
-// GOOD: getter pattern
-const Tree = z.object({
-  value: z.string(),
-  get children() {
-    return z.array(Tree).optional()
-  },
-})
-```
+V4 supports recursive getters. `z.lazy()` remains available and can need a TypeScript annotation. [Recursive schemas and cyclic inputs](../rules/schema-recursive-types.md)
 
 ## Duplicating field definitions
 
-```typescript
-// BAD: fields duplicated — will drift
-const CreateUser = z.object({ name: z.string(), email: z.email() })
-const UpdateUser = z.object({ name: z.string().optional(), email: z.email().optional() })
-
-// GOOD: derive from base
-const User = z.object({ name: z.string(), email: z.email() })
-const CreateUser = User
-const UpdateUser = User.partial()
-```
+Where field semantics agree, derive variants with an explicit choice of fields and optionality. [Schema reuse](../rules/perf-reuse-schemas.md)
 
 ## Hand-rolling what Zod 4.1–4.4 now does natively
 

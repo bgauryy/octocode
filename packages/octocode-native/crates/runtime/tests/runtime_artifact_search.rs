@@ -235,7 +235,7 @@ async fn registry_failures_share_githubs_codes_and_retry_lead() {
         .await
         .expect("row-level error");
     let data = row_data(&outcome);
-    assert_eq!(data["errorCode"], "permission", "{data}");
+    assert_eq!(data["errorCode"], "permissionDenied", "{data}");
     assert!(data["next"].get("retry").is_none(), "{data}");
     assert!(
         data["hints"][0]

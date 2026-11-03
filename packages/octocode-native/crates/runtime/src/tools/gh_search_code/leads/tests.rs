@@ -5,14 +5,14 @@ use super::*;
 fn top_hit_reads_its_matched_token() {
     let top = json!({"owner": "o", "repo": "r", "path": "src/a.rs",
         "matches": [{"value": "x\nfn find_all() {}", "matchIndices": [{"start": 5, "end": 13, "lineOffset": 1}]}]});
-    let read = read_top_match(&top).expect("continuation");
+    let read = read_top_match(&top, None).expect("continuation");
     assert_eq!(read["tool"], "ghGetFileContent");
     assert_eq!(
         read["input"]["queries"][0]["matchString"],
         json!(["find_all"])
     );
     assert_eq!(read["input"]["queries"][0]["path"], "src/a.rs");
-    assert!(read_top_match(&json!("o/r:src/a.rs")).is_none());
+    assert!(read_top_match(&json!("o/r:src/a.rs"), None).is_none());
 }
 
 /// Only a source hit earns the top-match read; docs, changelogs, tests
@@ -20,8 +20,11 @@ fn top_hit_reads_its_matched_token() {
 #[test]
 fn read_top_match_is_offered_for_code_hits_only() {
     let top = |path: &str| {
-        read_top_match(&json!({"owner": "o", "repo": "r", "path": path,
-            "matches": [{"value": "needle", "matchIndices": [{"start": 0, "end": 6}]}]}))
+        read_top_match(
+            &json!({"owner": "o", "repo": "r", "path": path,
+            "matches": [{"value": "needle", "matchIndices": [{"start": 0, "end": 6}]}]}),
+            None,
+        )
     };
     assert!(top("src/a.rs").is_some());
     for path in [

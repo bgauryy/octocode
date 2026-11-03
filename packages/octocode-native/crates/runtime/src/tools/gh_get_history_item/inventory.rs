@@ -14,10 +14,12 @@ use serde_json::{Map, Value, json};
 
 mod missing_patch;
 mod review;
+mod shaped;
 
 use missing_patch::inventory_patch_flag;
 pub(super) use missing_patch::missing_patch_reason;
 pub(super) use review::review_selection;
+pub(super) use shaped::ShapedFiles;
 
 /// Largest patch-free inventory page allowed by private `pageSize` state:
 /// the contract's bound, else none.
@@ -223,28 +225,6 @@ pub(super) fn group_by_directory(
     out
 }
 
-/// What shaping a pull request's changed-file page found.
-pub(super) struct ShapedFiles {
-    /// The page's review pick (`next.readSelectedPatches`).
-    pub(super) review: Vec<String>,
-    /// In-scope text files a `matchString` could not search because GitHub
-    /// sent no patch for them, as compact `!reason path` rows.
-    pub(super) unsearched: Vec<String>,
-    /// The first of those paths (the source-read template), and whether
-    /// the change removed it (its text is at the base).
-    pub(super) first_unsearched: Option<(String, bool)>,
-    /// `(dropped, listed)`: in-scope searched files a `matchString` dropped
-    /// for holding no hit, beside files it kept; `None` when it dropped none
-    /// or kept none (an unmatched literal is stated on its own).
-    pub(super) match_dropped: Option<(usize, usize)>,
-    /// Files whose `matchString` context the hunks cut short, with the
-    /// new-side windows to read at the head.
-    pub(super) clipped: Vec<(String, Vec<(usize, usize)>)>,
-    /// Files of the patch window not fully delivered (a working count, never
-    /// an output field).
-    pub(super) unfinished_patches: usize,
-}
-
 /// Shape a pull request's changed-file page into `row`: compact inventory
 /// rows without patches, one object per file with them.
 pub(super) fn shape_pr_files(
@@ -291,6 +271,7 @@ pub(super) fn shape_pr_files(
         pagination.insert(Axis::Files.key().into(), page);
         return ShapedFiles {
             review,
+            shown: None,
             unsearched,
             first_unsearched,
             match_dropped,
@@ -325,6 +306,10 @@ pub(super) fn shape_pr_files(
     };
     let patches = patches.compact();
     let shaped = patches.rows;
+    let shown = shaped
+        .iter()
+        .filter_map(|file| str_at(file, "/path").map(str::to_owned))
+        .collect();
     if let Some(summary) = summary
         && patches.cursor.is_some()
         && !summary.is_empty()
@@ -342,6 +327,7 @@ pub(super) fn shape_pr_files(
     pagination.insert(Axis::Files.key().into(), page);
     ShapedFiles {
         review,
+        shown: Some(shown),
         unsearched,
         first_unsearched,
         match_dropped,

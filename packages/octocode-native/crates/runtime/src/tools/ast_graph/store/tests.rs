@@ -28,6 +28,7 @@ mod resolution_round2;
 mod rust_macros;
 mod rust_paths;
 mod rust_test_code;
+mod saved_rows;
 mod snapshots;
 mod source_correspondence;
 mod stale;
@@ -166,6 +167,19 @@ fn ingest_root(dir: &Path, root: &Path, keep: Option<usize>, refresh: bool) -> G
         &NeverCancel,
         None,
     )
+}
+
+/// A completed build leaves no extraction to reuse on a later request.
+fn assert_fresh_build(output: &GraphOutput) {
+    assert_eq!(output.class, ExitClass::Success, "{}", output.value);
+    assert!(output.value.get("reused").is_none(), "{}", output.value);
+    assert_eq!(output.value["extraction"]["reusedFiles"], 0);
+    assert_eq!(output.value["extraction"]["resumedFiles"], 0);
+    assert_eq!(
+        output.value["extraction"]["parsedFiles"], output.value["scan"]["filesScanned"],
+        "an explicit build must extract its selected inputs: {}",
+        output.value
+    );
 }
 
 fn impacted(out: &GraphOutput) -> Vec<(String, u64)> {

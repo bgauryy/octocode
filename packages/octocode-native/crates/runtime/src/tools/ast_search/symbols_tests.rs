@@ -6,6 +6,7 @@ use crate::tools::test_support::{Fixture, checks, simple_policy};
 use octocode_contract_types::{AstSearchQuerySymbols, ErrorCode};
 use serde_json::json;
 
+mod continuation;
 mod filters;
 mod leads;
 mod scans;

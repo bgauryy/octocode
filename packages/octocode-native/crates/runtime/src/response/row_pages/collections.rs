@@ -66,6 +66,14 @@ fn collections<'a>(
     found
 }
 
+/// The pointers of the declared collections `row` holds, empty ones included.
+pub(super) fn collection_paths(row: &Value, routes: &CollectionRoutes) -> Vec<String> {
+    collections(row, routes, false)
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect()
+}
+
 /// Outer collections are split before entering one of their array elements.
 pub(super) fn collection_pointer(row: &Value, routes: &CollectionRoutes) -> Option<String> {
     collections(row, routes, true)

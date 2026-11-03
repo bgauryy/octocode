@@ -4,9 +4,10 @@ use super::left_out::Suppressed;
 use super::rows::{group_by_file, row_sizes};
 use super::select::SymbolSet;
 use crate::id::ToolId;
+use crate::response::result::{Continuation, insert_next};
 use crate::response::symbol_outline::{declaration_rows, top_level_spans};
 use crate::tools::leads::skipped;
-use octocode_contract_types::AstSearchQuerySymbols;
+use octocode_contract_types::{AstSearchChannel, AstSearchQuerySymbols};
 use serde_json::{Value, json};
 
 pub(crate) fn render_page(
@@ -146,7 +147,8 @@ impl SymbolPage {
         let page = ast_search_query_symbols::page(q).max(1) as usize;
         let budget = crate::response::page_windows::page_budget(response_window);
         let paging = crate::response::page_windows::Paging::of(
-            q.limit.map(|limit| crate::num::usize_of(limit.get())),
+            q.limit
+                .map(|limit| octocode_engine::num::saturating_usize(limit.get())),
             budget,
         );
         // Pages count top-level rows; each carries its members.
@@ -206,11 +208,19 @@ fn attach_symbol_leads(
         out["calls"] = json!({ "nextPage": lead });
     }
     if let Some(window) = expand_scan.filter(|_| !more) {
-        let mut nq = crate::response::result::query_row(q, &["snapshot"]);
-        nq["scanOffset"] = json!(window.scan_offset);
-        nq["page"] = json!(1);
-        out["calls"]["expandScan"] =
-            crate::response::result::Continuation::continued(ToolId::AstSearch, nq).build();
+        if let Some(scan_offset) = std::num::NonZeroU64::new(u64::from(window.scan_offset)) {
+            let expand = AstSearchQuerySymbols {
+                page: std::num::NonZeroU64::MIN,
+                scan_offset: Some(scan_offset),
+                snapshot: None,
+                ..q.clone()
+            };
+            insert_next(
+                &mut out["calls"],
+                AstSearchChannel::ExpandScan,
+                Continuation::continued_query(expand),
+            );
+        }
         crate::tools::ast_search::scan_window::mark_resumed(out);
     }
     if let Some(lead) = &set.references {

@@ -20,9 +20,9 @@ For reads selected by `matchString`, `matchedLines` identifies actual hit lines 
 
 ### Search result shapes
 
-Text and AST matches group under `files[].path` with `matches[]`. Each match retains its source location and evidence. Local text hits may contain `enclosing:{symbolName,kind,line,endLine}`; every such hit carries the complete declaration. Outline nodes own their path/coordinates and evidence fields rather than requiring inherited hidden defaults.
+Text and AST matches group under `files[].path` with `matches[]`. Each match retains its source location and evidence. A local text file in the content view lists `declarations:[{symbolName,kind,line,endLine}]`, each once, and a hit names its own through `enclosing`, an index there; a row split across response pages states them in its first part. `matchOnly` rows carry the hit's text and place only. Outline nodes own their path/coordinates and evidence fields rather than requiring inherited hidden defaults.
 
-Structure listings group entries by `dir`. Entries may append a byte count in parentheses; use the name without this display suffix. LSP locations, hierarchy nodes and sites use their declared location objects. An evidence path inside the workspace is workspace-relative, including skipped-path disclosures; an admitted external path remains absolute. The shared native execution boundary applies this rule for every local tool on CLI and MCP.
+Structure listings group entries by `dir`. Entries may append a byte count in parentheses; use the name without this display suffix. LSP locations and call rows group under `files[].path` with `matches[]`; hierarchy nodes and sites use their declared location objects. An evidence path inside the workspace is workspace-relative, including skipped-path disclosures; an admitted external path remains absolute. The shared native execution boundary applies this rule for every local tool on CLI and MCP.
 
 ### Minimal by default
 
@@ -58,7 +58,7 @@ A request rejected before source capture may offer a fresh related read. It has 
 
 Cursors are opaque handles bound to tool, configuration and access context. The same continuation (tool, complete input, access context) has the same handle while it is retained, so a lead repeated on several pages is one call. Persistent storage can support a later process; memory mode lasts only in its issuing runtime. Replaying a cursor does not consume it: concurrent resumes retain every published child until expiry or eviction. Saved work expires after a period without reads, so a walk lives while it is read. Expired, foreign or tampered handles fail without calling the source or provider. A live handle whose saved response was evicted re-executes its rows and answers only when the sources reproduce that response; otherwise it fails with `staleSnapshot`. Changes to a source invalidate a live-source continuation; frozen captures retain their original evidence under their access policy.
 
-Pagination precedes size reduction: never clip or summarize requested evidence to meet a byte, token or `responseChars` target, even when a separate read could recover it. A large result returns complete pieces and continuations covering the rest exactly once. Response pages cut at row boundaries; only a row larger than one page is split into `rowPart` parts, and `totalPages` is the number of calls that read the response. Continuation positions have no ceiling; a provider's own stop (GitHub search's 1,000-result window, a registry's paging range) is a terminal cap. A terminal cap must say what is unreachable. A single indivisible value above the response target is disclosed as oversized. Never construct a page number or assume an absent total means zero.
+Pagination precedes size reduction: never clip or summarize requested evidence to meet a byte, token or `responseChars` target, even when a separate read could recover it. A large result returns complete pieces and continuations covering the rest exactly once. Response pages cut at row boundaries; only a row larger than one page is split into `rowPart` parts. Concatenate the parts in order: every part repeats the row's identity, required fields and disclosures, and the row's other fields arrive once, on its first part. `totalPages` is the number of calls that read the response. Continuation positions have no ceiling; a provider's own stop (GitHub search's 1,000-result window, a registry's paging range) is a terminal cap. A terminal cap must say what is unreachable. A single indivisible value above the response target is disclosed as oversized. Never construct a page number or assume an absent total means zero.
 
 ## Paths, shared fields, and anchors
 
@@ -66,4 +66,4 @@ Evidence rows retain their own identity on every fragment read through a cursor,
 
 ## Connections between tools
 
-Repository → tree/code → file; history search → item → patch/source; package → release source; clone → local search/AST/LSP; text hit → exact read → semantic anchor. [Workflows](OCTOCODE_WORKFLOWS.md) explain when to follow each path.
+Repository → tree/code → file; history search → item → patch/source; package → release source; clone → local search/AST/LSP; text hit → exact read → semantic anchor. [Workflows](../skills/octocode-research/references/tool-flow.md) explain when to follow each path.

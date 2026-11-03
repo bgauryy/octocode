@@ -27,7 +27,7 @@ test('Pi skips a malformed ledger line, reports it once, and still confirms late
     const session = controller.getBinding()?.session;
     assert.ok(session, 'the controller is bound to a session');
     const sender = f.run('join', { vendor: 'raw', name: 'sender' }).id;
-    const message = f.run('send_message', { to: session, body: 'after a bad line', reasoning: 'Test ledger scan past a malformed entry' }, sender);
+    const message = f.run('send_message', {parts: [{ text: 'after a bad line' }],  to: session, reasoning: 'Test ledger scan past a malformed entry' }, sender);
     const { items } = f.run('hook', { format: 'json', deferConfirm: true, consumer: 'pi:pi-test' }, session);
     assert.equal(dispatchState(f, session, message), 'staged');
     const receipt = { type: 'custom_message', customType: 'octocode-peer', details: { session, database: f.database, receipts: items.map(({ id, dispatchToken }: JsonRecord) => ({ id, dispatchToken })) } };

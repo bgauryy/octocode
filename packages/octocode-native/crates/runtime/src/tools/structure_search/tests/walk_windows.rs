@@ -92,22 +92,19 @@ fn files_and_tree_count_max_depth_alike() {
     }
 }
 
-/// A listing past the public `limit` maximum (the former walk
-/// ceiling of 10,000 entries) continues losslessly: its first window's
-/// pages end in `next.continueWalk`, the next window lists the rest after
+/// A listing past the internal scan window continues losslessly: its first window's
+/// pages end in `next.nextPage`, the next window lists the rest after
 /// `scanOffset`, no page is a terminal limit, and walking every page lists
 /// each entry exactly once.
 #[test]
-fn files_past_the_former_walk_ceiling_continue_to_every_entry() {
+fn files_past_the_scan_window_continue_to_every_entry() {
     let root = Fixture::new();
-    for dir in 0..11 {
-        let dir_path = root.0.join(format!("d{dir:02}"));
-        std::fs::create_dir_all(&dir_path).expect("fixture dir");
-        for file in 0..1_000 {
-            std::fs::write(dir_path.join(format!("f{file:04}.ts")), "").expect("fixture file");
-        }
-    }
     let maximum = super::super::max_entries();
+    let per_dir = maximum.div_ceil(10);
+    let total = maximum + per_dir;
+    for file in 0..total {
+        root.write(&format!("d{:02}/f{file:05}.ts", file / per_dir), "");
+    }
     // `walk_pages` fails on a row listed twice and on a repeated call.
     let pages = walk_pages(
         &root.0,
@@ -118,11 +115,17 @@ fn files_past_the_former_walk_ceiling_continue_to_every_entry() {
         seen.extend(listed(out).iter().map(|row| row["path"].to_string()));
         assert!(out.get("terminalLimit").is_none(), "{}", out["pagination"]);
     }
-    assert_eq!(seen.len(), 11_000);
+    assert_eq!(seen.len(), total);
     let resumed = pages
         .iter()
-        .filter_map(|out| out["next"].get("continueWalk"))
-        .map(|lead| lead["input"]["queries"][0]["scanOffset"].clone())
+        .filter_map(|out| out["next"].get("nextPage"))
+        .filter_map(|lead| {
+            let query = &lead["input"]["queries"][0];
+            query
+                .get("scanOffset")
+                .filter(|_| query.get("snapshot").is_none())
+                .cloned()
+        })
         .collect::<Vec<_>>();
     assert_eq!(resumed, [json!(maximum)], "one window boundary");
 }
@@ -159,13 +162,14 @@ fn a_ranked_listing_continues_its_ranking_window_by_window() {
     assert_eq!(pages[0]["totalAvailable"], 30, "{}", pages[0]);
 }
 
-/// A window's walk continues by one `continueWalk` at most, on its last page:
+/// A window's walk continues by one `nextPage` at most, on its last page:
 /// a limit cut lists the next window (its query carries `scanOffset`), a
 /// time cut resumes (its query carries `walkOffset`), whatever combination of
 /// cuts the window met; at the public `limit` maximum the limit cut
 /// still continues.
 #[test]
 fn a_window_offers_at_most_one_walk_continuation() {
+    use super::super::listing::Move;
     let maximum = super::super::max_entries();
     let mut seen = std::collections::BTreeSet::new();
     for limit_cut in [false, true] {
@@ -195,11 +199,7 @@ fn a_window_offers_at_most_one_walk_continuation() {
                             snapshot: "a".repeat(64),
                         };
                         let mut out = json!({});
-                        cut.finish(
-                            &mut out,
-                            &json!({"operation":"files","path":"."}),
-                            &mut Vec::new(),
-                        );
+                        cut.finish(&mut out, &files_query(), &mut Vec::new());
                         let out = super::super::output::finish(out);
                         let kind = |query: &Value| {
                             if query.get("walkOffset").is_some() {
@@ -209,9 +209,15 @@ fn a_window_offers_at_most_one_walk_continuation() {
                             }
                         };
                         let lead = out["next"]
-                            .get("continueWalk")
-                            .map(|lead| kind(&lead["input"]["queries"][0]));
-                        let expected = cut.walk_lead().map(|(_, changes)| kind(&changes));
+                            .get("nextPage")
+                            .map(|lead| &lead["input"]["queries"][0])
+                            .filter(|query| query.get("snapshot").is_none())
+                            .map(kind);
+                        let expected = cut.walk_lead().map(|lead| match lead {
+                            Move::Resume { .. } => "resume",
+                            Move::Window { .. } => "window",
+                            Move::Page { .. } => unreachable!("a walk lead never pages"),
+                        });
                         assert_eq!(lead, expected, "{out}");
                         if total_pages > 1 {
                             assert!(lead.is_none(), "the window's own pages first: {out}");

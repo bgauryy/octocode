@@ -17,7 +17,7 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
 
 /// One call's notices: the first of each kind, in the order raised.
 type Notices = Mutex<Vec<(&'static str, String)>>;
@@ -38,6 +38,9 @@ thread_local! {
 
 /// The scopes of the calls in flight, for a notice raised outside them.
 static LIVE: Mutex<Vec<Weak<Notices>>> = Mutex::new(Vec::new());
+/// Where progress lines go when the running code is in no [`Scope`]: the
+/// CLI's stderr, installed by [`report_progress_to`].
+static PROCESS_PROGRESS: RwLock<Option<Progress>> = RwLock::new(None);
 /// Kinds this process already said on stderr.
 static PRINTED: Mutex<BTreeSet<&'static str>> = Mutex::new(BTreeSet::new());
 
@@ -116,6 +119,36 @@ impl Scope {
     }
 }
 
+/// Send every progress line raised outside a [`Scope`] to `sink`: how an
+/// in-process CLI call shows what a long wait or build is doing.
+pub fn report_progress_to(sink: impl Fn(&str) + Send + Sync + 'static) {
+    *PROCESS_PROGRESS
+        .write()
+        .unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(sink));
+}
+
+/// Where the running call's progress lines go, or `None` when nothing
+/// listens (an MCP call without a progress token, an unscoped library
+/// call): its scope's listener (the warm server's, which writes each line
+/// to the client as a frame while the call runs), else its scope's notices
+/// (relayed with a reply), else the process sink
+/// ([`report_progress_to`]). Take it where the call runs: work carried to
+/// another thread uses the sink taken here.
+#[must_use]
+pub fn progress_sink() -> Option<Progress> {
+    let Some(scope) = Scope::current() else {
+        return PROCESS_PROGRESS
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+    };
+    Some(
+        scope
+            .progress()
+            .unwrap_or_else(|| Arc::new(move |line: &str| emit(line, Some(&scope)))),
+    )
+}
+
 /// `work`, made to run in the caller's [`Scope`] on whichever thread runs
 /// it: how work handed to another thread keeps its call's notices.
 pub fn carried<R>(work: impl FnOnce() -> R) -> impl FnOnce() -> R {
@@ -150,6 +183,10 @@ impl Drop for Entered {
 /// Say `text` on stderr unless this process already said a notice of this
 /// `kind`, and record it in the current [`Scope`] (outside every scope: in
 /// every live one).
+#[expect(
+    clippy::print_stderr,
+    reason = "the notice owner: stderr is where a notice is said"
+)]
 pub fn raise(kind: &'static str, text: impl Into<String>) {
     let text: String = text.into();
     let text = match SCRUBBER.get() {
@@ -173,6 +210,10 @@ pub fn raise(kind: &'static str, text: impl Into<String>) {
 /// Emit a repeatable diagnostic to its captured scope, outside result data. A scoped caller's
 /// warm-server reply relays it just like a notice, without deduplication.
 /// Unscoped diagnostics go only to stderr, never to unrelated live calls.
+#[expect(
+    clippy::print_stderr,
+    reason = "the notice owner: stderr is where a diagnostic is said"
+)]
 pub fn emit(text: impl Into<String>, scope: Option<&Scope>) {
     let text = text.into();
     let text = match SCRUBBER.get() {
@@ -267,6 +308,25 @@ mod tests {
             .run(async { raise("notice-test-task", "notice-test-task: one") })
             .await;
         assert_eq!(of(&later, "notice-test-task"), ["notice-test-task: one"]);
+    }
+
+    /// Progress lines go to the call's listener, else its notices (a warm
+    /// server relays those), and nowhere when nothing listens.
+    #[test]
+    fn progress_goes_to_the_listener_else_the_notices_else_nowhere() {
+        let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&heard);
+        let listening = Scope::with_progress(move |line| {
+            sink.lock().expect("lines").push(line.to_owned());
+        });
+        let quiet = Scope::default();
+        for scope in [&listening, &quiet] {
+            let _in = scope.enter();
+            super::progress_sink().expect("a sink")("waiting 3s");
+        }
+        assert_eq!(*heard.lock().expect("lines"), ["waiting 3s"]);
+        assert_eq!(quiet.notices(), ["waiting 3s"]);
+        assert!(listening.notices().is_empty());
     }
 
     /// A scope with a progress listener hands it to the code running in it,

@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
-from local_model_benchmark import capture_schemas, native_call, prepare_trial_context, research_trial, scoped_arguments
+from local_model_benchmark import LOCAL_TOOLS, capture_schemas, native_call, prepare_trial_context, research_trial, scoped_arguments
 
 
 class LocalModelBoundaries(unittest.TestCase):
@@ -72,14 +72,30 @@ class LocalModelBoundaries(unittest.TestCase):
             {'type': 'object', 'properties': {'queries': {'type': 'array'}, 'responseChars': {'type': 'integer', 'maximum': 100000, 'default': 12000}}, 'required': ['queries'], 'additionalProperties': False},
             {'type': 'object', 'properties': {'cursor': {'type': 'string'}}, 'required': ['cursor'], 'additionalProperties': False},
         ]}
-        schema = {'description': 'Read source', 'inputSchema': admission, 'querySchema': {'type': 'object'}}
-        process = SimpleNamespace(stdout=json.dumps(schema))
-        with tempfile.TemporaryDirectory() as folder, patch('local_model_benchmark.subprocess.run', return_value=process):
+        schemas = [{'name': name, 'description': 'Read source', 'inputSchema': admission} for name in LOCAL_TOOLS]
+        client = Mock()
+        client.call.side_effect = [{'tools': schemas[:2], 'nextCursor': 'catalog-tail'}, {'tools': schemas[2:]}]
+        with tempfile.TemporaryDirectory() as folder, patch('local_model_benchmark.mcp_start', return_value=(client, {})) as start:
             tools = capture_schemas(Path('/native'), Path(folder))
+            self.assertEqual(json.loads((Path(folder) / 'schemas' / (LOCAL_TOOLS[0] + '.json')).read_text()), schemas[0])
+        self.assertEqual(start.call_args.args[0], ['/native', 'mcp'])
+        self.assertEqual(start.call_args.kwargs['env']['TOOLS_TO_RUN'], ','.join(LOCAL_TOOLS))
+        self.assertEqual(start.call_args.kwargs['env']['OCTOCODE_CLASSIFICATION_API'], '')
+        self.assertEqual(client.call.call_args_list, [call('tools/list', {}), call('tools/list', {'cursor': 'catalog-tail'})])
+        client.close.assert_called_once()
         expected = json.loads(json.dumps(admission))
         expected['anyOf'][0]['properties']['responseChars'].update(maximum=5000, default=5000)
         for tool in tools:
             self.assertEqual(tool['function']['parameters'], expected)
+        self.assertEqual(admission['anyOf'][0]['properties']['responseChars']['maximum'], 100000)
+
+    def test_schema_capture_refuses_incomplete_catalog_and_closes_session(self):
+        client = Mock()
+        client.call.return_value = {'tools': []}
+        with tempfile.TemporaryDirectory() as folder, patch('local_model_benchmark.mcp_start', return_value=(client, {})):
+            with self.assertRaises(KeyError):
+                capture_schemas(Path('/native'), Path(folder))
+        client.close.assert_called_once()
 
     def test_incomplete_generation_does_not_become_a_successful_answer(self):
         exchange = {'arguments': {}, 'wallSeconds': 1, 'result': {'structuredContent':

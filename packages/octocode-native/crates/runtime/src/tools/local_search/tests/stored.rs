@@ -94,6 +94,67 @@ fn same_size_rewrites_invalidate_content_and_count_continuations() {
     }
 }
 
+/// A scan is deflated only when a page issues a cursor that keeps it: a
+/// one-page answer compresses nothing, a paged one compresses its scan once
+/// and its continuation is served from it.
+#[test]
+fn only_a_page_that_issues_a_cursor_deflates_its_scan() {
+    let single = tempfile::tempdir().expect("fixture");
+    for file in 0..3 {
+        fs::write(
+            single.path().join(format!("s{file}.ts")),
+            format!("export const needle_{file} = {file};\n"),
+        )
+        .expect("fixture");
+    }
+    settle();
+    let (policy, security) = policy_for(single.path());
+    let q = ls_query(
+        serde_json::json!({"path":single.path(),"matchString":["needle"]}),
+        None,
+    );
+    let before = super::super::packed::deflated_on_this_thread();
+    let page = search_in(&q, &policy, &security, None).expect("single page");
+    assert_eq!(page.files.len(), 3);
+    let continues = |next: &Option<serde_json::Value>| {
+        next.as_ref()
+            .is_some_and(|next| next.get("nextPage").is_some())
+    };
+    assert!(!continues(&page.next), "one page: {:?}", page.next);
+    assert_eq!(
+        super::super::packed::deflated_on_this_thread() - before,
+        0,
+        "a one-page answer deflates nothing"
+    );
+
+    let paged = tempfile::tempdir().expect("fixture");
+    paged_fixture(paged.path());
+    settle();
+    let (policy, security) = policy_for(paged.path());
+    let q = ls_query(
+        serde_json::json!({"path":paged.path(),"matchString":["needle"]}),
+        None,
+    );
+    let before = super::super::packed::deflated_on_this_thread();
+    let first = search_in(&q, &policy, &security, Some(2500)).expect("first page");
+    assert!(continues(&first.next), "paged: {:?}", first.next);
+    let deflated = super::super::packed::deflated_on_this_thread() - before;
+    assert!(deflated > 0, "a page that issues a cursor keeps its scan");
+    let continued = ls_query(
+        serde_json::json!({"snapshot":first.source_snapshot.expect("snapshot"),"page":2}),
+        Some(&q),
+    );
+    let scan =
+        super::super::executor::scan_query(&continued, &policy, &NeverCancel, (Some(2500), None))
+            .expect("scan");
+    assert!(scan.digests.is_some(), "page 2 is cut from the stored scan");
+    assert_eq!(
+        super::super::packed::deflated_on_this_thread() - before,
+        deflated,
+        "a continuation deflates nothing"
+    );
+}
+
 #[test]
 fn stored_snapshot_is_bound_to_search_meaning_and_window() {
     let root = tempfile::tempdir().expect("fixture");

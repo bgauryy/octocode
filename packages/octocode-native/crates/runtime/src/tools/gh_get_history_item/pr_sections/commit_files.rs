@@ -3,8 +3,9 @@ use super::super::window::{
     COMMIT_FILE_BATCH, MAX_COMMIT_FILE_BATCHES, WindowSpec, commit_file_items, load_window_with,
 };
 use super::super::{HistoryItemRequest, gh_get_history_item_query};
-use crate::id::ToolId;
 use crate::response::result::Continuation;
+use crate::response::result::wire_query;
+use octocode_contract_types::GhGetHistoryItemQuery;
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
@@ -52,7 +53,7 @@ pub(super) fn next_page(
     sha: &str,
     page: u64,
     page_size: usize,
-) -> Value {
+) -> Option<Value> {
     let mut row = json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),
         "repo":gh_get_history_item_query::repo(query),"ref":sha,
         "sections":["files"],"page":page,"pageSize":page_size});
@@ -61,5 +62,5 @@ pub(super) fn next_page(
             row[key] = value.clone();
         }
     }
-    Continuation::continued(ToolId::GhGetHistoryItem, row).build()
+    Some(Continuation::continued_query(wire_query::<GhGetHistoryItemQuery>(row)?).build())
 }

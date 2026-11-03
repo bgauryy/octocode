@@ -1,12 +1,19 @@
 //! One scanned blob: its keyword hits, their anchor, the listed lines and the declaration a hit names.
 use super::scoring::{covering_window, goal_terms, hit_score};
-use crate::num::u32_of_usize;
 use crate::security::scan::ContentScan;
 use octocode_engine::graph::{GraphFactDeclaration, GraphFactsDocument};
+use octocode_engine::num::saturating_u32;
 use std::path::Path;
 
 /// Bound an optional matchString anchor; hit evidence itself remains complete.
 const MAX_DECLARATION_ANCHOR_CHARS: usize = 200;
+
+/// Source lines listed before and after each hit line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::tools::gh_search_code) struct Window {
+    pub(in crate::tools::gh_search_code) before: usize,
+    pub(in crate::tools::gh_search_code) after: usize,
+}
 
 /// One line holding a keyword.
 pub(super) struct Hit {
@@ -23,7 +30,7 @@ pub(super) struct Hit {
 impl Hit {
     /// Its 1-based line number.
     pub(super) fn number(&self) -> u32 {
-        u32_of_usize(self.index + 1)
+        saturating_u32(self.index + 1)
     }
 }
 
@@ -187,22 +194,44 @@ impl Blob<'_> {
         }
     }
 
-    /// Every keyword line, sanitized whole before response pagination.
-    pub(super) fn listing(&self, hits: &[Hit], security: &impl ContentScan) -> Vec<String> {
-        hits.iter()
-            .map(|hit| {
-                let number = hit.number();
-                let shown = if self.in_key_block(number) {
-                    crate::security::key_fragment_placeholder()
-                } else {
-                    security
-                        .sanitize(self.raw[hit.index], Path::new(self.path))
-                        .map(|(clean, _)| clean)
-                        .unwrap_or_else(|_| "[REDACTED]".to_owned())
-                };
-                format!("{number}{}{shown}", crate::response::numbered::SEPARATOR)
-            })
-            .collect()
+    /// Every keyword line with its `window` of context, sanitized whole
+    /// before response pagination. Overlapping windows merge: a line lists once.
+    pub(super) fn listing(
+        &self,
+        hits: &[Hit],
+        window: Window,
+        security: &impl ContentScan,
+    ) -> Vec<String> {
+        let mut listed = Vec::with_capacity(hits.len());
+        // The first line not yet listed: hits ascend, so windows only advance.
+        let mut next = 0;
+        for hit in hits {
+            let from = hit.index.saturating_sub(window.before).max(next);
+            let to = hit
+                .index
+                .saturating_add(window.after)
+                .min(self.raw.len().saturating_sub(1));
+            for index in from..=to {
+                listed.push(self.numbered(index, security));
+            }
+            next = next.max(to + 1);
+        }
+        listed
+    }
+
+    /// One line as `"<number>\t<text>"`: hidden in a private-key block,
+    /// sanitized otherwise.
+    fn numbered(&self, index: usize, security: &impl ContentScan) -> String {
+        let number = saturating_u32(index + 1);
+        let shown = if self.in_key_block(number) {
+            crate::security::key_fragment_placeholder()
+        } else {
+            security
+                .sanitize(self.raw[index], Path::new(self.path))
+                .map(|(clean, _)| clean)
+                .unwrap_or_else(|_| "[REDACTED]".to_owned())
+        };
+        format!("{number}{}{shown}", crate::response::numbered::SEPARATOR)
     }
 
     /// The best hit's declaration line, unless it sits in a private-key block.

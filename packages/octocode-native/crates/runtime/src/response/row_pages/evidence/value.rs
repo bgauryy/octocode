@@ -1,10 +1,10 @@
-use super::{CancellationToken, DependencyError, check, reserve};
+use super::{Cancellation, DependencyError, check, reserve};
 use serde_json::{Map, Value};
 use std::io::{self, Write};
 
 pub(super) fn clone_value(
     value: &Value,
-    cancel: &CancellationToken,
+    cancel: &Cancellation,
     depth: usize,
 ) -> Result<Value, DependencyError> {
     check(cancel)?;
@@ -33,7 +33,7 @@ pub(super) fn clone_value(
 }
 
 struct Counter<'a> {
-    cancel: &'a CancellationToken,
+    cancel: &'a Cancellation,
     chars: usize,
     overflow: bool,
 }
@@ -58,7 +58,7 @@ impl Write for Counter<'_> {
     }
 }
 
-pub(super) fn size(value: &Value, cancel: &CancellationToken) -> Result<usize, DependencyError> {
+pub(super) fn size(value: &Value, cancel: &Cancellation) -> Result<usize, DependencyError> {
     check(cancel)?;
     let mut writer = Counter {
         cancel,

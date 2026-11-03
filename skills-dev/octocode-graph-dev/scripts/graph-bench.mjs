@@ -6,7 +6,9 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMainModule } from './lib/entrypoint.mjs';
 import { excludedBy, fileRecall, missedSites, oracleSites } from './lib/oracle.mjs';
+import { batteryFailures, callFailure } from './lib/battery-status.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -79,7 +81,7 @@ function run(cmd, args, cwd) {
 const parse = (r) => {
   try {
     const response = JSON.parse(r.out);
-    return { ...(response.results?.[0]?.data ?? {}), responsePagination: response.responsePagination };
+    return { ...(response.results?.[0]?.data ?? response), responsePagination: response.responsePagination };
   } catch {
     return { parseError: (r.out || r.err).slice(0, 300) };
   }
@@ -92,34 +94,39 @@ const leafName = (id) => id?.split('#')[1]?.split('.').pop()?.replace(/@\d+$/, '
 // One CLI client per run: the generated tool commands (`octocode graphQuery --json '<envelope>'`), a query helper
 // pinned to one snapshot and scope, and a pager that follows every continuation the tool returns.
 function client(opts, cwd) {
+  const failures = [];
   const octo = (tool, input) => {
     const args = [tool, '--json', JSON.stringify(input)];
     return opts.bin.endsWith('.js') ? run('node', [opts.bin, ...args], cwd) : run(opts.bin, args, cwd);
   };
   const call = async (tool, input) => {
     const res = await octo(tool, input);
-    return { res, j: parse(res) };
+    const j = parse(res);
+    const failure = callFailure(res, j);
+    if (failure) failures.push({ tool, input, ...failure });
+    return { res, j };
   };
   const withGraph = (path, id) => {
     const q = (fields) => call('graphQuery', { queries: [{ ...fields, path, graph: id }], responseChars: RESPONSE_CHARS });
     // Every page of a list: the serialized-response page first, then the row's next.nextPage, until neither remains.
     const pages = async (fields) => {
       const rows = [];
-      let ms = 0, bytes = 0, calls = 0, page = await q(fields), first = page.j;
+      let ms = 0, bytes = 0, calls = 0, page = await q(fields);
+      const first = page.j;
       for (;;) {
         calls++;
         ms += page.res.ms;
         bytes += page.res.out.length;
         rows.push(...(page.j.rows ?? []));
         const next = page.j.responsePagination?.next?.input ?? page.j.next?.nextPage?.input;
-        if (!next || page.j.error) break;
+        if (!next || callFailure(page.res, page.j)) break;
         page = await call('graphQuery', next);
       }
-      return { rows, ms, bytes, calls, total: first.pagination?.totalItems ?? rows.length, pagesComplete: !page.j.error && rows.length === (first.pagination?.totalItems ?? rows.length) };
+      return { rows, ms, bytes, calls, total: first.pagination?.totalItems ?? rows.length, pagesComplete: !callFailure(page.res, page.j) && rows.length === (first.pagination?.totalItems ?? rows.length) };
     };
     return { q, pages };
   };
-  return { call, withGraph };
+  return { call, withGraph, failures };
 }
 
 function ingestRow(ing, r) {
@@ -158,7 +165,7 @@ async function callerFiles(pages, ids) {
 // Oracle: call-shaped text hits (`name(`, `name<`, `name[`; never `rg -w` with a trailing `(`),
 // minus the probe's own declarations, excluded files, strings and comments. Each missed file's
 // sites carry the graph's unresolved row for the probe, so a miss names its reason.
-async function oracle(c, root, graphFiles, definitions, pages) {
+async function oracle(c, root, { graphFiles, definitions, pages }) {
   const globs = c.ext.split(',').flatMap((e) => ['-g', `*.${e}`]);
   const rg = await run('rg', ['--json', '--no-ignore-vcs', ...globs, `\\b${c.probe}\\s*[(<\\[]`, '.'], root);
   const matches = [];
@@ -192,21 +199,22 @@ async function probeEdges(pages, ids) {
   return edges;
 }
 
-// The rest of the agent workflow on the snapshot: impact, issues, cycles, unresolved.
-async function workflow(q, firstId) {
-  const out = {};
-  if (firstId) {
-    const im = await q({ operation: 'impact', target: firstId, limit: 20 });
-    out.impact = { ms: im.res.ms, exit: im.res.code, total: im.j.pagination?.totalItems ?? im.j.rows?.length, bytes: im.res.out.length, summaryKeys: Object.keys(im.j.summary ?? {}) };
-  }
-  const is = await q({ operation: 'issues', limit: 200 });
+const impactRow = ({ res, j }) => ({ ms: res.ms, exit: res.code, total: j.pagination?.totalItems ?? j.rows?.length, bytes: res.out.length, summaryKeys: Object.keys(j.summary ?? {}), error: j.error, errorCode: j.errorCode });
+const cycleRow = ({ res, j }) => ({ ms: res.ms, exit: res.code, total: j.pagination?.totalItems ?? j.rows?.length, error: j.error, errorCode: j.errorCode });
+const unresolvedRow = ({ res, j }) => ({ exit: res.code, total: j.pagination?.totalItems ?? j.rows?.length, sample: (j.rows ?? []).slice(0, 5), error: j.error, errorCode: j.errorCode });
+function issuesRow({ res, j }) {
   const by = {};
-  for (const f of is.j.rows ?? []) by[`${f.detector}/t${f.tier}`] = (by[`${f.detector}/t${f.tier}`] ?? 0) + 1;
-  out.issues = { ms: is.res.ms, exit: is.res.code, total: is.j.pagination?.totalItems ?? is.j.rows?.length, shown: (is.j.rows ?? []).length, hidden: is.j.summary?.hiddenBelowTier, entrypoints: is.j.summary?.entrypoints, notes: is.j.summary?.notes, by, error: is.j.error };
-  const cy = await q({ operation: 'cycles', limit: 5 });
-  out.cycles = { ms: cy.res.ms, exit: cy.res.code, total: cy.j.pagination?.totalItems ?? cy.j.rows?.length, error: cy.j.error };
-  const un = await q({ operation: 'unresolved', limit: 5 });
-  out.unresolved = { exit: un.res.code, total: un.j.pagination?.totalItems ?? un.j.rows?.length, sample: (un.j.rows ?? []).slice(0, 5) };
+  for (const finding of j.rows ?? []) by[`${finding.detector}/t${finding.tier}`] = (by[`${finding.detector}/t${finding.tier}`] ?? 0) + 1;
+  return { ...cycleRow({ res, j }), shown: (j.rows ?? []).length, hidden: j.summary?.hiddenBelowTier, entrypoints: j.summary?.entrypoints, notes: j.summary?.notes, by };
+}
+
+// The rest of the agent workflow on the snapshot: impact, issues, cycles, unresolved.
+export async function workflow(q, firstId) {
+  const out = {};
+  if (firstId) out.impact = impactRow(await q({ operation: 'impact', target: firstId, limit: 20 }));
+  out.issues = issuesRow(await q({ operation: 'issues', limit: 200 }));
+  out.cycles = cycleRow(await q({ operation: 'cycles', limit: 5 }));
+  out.unresolved = unresolvedRow(await q({ operation: 'unresolved', limit: 5 }));
   return out;
 }
 
@@ -215,7 +223,8 @@ async function bench(c, opts) {
   const root = join(cwd, c.dir);
   const row = { lang: c.lang, repo: c.repo, dir: c.dir, probe: c.probe };
   if (!existsSync(root)) return { ...row, ingest: { error: `missing clone ${root}` } };
-  const { call, withGraph } = client(opts, cwd);
+  const { call, withGraph, failures } = client(opts, cwd);
+  row.failures = failures;
   const { res: ing, j: r } = await call('graphBuild', { queries: [{ path: root, refresh: true }] });
   row.ingest = ingestRow(ing, r);
   if (row.ingest.error || !r.id) return row;
@@ -230,7 +239,7 @@ async function bench(c, opts) {
   const callers = await callerFiles(pages, ids);
   row.callers = callers.row;
   const definitions = defs.filter((x) => x.selectionByteRange).map((x) => ({ file: x.file, startByte: x.selectionByteRange.startByte }));
-  row.recall = await oracle(c, root, callers.files, definitions, pages);
+  row.recall = await oracle(c, root, { graphFiles: callers.files, definitions, pages });
   if (opts.edges) row.edges = await probeEdges(pages, ids);
   return { ...row, ...(await workflow(q, ids[0])) };
 }
@@ -258,9 +267,14 @@ async function main() {
     }),
   );
   console.log(`saved ${opts.out}`);
+  const failures = batteryFailures(results);
+  if (failures.length) {
+    console.error(JSON.stringify({ failures }, null, 2));
+    process.exitCode = 1;
+  }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   main().catch((e) => {
     console.error(e.message);
     process.exit(2);

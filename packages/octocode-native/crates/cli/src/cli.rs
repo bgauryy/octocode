@@ -48,16 +48,21 @@ pub struct Args {
 
 const ROOT_HELP: &str = r#"Native Octocode research tools.
 
-Tools: one JSON envelope ({"queries":[…]} or {"cursor":"…"});
---input FILE|- reads the same JSON from a file or stdin.
-Discovery: schema lists tools; schema <tool> lists query fields.
-Reference: schema --view full; schema <tool> --view variants. Examples: <tool> --help.
+Route by where the evidence is: this checkout (local tools, lspSearch), a package
+(artifactSearch), another repo (gh tools); read the deciding span before a claim.
+Decision graphs: the octocode-research skill's references/tool-flow.md.
+
+Tools: one JSON envelope ({"queries":[…]} or {"cursor":"…"} alone); a query takes
+mainGoal (the task) and reasoning (why this query). --input FILE|- reads the same
+JSON from a file or stdin. Examples: <tool> --help.
+Discovery, smallest first: schema <tool> --view variants (operations, required
+fields, an example); schema <tool> (every field); schema --view full (all tools).
 Graph: graphBuild '{"queries":[{"path":"."}]}', then graphQuery with operation stats.
 
 Output: text, on a terminal or a pipe; --json prints JSON (schema always does).
 Text on stdout: search hits, listings and outlines one line each ([ … ] after a
-line lists its other fields); any other result as indented key: value lines; a
-batch heads each row with ## results[N]. # notes and follow-up commands on stderr.
+line lists its other fields), a file's several hits under its path; any other
+result as indented key: value lines; a batch heads each row with ## results[N]. # notes and follow-up commands on stderr.
 Errors: the JSON envelope on stdout with --json, text on stderr otherwise.
 Exits: 0 success, 1 empty, 2 invalid input (including batch rows), 3 not found,
 4 auth required, 5 execution error, 7 rate limited, 130 interrupted.
@@ -277,10 +282,9 @@ async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u8 {
     {
         return code;
     }
-    if ToolId::from_name(tool.name) == Some(ToolId::GraphBuild) {
-        // Progress goes to stderr; stdout keeps only the result.
-        octocode_native::tools::ast_graph::progress::report_to(|line| eprintln!("{line}"));
-    }
+    // Progress (a build's stages, a rate-limit wait) goes to stderr; stdout
+    // keeps only the result.
+    octocode_io::notice::report_progress_to(|line| eprintln!("{line}"));
     let runtime = match ToolRuntime::from_host(cli_host()) {
         Ok(runtime) => runtime,
         Err(error) => return start_failed(&error, mode),

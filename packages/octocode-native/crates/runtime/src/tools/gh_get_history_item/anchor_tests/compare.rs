@@ -163,7 +163,7 @@ async fn mount_long_compare(server: &MockServer, files: Value) {
 /// `include` or `matchString` asks about files: the comparison answers with
 /// its file page, and the range's commits (not scoped by either filter)
 /// are not listed by default. Their section states the count, `unshown`
-/// with no page number, and `next.nextCommitPage` lists them from the
+/// with no page number, and `contentPagination.commits.next.nextPage` lists them from the
 /// first page, losslessly. An unfiltered read still lists them.
 #[tokio::test]
 async fn compare_file_filters_page_the_commits_apart() {
@@ -193,12 +193,22 @@ async fn compare_file_filters_page_the_commits_apart() {
             filter.get("include").is_some(),
             "{filter}: {out}"
         );
+        let mut commit_facts = out["contentPagination"]["commits"].clone();
+        let next = commit_facts
+            .as_object_mut()
+            .expect("commit pagination")
+            .remove("next");
+        assert!(
+            next.as_ref()
+                .is_some_and(|calls| calls["nextPage"].is_object()),
+            "{out}"
+        );
         assert_eq!(
-            out["contentPagination"]["commits"],
+            commit_facts,
             json!({"totalPages":4,"pageSize":100,"totalItems":337,"hasMore":true,"unshown":true}),
             "{filter}: {out}"
         );
-        let page = &out["next"]["nextCommitPage"]["input"]["queries"][0];
+        let page = &out["contentPagination"]["commits"]["next"]["nextPage"]["input"]["queries"][0];
         assert_eq!(page["sections"], json!(["commits"]), "{filter}: {out}");
         assert!(page.get("page").is_none(), "{filter}: {out}");
         assert!(page.get("matchString").is_none(), "{filter}: {out}");
@@ -226,7 +236,7 @@ async fn compare_file_filters_page_the_commits_apart() {
         "{plain}"
     );
     assert_eq!(
-        plain["next"]["nextCommitPage"]["input"]["queries"][0]["page"],
+        plain["contentPagination"]["commits"]["next"]["nextPage"]["input"]["queries"][0]["page"],
         2
     );
 }
@@ -260,11 +270,11 @@ async fn compare_unpatched_file_read_survives_the_comparison_pages() {
         assert_eq!(
             out["next"]["searchUnpatchedFile"]["input"]["queries"][0],
             json!({"owner":"o","repo":"r","path":"crates/flags/defs.rs","ref":HEAD,
-                "matchString":["smart_case"]}),
+                "matchString":["smart_case"],"view":"content"}),
             "{sections:?}: {out}"
         );
         assert!(
-            out["next"]["nextCommitPage"].is_object(),
+            out["contentPagination"]["commits"]["next"]["nextPage"].is_object(),
             "{sections:?}: {out}"
         );
     }

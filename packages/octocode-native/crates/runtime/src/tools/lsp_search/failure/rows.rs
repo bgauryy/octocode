@@ -23,8 +23,9 @@ pub(super) fn attach_text_search(value: &mut Value, query: &LspSearchQuery) {
     else {
         return;
     };
-    let lead = symbol_search_lead(query, symbol, &scope);
-    crate::response::result::attach_related(value, lead.build());
+    if let Some(lead) = symbol_search_lead(query, symbol, &scope) {
+        crate::response::result::attach_related(value, lead.build());
+    }
 }
 
 pub(in super::super) fn empty(
@@ -110,8 +111,8 @@ pub(in super::super) fn annotate_empty_includes(
                 let rerun = includes.outside.is_empty();
                 let reason = super::super::server_coverage::BUILD_SCRIPTS_REASON;
                 crate::response::paging::mark_partial(row, reason, &[]);
-                if rerun {
-                    crate::response::result::attach_related(row, next_action(query, reason));
+                if rerun && let Some(action) = next_action(query, reason) {
+                    crate::response::result::attach_related(row, action);
                 }
                 tips.push(build_script_tip(rerun));
             }
@@ -164,38 +165,32 @@ pub(super) const OUTSIDE_INCLUDE_TIP: &str = "A name defined in source this pack
 pub(in super::super) fn next_action(
     query: &LspSearchQuery,
     reason: crate::response::paging::PartialReason,
-) -> Value {
+) -> Option<Value> {
     use super::super::server_coverage::{BUILD_SCRIPTS_REASON, CFG_REASON};
-    let mut rerun = same_query_rerun(query);
+    // A related request is fresh: it drops the query's page and snapshot.
     let setting = match reason {
         BUILD_SCRIPTS_REASON => Some(("buildScripts", json!(true))),
         CFG_REASON => Some(("features", json!("all"))),
         _ => None,
     };
-    if let Some((field, value)) = setting {
-        let mut context = lsp_search_query::rust_context(query)
-            .map_or_else(|| json!({}), |context| json!(context));
-        context[field] = value;
-        rerun["rustContext"] = context;
-    }
-    crate::response::result::Continuation::related(ToolId::LspSearch, rerun).build()
+    let rerun = match setting {
+        Some((field, value)) => {
+            let mut context = lsp_search_query::rust_context(query)
+                .map_or_else(|| json!({}), |context| json!(context));
+            context[field] = value;
+            lsp_search_query::edited(query, &json!({"rustContext": context})).ok()?
+        }
+        None => query.clone(),
+    };
+    Some(crate::response::result::Continuation::related_query(rerun).build())
 }
 
-/// A contract-valid fresh LSP query: current execution state (page, snapshot,
-/// and other state fields) is not public input for a new related reattempt.
+/// The query row of the fresh rerun lead of `query`, for tests that name the
+/// retry a row offers.
+#[cfg(test)]
 pub(in super::super) fn same_query_rerun(query: &LspSearchQuery) -> Value {
-    let mut rerun = lsp_search_query::to_row(query);
-    if let Some(fields) = rerun.as_object_mut() {
-        fields.retain(|key, value| {
-            !value.is_null() && !crate::contracts::state_fields(ToolId::LspSearch).contains(key)
-        });
-    }
-    rerun
-}
-
-/// An exact, executable `lspSearch` continuation.
-pub(in super::super) fn continuation(query: Value) -> Value {
-    crate::response::result::Continuation::continued(ToolId::LspSearch, query).build()
+    let call = crate::response::result::Continuation::related_query(query.clone()).build();
+    call["input"]["queries"][0].clone()
 }
 
 /// Name the row's coverage state where the row reports coverage details
@@ -306,5 +301,7 @@ pub(in super::super) fn partial_with_related_rerun(
         return;
     }
     crate::response::paging::mark_partial(row, reason, warnings);
-    crate::response::result::attach_related(row, next_action(query, reason));
+    if let Some(action) = next_action(query, reason) {
+        crate::response::result::attach_related(row, action);
+    }
 }

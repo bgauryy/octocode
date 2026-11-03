@@ -26,7 +26,6 @@ use super::source::{SourceCache, filter_authorized_items};
 use super::walk::{HierarchyRequest, ImporterRecovery, hierarchy};
 use super::{LspSearchQuery, Op};
 use crate::execution::cancel::CancellationCheck;
-use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::tools::lsp_search::lsp_search_query;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
@@ -98,21 +97,21 @@ fn mark_more_candidates(row: &mut Value, query: &LspSearchQuery, digest: &str) {
     if row.pointer("/pagination/hasMore").and_then(Value::as_bool) == Some(true) {
         return;
     }
-    let mut base = lsp_search_query::to_row(query);
-    if let Some(fields) = base.as_object_mut() {
-        fields
-            .retain(|key, value| !value.is_null() && !matches!(key.as_str(), "page" | "snapshot"));
-    }
-    let Some(next_candidates) = crate::response::paging::next_page_call(
-        ToolId::LspSearch,
-        base,
-        "candidatePage",
-        crate::num::usize_of(lsp_search_query::candidate_page(query)).saturating_add(1),
-        &[("snapshot", json!(digest))],
+    let Ok(next_candidates) = lsp_search_query::edited(
+        query,
+        &json!({
+            "page": null,
+            "candidatePage": lsp_search_query::candidate_page(query).saturating_add(1),
+            "snapshot": digest,
+        }),
     ) else {
         return;
     };
-    row["next"]["nextCandidatePage"] = next_candidates;
+    crate::response::result::insert_next(
+        &mut row["next"],
+        octocode_contract_types::LspSearchChannel::NextCandidatePage,
+        crate::response::result::Continuation::continued_query(next_candidates),
+    );
 }
 
 /// Flag a heritage-scan row incomplete: its note states what it is, and the
@@ -137,11 +136,10 @@ fn mark_scan_answer(
         HERITAGE_UNREAD,
         &[heritage::describe_unread(&unread)],
     );
-    if let Some(base) = lsp_search_query::symbol_name(query) {
-        crate::response::result::attach_related(
-            row,
-            text_search_lead(base, &scope.root, &scope.include, Some(&unread)).build(),
-        );
+    if let Some(base) = lsp_search_query::symbol_name(query)
+        && let Some(lead) = text_search_lead(base, &scope.root, &scope.include, Some(&unread))
+    {
+        crate::response::result::attach_related(row, lead.build());
     }
 }
 

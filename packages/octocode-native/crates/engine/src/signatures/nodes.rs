@@ -14,7 +14,7 @@ mod declarations;
 pub(super) use calls::{call_callee, is_call_node, is_name_leaf, last_name_leaf};
 #[cfg(feature = "tree-sitter-scala")]
 pub(super) use calls::{scala_applied_function, scala_call_callee};
-pub(super) use declarations::{declaration, declaration_extent};
+pub(super) use declarations::{declaration, declaration_extent, declaration_extent_from_parents};
 
 pub(super) fn name_node(node: Node<'_>) -> Option<Node<'_>> {
     for field in ["name", "type", "path"] {

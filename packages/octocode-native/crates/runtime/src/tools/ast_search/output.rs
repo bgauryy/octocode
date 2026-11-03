@@ -33,12 +33,14 @@ impl ToolOutput for Output {
 
 /// An unsupported structural operation can still inspect document headings or
 /// keys; other text gets an exact read. The format registry owns that choice.
-pub(super) fn unsupported_read(path: &str) -> Value {
-    let mut read = serde_json::json!({"path":path});
-    if crate::content::DocumentFormat::of(path).is_some() {
-        read["view"] = serde_json::json!("symbols");
-    }
-    crate::response::result::Continuation::related(crate::id::ToolId::LocalFetch, read).build()
+pub(super) fn unsupported_read(path: &str) -> Option<Value> {
+    use crate::tools::source_view::local_fetch_query::{outline_lead, read_lead};
+    let read = if crate::content::DocumentFormat::of(path).is_some() {
+        outline_lead(path)
+    } else {
+        read_lead(path)
+    }?;
+    Some(crate::response::result::Continuation::related_query(read).build())
 }
 
 /// Publish explicitly typed producer calls in their canonical channels.

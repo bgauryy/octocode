@@ -303,7 +303,7 @@ pub(super) fn assemble(sections: Vec<Section>) -> (Vec<u8>, String) {
         out.extend(section.bytes);
         out.resize(out.len().next_multiple_of(8), 0);
     }
-    let digest = Sha256::digest(&directory);
+    let digest = octocode_engine::digest::sha256_digest(&directory);
     out[..8].copy_from_slice(MAGIC);
     out[8..12].copy_from_slice(&FORMAT_VERSION.to_le_bytes());
     out[12..16].copy_from_slice(&(count as u32).to_le_bytes());

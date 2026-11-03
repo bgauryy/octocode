@@ -108,9 +108,10 @@ test('activity rejects ambiguous or unsafe filters and advertises the bound read
   const f = fixture(t);
   for (const input of [{ path: '/' }, { path: '../src' }, { path: 'src/../x' }, { path: './src' }, { pathRegex: '(' }, { pathRegex: '(?=src)' }, { sinceMs: 10, untilMs: 1 }, { sinceMs: 1, withinMs: 1 }, { view: 'reflog', path: 'src' }, { after: 1 }, { limit: 101 }]) assert.throws(() => f.activity(input), JSON.stringify(input));
   const catalog = JSON.parse(execFileSync(binary, ['schema'], { encoding: 'utf8' }));
-  const tool = catalog.tools.find((tool: JsonRecord) => tool.name === 'activity');
-  assert.equal(tool.annotations.readOnlyHint, true);
-  assert.deepEqual(tool.inputSchema, catalog.commands.find((c: JsonRecord) => c.name === 'activity').inputSchema);
+  const tool = catalog.tools.find((tool: JsonRecord) => tool.name === 'records');
+  const activity = tool.inputSchema.oneOf.find((branch: JsonRecord) => branch.properties.type.const === 'activity');
+  const operation = catalog.commands.find((c: JsonRecord) => c.name === 'activity');
+  assert.deepEqual(activity.properties.input, { ...operation.inputSchema, description: operation.description });
 });
 
 test('history preserves empty commits and newline paths; samples large path lists explicitly', t => {
@@ -144,7 +145,7 @@ test('bound MCP activity observes its registered workspace without mutating audi
   const db = new DatabaseSync(f.database, { readOnly: true });
   t.after(() => db.close());
   const before = only<JsonRecord>(db.prepare('SELECT count(*) AS count FROM records').get()).count;
-  const frames = [{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'activity', arguments: { limit: 1, path: 'one.txt' } } }].map(frame => JSON.stringify(frame)).join('\n') + '\n';
+  const frames = [{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'records', arguments: { type: 'activity', input: { limit: 1, path: 'one.txt' } } } }].map(frame => JSON.stringify(frame)).join('\n') + '\n';
   const result = JSON.parse(execFileSync(binary, ['mcp', '--workspace', f.workspace, '--database', f.database, '--session', session.id], { encoding: 'utf8', input: frames }));
   assert.equal(result.result.isError, undefined);
   const observation = JSON.parse(result.result.content[0].text);
@@ -159,9 +160,9 @@ test('Pi bound activity uses the same schema and executable', async t => {
   const catalog = JSON.parse(execFileSync(binary, ['schema'], { encoding: 'utf8' }));
   const registered = new Map<string, BoundTool>();
   registerBoundTools({ registerTool: tool => registered.set(tool.name, boundTool(tool)) }, { binary, workspace: f.workspace, database: f.database, session: session.id, tools: catalog.tools });
-  const activity = registered.get('activity');
+  const activity = registered.get('records');
   assert.ok(activity, 'the activity tool is registered');
-  const result = await activity.execute('observe', { path: 'pi.txt' });
+  const result = await activity.execute('observe', { type: 'activity', input: { path: 'pi.txt' } });
   assert.equal(JSON.parse(result.content[0].text).items[0].path, 'pi.txt');
 });
 

@@ -2,6 +2,7 @@
   "commands": [
     {
       "name": "join",
+      "description": "Register identity; reuse supplied ID. Presence lasts 60s: listen or heartbeat every 15s.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -9,7 +10,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "description": "Unique among live repository peers; a taken name gets the first free -2, -3 suffix (see the returned name)."
+            "description": "Unique live peer name; conflicts get a numeric suffix. Use the returned name."
           },
           "vendor": {
             "type": "string",
@@ -21,21 +22,16 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "description": "Exact host session ID bound to this identity."
+            "description": "Exact current host session ID; omit if unknown."
           },
           "task": {
             "type": "string",
             "maxLength": 256,
-            "description": "Current task visible to peers."
+            "description": "Task shown to peers."
           },
           "status": {
-            "enum": [
-              "available",
-              "busy",
-              "blocked",
-              "unknown"
-            ],
-            "description": "Current presence status visible to peers."
+            "$ref": "#/$defs/status",
+            "description": "Status shown to peers."
           },
           "branch": {
             "type": [
@@ -43,16 +39,15 @@
               "null"
             ],
             "maxLength": 256,
-            "description": "Git branch associated with this entry."
+            "description": "Git branch."
           }
         },
+        "additionalProperties": false,
         "required": [
           "name",
           "vendor"
-        ],
-        "additionalProperties": false
+        ]
       },
-      "description": "Register identity; reuse supplied ID. Presence lasts 60s: listen or heartbeat every 15s.",
       "usage": "join [json] --workspace <path> [--database <file>]",
       "cliFlags": [
         "workspace",
@@ -61,6 +56,7 @@
     },
     {
       "name": "heartbeat",
+      "description": "Renew live presence (60s, or ttlMs up to 10 min); optionally update task/status. renewLeases extends live owned leases; expired identities need resume and fresh leases.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -76,12 +72,7 @@
             "description": "Current task visible to peers."
           },
           "status": {
-            "enum": [
-              "available",
-              "busy",
-              "blocked",
-              "unknown"
-            ],
+            "$ref": "#/$defs/status",
             "description": "Current presence status visible to peers."
           },
           "ttlMs": {
@@ -111,7 +102,6 @@
         },
         "additionalProperties": false
       },
-      "description": "Renew live presence (60s, or ttlMs up to 10 min); optionally update task/status. renewLeases extends live owned leases; expired identities need resume and fresh leases.",
       "usage": "heartbeat [json] --session <id>",
       "cliFlags": [
         "workspace",
@@ -121,7 +111,7 @@
     },
     {
       "name": "set_status",
-      "description": "Update the bound agent's task/status; no presence renewal.",
+      "description": "Update your advertised task or status; does not renew presence.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -131,17 +121,12 @@
             "description": "Task shown to peers."
           },
           "status": {
-            "enum": [
-              "available",
-              "busy",
-              "blocked",
-              "unknown"
-            ],
+            "$ref": "#/$defs/status",
             "description": "Status shown to peers."
           }
         },
-        "minProperties": 1,
-        "additionalProperties": false
+        "additionalProperties": false,
+        "minProperties": 1
       },
       "usage": "set_status [json] --session <id>",
       "cliFlags": [
@@ -152,6 +137,7 @@
     },
     {
       "name": "resume",
+      "description": "Resume expired same-vendor identity, deleting old leases; lock fresh before edits. Live sessions cannot be taken over.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -162,12 +148,11 @@
             "description": "Host vendor owning this identity."
           }
         },
+        "additionalProperties": false,
         "required": [
           "vendor"
-        ],
-        "additionalProperties": false
+        ]
       },
-      "description": "Resume expired same-vendor identity, deleting old leases; lock fresh before edits. Live sessions cannot be taken over.",
       "usage": "resume [json] --session <id>",
       "cliFlags": [
         "workspace",
@@ -177,12 +162,12 @@
     },
     {
       "name": "leave",
+      "description": "Expire your session and release its leases and delivery claims.",
       "inputSchema": {
         "type": "object",
         "properties": {},
         "additionalProperties": false
       },
-      "description": "Expire your session and release its leases and delivery claims.",
       "usage": "leave [json] --session <id>",
       "cliFlags": [
         "workspace",
@@ -192,12 +177,12 @@
     },
     {
       "name": "prune",
+      "description": "Remove one batch of expired leases in this workspace; follow next. History is kept.",
       "inputSchema": {
         "type": "object",
         "properties": {},
         "additionalProperties": false
       },
-      "description": "Remove one batch of expired leases in this workspace; follow next. History is kept.",
       "usage": "prune [json] --workspace <path> [--database <file>]",
       "cliFlags": [
         "workspace",
@@ -207,13 +192,13 @@
     },
     {
       "name": "peers",
-      "description": "List live peers: exact IDs, worktrees, branches, tasks, status. Follow next.",
+      "description": "Find live repository peers, including linked worktrees, with IDs, names, branches, tasks and status.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "after": {
             "type": "string",
-            "description": "Cursor from next.input; keep filters."
+            "description": "Cursor from next.input."
           }
         },
         "additionalProperties": false
@@ -232,7 +217,7 @@
     },
     {
       "name": "send_message",
-      "description": "One protocol message; exactly one kind field. Requests, answered via complete: question, task, decision, handoff. FYIs: body, blocker (wakes), delta, checkback (to the task sender), issue (unknown if unverified).",
+      "description": "Send to fixed recipients. Returns a durable receipt; handling requires recipient completion.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -240,261 +225,21 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "description": "Peer name or exact ID"
+            "description": "Peer name/ID; \"*\" snapshots live repository peers except you."
           },
           "topic": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "description": "Subscribed topic; excludes to."
+            "description": "Snapshot current subscribers; excludes to."
           },
-          "body": {
-            "$ref": "#/$defs/body"
+          "parts": {
+            "$ref": "#/$defs/parts"
           },
-          "question": {
-            "$ref": "#/$defs/body",
-            "description": "Question text."
-          },
-          "task": {
-            "type": "object",
-            "title": "Task contract",
-            "properties": {
-              "objective": {
-                "type": "string"
-              },
-              "inputs": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "constraints": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "output": {
-                "type": "string"
-              },
-              "done": {
-                "type": "string",
-                "title": "Definition of Done",
-                "description": "Observable checks, e.g. Given-When-Then."
-              },
-              "budget": {
-                "type": "string",
-                "description": "Limits, stop and escalation; at exhaustion complete partial."
-              },
-              "checkBack": {
-                "type": "boolean",
-                "title": "Check back before completing: send checkback with this message id"
-              },
-              "informed": {
-                "$ref": "#/$defs/informed"
-              }
-            },
-            "required": [
-              "objective",
-              "output",
-              "done"
-            ],
-            "additionalProperties": false
-          },
-          "decision": {
-            "type": "object",
-            "title": "Decision request",
-            "properties": {
-              "question": {
-                "type": "string"
-              },
-              "options": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 2
-              },
-              "tradeoffs": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "recommendation": {
-                "type": "string"
-              },
-              "default": {
-                "type": "string",
-                "title": "Default if unanswered",
-                "description": "Applies if unanswered by expiry."
-              },
-              "informed": {
-                "$ref": "#/$defs/informed"
-              }
-            },
-            "required": [
-              "question",
-              "options",
-              "recommendation",
-              "default"
-            ],
-            "additionalProperties": false
-          },
-          "handoff": {
-            "type": "object",
-            "title": "Handoff packet",
-            "properties": {
-              "state": {
-                "type": "string"
-              },
-              "evidence": {
-                "$ref": "#/$defs/evidence"
-              },
-              "blockers": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "next": {
-                "type": "string"
-              },
-              "constraints": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "leases": {
-                "type": "array",
-                "items": {
-                  "type": "integer"
-                },
-                "description": "Your lease IDs, moved to the recipient on done."
-              }
-            },
-            "required": [
-              "state",
-              "next"
-            ],
-            "additionalProperties": false,
-            "description": "No raw logs, private reasoning or abandoned branches."
-          },
-          "blocker": {
-            "type": "object",
-            "title": "SBAR",
-            "properties": {
-              "situation": {
-                "type": "string"
-              },
-              "background": {
-                "type": "string"
-              },
-              "assessment": {
-                "type": "string"
-              },
-              "recommendation": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "situation",
-              "background",
-              "assessment",
-              "recommendation"
-            ],
-            "additionalProperties": false
-          },
-          "delta": {
-            "type": "object",
-            "title": "Delta update",
-            "properties": {
-              "phase": {
-                "type": "string"
-              },
-              "changes": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "blockers": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "next": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "changes"
-            ],
-            "additionalProperties": false
-          },
-          "checkback": {
-            "type": "object",
-            "title": "Check-back",
-            "properties": {
-              "request": {
-                "type": "integer",
-                "description": "Task message ID."
-              },
-              "objective": {
-                "type": "string"
-              },
-              "done": {
-                "type": "string",
-                "title": "Definition of Done"
-              }
-            },
-            "required": [
-              "request",
-              "objective",
-              "done"
-            ],
-            "additionalProperties": false
-          },
-          "issue": {
-            "type": "object",
-            "title": "5W2H",
-            "properties": {
-              "what": {
-                "type": "string"
-              },
-              "where": {
-                "type": "string",
-                "description": "path:line."
-              },
-              "when": {
-                "type": "string"
-              },
-              "who": {
-                "type": "string",
-                "description": "Affected party, not an assignee."
-              },
-              "why": {
-                "type": "string"
-              },
-              "how": {
-                "type": "string"
-              },
-              "howMuch": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "what",
-              "where",
-              "when",
-              "who",
-              "why",
-              "how",
-              "howMuch"
-            ],
-            "additionalProperties": false
+          "replyRequired": {
+            "type": "boolean",
+            "default": false,
+            "description": "Require a final result from each recipient."
           },
           "key": {
             "$ref": "#/$defs/key"
@@ -508,76 +253,24 @@
           "wake": {
             "$ref": "#/$defs/wake"
           },
-          "conversationId": {
-            "$ref": "#/$defs/conversationId"
+          "contextId": {
+            "$ref": "#/$defs/contextId"
           }
         },
+        "additionalProperties": false,
         "required": [
+          "parts",
           "reasoning"
         ],
-        "additionalProperties": false,
-        "allOf": [
+        "oneOf": [
           {
-            "oneOf": [
-              {
-                "required": [
-                  "to"
-                ]
-              },
-              {
-                "required": [
-                  "topic"
-                ]
-              }
+            "required": [
+              "to"
             ]
           },
           {
-            "oneOf": [
-              {
-                "required": [
-                  "body"
-                ]
-              },
-              {
-                "required": [
-                  "question"
-                ]
-              },
-              {
-                "required": [
-                  "task"
-                ]
-              },
-              {
-                "required": [
-                  "decision"
-                ]
-              },
-              {
-                "required": [
-                  "handoff"
-                ]
-              },
-              {
-                "required": [
-                  "blocker"
-                ]
-              },
-              {
-                "required": [
-                  "delta"
-                ]
-              },
-              {
-                "required": [
-                  "checkback"
-                ]
-              },
-              {
-                "required": [
-                  "issue"
-                ]
-              }
+            "required": [
+              "topic"
             ]
           }
         ]
@@ -595,58 +288,15 @@
       ]
     },
     {
-      "name": "notify_all",
-      "description": "FYI to live repository peers except you; no backfill.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "body": {
-            "$ref": "#/$defs/body"
-          },
-          "key": {
-            "$ref": "#/$defs/key"
-          },
-          "ttlMs": {
-            "$ref": "#/$defs/ttlMs"
-          },
-          "reasoning": {
-            "$ref": "#/$defs/reasoning"
-          },
-          "wake": {
-            "$ref": "#/$defs/wake"
-          },
-          "conversationId": {
-            "$ref": "#/$defs/conversationId"
-          }
-        },
-        "required": [
-          "body",
-          "reasoning"
-        ],
-        "additionalProperties": false
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "openWorldHint": false
-      },
-      "usage": "notify_all <json> --session <id>",
-      "cliFlags": [
-        "workspace",
-        "database",
-        "session"
-      ]
-    },
-    {
       "name": "inbox",
-      "description": "Read pending mail by optional message ID; does not handle it. Follow next.",
+      "description": "Read pending mail without acknowledging it. For history, use records/read.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "after": {
             "type": "integer",
             "minimum": 0,
-            "description": "Cursor from next.input; keep filters."
+            "description": "Cursor from next.input."
           },
           "message": {
             "type": "integer",
@@ -676,7 +326,7 @@
     },
     {
       "name": "complete",
-      "description": "Requests: message+outcome+reply. Handled FYIs: message/messages only. Leave unfinished work pending; retry unchanged.",
+      "description": "Handle notices/results silently by message or messages. For requests, atomically reply with message, outcome and reply; retries must be unchanged.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -687,68 +337,24 @@
           },
           "messages": {
             "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
             "items": {
               "type": "integer",
               "exclusiveMinimum": 0
             },
-            "minItems": 1,
-            "maxItems": 100,
-            "uniqueItems": true,
             "description": "Handled FYI IDs; no reply."
           },
           "reply": {
-            "type": "object",
-            "title": "BLUF",
-            "description": "Facts as evidence, apart from assumptions and unknowns.",
-            "properties": {
-              "conclusion": {
-                "type": "string"
-              },
-              "confidence": {
-                "enum": [
-                  "high",
-                  "medium",
-                  "low"
-                ]
-              },
-              "evidence": {
-                "$ref": "#/$defs/evidence"
-              },
-              "assumptions": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "unknowns": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "next": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "conclusion"
-            ],
-            "additionalProperties": false
+            "$ref": "#/$defs/parts"
           },
           "outcome": {
-            "type": "string",
-            "enum": [
-              "done",
-              "partial",
-              "failed",
-              "refused",
-              "canceled"
-            ],
-            "description": "Final status; needs message and reply."
+            "$ref": "#/$defs/outcome"
           },
           "reasoning": {
             "$ref": "#/$defs/reasoning",
-            "description": "For a reply only; normally omit. Forbidden for silent completion."
+            "description": "Reply purpose only; omit for silent completion."
           }
         },
         "additionalProperties": false,
@@ -792,7 +398,7 @@
     },
     {
       "name": "subscribe",
-      "description": "Replace this agent's topics; [] unsubscribes.",
+      "description": "Replace subscriptions for future mail; [] unsubscribes. Pending mail stays; no backfill.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -800,10 +406,10 @@
             "$ref": "#/$defs/topics"
           }
         },
+        "additionalProperties": false,
         "required": [
           "topics"
-        ],
-        "additionalProperties": false
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -819,7 +425,7 @@
     },
     {
       "name": "lock",
-      "description": "Reserve file/tree; only ok:true grants it. wait:true queues and wakes you with the lease.",
+      "description": "Reserve one file or tree in this worktree before editing. Only ok:true grants a lease. On conflict, next retries with wait:true to queue; a later inbox notice reports the grant. Use lock_many for an atomic set.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -830,11 +436,7 @@
             "description": "Repository path."
           },
           "kind": {
-            "type": "string",
-            "enum": [
-              "file",
-              "tree"
-            ],
+            "$ref": "#/$defs/pathKind",
             "description": "file or whole tree."
           },
           "ttlMs": {
@@ -851,11 +453,11 @@
             "description": "Queue behind conflicts instead of failing."
           }
         },
+        "additionalProperties": false,
         "required": [
           "path",
           "reasoning"
-        ],
-        "additionalProperties": false
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -871,7 +473,7 @@
     },
     {
       "name": "renew",
-      "description": "Renew a live owned lease. Reacquire before editing if false.",
+      "description": "Extend a live owned lease; renewed:false requires reacquisition.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -882,13 +484,13 @@
             "type": "integer",
             "minimum": 1000,
             "maximum": 600000,
-            "description": "Lifetime in ms; renew before expiry."
+            "description": "Lifetime in milliseconds."
           }
         },
+        "additionalProperties": false,
         "required": [
           "leaseId"
-        ],
-        "additionalProperties": false
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -904,7 +506,7 @@
     },
     {
       "name": "unlock",
-      "description": "Release one live owned lease.",
+      "description": "Release a live owned lease; queued contenders may then acquire it.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -912,10 +514,10 @@
             "$ref": "#/$defs/leaseId"
           }
         },
+        "additionalProperties": false,
         "required": [
           "leaseId"
-        ],
-        "additionalProperties": false
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -931,12 +533,12 @@
     },
     {
       "name": "db info",
+      "description": "Inspect the resolved path and compatibility without creating a database.",
       "inputSchema": {
         "type": "object",
         "properties": {},
         "additionalProperties": false
       },
-      "description": "Inspect the resolved path and compatibility without creating a database.",
       "usage": "db info [--database <file>] [--workspace <path>]",
       "cliFlags": [
         "workspace",
@@ -954,26 +556,26 @@
     },
     {
       "name": "inbox wait",
+      "description": "Wait for inbox messages or timeout, without acknowledging. Explicit recovery only.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "timeoutMs": {
-            "default": 30000,
             "type": "integer",
             "minimum": 0,
             "maximum": 60000,
+            "default": 30000,
             "description": "Maximum wait in milliseconds."
           },
           "after": {
-            "default": 0,
             "type": "integer",
             "minimum": 0,
+            "default": 0,
             "description": "Exclusive continuation cursor copied from next.input; keep the same filters."
           }
         },
         "additionalProperties": false
       },
-      "description": "Wait for inbox messages or timeout, without acknowledging. Explicit recovery only.",
       "usage": "inbox wait [json] --session <id>",
       "cliFlags": [
         "workspace",
@@ -983,12 +585,12 @@
     },
     {
       "name": "mcp",
+      "description": "Typed stdio capability tools. Unbound connections expose init; --managed owns presence/cleanup and --session borrows the host identity. --tools limits capabilities.",
       "inputSchema": {
         "type": "object",
         "properties": {},
         "additionalProperties": false
       },
-      "description": "Bound stdio tools. --managed owns raw presence/cleanup; plain mode uses host lifecycle. --tools limits exposed tools.",
       "usage": "mcp --workspace <path> [--database <file>] [--tools <names>] [--managed --vendor <host>] [--name <name> | --session <id>]",
       "cliFlags": [
         "workspace",
@@ -1007,9 +609,6 @@
                 "const": false
               }
             },
-            "required": [
-              "session"
-            ],
             "not": {
               "anyOf": [
                 {
@@ -1063,6 +662,7 @@
     },
     {
       "name": "run",
+      "description": "Start managed Codex/Claude/Pi on request; host owns presence/delivery. --session resumes same-vendor expiry unless delivery is staged. Existing conversations: attach. Pi needs Node/model. --tools selects tools.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1103,14 +703,13 @@
             "description": "Emit protocol trace diagnostics."
           }
         },
+        "additionalProperties": false,
         "required": [
           "vendor",
           "model",
           "prompt"
-        ],
-        "additionalProperties": false
+        ]
       },
-      "description": "Start managed Codex/Claude/Pi on request; host owns presence/delivery. --session resumes same-vendor expiry unless delivery is staged. Existing conversations: attach. Pi needs Node/model. --tools selects tools.",
       "usage": "run --vendor codex|claude|pi --model <model> --prompt <task> [--name <name>] [--duration-ms <ms>] [--trace] --workspace <path> [--database <file>] [--session <expired-id>] [--tools <comma-separated-tool-names>]",
       "cliFlags": [
         "workspace",
@@ -1149,18 +748,11 @@
     {
       "name": "attach",
       "description": "Bind existing receiver: raw; claude/grok same-user socket; codex owning loopback WebSocket/Unix socket; opencode idle workspace and loopback HTTP. OpenCode auth: listener env OPENCODE_SERVER_PASSWORD, OPENCODE_SERVER_USERNAME, OCTOCODE_OPENCODE_AUTH_ENDPOINT. Grok needs ACP bridge.",
-      "usage": "attach [json] --session <id>",
       "inputSchema": {
         "type": "object",
         "properties": {
           "transport": {
-            "enum": [
-              "raw",
-              "claude",
-              "codex",
-              "opencode",
-              "grok"
-            ],
+            "$ref": "#/$defs/transport",
             "description": "Attached host transport."
           },
           "endpoint": {
@@ -1176,11 +768,12 @@
             "description": "Exact host session ID bound to this identity."
           }
         },
+        "additionalProperties": false,
         "required": [
           "transport"
-        ],
-        "additionalProperties": false
+        ]
       },
+      "usage": "attach [json] --session <id>",
       "cliFlags": [
         "workspace",
         "database",
@@ -1190,12 +783,12 @@
     {
       "name": "dispatch",
       "description": "Submit one DB batch to the attached native receiver. Codex/OpenCode defer busy recipients. Submission is not handling; attempts never replay automatically.",
-      "usage": "dispatch [json] --session <id>",
       "inputSchema": {
         "type": "object",
         "properties": {},
         "additionalProperties": false
       },
+      "usage": "dispatch [json] --session <id>",
       "cliFlags": [
         "workspace",
         "database",
@@ -1205,11 +798,11 @@
     {
       "name": "hook",
       "description": "Offer new host context; refresh presence. Formats: text (empty if idle), json (SDK), claude (UserPromptSubmit). Complete handled IDs; inspect failed delivery before retry.",
-      "usage": "hook [json] --session <id>",
       "inputSchema": {
         "type": "object",
         "properties": {
           "format": {
+            "type": "string",
             "enum": [
               "text",
               "json",
@@ -1260,6 +853,7 @@
           }
         ]
       },
+      "usage": "hook [json] --session <id>",
       "cliFlags": [
         "workspace",
         "database",
@@ -1269,12 +863,12 @@
     {
       "name": "listen",
       "description": "Maintain presence and dispatch native mail; raw uses hooks. No model calls or lease renewal.",
-      "usage": "listen --session <id> --workspace <path> [--database <file>] [--duration-ms <ms>]",
       "inputSchema": {
         "type": "object",
         "properties": {},
         "additionalProperties": false
       },
+      "usage": "listen --session <id> --workspace <path> [--database <file>] [--duration-ms <ms>]",
       "cliFlags": [
         "workspace",
         "database",
@@ -1285,7 +879,6 @@
     {
       "name": "retry_delivery",
       "description": "Reoffer one of your unacknowledged messages after inspecting its staged or uncertain attempt; may duplicate an uncertain write. A submitted attempt was accepted by the host and is refused. reason is audited.",
-      "usage": "retry_delivery [json] --session <id>",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1301,12 +894,13 @@
             "description": "Reason for retrying delivery."
           }
         },
+        "additionalProperties": false,
         "required": [
           "message",
           "reason"
-        ],
-        "additionalProperties": false
+        ]
       },
+      "usage": "retry_delivery [json] --session <id>",
       "cliFlags": [
         "workspace",
         "database",
@@ -1316,7 +910,6 @@
     {
       "name": "record_usage",
       "description": "Record host token counters once per key, without text. scope: request, turn or cumulative (never sum cumulative). Missing means unknown, not zero.",
-      "usage": "record_usage [json] --session <id>",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1327,11 +920,7 @@
             "description": "Stable idempotency key; reuse only for unchanged input."
           },
           "scope": {
-            "enum": [
-              "request",
-              "turn",
-              "cumulative"
-            ],
+            "$ref": "#/$defs/usageScope",
             "description": "Usage accounting scope."
           },
           "model": {
@@ -1366,12 +955,13 @@
             "description": "Tokens written to cache."
           }
         },
+        "additionalProperties": false,
         "required": [
           "key",
           "scope"
-        ],
-        "additionalProperties": false
+        ]
       },
+      "usage": "record_usage [json] --session <id>",
       "cliFlags": [
         "workspace",
         "database",
@@ -1381,7 +971,6 @@
     {
       "name": "confirm_delivery",
       "description": "SDK context receipt: exact IDs and dispatch tokens required. Rejects stale tokens; work stays pending.",
-      "usage": "confirm_delivery [json] --session <id>",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1403,20 +992,21 @@
                   "description": "Exact dispatch token returned by the delivery operation."
                 }
               },
+              "additionalProperties": false,
               "required": [
                 "id",
                 "dispatchToken"
-              ],
-              "additionalProperties": false
+              ]
             },
             "description": "Exact delivery items and tokens returned by dispatch."
           }
         },
+        "additionalProperties": false,
         "required": [
           "items"
-        ],
-        "additionalProperties": false
+        ]
       },
+      "usage": "confirm_delivery [json] --session <id>",
       "cliFlags": [
         "workspace",
         "database",
@@ -1481,7 +1071,7 @@
     },
     {
       "name": "lock_many",
-      "description": "Reserve all paths atomically; conflict grants none. wait:true queues.",
+      "description": "Atomically reserve paths: ok:true grants all; conflict grants none. Conflict next queues with wait:true; await the grant notice.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1498,7 +1088,7 @@
             "type": "integer",
             "minimum": 1000,
             "maximum": 600000,
-            "description": "Lifetime in ms; renew before expiry."
+            "description": "Lifetime in milliseconds."
           },
           "reasoning": {
             "$ref": "#/$defs/reasoning"
@@ -1508,11 +1098,11 @@
             "description": "Queue behind conflicts instead of failing."
           }
         },
+        "additionalProperties": false,
         "required": [
           "paths",
           "reasoning"
-        ],
-        "additionalProperties": false
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1528,7 +1118,7 @@
     },
     {
       "name": "share_document",
-      "description": "Publish immutable UTF-8 evidence with hash and optional context. Retry unchanged; revise under a new name with supersedes.",
+      "description": "Publish immutable UTF-8 evidence and an optional discovery note; no notification. Retry unchanged; revisions need a new name.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1561,12 +1151,8 @@
                 "description": "Repository path."
               },
               "kind": {
-                "type": "string",
-                "enum": [
-                  "file",
-                  "tree"
-                ],
                 "default": "tree",
+                "$ref": "#/$defs/pathKind",
                 "description": "file or whole tree."
               },
               "branch": {
@@ -1582,10 +1168,10 @@
                 "description": "Discovery lifetime in ms."
               }
             },
+            "additionalProperties": false,
             "required": [
               "summary"
             ],
-            "additionalProperties": false,
             "description": "Discovery note."
           },
           "reasoning": {
@@ -1599,12 +1185,12 @@
             "description": "ADR: the published name this revises."
           }
         },
+        "additionalProperties": false,
         "required": [
           "name",
           "content",
           "reasoning"
-        ],
-        "additionalProperties": false
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1620,7 +1206,7 @@
     },
     {
       "name": "read_document",
-      "description": "Read an exact name and verify its hash. Follow next.",
+      "description": "Read hash-verified UTF-8 pages by exact published name, including extension.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1641,13 +1227,13 @@
             "type": "integer",
             "minimum": 4,
             "maximum": 16384,
-            "description": "Page size; follow next."
+            "description": "Bytes per page."
           }
         },
+        "additionalProperties": false,
         "required": [
           "name"
-        ],
-        "additionalProperties": false
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1663,7 +1249,7 @@
     },
     {
       "name": "context",
-      "description": "Find live notes by path/branch. Follow next, including empty pages.",
+      "description": "Find live discovery notes by path/branch; read their referenced documents for full evidence.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1683,7 +1269,7 @@
           "after": {
             "type": "integer",
             "minimum": 0,
-            "description": "Cursor from next.input; keep filters."
+            "description": "Cursor from next.input."
           },
           "through": {
             "type": "integer",
@@ -1695,7 +1281,7 @@
             "minimum": 1,
             "maximum": 20,
             "default": 10,
-            "description": "Page size; follow next."
+            "description": "Notes per page."
           }
         },
         "additionalProperties": false
@@ -1714,19 +1300,13 @@
     },
     {
       "name": "activity",
-      "description": "Read Git history/changes with coverage and paging; changes grant no ownership.",
-      "usage": "activity [json] --workspace <path>",
+      "description": "Inspect worktree Git files, commits or reflog. Changes prove neither authorship nor lease ownership.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "view": {
-            "type": "string",
-            "enum": [
-              "files",
-              "commits",
-              "reflog"
-            ],
             "default": "files",
+            "$ref": "#/$defs/activityView",
             "description": "Activity view."
           },
           "limit": {
@@ -1734,7 +1314,7 @@
             "minimum": 1,
             "maximum": 100,
             "default": 20,
-            "description": "Page size; follow next."
+            "description": "Results per page."
           },
           "path": {
             "type": "string",
@@ -1769,13 +1349,13 @@
             "minimum": 1,
             "maximum": 2000,
             "default": 200,
-            "description": "Entries scanned per page; follow next."
+            "description": "Entries scanned per page."
           },
           "after": {
             "type": "integer",
             "minimum": 0,
             "maximum": 1000000,
-            "description": "Cursor from next.input; keep filters."
+            "description": "Cursor from next.input."
           },
           "snapshot": {
             "type": "string",
@@ -1807,6 +1387,7 @@
           }
         ]
       },
+      "usage": "activity [json] --workspace <path>",
       "cliFlags": [
         "workspace",
         "database",
@@ -1816,7 +1397,6 @@
     {
       "name": "check_paths",
       "description": "Read live advisory write conflicts without acquiring leases. Follow next.command/input for every conflict, in lease ID order. ok describes the whole query at checkedAt, including conflicts before after; a clear result grants no ownership.",
-      "usage": "check_paths <json> --session <id> --workspace <path>",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1836,11 +1416,12 @@
             "description": "Exclusive lease ID cursor from next.input; each page reads current live conflicts."
           }
         },
+        "additionalProperties": false,
         "required": [
           "paths"
-        ],
-        "additionalProperties": false
+        ]
       },
+      "usage": "check_paths <json> --session <id> --workspace <path>",
       "cliFlags": [
         "workspace",
         "database",
@@ -1849,7 +1430,7 @@
     },
     {
       "name": "check_write",
-      "description": "Read-only file preflight: active session needs live leases for edits, creates, deletes and both rename paths. Uses {path,kind?} entries; kind defaults to file and trees are rejected. Advisory only.",
+      "description": "Verify existing coverage of file targets without acquiring or renewing leases.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1866,13 +1447,13 @@
                   "properties": {
                     "kind": {
                       "const": "file",
-                      "description": "File or whole directory tree scope."
+                      "description": "Only file targets are accepted."
                     }
                   }
                 }
               ]
             },
-            "description": "Path targets to check or lease as one operation."
+            "description": "Files to check; include both rename paths."
           },
           "vendorSession": {
             "type": "string",
@@ -1881,10 +1462,10 @@
             "description": "Optional host session ID; must match the bound identity."
           }
         },
+        "additionalProperties": false,
         "required": [
           "paths"
-        ],
-        "additionalProperties": false
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1901,7 +1482,6 @@
     {
       "name": "db export",
       "description": "Verified SQLite/WAL snapshot to a new absolute path; no overwrite or symlinks. Document files are excluded.",
-      "usage": "db export {\"path\":\"/absolute/new.sqlite\"} --database <source>",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1912,11 +1492,12 @@
             "description": "Path within the repository; export paths must be absolute."
           }
         },
+        "additionalProperties": false,
         "required": [
           "path"
-        ],
-        "additionalProperties": false
+        ]
       },
+      "usage": "db export {\"path\":\"/absolute/new.sqlite\"} --database <source>",
       "cliFlags": [
         "workspace",
         "database"
@@ -1925,7 +1506,6 @@
     {
       "name": "db retention",
       "description": "Read-only page of retention counts across workspaces: unresolved and settled messages expired before a cutoff (default 30 days). Deletes nothing.",
-      "usage": "db retention [json] [--database <file>]",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1949,6 +1529,7 @@
         },
         "additionalProperties": false
       },
+      "usage": "db retention [json] [--database <file>]",
       "cliFlags": [
         "workspace",
         "database"
@@ -1957,12 +1538,12 @@
     {
       "name": "db compact",
       "description": "SQLite VACUUM; keeps every record. Needs disk space and may fail on a busy writer; never run in a hook.",
-      "usage": "db compact [json] [--database <file>]",
       "inputSchema": {
         "type": "object",
         "properties": {},
         "additionalProperties": false
       },
+      "usage": "db compact [json] [--database <file>]",
       "cliFlags": [
         "workspace",
         "database"
@@ -2011,11 +1592,11 @@
                 "description": "Exact recipient identity."
               }
             },
+            "additionalProperties": false,
             "required": [
               "message",
               "recipient"
             ],
-            "additionalProperties": false,
             "description": "Exclusive continuation cursor copied from next.input; keep the same filters."
           }
         },
@@ -2035,7 +1616,6 @@
     {
       "name": "completion-check",
       "description": "Opt-in Claude/Pi completion check: read-only check of submitted, unacknowledged IDs; one recovery turn. Pass --session/--workspace/--database explicitly; stdin is hook JSON.",
-      "usage": "completion-check - --session <id> --workspace <repo> --database <db>",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2058,13 +1638,14 @@
             "description": "Host working directory from the hook event."
           }
         },
+        "additionalProperties": true,
         "required": [
           "hook_event_name",
           "session_id",
           "cwd"
-        ],
-        "additionalProperties": true
+        ]
       },
+      "usage": "completion-check - --session <id> --workspace <repo> --database <db>",
       "cliFlags": [
         "workspace",
         "database",
@@ -2073,21 +1654,16 @@
     },
     {
       "name": "locks",
-      "description": "List leases by presence/owner/path overlap. Follow next.",
+      "description": "List reservations by owner or overlapping path. Results grant no ownership.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "after": {
             "type": "string",
-            "description": "Cursor from next.input; keep filters."
+            "description": "Cursor from next.input."
           },
           "presence": {
-            "type": "string",
-            "enum": [
-              "active",
-              "expired",
-              "all"
-            ],
+            "$ref": "#/$defs/presenceFilter",
             "description": "Owner presence."
           },
           "owner": {
@@ -2102,11 +1678,7 @@
             "description": "Repository path."
           },
           "kind": {
-            "type": "string",
-            "enum": [
-              "file",
-              "tree"
-            ],
+            "$ref": "#/$defs/pathKind",
             "description": "file or whole tree."
           }
         },
@@ -2121,7 +1693,6 @@
     },
     {
       "name": "view",
-      "usage": "view [json]",
       "description": "Read-only dashboard; no session. Use --workspace/--database. Stop: Ctrl+C.",
       "inputSchema": {
         "type": "object",
@@ -2139,6 +1710,7 @@
         },
         "additionalProperties": false
       },
+      "usage": "view [json]",
       "cliFlags": [
         "workspace",
         "database"
@@ -2146,7 +1718,7 @@
     },
     {
       "name": "fetch",
-      "description": "Typed repository history with filters, search and origins; mail is participant-only. Follow next.",
+      "description": "Search repository history; mail is participant-only. incoming:true selects pending mail.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2164,14 +1736,14 @@
           },
           "types": {
             "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "uniqueItems": true,
             "items": {
               "type": "string",
               "minLength": 1,
               "maxLength": 128
             },
-            "minItems": 1,
-            "maxItems": 32,
-            "uniqueItems": true,
             "description": "Record types; excludes type."
           },
           "from": {
@@ -2205,7 +1777,7 @@
           "after": {
             "type": "integer",
             "minimum": 0,
-            "description": "Cursor from next.input; keep filters."
+            "description": "Cursor from next.input."
           },
           "through": {
             "type": "integer",
@@ -2217,7 +1789,7 @@
             "minimum": 1,
             "maximum": 100,
             "default": 100,
-            "description": "Page size; follow next."
+            "description": "Records per page."
           },
           "incoming": {
             "type": "boolean",
@@ -2231,7 +1803,6 @@
           },
           "where": {
             "type": "object",
-            "maxProperties": 8,
             "additionalProperties": {
               "type": [
                 "string",
@@ -2240,6 +1811,7 @@
                 "null"
               ]
             },
+            "maxProperties": 8,
             "description": "Scalar data.field filters, ANDed."
           },
           "current": {
@@ -2255,12 +1827,12 @@
           ]
         }
       },
-      "usage": "fetch [json] --session <id>",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
         "openWorldHint": false
       },
+      "usage": "fetch [json] --session <id>",
       "cliFlags": [
         "workspace",
         "database",
@@ -2269,7 +1841,7 @@
     },
     {
       "name": "record",
-      "description": "Append memory, event or checkpoint JSON. Other types use dedicated writers.",
+      "description": "Append a memory, event or recovery checkpoint; no notification.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2280,7 +1852,7 @@
               "event",
               "checkpoint"
             ],
-            "description": "Record type."
+            "description": "Record kind; distinct from the outer operation type."
           },
           "to": {
             "type": "string",
@@ -2299,24 +1871,24 @@
           "data": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Data per schema type <type>."
+            "description": "Payload for this record kind."
           },
           "key": {
             "$ref": "#/$defs/key"
           }
         },
+        "additionalProperties": false,
         "required": [
           "type",
           "data"
-        ],
-        "additionalProperties": false
+        ]
       },
-      "usage": "record [json] --session <id>",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
         "openWorldHint": false
       },
+      "usage": "record [json] --session <id>",
       "cliFlags": [
         "workspace",
         "database",
@@ -2326,12 +1898,12 @@
     {
       "name": "binding",
       "description": "Inspect the bound host identity and current presence/branch without renewal; adapter preflight only, not a history query.",
-      "usage": "binding --session <id>",
       "inputSchema": {
         "type": "object",
         "properties": {},
         "additionalProperties": false
       },
+      "usage": "binding --session <id>",
       "cliFlags": [
         "workspace",
         "database",
@@ -2358,14 +1930,6 @@
     },
     {
       "name": "send_message",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "notify_all",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -2429,6 +1993,14 @@
       }
     },
     {
+      "name": "check_write",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "share_document",
       "annotations": {
         "readOnlyHint": false,
@@ -2485,68 +2057,135 @@
       }
     }
   ],
-  "messageKinds": [
-    {
-      "kind": "note",
-      "field": "body",
-      "request": false,
-      "wake": false
-    },
-    {
-      "kind": "question",
-      "field": "question",
-      "request": true,
-      "wake": true
-    },
-    {
-      "kind": "task",
-      "field": "task",
-      "request": true,
-      "wake": true
-    },
-    {
-      "kind": "decision",
-      "field": "decision",
-      "request": true,
-      "wake": true
-    },
-    {
-      "kind": "handoff",
-      "field": "handoff",
-      "request": true,
-      "wake": true
-    },
-    {
-      "kind": "blocker",
-      "field": "blocker",
-      "request": false,
-      "wake": true
-    },
-    {
-      "kind": "delta",
-      "field": "delta",
-      "request": false,
-      "wake": false
-    },
-    {
-      "kind": "checkback",
-      "field": "checkback",
-      "request": false,
-      "wake": false
-    },
-    {
-      "kind": "issue",
-      "field": "issue",
-      "request": false,
-      "wake": false
-    }
-  ],
   "$defs": {
-    "body": {
+    "status": {
       "type": "string",
-      "minLength": 1,
-      "maxLength": 16384,
-      "description": "FYI text."
+      "enum": [
+        "available",
+        "busy",
+        "blocked",
+        "unknown"
+      ]
+    },
+    "pathKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "tree"
+      ]
+    },
+    "transport": {
+      "type": "string",
+      "enum": [
+        "raw",
+        "claude",
+        "codex",
+        "opencode",
+        "grok"
+      ]
+    },
+    "usageScope": {
+      "type": "string",
+      "enum": [
+        "request",
+        "turn",
+        "cumulative"
+      ]
+    },
+    "activityView": {
+      "type": "string",
+      "enum": [
+        "files",
+        "commits",
+        "reflog"
+      ]
+    },
+    "presenceFilter": {
+      "type": "string",
+      "enum": [
+        "active",
+        "expired",
+        "all"
+      ]
+    },
+    "topicData": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "topic"
+      ]
+    },
+    "leaseExpiry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "expiresAt": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "expiresAt"
+      ]
+    },
+    "usageData": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Stable idempotency key; reuse only for unchanged input."
+        },
+        "scope": {
+          "$ref": "#/$defs/usageScope",
+          "description": "Usage accounting scope."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Host model identifier."
+        },
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Consumed input tokens."
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Produced output tokens."
+        },
+        "cachedInputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Input tokens served from cache."
+        },
+        "contextTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Tokens currently in model context."
+        },
+        "cacheWriteTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Tokens written to cache."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "scope"
+      ]
     },
     "key": {
       "type": "string",
@@ -2558,7 +2197,7 @@
       "type": "integer",
       "minimum": 1000,
       "maximum": 86400000,
-      "description": "Lifetime in ms; renew before expiry."
+      "description": "Lifetime in milliseconds."
     },
     "reasoning": {
       "type": "string",
@@ -2568,22 +2207,23 @@
       "description": "Purpose; ≤512 UTF-8 bytes."
     },
     "wake": {
+      "type": "string",
       "enum": [
         "action",
         "passive"
       ],
-      "description": "action: wake now; passive: next turn. Default action for requests and blocker."
+      "description": "action may wake an idle recipient; passive waits for a host boundary. Default: action for requests, passive for notices."
     },
-    "conversationId": {
+    "contextId": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
       "pattern": "^[A-Za-z0-9._:-]+$",
-      "description": "Thread ID shared by related messages."
+      "description": "Related-work ID; final replies inherit it."
     },
     "topics": {
-      "maxItems": 32,
       "type": "array",
+      "maxItems": 32,
       "items": {
         "type": "string",
         "minLength": 1,
@@ -2599,12 +2239,7 @@
     },
     "presence": {
       "default": "active",
-      "type": "string",
-      "enum": [
-        "active",
-        "expired",
-        "all"
-      ],
+      "$ref": "#/$defs/presenceFilter",
       "description": "Filter active, expired, or all presence."
     },
     "pathTarget": {
@@ -2617,20 +2252,15 @@
           "description": "Workspace-relative path."
         },
         "kind": {
-          "type": "string",
-          "enum": [
-            "file",
-            "tree"
-          ],
           "default": "file",
+          "$ref": "#/$defs/pathKind",
           "description": "file or whole tree."
         }
       },
+      "additionalProperties": false,
       "required": [
         "path"
-      ],
-      "additionalProperties": false,
-      "description": "Path target."
+      ]
     },
     "coordinateData": {
       "type": "object",
@@ -2659,12 +2289,7 @@
           "description": "Current task visible to peers."
         },
         "status": {
-          "enum": [
-            "available",
-            "busy",
-            "blocked",
-            "unknown"
-          ],
+          "$ref": "#/$defs/status",
           "description": "Current presence status visible to peers."
         },
         "expiresAt": {
@@ -2692,11 +2317,7 @@
           "description": "Workspace-relative file/tree; default workspace root."
         },
         "kind": {
-          "type": "string",
-          "enum": [
-            "file",
-            "tree"
-          ],
+          "$ref": "#/$defs/pathKind",
           "description": "File or whole directory tree scope."
         },
         "reasoning": {
@@ -2716,11 +2337,11 @@
       },
       "additionalProperties": false,
       "required": [
-        "leaseId",
         "path",
         "kind",
-        "expiresAt",
-        "reasoning"
+        "reasoning",
+        "leaseId",
+        "expiresAt"
       ]
     },
     "attachmentData": {
@@ -2788,33 +2409,6 @@
       "required": [
         "messageId"
       ]
-    },
-    "evidence": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "claim": {
-            "type": "string"
-          },
-          "source": {
-            "type": "string",
-            "description": "path:line, URL, commit or document:NAME"
-          }
-        },
-        "required": [
-          "claim",
-          "source"
-        ],
-        "additionalProperties": false
-      }
-    },
-    "informed": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "title": "Informed (copied on the answer)"
     },
     "continuation": {
       "type": "object",
@@ -2891,6 +2485,7 @@
           "additionalProperties": true
         }
       },
+      "additionalProperties": false,
       "required": [
         "recordId",
         "path",
@@ -2899,8 +2494,7 @@
         "type",
         "timestamp",
         "data"
-      ],
-      "additionalProperties": false
+      ]
     },
     "documentContext": {
       "type": "object",
@@ -2919,12 +2513,8 @@
           "description": "Workspace-relative file/tree; default workspace root."
         },
         "kind": {
-          "type": "string",
-          "enum": [
-            "file",
-            "tree"
-          ],
-          "default": "tree"
+          "default": "tree",
+          "$ref": "#/$defs/pathKind"
         },
         "branch": {
           "type": "string",
@@ -2944,10 +2534,10 @@
           "minimum": 0
         }
       },
+      "additionalProperties": false,
       "required": [
         "summary"
-      ],
-      "additionalProperties": false
+      ]
     },
     "documentData": {
       "type": "object",
@@ -2983,9 +2573,9 @@
         "name",
         "path",
         "author",
+        "reasoning",
         "bytes",
-        "sha256",
-        "reasoning"
+        "sha256"
       ]
     },
     "checkpoint": {
@@ -3038,13 +2628,7 @@
           "type": "string"
         },
         "status": {
-          "type": "string",
-          "enum": [
-            "available",
-            "busy",
-            "blocked",
-            "unknown"
-          ]
+          "$ref": "#/$defs/status"
         },
         "coordinationScope": {
           "type": "string",
@@ -3080,11 +2664,7 @@
           "type": "string"
         },
         "kind": {
-          "type": "string",
-          "enum": [
-            "file",
-            "tree"
-          ]
+          "$ref": "#/$defs/pathKind"
         },
         "owner": {
           "type": "string"
@@ -3131,11 +2711,7 @@
               "type": "integer"
             },
             "kind": {
-              "type": "string",
-              "enum": [
-                "file",
-                "tree"
-              ]
+              "$ref": "#/$defs/pathKind"
             },
             "acquiredAt": {
               "type": "integer"
@@ -3206,20 +2782,7 @@
           "const": true
         },
         "wait": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "integer"
-            },
-            "expiresAt": {
-              "type": "integer"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "id",
-            "expiresAt"
-          ]
+          "$ref": "#/$defs/leaseExpiry"
         }
       },
       "additionalProperties": false,
@@ -3231,6 +2794,64 @@
         "heldLeaseIds"
       ],
       "description": "Nothing acquired: the blocking lease and what to do next."
+    },
+    "parts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "data": {},
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "Reference only; never fetched automatically."
+          },
+          "mediaType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "text"
+            ]
+          },
+          {
+            "required": [
+              "data"
+            ]
+          },
+          {
+            "required": [
+              "url"
+            ]
+          }
+        ]
+      },
+      "description": "Ordered content. Data is opaque; no automatic actions."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "failed",
+        "rejected",
+        "canceled"
+      ],
+      "description": "Final work outcome."
     },
     "inboxPage": {
       "type": "object",
@@ -3249,24 +2870,6 @@
               "senderName": {
                 "type": "string"
               },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "note",
-                  "question",
-                  "task",
-                  "decision",
-                  "handoff",
-                  "blocker",
-                  "delta",
-                  "checkback",
-                  "issue",
-                  "answer"
-                ]
-              },
-              "body": {
-                "type": "string"
-              },
               "reasoning": {
                 "type": "string"
               },
@@ -3277,13 +2880,9 @@
                 "type": "integer"
               },
               "wake": {
-                "type": "string",
-                "enum": [
-                  "action",
-                  "passive"
-                ]
+                "$ref": "#/$defs/wake"
               },
-              "conversationId": {
+              "contextId": {
                 "type": "string"
               },
               "replyTo": {
@@ -3291,6 +2890,12 @@
               },
               "replyRequired": {
                 "type": "boolean"
+              },
+              "parts": {
+                "$ref": "#/$defs/parts"
+              },
+              "outcome": {
+                "$ref": "#/$defs/outcome"
               }
             },
             "additionalProperties": false,
@@ -3298,12 +2903,11 @@
               "id",
               "sender",
               "senderName",
-              "kind",
-              "body",
               "reasoning",
               "expiresAt",
               "wake",
-              "replyRequired"
+              "replyRequired",
+              "parts"
             ]
           }
         },
@@ -3677,28 +3281,11 @@
     },
     {
       "type": "message",
-      "writer": "send_message/notify_all/complete",
+      "writer": "send_message/complete",
       "description": "Immutable mail committed for fixed recipients. from is author; to is agent ID, topic:<topic>, or *. Complete uses data.messageId, never recordId.",
       "dataSchema": {
         "type": "object",
         "properties": {
-          "kind": {
-            "enum": [
-              "note",
-              "question",
-              "task",
-              "decision",
-              "blocker",
-              "handoff",
-              "delta",
-              "checkback",
-              "issue",
-              "answer"
-            ]
-          },
-          "body": {
-            "$ref": "#/$defs/body"
-          },
           "key": {
             "$ref": "#/$defs/key",
             "description": "Optional idempotency key; complete: prefix is reserved."
@@ -3712,12 +3299,12 @@
           "wake": {
             "$ref": "#/$defs/wake"
           },
-          "conversationId": {
-            "$ref": "#/$defs/conversationId"
+          "contextId": {
+            "$ref": "#/$defs/contextId"
           },
           "replyRequired": {
             "type": "boolean",
-            "description": "Set by kind: question, task, decision and handoff are requests."
+            "description": "Whether each recipient owes a final result."
           },
           "messageId": {
             "type": "integer",
@@ -3734,7 +3321,7 @@
             "type": "integer",
             "minimum": 1
           },
-          "bodyOmitted": {
+          "contentOmitted": {
             "type": "boolean",
             "description": "Hook budget reference only; fetch data.messageId for the full payload."
           },
@@ -3752,18 +3339,24 @@
                     "minimum": 1
                   }
                 },
+                "additionalProperties": false,
                 "required": [
                   "recordId"
-                ],
-                "additionalProperties": false
+                ]
               }
             },
+            "additionalProperties": false,
             "required": [
               "command",
               "input"
             ],
-            "additionalProperties": false,
             "description": "Lossless continuation from an oversized hook reference; run unchanged with the current binding."
+          },
+          "parts": {
+            "$ref": "#/$defs/parts"
+          },
+          "outcome": {
+            "$ref": "#/$defs/outcome"
           }
         },
         "additionalProperties": false,
@@ -3772,44 +3365,46 @@
         ],
         "oneOf": [
           {
+            "properties": {
+              "contentOmitted": {
+                "const": false
+              }
+            },
             "required": [
-              "body",
               "ttlMs",
               "expiresAt",
               "reasoning",
               "wake",
               "replyRequired",
-              "kind"
-            ],
-            "properties": {
-              "bodyOmitted": {
-                "const": false
-              }
-            }
+              "parts"
+            ]
           },
           {
-            "required": [
-              "bodyOmitted",
-              "next"
-            ],
             "properties": {
-              "bodyOmitted": {
+              "contentOmitted": {
                 "const": true
               }
-            }
+            },
+            "required": [
+              "contentOmitted",
+              "next"
+            ]
           }
         ]
       },
       "example": {
         "messageId": 17,
-        "kind": "question",
-        "body": "Is storage reviewed?",
         "ttlMs": 60000,
         "expiresAt": 1791187260000,
         "reasoning": "Review before handoff",
         "wake": "action",
         "replyRequired": true,
-        "conversationId": "review:1"
+        "contextId": "review:1",
+        "parts": [
+          {
+            "text": "Is storage reviewed?"
+          }
+        ]
       },
       "routing": "author → fixed recipients; visible to message participants",
       "fetch": {
@@ -3878,16 +3473,7 @@
       "writer": "subscribe",
       "description": "An agent starts receiving a topic; subscribe replaces its topic set.",
       "dataSchema": {
-        "type": "object",
-        "properties": {
-          "topic": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "topic"
-        ]
+        "$ref": "#/$defs/topicData"
       },
       "example": {
         "topic": "reviews"
@@ -3902,16 +3488,7 @@
       "writer": "subscribe/leave",
       "description": "An agent unsubscribes or leaves. Already-sent message recipients remain unchanged.",
       "dataSchema": {
-        "type": "object",
-        "properties": {
-          "topic": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "topic"
-        ]
+        "$ref": "#/$defs/topicData"
       },
       "example": {
         "topic": "reviews"
@@ -3955,7 +3532,7 @@
     },
     {
       "type": "delivery.created",
-      "writer": "send_message/notify_all/complete",
+      "writer": "send_message/complete",
       "description": "One fixed recipient is added to a message. from is recipient; to is original sender. This is storage, not submission or handling.",
       "dataSchema": {
         "$ref": "#/$defs/deliveryData"
@@ -4115,51 +3692,7 @@
       "writer": "record_usage",
       "description": "Original host counters, once per key. scope is request, turn or cumulative; absent counters are unknown and cumulative values must not be summed.",
       "dataSchema": {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "scope": {
-            "enum": [
-              "request",
-              "turn",
-              "cumulative"
-            ]
-          },
-          "model": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "inputTokens": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "outputTokens": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "cachedInputTokens": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "contextTokens": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "cacheWriteTokens": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "key",
-          "scope"
-        ]
+        "$ref": "#/$defs/usageData"
       },
       "example": {
         "key": "turn:1",
@@ -4191,11 +3724,11 @@
             "maxLength": 256
           }
         },
+        "additionalProperties": false,
         "required": [
           "generation",
           "vendor"
-        ],
-        "additionalProperties": false
+        ]
       },
       "example": {
         "generation": "session",
@@ -4217,6 +3750,7 @@
             "const": "claude"
           },
           "permissionMode": {
+            "type": "string",
             "enum": [
               "default",
               "plan",
@@ -4227,6 +3761,7 @@
             ]
           },
           "crossSessionInbound": {
+            "type": "string",
             "enum": [
               "accept",
               "hold",
@@ -4235,11 +3770,11 @@
             ]
           }
         },
+        "additionalProperties": false,
         "required": [
           "vendor",
           "permissionMode"
-        ],
-        "additionalProperties": false
+        ]
       },
       "example": {
         "vendor": "claude",
@@ -4264,11 +3799,11 @@
           },
           "tags": {
             "type": "array",
+            "maxItems": 32,
             "items": {
               "type": "string",
               "maxLength": 128
-            },
-            "maxItems": 32
+            }
           },
           "expiresAt": {
             "type": "integer",
@@ -4279,10 +3814,10 @@
             "maxLength": 4096
           }
         },
+        "additionalProperties": true,
         "required": [
           "content"
-        ],
-        "additionalProperties": true
+        ]
       },
       "example": {
         "content": "Case aliases conflict on all filesystems",
@@ -4312,10 +3847,10 @@
             "maxLength": 128
           }
         },
+        "additionalProperties": true,
         "required": [
           "name"
-        ],
-        "additionalProperties": true
+        ]
       },
       "example": {
         "name": "checkpoint",
@@ -4369,11 +3904,11 @@
             }
           }
         },
+        "additionalProperties": false,
         "required": [
           "goal",
           "next"
-        ],
-        "additionalProperties": false
+        ]
       },
       "example": {
         "goal": "Typed message protocols",
@@ -4457,13 +3992,7 @@
           "type": "string"
         },
         "status": {
-          "type": "string",
-          "enum": [
-            "available",
-            "busy",
-            "blocked",
-            "unknown"
-          ]
+          "$ref": "#/$defs/status"
         }
       },
       "additionalProperties": false,
@@ -4540,13 +4069,7 @@
                 "type": "string"
               },
               "status": {
-                "type": "string",
-                "enum": [
-                  "available",
-                  "busy",
-                  "blocked",
-                  "unknown"
-                ]
+                "$ref": "#/$defs/status"
               },
               "expiresAt": {
                 "type": "integer"
@@ -4598,24 +4121,6 @@
       ],
       "description": "Receipt of the stored message."
     },
-    "notify_all": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "integer",
-          "description": "Message ID."
-        },
-        "recipients": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "recipients"
-      ],
-      "description": "Receipt of the stored broadcast."
-    },
     "inbox": {
       "$ref": "#/$defs/inboxPage",
       "description": "Pending deliveries; follow next."
@@ -4658,40 +4163,6 @@
             },
             "count": {
               "const": 1
-            },
-            "leases": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "integer"
-                  },
-                  "path": {
-                    "type": "string"
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "file",
-                      "tree"
-                    ]
-                  },
-                  "expiresAt": {
-                    "type": "integer"
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "id",
-                  "path",
-                  "kind",
-                  "expiresAt"
-                ]
-              }
-            },
-            "leasesNotMoved": {
-              "type": "string"
             }
           },
           "additionalProperties": false,
@@ -4701,7 +4172,7 @@
             "completed",
             "count"
           ],
-          "description": "Reply stored and the request completed; a done handoff moves its leases."
+          "description": "Final result stored and this recipient acknowledged atomically; other recipients remain independent."
         }
       ],
       "description": "Either an acknowledgement of read messages or the receipt of a stored final reply."
@@ -5146,33 +4617,6 @@
             "$ref": "#/$defs/tool"
           }
         },
-        "messageKinds": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string"
-              },
-              "field": {
-                "type": "string"
-              },
-              "request": {
-                "type": "boolean"
-              },
-              "wake": {
-                "type": "boolean"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind",
-              "field",
-              "request",
-              "wake"
-            ]
-          }
-        },
         "recordTypes": {
           "type": "array",
           "items": {
@@ -5252,7 +4696,6 @@
       "required": [
         "commands",
         "tools",
-        "messageKinds",
         "recordTypes",
         "recordEnvelope",
         "results",
@@ -5268,14 +4711,7 @@
           "type": "string"
         },
         "transport": {
-          "type": "string",
-          "enum": [
-            "raw",
-            "claude",
-            "codex",
-            "opencode",
-            "grok"
-          ]
+          "$ref": "#/$defs/transport"
         },
         "endpoint": {
           "type": "string"
@@ -5620,12 +5056,7 @@
       "type": "object",
       "properties": {
         "view": {
-          "type": "string",
-          "enum": [
-            "files",
-            "commits",
-            "reflog"
-          ]
+          "$ref": "#/$defs/activityView"
         },
         "workspace": {
           "type": "string"
@@ -5854,20 +5285,7 @@
                 "type": "boolean"
               },
               "lease": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "integer"
-                  },
-                  "expiresAt": {
-                    "type": "integer"
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "id",
-                  "expiresAt"
-                ]
+                "$ref": "#/$defs/leaseExpiry"
               }
             },
             "additionalProperties": false,
@@ -5978,7 +5396,7 @@
             "expiredSettledMessages": {
               "type": "integer"
             },
-            "expiredSettledBodyBytes": {
+            "expiredSettledContentBytes": {
               "type": "integer"
             },
             "unacknowledgedMessages": {
@@ -5995,7 +5413,7 @@
             "count",
             "hasMore",
             "expiredSettledMessages",
-            "expiredSettledBodyBytes",
+            "expiredSettledContentBytes",
             "unacknowledgedMessages",
             "unresolvedDispatchMessages"
           ]
@@ -6293,11 +5711,7 @@
                 "description": "Absolute path."
               },
               "kind": {
-                "type": "string",
-                "enum": [
-                  "file",
-                  "tree"
-                ]
+                "$ref": "#/$defs/pathKind"
               },
               "owner": {
                 "type": "string"

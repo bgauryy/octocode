@@ -128,40 +128,6 @@ fn link_file_keeps_heritage_and_call_kinds() {
     );
 }
 
-/// Facts of another schema version (v1 carried text diagnostics) are
-/// never linked: the file is skipped and says why.
-#[test]
-fn facts_of_an_older_schema_are_skipped_not_linked() {
-    let mut built = super::super::BuiltGraph::default();
-    let known = known(&["a.ts"]);
-    let security = crate::security::ContentSecurity::new();
-    let inputs = super::super::LinkInputs {
-        rust_modules: &super::super::RustModules::default(),
-        known: &known,
-        security: &security,
-        cargo_crates: &super::super::CargoCrates::default(),
-        ctx: &super::super::ResolveContext::default(),
-        packages: &Default::default(),
-    };
-    let entry = octocode_engine::graph::GraphFactsTypedEntry {
-        relative_path: "a.ts".into(),
-        content_digest: "digest".into(),
-        source_stamp: None,
-        facts: octocode_engine::graph::GraphFactsDocument {
-            schema_version: octocode_engine::signatures::GRAPH_FACTS_SCHEMA_VERSION - 1,
-            ..Default::default()
-        },
-        reference_counts: Vec::new(),
-    };
-    super::super::link_entry(&mut built, &inputs, entry, Default::default());
-    assert!(built.nodes.is_empty());
-    assert_eq!(built.files_skipped, 1);
-    assert_eq!(
-        built.diagnostics[0].code,
-        DiagnosticCode::FactsSchemaUnsupported
-    );
-}
-
 /// A Rust module-attribute note keeps its line in the diagnostic's
 /// `line`, and the message carries no line text.
 #[test]

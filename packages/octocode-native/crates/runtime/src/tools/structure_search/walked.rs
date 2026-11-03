@@ -20,7 +20,7 @@ pub(super) struct Walked {
 /// What a listing walk saw beside its rows.
 pub(super) struct WalkMeta {
     /// Listing rows before this window's end (`scanOffset` plus the rows
-    /// this window took): where `next.continueWalk` resumes.
+    /// this window took): where `next.nextPage` resumes.
     pub(super) covered: usize,
     pub(super) available: usize,
     pub(super) total_discovered: usize,
@@ -37,7 +37,7 @@ pub(super) struct WalkMeta {
     pub(super) bytes: u64,
     pub(super) uncovered: Uncovered,
     /// Entries a `testCode` scope left out of the window (`None` unscoped).
-    pub(super) test_code_excluded: Option<crate::tools::test_code::Excluded>,
+    pub(super) test_code_excluded: Option<octocode_engine::types::TestCodeExcluded>,
 }
 
 impl memo::Listed for Walked {
@@ -83,7 +83,10 @@ impl Walked {
             was_capped: native.was_capped,
             time_cut: native
                 .time_cut
-                .map(|at| security.sanitize_text(&at, None).content),
+                .map(|at| match security.sanitize_text(&at, None).content {
+                    std::borrow::Cow::Borrowed(_) => at,
+                    std::borrow::Cow::Owned(text) => text,
+                }),
             time_window: TimeWindow::Whole,
             walk_position: native.walk_position as usize,
             files,

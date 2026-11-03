@@ -90,11 +90,12 @@ pub(super) fn annotate_includes(
     flag_noted(row, query, BUILD_SCRIPTS_REASON, note, scope);
     // The rerun repeats the whole walk: offered once, on its first page,
     // and only where the reason holds alone.
-    if !continues_a_page(query) && !outside && lists_reason(row, BUILD_SCRIPTS_REASON) {
-        crate::response::result::attach_related(
-            row,
-            super::super::failure::next_action(query, BUILD_SCRIPTS_REASON),
-        );
+    if !continues_a_page(query)
+        && !outside
+        && lists_reason(row, BUILD_SCRIPTS_REASON)
+        && let Some(rerun) = super::super::failure::next_action(query, BUILD_SCRIPTS_REASON)
+    {
+        crate::response::result::attach_related(row, rerun);
     }
 }
 

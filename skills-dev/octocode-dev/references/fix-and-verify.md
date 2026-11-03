@@ -20,7 +20,7 @@ flowchart TD
   N1 --> N2["cargo fmt + clippy on the touched crate"]
   N2 --> N3["yarn workspace @octocodeai/octocode-native test:rust: nextest; bacon test while editing"]
   N3 --> NB
-  K -- Config contract --> G1["edit config-contract.json"]
+  K -- Config contract --> G1["edit scripts/config-contract/declaration/ (Zod)"]
   G1 --> G2["yarn workspace @octocodeai/config generate:config-contract"]
   G2 --> NB["native rebuild: yarn workspace @octocodeai/octocode-native build:dev; build.rs embeds contract/ in place (config change: regenerates the struct)"]
   K -- CLI or MCP --> I1["yarn workspace octocode build:dev, or yarn workspace octocode-mcp build:dev; MCP tests: test"]

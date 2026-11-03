@@ -29,7 +29,7 @@ function fixture(t: TestContext) {
   const asyncCall = (command: string, input: Record<string, unknown>, session: string) => exec(binary, args(command, input, session), { timeout: 7500, killSignal: 'SIGKILL' });
   const sender = call('join', { name: 'sender', vendor: 'generic' });
   const receiver = call('join', { name: 'receiver', vendor: 'generic' });
-  call('send_message', { to: receiver.id, body: 'Recipient-bound fact', reasoning: 'Exercise preflight boundaries', wake: 'passive' }, sender.id);
+  call('send_message', {parts: [{ text: 'Recipient-bound fact' }],  to: receiver.id, reasoning: 'Exercise preflight boundaries', wake: 'passive' }, sender.id);
   const db = new DatabaseSync(database);
   t.after(() => { db.close(); rmSync(workspace, { recursive: true, force: true }); });
   return { workspace, call, asyncCall, receiver, db };

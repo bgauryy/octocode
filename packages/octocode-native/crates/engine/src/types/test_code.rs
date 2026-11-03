@@ -45,12 +45,28 @@ pub fn wholly_left_out(keep_test: bool, spans: &[[u32; 2]]) -> bool {
     }
 }
 
-/// What a [`TestCodeScope`] left out.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// What a [`TestCodeScope`] left out, as every tool states it
+/// (`testCodeExcluded`, a zero count omitted).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TestCodeExcluded {
     /// Files left out whole: unread by where they lie, or read and wholly
     /// on the other side by their spans.
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub files: u32,
-    /// Matched lines left out inside searched files.
+    /// Hit lines (listings: entries) left out inside the other searched
+    /// files.
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub lines: u32,
+}
+
+impl TestCodeExcluded {
+    /// The disclosure of a scope that left something out; `None` otherwise.
+    #[must_use]
+    pub fn stated(self) -> Option<Self> {
+        (self.files > 0 || self.lines > 0).then_some(self)
+    }
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }

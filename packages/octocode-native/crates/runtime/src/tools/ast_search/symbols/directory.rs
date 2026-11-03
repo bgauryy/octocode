@@ -56,11 +56,11 @@ pub(super) struct DirectoryWalk {
     withheld: crate::policy::discovery::Withheld,
     /// Entries the walk could not read, and how many for want of
     /// permission.
-    walk_errors: (u32, u32),
+    pub(super) walk_errors: (u32, u32),
 }
 
-/// Walk a directory outline's candidates once: the memo fingerprint reads
-/// the walk, and a cold page scans it without walking again.
+/// Walk a directory outline's candidates once; the page scans that walk
+/// and a continuation reads it to key the set its first page stored.
 pub(super) fn walk_directory(
     q: &AstSearchQuerySymbols,
     canonical: &std::path::Path,
@@ -82,23 +82,20 @@ pub(super) fn walk_directory(
     let files = octocode_engine::fact_scan::walk_graph_fact_files(
         &directory_scan_options(q, canonical),
         &|path, file_type| {
-            let outlinable = || {
-                outlined.iter().any(|extension| {
-                    octocode_engine::text::extension_of(&path.to_string_lossy(), true, "")
-                        == *extension
-                })
-            };
+            // The entry's extension is read once, however many checks ask.
+            let verdict = std::cell::OnceCell::new();
+            let is_outlinable = || *verdict.get_or_init(|| outlinable(&outlined, None, path));
             // Only a directory or an outlinable file leaves absence unproven
             // when the policy withholds it or it is a link (the walk follows
             // none). The outline walk hides dot entries unless
             // `includeHidden`: one out of view is not disclosed.
             admission.admit(path, file_type, |is_dir| {
                 (q.include_hidden == Some(true) || !crate::tools::ast_search::is_dot_entry(path))
-                    && (is_dir || outlinable())
+                    && (is_dir || is_outlinable())
             }) && scoped.is_none_or(|scoped| {
                 // Only an outlinable file is one the scope leaves unread.
                 let is_dir = file_type.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
-                (!is_dir && !outlinable()) || scoped.reads(path, is_dir)
+                (!is_dir && !is_outlinable()) || scoped.reads(path, is_dir)
             })
         },
         &|| cancel.check().is_err(),

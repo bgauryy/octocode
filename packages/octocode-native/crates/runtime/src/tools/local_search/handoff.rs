@@ -5,11 +5,15 @@ use super::enclosing::*;
 use super::local_search_query;
 use super::types::*;
 use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
-use crate::id::ToolId;
 use crate::response::result::Continuation;
-use octocode_contract_types::LocalSearchQuery;
+use octocode_contract_types::{
+    LocalFetchQueryContentMatchString, LocalFetchQueryContentMatchStringContextLines,
+    LocalFetchQueryContentMatchStringView, LocalFetchQueryContentRanges,
+    LocalFetchQueryContentRangesView, LocalSearchQuery, SourceLineRange,
+};
 use octocode_engine::types::SearchContext;
-use serde_json::{Value, json};
+use serde_json::Value;
+use std::num::NonZeroU64;
 
 /// The searched symbol's declaration among the shown hits.
 pub(super) struct Definition {
@@ -31,12 +35,35 @@ pub(super) fn declaration_read(
     file: &SearchFile,
     start: u32,
     end: u32,
-) -> Value {
-    Continuation::related(
-        ToolId::LocalFetch,
-        json!({"path": joined_path(query, root, file), "ranges": [{"startLine":start,"endLine":end}]}),
-    )
-    .build()
+) -> Option<Value> {
+    ranges_read(joined_path(query, root, file), &[(start, end)])
+}
+
+/// localFetch read of `path` over the inclusive line `windows`.
+fn ranges_read(path: String, windows: &[(u32, u32)]) -> Option<Value> {
+    let ranges = windows
+        .iter()
+        .map(|&(start, end)| {
+            Some(SourceLineRange {
+                start_line: NonZeroU64::new(u64::from(start))?,
+                end_line: NonZeroU64::new(u64::from(end))?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let query = LocalFetchQueryContentRanges {
+        block: None,
+        classification: None,
+        limit: None,
+        main_goal: None,
+        path: path.try_into().ok()?,
+        ranges,
+        read_progress: None,
+        reasoning: None,
+        selection: None,
+        snapshot: None,
+        view: LocalFetchQueryContentRangesView::Content,
+    };
+    Some(Continuation::related_query(octocode_contract_types::LocalFetchQuery::from(query)).build())
 }
 
 /// A shown file's path joined to the caller's own `path`, so a read
@@ -110,22 +137,29 @@ pub(super) fn read_handoff(
         crate::tools::line_spans::file_lines(&source),
     );
     if windows.len() <= RANGES_MAX_ITEMS {
-        let ranges = windows
-            .iter()
-            .map(|(start, end)| json!({"startLine":start,"endLine":end}))
-            .collect::<Vec<_>>();
-        return Some(
-            Continuation::related(ToolId::LocalFetch, json!({"path": path, "ranges": ranges}))
-                .build(),
-        );
+        return ranges_read(path, &windows);
     }
-    let mut read = json!({
-        "path": path,
-        "matchString": [local_search_query::pattern(query)],
-        "contextLines": {"before":READ_HANDOFF_CONTEXT,"after":READ_HANDOFF_CONTEXT},
-    });
-    read["regexEngine"] = json!(local_search_query::regex_mode(query));
-    read["caseMode"] = json!(local_search_query::case_mode(query));
-    read["wholeWord"] = json!(local_search_query::whole_word(query).unwrap_or(false));
-    Some(Continuation::related(ToolId::LocalFetch, read).build())
+    let context = i64::from(READ_HANDOFF_CONTEXT);
+    let query = LocalFetchQueryContentMatchString {
+        block: None,
+        case_mode: local_search_query::case_mode(query),
+        classification: None,
+        context_lines: Some(LocalFetchQueryContentMatchStringContextLines {
+            after: context,
+            before: context,
+        }),
+        limit: None,
+        main_goal: None,
+        match_string: vec![local_search_query::pattern(query).try_into().ok()?].into(),
+        path: path.try_into().ok()?,
+        ranges: Vec::new(),
+        read_progress: None,
+        reasoning: None,
+        regex_engine: local_search_query::regex_mode(query),
+        selection: None,
+        snapshot: None,
+        view: LocalFetchQueryContentMatchStringView::Content,
+        whole_word: local_search_query::whole_word(query).unwrap_or(false),
+    };
+    Some(Continuation::related_query(octocode_contract_types::LocalFetchQuery::from(query)).build())
 }

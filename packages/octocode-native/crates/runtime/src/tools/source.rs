@@ -124,19 +124,10 @@ fn in_chunks<T: Sync, R: Send>(items: &[T], job: impl Fn(&[T]) -> R + Sync) -> V
     if workers < 2 {
         return vec![job(items)];
     }
-    let job = &job;
-    std::thread::scope(|scope| {
-        items
-            .chunks(items.len().div_ceil(workers))
-            .map(|chunk| scope.spawn(move || job(chunk)))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .map(|task| {
-                task.join()
-                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-            })
-            .collect()
-    })
+    let mut chunks = items
+        .chunks(items.len().div_ceil(workers))
+        .collect::<Vec<_>>();
+    crate::tools::workers::each_parallel(&mut chunks, workers, |chunk| job(chunk))
 }
 
 /// Bytes of the regular file at `path`, at most `max_bytes`.

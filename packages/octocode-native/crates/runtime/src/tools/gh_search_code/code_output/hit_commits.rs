@@ -18,8 +18,7 @@ pub(in crate::tools::gh_search_code) struct Resolution {
     /// Per row: the commit it was read at, and its hits.
     pub(in crate::tools::gh_search_code) hits:
         Vec<(String, crate::tools::gh_search_code::lines::FileHits)>,
-    /// Files read for the page (core API reads, through the contents
-    /// cache): identical blobs at one commit are read once.
+    /// Files read for the page: identical blobs are grouped within this request.
     pub(in crate::tools::gh_search_code) reads: usize,
 }
 
@@ -101,7 +100,7 @@ pub(in crate::tools::gh_search_code) async fn line_commit(
     }
     Some(
         provider
-            .resolve_reference(&query.owner, repo, Some(reference), false, context)
+            .resolve_reference(&query.owner, repo, Some(reference), context)
             .await,
     )
 }
@@ -129,7 +128,7 @@ pub(in crate::tools::gh_search_code) async fn resolve_lines(
     // A named ref that does not resolve is the caller's mistake: never fall
     // back to default-branch lines labeled as that ref.
     let sha = commit?;
-    // Every row is read at the ref (through the contents cache): an index
+    // Every row is read at the ref: an index
     // fragment carries no line numbers, and it is default-branch text.
     let reads = items
         .iter()
@@ -186,7 +185,7 @@ async fn indexed_lines(
                 .any(|row| located(row).is_none_or(|(.., commit, _)| commit.is_none())) =>
         {
             match provider
-                .resolve_reference(&query.owner, repo, None, false, context)
+                .resolve_reference(&query.owner, repo, None, context)
                 .await
             {
                 Ok(sha) => Some(sha),
@@ -272,6 +271,20 @@ async fn read_groups(
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
+    let window = query
+        .context_lines
+        .as_ref()
+        .map_or_else(Default::default, |lines| {
+            crate::tools::gh_search_code::lines::Window {
+                before: usize::try_from(lines.before).unwrap_or(0),
+                after: usize::try_from(lines.after).unwrap_or(0),
+            }
+        });
+    let listing = crate::tools::gh_search_code::lines::Listing {
+        keywords: &keywords,
+        goal: "",
+        window,
+    };
     // Per group: the distinct paths read, and for each row the read it shares.
     let plans = groups
         .iter()
@@ -300,7 +313,7 @@ async fn read_groups(
         .zip(&plans)
         .map(|(((owner, repo, sha), _), (paths, _))| {
             crate::tools::gh_search_code::lines::resolve_files(
-                provider, owner, repo, sha, paths, &keywords, "", context, security,
+                provider, owner, repo, sha, paths, &listing, context, security,
             )
         });
     let resolved = futures_util::future::join_all(reads).await;

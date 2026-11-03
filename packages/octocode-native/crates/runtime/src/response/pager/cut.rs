@@ -3,14 +3,14 @@ use super::{
     PreparedPage, ResponseError, ResponseInput, ResponsePageOptions, ResponsePagination,
     build_continuation, is_saved_replay, page_cursor,
 };
+use octocode_io::cancellation::Cancellation;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 /// One row page of `source`, with its pagination block and continuation.
 pub(super) fn cut_rows(
     source: &RowSource,
     input: &ResponseInput,
-    cancelled: &CancellationToken,
+    cancelled: &Cancellation,
 ) -> Result<PreparedPage, ResponseError> {
     let (mut envelope, mut pagination) = source.page(
         &input.options,

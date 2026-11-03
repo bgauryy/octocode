@@ -2,8 +2,8 @@
 
 use super::*;
 
-/// References past the importer cap: walking `nextPage` then
-/// `nextImporterPage` reaches every importer file in exactly one window,
+/// References past the importer cap: walking `pagination.next.nextPage` then
+/// row `next.nextPage` reaches every importer file in exactly one window,
 /// lists every row once (a recovered row in another window's file waits for
 /// that window), and only importer page 1 lists the anchor's own answer.
 /// A changed candidate list stales both a window's entry and its later
@@ -96,12 +96,12 @@ fn importer_pages_reach_every_reference_exactly_once() {
         // location page alike; the restart has no importer cursor.
         let entry = continuations
             .iter()
-            .find(|(name, _)| name == "nextImporterPage")
+            .find(|(name, _)| name == "nextPage")
             .map(|(_, row)| row.clone())
             .expect("a window entry");
         let inside = continuations
             .iter()
-            .find(|(name, row)| name == "nextPage" && row["importerPage"] == 2)
+            .find(|(name, row)| name == "locationPage" && row["importerPage"] == 2)
             .map(|(_, row)| row.clone())
             .expect("a later location page of window 2");
         write_importer(&root, "f000a.ts");
@@ -115,6 +115,7 @@ fn importer_pages_reach_every_reference_exactly_once() {
                 &paths,
                 &execution,
                 None,
+                crate::tools::lsp_search::test_answers(),
             )
             .await
             .expect("stale page");
@@ -211,7 +212,7 @@ fn every_page_of_a_window_offers_one_lead_to_the_next_window() {
             assert!(rows.len() > 1, "window {window} spans location pages");
             let leads = rows
                 .iter()
-                .map(|row| next_row(row, "nextImporterPage"))
+                .map(|row| next_row(row, "nextPage"))
                 .collect::<Vec<_>>();
             if window == 3 {
                 assert!(
@@ -232,7 +233,7 @@ fn every_page_of_a_window_offers_one_lead_to_the_next_window() {
         }
         let mut entries = Vec::new();
         for (name, call) in &continuations {
-            if name == "nextImporterPage" && !entries.contains(&call) {
+            if name == "nextPage" && !entries.contains(&call) {
                 entries.push(call);
             }
         }

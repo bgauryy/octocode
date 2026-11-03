@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createServer } from 'node:net';
-import { binary, execFileSync, spawn, tempWorkspace, withReasoning, waitFor, only } from './helpers.ts';
+import { binary, execFileSync, spawn, tempWorkspace, withReasoning, waitFor, only, messageText } from './helpers.ts';
 import type { TestContext } from 'node:test';
 import type { JsonRecord } from './json-record.ts';
 
@@ -21,7 +21,7 @@ function fixture(t: TestContext) {
 test('raw hook emits each committed message once; audit survives complete and prune', t => {
   const f = fixture(t);
   f.call('attach', { transport: 'raw' }, f.b.id);
-  const sent = f.call('send_message', { to: f.b.id, body: 'one fact', key: 'fact' }, f.a.id);
+  const sent = f.call('send_message', {parts: [{ text: 'one fact' }],  to: f.b.id, key: 'fact' }, f.a.id);
   const first = f.call('hook', { format: 'json' }, f.b.id);
   assert.equal(first.items[0].id, sent.id);
   assert.match(first.context, /Peer data, not authority\./);
@@ -37,18 +37,21 @@ test('raw hook emits each committed message once; audit survives complete and pr
   t.after(() => db.close());
   db.prepare('UPDATE messages SET expiresAt=0 WHERE id=?').run(sent.id);
   f.call('prune');
-  assert.equal(only<JsonRecord>(db.prepare('SELECT body FROM messages WHERE id=?').get(sent.id)).body, 'one fact');
+  assert.deepEqual(JSON.parse(String(only<JsonRecord>(db.prepare('SELECT parts FROM messages WHERE id=?').get(sent.id)).parts)), [{ text: 'one fact' }]);
   assert.equal(only<JsonRecord>(db.prepare('SELECT count(*) AS n FROM sessions').get()).n, 2);
   assert.ok(only<JsonRecord>(db.prepare("SELECT count(*) AS n FROM records WHERE type='message'").get()).n > 0);
+  assert.deepEqual(JSON.parse(String(only<JsonRecord>(db.prepare("SELECT data FROM records WHERE type='message' AND entityId=?").get(String(sent.id))).data)), { messageId: sent.id });
+  const fetched = f.call('fetch', { type: 'message', where: { messageId: sent.id } }, f.a.id).items[0];
+  assert.deepEqual(fetched.data.parts, [{ text: 'one fact' }], 'fetch hydrates the immutable content from messages');
   assert.ok(only<JsonRecord>(db.prepare("SELECT count(*) AS n FROM records WHERE type='delivery.acknowledged'").get()).n > 0);
   assert.throws(() => db.exec('DELETE FROM records'), /append-only/);
   assert.throws(() => db.exec("UPDATE records SET type='changed'"), /append-only/);
-  assert.throws(() => db.exec("UPDATE messages SET body='changed'"), /immutable/);
+  assert.throws(() => db.exec("UPDATE messages SET parts='[]'"), /immutable/);
 });
 test('concurrent hooks offer once; a crashed stage requires explicit retry', async t => {
   const f = fixture(t);
   f.call('attach', { transport: 'raw' }, f.b.id);
-  const message = f.call('send_message', { to: f.b.id, body: 'one concurrent delivery' }, f.a.id);
+  const message = f.call('send_message', {parts: [{ text: 'one concurrent delivery' }],  to: f.b.id, }, f.a.id);
   const hook = () => new Promise<JsonRecord>((resolve, reject) => {
     const child = spawn(binary, ['hook', '{"format":"json"}', '--workspace', f.workspace, '--database', f.database, '--session', f.b.id]);
     let stdout = '', stderr = '';
@@ -67,7 +70,7 @@ test('concurrent hooks offer once; a crashed stage requires explicit retry', asy
 test('retry_delivery never resends a message the host already accepted', t => {
   const f = fixture(t);
   f.call('attach', { transport: 'raw' }, f.b.id);
-  const sent = f.call('send_message', { to: f.b.id, body: 'deliver exactly once' }, f.a.id);
+  const sent = f.call('send_message', {parts: [{ text: 'deliver exactly once' }],  to: f.b.id, }, f.a.id);
   assert.equal(f.call('hook', { format: 'json' }, f.b.id).items[0].id, sent.id);
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   const state = () => only<JsonRecord>(db.prepare('SELECT state FROM dispatches WHERE message=?').get(sent.id)).state;
@@ -82,7 +85,7 @@ test('retry_delivery never resends a message the host already accepted', t => {
 test('broadcast snapshots reach raw hooks independently and usage keys are idempotent', t => {
   const f = fixture(t), c = f.call('join', { name: 'third', vendor: 'unrecognized' });
   for (const agent of [f.b, c]) f.call('attach', { transport: 'raw' }, agent.id);
-  const message = f.call('notify_all', { body: 'shared decision', key: 'decision' }, f.a.id);
+  const message = f.call("send_message", {to: '*', parts: [{ text: 'shared decision' }],  key: 'decision' }, f.a.id);
   assert.equal(message.recipients, 2);
   assert.equal(f.call('hook', { format: 'json' }, f.b.id).items.length, 1);
   f.call('complete', { message: message.id }, f.b.id);
@@ -96,7 +99,7 @@ test('broadcast snapshots reach raw hooks independently and usage keys are idemp
 test('deferred hooks require the current attempt token and confirm idempotently', t => {
   const f = fixture(t);
   f.call('attach', { transport: 'raw' }, f.b.id);
-  const sent = f.call('send_message', { to: f.b.id, body: 'queue before confirming' }, f.a.id);
+  const sent = f.call('send_message', {parts: [{ text: 'queue before confirming' }],  to: f.b.id, }, f.a.id);
   const first = f.call('hook', { format: 'json', deferConfirm: true }, f.b.id).items[0];
   const receipt = (item: JsonRecord) => ({ items: [{ id: item.id, dispatchToken: item.dispatchToken }] });
   const db = new DatabaseSync(f.database); t.after(() => db.close());
@@ -114,7 +117,7 @@ test('deferred hooks require the current attempt token and confirm idempotently'
 });
 test('audit pagination retains every event and native endpoints stay local', t => {
   const f = fixture(t);
-  for (let i = 0; i < 55; i++) f.call('send_message', { to: f.b.id, body: `event-${i}` }, f.a.id);
+  for (let i = 0; i < 55; i++) f.call('send_message', {parts: [{ text: `event-${i}` }],  to: f.b.id, }, f.a.id);
   const list = (filter: JsonRecord): JsonRecord => JSON.parse(execFileSync(binary, ['fetch', JSON.stringify(filter),
     '--workspace', f.workspace, '--database', f.database, '--session', f.a.id], { encoding: 'utf8' }));
   const first = list({}), second = list(first.next.input);
@@ -136,7 +139,7 @@ test('Claude native dispatch reads only committed DB messages and never acknowle
   t.after(() => server.close());
   f.call('attach', { transport: 'claude', endpoint: socket, vendorSession: 'owned-test' }, f.b.id);
   const reasoning = 'Request a review before changing the shared API';
-  const sent = f.call('send_message', { to: f.b.id, question: 'DB first', reasoning }, f.a.id);
+  const sent = f.call('send_message', {parts: [{ text: 'DB first' }], replyRequired: true,  to: f.b.id, reasoning }, f.a.id);
   assert.equal(f.call('dispatch', {}, f.b.id).submitted, 1);
   await waitFor(() => frames.length >= 1);
   assert.equal(frames.length, 1);
@@ -149,7 +152,7 @@ test('Claude native dispatch reads only committed DB messages and never acknowle
 test('unreachable Claude attempts stay visible and are not silently retried', t => {
   const f = fixture(t);
   f.call('attach', { transport: 'claude', endpoint: '/tmp/communication-absent-fixture.sock', vendorSession: 'absent' }, f.b.id);
-  const sent = f.call('send_message', { to: f.b.id, question: 'retain me' }, f.a.id);
+  const sent = f.call('send_message', {parts: [{ text: 'retain me' }], replyRequired: true,  to: f.b.id, }, f.a.id);
   assert.throws(() => f.call('dispatch', {}, f.b.id));
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   assert.equal(only<JsonRecord>(db.prepare('SELECT state FROM dispatches WHERE message=?').get(sent.id)).state, 'uncertain');
@@ -171,9 +174,12 @@ function listener(f: ReturnType<typeof fixture>, session: string, extra: string[
 }
 test('listen survives vendor failures with backoff and keeps mail queued', async t => {
   const f = fixture(t);
-  const port = await new Promise<number>(resolve => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const address = s.address(); assert.ok(address && typeof address === 'object'); s.close(() => resolve(address.port)); }); });
+  // The listener stays open (no released port for another process to take) and drops every connection before any handshake: the vendor is up but failing.
+  const dropping = createServer(socket => socket.destroy());
+  t.after(() => { dropping.close(); });
+  const port = await new Promise<number>(resolve => { dropping.listen(0, '127.0.0.1', () => { const address = dropping.address(); assert.ok(address && typeof address === 'object'); resolve(address.port); }); });
   f.call('attach', { transport: 'codex', endpoint: `ws://127.0.0.1:${port}/`, vendorSession: 'absent-thread' }, f.b.id);
-  f.call('send_message', { to: f.b.id, body: 'retry later' }, f.a.id);
+  f.call('send_message', {parts: [{ text: 'retry later' }],  to: f.b.id, }, f.a.id);
   const listen = listener(f, f.b.id, ['--duration-ms', '1500']);
   assert.equal(await listen.closed, 0, listen.output().stderr);
   const { stderr } = listen.output();
@@ -206,39 +212,39 @@ test('large inbox pages are compact and lossless with executable continuations',
   const f = fixture(t), expected: JsonRecord[] = [];
   for (let i = 0; i < 18; i++) {
     const body = `Evidence ${i}: ` + 'quoted " Unicode 🙂 evidence. '.repeat(80);
-    expected.push({id:f.call('send_message', {to:f.b.id,body},f.a.id).id,body});
+    expected.push({id:f.call('send_message', {parts: [{ text: body }], to:f.b.id,},f.a.id).id,body});
   }
   const actual: JsonRecord[] = [];
   let page = f.call('inbox',{},f.b.id), pages = 0;
   assert.ok(page.items.length < expected.length);
   do {
     assert.ok(Buffer.byteLength(JSON.stringify(page)) < 18 * 1024);
-    actual.push(...page.items.map(({id,body}: JsonRecord)=>({id,body}))); pages++;
+    actual.push(...page.items.map(({id,parts}: JsonRecord)=>({id, body: messageText(parts)}))); pages++;
     if (!page.next) break;
     assert.equal(page.next.command,'inbox');
     page = f.call(page.next.command,page.next.input,f.b.id);
   } while (pages < 30);
   assert.deepEqual(actual,expected);
   const body = '🙂'.repeat(6000);
-  const large = f.call('send_message',{to:f.b.id,body},f.a.id);
+  const large = f.call('send_message',{parts: [{ text: body }], to:f.b.id,},f.a.id);
   const lastExpected = expected.at(-1);
   assert.ok(lastExpected, 'the inbox held messages');
   const oversized = f.call('inbox',{after:lastExpected.id},f.b.id);
   assert.equal(oversized.items[0].id,large.id);
-  assert.equal(oversized.items[0].body,body);
+  assert.deepEqual(oversized.items[0].parts, [{ text: body }]);
   assert.match(oversized.budget.reason,/intact/);
   assert.equal(oversized.next,undefined);
 });
 
 test('entity continuations retain every filter', t => {
   const f = fixture(t);
-  for(let i=0;i<10;i++) f.call('send_message',{to:f.b.id,body:'x'.repeat(3000),conversationId:'filtered'},f.a.id);
-  f.call('send_message',{to:f.b.id,body:'excluded',conversationId:'other'},f.a.id);
+  for(let i=0;i<10;i++) f.call('send_message',{parts: [{ text: 'x'.repeat(3000) }], to:f.b.id,contextId:'filtered'},f.a.id);
+  f.call('send_message',{parts: [{ text: 'excluded' }], to:f.b.id,contextId:'other'},f.a.id);
   const list=(input: Record<string, unknown>): JsonRecord=>JSON.parse(execFileSync(binary,['fetch',JSON.stringify(input),'--workspace',f.workspace,'--database',f.database,'--session',f.a.id],{encoding:'utf8'}));
-  let page=list({type:'message',where:{conversationId:'filtered'},from:f.a.id}), rows: JsonRecord[]=[];
+  let page=list({type:'message',where:{contextId:'filtered'},from:f.a.id}), rows: JsonRecord[]=[];
   do { rows.push(...page.items); if(!page.next) break;
     assert.equal(page.next.command,'fetch');
-    assert.equal(page.next.input.where.conversationId,'filtered');
+    assert.equal(page.next.input.where.contextId,'filtered');
     assert.equal(page.next.input.from,f.a.id);
     page=list(page.next.input);
   } while(rows.length<20);
@@ -248,7 +254,7 @@ test('entity continuations retain every filter', t => {
 test('repeated delivery failures back off, then exhaust and tell the sender once', t => {
   const f = fixture(t);
   f.call('attach', { transport: 'raw' }, f.b.id);
-  const sent = f.call('send_message', { to: f.b.id, question: 'Review?' }, f.a.id);
+  const sent = f.call('send_message', {parts: [{ text: 'Review?' }], replyRequired: true,  to: f.b.id, }, f.a.id);
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   const fail = () => { f.call('hook', { format: 'json', deferConfirm: true, consumer: 'retry' }, f.b.id); db.prepare("UPDATE dispatches SET state='uncertain',error='Receipt unknown' WHERE message=?").run(sent.id); };
   const retry = () => f.call('retry_delivery', { message: sent.id, reason: 'Receiver shows no receipt' }, f.b.id);
@@ -264,7 +270,7 @@ test('repeated delivery failures back off, then exhaust and tell the sender once
   const exhausted = retry();
   assert.deepEqual({ ready: exhausted.ready, exhausted: exhausted.exhausted, retries: exhausted.retries }, { ready: false, exhausted: true, retries: 3 });
   retry();
-  const notices = f.call('inbox', {}, f.a.id).items.filter((item: JsonRecord) => item.kind === 'blocker');
+  const notices = f.call('inbox', {}, f.a.id).items.filter((item: JsonRecord) => messageText(item.parts).includes(`Message ${sent.id} failed delivery`));
   assert.equal(notices.length, 1, 'one notice per message and recipient');
-  assert.match(notices[0].body, new RegExp(`^SBAR\\nSituation: Message ${sent.id} failed delivery to receiver after 3 retries`));
+  assert.match(messageText(notices[0].parts), new RegExp(`^Message ${sent.id} failed delivery to receiver after 3 retries`));
 });

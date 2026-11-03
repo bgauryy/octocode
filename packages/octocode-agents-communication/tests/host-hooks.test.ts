@@ -39,7 +39,7 @@ for (const vendor of ['cursor', 'grok', 'claude', 'codex']) {
     if (vendor === 'grok') assert.deepEqual(initial, {});
     else assert.ok((initial.additional_context ?? initial.hookSpecificOutput.additionalContext).includes(recipient.id));
     const sender = f.cli('join', { vendor: 'raw', name: 'sender' });
-    const message = f.cli('send_message', { to: recipient.id, body: 'ONE DELIVERY' }, sender.id);
+    const message = f.cli('send_message', {parts: [{ text: 'ONE DELIVERY' }],  to: recipient.id, }, sender.id);
     const ignored = f.hook(vendor === 'cursor' ? 'beforeSubmitPrompt' : 'UserPromptSubmit');
     assert.deepEqual(ignored, vendor === 'cursor' ? { continue: true } : {});
     assert.equal(only<JsonRecord>(db.prepare('SELECT count(*) n FROM dispatches').get()).n, 0);
@@ -62,21 +62,21 @@ for (const vendor of ['grok', 'codex']) test(`${vendor} context cap uses explici
   const recipient = only<JsonRecord>(db.prepare('SELECT id FROM sessions').get()).id;
   const sender = f.cli('join', { name: 'sender', vendor: 'raw' });
   const body = 'x'.repeat(vendor === 'codex' ? 6500 : 16000);
-  const sent = f.cli('send_message', { to: recipient, body }, sender.id);
+  const sent = f.cli('send_message', {parts: [{ text: body }],  to: recipient, }, sender.id);
   const content = f.hook('PostToolUse').hookSpecificOutput.additionalContext;
   assert.ok(Buffer.byteLength(content) <= (vendor === 'codex' ? CODEX_CONTEXT_LIMIT : HOST_CONTEXT_LIMIT));
-  assert.ok(content.includes('bodyOmitted'));
-  assert.ok(content.includes('fetch {type:"message",where:{messageId:ID}}'));
+  assert.ok(content.includes('contentOmitted'));
+  assert.ok(content.includes('data.next.command with data.next.input unchanged'));
   const references = JSON.parse(content.slice(content.indexOf('New message references: ') + 'New message references: '.length));
   assert.equal(references.length, 1);
   assert.equal(references[0].path, realpathSync(f.workspace));
   assert.equal(references[0].from, sender.id); assert.equal(references[0].to, recipient);
   assert.equal(references[0].type, 'message'); assert.equal(typeof references[0].timestamp, 'number');
-  assert.deepEqual(references[0].data, { messageId: sent.id, bodyOmitted: true,
-    next: { command:'fetch', input:{recordId:references[0].recordId} } });
+  assert.deepEqual(references[0].data, { messageId: sent.id, contentOmitted: true,
+    next: { command:'records', input:{type:'read',input:{recordId:references[0].recordId}} } });
   const fetched = f.cli(references[0].data.next.command, references[0].data.next.input, recipient).items[0];
-  assert.equal(fetched.recordId, references[0].recordId); assert.equal(fetched.data.body, body);
-  assert.equal(only<JsonRecord>(db.prepare('SELECT body FROM messages WHERE id=?').get(sent.id)).body, body);
+  assert.equal(fetched.recordId, references[0].recordId); assert.deepEqual(fetched.data.parts, [{ text: body }]);
+  assert.deepEqual(JSON.parse(String(only<JsonRecord>(db.prepare('SELECT parts FROM messages WHERE id=?').get(sent.id)).parts)), [{ text: body }]);
   assert.equal(only<JsonRecord>(db.prepare('SELECT acknowledgedAt FROM deliveries').get()).acknowledgedAt, null);
 });
 for (const vendor of ['grok', 'codex']) test(`${vendor}: oversized batches offer every row once without stranding staged rows`, t => {
@@ -84,12 +84,12 @@ for (const vendor of ['grok', 'codex']) test(`${vendor}: oversized batches offer
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   const recipient = only<JsonRecord>(db.prepare('SELECT id FROM sessions').get()).id;
   const sender = f.cli('join', { name: 'sender', vendor: 'raw' });
-  const messages = Array.from({length:16}, (_, i) => f.cli('send_message', { to: recipient, body: `short ${i}`, reasoning: `${i} ${'r'.repeat(500)}`.slice(0, 500) }, sender.id).id);
+  const messages = Array.from({length:16}, (_, i) => f.cli('send_message', {parts: [{ text: `short ${i}` }],  to: recipient, reasoning: `${i} ${'r'.repeat(500)}`.slice(0, 500) }, sender.id).id);
   const offered = [];
   for (let attempt = 0; attempt < 16 && offered.length < messages.length; attempt++) {
     const content = f.hook('PostToolUse').hookSpecificOutput.additionalContext;
     assert.ok(Buffer.byteLength(content) <= (vendor === 'codex' ? CODEX_CONTEXT_LIMIT : HOST_CONTEXT_LIMIT));
-    if (content.includes('bodyOmitted'))
+    if (content.includes('contentOmitted'))
       assert.equal(content.includes('r'.repeat(100)), false, 'References omit repeated reasoning');
     offered.push(...[...content.matchAll(/"messageId":(\d+)/g)].map(match => Number(match[1])));
     assert.equal(only<JsonRecord>(db.prepare("SELECT count(*) n FROM dispatches WHERE state='staged'").get()).n, 0);
@@ -108,9 +108,9 @@ test('Codex offers deferred mail after a large first binding without changing pe
   // Every peer row has the same size, so the budgeted directory is large whatever the random ID order.
   const sender = f.cli('join', {vendor:'raw', name:'s'+'p'.repeat(60), task:'t'.repeat(250)}).id;
   for (let i=0;i<10;i++) f.cli('join', {vendor:'raw', name:String(i)+'p'.repeat(60), task:'t'.repeat(250)});
-  const sent = f.cli('send_message', {to:recipient,body:'x'.repeat(6500)},sender);
+  const sent = f.cli('send_message', {parts: [{ text: 'x'.repeat(6500) }], to:recipient,},sender);
   const first = f.hook('PostToolUse').hookSpecificOutput.additionalContext;
-  assert.ok(Buffer.byteLength(first)<=CODEX_CONTEXT_LIMIT); assert.equal(first.includes('bodyOmitted'),false);
+  assert.ok(Buffer.byteLength(first)<=CODEX_CONTEXT_LIMIT); assert.equal(first.includes('contentOmitted'),false);
   assert.equal(f.cli('fetch',{type:'dispatch.staged',current:true},recipient).items.length,0);
   const second = f.hook('PostToolUse').hookSpecificOutput.additionalContext;
   assert.ok(Buffer.byteLength(second)<=CODEX_CONTEXT_LIMIT); assert.ok(second.includes(`"messageId":${sent.id}`));
@@ -131,7 +131,7 @@ test('concurrent host hooks register one identity and offer one delivery', async
   assert.equal(only<JsonRecord>(db.prepare('SELECT count(*) n FROM sessions').get()).n, 1);
   const recipient = only<JsonRecord>(db.prepare('SELECT id FROM sessions').get()).id;
   const sender = f.cli('join', { name: 'sender', vendor: 'raw' });
-  f.cli('send_message', { to: recipient, body: 'CONCURRENT' }, sender.id);
+  f.cli('send_message', {parts: [{ text: 'CONCURRENT' }],  to: recipient, }, sender.id);
   const results = await Promise.all(Array.from({ length: 8 }, hook));
   assert.equal(results.filter(r => r.additional_context?.includes('CONCURRENT')).length, 1);
 });
@@ -189,12 +189,12 @@ for (const vendor of ['cursor', 'grok', 'claude', 'codex']) {
     const completed = new Promise<void>((resolve, reject) => {
       child.once('error', reject); child.once('close', code => code ? reject(Error(stderr)) : resolve());
     });
-    let timer: NodeJS.Timeout | undefined;
     try {
+      // The writer lock is held until the hook finishes: a hook that waited on it would exit non-zero at the busy timeout.
       child.stdin.end(JSON.stringify(f.input('postToolUse')));
-      await Promise.race([completed, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Error('Idle hook waited for the writer')), 1500); })]);
+      await completed;
       assert.deepEqual(JSON.parse(output), {}); assert.equal(stderr, '');
-    } finally { clearTimeout(timer); db.exec('ROLLBACK'); await completed; }
+    } finally { db.exec('ROLLBACK'); await completed.catch(() => undefined); }
   });
 }
 
@@ -226,7 +226,7 @@ test('Grok hook reuses a generically labeled native identity without competing f
   const recipient = f.cli('join', {name: 'receiver', vendor: 'other', vendorSession: native});
   f.cli('attach', {transport: 'grok', endpoint, vendorSession: native}, recipient.id);
   const sender = f.cli('join', {name: 'sender', vendor: 'raw'});
-  f.cli('send_message', {to: recipient.id, body: 'NATIVE OWNER'}, sender.id);
+  f.cli('send_message', {parts: [{ text: 'NATIVE OWNER' }], to: recipient.id,}, sender.id);
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   const version = only<JsonRecord>(db.prepare('PRAGMA data_version').get()).data_version;
   assert.deepEqual(f.hook('PostToolUse', {sessionId: native}), {});
@@ -234,7 +234,7 @@ test('Grok hook reuses a generically labeled native identity without competing f
   assert.equal(only<JsonRecord>(db.prepare('SELECT count(*) n FROM sessions WHERE vendorSession=?').get(native)).n, 1);
   assert.equal(only<JsonRecord>(db.prepare('SELECT count(*) n FROM dispatches').get()).n, 0);
   assert.equal(only<JsonRecord>(db.prepare('SELECT transport FROM attachments WHERE session=?').get(recipient.id)).transport, 'grok');
-  assert.equal(f.cli('notify_all', {body: 'ONE RECIPIENT'}, sender.id).recipients, 1);
+  assert.equal(f.cli("send_message", {to: '*', parts: [{ text: 'ONE RECIPIENT' }]}, sender.id).recipients, 1);
 });
 
 test('native attach rejects a second identity for a host already registered by hooks', async t => {
@@ -243,7 +243,7 @@ test('native attach rejects a second identity for a host already registered by h
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   const owner = only<JsonRecord>(db.prepare('SELECT id FROM sessions WHERE vendorSession=?').get(native)).id;
   const sender = f.cli('join', {name: 'sender', vendor: 'raw'});
-  f.cli('send_message', {to: owner, body: 'OFFERED BY HOOK'}, sender.id);
+  f.cli('send_message', {parts: [{ text: 'OFFERED BY HOOK' }], to: owner,}, sender.id);
   assert.ok(f.hook('PostToolUse', {sessionId: native}).hookSpecificOutput.additionalContext.includes('OFFERED BY HOOK'));
   const duplicate = f.cli('join', {name: 'second', vendor: 'other'});
   assert.throws(() => f.cli('attach', {transport: 'grok', endpoint, vendorSession: native}, duplicate.id), /already registered/);
@@ -282,7 +282,7 @@ for (const vendor of ['claude', 'codex']) {
     const db = new DatabaseSync(f.database); t.after(() => db.close());
     const recipient = only<JsonRecord>(db.prepare('SELECT id FROM sessions').get()).id;
     const sender = f.cli('join', { name: 'sender', vendor: 'raw' });
-    const sent = f.cli('send_message', { to: recipient, body: 'PARENT MAIL' }, sender.id);
+    const sent = f.cli('send_message', {parts: [{ text: 'PARENT MAIL' }],  to: recipient, }, sender.id);
     const expiresAt = only<JsonRecord>(db.prepare('SELECT expiresAt FROM sessions WHERE id=?').get(recipient)).expiresAt;
     for (const event of ['SessionStart', 'PostToolUse', 'SessionEnd'])
       assert.deepEqual(f.hook(event, { agent_id: 'child', agent_type: 'reviewer' }), {});
@@ -299,7 +299,7 @@ for (const vendor of ['claude', 'codex']) {
     const recipient = only<JsonRecord>(db.prepare('SELECT id FROM sessions').get()).id;
     const sender = f.cli('join', { name: 'sender', vendor: 'raw' });
     f.cli('attach', { transport: vendor, endpoint: vendor === 'claude' ? join(f.workspace, 'native.sock') : 'ws://127.0.0.1:4321', vendorSession: 'host-fixture' }, recipient);
-    f.cli('send_message', { to: recipient, body: 'NATIVE ONLY' }, sender.id);
+    f.cli('send_message', {parts: [{ text: 'NATIVE ONLY' }],  to: recipient, }, sender.id);
     assert.deepEqual(f.hook('PostToolUse'), {});
     assert.equal(only<JsonRecord>(db.prepare('SELECT count(*) n FROM dispatches').get()).n, 0);
     assert.equal(only<JsonRecord>(db.prepare('SELECT count(*) n FROM sessions WHERE vendor=?').get(vendor)).n, 1);
@@ -313,7 +313,7 @@ test('Grok native camelCase payload with compatibility event and slash-suffixed 
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   const recipient = only<JsonRecord>(db.prepare('SELECT id FROM sessions WHERE vendor=?').get('grok')).id;
   const sender = f.cli('join', { name: 'sender', vendor: 'raw' });
-  f.cli('send_message', { to: recipient, body: 'GROK ENVELOPE' }, sender.id);
+  f.cli('send_message', {parts: [{ text: 'GROK ENVELOPE' }],  to: recipient, }, sender.id);
   const event = { ...envelope, hookEventName: 'post_tool_use' };
   assert.ok(f.hook('PostToolUse', event).hookSpecificOutput.additionalContext.includes('GROK ENVELOPE'));
   assert.deepEqual(f.hook('PostToolUse', event), {});

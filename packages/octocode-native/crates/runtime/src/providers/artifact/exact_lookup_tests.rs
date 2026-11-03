@@ -79,7 +79,7 @@ async fn exact_lookups_parse_one_row_per_registry() {
     for (ecosystem, name, body, version, registry_url) in cases {
         let http = RouteHttp::always(body);
         let b = test_budget();
-        let client = RegistryClient::uncached(&http, &b);
+        let client = RegistryClient::new(&http, &b);
         let q = exact_query(ecosystem, name);
         let state = ArtifactProviderState::default();
         let page = match ecosystem {

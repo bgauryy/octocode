@@ -88,7 +88,7 @@ impl Remainder {
     /// `entry`: what is left, worded, when the page counts it.
     pub(super) fn note(&self, axis: Axis, entry: &Value) -> Option<Remaining> {
         Some(Remaining {
-            page: axis.next_name().to_owned(),
+            page: Axis::next_name().to_owned(),
             left: self.left(axis, entry)?,
         })
     }
@@ -158,7 +158,7 @@ mod tests {
         assert_eq!(
             note(
                 &remainder,
-                "continuePatch",
+                "nextPage",
                 Axis::Patches,
                 json!({"hasMore": true})
             )
@@ -166,14 +166,14 @@ mod tests {
             Some("12 unfinished patches")
         );
         assert_eq!(
-            note(&remainder, "nextFilePage", Axis::Files, files).as_deref(),
+            note(&remainder, "nextPage", Axis::Files, files).as_deref(),
             Some("7 more changed files")
         );
         remainder.unfinished_patches(1);
         assert_eq!(
             note(
                 &remainder,
-                "continuePatch",
+                "nextPage",
                 Axis::Patches,
                 json!({"hasMore": true})
             )
@@ -183,25 +183,19 @@ mod tests {
         let body = json!({"unit": "chars", "offset": 0, "length": 12000, "total": 14366,
             "hasMore": true, "nextOffset": 12000});
         assert_eq!(
-            note(&Remainder::default(), "continueBody", Axis::Body, body).as_deref(),
+            note(&Remainder::default(), "nextPage", Axis::Body, body).as_deref(),
             Some("2366 more body chars")
         );
         let reviews = json!({"page": 2, "pageSize": 10, "totalItems": 21, "hasMore": true});
         assert_eq!(
-            note(
-                &Remainder::default(),
-                "nextReviewPage",
-                Axis::Reviews,
-                reviews
-            )
-            .as_deref(),
+            note(&Remainder::default(), "nextPage", Axis::Reviews, reviews).as_deref(),
             Some("1 more review")
         );
         let inline = json!({"page": 1, "pageSize": 30, "totalItems": 600, "hasMore": true});
         assert_eq!(
             note(
                 &Remainder::default(),
-                "nextReviewCommentPage",
+                "nextPage",
                 Axis::ReviewComments,
                 inline
             )
@@ -217,7 +211,7 @@ mod tests {
             (Axis::Patches, json!({"hasMore": true})),
         ] {
             assert_eq!(
-                note(&Remainder::default(), axis.next_name(), axis, entry),
+                note(&Remainder::default(), Axis::next_name(), axis, entry),
                 None,
                 "{axis:?}"
             );
@@ -235,7 +229,7 @@ mod tests {
         assert_eq!(
             note(
                 &remainder,
-                "nextCommentPage",
+                "nextPage",
                 Axis::Comments,
                 json!({"hasMore": true, "totalItems": 105})
             )

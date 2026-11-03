@@ -50,7 +50,7 @@ fn http() -> RouteHttp {
 async fn lookup(version: &str) -> Result<ArtifactProviderPage, ArtifactError> {
     let http = http();
     let budget = test_budget();
-    let client = RegistryClient::uncached(&http, &budget);
+    let client = RegistryClient::new(&http, &budget);
     pypi(
         &versioned(ArtifactType::Pypi, "python-dateutil", version),
         &client,

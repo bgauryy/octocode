@@ -124,8 +124,7 @@ pub(super) fn render_match_page(
     } else if let Some(skipped) = gaps.skipped {
         include_skipped = Some(skipped);
     }
-    let more_matches = page_groups.iter().any(|group| group.more_matches);
-    let incomplete = mark_coverage_cuts(&mut out, scan, &grouped, more_matches);
+    let incomplete = mark_coverage_cuts(&mut out, scan, &grouped);
     let empty = groups.is_empty() && !more && !incomplete;
     if empty {
         out["status"] = json!("empty");
@@ -135,13 +134,7 @@ pub(super) fn render_match_page(
     let unchecked = include_skipped
         .as_ref()
         .is_some_and(|skipped| skipped.disclosure.unchecked);
-    if !groups.is_empty()
-        && !more
-        && !incomplete
-        && scan.withheld.total() == 0
-        && !more_matches
-        && !unchecked
-    {
+    if !groups.is_empty() && !more && !incomplete && scan.withheld.total() == 0 && !unchecked {
         out["coverage"] = json!({"state": "complete"});
     }
     attach_match_continuations(
@@ -155,7 +148,7 @@ pub(super) fn render_match_page(
         },
         more,
         snapshot,
-    );
+    )?;
     if grouped.compile_failed_files > 0 {
         compile_failed_end(q, scope, &mut out, snapshot);
     }
@@ -165,9 +158,10 @@ pub(super) fn render_match_page(
     }
     // `coverage.state: "complete"` tells a reader the row's pages are
     // drill-downs; a row with no page needs no such note.
-    let has_page = out["calls"]
-        .as_object()
-        .is_some_and(|next| next.values().any(|call| call["kind"] == "continue"));
+    let has_page = page_groups.iter().any(|group| group.more_matches)
+        || out["calls"]
+            .as_object()
+            .is_some_and(|next| next.values().any(|call| call["kind"] == "continue"));
     if !has_page && let Some(fields) = out.as_object_mut() {
         fields.shift_remove("coverage");
     }
@@ -180,8 +174,8 @@ pub(super) fn render_match_page(
 
 /// Mark each coverage cut of the scan as a partial reason, so a partial
 /// final page (no `next`) still says why it is partial. Returns whether the
-/// scan's coverage is incomplete (any cut but later match pages).
-fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped, more_matches: bool) -> bool {
+/// scan's coverage is incomplete. Match pages are pagination, never a coverage cut.
+fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped) -> bool {
     use crate::response::paging::PartialReason;
     let skips = scan.skips;
     let skipped = skips.0 + skips.1 + skips.2 > 0
@@ -205,9 +199,6 @@ fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped, more_matc
             grouped.unevaluated_files > 0,
             PartialReason::FilesUnevaluated,
         ),
-        // A file's later match pages (`next.nextMatchPage`): the row's own
-        // file pagination does not state them.
-        (more_matches, PartialReason::MatchPages),
     ] {
         if cut {
             crate::response::paging::mark_partial(out, reason, &[]);
@@ -237,8 +228,8 @@ fn attach_syntax_lead(
     } else {
         near.filter(|_| super::exact_miss::pattern_declaration(q, scope).is_none())
     };
-    if let Some((file, line)) = tree {
-        out["calls"]["viewSyntax"] = tree_lead(q, scope, &file, line);
+    if let Some(lead) = tree.and_then(|(file, line)| tree_lead(q, scope, &file, line)) {
+        out["calls"]["viewSyntax"] = lead;
     }
 }
 

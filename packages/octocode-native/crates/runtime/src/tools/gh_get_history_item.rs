@@ -2,9 +2,8 @@
 //! comparison by number / ref.
 //!
 //! History items are mutable (comments are added, reviews change, commits
-//! land), so every REST read revalidates its stored copy (an ETag
-//! conditional request: a 304 costs no body and no primary rate limit);
-//! a read pinned to a commit SHA is immutable.
+//! land), so every read fetches the item afresh; a read pinned to a
+//! commit SHA is immutable.
 //!
 //! Layout: this module owns the public query, validation, dispatch and the
 //! response boundary (sanitize, size cap). `pull_request`/`pr_sections`,

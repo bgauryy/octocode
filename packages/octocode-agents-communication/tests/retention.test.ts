@@ -22,8 +22,9 @@ function fixture(t: TestContext) {
   return { workspace, database, args, call, session, db };
 }
 function message(f: ReturnType<typeof fixture>, key: string, { acknowledged = true, uncertain = false, expiresAt = 1, replyTo = null }: { acknowledged?: boolean; uncertain?: boolean; expiresAt?: number; replyTo?: number | null } = {}) {
-  const id = Number(f.db.prepare('INSERT INTO messages(sender,target,body,key,expiresAt,reasoning,replyTo,replyRequired,kind) VALUES(?,?,?,?,?,?,?,?,?)')
-    .run(f.session, f.session, `audit body ${key}`, key, expiresAt, 'Keep complete protocol evidence', replyTo, replyTo === null ? 1 : 0, replyTo === null ? 'question' : 'answer').lastInsertRowid);
+  const parts = JSON.stringify([{ text: `audit content ${key}` }]);
+  const id = Number(f.db.prepare('INSERT INTO messages(sender,target,parts,key,expiresAt,reasoning,replyTo,replyRequired,outcome) VALUES(?,?,?,?,?,?,?,?,?)')
+    .run(f.session, f.session, parts, key, expiresAt, 'Keep complete protocol evidence', replyTo, replyTo === null ? 1 : 0, replyTo === null ? null : 'completed').lastInsertRowid);
   f.db.prepare('INSERT INTO deliveries(message,recipient,acknowledgedAt) VALUES(?,?,?)').run(id, f.session, acknowledged ? Date.now() : null);
   if (uncertain) f.db.prepare('INSERT INTO dispatches(message,recipient,token,transport,state,attemptedAt) VALUES(?,?,?,?,?,?)').run(id, f.session, 'attempt', 'raw', 'uncertain', Date.now());
   return id;
@@ -77,9 +78,9 @@ test('compaction reclaims pages freed by expired lease pruning without removing 
   assert.equal(result.compacted, true); assert.equal(result.deletedRecords, 0); assert.equal(result.integrity, 'ok');
   assert.ok(result.logicalReclaimedBytes > 0); assert.ok(result.reclaimedBytes >= 0);
   assert.equal(result.after.freePages, 0);
-  assert.deepEqual(contents(f.db), before, 'Includes audit rows, message bodies, keys, replyTo, dispatches and IDs');
-  assert.throws(() => f.db.prepare('INSERT INTO messages(sender,target,body,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)')
-    .run(f.session, f.session, 'changed', 'retain-key', 1, 'Cannot reuse historical key'), /UNIQUE/);
+  assert.deepEqual(contents(f.db), before, 'Includes audit rows, message parts, keys, replyTo, outcomes, dispatches and IDs');
+  assert.throws(() => f.db.prepare('INSERT INTO messages(sender,target,parts,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)')
+    .run(f.session, f.session, JSON.stringify([{ text: 'changed' }]), 'retain-key', 1, 'Cannot reuse historical key'), /UNIQUE/);
   assert.equal(only(f.db.prepare('SELECT replyTo FROM messages WHERE key=?').get('retain-reply')).replyTo, parent);
 });
 

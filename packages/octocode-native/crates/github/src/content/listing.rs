@@ -1,9 +1,7 @@
 //! A repository's directory listing and submodule entries.
-use bytes::Bytes;
-use reqwest::header::{HeaderValue, IF_NONE_MATCH};
 
 use super::payload::ContentPayload;
-use super::{CachedContent, GitHubProvider, Retention, Submodule, is_full_sha};
+use super::{GitHubProvider, Submodule};
 use crate::{ProviderError, ProviderErrorKind, RequestContext, RequestSpec};
 
 impl GitHubProvider {
@@ -45,72 +43,16 @@ impl GitHubProvider {
         reference: &str,
         context: &RequestContext,
     ) -> Result<crate::ContentsListing, ProviderError> {
-        let partition = self.transport.cache_partition(context, None)?;
-        let key = crate::cache_key::fields_key("github-tree", &[owner, repo, path, reference]);
-        // A listing at a full commit SHA is immutable: a cached one is served
-        // without asking GitHub again, like a file read at one.
-        let pinned = is_full_sha(reference);
-        let cached = self.transport.cache.get(&partition, &key).await;
-        if let Some(value) = cached
-            .as_ref()
-            .filter(|value| pinned || value.etag.is_none())
-        {
-            return crate::tree::parse_contents_listing(&value.bytes);
-        }
         let mut segments = vec!["repos", owner, repo, "contents"];
         if !path.is_empty() && path != "." {
             segments.push(path);
         }
         let mut url = self.transport.endpoint().rest(&segments)?;
         url.query_pairs_mut().append_pair("ref", reference);
-        let mut spec = RequestSpec::get(url);
-        if let Some(etag) = cached.as_ref().and_then(|value| value.etag.as_ref()) {
-            spec.headers.insert(
-                IF_NONE_MATCH,
-                HeaderValue::from_str(etag).map_err(|_| {
-                    ProviderError::new(ProviderErrorKind::Validation, "invalid cached ETag")
-                })?,
-            );
-        }
-        let page = self.transport.execute(spec, context).await?;
-        let body = if page.status == 304 {
-            cached
-                .ok_or_else(|| {
-                    ProviderError::new(
-                        ProviderErrorKind::Decode,
-                        "GitHub returned 304 without cached tree content",
-                    )
-                })?
-                .bytes
-        } else {
-            Bytes::copy_from_slice(&page.body)
-        };
-        let listing = crate::tree::parse_contents_listing(&body)?;
-        if page.status != 304 {
-            let etag = page
-                .headers
-                .get("etag")
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned);
-            self.transport
-                .cache
-                .put(
-                    &partition,
-                    key,
-                    CachedContent {
-                        etag,
-                        bytes: body,
-                        resolved_ref: reference.to_owned(),
-                        has_more: false,
-                    },
-                    if pinned {
-                        Retention::Pinned
-                    } else {
-                        Retention::Revalidate
-                    },
-                )
-                .await;
-        }
-        Ok(listing)
+        let page = self
+            .transport
+            .execute(RequestSpec::get(url), context)
+            .await?;
+        crate::tree::parse_contents_listing(&page.body)
     }
 }

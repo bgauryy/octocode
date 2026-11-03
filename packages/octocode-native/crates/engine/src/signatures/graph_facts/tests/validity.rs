@@ -1,5 +1,54 @@
 use super::*;
 
+#[test]
+fn carried_ancestors_preserve_wrapped_assessments_and_module_assignments() {
+    for (path, source, wrapper_line, declaration_line) in [
+        (
+            "wrapped.py",
+            "VALUE = 1\nvalue = 2\n@decorate\ndef wrapped():\n    LOCAL = 3\n    work()\n",
+            2,
+            3,
+        ),
+        #[cfg(feature = "tree-sitter-cpp")]
+        (
+            "wrapped.cpp",
+            "template<class T>\nvoid wrapped(T value) { work(); }\n",
+            0,
+            1,
+        ),
+    ] {
+        let value = facts(source, path);
+        let declarations = value["declarations"].as_array().unwrap();
+        let wrapped = declarations
+            .iter()
+            .find(|declaration| declaration["name"] == "wrapped")
+            .expect("wrapped declaration");
+        assert_eq!(wrapped["parseAssessment"]["status"], "parsed", "{path}");
+        assert_eq!(
+            wrapped["parseAssessment"]["range"], wrapped["range"],
+            "{path}"
+        );
+        assert_eq!(wrapped["range"]["start"]["line"], wrapper_line);
+        assert_eq!(wrapped["selectionRange"]["start"]["line"], declaration_line);
+        let work = value["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|call| call["callee"] == "work")
+            .expect("body call");
+        assert_eq!(work["parseAssessment"]["status"], "parsed", "{path}");
+        if path.ends_with(".py") {
+            let names: Vec<_> = declarations
+                .iter()
+                .map(|d| d["name"].as_str().unwrap())
+                .collect();
+            assert_eq!(names, ["VALUE", "value", "wrapped"]);
+            assert_eq!(declarations[0]["kind"], "constant");
+            assert_eq!(declarations[1]["kind"], "variable");
+        }
+    }
+}
+
 #[cfg(feature = "tree-sitter-cpp")]
 #[test]
 fn enclosing_recovery_marks_macro_shaped_class_names_without_tainting_neighbors() {

@@ -65,3 +65,68 @@ fn files_a_mentioned_unreachable_file_reaches_are_not_test_only() {
         );
     }
 }
+
+/// A bundler entry a test also imports is `test-only` by the import graph,
+/// but production text names its build output (`src/release.ts`), so it is
+/// as likely live as an unreachable mentioned file: tier 60 with
+/// `mentionedIn`, and the files it imports drop with it. The test's own
+/// import path names `src/only-tested.ts` too; a mention in a test file is
+/// how a test reaches it, so that file stays tier 90.
+#[test]
+fn a_test_only_file_production_text_names_is_tier_60() {
+    let dir = git_app(&[
+        (
+            "package.json",
+            r#"{"name":"comms","type":"module","bin":{"comms":"bin/cli.mjs"}}"#,
+        ),
+        ("bin/cli.mjs", "import '../src/release.js';\n"),
+        (
+            "src/release.ts",
+            "export const smoke = 'dist/hosts/pi-extension.js';\n",
+        ),
+        (
+            "src/hosts/pi-extension.ts",
+            "import { ledger } from './shared/pi-ledger';\nledger();\n",
+        ),
+        (
+            "src/hosts/shared/pi-ledger.ts",
+            "export const ledger = () => 1;\n",
+        ),
+        ("src/only-tested.ts", "export const helper = () => 2;\n"),
+        (
+            "src/hosts/pi-extension.test.ts",
+            "import './pi-extension';\nimport { helper } from '../only-tested';\nhelper();\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let issues = ask(root, "issues", None, |o| {
+        o.detectors = vec!["test-only".to_owned()];
+        o.min_tier = Some(0);
+    });
+    let row = |subject: &str| {
+        issues.value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["detector"] == "test-only" && row["subject"] == subject)
+            .cloned()
+            .unwrap_or_else(|| panic!("{subject}: {}", issues.value))
+    };
+    let entry = row("src/hosts/pi-extension.ts");
+    assert_eq!(entry["tier"], 60, "{entry}");
+    assert_eq!(
+        entry["evidence"]["mentionedIn"],
+        json!(["src/release.ts:1"]),
+        "{entry}"
+    );
+    let child = row("src/hosts/shared/pi-ledger.ts");
+    assert_eq!(child["tier"], 60, "{child}");
+    assert_eq!(
+        child["evidence"]["reachedFrom"], "src/hosts/pi-extension.ts",
+        "{child}"
+    );
+    let tested = row("src/only-tested.ts");
+    assert_eq!(tested["tier"], 90, "{tested}");
+    assert!(tested["evidence"].get("mentionedIn").is_none(), "{tested}");
+}

@@ -95,7 +95,7 @@ fn a_listing_keeps_whole_entries_on_its_side() {
     assert!(!only.lists(&dirs[1], true) && exclude.lists(&dirs[1], true));
     assert_eq!(
         only.excluded(),
-        Excluded::default(),
+        TestCodeExcluded::default(),
         "a listing counts itself"
     );
 }

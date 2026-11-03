@@ -71,7 +71,7 @@ pub(super) fn escapes_root(file: &str, spec: &str) -> bool {
         .split('/')
         .filter(|s| !s.is_empty() && *s != ".")
         .count();
-    let mut depth = crate::num::i64_of_usize(depth);
+    let mut depth = octocode_engine::num::saturating_i64(depth);
     for segment in path.split('/') {
         match segment {
             "" | "." => {}

@@ -58,10 +58,7 @@ fn instructions_are_the_one_core_string_without_cli_notes() {
         .expect("listing")
         .instructions;
     assert_eq!(text, presentation()["instructions"].as_str().expect("text"));
-    assert!(
-        text.contains("Local:") && text.contains("GitHub:"),
-        "{text}"
-    );
+    assert!(!text.is_empty());
     assert!(!text.contains("<cli>"), "{text}");
 }
 

@@ -19,7 +19,7 @@ export interface Worker {
 const optional = <T>(read: (value: unknown, label: string) => T) => (value: unknown, label: string): T | null => value === null ? null : read(value, label);
 
 /** Row readers: each column is checked once, so a schema drift fails loudly instead of grading `undefined`. */
-const messageRow = (row: Reply): MessageRow => ({ id: integer(row.id, 'messages.id'), sender: text(row.sender, 'messages.sender'), target: text(row.target, 'messages.target'), body: text(row.body, 'messages.body'), replyTo: optional(integer)(row.replyTo, 'messages.replyTo'), replyRequired: integer(row.replyRequired, 'messages.replyRequired'), wake: text(row.wake, 'messages.wake') });
+const messageRow = (row: Reply): MessageRow => ({ id: integer(row.id, 'messages.id'), sender: text(row.sender, 'messages.sender'), target: text(row.target, 'messages.target'), parts: JSON.parse(text(row.parts, 'messages.parts')), replyTo: optional(integer)(row.replyTo, 'messages.replyTo'), replyRequired: integer(row.replyRequired, 'messages.replyRequired'), wake: text(row.wake, 'messages.wake') });
 const deliveryRow = (row: Reply): DeliveryRow => ({ message: integer(row.message, 'deliveries.message'), recipient: text(row.recipient, 'deliveries.recipient'), acknowledgedAt: optional(integer)(row.acknowledgedAt, 'deliveries.acknowledgedAt') });
 const dispatchRow = (row: Reply): DispatchRow => ({ message: integer(row.message, 'dispatches.message'), recipient: text(row.recipient, 'dispatches.recipient'), transport: text(row.transport, 'dispatches.transport'), state: text(row.state, 'dispatches.state'), submittedAt: optional(integer)(row.submittedAt, 'dispatches.submittedAt'), error: optional(text)(row.error, 'dispatches.error') });
 const sessionRow = (row: Reply): SessionRow => ({ id: text(row.id, 'sessions.id'), name: text(row.name, 'sessions.name'), vendor: text(row.vendor, 'sessions.vendor'), vendorSession: optional(text)(row.vendorSession, 'sessions.vendorSession'), expiresAt: integer(row.expiresAt, 'sessions.expiresAt') });
@@ -90,7 +90,7 @@ export function sandbox(pkg: string, prefix: string): Box {
   const rows = (): Rows => {
     const db = new DatabaseSync(database, { readOnly: true, timeout: 5000 });
     try { return {
-      messages: db.prepare('SELECT id,sender,target,body,replyTo,replyRequired,wake FROM messages ORDER BY id').all().map(messageRow),
+      messages: db.prepare('SELECT id,sender,target,parts,replyTo,replyRequired,wake FROM messages ORDER BY id').all().map(messageRow),
       deliveries: db.prepare('SELECT message,recipient,acknowledgedAt FROM deliveries ORDER BY message,recipient').all().map(deliveryRow),
       dispatches: db.prepare('SELECT message,recipient,transport,state,submittedAt,error FROM dispatches ORDER BY message,recipient').all().map(dispatchRow),
       sessions: db.prepare('SELECT id,name,vendor,vendorSession,expiresAt FROM sessions ORDER BY id').all().map(sessionRow),

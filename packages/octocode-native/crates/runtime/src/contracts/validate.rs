@@ -76,12 +76,28 @@ fn contract_tool(tool_name: &str) -> Result<(ToolId, &'static Value), ContractVa
         )
     })?;
     let tool = super::tool_contract(id).map_err(|error| internal(error.to_string()))?;
+    let root = super::parsed_contract().map_err(|error| internal(error.to_string()))?;
+    static SHARED_AUDIT: std::sync::OnceLock<Result<(), ContractValidationError>> =
+        std::sync::OnceLock::new();
+    SHARED_AUDIT
+        .get_or_init(|| {
+            for definition in root["$defs"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(_, schema)| schema)
+            {
+                schema::audit::validate_in(root, definition)?;
+            }
+            Ok(())
+        })
+        .clone()?;
     static AUDITS: [std::sync::OnceLock<Result<(), ContractValidationError>>; ToolId::ALL.len()] =
         [const { std::sync::OnceLock::new() }; ToolId::ALL.len()];
     AUDITS[id.index()]
         .get_or_init(|| {
             for field in ["querySchema", "inputSchema", "outputSchema"] {
-                schema::audit::validate(&tool[field])?;
+                schema::audit::validate_in(root, &tool[field])?;
             }
             Ok(())
         })

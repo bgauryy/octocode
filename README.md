@@ -185,15 +185,16 @@ Install with `npx octocode skill install <name>` ([all skills](https://github.co
 
 | Skill | Use it for |
 |---|---|
-| ⭐ [octocode-research](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) | evidence-first research, review, and debugging |
+| ⭐ [octocode-research](https://github.com/bgauryy/octocode/blob/main/skills/octocode-research/SKILL.md) | evidence-first research and debugging |
+| [octocode-pr-review](https://github.com/bgauryy/octocode/blob/main/skills/octocode-pr-review/SKILL.md) | PR and diff review with a merge verdict and proven findings |
 | [octocode-architect](https://github.com/bgauryy/octocode/tree/main/skills/octocode-architect) | architecture and dependency review |
 | [octocode-brainstorming](https://github.com/bgauryy/octocode/tree/main/skills/octocode-brainstorming) | weighing an idea or decision from several sides |
-| [octocode-rfc-generator](https://github.com/bgauryy/octocode/tree/main/skills/octocode-rfc-generator) | RFCs and execution plans |
-| [octocode-documentation](https://github.com/bgauryy/octocode/tree/main/skills/octocode-documentation) | READMEs, API docs, ADRs |
+| [octocode-rfc-generator](https://github.com/bgauryy/octocode/blob/main/skills/octocode-rfc-generator/SKILL.md) | RFCs and execution plans |
+| [octocode-documentation](https://github.com/bgauryy/octocode/blob/main/skills/octocode-documentation/SKILL.md) | READMEs, API docs, ADRs |
 | [octocode-roast](https://github.com/bgauryy/octocode/tree/main/skills/octocode-roast) | blunt, evidence-backed code critique |
-| [octocode-clean-agentic-code](https://github.com/bgauryy/octocode/tree/main/skills/octocode-clean-agentic-code) | behavior-preserving cleanup |
-| [octocode-eval-benchmark](https://github.com/bgauryy/octocode/tree/main/skills/octocode-eval-benchmark) | evals and honest benchmarks |
-| [octocode-agentic-prompts](https://github.com/bgauryy/octocode/tree/main/skills/octocode-agentic-prompts) | better prompts and tool schemas |
+| [octocode-clean-agentic-code](https://github.com/bgauryy/octocode/blob/main/skills/octocode-clean-agentic-code/SKILL.md) | behavior-preserving cleanup |
+| [octocode-eval-benchmark](https://github.com/bgauryy/octocode/blob/main/skills/octocode-eval-benchmark/SKILL.md) | evals and honest benchmarks |
+| [octocode-agentic-prompts](https://github.com/bgauryy/octocode/blob/main/skills/octocode-agentic-prompts/SKILL.md) | better prompts and tool schemas; audits of past prompting |
 | [octocode-scraping](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping) | page extraction and crawling |
 | [octocode-chrome-devtools](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools) | browser evidence: network, console, storage |
 | [octocode-skills](https://github.com/bgauryy/octocode/tree/main/skills/octocode-skills) | creating and maintaining skills |
@@ -228,7 +229,7 @@ All docs: [documentation hub](https://github.com/bgauryy/octocode/blob/main/docs
 
 | Topic | Docs |
 |---|---|
-| Concepts | [Protocol](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_PROTOCOL.md) · [Manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Workflows](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_WORKFLOWS.md) |
+| Concepts | [Protocol](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_PROTOCOL.md) · [Manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Workflows](https://github.com/bgauryy/octocode/blob/main/skills/octocode-research/references/tool-flow.md) |
 | Interfaces | [MCP](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [CLI](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) |
 | Tools | [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Data contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) · [clasify](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md) |
 | Setup | [Configuration and all settings](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) |

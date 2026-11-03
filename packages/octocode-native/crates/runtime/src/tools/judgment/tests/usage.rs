@@ -53,14 +53,14 @@ async fn failed_split_evaluation_counts_all_completed_usage() {
 }
 
 #[tokio::test]
-async fn concurrent_failed_evaluations_share_attempts_without_double_counting_usage() {
+async fn concurrent_failed_evaluations_count_each_independent_attempt() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_millis(30)).set_body_json(json!({
             "model":"vision","usage":{"input_tokens":7,"output_tokens":2},
             "answers":{"answer":{"type":"box","box":{"top":1.0,"bottom":0.0,"left":0.0,"right":1.0},"confidence":null}}
         })))
-        .expect(1).mount(&server).await;
+        .expect(2).mount(&server).await;
     let evaluator = evaluator(&server);
     let budget = evaluation_budget(&evaluator);
     let gate = evaluator.gate();
@@ -78,31 +78,16 @@ async fn concurrent_failed_evaluations_share_attempts_without_double_counting_us
         evaluator.evaluate_prepared(input, None, &budget, &gate),
     );
     let errors = [first.unwrap_err(), second.unwrap_err()];
-    assert_eq!(
-        errors.iter().map(|error| error.provider_calls).sum::<u64>(),
-        1
-    );
-    assert_eq!(
-        errors
-            .iter()
-            .map(|error| error.usage().known_usage_calls)
-            .sum::<u64>(),
-        1
-    );
-    assert_eq!(
-        errors
-            .iter()
-            .map(|error| error.usage().input_tokens)
-            .sum::<u64>(),
-        7
-    );
-    assert_eq!(
-        errors
-            .iter()
-            .map(|error| error.usage().output_tokens)
-            .sum::<u64>(),
-        2
-    );
+    let mut usage = stats::ClassificationUsage::default();
+    for error in errors {
+        assert_eq!(error.provider_calls, 1);
+        assert_eq!(error.usage().known_usage_calls, 1);
+        usage.add(&Err(error));
+    }
+    assert_eq!(usage.calls, 2);
+    assert_eq!(usage.known_usage_calls, 2);
+    assert_eq!(usage.input_tokens, 14);
+    assert_eq!(usage.output_tokens, 4);
 }
 
 #[test]
@@ -171,7 +156,7 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
 }
 
 #[test]
-fn per_call_usage_excludes_replayed_tokens_and_retains_unknown_attempts() {
+fn per_call_usage_counts_attempts_and_ignores_results_without_requests() {
     let mut usage = stats::ClassificationUsage::default();
     let mut judged = Judged {
         answers: vec![],
@@ -180,12 +165,10 @@ fn per_call_usage_excludes_replayed_tokens_and_retains_unknown_attempts() {
         output_tokens: 2,
         provider_calls: 3,
         known_usage_calls: 1,
-        replayed: false,
     };
     usage.add(&Ok(judged.clone()));
     judged.provider_calls = 0;
     judged.known_usage_calls = 0;
-    judged.replayed = true;
     usage.add(&Ok(judged));
     let error = ClassificationError {
         provider_calls: 1,
@@ -200,7 +183,7 @@ fn per_call_usage_excludes_replayed_tokens_and_retains_unknown_attempts() {
         serde_json::to_value(usage.output()).unwrap(),
         json!({
             "calls":4,"knownUsageCalls":1,"unknownUsageCalls":3,
-            "inputTokens":10,"outputTokens":2,"replayedEvaluations":1,"models":["resolved"]
+            "inputTokens":10,"outputTokens":2,"models":["resolved"]
         })
     );
 }

@@ -11,12 +11,43 @@ import { makeGitRepo, serveGit } from './mock-git.mjs';
 import { buildModel } from './mock-model.mjs';
 import { route } from './mock-routes.mjs';
 
-const RATE_LIMIT_HEADERS = () => ({ 'x-ratelimit-limit': '5000', 'x-ratelimit-remaining': '4999', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 3600), 'x-ratelimit-resource': 'core' });
+/**
+ * GitHub's rate-limit resources and their per-window quotas: REST search is 30
+ * a minute and code search 10 a minute (docs.github.com/en/rest/search/search#rate-limit);
+ * core and GraphQL are 5,000 an hour.
+ */
+const RATE_LIMIT_RESOURCES = {
+  code_search: { limit: 10, windowSeconds: 60 },
+  search: { limit: 30, windowSeconds: 60 },
+  graphql: { limit: 5000, windowSeconds: 3600 },
+  core: { limit: 5000, windowSeconds: 3600 },
+};
+
+/** The rate-limit resource a (normalized) path draws from. */
+const resourceOf = p => (p === '/search/code' ? 'code_search' : p.startsWith('/search/') ? 'search' : /^\/(?:api\/)?graphql$/.test(p) ? 'graphql' : 'core');
+
+/**
+ * Quota per credential and resource, as GitHub meters it: a request counts in
+ * the window it opens, and its answer reports the quota left and the window's
+ * reset. The mock reports the quota; it never refuses a request over it.
+ */
+const rateLimiter = () => {
+  const windows = new Map();
+  return (resource, credential, now = Date.now()) => {
+    const { limit, windowSeconds } = RATE_LIMIT_RESOURCES[resource];
+    const key = `${resource}\0${credential ?? ''}`;
+    let window = windows.get(key);
+    if (!window || window.reset * 1000 <= now) window = { used: 0, reset: Math.floor(now / 1000) + windowSeconds };
+    window.used += 1;
+    windows.set(key, window);
+    return { 'x-ratelimit-limit': String(limit), 'x-ratelimit-remaining': String(Math.max(limit - window.used, 0)), 'x-ratelimit-reset': String(window.reset), 'x-ratelimit-used': String(window.used), 'x-ratelimit-resource': resource };
+  };
+};
 
 /** A JSON (or plain-text) responder with GitHub's rate-limit headers. */
-const sender = res => (status, payload, headers = {}) => {
+const sender = (res, rateLimit) => (status, payload, headers = {}) => {
   const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
-  res.writeHead(status, { 'content-type': typeof payload === 'string' ? 'text/plain' : 'application/json; charset=utf-8', ...RATE_LIMIT_HEADERS(), ...headers });
+  res.writeHead(status, { 'content-type': typeof payload === 'string' ? 'text/plain' : 'application/json; charset=utf-8', ...rateLimit, ...headers });
   res.end(text);
 };
 
@@ -42,6 +73,7 @@ export async function startMock({ fixtureDir, tmpDir, token, configureModel, cla
     unhandled.push(what);
     unhandledFrom.push({ request: what, token: /^(?:token|bearer)\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? null });
   };
+  const meter = rateLimiter();
   const repoGit = tmpDir ? makeGitRepo(model, tmpDir) : { reason: 'no tmpDir' };
   const git = { root: repoGit.root, tokens: new Set([token].flat().filter(Boolean)), gitAuth: [] };
   let base = '';
@@ -50,9 +82,9 @@ export async function startMock({ fixtureDir, tmpDir, token, configureModel, cla
     requests.push(`${req.method} ${url.pathname}${url.search}`);
     requestsFrom.push({ request: requests.at(-1), token: /^(?:token|bearer)\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? null });
     if (git.root && /^\/[^/]+\/[^/]+\.git(\/|$)/.test(url.pathname)) { serveGit({ req, url, raw }, res, git); return; }
-    const send = sender(res);
+    const p = (decodeURIComponent(url.pathname).replace(/\/+$/, '') || '/').replace(/^\/api\/v3(?=\/|$)/, '') || '/';
+    const send = sender(res, meter(resourceOf(p), requestsFrom.at(-1).token));
     try {
-      const p = (decodeURIComponent(url.pathname).replace(/\/+$/, '') || '/').replace(/^\/api\/v3(?=\/|$)/, '') || '/';
       const handled = await route({ method: req.method, url, p, body: raw.toString('utf8'), headers: req.headers, send, model, base, classification });
       if (!handled) { miss(req, `${req.method} ${url.pathname}${url.search}`); send(404, { message: 'Not Found' }); }
     } catch (error) {

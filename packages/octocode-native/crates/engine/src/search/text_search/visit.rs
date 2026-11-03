@@ -286,7 +286,7 @@ impl WalkScope<'_> {
     ) -> Option<(std::fs::File, std::fs::Metadata)> {
         // Skip files above the byte ceiling before opening them, so a
         // pathological multi-GB file cannot force a giant buffer + lossy
-        // copy. Surfaced as `maxFileSize`; not counted in `files_searched`.
+        // copy. Surfaced as `fileTooLarge`; not counted in `files_searched`.
         if dent
             .metadata()
             .ok()

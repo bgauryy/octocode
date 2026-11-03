@@ -67,8 +67,8 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
             }
             let next = content
                 .pointer("/responsePagination/next")
-                .or_else(|| data.pointer("/next/continuePatch"))
-                .or_else(|| data.pointer("/next/nextFilePage"));
+                .or_else(|| data.pointer("/pullRequests/0/contentPagination/patches/next/nextPage"))
+                .or_else(|| data.pointer("/pullRequests/0/contentPagination/files/next/nextPage"));
             let Some(next) = next else { break };
             assert!(next["input"]["cursor"].is_string());
             input = next["input"].clone();
@@ -87,7 +87,7 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
 /// A 115-file pull request (one 100-file provider batch, then 15 files)
 /// read with the default `sections:["patches"]`: following only the
 /// returned continuations (`responsePagination.next` first, then
-/// `next.continuePatch` / `next.nextFilePage`) every call is a
+/// the patch/file pagination continuations) every call is a
 /// contract-valid success and the walk delivers every patch exactly once.
 /// The first window of a file page that does not fit one response also
 /// lists the page's `fileSummary`: that list must ride inside the page
@@ -181,8 +181,14 @@ async fn default_large_pr_patch_walk_reaches_every_patch_once() {
         }
         let next = content["responsePagination"]["next"]["input"]
             .as_object()
-            .or_else(|| data["next"]["continuePatch"]["input"].as_object())
-            .or_else(|| data["next"]["nextFilePage"]["input"].as_object());
+            .or_else(|| {
+                data["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"]["input"]
+                    .as_object()
+            })
+            .or_else(|| {
+                data["pullRequests"][0]["contentPagination"]["files"]["next"]["nextPage"]["input"]
+                    .as_object()
+            });
         match next {
             Some(next) => envelope = Value::Object(next.clone()),
             None => break,

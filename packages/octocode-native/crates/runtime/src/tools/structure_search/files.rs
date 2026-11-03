@@ -2,9 +2,10 @@
 //! grouped like `tree` ([`super::listing`] runs it).
 use super::probe::FilterProbe;
 
-use crate::num::u32_of;
 use crate::response::result::ToolError;
-use octocode_contract_types::{StructureSearchQueryFiles, StructureSearchQueryFilesSort};
+use crate::tools::variant_field::non_empty;
+use octocode_contract_types::{StructureSearchQueryFiles, StructureSearchSort};
+use octocode_engine::num::saturating_u32;
 use octocode_engine::types::{EntryType, FileSystemQueryOptions};
 
 // Engine-unit views over the generated `files` query.
@@ -12,10 +13,7 @@ use octocode_engine::types::{EntryType, FileSystemQueryOptions};
 /// Levels below `path` (1 = its children), as `tree` and the engine
 /// count them.
 fn depth(value: Option<std::num::NonZeroU64>) -> Option<u32> {
-    value.map(|depth| u32_of(depth.get()))
-}
-fn non_empty(values: &[String]) -> Option<Vec<String>> {
-    (!values.is_empty()).then(|| values.to_vec())
+    value.map(|depth| saturating_u32(depth.get()))
 }
 fn include_globs(query: &StructureSearchQueryFiles) -> Option<Vec<String>> {
     non_empty(&query.include)
@@ -34,7 +32,7 @@ fn permission_bits(query: &StructureSearchQueryFiles) -> Option<String> {
 super::listing::listing_fields!(StructureSearchQueryFiles {
     /// Rows grouped by directory.
     const LAYOUT: &'static str = "workspaceRelativeDirGroups";
-    fn sort(&self) -> StructureSearchQueryFilesSort {
+    fn sort(&self) -> StructureSearchSort {
         self.sort.clone()
     }
     /// Path order is the walk order (name-sorted, depth-first), so the first
@@ -98,14 +96,14 @@ super::listing::listing_fields!(StructureSearchQueryFiles {
     }
 });
 
-pub(super) fn is_traversal(sort: &StructureSearchQueryFilesSort) -> bool {
-    matches!(sort, StructureSearchQueryFilesSort::Variant1 { .. })
+pub(super) fn is_traversal(sort: &StructureSearchSort) -> bool {
+    matches!(sort, StructureSearchSort::AscOnly(_))
 }
 pub(super) fn sort_key(
-    sort: &StructureSearchQueryFilesSort,
-) -> Option<octocode_contract_types::StructureSearchQueryFilesSortVariant0By> {
+    sort: &StructureSearchSort,
+) -> Option<octocode_contract_types::StructureSearchSortAnyOrderBy> {
     match sort {
-        StructureSearchQueryFilesSort::Variant0 { by, .. } => Some(*by),
+        StructureSearchSort::AnyOrder(any) => Some(any.by),
         _ => None,
     }
 }

@@ -16,6 +16,7 @@ use crate::graph::{
     GraphFactCall, GraphFactDeclaration, GraphFactEdge, GraphFactExport, GraphFactImport,
 };
 
+use crate::signatures::languages::SCRIPT_BEARING_MARKUP;
 use crate::signatures::nodes::{
     declaration, declaration_extent, declaration_label, import_specifier, is_import_node,
     last_name_leaf,
@@ -38,10 +39,7 @@ const STATEMENT_KEYWORDS: &[&str] = &[
 fn recovers_statements_as_declarations(file_path: &str) -> bool {
     let extension = extension_of(file_path, true, "");
     JS_TS_EXTENSIONS.contains(&extension.as_str())
-        || matches!(
-            extension.as_str(),
-            "vue" | "svelte" | "astro" | "html" | "htm"
-        )
+        || SCRIPT_BEARING_MARKUP.contains(&extension.as_str())
 }
 
 /// In a JS/TS-family file a keyword-named declaration is a recovery artifact

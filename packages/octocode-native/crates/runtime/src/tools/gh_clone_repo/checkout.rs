@@ -4,6 +4,39 @@ use super::{CloneError, CloneResult, Sparse, control, git, policy_denied, recove
 use octocode_contract_types::ErrorCode;
 use std::path::Path;
 
+/// The checkout already published at `clone_dir` (whose lock the caller
+/// holds), when it is still exactly the commit `reference`: the destination
+/// is keyed by that commit, scope and depth, and verification is the one
+/// replacement uses ([`git::safe_to_replace`]): HEAD is the commit, the work
+/// tree has no modified, untracked or ignored files, and no local refs exist.
+/// `None` when there is no checkout or it differs, so the caller fetches fresh.
+pub(super) fn reuse_checkout(
+    plan: &Plan<'_>,
+    reference: &str,
+    clone_dir: &Path,
+) -> Result<Option<CloneResult>, CloneError> {
+    if !clone_dir.is_dir() {
+        return Ok(None);
+    }
+    let context = plan.context;
+    context.git.assert_available(&control(context))?;
+    if !git::safe_to_replace(context, clone_dir, reference)? {
+        return Ok(None);
+    }
+    let checkout = Checkout {
+        commit_sha: reference.to_ascii_lowercase(),
+        size: storage::checked_out_size(clone_dir),
+        symlinks: git::symlinks(context, clone_dir)?,
+    };
+    context
+        .path_policy
+        .validate(clone_dir)
+        .map_err(policy_denied)?;
+    let mut result = plan.result(reference, clone_dir, checkout);
+    result.location.cloned_at = storage::completed_at(clone_dir);
+    Ok(Some(result))
+}
+
 /// Check out `reference` into a stage, verify it, and publish it as the
 /// destination `clone_dir`, whose lock the caller holds.
 pub(super) fn fresh_clone(
@@ -24,7 +57,9 @@ pub(super) fn fresh_clone(
         .path_policy
         .validate(clone_dir)
         .map_err(policy_denied)?;
-    Ok(plan.result(reference, clone_dir, checkout))
+    let mut result = plan.result(reference, clone_dir, checkout);
+    result.location.cloned_at = storage::completed_at(clone_dir);
+    Ok(result)
 }
 
 /// Publish a verified stage as the destination `clone_dir` after verification.
@@ -40,11 +75,12 @@ fn publish_stage(
         size: storage::checked_out_size(stage),
         symlinks: git::symlinks(context, stage)?,
     };
-    // User writes may arrive while the stage is fetched: recheck while
-    // holding the destination lock before replacing anything.
+    // The lock serializes only Octocode: a user can create or edit the
+    // destination while the stage is fetched, so recheck before replacing.
     if clone_dir.exists() && !git::safe_to_replace(context, clone_dir, commit_sha)? {
         return Err(dirty_checkout(clone_dir));
     }
+    storage::record_completion(stage)?;
     storage::promote(stage, clone_dir)?;
     Ok(checkout)
 }

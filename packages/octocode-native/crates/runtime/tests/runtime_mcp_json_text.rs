@@ -1,27 +1,19 @@
 //! The MCP text channel is JSON only: every `CallToolResult` carries exactly
-//! one text block, the serialized JSON of that same result's final
-//! `structuredContent` (MCP server/tools: "a tool that returns structured
-//! content SHOULD also return the serialized JSON in a TextContent block").
+//! one text block and no duplicate structured copy.
 
-use crate::support::{Run as _, Workspace, clasify_runtime};
+use crate::support::{Run as _, Workspace, clasify_runtime, mcp_payload};
 use octocode_native::runtime::ToolRuntime;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
-/// `result`'s one text block, asserted to be the serialized JSON of its
-/// `structuredContent`, byte for byte.
+/// `result` has one JSON text block and no structuredContent.
 fn assert_json_text(result: &Value) {
+    assert!(result.get("structuredContent").is_none(), "{result}");
     let content = result["content"].as_array().expect("content array");
     assert_eq!(content.len(), 1, "{result}");
     assert_eq!(content[0]["type"], "text", "{result}");
-    let structured = &result["structuredContent"];
-    assert!(structured.is_object(), "{result}");
-    assert_eq!(
-        content[0]["text"].as_str().expect("text"),
-        serde_json::to_string(structured).expect("serializable"),
-        "{result}"
-    );
+    assert!(mcp_payload(result).is_object(), "{result}");
 }
 
 async fn mcp(runtime: &ToolRuntime, tool: &str, input: Value) -> Value {
@@ -40,23 +32,19 @@ fn lines(word: &str) -> String {
 }
 
 #[tokio::test]
-async fn an_unpaged_row_is_its_structured_json() {
+async fn an_unpaged_row_is_json_text() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     let file = workspace.write("a.txt", "alpha\nbeta\n");
     let result = mcp(&runtime, "localFetch", json!({"queries":[{"path":file}]})).await;
-    assert!(
-        result["structuredContent"]
-            .get("responsePagination")
-            .is_none()
-    );
+    assert!(mcp_payload(&result).get("responsePagination").is_none());
     assert_eq!(result["isError"], false);
     runtime.close().await;
 }
 
 /// Every page scope, its saved replay included, answers in JSON text.
 #[tokio::test]
-async fn every_page_and_its_saved_replay_is_its_structured_json() {
+async fn every_page_and_its_saved_replay_is_json_text() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     let file = workspace.write("pages.txt", lines("paged"));
@@ -67,16 +55,12 @@ async fn every_page_and_its_saved_replay_is_its_structured_json() {
     )
     .await;
     let mut pages = 1;
-    while let Some(input) = page["structuredContent"]
-        .pointer("/responsePagination/next/input")
-        .cloned()
-    {
+    let mut payload = mcp_payload(&page);
+    while let Some(input) = payload.pointer("/responsePagination/next/input").cloned() {
         crate::support::assert_cursor_only(&input);
         page = mcp(&runtime, "localSearch", input).await;
-        assert_eq!(
-            page["structuredContent"]["responsePagination"]["replayed"],
-            true
-        );
+        payload = mcp_payload(&page);
+        assert_eq!(payload["responsePagination"]["replayed"], true);
         pages += 1;
         assert!(pages < 300, "finite response pages");
     }
@@ -85,7 +69,7 @@ async fn every_page_and_its_saved_replay_is_its_structured_json() {
 }
 
 #[tokio::test]
-async fn a_tool_error_is_its_structured_json() {
+async fn a_tool_error_is_json_text() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     let result = mcp(
@@ -95,12 +79,12 @@ async fn a_tool_error_is_its_structured_json() {
     )
     .await;
     assert_eq!(result["isError"], true);
-    assert_eq!(result["structuredContent"]["errorCode"], "invalidInput");
+    assert_eq!(mcp_payload(&result)["errorCode"], "invalidInput");
     runtime.close().await;
 }
 
 #[tokio::test]
-async fn a_batch_with_rejected_rows_is_its_structured_json() {
+async fn a_batch_with_rejected_rows_is_json_text() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     let file = workspace.write("a.txt", lines("batch"));
@@ -113,9 +97,8 @@ async fn a_batch_with_rejected_rows_is_its_structured_json() {
             input["responseChars"] = json!(length);
         }
         let result = mcp(&runtime, "localFetch", input).await;
-        let rows = result["structuredContent"]["results"]
-            .as_array()
-            .expect("rows");
+        let payload = mcp_payload(&result);
+        let rows = payload["results"].as_array().expect("rows");
         assert!(
             rows.iter().any(|row| row["status"] == "error"),
             "{length:?}: {result}"
@@ -125,7 +108,7 @@ async fn a_batch_with_rejected_rows_is_its_structured_json() {
 }
 
 #[tokio::test]
-async fn clasify_receipts_are_their_structured_json() {
+async fn clasify_receipts_are_json_text() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -158,7 +141,7 @@ async fn clasify_receipts_are_their_structured_json() {
     )
     .await;
     assert!(
-        result["structuredContent"]["results"][0]["data"]["answers"].is_object(),
+        mcp_payload(&result)["results"][0]["data"]["answers"].is_object(),
         "{result}"
     );
     runtime.close().await;

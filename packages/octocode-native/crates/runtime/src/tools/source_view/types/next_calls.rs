@@ -25,12 +25,10 @@ impl FetchCall {
 }
 impl Serialize for FetchCall {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::Error;
-        let row = serde_json::to_value(&self.query).map_err(S::Error::custom)?;
         if self.continuing {
-            crate::response::result::Continuation::continued(crate::id::ToolId::LocalFetch, row)
+            crate::response::result::Continuation::continued_query(self.query.clone())
         } else {
-            crate::response::result::Continuation::related(crate::id::ToolId::LocalFetch, row)
+            crate::response::result::Continuation::related_query(self.query.clone())
         }
         .build()
         .serialize(serializer)
@@ -201,16 +199,18 @@ impl NextCalls {
             .filter_map(|(_, _, read)| read.as_mut())
     }
 
-    /// Whether a continuation reads more of this result (a page), as opposed
-    /// to an optional lead such as `read`; only a page makes the row
-    /// partial. A call of another tool is a lead, never a page.
-    pub fn leaves_more(&self) -> bool {
-        self.reads()
-            .into_iter()
-            .any(|(_, _, read)| read.as_ref().is_some_and(|read| read.continuing))
-            || self
-                .unfiltered_unknown_rest
-                .values()
-                .any(|call| call["kind"] == "continue")
+    /// Whether a continuation reads evidence this result left unread, as
+    /// opposed to paging on (`nextPage`, `continueBlock`: pagination, not
+    /// partial coverage) or an optional lead such as `read`. Other
+    /// continuing reads (unjudged candidates, other ranges) are unread
+    /// evidence. A call of another tool is a lead, never a page.
+    pub fn leaves_unread(&self) -> bool {
+        self.reads().into_iter().any(|(name, _, read)| {
+            !matches!(name, "nextPage" | "continueBlock")
+                && read.as_ref().is_some_and(|read| read.continuing)
+        }) || self
+            .unfiltered_unknown_rest
+            .values()
+            .any(|call| call["kind"] == "continue")
     }
 }

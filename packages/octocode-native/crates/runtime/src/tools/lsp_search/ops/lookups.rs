@@ -215,18 +215,12 @@ impl Operation<'_, '_> {
                 };
                 let language = language_name(extension);
                 others.push(language);
-                crate::response::result::attach_related(
-                    &mut row,
-                    crate::response::result::Continuation::related(
-                        ToolId::LspSearch,
-                        json!({
-                            "operation": "workspaceSymbol",
-                            "symbolQuery": name,
-                            "path": file
-                        }),
-                    )
-                    .build(),
-                );
+                if let Some(lead) = lsp_search_query::workspace_symbol_lead(&name, &file, None) {
+                    crate::response::result::attach_related(
+                        &mut row,
+                        crate::response::result::Continuation::related_query(lead).build(),
+                    );
+                }
             }
             let hint = if others.is_empty() {
                 match super::super::session::root_representative(self.path, &self.scope.root) {

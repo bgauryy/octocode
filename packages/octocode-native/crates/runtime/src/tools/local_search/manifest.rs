@@ -14,28 +14,13 @@
 //! serving it.
 use super::super::page_memo::{PageMemo, Proof};
 use super::layout::FilePrice;
-use super::packed::Packed;
+use super::packed::{Encoded, Packed};
 use super::sources::Digest;
 use super::verify::Redaction;
 use super::walked::Walked;
 use crate::policy::discovery::WalkSkips;
 use octocode_engine::types::{TextSearchMatch, TextSearchResult};
-use sha2::{Digest as _, Sha256};
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
-
-const MAX_ENTRIES: usize = 64;
-/// Bytes one stored scan may keep: its packed matches, its sources' paths and
-/// its redaction.
-pub(super) const MAX_BYTES: usize = 4 * 1024 * 1024;
-/// Bytes one stored scan's matches may take unpacked: what a page reads
-/// back from it.
-const MAX_RAW_BYTES: usize = 64 * 1024 * 1024;
-/// Bytes all stored scans may hold together; the oldest are evicted first.
-const MAX_TOTAL_BYTES: usize = 16 * 1024 * 1024;
-/// Matched-file bytes one stored scan may hash; a larger scan is not stored,
-/// so its continuations rescan instead.
-pub const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
-const TTL: Duration = Duration::from_secs(60);
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 /// A matched file as it was when its scan was stored.
 pub(super) struct Source {
@@ -112,8 +97,9 @@ impl NamePrices {
 
 /// A fresh scan offered for storage, with what its page derived from it.
 pub struct Fresh {
-    /// The scan as the walk returned it, before any page shaped it.
-    pub value: Packed,
+    /// The scan as the walk returned it, before any page shaped it; it is
+    /// deflated only when stored.
+    pub value: Encoded,
     /// The query key its snapshot was derived from (see `cursor::query_key`).
     pub query_key: String,
     /// What redacting `value` changed (see [`Redaction`]).
@@ -145,13 +131,18 @@ pub struct Stored {
     pub prices: Arc<NamePrices>,
 }
 
-/// Stored scans, weighed by their kept bytes.
-static STORE: PageMemo<Scan> = PageMemo::new(TTL, MAX_ENTRIES, MAX_TOTAL_BYTES);
+/// Stored scans, weighed by their kept bytes against the one process budget
+/// ([`crate::cache::MEMORY`]): their packed matches, their sources' paths,
+/// their redactions and what their walks recorded. One scan may use all of
+/// it, since a scan that is not stored costs a whole walk per page, which
+/// outweighs the entries it would displace; unpacked, a page reads back at
+/// most as much.
+static STORE: PageMemo<Scan> = PageMemo::new();
 
-/// `value` packed for storage, or `None` when it is too large to store.
+/// `value` encoded for storage, or `None` when it is too large to store.
 #[cfg(test)]
-pub fn pack(value: &TextSearchResult) -> Option<Packed> {
-    pack_checked(value, &|| false)
+pub fn encode(value: &TextSearchResult) -> Option<Encoded> {
+    encode_checked(value, &|| false)
 }
 
 #[cfg(test)]
@@ -159,8 +150,10 @@ pub fn get(snapshot: &str, policy: &str) -> Option<Stored> {
     get_checked(snapshot, policy, &|| false)
 }
 
-pub fn pack_checked(value: &TextSearchResult, cancelled: &dyn Fn() -> bool) -> Option<Packed> {
-    Packed::pack_checked(value, MAX_RAW_BYTES, MAX_BYTES, cancelled)
+/// `value` encoded as a page found it, for a cursor that may keep it; it is
+/// deflated only by [`put_checked`].
+pub fn encode_checked(value: &TextSearchResult, cancelled: &dyn Fn() -> bool) -> Option<Encoded> {
+    Encoded::encode_checked(value, crate::cache::MEMORY.limit(), cancelled)
 }
 
 pub fn get_checked(snapshot: &str, policy: &str, cancelled: &dyn Fn() -> bool) -> Option<Stored> {
@@ -220,10 +213,12 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
     if walked.untracked || walked.oversize {
         return;
     }
-    let Some(scan) = value.unpack_checked(cancelled) else {
+    let Some(scan) = value.decode_checked(cancelled) else {
         return;
     };
-    let mut budget = MAX_SOURCE_BYTES;
+    // One file at a time, each at most what the budget could keep; the
+    // request's cancellation bounds the whole pass.
+    let max_file = u64::try_from(crate::cache::MEMORY.limit()).unwrap_or(u64::MAX);
     let mut sources = Vec::with_capacity(scan.files.len());
     for file in scan.files {
         if cancelled() {
@@ -246,7 +241,7 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
                 path,
                 digest: searched.digest,
             }),
-            None => read_source(path, &file.matches, &mut budget),
+            None => read_source(path, &file.matches, max_file),
         };
         let Some(source) = source else {
             return;
@@ -262,20 +257,22 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
             read.is_some() && sources.get(*index).map(|source| source.digest) == *read
         })
         .then_some(redaction);
-    let bytes = value.weight()
-        + sources
-            .iter()
-            .map(|source| source.path.len())
-            .sum::<usize>()
+    let derived = sources
+        .iter()
+        .map(|source| source.path.len())
+        .sum::<usize>()
         + redaction.as_ref().map_or(0, Redaction::weight)
         + walked.weight()
         + prices.weight();
-    if bytes > MAX_BYTES {
-        return;
-    }
     let Some(proof) = walked.proof() else {
         return;
     };
+    // Deflated last: the only step whose cost grows with the scan's rows.
+    let budget = crate::cache::MEMORY.limit();
+    let Some(value) = value.deflate_checked(budget.saturating_sub(derived), cancelled) else {
+        return;
+    };
+    let bytes = value.weight() + derived;
     STORE.put(
         snapshot,
         policy,
@@ -298,17 +295,16 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
 pub(super) fn read_source(
     path: String,
     matches: &[TextSearchMatch],
-    budget: &mut u64,
+    max_file: u64,
 ) -> Option<Source> {
-    // Bounded by the budget left: a file grown past it is refused unread.
+    // A file grown past `max_file` is refused unread.
     let octocode_engine::text::Source { bytes, metadata } =
-        octocode_engine::text::read_regular(std::path::Path::new(&path), *budget).ok()?;
+        octocode_engine::text::read_regular(std::path::Path::new(&path), max_file).ok()?;
     let size = u64::try_from(bytes.len()).ok()?;
     // A length other than the handle's own means it was written meanwhile.
     if size != metadata.len() {
         return None;
     }
-    *budget -= size;
     if !matches.is_empty() {
         let text = String::from_utf8_lossy(&bytes);
         let lines = text
@@ -324,7 +320,7 @@ pub(super) fn read_source(
     }
     Some(Source {
         path,
-        digest: Sha256::digest(&bytes).into(),
+        digest: octocode_engine::digest::sha256_digest(&bytes),
     })
 }
 

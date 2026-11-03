@@ -1,17 +1,12 @@
 //! The one classification evaluator: a captured state plus JEV questions in,
 //! validated typed answers, the answering model and usage out. Retrieval
 //! `classification` (through the selection judge) and public `clasify` both use
-//! [`Evaluator`]; neither keeps its own provider client, cache,
-//! retry loop or accounting.
-//!
-//! Identical prepared input (account partition, model, state, questions,
-//! media bytes and capability options)
-//! reuses one validated answer set from either entry point. Only complete
-//! successful evaluations are stored; concurrent identical evaluations share
-//! one provider request, and a provider failure is shared only with the
-//! requests already waiting on it.
+//! [`Evaluator`]; neither keeps its own provider client, retry loop or
+//! accounting. Each evaluation reads the provider with its own request budget;
+//! identical evaluations inside one request share one provider request
+//! ([`shared`]), and nothing outlives the request.
 pub(crate) mod batch;
-mod cache;
+pub(crate) mod shared;
 pub(crate) mod stats;
 
 #[cfg(test)]
@@ -27,7 +22,6 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Source capture resolves assets before evaluation; this view never owns or
@@ -72,15 +66,11 @@ pub(crate) struct Judged {
     pub model: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
-    /// Provider requests this call made; zero for a replay.
+    /// Provider requests this call made.
     #[serde(skip)]
     pub provider_calls: u64,
     #[serde(skip)]
     pub known_usage_calls: u64,
-    /// Answers saved from an identical earlier evaluation; the tokens are
-    /// that evaluation's, not new spend.
-    #[serde(skip)]
-    pub replayed: bool,
 }
 
 /// Per-question results retain successful siblings when another request fails.
@@ -111,29 +101,6 @@ impl QuestionOutcomes {
             models,
         }
     }
-
-    fn replayed(mut self) -> Self {
-        match &mut self.complete {
-            Ok(judged) => {
-                judged.replayed = true;
-                judged.provider_calls = 0;
-                judged.known_usage_calls = 0;
-            }
-            Err(error) => {
-                error.provider_calls = 0;
-                error.reported_usage = None;
-            }
-        }
-        for error in self
-            .answers
-            .iter_mut()
-            .filter_map(|answer| answer.as_mut().err())
-        {
-            error.provider_calls = 0;
-            error.reported_usage = None;
-        }
-        self
-    }
 }
 
 /// Provider connection and policy shared by every evaluation of a runtime.
@@ -148,7 +115,6 @@ pub(crate) struct Evaluator {
     pub(crate) timeout: Duration,
     pub(crate) retries: u32,
     pub(crate) max_concurrency: usize,
-    judgments: Arc<cache::Judgments>,
     /// `<home>` when session statistics are recorded.
     stats_home: Option<PathBuf>,
 }
@@ -162,7 +128,6 @@ impl Evaluator {
         timeout: Duration,
         retries: u32,
         max_concurrency: usize,
-        cache_dir: Option<PathBuf>,
         stats_home: Option<PathBuf>,
     ) -> Self {
         Self {
@@ -173,7 +138,6 @@ impl Evaluator {
             timeout,
             retries,
             max_concurrency,
-            judgments: Arc::new(cache::Judgments::new(cache_dir)),
             stats_home,
         }
     }
@@ -207,7 +171,7 @@ impl Evaluator {
     pub(crate) fn budget(
         &self,
         deadline: Instant,
-        cancellation: tokio_util::sync::CancellationToken,
+        cancellation: octocode_io::cancellation::Cancellation,
     ) -> RequestBudget {
         transport::budget(deadline.min(Instant::now() + self.timeout), cancellation)
     }
@@ -254,36 +218,14 @@ impl Evaluator {
     ) -> Result<QuestionOutcomes, ClassificationError> {
         let key = self.credential()?;
         let model = model.unwrap_or(&self.model);
-        let partition = self.partition();
-        let entry = cache::Judgments::key(&partition, model, input);
-        let ticket = self.judgments.flight.join(entry.resource.clone());
-        let mut turn = transport::wait(budget, ticket.turn()).await?;
         transport::check_budget(budget)?;
-        if let Some(outcomes) = turn.as_ref() {
-            return Ok(outcomes.clone().replayed());
-        }
-        if let Some(saved) = self.judgments.get(&entry) {
-            return Ok(
-                QuestionOutcomes::from_complete(Ok(saved), input.questions.len()).replayed(),
-            );
-        }
         let connection = batch::Connection {
             key,
             base_url: &self.base_url,
             provider: self.provider,
             retries: self.retries,
         };
-        let outcomes = batch::answer_questions(input, model, &connection, budget, gate).await;
-        match &outcomes.complete {
-            Ok(judged) => self.judgments.put(entry, judged),
-            Err(error) => {
-                // Deadline/cancellation belongs to this caller, not its waiters.
-                if !matches!(error.code, ErrorCode::Cancelled | ErrorCode::Timeout) {
-                    *turn = Some(outcomes.clone());
-                }
-            }
-        }
-        Ok(outcomes)
+        Ok(batch::answer_questions(input, model, &connection, budget, gate).await)
     }
 
     /// The model catalog (clasify `models` output shape), read through the
@@ -326,8 +268,4 @@ impl Evaluator {
             stats::record_classification(home, usage);
         }
     }
-}
-
-pub(crate) fn retention() -> Duration {
-    cache::TTL
 }

@@ -247,7 +247,7 @@ pub(super) fn find(
     range: std::ops::Range<usize>,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<Page, GraphOutput> {
-    let mut window = Window::budgeted(range, g.page_budget);
+    let mut window = Window::budgeted(range, g.row_budget());
     for hit in ranked(g, text, kind, cancel)? {
         window.try_push(|| {
             let mut row = g.node_json(hit.id, cancel)?;

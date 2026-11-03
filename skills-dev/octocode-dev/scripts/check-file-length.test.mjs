@@ -10,6 +10,18 @@ test('physical lines count every line, blank and comment lines included', () => 
   assert.equal(physicalLines('a\nb'), 2, 'a last line without a newline still counts');
 });
 
+test('the limit is exact: 400 physical lines pass, 401 fail with no baseline entry', () => {
+  const lines = count => 'x\n'.repeat(count);
+  const counts = new Map([
+    ['at.rs', physicalLines(lines(MAX_LINES))],
+    ['over.rs', physicalLines(lines(MAX_LINES + 1))],
+  ]);
+  assert.deepEqual(
+    compare(counts, {}).map(failure => failure.split(':')[0]),
+    ['over.rs']
+  );
+});
+
 test('source files are checked; generated files and fixtures are not', () => {
   for (const file of ['src/a.ts', 'src/a.tsx', 'bin/x.cjs', 'x.mjs', 'x.js', 'crates/a/src/lib.rs', 'x.mts']) {
     assert.ok(isChecked(file), file);

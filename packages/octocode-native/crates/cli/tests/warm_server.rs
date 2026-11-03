@@ -58,7 +58,7 @@ fn a_tool_call_answers_alike_through_the_warm_server_and_in_process() {
         let mut command = workspace.cli();
         command
             .env("TMPDIR", sockets.path())
-            .args(["localSearch", query]);
+            .args(["localSearch", query, "--json"]);
         if served {
             command.env("OCTOCODE_STORAGE_MODE", "persistent");
         }

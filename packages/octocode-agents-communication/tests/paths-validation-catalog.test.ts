@@ -193,10 +193,9 @@ test('tool selection, help and accessors derive from the one catalog, and the sk
   const names = (tools: JsonRecord[]) => tools.map((tool: JsonRecord) => tool.name);
   const all = names(catalog.selectedTools());
   assert.deepEqual(all, names(dump.tools));
-  const commands = new Set(dump.commands.map((command: JsonRecord) => command.name));
-  assert.deepEqual(all.filter(name => !commands.has(name)), [], 'every tool is a command');
+  for (const name of all) assert.equal(catalog.definition(name).name, name, 'every family has a CLI command definition');
   // A custom selection returns exactly its tools, in catalog order whatever the selection order.
-  assert.deepEqual(names(catalog.selectedTools('fetch,peers')), all.filter(name => name === 'peers' || name === 'fetch'));
+  assert.deepEqual(names(catalog.selectedTools('records,agents')), all.filter(name => name === 'agents' || name === 'records'));
   // Each profile help() names is a strict superset of the one before it, and every profile is a subset of all tools.
   const profiles = Object.keys(catalog.help().toolProfiles).map(profile => new Set(names(catalog.selectedTools(profile))));
   assert.deepEqual(Object.keys(catalog.help().toolProfiles), ['messaging', 'review', 'editing']);
@@ -213,7 +212,8 @@ test('tool selection, help and accessors derive from the one catalog, and the sk
   assert.equal(catalog.skillInstructions(), operating);
   assert.equal(catalog.skillInstructions('x'), operating.slice(operating.indexOf('# ')));
   assert.ok(catalog.workerSkill('messaging').length < catalog.skillInstructions('worker').length);
-  assert.equal(catalog.workerSkill('editing'), catalog.skillInstructions('worker'));
+  assert.match(catalog.workerSkill('editing'), /acquire then check/);
+  assert.doesNotMatch(catalog.workerSkill('messaging'), /acquire then check/);
 });
 
 test('catalog accessors return copies and refuse unknown names', () => {
@@ -221,15 +221,20 @@ test('catalog accessors return copies and refuse unknown names', () => {
   assert.ok(catalog.catalog().commands.length > 10);
   assert.throws(() => catalog.definition('nope'), /Unknown command: nope; use --help/);
   assert.throws(() => catalog.recordType('nope'), /Unknown record type: nope/);
-  assert.throws(() => catalog.selectedTools('peers,nope'), /Unknown selected tool: nope/);
-  assert.throws(() => catalog.selectedTools('peers,peers'), /Duplicate selected tool/);
+  assert.throws(() => catalog.selectedTools('agents,nope'), /Unknown selected tool: nope/);
+  assert.throws(() => catalog.selectedTools('agents,agents'), /Duplicate selected tool/);
 });
 
 test('command validation equals the recorded reference output for accepted and rejected inputs', () => {
-  const actual = golden.commands.map(({ name, input }: JsonRecord) => {
+  const current = golden.commands.filter(({ name }: JsonRecord) => name !== 'send_message');
+  const actual = current.map(({ name, input }: JsonRecord) => {
     try { catalog.command(name, input); return null; } catch (error) { assert.ok(error instanceof ValidationError, error instanceof Error ? error.stack : String(error)); return error.message; }
   });
-  assert.deepEqual(actual, golden.commands.map((item: JsonRecord) => item.error));
+  assert.deepEqual(actual, current.map((item: JsonRecord) => item.error));
+  assert.doesNotThrow(() => catalog.command('send_message', { to: 'x', parts: [{ text: 'hi' }], reasoning: 'because' }));
+  assert.throws(() => catalog.command('send_message', { to: 'x', topic: 'review', parts: [{ text: 'hi' }], reasoning: 'because' }), /Supply exactly one recipient/);
+  assert.throws(() => catalog.command('send_message', { to: 'x', reasoning: 'because' }), /missing required property parts/);
+  assert.throws(() => catalog.command('send_message', { to: 'x', replyTo: 1, parts: [{ text: 'hi' }], reasoning: 'because' }), /Replies use complete.*omit replyTo/);
 });
 
 test('text, ttl and stored lengths follow the catalog rules', () => {
@@ -242,9 +247,9 @@ test('text, ttl and stored lengths follow the catalog rules', () => {
   assert.equal(catalog.ttl({}, 5000), 5000);
   assert.equal(catalog.ttl({ ttlMs: 1000 }, 5000), 1000);
   for (const bad of [999, 86400001, 1.5, '5000', true]) assert.throws(() => catalog.ttl({ ttlMs: bad }, 5000), /Invalid TTL/, String(bad));
-  assert.equal(catalog.kindOf({ body: 'x' }), 'note');
-  assert.equal(catalog.kindOf({ task: 'x' }), 'task');
-  assert.throws(() => catalog.kindOf({}), /Supply exactly one message kind/);
+  const parts = catalog.inputProperty('send_message', 'parts');
+  assert.doesNotThrow(() => catalog.validate(parts, [{ text: 'notice' }, { data: { constraints: { readOnly: true, note: null } } }, { url: 'file:///tmp/report.txt', filename: 'report.txt', mediaType: 'text/plain' }]));
+  for (const invalid of [[], [{}], [{ text: 'notice', data: {} }]]) assert.throws(() => catalog.validate(parts, invalid));
 });
 
 test('pages obey the item and byte budgets and continue exactly once', () => {

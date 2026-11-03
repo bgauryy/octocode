@@ -1,22 +1,46 @@
 //! Typed views of the exact generated reader alternatives.
 use super::LineRange;
-use crate::num::{usize_of, usize_of_signed};
+use crate::num::usize_of_signed;
+use crate::tools::variant_field::variant_field;
 use octocode_contract_types::{
-    CaseMode, LocalFetchQuery, LocalFetchQueryContentMatchString, ReadProgress, ReadProgressUnit,
-    ReadView, RegexEngine, SourceLineRange,
+    CaseMode, LocalFetchQuery, LocalFetchQueryContent0, LocalFetchQueryContent0View,
+    LocalFetchQueryContentMatchString, LocalFetchQueryContentRanges,
+    LocalFetchQueryContentRangesView, LocalFetchQuerySymbols, LocalFetchQuerySymbolsView,
+    ReadProgress, ReadProgressUnit, ReadView, RegexEngine, SourceLineRange,
 };
+use octocode_engine::num::saturating_usize;
 use serde_json::{Value, json};
 
+/// Binds `$q` to the query struct of every view.
 macro_rules! each_shape {
     ($query:expr, $q:ident => $body:expr) => {
-        match $query {
-            LocalFetchQuery::Content0($q) => $body,
-            LocalFetchQuery::ContentRanges($q) => $body,
-            LocalFetchQuery::ContentMatchString($q) => $body,
-            LocalFetchQuery::Compact3($q) => $body,
-            LocalFetchQuery::CompactRanges($q) => $body,
-            LocalFetchQuery::Symbols($q) => $body,
-        }
+        variant_field!($query, each [
+            LocalFetchQuery::Content0, LocalFetchQuery::ContentRanges,
+            LocalFetchQuery::ContentMatchString, LocalFetchQuery::Compact3,
+            LocalFetchQuery::CompactRanges, LocalFetchQuery::Symbols,
+        ] $q => $body)
+    };
+}
+
+/// Binds `$q` to the query struct of a `content` view; `$other` answers for
+/// `compact` and `symbols`.
+macro_rules! content_view {
+    ($query:expr, $q:ident => $body:expr, else => $other:expr) => {
+        variant_field!($query, each [
+            LocalFetchQuery::Content0, LocalFetchQuery::ContentRanges,
+            LocalFetchQuery::ContentMatchString,
+        ] $q => $body, else => $other)
+    };
+}
+
+/// Binds `$q` to the query struct of a view with `ranges`; `$other` answers
+/// for the rest.
+macro_rules! ranged_view {
+    ($query:expr, $q:ident => $body:expr, else => $other:expr) => {
+        variant_field!($query, each [
+            LocalFetchQuery::ContentRanges, LocalFetchQuery::ContentMatchString,
+            LocalFetchQuery::CompactRanges,
+        ] $q => $body, else => $other)
     };
 }
 
@@ -25,19 +49,13 @@ pub(crate) fn path(query: &LocalFetchQuery) -> &str {
 }
 
 pub(crate) fn matched(query: &LocalFetchQuery) -> Option<&LocalFetchQueryContentMatchString> {
-    match query {
-        LocalFetchQuery::ContentMatchString(q) => Some(q),
-        _ => None,
-    }
+    variant_field!(query, each [LocalFetchQuery::ContentMatchString] q => Some(q), else => None)
 }
 
 pub(crate) fn matched_mut(
     query: &mut LocalFetchQuery,
 ) -> Option<&mut LocalFetchQueryContentMatchString> {
-    match query {
-        LocalFetchQuery::ContentMatchString(q) => Some(q),
-        _ => None,
-    }
+    variant_field!(query, each [LocalFetchQuery::ContentMatchString] q => Some(q), else => None)
 }
 
 pub(crate) fn has_matches(query: &LocalFetchQuery) -> bool {
@@ -81,20 +99,15 @@ pub(crate) fn match_strings(query: &LocalFetchQuery) -> Vec<&str> {
 }
 
 fn ranges(query: &LocalFetchQuery) -> &[SourceLineRange] {
-    match query {
-        LocalFetchQuery::ContentRanges(q) => &q.ranges,
-        LocalFetchQuery::ContentMatchString(q) => &q.ranges,
-        LocalFetchQuery::CompactRanges(q) => &q.ranges,
-        _ => &[],
-    }
+    ranged_view!(query, q => &q.ranges, else => &[])
 }
 
 pub(crate) fn line_ranges(query: &LocalFetchQuery) -> Vec<LineRange> {
     ranges(query)
         .iter()
         .map(|range| LineRange {
-            start: usize_of(range.start_line.get()),
-            end: usize_of(range.end_line.get()),
+            start: saturating_usize(range.start_line.get()),
+            end: saturating_usize(range.end_line.get()),
         })
         .collect()
 }
@@ -119,12 +132,7 @@ pub(crate) fn end_line(query: &LocalFetchQuery) -> Option<usize> {
 }
 
 pub(crate) fn block(query: &LocalFetchQuery) -> bool {
-    match query {
-        LocalFetchQuery::ContentRanges(q) => q.block == Some(true),
-        LocalFetchQuery::ContentMatchString(q) => q.block == Some(true),
-        LocalFetchQuery::CompactRanges(q) => q.block == Some(true),
-        _ => false,
-    }
+    ranged_view!(query, q => q.block == Some(true), else => false)
 }
 
 pub(crate) fn view(query: &LocalFetchQuery) -> ReadView {
@@ -136,21 +144,11 @@ pub(crate) fn view(query: &LocalFetchQuery) -> ReadView {
 }
 
 pub(crate) fn has_classification(query: &LocalFetchQuery) -> bool {
-    match query {
-        LocalFetchQuery::Content0(q) => q.classification.is_some(),
-        LocalFetchQuery::ContentRanges(q) => q.classification.is_some(),
-        LocalFetchQuery::ContentMatchString(q) => q.classification.is_some(),
-        _ => false,
-    }
+    content_view!(query, q => q.classification.is_some(), else => false)
 }
 
 pub(crate) fn selection(query: &LocalFetchQuery) -> Option<&str> {
-    match query {
-        LocalFetchQuery::Content0(q) => q.selection.as_ref().map(|token| token.as_str()),
-        LocalFetchQuery::ContentRanges(q) => q.selection.as_ref().map(|token| token.as_str()),
-        LocalFetchQuery::ContentMatchString(q) => q.selection.as_ref().map(|token| token.as_str()),
-        _ => None,
-    }
+    content_view!(query, q => q.selection.as_ref().map(|token| token.as_str()), else => None)
 }
 
 pub(crate) fn snapshot(query: &LocalFetchQuery) -> Option<&str> {
@@ -168,7 +166,7 @@ pub(crate) fn offset(query: &LocalFetchQuery) -> Option<usize> {
 /// Lines one page holds at most: the caller's `limit`; omitted, the page
 /// budget alone cuts it.
 pub(crate) fn line_limit(query: &LocalFetchQuery) -> usize {
-    each_shape!(query, q => q.limit.map_or(usize::MAX, |limit| usize_of(limit.get())))
+    each_shape!(query, q => q.limit.map_or(usize::MAX, |limit| saturating_usize(limit.get())))
 }
 
 pub(crate) fn unit(query: &LocalFetchQuery) -> ReadProgressUnit {
@@ -252,14 +250,74 @@ pub(crate) fn set_selection(
     query: &mut LocalFetchQuery,
     selection: Option<&str>,
 ) -> Result<(), octocode_contract_types::error::ConversionError> {
-    match query {
-        LocalFetchQuery::Content0(q) => q.selection = selection.map(str::parse).transpose()?,
-        LocalFetchQuery::ContentRanges(q) => q.selection = selection.map(str::parse).transpose()?,
-        LocalFetchQuery::ContentMatchString(q) => {
-            q.selection = selection.map(str::parse).transpose()?;
+    content_view!(query, q => q.selection = selection.map(str::parse).transpose()?, else => {
+        if selection.is_some() {
+            return Err("selection requires content view".into());
         }
-        _ if selection.is_some() => return Err("selection requires content view".into()),
-        _ => {}
-    }
+    });
     Ok(())
+}
+
+/// A whole-file `content` read of `path`: the lead that opens a file.
+pub(crate) fn read_lead(path: &str) -> Option<LocalFetchQuery> {
+    Some(
+        LocalFetchQueryContent0 {
+            classification: None,
+            limit: None,
+            main_goal: None,
+            path: path.try_into().ok()?,
+            read_progress: None,
+            reasoning: None,
+            selection: None,
+            snapshot: None,
+            view: LocalFetchQueryContent0View::Content,
+        }
+        .into(),
+    )
+}
+
+/// A `content` read of `path` over the inclusive `(start, end)` line
+/// windows; `None` when a window starts or ends before line 1.
+pub(crate) fn ranges_lead(path: &str, windows: &[(u64, u64)]) -> Option<LocalFetchQuery> {
+    let ranges = windows
+        .iter()
+        .map(|&(start, end)| {
+            Some(SourceLineRange {
+                start_line: std::num::NonZeroU64::new(start)?,
+                end_line: std::num::NonZeroU64::new(end)?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(
+        LocalFetchQueryContentRanges {
+            block: None,
+            classification: None,
+            limit: None,
+            main_goal: None,
+            path: path.try_into().ok()?,
+            ranges,
+            read_progress: None,
+            reasoning: None,
+            selection: None,
+            snapshot: None,
+            view: LocalFetchQueryContentRangesView::Content,
+        }
+        .into(),
+    )
+}
+
+/// The `symbols` outline of `path`.
+pub(crate) fn outline_lead(path: &str) -> Option<LocalFetchQuery> {
+    Some(
+        LocalFetchQuerySymbols {
+            limit: None,
+            main_goal: None,
+            path: path.try_into().ok()?,
+            read_progress: None,
+            reasoning: None,
+            snapshot: None,
+            view: LocalFetchQuerySymbolsView::Symbols,
+        }
+        .into(),
+    )
 }

@@ -73,7 +73,7 @@ pub(super) struct Scan {
     /// (the census the scope's grammar is inferred from).
     pub(super) census: std::collections::BTreeMap<String, usize>,
     /// What a `testCode` scope left out.
-    pub(super) test_code_excluded: crate::tools::test_code::Excluded,
+    pub(super) test_code_excluded: octocode_engine::types::TestCodeExcluded,
 }
 
 /// Example paths a file-count warning names.

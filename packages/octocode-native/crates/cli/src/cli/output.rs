@@ -2,6 +2,7 @@ use super::{OutputMode, stdout_is_terminal};
 use octocode_native::id::ToolId;
 use octocode_native::response::exit::ExitClass;
 use octocode_native::response::outcome::ToolOutcome;
+use octocode_native::response::wire::wire_json;
 use octocode_native::runtime::error::tool_error_result;
 use octocode_native::runtime::{FailureKind, RuntimeError};
 use serde_json::Value;
@@ -65,7 +66,7 @@ impl Printed {
                         false,
                         Some(text.notes).filter(|notes| !notes.is_empty()),
                     ),
-                    None => (structured.to_string(), true, None),
+                    None => (wire_json(structured), true, None),
                 };
                 // A call whose every row failed prints on stderr, so a pipe
                 // never reads an error as data.
@@ -86,7 +87,7 @@ impl Printed {
             Err(error) => {
                 let projected = tool_error_result(tool, &error);
                 let (stream, body, error_text, notes) = if json_out {
-                    let envelope = projected.envelope.to_string();
+                    let envelope = wire_json(&projected.envelope);
                     (Stream::Stdout, envelope, Some(projected.text), None)
                 } else {
                     (Stream::Stderr, projected.text, None, None)
@@ -230,5 +231,29 @@ pub(super) fn json_text(value: &Value, terminal: bool) -> serde_json::Result<Str
         serde_json::to_string_pretty(value)
     } else {
         serde_json::to_string(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use octocode_native::runtime::error::mcp_result;
+    use octocode_native::security::Sanitized;
+    use serde_json::json;
+
+    #[test]
+    fn a_paged_fixture_is_byte_identical_on_cli_and_mcp() {
+        let fixture = json!({"results":[{"index":0,"data":{"files":[]}}],
+            "responsePagination":{"page":1,"totalPages":2,"hasMore":true,
+                "next":{"kind":"continue","tool":"localSearch","input":{"cursor":"stable"}},
+                "expiresAt":"2026-11-02T00:00:00.000Z","replayed":false}});
+        let outcome = || ToolOutcome {
+            structured_content: Sanitized::scrubbed(fixture.clone()),
+            failure: Some(FailureKind::Execution),
+            all_failed: false,
+        };
+        let cli = Printed::finish("localSearch", Ok(outcome()), true, &Value::Null, None);
+        let mcp = mcp_result("localSearch", Ok(outcome())).expect("MCP result");
+        assert_eq!(cli.body.as_bytes(), mcp.text.as_bytes());
     }
 }

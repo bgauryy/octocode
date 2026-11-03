@@ -1,15 +1,15 @@
 /** Atomic, overlap-aware advisory leases and read-only write checks. */
 import * as catalog from './catalog.js';
-import { execute, query, readTransaction, rowInteger, rowText, transaction, type Database, type Row, type SqlValue } from './database.js';
+import { execute, query, readTransaction, rowInteger, rowText, transaction, type Row, type SqlValue } from './database.js';
 import type { CheckPathsInput, CheckWriteInput, CommandResults, Lease, LockInput, LockManyInput, LockRefused, LocksInput, PathTarget, RenewInput, UnlockInput } from './catalog-types.generated.js';
 import { leaseKind, type LeaseKind } from './rows.js';
-import { parseObjects, type JsonObject } from './validation.js';
+import { parseObjects } from './validation.js';
 import { ValidationError } from './errors.js';
 import { ancestors, isDirectory, keysOverlap, leaseKey, resolvePath } from './paths.js';
-import { render } from './protocols.js';
+import { notice } from './message-content.js';
 import { isWithin, relativePath, type StoreHost } from './store-types.js';
 import { compareCodePoints } from './text.js';
-import { HOUR_MS, LEASE_TTL_DEFAULT_MS, LEASE_TTL_MAX_MS, now } from './timing.js';
+import { LEASE_TTL_DEFAULT_MS, LEASE_TTL_MAX_MS, now } from './timing.js';
 import { compact, dumps } from './json-text.js';
 import { scopeWorkspaces } from './workspace.js';
 
@@ -27,11 +27,6 @@ const QUEUED = 'Queued; owners were notified. Keep the request that needs this l
 const NO_BOUND = 4611686018427387904n;
 
 /** Runtime-authored FYI in a message protocol (blocker or delta); one key per event keeps it idempotent. */
-export function notice(db: Database, sender: string, target: string, kind: string, slots: JsonObject, key: string, wake: string, at: number): void {
-  const message = db.run('INSERT INTO messages(sender,target,body,key,expiresAt,reasoning,wake,ttlMs,replyRequired,kind,slots) VALUES(?,?,?,?,?,?,?,?,0,?,?)', [sender, target, render(kind, slots), key, at + HOUR_MS, 'Runtime notice', wake, HOUR_MS, kind, dumps(slots, { ensureAscii: false })]).lastInsertRowid;
-  execute(db, 'INSERT INTO deliveries(message,recipient) VALUES(?,?)', [message, target]);
-}
-
 /** A lease request resolved to a physical path, its caseless key and its kind. */
 class Target {
   readonly path: string;
@@ -258,7 +253,7 @@ function lockConflict(host: StoreHost, session: string, input: LockInput | LockM
   const paths = targets.map(t => relative(host, t.path)).join(', ');
   const name = rowText(query(host.db, 'SELECT name FROM sessions WHERE id=?', [session])[0]!, 'name');
   for (const holder of [...holders].sort(compareCodePoints)) {
-    notice(host.db, session, holder, 'blocker', { situation: `${name} is queued for ${paths}`, background: reasoning, assessment: 'Your lease blocks it', recommendation: 'Unlock when done; the runtime hands the lease over. No reply needed' }, `lease-wait:${wait}:${holder}`, 'passive', at);
+    notice(host.db, { sender: session, target: holder, parts: [{ text: `${name} is queued for ${paths}. ${reasoning}. Your lease blocks it. Unlock when done; the runtime hands the lease over. No reply needed` }], key: `lease-wait:${wait}:${holder}`, wake: 'passive' }, at);
   }
   return { ...result, queued: true, wait: { id: wait, expiresAt: at + WAIT_TTL }, guidance: QUEUED };
 }
@@ -336,7 +331,7 @@ export function grantWaits(host: StoreHost, at: number): void {
     const ttl = rowInteger(wait, 'leaseTtlMs');
     const leases = insertLeases(host, workspace, owner, targets, rowText(wait, 'reasoning'), at, at + ttl);
     const granted = leases.map(lease => `${lease.path} (lease ${lease.id})`).join(', ');
-    notice(host.db, owner, owner, 'delta', { changes: [`Lease granted: ${granted}, expires in ${Math.floor(ttl / 1000)}s`], next: 'Continue the work you queued it for; unlock when done' }, `lease-wait:${id}`, 'action', at);
+    notice(host.db, { sender: owner, target: owner, parts: [{ text: `Lease granted: ${granted}, expires in ${Math.floor(ttl / 1000)}s. Continue the work you queued it for; unlock when done` }], key: `lease-wait:${id}`, wake: 'action' }, at);
   }
 }
 

@@ -1,5 +1,7 @@
 use super::*;
 
+/// Saved outline entries under a runtime home; a symbols view is a request's
+/// own answer, so no storage mode may leave one.
 fn outline_entries(workspace: &Workspace) -> usize {
     std::fs::read_dir(workspace.home.join("tmp/outline"))
         .into_iter()
@@ -10,7 +12,7 @@ fn outline_entries(workspace: &Workspace) -> usize {
 }
 
 #[tokio::test]
-async fn symbols_storage_is_owned_by_each_runtime_in_every_mode_order() {
+async fn symbols_views_are_saved_by_no_runtime_in_any_mode_order() {
     for (first_mode, second_mode) in [
         ("persistent", "memory"),
         ("memory", "persistent"),
@@ -42,14 +44,11 @@ async fn symbols_storage_is_owned_by_each_runtime_in_every_mode_order() {
             runtime.close().await;
             assert_eq!(
                 outline_entries(workspace),
-                usize::from(mode == "persistent"),
-                "{first_mode} -> {second_mode}: {name} runtime must honor its own policy and home"
+                0,
+                "{first_mode} -> {second_mode}: {name} runtime ({mode}) must save no outline"
             );
         }
-        assert_eq!(
-            outline_entries(&first),
-            usize::from(first_mode == "persistent")
-        );
+        assert_eq!(outline_entries(&first), 0);
     }
 }
 

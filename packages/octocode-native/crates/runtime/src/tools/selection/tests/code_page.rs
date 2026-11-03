@@ -59,21 +59,23 @@ fn code_page_selects_in_source_order_and_replays_without_a_second_judgment() {
 
 #[test]
 fn new_candidate_pages_drop_prior_decisions_without_mutating_source_evidence() {
-    use crate::response::result::{Continuation, continuation_row};
+    use crate::response::result::continuation_row;
     let query =
         json!({"page":2,"classification":{"predicates":["wanted"]},"selection":"prior-plan"});
-    let page = Continuation::continued(ToolId::GhSearchCode, query.clone()).build();
-    let read = Continuation::continued(ToolId::GhGetFileContent, query.clone()).build();
-    let related = Continuation::related(ToolId::GhSearchCode, query).build();
+    // Published call shapes, raw: the subject is what stripping does to any
+    // call in the output, not a row the builder would accept.
+    let call = |kind: &str, tool: ToolId| json!({"kind":kind,"tool":tool.as_str(),"input":{"queries":[query.clone()]}});
+    let page = call("continue", ToolId::GhSearchCode);
+    let read = call("continue", ToolId::GhGetFileContent);
+    let related = call("related", ToolId::GhSearchCode);
     let source =
         json!({"next":{"sourceValue":page},"query":{"selection":"literal source content"}});
-    let mut data = json!({"next":{"nextPage":page,"read":read},"related":[related],"files":[{"evidence":source,"next":{"nextMatchPage":page}}]});
+    let mut data = json!({"next":{"nextPage":page,"readHits":read},"related":[related],"files":[{"evidence":source}]});
     strip_plan_from_tool_continuations(&mut data, ToolId::GhSearchCode);
     for call in [
         &data["next"]["nextPage"],
-        &data["next"]["read"],
+        &data["next"]["readHits"],
         &data["related"][0],
-        &data["files"][0]["next"]["nextMatchPage"],
     ] {
         assert!(continuation_row(call).unwrap().get("selection").is_none());
     }
@@ -82,7 +84,7 @@ fn new_candidate_pages_drop_prior_decisions_without_mutating_source_evidence() {
         json!(["wanted"])
     );
     assert!(
-        continuation_row(&data["next"]["read"])
+        continuation_row(&data["next"]["readHits"])
             .unwrap()
             .get("classification")
             .is_none()

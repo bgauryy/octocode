@@ -38,7 +38,7 @@ flowchart LR
   H[Read health and all issue pages] --> I[Inspect current token and recipient]
   I --> R[Recipient reads full stored message]
   R --> D{Work handled?}
-  D -- yes --> C[Recipient completes: requests with outcome and BLUF reply, FYIs without]
+  D -- yes --> C[Recipient completes: replyRequired messages with outcome and reply parts, others silently]
   D -- no --> P[Keep work pending]
   P --> T[Inspect before any explicit delivery retry]
 ```
@@ -48,7 +48,7 @@ For a failed Pi send/record, follow [idempotency keys](WORKFLOW.md#purpose-limit
 Leave releases pending claims without acknowledging mail. Resume also discards stale claims and leases.
 Staged/submitted/uncertain dispatches remain: inspect `health`, current dispatch records, and the actual recipient.
 Restart or leave/resume does not authorize automatic replay.
-For an expired required request, the recipient gives a final explanation through `complete {message,reply}` after restoring its live binding.
+For an expired required request, the recipient reports an explicit outcome and reply parts through `complete {message,outcome,reply}` after restoring its live binding.
 
 Delivery and final completion are different transactions. A crash before a staged attempt reaches the host, a crash after host acceptance, and a crash during final completion require different evidence. A staged attempt alone cannot establish whether an external side effect occurred. Recovery never treats absence of a reply as proof that the host received nothing.
 
@@ -64,7 +64,7 @@ Preserve the same shared database during recovery. A new database, native sessio
 
 ### Recover a completed orphan before restarting its owner
 
-A delivery owner can exit after the recipient completes but before the host receipt is committed. The stored answer and acknowledgement are valid, while its old dispatch remains staged. Stop the old owner and inspect the existing acknowledgement and correlated reply. If work is unfinished, keep it pending or complete it truthfully with a partial/failed outcome; do not invent successful execution.
+A delivery owner can exit after the recipient completes but before the host receipt is committed. The stored answer and acknowledgement are valid, while its old dispatch remains staged. Stop the old owner and inspect the existing acknowledgement and correlated reply. If work is unfinished, keep it pending or complete it truthfully with a `failed` outcome; do not invent successful execution.
 
 After confirming completion, explicitly attach the existing binding while no delivery owner is running. Managed workers use a raw binding:
 
@@ -123,7 +123,8 @@ all workers stop. Hot paths use [indexes](DB.md#lookup-indexes).
 - `db retention '{"limit":100}' --database <db>`: read-only, all workspaces. Inputs:
   `before` (expiry cutoff ms, default 30 days ago, not in the future), `afterId`
   cursor, `limit` 1–1000. Reports storage sizes, `reusableBytes`, and per-page
-  `expiredSettledMessages` (retained, not deletion candidates),
+  `expiredSettledMessages` and `expiredSettledContentBytes` (retained content, not
+  deletion candidates),
   `unacknowledgedMessages`, `unresolvedDispatchMessages` (may overlap), and `next`.
   Counts cover the scanned page; never returns bodies.
 - `db compact '{}' --database <db>`: one `VACUUM`; checks schema fingerprint,

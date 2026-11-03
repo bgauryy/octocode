@@ -48,7 +48,9 @@ async fn a_tree_page_dates_every_entry_and_the_listed_commit() {
     runtime.close().await;
 }
 
-/// Date continuations retain the pinned listing and reach every date exactly once.
+/// Date continuations retain the pinned listing and reach every date exactly
+/// once: only the first page lists the tree; each later page slices the
+/// listing its cursor owns and sends only its own dates request.
 #[tokio::test]
 async fn a_large_tree_reaches_every_entry_date_through_opaque_continuations() {
     let names = (0..250)
@@ -65,10 +67,34 @@ async fn a_large_tree_reaches_every_entry_date_through_opaque_continuations() {
     let mut pending = Some(json!({"queries":[{"operation":"tree","owner":"a","repo":"b"}]}));
     let mut dated = serde_json::Map::new();
     let mut pages = 0;
+    let rest_reads = |requests: Vec<wiremock::Request>| {
+        requests
+            .iter()
+            .filter(|request| request.url.path() != "/api/graphql")
+            .count()
+    };
     while let Some(input) = pending.take() {
+        let before = rest_reads(server.received_requests().await.unwrap());
         let outcome = call(&runtime, "ghStructure", input)
             .await
             .expect("dated listing");
+        let sent = rest_reads(server.received_requests().await.unwrap()) - before;
+        if pages == 0 {
+            assert!(sent > 0, "the first page lists the tree");
+        } else {
+            assert_eq!(
+                sent,
+                0,
+                "page {pages} answers from its cursor's listing: {:?}",
+                server
+                    .received_requests()
+                    .await
+                    .unwrap()
+                    .iter()
+                    .map(|request| request.url.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
         let data = row_data(&outcome);
         for group in data["files"].as_array().expect("listing groups") {
             for (name, date) in updated(group) {
@@ -146,14 +172,12 @@ async fn a_graphql_failure_keeps_the_listing_and_warns_once() {
 async fn a_scoped_listing_names_repo_relative_dirs_and_dates_every_name() {
     let server = listing_server(&[]).await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/v3/repos/a/b/git/trees/{SHA}")))
+        .and(path(format!("/api/v3/repos/a/b/git/trees/{SHA}:pkg")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "sha": SHA, "truncated": false, "tree": [
-                {"path":"pkg","type":"tree"},
-                {"path":"pkg/a.rs","type":"blob","size":1},
-                {"path":"pkg/src","type":"tree"},
-                {"path":"pkg/src/lib.rs","type":"blob","size":1},
-                {"path":"other.rs","type":"blob","size":1}
+                {"path":"a.rs","type":"blob","size":1},
+                {"path":"src","type":"tree"},
+                {"path":"src/lib.rs","type":"blob","size":1}
             ]
         })))
         .mount(&server)

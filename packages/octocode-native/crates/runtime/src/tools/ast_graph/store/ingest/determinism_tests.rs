@@ -56,6 +56,17 @@ fn snapshot_bytes_are_the_same_at_any_width() {
         .map(|(name, text)| (name.as_str(), text.as_str()))
         .collect::<Vec<_>>();
     crate::tools::ast_graph::test_support::write_under(&dir, "app", &files);
+    // A snapshot records a source's file stamp only once the file has been untouched for
+    // `SourceStamp::SETTLE`. Settle every source now so both builds record the same stamps
+    // whatever the wall-clock time between them.
+    let settled = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    for (name, _) in &files {
+        std::fs::File::options()
+            .write(true)
+            .open(dir.0.join("app").join(name))
+            .and_then(|file| file.set_modified(settled))
+            .expect("backdate source");
+    }
     let root = dir.0.canonicalize().expect("root");
     let wide = build(&root);
     // Every core counted busy: each fan-out of this build takes one thread.

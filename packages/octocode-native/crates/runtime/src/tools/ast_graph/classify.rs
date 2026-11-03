@@ -34,6 +34,18 @@ pub(crate) const ROLES: &[(u8, &str)] = &[
 /// Roles that mark code nobody maintains by hand; detectors skip them.
 pub(crate) const ROLE_NOT_AUTHORED: u8 = ROLE_GENERATED | ROLE_BUNDLED | ROLE_VENDORED;
 
+/// Directory names (lowercase) whose files are vendored third-party code.
+pub(crate) const VENDORED_DIRS: &[&str] = &[
+    "vendor",
+    "deps",
+    "vendored",
+    "third_party",
+    "third-party",
+    "thirdparty",
+    "bower_components",
+    "jspm_packages",
+];
+
 const HEAD_BYTES: usize = 8 * 1024;
 /// A line this long in source is emitted by a minifier/bundler, not a person.
 const MINIFIED_LINE: usize = 1_000;
@@ -74,19 +86,7 @@ fn path_roles(path: &str) -> u8 {
         roles |= ROLE_TEST;
     }
 
-    if dirs.iter().any(|dir| {
-        matches!(
-            *dir,
-            "vendor"
-                | "deps"
-                | "vendored"
-                | "third_party"
-                | "third-party"
-                | "thirdparty"
-                | "bower_components"
-                | "jspm_packages"
-        )
-    }) {
+    if dirs.iter().any(|dir| VENDORED_DIRS.contains(dir)) {
         roles |= ROLE_VENDORED;
     }
 

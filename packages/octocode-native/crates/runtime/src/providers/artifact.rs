@@ -18,7 +18,7 @@ mod versions;
 
 use crate::providers::artifact::query::artifact_search_query;
 use crate::providers::artifact::query::artifact_type;
-pub use http::{ArtifactCache, ArtifactHttp, SystemArtifactHttp};
+pub use http::{ArtifactHttp, SystemArtifactHttp};
 pub(crate) use npm::registry::invalid_registry_url;
 pub(crate) use npmrc::npm_authorization;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
@@ -39,9 +39,6 @@ pub struct ArtifactProviderContext<'a> {
     pub npm_registry: Option<&'a ResolvedNpmRegistry>,
     /// Opt-in escape hatch for the npm registry SSRF guard (see NetworkConfig).
     pub allow_private_registry: bool,
-    /// The runtime's registry cache; `None` (`storage.mode == "memory"`)
-    /// bypasses it for both reads and writes.
-    pub cache: Option<&'a ArtifactCache>,
     /// Upstream release-tag checks through the GitHub API; `None` reads no tags.
     pub tags: Option<&'a dyn ReleaseTags>,
 }
@@ -53,7 +50,6 @@ pub async fn execute_artifact(
     let client = RegistryClient {
         http: context.http,
         budget: context.budget,
-        cache: context.cache,
         tags: context.tags,
     };
     let state = page_state(query);
@@ -261,28 +257,22 @@ fn validate_cursor_state(
 fn version_table() -> &'static [(String, String)] {
     static TABLE: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
     TABLE.get_or_init(|| {
-        fn find(value: &serde_json::Value) -> Option<&serde_json::Map<String, serde_json::Value>> {
-            match value {
-                serde_json::Value::Object(map) => map
-                    .get("x-versionSupport")
-                    .and_then(serde_json::Value::as_object)
-                    .or_else(|| map.values().find_map(find)),
-                serde_json::Value::Array(items) => items.iter().find_map(find),
-                _ => None,
-            }
-        }
-        crate::contracts::tool_contract(crate::id::ToolId::ArtifactSearch)
-            .ok()
-            .and_then(|tool| find(&tool["inputSchema"]))
-            .map(|table| {
-                table
-                    .iter()
-                    .filter_map(|(ecosystem, level)| {
-                        Some((ecosystem.clone(), level.as_str()?.to_owned()))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+        crate::contracts::query_schema_value(
+            crate::id::ToolId::ArtifactSearch,
+            None,
+            "version",
+            "x-versionSupport",
+        )
+        .and_then(serde_json::Value::as_object)
+        .map(|table| {
+            table
+                .iter()
+                .filter_map(|(ecosystem, level)| {
+                    Some((ecosystem.clone(), level.as_str()?.to_owned()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
     })
 }
 

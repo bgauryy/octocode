@@ -1,9 +1,10 @@
 //! Direct translation of canonical typed history filters into provider constraints.
-use super::GhSearchHistoryQuery;
+use super::GhSearchHistoryQuery as Q;
 use crate::tools::gh_shared::ranges;
+use crate::tools::variant_field::variant_field;
 use octocode_contract_types::{
-    GitHubArchive, HistoryBranchSelection, HistoryCountSelection, HistoryDateSelection,
-    HistoryPersonSelection,
+    GhSearchHistoryQueryPullRequestFilters, GitHubArchive, HistoryBranchSelection,
+    HistoryCountSelection, HistoryDateSelection, HistoryPersonSelection,
 };
 
 /// Provider-ready typed constraints; all exclusions remain separate terms.
@@ -18,6 +19,8 @@ pub(super) struct Filters {
     pub created: Option<String>,
     pub updated: Option<String>,
     pub closed: Option<String>,
+    /// Commit-search committer date; exclusions stay in `excluded`.
+    pub committed: Option<String>,
     pub comments: Option<String>,
     pub reactions: Option<String>,
     /// `linked:pr` / `linked:issue`: items linked to a pull request or issue.
@@ -136,101 +139,25 @@ fn review(value: String) -> String {
         value
     }
 }
-macro_rules! common {
-    ($source:expr, $target:expr) => {{
-        let source = $source;
-        let target = $target;
-        target.author = person("author", &source.author, &mut target.excluded);
-        target.assignee = person("assignee", &source.assignee, &mut target.excluded);
-        target.commenter = person("commenter", &source.commenter, &mut target.excluded);
-        target.mentions = person("mentions", &source.mentions, &mut target.excluded);
-        target.created = date("created", &source.created_at, &mut target.excluded);
-        target.updated = date("updated", &source.updated_at, &mut target.excluded);
-        target.closed = date("closed", &source.closed_at, &mut target.excluded);
-        target.comments = count("comments", &source.comment_count, &mut target.excluded);
-        target.reactions = count("reactions", &source.reaction_count, &mut target.excluded);
-        target.state = source.state.map(|value| value.to_string());
-        target.archived = archive(source.archive);
-        target.match_kinds = source.match_in.iter().map(ToString::to_string).collect();
-        if let Some(labels) = &source.labels {
-            target.label = labels.include.iter().map(ToString::to_string).collect();
-            target.excluded.extend(
-                labels
-                    .exclude
-                    .iter()
-                    .map(|value| ("label".into(), value.to_string())),
-            );
-        }
-        if let Some(linked) = &source.linked {
-            target.linked = selection(
-                "linked",
-                linked.include.as_ref(),
-                &linked.exclude,
-                &mut target.excluded,
-            );
-        }
-    }};
-}
-
 impl Filters {
-    pub(super) fn of(query: &GhSearchHistoryQuery) -> Self {
+    pub(super) fn of(query: &Q) -> Self {
         let mut filters = Self::default();
+        filters.item_filters(query);
         match query {
-            GhSearchHistoryQuery::Issue(query) => {
-                if let Some(source) = &query.filters {
-                    common!(source, &mut filters);
-                    filters.linked = filters.linked.map(|_| "pr".into());
-                    for (key, value) in &mut filters.excluded {
-                        if key == "linked" {
-                            *value = "pr".into();
-                        }
+            Q::Issue(query) if query.filters.is_some() => {
+                filters.linked = filters.linked.map(|_| "pr".into());
+                for (key, value) in &mut filters.excluded {
+                    if key == "linked" {
+                        *value = "pr".into();
                     }
                 }
             }
-            GhSearchHistoryQuery::PullRequest(query) => {
+            Q::PullRequest(query) => {
                 if let Some(source) = &query.filters {
-                    common!(source, &mut filters);
-                    filters.draft = source.is_draft;
-                    match source.is_merged {
-                        Some(true) => filters.state = Some("merged".into()),
-                        Some(false) => filters.unmerged = Some(true),
-                        None => {}
-                    }
-                    filters.head = branch("head", &source.head_ref, &mut filters.excluded);
-                    filters.base = branch("base", &source.base_ref, &mut filters.excluded);
-                    filters.review_requested = person(
-                        "review-requested",
-                        &source.review_requested,
-                        &mut filters.excluded,
-                    );
-                    filters.reviewed_by =
-                        person("reviewed-by", &source.reviewed_by, &mut filters.excluded);
-                    filters.merged = date("merged", &source.merged_at, &mut filters.excluded);
-                    if let Some(value) = &source.review {
-                        filters.review = selection(
-                            "review",
-                            value.include.as_ref(),
-                            &value.exclude,
-                            &mut filters.excluded,
-                        )
-                        .map(review);
-                        for (key, value) in &mut filters.excluded {
-                            if key == "review" {
-                                *value = review(value.clone());
-                            }
-                        }
-                    }
-                    if let Some(value) = &source.check_status {
-                        filters.status = selection(
-                            "status",
-                            value.include.as_ref(),
-                            &value.exclude,
-                            &mut filters.excluded,
-                        );
-                    }
+                    filters.pull_request_filters(source);
                 }
             }
-            GhSearchHistoryQuery::CommitKeywords(query) => {
+            _ => variant_field!(query, each [Q::CommitKeywords, Q::Commit3] query => {
                 if let Some(source) = &query.filters {
                     filters.author = source
                         .author
@@ -241,20 +168,93 @@ impl Filters {
                         .as_ref()
                         .map(|value| value.include[0].to_string());
                 }
-            }
-            GhSearchHistoryQuery::Commit3(query) => {
-                if let Some(source) = &query.filters {
-                    filters.author = source
-                        .author
-                        .as_ref()
-                        .map(|value| value.include[0].to_string());
-                    filters.committer = source
-                        .committer
-                        .as_ref()
-                        .map(|value| value.include[0].to_string());
-                }
-            }
+            }, else => {}),
+        }
+        if let Q::CommitKeywords(query) = query
+            && let Some(source) = &query.filters
+        {
+            filters.committed = date(
+                "committer-date",
+                &source.committed_at,
+                &mut filters.excluded,
+            );
         }
         filters
+    }
+
+    /// The filters issues and pull requests share; commits have none of them.
+    fn item_filters(&mut self, query: &Q) {
+        variant_field!(query, each [Q::Issue, Q::PullRequest] query => {
+            let Some(source) = &query.filters else { return };
+            self.author = person("author", &source.author, &mut self.excluded);
+            self.assignee = person("assignee", &source.assignee, &mut self.excluded);
+            self.commenter = person("commenter", &source.commenter, &mut self.excluded);
+            self.mentions = person("mentions", &source.mentions, &mut self.excluded);
+            self.created = date("created", &source.created_at, &mut self.excluded);
+            self.updated = date("updated", &source.updated_at, &mut self.excluded);
+            self.closed = date("closed", &source.closed_at, &mut self.excluded);
+            self.comments = count("comments", &source.comment_count, &mut self.excluded);
+            self.reactions = count("reactions", &source.reaction_count, &mut self.excluded);
+            self.state = source.state.map(|value| value.to_string());
+            self.archived = archive(source.archive);
+            self.match_kinds = source.match_in.iter().map(ToString::to_string).collect();
+            if let Some(labels) = &source.labels {
+                self.label = labels.include.iter().map(ToString::to_string).collect();
+                self.excluded.extend(
+                    labels
+                        .exclude
+                        .iter()
+                        .map(|value| ("label".into(), value.to_string())),
+                );
+            }
+            if let Some(linked) = &source.linked {
+                self.linked = selection(
+                    "linked",
+                    linked.include.as_ref(),
+                    &linked.exclude,
+                    &mut self.excluded,
+                );
+            }
+        }, else => {});
+    }
+
+    fn pull_request_filters(&mut self, source: &GhSearchHistoryQueryPullRequestFilters) {
+        self.draft = source.is_draft;
+        match source.is_merged {
+            Some(true) => self.state = Some("merged".into()),
+            Some(false) => self.unmerged = Some(true),
+            None => {}
+        }
+        self.head = branch("head", &source.head_ref, &mut self.excluded);
+        self.base = branch("base", &source.base_ref, &mut self.excluded);
+        self.review_requested = person(
+            "review-requested",
+            &source.review_requested,
+            &mut self.excluded,
+        );
+        self.reviewed_by = person("reviewed-by", &source.reviewed_by, &mut self.excluded);
+        self.merged = date("merged", &source.merged_at, &mut self.excluded);
+        if let Some(value) = &source.review {
+            self.review = selection(
+                "review",
+                value.include.as_ref(),
+                &value.exclude,
+                &mut self.excluded,
+            )
+            .map(review);
+            for (key, value) in &mut self.excluded {
+                if key == "review" {
+                    *value = review(value.clone());
+                }
+            }
+        }
+        if let Some(value) = &source.check_status {
+            self.status = selection(
+                "status",
+                value.include.as_ref(),
+                &value.exclude,
+                &mut self.excluded,
+            );
+        }
     }
 }

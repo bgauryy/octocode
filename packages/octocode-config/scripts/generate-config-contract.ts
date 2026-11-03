@@ -1,52 +1,47 @@
-// Generates the config contract outputs from config-contract.json (validated against
-// config-contract.schema.json): the TypeScript field metadata and the settings reference.
-// `--check` fails when either committed output is stale.
+// Generates every config contract output from the Zod declaration in config-contract/: the
+// contract JSON and its JSON Schema, the TypeScript field metadata, and the settings reference.
+// `--check` fails when a committed output is stale.
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { contractFromDeclaration } from './config-contract/declaration/index.ts';
 import { renderDocumentation } from './config-contract/documentation.ts';
-import { loadContract } from './config-contract/model.ts';
+import { renderContractJson, renderContractSchema } from './config-contract/emit.ts';
 import { renderTypeScript } from './config-contract/typescript.ts';
 
-const contractPath = fileURLToPath(new URL('../config-contract.json', import.meta.url));
-const schemaPath = fileURLToPath(
-  new URL('../config-contract.schema.json', import.meta.url)
-);
-const outputPath = fileURLToPath(
-  new URL('../src/config/contract.generated.ts', import.meta.url)
-);
-const documentationPath = fileURLToPath(
-  new URL('../../../docs/generated/CONFIG_SETTINGS.md', import.meta.url)
-);
+const path = (relative: string): string => fileURLToPath(new URL(relative, import.meta.url));
 
-export async function generateConfigContract(): Promise<{
-  source: string;
-  documentation: string;
-}> {
-  const contract = await loadContract(contractPath, schemaPath);
-  return { source: renderTypeScript(contract), documentation: renderDocumentation(contract) };
+export type GeneratedFile = { path: string; content: string };
+
+/** Every generated file with the content its committed copy must have. */
+export function generateConfigContract(): GeneratedFile[] {
+  const contract = contractFromDeclaration();
+  return [
+    { path: path('../config-contract.json'), content: renderContractJson() },
+    { path: path('../config-contract.schema.json'), content: renderContractSchema() },
+    { path: path('../src/config/contract.generated.ts'), content: renderTypeScript(contract) },
+    {
+      path: path('../../../docs/generated/CONFIG_SETTINGS.md'),
+      content: renderDocumentation(contract),
+    },
+  ];
 }
 
 async function main(): Promise<void> {
-  const generated = await generateConfigContract();
+  const files = generateConfigContract();
   if (process.argv.includes('--check')) {
-    const [currentSource, currentDocumentation] = await Promise.all([
-      readFile(outputPath, 'utf8').catch(() => ''),
-      readFile(documentationPath, 'utf8').catch(() => ''),
-    ]);
-    if (
-      currentSource !== generated.source ||
-      currentDocumentation !== generated.documentation
-    ) {
+    const stale: string[] = [];
+    for (const file of files) {
+      const current = await readFile(file.path, 'utf8').catch(() => '');
+      if (current !== file.content) stale.push(file.path);
+    }
+    if (stale.length > 0) {
       throw new Error(
-        'Generated config contract is stale. Run: yarn workspace @octocodeai/config generate:config-contract'
+        `Generated config contract is stale: ${stale.join(', ')}. Run: yarn workspace @octocodeai/config generate:config-contract`
       );
     }
     return;
   }
-  await Promise.all([
-    writeFile(outputPath, generated.source),
-    writeFile(documentationPath, generated.documentation),
-  ]);
+  await Promise.all(files.map(file => writeFile(file.path, file.content)));
 }
 
-await main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) await main();

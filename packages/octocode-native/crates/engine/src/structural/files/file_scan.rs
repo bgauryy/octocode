@@ -100,9 +100,11 @@ impl FileScan<'_> {
                 )));
             }
         };
+        // Admission is bounded by the map limits and the scan's cancellation,
+        // not a clock of its own.
         let mut budget = MapBudget::new(
             MapLimits::default(),
-            std::time::Instant::now() + std::time::Duration::from_secs(30),
+            crate::signatures::extractor::whole_file_deadline(),
             self.stop,
         );
         let source = match AdmittedSource::from_bytes(&bytes, &path_string, &mut budget) {

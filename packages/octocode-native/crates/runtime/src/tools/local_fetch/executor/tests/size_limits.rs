@@ -2,7 +2,32 @@
 //! guard, and waiting on another row's preparation.
 
 use super::*;
-use crate::tools::source_view::prepare::{PREPARED_MIN_BYTES, PREPARING, prepared};
+use crate::tools::source_view::prepare::prepared;
+
+#[test]
+fn source_preparation_is_owned_by_each_request() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct CountPreparations(AtomicUsize);
+    impl crate::security::scan::ContentScan for CountPreparations {
+        fn sanitize(
+            &self,
+            text: &str,
+            _: &std::path::Path,
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
+            Ok((text.to_owned(), Vec::new()))
+        }
+        fn redact_key_blocks<'a>(&self, text: &'a str) -> (std::borrow::Cow<'a, str>, bool) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            (std::borrow::Cow::Borrowed(text), false)
+        }
+    }
+    let bytes = vec![b'x'; MAX_SOURCE_BYTES as usize / 2];
+    let scanner = CountPreparations(AtomicUsize::new(0));
+    for _ in 0..2 {
+        prepared(&bytes, false, &scanner, &NeverCancel).expect("prepare source");
+    }
+    assert_eq!(scanner.0.load(Ordering::SeqCst), 2);
+}
 
 #[test]
 fn utf16_fetch_reads_lines_and_keeps_raw_digest() {
@@ -74,31 +99,18 @@ fn utf16_past_whole_file_limit_reports_decoding_limit_not_binary() {
     assert!(result.next.is_none());
 }
 
-/// A cancelled row stops waiting for another row's preparation of the
-/// same large source instead of waiting until it lands.
+/// Cancellation is checked before decoding or scanning the source.
 #[test]
-fn a_cancelled_row_stops_waiting_for_another_rows_preparation() {
+fn a_cancelled_row_does_not_prepare_source() {
     struct Cancelled;
     impl CancellationCheck for Cancelled {
         fn check(&self) -> Result<(), String> {
             Err("cancelled".into())
         }
     }
-    let bytes = vec![b'x'; PREPARED_MIN_BYTES];
-    let path = std::path::Path::new("/flight/cancelled-row.txt");
-    let sha256 = octocode_engine::digest::sha256(&bytes);
-    let holder = PREPARING.join((path.to_path_buf(), sha256.clone(), false));
-    let held = holder.blocking_turn();
-    let started = std::time::Instant::now();
-    let waited = prepared(&bytes, &sha256, false, path, &Passthrough, &Cancelled);
-    assert_eq!(waited.err().as_deref(), Some("cancelled"));
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(1),
-        "{:?}",
-        started.elapsed()
-    );
-    drop(held);
-    drop(holder);
+    let bytes = vec![b'x'; MAX_SOURCE_BYTES as usize / 2];
+    let result = prepared(&bytes, false, &Passthrough, &Cancelled);
+    assert_eq!(result.err().as_deref(), Some("cancelled"));
 }
 
 #[test]

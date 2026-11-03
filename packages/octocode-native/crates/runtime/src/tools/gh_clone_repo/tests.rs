@@ -25,6 +25,7 @@ mod home;
 mod lifecycle;
 mod pinning;
 mod replacement;
+mod reuse;
 mod rows;
 mod sparse;
 

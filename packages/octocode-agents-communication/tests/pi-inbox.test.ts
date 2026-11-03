@@ -26,8 +26,8 @@ test('Pi directory-only changes appear once without waking a turn', async t => {
 });
 test('Pi native tool selection uses the same CLI contract without creating storage',t=>{
  const f=fixture(t);
- registerPiInbox(f.pi,{binary,database:f.database,tools:'complete,send_message,peers'});
- assert.deepEqual(f.tools.map(tool=>tool.name),['peers','send_message','complete']);
+ registerPiInbox(f.pi,{binary,database:f.database,tools:'agents,messages'});
+ assert.deepEqual(f.tools.map(tool=>tool.name),['agents','messages']);
  assert.equal(existsSync(f.database),false);
  const bad=fixture(t);
  assert.throws(()=>registerPiInbox(bad.pi,{binary,database:bad.database,tools:'unknown'}));
@@ -38,7 +38,7 @@ test('Pi durable receipts survive reload and bound tools are registered once',as
  assert.equal(registerPiInbox(f.pi),controller);
  await f.fire('session_start');assert.ok(seen.binding?.session);const session=seen.binding.session;const count=f.tools.length;
  const sender=f.run('join',{vendor:'raw',name:'sender'}).id;
- const sent=f.run('send_message',{to:session,body:'durable',reasoning:'Test receipt',wake:'passive'},sender);
+ const sent=f.run('send_message',{parts: [{ text: 'durable' }], to:session,reasoning:'Test receipt',wake:'passive'},sender);
  await controller.drain();
  assert.ok(f.ledger.some(e=>e.details.receipts?.some((r: JsonRecord)=>r.id===sent.id)));
  assert.equal(f.run('inbox',{},session).items.length,1,'persistence is not acknowledgement');
@@ -51,7 +51,7 @@ test('Pi staged message without a durable receipt is recovered after lifecycle r
  const f=fixture(t),controller=registerPiInbox(f.pi,{binary,database:f.database});
  await f.fire('session_start');const session=boundSession(controller);
  const sender=f.run('join',{vendor:'raw',name:'sender'}).id;
- const sent=f.run('send_message',{to:session,body:'missing receipt',reasoning:'Test reload recovery'},sender);
+ const sent=f.run('send_message',{parts: [{ text: 'missing receipt' }], to:session,reasoning:'Test reload recovery'},sender);
  f.setPersist(false);await controller.drain();f.setPersist(true);
  const before=JSON.parse(execFileSync(binary,['fetch',JSON.stringify({type:'dispatch.staged',current:true,from:session,where:{messageId:sent.id}}),'--workspace',f.workspace,'--database',f.database,'--session',session],{encoding:'utf8'}));
  assert.equal(before.items[0].type.slice('dispatch.'.length),'staged');
@@ -62,7 +62,7 @@ test('Pi staged message without a durable receipt is recovered after lifecycle r
 test('Pi confirms a persisted staged attempt on reload without replaying its body',async t=>{
  const f=fixture(t),controller=registerPiInbox(f.pi,{binary,database:f.database});await f.fire('session_start');
  const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
- f.run('send_message',{to:session,body:'already durable',reasoning:'Test receipt recovery'},sender);
+ f.run('send_message',{parts: [{ text: 'already durable' }], to:session,reasoning:'Test receipt recovery'},sender);
  const {items}=f.run('hook',{format:'json',deferConfirm:true,consumer:'pi:pi-test'},session);
  f.ledger.push({type:'custom_message',customType:'octocode-peer',details:{session,database:f.database,receipts:items.map(({id,dispatchToken}: JsonRecord)=>({id,dispatchToken}))}});f.flush();
  await f.fire('session_start');assert.equal(f.sent.filter(s=>s.message.customType==='octocode-peer').length,0);
@@ -78,7 +78,7 @@ test('disabled Pi persistence creates no database and leaves no enabled binding'
 test('Pi confirms a durable receipt in a session ledger larger than 64 MiB, with lines crossing every read chunk edge',async t=>{
  const f=fixture(t),controller=registerPiInbox(f.pi,{binary,database:f.database});await f.fire('session_start');
  const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
- const message=f.run('send_message',{to:session,body:'in a huge ledger',reasoning:'Test receipt scan of a large ledger'},sender);
+ const message=f.run('send_message',{parts: [{ text: 'in a huge ledger' }], to:session,reasoning:'Test receipt scan of a large ledger'},sender);
  const {items}=f.run('hook',{format:'json',deferConfirm:true,consumer:'pi:pi-test'},session);
  const state=()=>JSON.parse(execFileSync(binary,['fetch',JSON.stringify({types:['dispatch.staged','dispatch.submitted'],current:true,from:session,where:{messageId:message.id}}),'--workspace',f.workspace,'--database',f.database,'--session',session],{encoding:'utf8'})).items[0].type.slice('dispatch.'.length);
  assert.equal(state(),'staged');
@@ -93,7 +93,7 @@ test('Pi confirms a durable receipt in a session ledger larger than 64 MiB, with
 test('Pi memory-only context never confirms until the matching session file is written',async t=>{
  const f=fixture(t);f.setDisk(false);const controller=registerPiInbox(f.pi,{binary,database:f.database});await f.fire('session_start');
  const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
- const message=f.run('send_message',{to:session,body:'not durable yet',reasoning:'Test real persistence boundary'},sender);
+ const message=f.run('send_message',{parts: [{ text: 'not durable yet' }], to:session,reasoning:'Test real persistence boundary'},sender);
  await controller.drain();await controller.drain();
  const state=()=>JSON.parse(execFileSync(binary,['fetch',JSON.stringify({types:['dispatch.staged','dispatch.submitted','dispatch.uncertain','dispatch.ready'],current:true,from:session,where:{messageId:message.id}}),'--workspace',f.workspace,'--database',f.database,'--session',session],{encoding:'utf8'})).items[0].type.slice('dispatch.'.length);
  assert.equal(state(),'staged');assert.equal(f.sent.filter(s=>s.message.customType==='octocode-peer').length,1);
@@ -106,7 +106,7 @@ test('Pi confirms accumulated durable batches and continues draining without rep
  try {
  await f.fire('session_start');const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
  const ids=[];
- for(let i=0;i<35;i++) ids.push(f.run('send_message',{to:session,body:`pending-${i}`,key:`pending-${i}`,reasoning:'Verify delayed ledger flush across several native batches'},sender).id);
+ for(let i=0;i<35;i++) ids.push(f.run('send_message',{parts: [{ text: `pending-${i}` }], to:session,key:`pending-${i}`,reasoning:'Verify delayed ledger flush across several native batches'},sender).id);
  for(let i=0;i<4;i++) await controller.drain();
  const receipts=()=>f.sent.filter(s=>s.message.customType==='octocode-peer').flatMap(s=>detailsOf(s).receipts).map(r=>r.id);
  assert.deepEqual(receipts(),ids);
@@ -114,7 +114,7 @@ test('Pi confirms accumulated durable batches and continues draining without rep
  const dispatches=JSON.parse(execFileSync(binary,['fetch',JSON.stringify({types:['dispatch.staged','dispatch.submitted','dispatch.uncertain','dispatch.ready'],current:true,from:session}),'--workspace',f.workspace,'--database',f.database,'--session',session],{encoding:'utf8'})).items;
  assert.equal(dispatches.length,35);assert.ok(dispatches.every((d: JsonRecord)=>d.type==='dispatch.submitted'));
  assert.deepEqual(receipts(),ids,'confirmation must not replay context');
- const later=f.run('send_message',{to:session,body:'after confirmation',reasoning:'Verify polling was not stalled'},sender);
+ const later=f.run('send_message',{parts: [{ text: 'after confirmation' }], to:session,reasoning:'Verify polling was not stalled'},sender);
  await controller.drain();assert.deepEqual(receipts(),[...ids,later.id]);
  } finally { await f.fire('session_shutdown'); }
 });
@@ -122,7 +122,7 @@ test('Pi confirms accumulated durable batches and continues draining without rep
 test('shutdown fences an in-flight inbox poll before it can inject peer context',async t=>{
  const f=fixture(t),controller=registerPiInbox(f.pi,{binary,database:f.database});await f.fire('session_start');
  const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
- f.run('send_message',{to:session,body:'stop before delivery',reasoning:'Test lifecycle fence'},sender);
+ f.run('send_message',{parts: [{ text: 'stop before delivery' }], to:session,reasoning:'Test lifecycle fence'},sender);
  const draining=controller.drain();await Promise.resolve();const stopping=f.fire('session_shutdown');
  await Promise.all([draining,stopping]);
  assert.equal(f.sent.filter(s=>s.message.customType==='octocode-peer').length,0);
@@ -132,7 +132,7 @@ test('shutdown fences an in-flight inbox poll before it can inject peer context'
 test('context from another Pi session cannot receive a previous session inbox',async t=>{
  const f=fixture(t),controller=registerPiInbox(f.pi,{binary,database:f.database});await f.fire('session_start');
  const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
- f.run('send_message',{to:session,body:'belongs to old session',reasoning:'Test stale context'},sender);
+ f.run('send_message',{parts: [{ text: 'belongs to old session' }], to:session,reasoning:'Test stale context'},sender);
  f.ctx.sessionManager.getSessionId=()=> 'new-pi-session';
  await f.fire('before_agent_start');await controller.drain();
  assert.equal(f.sent.filter(s=>s.message.customType==='octocode-peer').length,0);
@@ -142,7 +142,7 @@ test('context from another Pi session cannot receive a previous session inbox',a
 test('turning persistence off stops bound tools without waiting for session restart',async t=>{
  const f=fixture(t);let enabled=true;const controller=registerPiInbox(f.pi,{binary,database:f.database,enabled:()=>enabled});await f.fire('session_start');
  enabled=false;
- await assert.rejects(f.tool('send_message').execute('x',{to:'any',body:'disabled',reasoning:'No persistence'}),/disabled/);
+ await assert.rejects(f.tool('messages').execute('x',{type:'send',input:{to:'any',parts:[{text:'disabled'}],reasoning:'No persistence'}}),/disabled/);
  await f.fire('before_agent_start');assert.equal(controller.getBinding(),null);
  await f.fire('session_shutdown');
 });
@@ -152,7 +152,7 @@ test('context outside the bound workspace cannot route peer data or tools',async
  const f=fixture(t),controller=registerPiInbox(f.pi,{binary,database:f.database});await f.fire('session_start');
  const other = tempWorkspace(t, 'pi-other-workspace-'); f.ctx.cwd=other;
  assert.equal(controller.isBoundContext(f.ctx),false);
- await assert.rejects(f.tool('peers').execute('x',{}),/disabled/);
+ await assert.rejects(f.tool('agents').execute('x',{type:'list',input:{}}),/disabled/);
  await f.fire('before_agent_start');assert.equal(controller.getBinding(),null);
  await f.fire('session_shutdown');
 });
@@ -193,9 +193,9 @@ test('Pi native context preserves reply correlation without replaying durable me
  try {
   const session = boundSession(controller);
   const sender = f.run('join', { vendor: 'raw', name: 'peer' }).id;
-  const question = f.run('send_message', { to: sender, question: 'Can you review?', reasoning: 'Request a peer review', conversationId: 'review:42' }, session);
-  const reply = f.run('complete', { message:question.id, outcome:'done',reply:{conclusion:'Review complete.'}, reasoning:'Report review result' }, sender);
-  const notice = f.run('send_message', { to: session, body: 'Independent notice.', reasoning: 'Share a separate update' }, sender);
+  const question = f.run('send_message', {parts: [{ text: 'Can you review?' }], replyRequired: true,  to: sender, reasoning: 'Request a peer review', contextId: 'review:42' }, session);
+  const reply = f.run('complete', { message:question.id, outcome:"completed",reply:[{ data: {conclusion:'Review complete.'} }], reasoning:'Report review result' }, sender);
+  const notice = f.run('send_message', {parts: [{ text: 'Independent notice.' }],  to: session, reasoning: 'Share a separate update' }, sender);
   await controller.drain();
   const contexts = f.sent.filter(item => item.message.customType === 'octocode-peer');
   assert.equal(contexts.length, 1);
@@ -203,16 +203,15 @@ test('Pi native context preserves reply correlation without replaying durable me
   const messages = JSON.parse(content.slice(content.indexOf('\n') + 1));
   const correlated = messages.find((item: JsonRecord) => item.data.messageId === reply.id);
   assert.equal(correlated.data.replyTo, question.id);
-  assert.equal(correlated.data.conversationId, 'review:42');
+  assert.equal(correlated.data.contextId, 'review:42');
   assert.equal(correlated.from, sender);
-  assert.equal(correlated.data.body, 'BLUF\nOutcome: done\nConclusion: Review complete.');
-  assert.equal(correlated.data.kind, 'answer');
+  assert.deepEqual(correlated.data.parts, [{ data: { conclusion: 'Review complete.' } }]);
   const unrelated = messages.find((item: JsonRecord) => item.data.messageId === notice.id);
   assert.equal(Object.hasOwn(unrelated.data, 'replyTo'), false);
-  assert.equal(Object.hasOwn(unrelated.data, 'conversationId'), false);
+  assert.equal(Object.hasOwn(unrelated.data, 'contextId'), false);
   assert.equal(Object.hasOwn(unrelated.data, 'topic'), false);
   assert.equal(Object.hasOwn(correlated.data, 'topic'), false);
-  assert.equal(unrelated.data.body, 'Independent notice.');
+  assert.deepEqual(unrelated.data.parts, [{ text: 'Independent notice.' }]);
   assert.deepEqual(detailsOf(contexts[0]).receipts.map((item: JsonRecord) => item.id), [reply.id, notice.id]);
   assert.ok(detailsOf(contexts[0]).receipts.every((item: JsonRecord) => typeof item.dispatchToken === 'string'));
   assert.deepEqual(contexts[0].options, { triggerTurn: true, deliverAs: 'steer' });
@@ -229,9 +228,9 @@ test('idle Pi wakes once for action and preserves preceding passive context with
  await f.fire('session_start');
  try {
   const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
-  f.run('send_message',{to:session,body:'FYI',wake:'passive',reasoning:'Share context without interrupting'},sender);
+  f.run('send_message',{parts: [{ text: 'FYI' }], to:session,wake:'passive',reasoning:'Share context without interrupting'},sender);
   await controller.drain();
-  const question=f.run('send_message',{to:session,body:'Please review',wake:'action',reasoning:'Unblock review'},sender);
+  const question=f.run('send_message',{parts: [{ text: 'Please review' }], to:session,wake:'action',reasoning:'Unblock review'},sender);
   await controller.drain();await controller.drain();
   const peers=f.sent.filter(s=>s.message.customType==='octocode-peer');
   assert.deepEqual(peers.map(s=>s.options.triggerTurn),[false,true]);
@@ -248,7 +247,7 @@ test('action arriving during a Pi turn waits for idle and wakes once after agent
  try {
   const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
   await f.fire('agent_start');
-  f.run('send_message',{to:session,body:'Next task',wake:'action',reasoning:'Coordinate after the active task'},sender);
+  f.run('send_message',{parts: [{ text: 'Next task' }], to:session,wake:'action',reasoning:'Coordinate after the active task'},sender);
   await controller.drain();
   assert.equal(f.sent.filter(s=>s.message.customType==='octocode-peer').length,0);
   await f.fire('agent_end');
@@ -263,7 +262,7 @@ test('Pi before_agent_start includes action context in the existing turn without
  await f.fire('session_start');
  try {
   const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
-  f.run('send_message',{to:session,body:'Join the current task',wake:'action',reasoning:'Supply context to the turn already starting'},sender);
+  f.run('send_message',{parts: [{ text: 'Join the current task' }], to:session,wake:'action',reasoning:'Supply context to the turn already starting'},sender);
   f.ctx.isIdle=()=>false;
   await controller.drain();assert.equal(f.sent.filter(s=>s.message.customType==='octocode-peer').length,0);
   await f.fire('before_agent_start');
@@ -280,7 +279,7 @@ test('a user turn starting during a Pi inbox read suppresses the pending automat
  const controller=registerPiInbox(f.pi,{binary:wrapper,database:f.database});await f.fire('session_start');
  try {
   const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
-  f.run('send_message',{to:session,body:'Concurrent action',wake:'action',reasoning:'Join the task while a user turn starts'},sender);
+  f.run('send_message',{parts: [{ text: 'Concurrent action' }], to:session,wake:'action',reasoning:'Join the task while a user turn starts'},sender);
   const draining=controller.drain();
   const deadline=Date.now()+5000;while(!existsSync(marker)){if(Date.now()>deadline)throw new Error('Hook read did not reach barrier');await new Promise(r=>setTimeout(r,5));}
   const starting=f.fire('before_agent_start');
@@ -295,7 +294,7 @@ test('Pi action wakes a fresh session before disk persistence but confirms only 
  const controller=registerPiInbox(f.pi,{binary,database:f.database});await f.fire('session_start');
  try {
   const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
-  const message=f.run('send_message',{to:session,body:'Start review',wake:'action',reasoning:'Wake a fresh receiver'},sender);
+  const message=f.run('send_message',{parts: [{ text: 'Start review' }], to:session,wake:'action',reasoning:'Wake a fresh receiver'},sender);
   const state=()=>JSON.parse(execFileSync(binary,['fetch',JSON.stringify({types:['dispatch.staged','dispatch.submitted','dispatch.uncertain','dispatch.ready'],current:true,from:session,where:{messageId:message.id}}),'--workspace',f.workspace,'--database',f.database,'--session',session],{encoding:'utf8'})).items[0].type.slice('dispatch.'.length);
   await controller.drain();await controller.drain();
   const peers=f.sent.filter(s=>s.message.customType==='octocode-peer');
@@ -310,7 +309,7 @@ test('Pi native delivery rejection stays staged and visible without an automatic
  const errors: string[]=[];t.mock.method(console,'error',(message: string)=>errors.push(message));
  try {
   const session=boundSession(controller),sender=f.run('join',{vendor:'raw',name:'sender'}).id;
-  const message=f.run('send_message',{to:session,body:'Needs handling',wake:'action',reasoning:'Verify failed native delivery remains pending'},sender);
+  const message=f.run('send_message',{parts: [{ text: 'Needs handling' }], to:session,wake:'action',reasoning:'Verify failed native delivery remains pending'},sender);
   let attempts=0;f.pi.sendMessage=()=>{attempts++;throw new Error('Native session unavailable');};
   await controller.drain();await controller.drain();
   assert.equal(attempts,1);assert.ok(errors.some(e=>e.includes('Native session unavailable')));

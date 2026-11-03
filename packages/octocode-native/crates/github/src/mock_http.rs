@@ -23,6 +23,48 @@ pub async fn mount_json(
         .await;
 }
 
+/// Answer `GET route` on `server` as a GitHub search over `items` does:
+/// each request's `page`/`per_page` slice (GitHub's default `per_page` is
+/// 30), with the full `total_count`.
+pub async fn mount_search_index(
+    server: &MockServer,
+    route: impl Into<String>,
+    items: Vec<serde_json::Value>,
+) {
+    Mock::given(method("GET"))
+        .and(path(route))
+        .respond_with(SearchIndex(items))
+        .mount(server)
+        .await;
+}
+
+/// The responder of [`mount_search_index`].
+pub struct SearchIndex(pub Vec<serde_json::Value>);
+
+impl Respond for SearchIndex {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        let number = |name: &str, default: usize| {
+            request
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == name)
+                .and_then(|(_, value)| value.parse::<usize>().ok())
+                .unwrap_or(default)
+        };
+        let (page, per_page) = (number("page", 1).max(1), number("per_page", 30));
+        let items = self
+            .0
+            .iter()
+            .skip((page - 1) * per_page)
+            .take(per_page)
+            .cloned()
+            .collect::<Vec<_>>();
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": self.0.len(), "incomplete_results": false, "items": items
+        }))
+    }
+}
+
 /// When each request reached a responder, in arrival order. Clones share one log.
 #[derive(Clone, Default)]
 pub struct Arrivals(Arc<Mutex<Vec<Instant>>>);

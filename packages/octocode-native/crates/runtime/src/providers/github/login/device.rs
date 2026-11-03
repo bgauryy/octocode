@@ -6,9 +6,9 @@ use super::{
 };
 use crate::civil_date::unix_secs;
 use octocode_github::{ProviderError, ProviderErrorKind};
+use octocode_io::cancellation::Cancellation;
 use serde::Deserialize;
 use std::time::{Duration, Instant};
-use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Deserialize)]
 struct DeviceCode {
@@ -55,7 +55,7 @@ fn secs_u32(secs: u64) -> u32 {
 pub async fn login_device_flow_in_store(
     endpoints: &LoginEndpoints,
     client_id: &str,
-    cancellation: &CancellationToken,
+    cancellation: &Cancellation,
     store: &CredentialStore,
 ) -> Result<StoredCredentials, ProviderError> {
     login_device_flow_with_store(
@@ -68,10 +68,14 @@ pub async fn login_device_flow_in_store(
     .await
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "the device flow prompts the person signing in on stderr"
+)]
 pub(super) async fn login_device_flow_with_store(
     endpoints: &LoginEndpoints,
     client_id: &str,
-    cancellation: &CancellationToken,
+    cancellation: &Cancellation,
     store: &(dyn Fn(&StoredCredentials) -> Result<(), ProviderError> + Sync),
     second: Duration,
 ) -> Result<StoredCredentials, ProviderError> {

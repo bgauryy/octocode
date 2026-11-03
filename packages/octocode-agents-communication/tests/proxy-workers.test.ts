@@ -112,10 +112,11 @@ test('usage is persisted once per source event and traced tool calls are paired'
   assert.equal(records[2].cacheWriteTokens, 2);
 
   const calls = new Map();
-  const started = proxy.traceTools('s1', { message: { content: [{ type: 'tool_use', id: 'c1', name: 'inbox', input: { a: 1 } }] } }, calls);
-  assert.deepEqual(started.map(({ at, ...rest }) => (typeof at === 'number' ? rest : null)), [{ type: 'tool-call', callId: 'c1', tool: 'inbox', input: { a: 1 }, session: 's1' }]);
+  const input = { type: 'read', input: {} };
+  const started = proxy.traceTools('s1', { message: { content: [{ type: 'tool_use', id: 'c1', name: 'messages', input }] } }, calls);
+  assert.deepEqual(started.map(({ at, ...rest }) => (typeof at === 'number' ? rest : null)), [{ type: 'tool-call', callId: 'c1', tool: 'messages', input, session: 's1' }]);
   const finished = proxy.traceTools('s1', { message: { content: [{ type: 'tool_result', tool_use_id: 'c1', content: 'ok', is_error: false }] } }, calls);
-  assert.equal(finished[0].tool, 'inbox');
+  assert.equal(finished[0].tool, 'messages');
   assert.equal(calls.size, 0);
   const rpc = proxy.traceTools('s1', { method: 'item/started', params: { item: { type: 'mcpToolCall', id: 'r1', server: 'srv', tool: 'send', arguments: {} } } }, calls);
   assert.equal(rpc[0].server, 'srv');
@@ -182,7 +183,7 @@ test('a managed codex worker: handshake, first turn, mail delivered between turn
   assert.equal(only(f.store.db.raw.prepare('SELECT transport FROM attachments WHERE session=?').get(identity)).transport, 'raw');
   assert.equal(runtime.ownerLock.deliveryOwnerLive(f.file, identity), true, 'the worker owns delivery for its session');
 
-  const sent = await f.call(sender, 'send_message', { to: identity, body: 'peer fact for the worker', wake: 'action' });
+  const sent = await f.call(sender, 'send_message', {parts: [{ text: 'peer fact for the worker' }],  to: identity, wake: 'action' });
   await waitFor(() => output.some(record => record.type === 'delivery' && record.messages.includes(sent.id)));
   await waitFor(() => output.filter(record => record.type === 'turn-completed').length >= 2);
   await running;

@@ -16,7 +16,7 @@ pub(crate) struct LineEdges {
 
 pub(crate) fn line_edges(text: &str, path: &Path, max_chars: usize) -> LineEdges {
     let Some(declarations) =
-        crate::tools::declarations_cache::all_declarations(text, &path.to_string_lossy())
+        crate::tools::declarations::all_declarations(text, &path.to_string_lossy())
     else {
         return LineEdges::default();
     };
@@ -30,7 +30,7 @@ pub(crate) fn line_edges(text: &str, path: &Path, max_chars: usize) -> LineEdges
                 .saturating_add(line.chars().count()),
         );
     }
-    let first_line = |declaration: &crate::tools::declarations_cache::Declared| {
+    let first_line = |declaration: &crate::tools::declarations::Declared| {
         declaration
             .doc_start
             .unwrap_or(declaration.start)
@@ -90,8 +90,7 @@ pub(crate) struct Declaration {
 
 /// Parser columns use UTF-16. Convert through the same index as graph/LSP.
 pub(crate) fn declarations(source: &str, path: &Path) -> Vec<Declaration> {
-    let Some(document) =
-        crate::tools::declarations_cache::file_document(source, &path.to_string_lossy())
+    let Some(document) = crate::tools::declarations::file_document(source, &path.to_string_lossy())
     else {
         return Vec::new();
     };

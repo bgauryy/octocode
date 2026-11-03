@@ -60,9 +60,9 @@ Vocabulary for the edges the graph shows. Metrics are component-level hypotheses
 |---|---|---|
 | Afferent coupling (Ca) | Incoming dependents of a module | graphQuery `dependents`, `hubs` with `direction: "in"` |
 | Efferent coupling (Ce) | Outgoing dependencies of a module | graphQuery `deps`, `hubs` with `direction: "out"` |
-| Instability (I) | Ce / (Ca + Ce): 0 stable, 1 unstable | `issues` with `detectors: ["unstable-dependency"]` |
-| Abstractness (A) | Share of abstract types in a component | `issues` with `detectors: ["main-sequence"]` |
-| Main sequence | A + I = 1; zone of pain (stable and concrete), zone of uselessness (abstract and unused) | Same detector; confirm with real consumers |
+| Instability (I) | Ce / (Ca + Ce): 0 stable, 1 unstable | No detector: compute from the Ca and Ce rows above |
+| Abstractness (A) | Share of abstract types in a component | No detector: count exported traits, interfaces and types with astSearch `symbols` |
+| Main sequence | A + I = 1; zone of pain (stable and concrete), zone of uselessness (abstract and unused) | No detector; foundation modules (text, types, config) sit in the zone of pain by design, so confirm with real consumers |
 | Cumulative component dependency (CCD, NCCD) | Sum of each file's transitive reach; normalized against a balanced tree | `issues` summary `health.ccd`, `health.nccd`, `averageReach` |
 | Stable dependencies principle | Depend toward stability | A stable module importing an unstable one is a candidate |
 | Stable abstractions principle | Stable modules are abstract | Interfaces live where dependents point |
@@ -87,7 +87,7 @@ Graph detectors emit ranked hypotheses with `verify` commands, never findings ([
 | Cyclic dependency | Modules or directories that import each other, directly or through a chain | `cycle`, `dir-cycle`; rule out type-only edges |
 | Hub-like or god module | Many incoming and outgoing edges plus mixed responsibilities | No detector: `critical-file` ranks blast radius; inspect responsibilities, not size |
 | Critical file, single point of failure | Most reachable code passes through one file | `critical-file`, `single-point-of-failure`; composition roots and generated registries are expected hubs |
-| Unstable dependency | A stable module depends on an unstable one | `unstable-dependency`, `main-sequence` |
+| Unstable dependency | A stable module depends on an unstable one | No detector: compare I of both ends; a module root using its own submodules is not one |
 | Boundary violation | An import crosses a declared layer or package boundary | `boundary-violation` with the declared rule; folder names alone are `inferred` |
 | Misplaced file | A file whose dependencies belong to another module | No detector: compare the file's graphQuery `walk` imports with its module's |
 | Dead or test-only code | Unreachable file, unused export, export used only locally | `unreachable-file`, `unused-export`, `export-only-local`, `test-only` with explicit `entries`; rule out registration and external consumers |

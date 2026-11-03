@@ -258,7 +258,9 @@ impl ContentSecurity {
                                 .push(format!("Secrets detected in {key}: {secret}"));
                         }
                     }
-                    *text = result.content;
+                    if let std::borrow::Cow::Owned(content) = result.content {
+                        *text = content;
+                    }
                     true
                 }
                 Value::Array(values) => self.walk_array(key, values, depth, limit, &mut out),
@@ -312,7 +314,9 @@ impl ContentSecurity {
             Value::String(text) => {
                 let result = self.sanitize_text(text, None);
                 item_secrets |= result.has_secrets;
-                *text = result.content;
+                if let std::borrow::Cow::Owned(content) = result.content {
+                    *text = content;
+                }
                 true
             }
             Value::Object(nested) => {

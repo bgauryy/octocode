@@ -1,11 +1,15 @@
 //! Binary files a search skipped or cut: their warnings, groups and listings.
 use crate::tools::local_search::local_search_query;
 
-use crate::id::ToolId;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::Continuation;
-use octocode_contract_types::LocalSearchQuery;
-use serde_json::{Value, json};
+use crate::tools::leads::files_listing::files_listing;
+use octocode_contract_types::{
+    DefaultExcludes, LocalSearchQuery, StructureSearchQuery, StructureSearchQueryFiles,
+    StructureSearchQueryFilesEntryType,
+};
+use serde_json::Value;
+use std::num::NonZeroU64;
 
 /// `binarySkipped` warning: how many files were skipped as binary from
 /// their leading bytes, grouped by extension (`54 .woff2, 2 .png`).
@@ -35,21 +39,15 @@ pub(super) const MAX_LISTED_EXTENSIONS: usize = 100;
 pub(super) fn leading_binary_listing(
     query: &LocalSearchQuery,
     groups: &[octocode_engine::types::BinaryExtensionCount],
-) -> Value {
-    let mut listing = json!({
-        "operation": "files",
-        "path": local_search_query::path(query),
-        "entryType": "file",
-    });
+) -> Option<Value> {
     let by_extension = groups.len() <= MAX_LISTED_EXTENSIONS
         && groups.iter().all(|group| !group.extension.is_empty());
+    let mut extensions = Vec::new();
+    let mut name_regex = None;
     if by_extension {
-        listing["extensions"] = json!(
-            groups
-                .iter()
-                .map(|group| group.extension.as_str())
-                .collect::<Vec<_>>()
-        );
+        for group in groups {
+            extensions.push(group.extension.as_str().try_into().ok()?);
+        }
     } else {
         // Extensionless binaries by exact name: a no-extension pattern
         // would also list every extensionless text file.
@@ -77,21 +75,22 @@ pub(super) fn leading_binary_listing(
         if !extensions.is_empty() {
             alternatives.push(format!(r"\.(?i:{})$", extensions.join("|")));
         }
-        listing["nameRegex"] = json!(alternatives.join("|"));
+        name_regex = Some(alternatives.join("|").try_into().ok()?);
     }
-    if let Some(depth) = local_search_query::max_depth(query) {
-        listing["maxDepth"] = json!(depth.saturating_add(1));
-    }
-    if !local_search_query::exclude(query).is_empty() {
-        listing["exclude"] = json!(local_search_query::exclude(query));
-    }
-    if !local_search_query::default_excludes(query).defaults() {
-        listing["defaultExcludes"] = json!(false);
-    }
-    if local_search_query::include_ignored(query) == Some(true) {
-        listing["includeIgnored"] = json!(true);
-    }
-    Continuation::related(ToolId::StructureSearch, listing).build()
+    let listing = StructureSearchQueryFiles {
+        default_excludes: (!local_search_query::default_excludes(query).defaults())
+            .then_some(DefaultExcludes(false)),
+        entry_type: Some(StructureSearchQueryFilesEntryType::File),
+        exclude: local_search_query::exclude(query).to_vec(),
+        extensions,
+        include_hidden: (local_search_query::include_hidden(query) == Some(true)).then_some(true),
+        include_ignored: (local_search_query::include_ignored(query) == Some(true)).then_some(true),
+        max_depth: local_search_query::max_depth(query)
+            .and_then(|depth| NonZeroU64::new(u64::from(depth.saturating_add(1)))),
+        name_regex,
+        ..files_listing(local_search_query::path(query))?
+    };
+    Some(Continuation::related_query(StructureSearchQuery::from(listing)).build())
 }
 
 /// Binary-cut files a warning names one by one; more are a count by

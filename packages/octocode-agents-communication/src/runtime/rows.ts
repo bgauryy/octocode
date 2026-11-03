@@ -1,3 +1,4 @@
+import { parseParts, parseOutcome } from './message-content.js';
 /** Typed readings of database rows: each column is checked once, so schema drift fails loudly instead of reading `undefined`. */
 import { rowInteger, rowOptionalInteger, rowOptionalText, rowText, type Row } from './database.js';
 import type { CommandResults, Lease, RecordEnvelope } from './catalog-types.generated.js';
@@ -20,7 +21,6 @@ function oneOf<T extends string>(value: string, allowed: readonly T[], what: str
 
 const STATUSES: readonly Session['status'][] = ['available', 'busy', 'blocked', 'unknown'];
 const KINDS: readonly LeaseKind[] = ['file', 'tree'];
-const MESSAGE_KINDS: readonly InboxItem['kind'][] = ['note', 'question', 'task', 'decision', 'handoff', 'blocker', 'delta', 'checkback', 'issue', 'answer'];
 const WAKES: readonly InboxItem['wake'][] = ['action', 'passive'];
 
 const TRANSPORTS: readonly Transport[] = ['raw', 'claude', 'codex', 'opencode', 'grok'];
@@ -36,12 +36,12 @@ export function sessionRow(row: Row): Session {
   };
 }
 
-/** The columns `inbox` selects: `m.id,m.sender,senderName,m.kind,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo,m.replyRequired`. */
+/** The columns `inbox` selects: `m.id,m.sender,senderName,m.parts,m.outcome,m.reasoning,m.topic,m.expiresAt,m.wake,m.contextId,m.replyTo,m.replyRequired`. */
 export function inboxItem(row: Row): InboxItem {
   return {
-    id: rowInteger(row, 'id'), sender: rowText(row, 'sender'), senderName: rowText(row, 'senderName'), kind: oneOf(rowText(row, 'kind'), MESSAGE_KINDS, 'message kind'),
-    body: rowText(row, 'body'), reasoning: rowText(row, 'reasoning'), topic: rowOptionalText(row, 'topic'), expiresAt: rowInteger(row, 'expiresAt'),
-    wake: oneOf(rowText(row, 'wake'), WAKES, 'wake'), conversationId: rowOptionalText(row, 'conversationId'), replyTo: rowOptionalInteger(row, 'replyTo'),
+    id: rowInteger(row, 'id'), sender: rowText(row, 'sender'), senderName: rowText(row, 'senderName'),
+    parts: parseParts(rowText(row, 'parts')), outcome: parseOutcome(rowOptionalText(row, 'outcome')), reasoning: rowText(row, 'reasoning'), topic: rowOptionalText(row, 'topic'), expiresAt: rowInteger(row, 'expiresAt'),
+    wake: oneOf(rowText(row, 'wake'), WAKES, 'wake'), contextId: rowOptionalText(row, 'contextId'), replyTo: rowOptionalInteger(row, 'replyTo'),
     replyRequired: row.replyRequired === true,
   };
 }

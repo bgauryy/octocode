@@ -46,8 +46,7 @@ pub(super) async fn commit(
         prefetched: None,
     };
     // A movable ref is pinned before a read of several batches, so a branch
-    // that moves between them cannot mix two commits; the pin is the
-    // memoized single-flight resolution every GitHub read of the ref shares.
+    // that moves between them cannot mix two commits.
     // A page one batch holds reads the commit by its name: the answer names
     // the commit, which pins every continuation.
     let pinned = if octocode_github::is_full_sha(reference) || !spec.spans_batches() {
@@ -58,7 +57,6 @@ pub(super) async fn commit(
                 gh_get_history_item_query::owner(query),
                 gh_get_history_item_query::repo(query),
                 Some(reference),
-                false,
                 context,
             )
             .await?
@@ -217,18 +215,20 @@ fn commit_leads(query: &HistoryItemRequest, commit: &CommitFacts<'_>, page: File
     let mut leads = Vec::from_iter(page.without_match);
     let pull_request = commit_pull_request_lead(commit.message, &commit.sha, query);
     if query.include_diff() && commit.message.trim_end() != commit.headline {
-        leads.push(("readCommit", read_commit_lead(query, &commit.sha)));
+        leads.extend(read_commit_lead(query, &commit.sha).map(|read| ("readCommit", read)));
     }
     // A pull request the commit names is the route to its discussion, ahead
     // of the diff's side reads; a search by SHA is only a guess, so it
     // yields to them.
-    let named = pull_request.0 == "readPullRequest";
+    let named = pull_request
+        .as_ref()
+        .is_some_and(|lead| lead.0 == "readPullRequest");
     if named {
-        leads.push(pull_request.clone());
+        leads.extend(pull_request.clone());
     }
     leads.extend(page.side_reads);
     if !named {
-        leads.push(pull_request);
+        leads.extend(pull_request);
     }
     leads
 }

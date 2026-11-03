@@ -84,23 +84,25 @@ fn reduce_file<'a>(
 }
 
 /// The declarations facts of `source` at `path`, parsed with `parser`'s
-/// grammar (`None`: the file's own), through the one declarations cache
-/// every reader shares: a file outlined alone and then in its directory is
-/// parsed once.
+/// grammar (`None`: the file's own), owned by this outline request.
 pub(super) fn declarations(
     source: &str,
     path: &str,
     parser: Option<&str>,
 ) -> Option<std::sync::Arc<octocode_engine::graph::GraphFactsDocument>> {
-    crate::tools::declarations_cache::document(source, path, parser, || match parser {
-        Some(extension) => {
-            octocode_engine::signatures::extract_declarations_document_with_extension(
-                source, path, extension,
-            )
-        }
-        None => octocode_engine::signatures::extract_declarations_document(source, path),
-    })
+    #[cfg(test)]
+    PARSED_FILES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(path.to_owned());
+    crate::tools::declarations::document(source, path, parser)
 }
+
+/// Every file a directory outline parsed (absolute path), for the tests that
+/// count parses.
+#[cfg(test)]
+pub(in crate::tools::ast_search) static PARSED_FILES: std::sync::Mutex<Vec<String>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// The per-symbol provenance keys `includeProvenance` adds to a row.
 const PROVENANCE_KEYS: [&str; 6] = [
@@ -133,7 +135,10 @@ pub(super) fn reduce_document(
     };
     if let Some((scoped, path)) = scoped {
         declarations.retain(|row| {
-            scoped.keeps(path, crate::num::u32_of(row["line"].as_u64().unwrap_or(0)))
+            scoped.keeps(
+                path,
+                octocode_engine::num::saturating_u32(row["line"].as_u64().unwrap_or(0)),
+            )
         });
     }
     let (mut rows, mut off_kind, notes) = reduce_file(
@@ -213,7 +218,7 @@ pub(crate) struct Outline {
     /// permission: absence below them is unproven.
     pub(super) walk_errors: (u32, u32),
     /// What a `testCode` scope left out.
-    pub(super) test_code_excluded: crate::tools::test_code::Excluded,
+    pub(super) test_code_excluded: octocode_engine::types::TestCodeExcluded,
 }
 
 /// One file's declarations; `Err` is a terminal row (size limit, no
@@ -249,10 +254,9 @@ pub(super) fn outline_file(
     );
     let unsupported = || {
         let mut row = json!({"status":"error","errorCode":ErrorCode::SymbolsUnsupported,"path":display_path,"error":"No native declaration extractor supports this source."});
-        crate::response::result::attach_related(
-            &mut row,
-            super::super::output::unsupported_read(&source_path),
-        );
+        if let Some(read) = super::super::output::unsupported_read(&source_path) {
+            crate::response::result::attach_related(&mut row, read);
+        }
         row
     };
     let document = match parser.as_deref() {
@@ -348,6 +352,8 @@ fn no_extractor(canonical: &std::path::Path, display_path: &str, kind: &str) -> 
             "symbols does not outline {kind} files; the related[] localFetch request outlines this one, or search it with localSearch."
         )],
     });
-    row["calls"]["read"] = super::super::output::unsupported_read(&path);
+    if let Some(read) = super::super::output::unsupported_read(&path) {
+        row["calls"]["read"] = read;
+    }
     row
 }

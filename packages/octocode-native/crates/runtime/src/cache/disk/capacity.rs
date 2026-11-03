@@ -38,7 +38,7 @@ impl Disk {
         let Some(size) = parts[0].len().checked_add(parts[1].len()) else {
             return false;
         };
-        if size > config.max_bytes || size as u64 > config.disk_bytes {
+        if size as u64 > config.disk_bytes {
             return false;
         }
         let Some(_lock) = self.lock() else {

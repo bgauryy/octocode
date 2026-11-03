@@ -32,7 +32,7 @@ test('Pi opt-in completion recovers omitted FYI once per external work cycle wit
  await f.fire('session_start');
  try {
   const session=boundSession(controller),sender=f.run('join',{name:'sender',vendor:'generic'}).id;
-  const sent=f.run('send_message',{to:session,body:'FYI evidence',reasoning:'Check omission recovery',wake:'passive'},sender);
+  const sent=f.run('send_message',{parts: [{ text: 'FYI evidence' }], to:session,reasoning:'Check omission recovery',wake:'passive'},sender);
   await controller.drain();assert.equal(completionMessages(f).length,0,'idle passive delivery cannot wake recovery');
   await f.fire('agent_start');await f.fire('agent_end');await settleCompletion(f,1);
   const recovery=completionMessages(f)[0];assert.deepEqual(detailsOf(recovery).pending,[sent.id]);
@@ -48,7 +48,7 @@ test('Pi opt-in completion recovers omitted FYI once per external work cycle wit
   f.run('complete',{message:sent.id},session);
   await f.fire('input',{source:'rpc',text:'Next task'});await f.fire('agent_start');await f.fire('agent_end');
   await checks.settledAllow(3);assert.equal(completionMessages(f).length,2);
-  f.run('send_message',{to:session,body:'New action',wake:'action',reasoning:'Verify action cycle reset'},sender);
+  f.run('send_message',{parts: [{ text: 'New action' }], to:session,wake:'action',reasoning:'Verify action cycle reset'},sender);
   await controller.drain();await f.fire('agent_start');await f.fire('agent_end');await settleCompletion(f,3);
  } finally {await f.fire('session_shutdown');}
 });
@@ -57,7 +57,7 @@ test('Pi completion ignores staged-only passive mail and cancels stale lifecycle
  const controller=registerPiInbox(f.pi,{binary:checks.wrapper,database:f.database,completionCheck:true});await f.fire('session_start');
  try {
   const session=boundSession(controller),sender=f.run('join',{name:'sender',vendor:'generic'}).id;
-  f.run('send_message',{to:session,body:'not durable',reasoning:'Check submitted-only recovery',wake:'passive'},sender);
+  f.run('send_message',{parts: [{ text: 'not durable' }], to:session,reasoning:'Check submitted-only recovery',wake:'passive'},sender);
   await controller.drain();await f.fire('agent_start');await f.fire('agent_end');
   await checks.settledAllow(1);assert.equal(completionMessages(f).length,0);
   f.setDisk(true);f.flush();await controller.drain();
@@ -74,7 +74,7 @@ test('Pi shutdown cancels an in-flight completion result before it can wake a st
  const controller=registerPiInbox(f.pi,{binary:wrapper,database:f.database,completionCheck:true});await f.fire('session_start');
  try {
   const session=boundSession(controller),sender=f.run('join',{name:'sender',vendor:'generic'}).id;
-  f.run('send_message',{to:session,body:'FYI',reasoning:'Check stale recovery cancellation',wake:'passive'},sender);
+  f.run('send_message',{parts: [{ text: 'FYI' }], to:session,reasoning:'Check stale recovery cancellation',wake:'passive'},sender);
   await controller.drain();await f.fire('agent_start');await f.fire('agent_end');
   const deadline=Date.now()+5000;while(!existsSync(marker)){if(Date.now()>deadline)throw new Error('Completion did not reach barrier');await new Promise(r=>setTimeout(r,5));}
   const stopping=f.fire('session_shutdown');writeFileSync(release,'go');await stopping;

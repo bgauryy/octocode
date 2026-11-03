@@ -64,8 +64,8 @@ fn automatic_page_costs_count_each_opened_directory_header() {
 }
 
 /// A window cut by the walk's time budget says where the walk stopped once,
-/// on the page that carries `continueWalk`: earlier pages of the window
-/// continue with `nextPage` and only mark the row partial (`walkDeadline`).
+/// on the page that resumes the walk: earlier pages of the window
+/// only mark the row partial (`walkDeadline`). All continue with `nextPage`.
 #[test]
 fn a_time_cut_window_states_the_cut_once_on_the_page_that_resumes_the_walk() {
     use super::super::cut::{Cut, TimeWindow};
@@ -90,11 +90,7 @@ fn a_time_cut_window_states_the_cut_once_on_the_page_that_resumes_the_walk() {
         };
         let mut out = json!({});
         let mut warnings = Vec::new();
-        cut.finish(
-            &mut out,
-            &json!({"operation":"files","path":"."}),
-            &mut warnings,
-        );
+        cut.finish(&mut out, &files_query(), &mut warnings);
         let out = super::super::output::finish(out);
         let last = page == total_pages;
         let stated = warnings
@@ -102,8 +98,9 @@ fn a_time_cut_window_states_the_cut_once_on_the_page_that_resumes_the_walk() {
             .filter(|w| w.contains("time budget"))
             .count();
         assert_eq!(stated, usize::from(last), "page {page}: {warnings:?}");
-        assert_eq!(out["next"].get("continueWalk").is_some(), last, "{out}");
-        assert_eq!(out["next"].get("nextPage").is_some(), !last, "{out}");
+        let next = &out["next"]["nextPage"]["input"]["queries"][0];
+        assert_eq!(next.get("walkOffset").is_some(), last, "{out}");
+        assert_eq!(next.get("snapshot").is_some(), !last, "{out}");
         assert!(
             out["partialReasons"]
                 .as_array()

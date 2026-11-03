@@ -29,7 +29,7 @@ async fn device_login_waits_for_authorization_then_saves_complete_credentials_on
     let returned = login_device_flow_with_store(
         &endpoints(&server),
         "client",
-        &CancellationToken::new(),
+        &Cancellation::new(),
         &save,
         TEST_SECOND,
     )
@@ -68,7 +68,7 @@ async fn device_login_reports_failed_save_instead_of_success() {
     let error = login_device_flow_with_store(
         &endpoints(&server),
         "client",
-        &CancellationToken::new(),
+        &Cancellation::new(),
         &save,
         TEST_SECOND,
     )
@@ -95,7 +95,7 @@ async fn denied_or_expired_device_authorization_never_saves_credentials() {
         let result = login_device_flow_with_store(
             &endpoints(&server),
             "client",
-            &CancellationToken::new(),
+            &Cancellation::new(),
             &save,
             TEST_SECOND,
         )
@@ -115,14 +115,14 @@ async fn cancelled_or_timed_out_device_login_never_saves_credentials() {
     let error = login_device_flow_with_store(
         &endpoints(&server),
         "client",
-        &CancellationToken::new(),
+        &Cancellation::new(),
         &save,
         TEST_SECOND,
     )
     .await
     .unwrap_err();
     assert_eq!(error.kind, ProviderErrorKind::Timeout);
-    let cancellation = CancellationToken::new();
+    let cancellation = Cancellation::new();
     cancellation.cancel();
     let error = login_device_flow_with_store(
         &endpoints(&server),
@@ -147,7 +147,7 @@ async fn device_login_persists_into_home_and_a_new_store_reads_it() {
     login_device_flow_with_store(
         &endpoints(&server),
         "client",
-        &CancellationToken::new(),
+        &Cancellation::new(),
         &|value| store.save(value),
         TEST_SECOND,
     )

@@ -56,8 +56,7 @@ pub(super) fn publish_snapshot(
     let slug = scope_slug(&job.built.root, job.workspace);
     let (stamp, created_at) = utc_now();
     // Roots whose names map to one slug (`a-b`, `a/b`) still get distinct ids.
-    let root_tag =
-        &octocode_engine::digest::sha256(job.built.root.to_string_lossy().as_bytes())[..6];
+    let root_tag = root_tag(&job.built.root);
     let id = match next_snapshot_id(job.home, &format!("{stamp}-{slug}-{root_tag}")) {
         Ok(id) => id,
         Err(error) => return GraphOutput::error(ErrorCode::FileAccessFailed, error),

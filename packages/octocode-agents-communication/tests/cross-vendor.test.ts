@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import type { JsonRecord } from './json-record.ts';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { binary, jsonCall, tempWorkspace, withReasoning } from './helpers.ts';
+import { binary, jsonCall, tempWorkspace, withReasoning, messageText } from './helpers.ts';
 
 test('Claude, Grok, Codex and Pi share typed requests, topics, documents and queued lease handoffs through the real CLI', t => {
   const workspace = tempWorkspace(t, 'communication-cross-vendor-');
@@ -20,29 +20,29 @@ test('Claude, Grok, Codex and Pi share typed requests, topics, documents and que
   assert.equal(call('read_document', { name: doc }, agents.claude).content, 'API review evidence');
   for (const [index, vendor] of vendors.entries()) {
     const sender = agents[vendor], recipient = agents[vendors[(index + 1) % vendors.length]];
-    const request = call('send_message', { to: recipient, question: `Review ${doc}`, key: `review-api-${vendor}`, conversationId: 'api-review' }, sender);
+    const request = call('send_message', {parts: [{ text: `Review ${doc}` }], replyRequired: true,  to: recipient, key: `review-api-${vendor}`, contextId: 'api-review' }, sender);
     assert.equal(call('hook', { format: 'json' }, recipient).action, true);
     const received = call('fetch', { incoming: true, type: 'message' }, recipient).items[0];
     assert.equal(received.data.messageId, request.id);
     assert.ok(Number.isSafeInteger(received.recordId) && !Object.hasOwn(received, 'id'));
     assert.equal(received.data.replyRequired, true);
-    const reply = call('complete', { message: received.data.messageId, outcome:'done',reply:{conclusion:'Reviewed API; evidence is complete'} }, recipient);
+    const reply = call('complete', { message: received.data.messageId, outcome:"completed",reply:[{ data: {conclusion:'Reviewed API; evidence is complete'} }] }, recipient);
     const answer = call('fetch', { incoming: true, type: 'message' }, sender).items[0];
     assert.equal(answer.data.messageId, reply.id);
     assert.equal(answer.data.replyTo, request.id);
-    assert.equal(answer.data.conversationId, 'api-review');
+    assert.equal(answer.data.contextId, 'api-review');
     assert.equal(answer.data.replyRequired, false);
     call('complete', { message: answer.data.messageId }, sender);
   }
 
   call('subscribe', { topics: ['api'] }, agents.grok);
-  const topic = call('send_message', { topic: 'api', body: `Evidence: ${doc}` }, agents.codex);
+  const topic = call('send_message', {parts: [{ text: `Evidence: ${doc}` }],  topic: 'api', }, agents.codex);
   assert.equal(topic.recipients, 1);
   assert.equal(call('inbox', {}, agents.grok).items[0].replyRequired, false);
   call('complete', { message: topic.id }, agents.grok);
   call('subscribe', { topics: [] }, agents.grok);
-  assert.equal(call('send_message', { topic: 'api', body: 'No subscriber remains' }, agents.codex).recipients, 0);
-  const notice = call('notify_all', { body: 'API review finished' }, agents.codex);
+  assert.equal(call('send_message', {parts: [{ text: 'No subscriber remains' }],  topic: 'api', }, agents.codex).recipients, 0);
+  const notice = call("send_message", { to: '*', parts: [{ text: 'API review finished' }]}, agents.codex);
   assert.equal(notice.recipients, vendors.length - 1);
   for (const vendor of vendors.filter(vendor => vendor !== 'codex')) call('complete', { message: notice.id }, agents[vendor]);
 
@@ -53,7 +53,7 @@ test('Claude, Grok, Codex and Pi share typed requests, topics, documents and que
   assert.equal(call(conflict.next.command, conflict.next.input, agents.grok).queued, true);
   assert.equal(call('lock', { path: 'src/api/new.ts', wait: true }, agents.pi).queued, true);
   assert.equal(call('check_write', { paths: [{ path: 'src/api/new.ts' }] }, agents.codex).ok, true);
-  const granted = (session: string) => call('inbox', {}, session).items.filter((item: JsonRecord) => item.kind === 'delta' && item.body.includes('- Lease granted'));
+  const granted = (session: string) => call('inbox', {}, session).items.filter((item: JsonRecord) => messageText(item.parts).includes('Lease granted'));
   call('unlock', { leaseId: leased.lease.id }, agents.codex);
   assert.equal(granted(agents.grok).length, 1, 'the oldest waiter (Grok) is granted on release');
   assert.equal(granted(agents.pi).length, 0);

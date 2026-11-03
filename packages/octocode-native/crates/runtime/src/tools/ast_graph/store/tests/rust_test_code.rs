@@ -116,7 +116,7 @@ fn cfg_test_module_edges_are_test_edges() {
 }
 
 /// A file a `#[cfg(test)] mod x;` mounts, and every module under it, is a
-/// test file, so its dev-dependency import is no production finding.
+/// test file; the module that mounts it stays production.
 #[test]
 fn cfg_test_mounted_modules_are_test_files() {
     let dir = crate_with_test_code();

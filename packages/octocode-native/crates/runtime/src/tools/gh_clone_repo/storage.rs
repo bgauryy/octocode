@@ -1,4 +1,4 @@
-//! Checkout destinations, process locks and atomic publication. No checkout cache.
+//! Checkout destinations, process locks and atomic publication.
 use super::{CloneContext, CloneError, check_control, hash};
 use octocode_contract_types::ErrorCode;
 use octocode_io::lock::{LockedFile, TryLock};
@@ -147,6 +147,26 @@ pub(super) fn promote(stage: &Path, destination: &Path) -> Result<(), CloneError
 
 pub(super) fn remove_dir(path: &Path) {
     let _ = fs::remove_dir_all(path);
+}
+
+/// The completion stamp inside a checkout's `.git`: Git ignores it, so the
+/// checkout stays clean, and it travels with the stage when published.
+const COMPLETED_AT_FILE: &str = "octocode-cloned-at";
+
+/// Record that the fetch into `stage` completed now; returns that time.
+pub(super) fn record_completion(stage: &Path) -> Result<String, CloneError> {
+    let at = crate::civil_date::iso8601_millis(crate::civil_date::unix_millis());
+    fs::write(stage.join(".git").join(COMPLETED_AT_FILE), &at).map_err(storage_io)?;
+    Ok(at)
+}
+
+/// When the fetch that made the checkout completed ([`record_completion`]);
+/// `None` for a checkout made before the stamp existed.
+pub(super) fn completed_at(path: &Path) -> Option<String> {
+    fs::read_to_string(path.join(".git").join(COMPLETED_AT_FILE))
+        .ok()
+        .map(|text| text.trim().to_owned())
+        .filter(|text| !text.is_empty())
 }
 
 pub(super) fn checked_out_size(path: &Path) -> u64 {

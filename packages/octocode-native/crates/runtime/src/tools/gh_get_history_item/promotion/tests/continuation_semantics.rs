@@ -25,14 +25,14 @@ fn section_expansion_is_optional_but_unread_pages_are_required() {
         },
     );
     assert_eq!(
-        output["calls"]["nextFilePage"]["kind"], "continue",
+        output["contentPagination"]["files"]["next"]["nextPage"]["kind"], "continue",
         "{output}"
     );
     assert_eq!(
         output["calls"]["readPatches"]["kind"], "related",
         "{output}"
     );
-    let summary = read_commit_lead(&request(&["patches"]), "head");
+    let summary = read_commit_lead(&request(&["patches"]), "head").expect("lead");
     assert_eq!(summary["kind"], "related", "{summary}");
     assert_eq!(summary["input"]["queries"][0]["ref"], "head");
 }

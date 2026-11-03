@@ -181,13 +181,20 @@ fn issues_pages_slice_one_listing() {
         o.limit = Some(1);
         o.min_tier = Some(0);
     });
-    assert_eq!(first.value["pagination"]["hasMore"], true, "{}", first.value);
+    assert_eq!(
+        first.value["pagination"]["hasMore"], true,
+        "{}",
+        first.value
+    );
     let second = ask(dir.0.as_path(), "issues", None, |o| {
         o.limit = Some(1);
         o.offset = Some(1);
         o.min_tier = Some(0);
     });
-    assert_eq!(second.value["pagination"]["totalItems"], first.value["pagination"]["totalItems"]);
+    assert_eq!(
+        second.value["pagination"]["totalItems"],
+        first.value["pagination"]["totalItems"]
+    );
 }
 
 /// `issues --entry` names the entrypoints in place of the inferred ones:
@@ -230,10 +237,10 @@ fn issues_take_explicit_entrypoints_in_place_of_the_inferred_ones() {
     );
     // A continuation resumes this same request, its `entries` included.
     assert!(
-        explicit
-            .next
-            .iter()
-            .all(|(_, resume)| matches!(resume, crate::tools::ast_graph::store::Resume::Row { .. })),
+        explicit.next.iter().all(|(_, resume)| matches!(
+            resume,
+            crate::tools::ast_graph::store::Resume::Row { .. }
+        )),
         "{:?}",
         explicit.next
     );
@@ -331,4 +338,45 @@ fn drift_diffs_two_snapshots_by_file_cycle_transition_and_relation() {
     assert_eq!(same.class, ExitClass::Empty, "{}", same.value);
     let missing = ask(root, "drift", None, |_| {});
     assert_eq!(missing.class, ExitClass::InvalidInput, "{}", missing.value);
+}
+
+/// `summary.byDetector` counts the findings before `minTier` and `minScore`
+/// filter the rows, so its sum is the page total plus what the filter hid;
+/// the summary says so whenever they differ.
+#[test]
+fn by_detector_reconciles_with_the_listed_total_through_the_filter() {
+    let dir = issues_fixture();
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let counted = |out: &GraphOutput| -> u64 {
+        out.value["summary"]["byDetector"]
+            .as_object()
+            .expect("byDetector")
+            .values()
+            .filter_map(Value::as_u64)
+            .sum()
+    };
+    let all = ask(dir.0.as_path(), "issues", None, |o| o.min_tier = Some(0));
+    let filtered = ask(dir.0.as_path(), "issues", None, |o| o.min_tier = Some(100));
+    let listed = |out: &GraphOutput| out.value["pagination"]["totalItems"].as_u64();
+    let hidden = filtered.value["summary"]["hiddenBelowTier"]
+        .as_u64()
+        .expect("hiddenBelowTier");
+    assert!(hidden > 0, "the fixture hides nothing: {}", filtered.value);
+    assert_eq!(counted(&all), counted(&filtered));
+    assert_eq!(
+        Some(counted(&filtered)),
+        listed(&filtered).map(|shown| shown + hidden),
+        "{}",
+        filtered.value
+    );
+    let notes = |out: &GraphOutput| out.value["summary"]["notes"].to_string();
+    assert!(
+        notes(&filtered).contains("byDetector"),
+        "{}",
+        filtered.value
+    );
+    assert!(!notes(&all).contains("byDetector"), "{}", all.value);
 }

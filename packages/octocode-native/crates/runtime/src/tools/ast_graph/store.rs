@@ -43,7 +43,9 @@ use std::{
 
 pub use ingest::ingest;
 use manifest::*;
-pub use query::{OPS, QueryOptions, query};
+#[cfg(test)]
+pub(crate) use query::query;
+pub use query::{QueryOptions, SavedRows};
 pub(crate) use snapshots::default_workspace;
 use snapshots::*;
 use staleness::*;
@@ -53,6 +55,7 @@ pub(crate) const GRAPH_FILE: &str = "graph.bin";
 /// A published snapshot past the byte bound needs a narrower ingest scope;
 /// it is refused before decode can multiply allocations from untrusted
 /// lengths.
+#[cfg(test)]
 fn read_graph_file(path: &Path) -> Result<Vec<u8>, String> {
     let limit = super::limits::LIMITS.snapshot_bytes;
     crate::tools::source::read_bounded(path, limit).map_err(|error| {
@@ -87,9 +90,10 @@ pub struct GraphOutput {
     /// adapter states each as an executable call.
     pub(crate) next: Vec<(Channel, Resume)>,
     /// What the query read and verified: test evidence of how little it
-    /// decoded, never in a response.
+    /// decoded, never in a response. Boxed so the test-only payload does not
+    /// inflate every `Result<_, GraphOutput>` in test builds.
     #[cfg(test)]
-    pub(crate) validation: Value,
+    pub(crate) validation: Box<Value>,
 }
 
 impl GraphOutput {
@@ -99,7 +103,7 @@ impl GraphOutput {
             class: ExitClass::Success,
             next: Vec::new(),
             #[cfg(test)]
-            validation: Value::Null,
+            validation: Box::default(),
         }
     }
     pub(crate) fn empty(value: Value) -> Self {
@@ -108,7 +112,7 @@ impl GraphOutput {
             class: ExitClass::Empty,
             next: Vec::new(),
             #[cfg(test)]
-            validation: Value::Null,
+            validation: Box::default(),
         }
     }
     /// A failure with a declared `errorCodes` entry; its class decides the exit.
@@ -118,7 +122,7 @@ impl GraphOutput {
             class: ExitClass::of(code),
             next: Vec::new(),
             #[cfg(test)]
-            validation: Value::Null,
+            validation: Box::default(),
         }
     }
 }
@@ -128,8 +132,6 @@ impl GraphOutput {
 pub(crate) enum Channel {
     /// The answer's rows after this page.
     NextPage,
-    /// A `summary.<field>` or `baseline.<field>` list past its preview.
-    List(String),
     /// The members of the cycle on row `i` of this page, past its preview.
     Cycle(usize),
 }
@@ -138,7 +140,6 @@ impl Channel {
     pub(crate) fn name(&self) -> String {
         match self {
             Self::NextPage => "nextPage".into(),
-            Self::List(list) => list.clone(),
             Self::Cycle(index) => format!("cycle{index}"),
         }
     }
@@ -185,8 +186,8 @@ impl IngestOptions {
             memory_only: false,
             path,
             workspace: None,
-            exclude_dir: query.exclude.iter().map(ToString::to_string).collect(),
-            keep: crate::num::usize_of(query.keep),
+            exclude_dir: query.exclude_dirs.iter().map(ToString::to_string).collect(),
+            keep: octocode_engine::num::saturating_usize(query.keep.get()),
             refresh: query.refresh,
             language_globs: query
                 .parser_globs

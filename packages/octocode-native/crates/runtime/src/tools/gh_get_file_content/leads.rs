@@ -88,9 +88,6 @@ fn github_row(
     );
     query.insert("ref".into(), Value::String(resolved_ref.to_owned()));
     query.remove("snapshot");
-    if let Some(force) = access::refresh(source) {
-        query.insert("refresh".into(), Value::Bool(force));
-    }
     Value::Object(query)
 }
 

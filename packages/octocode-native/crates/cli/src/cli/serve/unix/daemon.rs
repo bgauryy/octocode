@@ -1,6 +1,7 @@
 //! The server: `octocode serve --socket <path>` accepts connections,
 //! keeps a runtime per directory and environment, and answers each call.
 
+use super::frames::{forward, progress_scope};
 use super::identity::{call_identity, env_digest};
 pub(super) use super::served::Served;
 use super::sockets::{prune_siblings, touch};
@@ -336,20 +337,22 @@ pub(super) async fn handle(daemon: &Daemon, stream: tokio::net::UnixStream, id: 
         Ok(mut request) => match served(daemon, &mut request).await {
             Ok((served, tool, json_out, input)) => {
                 let runtime = &served.runtime;
-                // What this call raises, and only that, goes in its reply.
-                let notices = octocode_io::notice::Scope::default();
+                // Its progress goes to the client as frames while it runs;
+                // the other notices it raises, and only those, go in its reply.
+                let (notices, mut progress) = progress_scope();
                 let query = input.clone();
                 // The client's directory, which `served` read.
                 let cwd = request["cwd"].as_str().map(PathBuf::from);
                 let printed = match runtime.admit(id.clone()) {
                     Err(error) => Printed::finish(&tool, Err(error), json_out, &query, None),
                     Ok(admission) => {
-                        let execution = notices.run(runtime.execute(
+                        let call = notices.run(runtime.execute(
                             admission,
                             tool.clone(),
                             input,
                             octocode_native::runtime::Channel::Cli,
                         ));
+                        let execution = forward(call, &mut progress, &mut write);
                         let cancel = || {
                             runtime.requests.cancel(&id);
                         };

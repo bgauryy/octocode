@@ -3,7 +3,6 @@
 
 use super::executor::system_time_iso;
 use crate::execution::cancel::CancellationCheck;
-use crate::id::ToolId;
 use crate::security::scan::ContentScan;
 use crate::tools::source_view::*;
 use octocode_contract_types::{ErrorCode, LocalFetchQuery};
@@ -38,7 +37,7 @@ pub(super) fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> 
         ),
     };
     let mut result = LocalFetchResult::error(path.to_owned(), ErrorCode::FileTooLarge, message);
-    result.terminal_limit(PartialReason::SourceSizeLimit);
+    result.terminal_limit(PartialReason::FileTooLarge);
     result.hints = vec![hint.into()];
     result
 }
@@ -218,16 +217,38 @@ pub(super) fn not_a_file(q: &LocalFetchQuery, kind: NotAFile) -> LocalFetchResul
         ),
     );
     result.next = Some(NextCalls {
-        view_tree: Some(
-            crate::response::result::Continuation::related(
-                ToolId::StructureSearch,
-                serde_json::json!({"operation": "tree", "path": local_fetch_query::path(q)}),
-            )
-            .build(),
-        ),
+        view_tree: directory_tree(local_fetch_query::path(q)),
         ..NextCalls::default()
     });
     result
+}
+
+/// The structureSearch tree of the directory a read named.
+fn directory_tree(path: &str) -> Option<serde_json::Value> {
+    use octocode_contract_types::{
+        StructureSearchQueryTree, StructureSearchQueryTreeOperation, StructureSearchView,
+    };
+    let query = StructureSearchQueryTree {
+        default_excludes: None,
+        entry_type: None,
+        exclude: Vec::new(),
+        extensions: Vec::new(),
+        include: Vec::new(),
+        include_hidden: None,
+        include_ignored: None,
+        limit: None,
+        main_goal: None,
+        max_depth: std::num::NonZeroU64::MIN,
+        operation: StructureSearchQueryTreeOperation::Tree,
+        page: std::num::NonZeroU64::MIN,
+        path: path.try_into().ok()?,
+        reasoning: None,
+        scan_offset: None,
+        snapshot: None,
+        view: StructureSearchView::Details,
+        walk_offset: None,
+    };
+    Some(crate::response::result::Continuation::related_query(query).build())
 }
 
 /// The row for a path the policy refused or could not resolve.

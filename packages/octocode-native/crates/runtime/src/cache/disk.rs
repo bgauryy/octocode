@@ -1,6 +1,5 @@
 use super::{CacheClass, CacheConfig, CacheKey, DiskCodec};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
@@ -24,7 +23,7 @@ pub(super) struct DiskHeader {
 impl DiskHeader {
     /// How old the entry in `file` is at `now` (unix seconds): since it was
     /// stored, or for an idle class since its last use, which every read
-    /// records as the file's modification time ([`Disk::touch`]).
+    /// records as the file's modification time .
     pub(super) fn age(&self, file: &fs::File, now: u64) -> Duration {
         if self.class.idle().is_some()
             && let Ok(used) = file.metadata().and_then(|meta| meta.modified())
@@ -82,7 +81,7 @@ fn expired(path: &std::path::Path, now: u64) -> bool {
     }
     DiskHeader::split(&head).is_some_and(|(header, _)| {
         let age = header.age(&file, now);
-        header.class.freshness(age).is_none()
+        !header.class.is_live(age)
     })
 }
 
@@ -112,7 +111,7 @@ impl Disk {
     }
 
     pub(crate) fn file(&self, key: &CacheKey) -> PathBuf {
-        let mut digest = Sha256::new();
+        let mut digest = octocode_engine::digest::HashWriter::default();
         // Domain separation: files of an older layout are never read.
         // v2: bodies are base64 only (the number-array form was retired).
         // v3: one opaque scope replaced the endpoint/credential pair.
@@ -137,7 +136,7 @@ impl Disk {
         // An entry is only a regular file this store could have written: a
         // FIFO, device, symlink, or file past the entry bound is evicted.
         let read = crate::private_file::open_no_follow(&path, false).and_then(|file| {
-            let bytes = crate::private_file::read_limited(&file, config.max_bytes as u64)?;
+            let bytes = crate::private_file::read_limited(&file, config.disk_bytes)?;
             Ok((file, bytes))
         });
         let (file, bytes) = match read {
@@ -156,7 +155,7 @@ impl Disk {
             return None;
         };
         let age = header.age(&file, now_unix());
-        if header.class.freshness(age).is_none() {
+        if !header.class.is_live(age) {
             let _ = fs::remove_file(&path);
             return None;
         }
@@ -164,14 +163,6 @@ impl Disk {
         // idle entry's lifetime.
         touch_file(&file, &path);
         Some((value, header.class, age, bytes.len()))
-    }
-
-    /// Record a use of `key`'s entry file: its modification time becomes now.
-    pub(super) fn touch(&self, key: &CacheKey) {
-        let path = self.file(key);
-        if let Ok(file) = crate::private_file::open_no_follow(&path, false) {
-            touch_file(&file, &path);
-        }
     }
 
     pub(super) fn write<V, C: DiskCodec<V>>(

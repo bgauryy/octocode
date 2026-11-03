@@ -7,3 +7,6 @@ mod job;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod live;
+
+#[cfg(unix)]
+mod teardown;

@@ -78,7 +78,7 @@ impl GitHubTransport {
             }
         }
         let (items, has_more): (Vec<Value>, bool) = self
-            .revalidated_json(RequestSpec::get(url), false, context, "commit list")
+            .read_json(RequestSpec::get(url), context, "commit list")
             .await?;
         Ok(HistoryPage {
             total_count: 0,
@@ -90,7 +90,7 @@ impl GitHubTransport {
         })
     }
     /// Confirms that `login` is a GitHub account the token can see
-    /// (`GET /users/{login}`, through the response cache). GitHub's commit
+    /// (`GET /users/{login}`). GitHub's commit
     /// search drops an unknown `author:`/`committer:` login without error and
     /// answers the unfiltered total, so a search names its logins here first.
     /// A 404 is a [`ProviderErrorReason::UserNotFound`] failure; any other
@@ -101,13 +101,10 @@ impl GitHubTransport {
         context: &RequestContext,
     ) -> Result<(), ProviderError> {
         let url = self.endpoint().rest(&["users", login])?;
-        self.cached_search::<Value>(
-            "github-user",
+        self.read_search::<Value>(
             RequestSpec::get(url),
             context,
-            super::search::Lookup::Store,
             "invalid GitHub user response",
-            |_| true,
         )
         .await
         .map(|_| ())
@@ -157,7 +154,7 @@ impl GitHubTransport {
             }
         }
         let (items, has_more): (Vec<Value>, bool) = self
-            .revalidated_json(RequestSpec::get(url), false, context, "pull request list")
+            .read_json(RequestSpec::get(url), context, "pull request list")
             .await?;
         Ok(HistoryPage {
             total_count: 0,
@@ -188,40 +185,36 @@ impl GitHubTransport {
         request: &HistoryRequest,
         context: &RequestContext,
     ) -> Result<HistoryPage, ProviderError> {
-        let mut url = self.endpoint().rest(&["search", kind])?;
-        {
-            let mut q = url.query_pairs_mut();
-            q.append_pair("q", &request.query)
-                .append_pair("page", &request.page.to_string())
-                .append_pair("per_page", &request.per_page.to_string());
-            if let Some(v) = &request.sort {
-                q.append_pair("sort", v);
+        let spec = |page: usize, per_page: usize| -> Result<RequestSpec, ProviderError> {
+            let mut url = self.endpoint().rest(&["search", kind])?;
+            {
+                let mut q = url.query_pairs_mut();
+                q.append_pair("q", &request.query)
+                    .append_pair("page", &page.to_string())
+                    .append_pair("per_page", &per_page.to_string());
+                if let Some(v) = &request.sort {
+                    q.append_pair("sort", v);
+                }
+                if let Some(v) = &request.order {
+                    q.append_pair("order", v);
+                }
             }
-            if let Some(v) = &request.order {
-                q.append_pair("order", v);
+            let mut spec = RequestSpec::get(url);
+            if kind == "commits" {
+                spec.headers.insert(
+                    reqwest::header::ACCEPT,
+                    reqwest::header::HeaderValue::from_static("application/vnd.github+json"),
+                );
             }
-        }
-        let mut spec = RequestSpec::get(url);
-        if kind == "commits" {
-            spec.headers.insert(
-                reqwest::header::ACCEPT,
-                reqwest::header::HeaderValue::from_static("application/vnd.github+json"),
-            );
-        }
-        // Search answers come from the search index: cached like code search.
+            Ok(spec)
+        };
         let (mut value, withheld): (Value, _) = self
-            .cached_search(
-                "github-history-search",
+            .read_search_page(
                 spec,
+                request.page,
+                request.per_page,
                 context,
-                super::search::Lookup::Store,
                 "invalid GitHub history search response",
-                |value: &Value| {
-                    !value
-                        .get("incomplete_results")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false)
-                },
             )
             .await?;
         Ok(HistoryPage {

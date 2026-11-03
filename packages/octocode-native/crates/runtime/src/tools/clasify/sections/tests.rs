@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 fn test_context(timeout: Duration) -> ExecutionContext {
     ExecutionContext {
-        cancellation: tokio_util::sync::CancellationToken::new(),
+        cancellation: octocode_io::cancellation::Cancellation::new(),
         deadline: Instant::now() + timeout,
         response_window: None,
         github_credential: None,
@@ -27,6 +27,7 @@ fn session() -> Session {
             key: "resource".into(),
             metadata: json!({"status":"ready"}),
             local_check: None,
+            shown: None,
             units: vec![Unit {
                 metadata: json!({"id":"s0","kind":"text","target":{"bytes":[0,4],"lines":[1,1]},"context":[]}),
                 state: json!({"target":{"text":"text"}}),
@@ -91,11 +92,53 @@ fn partial_cells_are_held_until_the_complete_section_emits_exactly_once() {
             .map(serde_json::Map::len),
         Some(2)
     );
-    let third = emit(&mut session, &usage, None);
-    assert_eq!(third["resources"]["resource"]["sections"], json!([]));
     assert_eq!(
-        third["resources"]["resource"]["coverage"]["remainingSections"],
+        second["resources"]["resource"]["coverage"]["remainingSections"],
         json!(0)
+    );
+    let third = emit(&mut session, &usage, None);
+    assert!(
+        third["resources"].get("resource").is_none(),
+        "an unchanged resource row is not repeated: {third}"
+    );
+}
+
+#[test]
+fn a_later_batch_repeats_only_resources_with_new_sections_or_coverage() {
+    let mut session = session();
+    let mut idle = session.resources[0].clone();
+    idle.key = "idle".into();
+    idle.units[0].cells = vec![None, None];
+    session.resources.push(idle);
+    let usage = ClassificationUsage::default();
+    let first = emit(&mut session, &usage, None);
+    assert!(first["resources"].get("resource").is_some());
+    assert!(first["resources"].get("idle").is_some());
+    session.resources[0].units[0].cells[1] = Some(answered_cell(json!({"type":"noul","noul":0.1})));
+    let second = emit(&mut session, &usage, None);
+    assert_eq!(
+        second["resources"]["resource"]["sections"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+    assert!(
+        second["resources"].get("idle").is_none(),
+        "a resource with no progress is not resent: {second}"
+    );
+    session.resources[1].units[0].cells[0] = Some(answered_cell(json!({"type":"noul","noul":0.2})));
+    let third = emit(&mut session, &usage, None);
+    assert!(third["resources"].get("resource").is_none());
+    assert_eq!(
+        third["resources"]["idle"]["coverage"]["answered"],
+        json!(1),
+        "partial progress changes coverage and is reported: {third}"
+    );
+    let terminal = terminal(&mut session, "budget ended", usage);
+    assert!(terminal.output["resources"].get("resource").is_none());
+    assert_eq!(
+        terminal.output["resources"]["idle"]["coverage"]["terminalReason"],
+        json!("budget ended")
     );
 }
 
@@ -120,12 +163,12 @@ fn terminal_outcome_preserves_answer_and_explains_every_unassessed_cell() {
 fn assessment_locks_exclude_the_same_plan_but_not_an_independent_plan() {
     let directory = tempfile::tempdir().expect("lock directory");
     let first = Sessions::new(
-        CacheConfig::default(),
+        CacheConfig::derived(),
         Some(directory.path().to_owned()),
         "policy".into(),
     );
     let second = Sessions::new(
-        CacheConfig::default(),
+        CacheConfig::derived(),
         Some(directory.path().to_owned()),
         "policy".into(),
     );
@@ -167,11 +210,9 @@ fn assessment_locks_exclude_the_same_plan_but_not_an_independent_plan() {
 /// lines a failed row publishes.
 #[test]
 fn an_error_preserves_executable_recovery_and_prose_separately() {
-    let lead = crate::response::result::Continuation::related(
-        crate::id::ToolId::StructureSearch,
-        json!({"operation":"tree","path":"src"}),
-    )
-    .build();
+    let tree: octocode_contract_types::StructureSearchQuery =
+        serde_json::from_value(json!({"operation":"tree","path":"src"})).expect("a tree query");
+    let lead = crate::response::result::Continuation::related_query(tree).build();
     let mut error = ClassificationError::with_hints(
         ErrorCode::PathNotFound,
         "Path does not exist: nope.rs",
@@ -238,7 +279,7 @@ fn admission_is_shared_and_never_skips_an_over_budget_unit_then_loops() {
 
 #[test]
 fn retained_work_is_partitioned_by_access_and_terminal_receipts_replay() {
-    let sessions = Sessions::new(CacheConfig::default(), None, "policy".into());
+    let sessions = Sessions::new(CacheConfig::derived(), None, "policy".into());
     let runtime = Runtime {
         sessions: &sessions,
         access: [1; 32],
@@ -262,7 +303,7 @@ fn retained_work_is_partitioned_by_access_and_terminal_receipts_replay() {
             .get(&sessions.key(&[2; 32], &session.id))
             .is_none()
     );
-    let other = Sessions::new(CacheConfig::default(), None, "other-policy".into());
+    let other = Sessions::new(CacheConfig::derived(), None, "other-policy".into());
     assert!(
         other
             .store

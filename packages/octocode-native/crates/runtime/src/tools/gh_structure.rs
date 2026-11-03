@@ -5,8 +5,7 @@ use crate::response::result::ToolData;
 use crate::response::result::query_row;
 use crate::tools::gh_shared::{
     GhFailure, PathRecovery, RepoPath, default_branch, locate_path, missing_path, parent_dir,
-    push_warning_front, repo_key, search_failure, tree_recovery, with_default_branch,
-    with_ref_recovery,
+    push_warning_front, search_failure, tree_recovery, with_default_branch, with_ref_recovery,
 };
 use octocode_contract_types::{
     GhStructureQuery, GhStructureQueryLanguages, GhStructureQueryRefs, GhStructureQueryTree,
@@ -81,7 +80,9 @@ pub(crate) async fn execute(
     home: &Path,
 ) -> Result<ToolData, ProviderError> {
     match query {
-        GhStructureQuery::Tree(query) => execute_tree(provider, query, context, home).await,
+        GhStructureQuery::Tree(query) => {
+            execute_tree(provider, query, context, home, &mut None).await
+        }
         GhStructureQuery::Refs(query) => refs::refs(provider, query, context).await,
         GhStructureQuery::Languages(query) => refs::languages(provider, query, context).await,
     }
@@ -99,7 +100,8 @@ async fn run_tree(
     let context = request.map_err(search_failure)?;
     let listed = listed_at(query).map_err(search_failure)?;
     let query = listed.as_ref().unwrap_or(query);
-    let error = match execute_tree(provider, query, context, home).await {
+    let mut read_commit = None;
+    let error = match execute_tree(provider, query, context, home, &mut read_commit).await {
         Ok(output) => return Ok(output),
         Err(error) => error,
     };
@@ -112,8 +114,12 @@ async fn run_tree(
         provider,
         query.owner.as_str(),
         query.repo.as_str(),
-        requested,
-        error.reason == Some(ProviderErrorReason::PathIsFile) || missing_path(&error, Some(path)),
+        read_commit.filter(|_| {
+            matches!(
+                error.reason,
+                Some(ProviderErrorReason::PathIsFile | ProviderErrorReason::Submodule)
+            ) || missing_path(&error, Some(path))
+        }),
         context,
     )
     .await;
@@ -246,7 +252,7 @@ impl Scope {
         let path = crate::tools::gh_shared::listing_path(query.path.as_deref().unwrap_or(""))?;
         // A name search looks at every level unless the caller bounds it.
         let depth = match (query.max_depth, &filter) {
-            (Some(depth), _) => crate::num::usize_of(depth),
+            (Some(depth), _) => octocode_engine::num::saturating_usize(depth.get()),
             (None, Some(_)) => max_listing_depth(),
             (None, None) => 1,
         };

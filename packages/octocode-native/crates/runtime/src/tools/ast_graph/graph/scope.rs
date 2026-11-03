@@ -45,22 +45,19 @@ impl<'a> Admission<'a> {
         }
     }
 
-    /// Charges one captured file holding `declarations` (`None` when its
-    /// facts never link, so it projects nothing); `scopeTooBroad`, naming
-    /// narrower scopes, once the snapshot can no longer publish.
+    /// Charges one captured file holding `declarations`; `scopeTooBroad`,
+    /// naming narrower scopes, once the snapshot can no longer publish.
     pub(super) fn admit(
         &self,
         source: &super::capture::CapturedSource,
-        declarations: Option<usize>,
+        declarations: usize,
     ) -> Result<(), ToolError> {
         let (bytes, items) = source.admission();
         let mut charged = self.charged.lock().unwrap_or_else(PoisonError::into_inner);
         charged.files += 1;
         charged.bytes = charged.bytes.saturating_add(bytes);
         charged.items = charged.items.saturating_add(items);
-        if let Some(declarations) = declarations {
-            charged.tally.add(Tally::file(declarations));
-        }
+        charged.tally.add(Tally::file(declarations));
         let over = if charged.bytes > self.limits.source_bytes
             || charged.items > self.limits.table_items
         {

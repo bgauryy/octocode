@@ -11,17 +11,22 @@
     "esbuild": "^0.28.2",
     "json-schema-to-typescript": "16.0.0",
     "octocode-mcp-cli": "workspace:*",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zod": "^4.6.7"
   },
   "scripts": {
     "build": "node src/build.ts",
     "clean": "rm -rf dist/ out/",
-    "types": "node src/emit-types.ts",
+    "catalog": "node src/emit-catalog.ts",
+    "types": "yarn catalog && node src/emit-types.ts",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
-    "lint": "node src/emit-types.ts --check && yarn run -T oxlint -c ../../.oxlintrc.json .",
-    "test": "yarn build && node --test --test-concurrency=4 tests/*.test.ts",
+    "lint:own": "node src/emit-catalog.ts --check && node src/emit-types.ts --check",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
+    "test": "node src/emit-catalog.ts --check && yarn build && node --test --test-concurrency=4 tests/*.test.ts",
     "test:nightly": "yarn build && node --test tests/nightly/*.test.ts",
-    "verify": "yarn lint && yarn typecheck && yarn test && node src/release-smoke.ts",
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test && node src/release-smoke.ts",
+    "verify": "yarn verify:own && yarn lint:oxlint",
     "prepack": "yarn build"
   },
   "files": [

@@ -1,5 +1,8 @@
 use super::super::{ContractValidationError, issue, schema_issue, union};
-use super::{ValidationMode, compiled_pattern, pattern_message, validate_with_mode};
+use super::{
+    ValidationMode, compiled_pattern, describe_unreadable_pattern, pattern_message,
+    validate_with_mode,
+};
 use serde_json::Value;
 use url::Url;
 
@@ -47,7 +50,13 @@ pub(super) fn validate_array(
             path.push(index.to_string());
             let result = validate_with_mode(root, items, item, path, mode);
             path.pop();
-            if let Err(error) = result {
+            if let Err(mut error) = result {
+                // An item pattern too long to read falls back to the list's note.
+                if let Some(note) = schema.get("description").and_then(Value::as_str) {
+                    for issue in &mut error.issues {
+                        describe_unreadable_pattern(issue, note);
+                    }
+                }
                 issues.extend(error.issues);
                 // A speculative probe reads only pass/fail.
                 if union::speculative() {

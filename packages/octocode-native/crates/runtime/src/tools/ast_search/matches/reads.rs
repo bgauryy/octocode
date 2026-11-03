@@ -1,7 +1,6 @@
 //! Optional source reads of matched structural locations.
 use super::types::Scope;
-use crate::id::ToolId;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 /// Lines of context around each hit in the `read` lead.
 pub(super) const READ_CONTEXT: u64 = 3;
@@ -51,15 +50,9 @@ pub(super) fn read_top_hits(scope: &Scope, row: &Value) -> Option<Value> {
     if windows.is_empty() || windows.len() > READ_MAX_RANGES {
         return None;
     }
-    let ranges = windows
-        .iter()
-        .map(|(start, end)| json!({"startLine":start,"endLine":end}))
-        .collect::<Vec<_>>();
-    Some(
-        crate::response::result::Continuation::related(
-            ToolId::LocalFetch,
-            json!({"path": file.to_string_lossy(), "ranges": ranges}),
-        )
-        .build(),
-    )
+    let read = crate::tools::source_view::local_fetch_query::ranges_lead(
+        &file.to_string_lossy(),
+        &windows,
+    )?;
+    Some(crate::response::result::Continuation::related_query(read).build())
 }

@@ -31,7 +31,7 @@ fn entry(path: &str, bytes: &[u8]) -> TreeEntry {
 }
 
 #[tokio::test]
-async fn reuse_checks_content_identity_and_never_trusts_same_size_edits() {
+async fn writes_replace_same_size_edits_with_acquired_bytes() {
     let home = tempfile::tempdir().unwrap();
     let mut store = Store::open(&snapshot(home.path()), &context())
         .await
@@ -45,14 +45,13 @@ async fn reuse_checks_content_identity_and_never_trusts_same_size_edits() {
         .record(vec![(path.into(), FileIdentity::of(original))])
         .await
         .unwrap();
-    let entry = entry(path, original);
-    assert!(store.reusable(&entry).await);
+    assert_eq!(std::fs::read(store.root.join(path)).unwrap(), original);
     std::fs::write(store.root.join(path), b"modified").unwrap();
-    assert!(!store.reusable(&entry).await);
+    assert_eq!(std::fs::read(store.root.join(path)).unwrap(), b"modified");
     write_file(home.path(), &store.root, path, original)
         .await
         .unwrap();
-    assert!(store.reusable(&entry).await);
+    assert_eq!(std::fs::read(store.root.join(path)).unwrap(), original);
 }
 
 #[cfg(unix)]
@@ -115,7 +114,18 @@ async fn concurrent_snapshot_writers_keep_every_recorded_file() {
         .await
         .unwrap();
     for name in ["first.ts", "second.ts", "third.ts"] {
-        assert!(store.reusable(&entry(name, name.as_bytes())).await);
+        assert_eq!(
+            std::fs::read(store.root.join(name)).unwrap(),
+            name.as_bytes()
+        );
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(store.root.parent().unwrap().join("abc123.manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            manifest["files"][name],
+            serde_json::to_value(FileIdentity::of(name.as_bytes())).unwrap()
+        );
     }
 }
 
@@ -176,4 +186,41 @@ async fn an_unrecorded_nonempty_snapshot_is_refused_without_deleting_its_files()
         std::fs::read(root.join("foreign.ts")).unwrap(),
         b"unrecorded bytes"
     );
+}
+
+#[tokio::test]
+async fn repeated_materialization_reads_the_provider_again() {
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
+    };
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/octo/demo/contents/source.rs"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/vnd.github.raw")
+                .set_body_bytes(b"source\n"),
+        )
+        .expect(2)
+        .mount(&server)
+        .await;
+    let provider = crate::tools::gh_shared::test_support::one_shot_provider(&server);
+    let home = tempfile::tempdir().unwrap();
+    let snapshot = Snapshot {
+        commit: "1111111111111111111111111111111111111111",
+        ..snapshot(home.path())
+    };
+    let entries = [entry("source.rs", b"source\n")];
+    for _ in 0..2 {
+        let result = super::materialize_tree(&provider, &snapshot, &entries, 0, "", &context())
+            .await
+            .unwrap()
+            .unwrap();
+        let root = result.location["localPath"].as_str().unwrap();
+        assert_eq!(
+            std::fs::read(Path::new(root).join("source.rs")).unwrap(),
+            b"source\n"
+        );
+    }
 }

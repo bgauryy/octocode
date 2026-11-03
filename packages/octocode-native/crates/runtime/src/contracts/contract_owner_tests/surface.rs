@@ -19,11 +19,9 @@ fn key_paths(root: &Value, schema: &Value, at: &str, depth: usize, out: &mut BTr
     if depth > DEPTH {
         return;
     }
-    if let Some(name) = schema["$ref"]
-        .as_str()
-        .and_then(|reference| reference.strip_prefix("#/$defs/"))
-    {
-        key_paths(root, &root["$defs"][name], at, depth, out);
+    let resolved = crate::contracts::resolve_ref(schema, &root["$defs"]);
+    if !std::ptr::eq(schema, resolved) {
+        key_paths(root, resolved, at, depth, out);
     }
     for keyword in ["anyOf", "oneOf", "allOf"] {
         for branch in schema[keyword].as_array().into_iter().flatten() {
@@ -31,11 +29,13 @@ fn key_paths(root: &Value, schema: &Value, at: &str, depth: usize, out: &mut BTr
         }
     }
     for (name, field) in schema["properties"].as_object().into_iter().flatten() {
-        let target = crate::contracts::resolve_ref(field, &root["$defs"]);
         let forbidden = field["not"]
             .as_object()
             .is_some_and(serde_json::Map::is_empty);
-        if forbidden || field["x-cursor"] == true || target["x-cursor"] == true {
+        if forbidden
+            || crate::contracts::schema_facts::schema_keyword(field, &root["$defs"], "x-cursor")
+                == Some(&Value::Bool(true))
+        {
             continue;
         }
         let path = if at.is_empty() {

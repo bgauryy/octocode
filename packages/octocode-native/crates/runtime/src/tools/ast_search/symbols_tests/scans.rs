@@ -44,7 +44,7 @@ fn a_scan_cut_resumes_past_the_former_walk_ceiling() {
 
 /// Writes `source` to `path` last modified an hour ago (`age_secs` more), so
 /// a scan sees it settled and the page memo may serve a repeated page 1.
-fn write_settled(path: &std::path::Path, source: &str, age_secs: u64) {
+pub(super) fn write_settled(path: &std::path::Path, source: &str, age_secs: u64) {
     std::fs::write(path, source).expect("source");
     let modified = std::time::SystemTime::now() - std::time::Duration::from_secs(3600 + age_secs);
     std::fs::File::options()
@@ -71,23 +71,40 @@ fn an_edit_to_a_language_globs_file_is_not_served_from_the_page_memo() {
     assert!(!declares(&after, "zzBefore"), "{after}");
 }
 
-/// A directory outline takes each file's declarations from the one
-/// declarations cache, not a second parse memo: a file outlined in its
-/// directory is cached for every later reader (its own outline included).
+/// A directory outline preserves every declaration from its evaluated file.
 #[test]
-fn a_directory_outline_parses_through_the_declarations_cache() {
+fn a_directory_outline_preserves_the_files_declarations() {
     let root = Fixture::new();
-    let source = "pub fn shared_outline() {}\npub struct Kept;\n";
-    root.write("src/lib.rs", source);
+    root.write(
+        "src/lib.rs",
+        "pub fn shared_outline() {}\npub struct Kept;\n",
+    );
     let out = super::super::test_rows::run(&root.0, json!({"operation":"symbols","path":root.0}))
         .expect("symbols");
     assert_eq!(out["filesScanned"], 1, "{out}");
-    let file = root.0.join("src/lib.rs").canonicalize().expect("canonical");
-    // Residency in the shared, bounded cache is not stable under parallel
-    // tests; that the parse went through it is.
-    assert!(crate::tools::declarations_cache::parsed_through_cache(
-        source,
-        &file.to_string_lossy(),
-        None
-    ));
+    assert!(declares(&out, "shared_outline"), "{out}");
+    assert!(declares(&out, "Kept"), "{out}");
+}
+
+#[test]
+fn a_fresh_directory_outline_reads_content_even_when_metadata_is_unchanged() {
+    let root = Fixture::new();
+    let source = root.0.join("lib.ts");
+    write_settled(&source, "export function before() {}\n", 0);
+    let stamp = std::fs::metadata(&source)
+        .expect("metadata")
+        .modified()
+        .expect("modified");
+    let before = empty_outline(&root.0, json!({}));
+    assert!(declares(&before, "before"), "{before}");
+    std::fs::write(&source, "export function afterx() {}\n").expect("edit same length");
+    std::fs::File::options()
+        .write(true)
+        .open(&source)
+        .expect("open")
+        .set_modified(stamp)
+        .expect("restore stamp");
+    let after = empty_outline(&root.0, json!({}));
+    assert!(declares(&after, "afterx"), "{after}");
+    assert!(!declares(&after, "before"), "{after}");
 }

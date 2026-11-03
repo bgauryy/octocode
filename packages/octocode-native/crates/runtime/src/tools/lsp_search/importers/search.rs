@@ -194,7 +194,7 @@ pub(super) async fn check_imports(
                 let imports = (!stopped())
                     .then(|| {
                         let content = read_checked(&policy, &file)?;
-                        let facts = crate::tools::declarations_cache::graph_facts(&content, &file)?;
+                        let facts = crate::tools::declarations::graph_facts(&content, &file)?;
                         Some(
                             imports_name(&facts, &content, &symbol)
                                 && module.as_deref().is_none_or(|module| {

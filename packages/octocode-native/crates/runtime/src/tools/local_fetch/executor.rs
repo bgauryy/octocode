@@ -13,7 +13,6 @@ pub fn execute_local_fetch(
     cancel: &impl CancellationCheck,
     window: Option<usize>,
     selection: Option<&crate::tools::selection::Runtime>,
-    views: &std::sync::Arc<ViewCache>,
 ) -> LocalFetchResult {
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(
@@ -60,7 +59,7 @@ pub fn execute_local_fetch(
                 meta.len()
             ),
         );
-        result.terminal_limit(PartialReason::SourceSizeLimit);
+        result.terminal_limit(PartialReason::FileTooLarge);
         result.hints = vec!["Convert a copy to UTF-8 or split the source into smaller text files; line ranges do not lift this decoding limit.".into()];
         return result;
     }
@@ -93,13 +92,22 @@ pub fn execute_local_fetch(
     {
         return refuse_binary(q, display_path);
     }
+    // The first page reads under the name its row and cursor carry, so every
+    // page of a walk is one read whatever path the caller passed.
+    let mut named_query = q.clone();
+    if let Err(error) = local_fetch_query::set_path(&mut named_query, &validated.named) {
+        return LocalFetchResult::error(
+            local_fetch_query::path(q).to_owned(),
+            ErrorCode::ExecutionFailed,
+            error.to_string(),
+        );
+    }
     let mut result = process_fetched_content_selected(
-        q,
+        &named_query,
         &bytes,
         path,
         display_path,
         &SourceFacts {
-            views: views.clone(),
             modified: meta.modified().ok().and_then(system_time_iso),
             window,
             beside: 0,

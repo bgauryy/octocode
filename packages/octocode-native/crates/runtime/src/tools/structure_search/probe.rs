@@ -1,11 +1,12 @@
 //! Probes of an empty listing: the skipped paths and relaxed name filters
 //! that would list something, within one shared probe budget.
+use super::Walking;
 use super::listing::Listing;
 use super::rows::EntryKind;
 use super::walked::Walked;
-use super::{Walking, continuation};
-use crate::response::result::ToolError;
+use crate::response::result::{Continuation, ToolError};
 use crate::tools::empty_walk::{Cause, Hits, Tagged, Walk, diagnose_shown};
+use octocode_contract_types::StructureSearchQuery;
 use serde_json::{Value, json};
 
 use crate::contracts::listing_roles::ListingRole;
@@ -269,15 +270,12 @@ pub(super) fn probe_listing<Q: Listing>(
 /// it (`next.broadenSearch`) and say how many it lists, so a name miss gets
 /// a runnable next step, never prose alone. `query` names every default the
 /// relaxed listing must keep (the walked depth).
-pub(super) fn broaden_empty<Q>(
+pub(super) fn broaden_empty<Q: Listing>(
     out: &mut Value,
     query: &Q,
     root: &std::path::Path,
     walk: impl FnOnce(&Q, usize, Walking<'_>) -> Result<Walked, ToolError>,
-) -> Result<(), ToolError>
-where
-    Q: serde::Serialize + serde::de::DeserializeOwned,
-{
+) -> Result<(), ToolError> {
     if out["status"] != "empty" || out["calls"].get("includeSkipped").is_some() {
         return Ok(());
     }
@@ -298,10 +296,14 @@ where
     for field in &dropped {
         changes[*field] = Value::Null;
     }
-    let lead = continuation(query, changes, false);
-    let Ok(relaxed) = serde_json::from_value::<Q>(lead["input"]["queries"][0].clone()) else {
-        return Ok(());
-    };
+    let relaxed = crate::response::result::edited_query(query, &changes).map_err(|error| {
+        ToolError::new(
+            ErrorCode::ExecutionFailed,
+            format!("the broadened listing is no valid query: {error}"),
+        )
+    })?;
+    let named: StructureSearchQuery = relaxed.clone().into();
+    let lead = Continuation::related_query(named).build();
     let bound = ProbeBound::new(crate::tools::empty_walk::probe_budget());
     let found = walk(&relaxed, PROBE_HITS, Walking::Probe(&bound))?;
     let count = found.rows.iter().filter(|row| row.source != root).count();

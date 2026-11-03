@@ -3,19 +3,18 @@
 use super::*;
 
 /// The pages and widened scans from `query` (`walk_pages`): each page offers
-/// at most one of `next.nextPage` and `next.continueWalk`, and the page that
-/// offers neither ends the listing without a terminal limit. Returns every
+/// at most one `next.nextPage`, and the page that
+/// offers none ends the listing without a terminal limit. Returns every
 /// listed entry and the calls made.
 fn walk_chain(root: &std::path::Path, query: Value) -> (Vec<Value>, usize) {
     let pages = walk_pages(root, query);
     for out in &pages {
         let page = out["next"].get("nextPage");
-        let expand = out["next"].get("continueWalk");
         assert!(
-            page.is_none() || expand.is_none(),
+            out["next"].as_object().is_none_or(|next| next.len() <= 1),
             "one continuation per page: {out}"
         );
-        if page.is_none() && expand.is_none() {
+        if page.is_none() {
             assert!(out.get("terminalLimit").is_none(), "{out}");
         }
     }
@@ -28,7 +27,7 @@ fn listed_paths(rows: &[Value]) -> Vec<String> {
         .collect()
 }
 
-/// `next.continueWalk` resumes after the rows its window listed, so the
+/// `next.nextPage` resumes after the rows its window listed, so the
 /// chain of pages and widened scans lists every entry exactly once (each
 /// window groups its own rows by directory), for `files` under each sort and
 /// for `tree`.
@@ -119,15 +118,15 @@ fn expand_scan_rides_the_last_page_of_its_window() {
     let mut shown = Vec::new();
     loop {
         shown.extend(listed_paths(&listed(&page)));
-        if let Some(next) = page["next"].get("nextPage") {
-            assert!(page["next"].get("continueWalk").is_none(), "{page}");
-            page = run_budget(&root.0, next["input"]["queries"][0].clone(), 1).expect("page");
-        } else {
+        let next = &page["next"]["nextPage"]["input"]["queries"][0];
+        if next.get("scanOffset").is_some() {
             break;
         }
+        assert!(next.get("snapshot").is_some(), "same-window page: {page}");
+        page = run_budget(&root.0, next.clone(), 1).expect("page");
     }
     assert_eq!(shown.len(), 4);
-    let expand = &page["next"]["continueWalk"]["input"]["queries"][0];
+    let expand = &page["next"]["nextPage"]["input"]["queries"][0];
     assert!(expand.get("limit").is_none(), "{page}");
     assert_eq!(expand["scanOffset"], 4, "{page}");
     let resumed = run_budget(&root.0, expand.clone(), 1).expect("resumed");

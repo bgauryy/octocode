@@ -17,14 +17,7 @@ impl ToolRuntime {
     /// Clones, published graphs, credentials and installed servers are outputs.
     pub async fn clear_caches(&self) -> Result<CacheClearResult, RuntimeError> {
         self.close().await;
-        let _io = crate::cache::async_io::drain()
-            .await
-            .map_err(|error| RuntimeError::new(ErrorCode::ExecutionFailed, error.to_string()))?;
-        if let Some(Ok(services)) = self.github_services.get() {
-            services.clear_memory();
-        }
-        octocode_io::memo::clear_process_memos();
-        octocode_engine::fact_scan::clear_cache();
+        crate::cache::MEMORY.clear();
         let home = self.config.home.clone();
         let workspace = self.graph_workspace(None);
         let removed = tokio::task::spawn_blocking(move || clear_disk(&home, &workspace))
@@ -43,6 +36,11 @@ fn clear_disk(home: &Path, workspace: &Path) -> std::io::Result<Vec<PathBuf>> {
     let directories: Vec<_> = crate::cache::Directory::ALL
         .into_iter()
         .map(|dir| dir.path(home))
+        // Retired result stores have no readers or writers. Explicit clearing
+        // also removes artifacts left by an older installed binary.
+        .chain(
+            ["response", "outline", "artifact", "judgment"].map(|name| home.join("tmp").join(name)),
+        )
         .chain([
             crate::tools::gh_structure::materialize::materialize_root(home),
             crate::tools::source_capture::url::capture_root(home),
@@ -91,6 +89,10 @@ mod tests {
         let cache_dirs: Vec<_> = crate::cache::Directory::ALL
             .into_iter()
             .map(|kind| kind.path(&home))
+            .chain(
+                ["response", "outline", "artifact", "judgment"]
+                    .map(|name| home.join("tmp").join(name)),
+            )
             .chain([
                 crate::tools::gh_structure::materialize::materialize_root(&home),
                 crate::tools::source_capture::url::capture_root(&home),

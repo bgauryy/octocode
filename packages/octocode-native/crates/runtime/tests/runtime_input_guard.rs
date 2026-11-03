@@ -136,7 +136,8 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
         .await
         .expect("an oversized row is a row error, not a call failure");
     assert_eq!(mcp["isError"], false, "{mcp}");
-    let rows = mcp["structuredContent"]["results"].as_array().unwrap();
+    let payload = crate::support::mcp_payload(&mcp);
+    let rows = payload["results"].as_array().unwrap();
     assert_eq!(rows[0]["status"], "error");
     assert_eq!(rows[0]["data"]["errorCode"], "invalidInput");
     let message = rows[0]["data"]["error"].as_str().unwrap_or_default();

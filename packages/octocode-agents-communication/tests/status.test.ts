@@ -39,7 +39,7 @@ test('MCP-only worker can declare a blocker and profile discovery exposes precis
  const {a,b,flags,call}=fixture(t);
  for(const profile of ['messaging','review','editing']){
   const names=catalog.selectedTools(profile).map((tool: JsonRecord)=>tool.name);
-  const frames=[{id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'status-test',version:'1'}}},{id:2,method:'tools/list'}, {id:3,method:'tools/call',params:{name:'set_status',arguments:{status:'blocked',task:'Need review evidence'}}},{id:4,method:'tools/call',params:{name:'set_status',arguments:{status:'available',id:b}}}].map((x: JsonRecord)=>JSON.stringify({jsonrpc:'2.0',...x})).join('\n')+'\n';
+  const frames=[{id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'status-test',version:'1'}}},{id:2,method:'tools/list'}, {id:3,method:'tools/call',params:{name:'agents',arguments:{type:'status',input:{status:'blocked',task:'Need review evidence'}}}},{id:4,method:'tools/call',params:{name:'agents',arguments:{type:'status',input:{status:'available',id:b}}}}].map((x: JsonRecord)=>JSON.stringify({jsonrpc:'2.0',...x})).join('\n')+'\n';
   const child=spawnSync(binary,['mcp','--session',a,'--tools',profile,...flags],{input:frames,encoding:'utf8',timeout:10000});
   assert.equal(child.status,0,child.stderr);
   const replies=child.stdout.trim().split('\n').map((line): JsonRecord=>JSON.parse(line));

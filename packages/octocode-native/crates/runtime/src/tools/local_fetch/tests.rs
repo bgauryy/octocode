@@ -72,15 +72,7 @@ pub(super) fn fetch_with(
     paths: &impl PathAccess,
     scan: &impl crate::security::scan::ContentScan,
 ) -> LocalFetchResult {
-    execute_local_fetch(
-        req,
-        paths,
-        scan,
-        &NeverCancel,
-        None,
-        None,
-        &Default::default(),
-    )
+    execute_local_fetch(req, paths, scan, &NeverCancel, None, None)
 }
 
 pub(super) fn q(path: &Path) -> LocalFetchQuery {
@@ -141,6 +133,7 @@ const PY_TWO: &str = "import os\n\ndef first(a):\n    x = 1\n    return a\n\n\nd
 
 mod classified;
 mod compact_literals;
+mod continuations;
 mod declarations;
 mod limit;
 mod line_walks;
@@ -159,11 +152,9 @@ mod symbols;
 mod views;
 mod wire;
 
-/// A cold symbols view parses its source once: the outline and the
-/// declarations its spans read come from one parse, which seeds the shared
-/// declarations cache (a later reader finds it there).
+/// One extracted document supplies the outline and its declaration spans.
 #[test]
-fn a_cold_symbols_view_seeds_the_declarations_cache_from_its_own_parse() {
+fn a_cold_symbols_view_seeds_the_declarations_from_its_own_parse() {
     let dir = tempfile::tempdir().expect("dir");
     let file = dir.path().join(format!("seeded_{}.rs", std::process::id()));
     let source = "pub fn first(value: usize) -> usize {\n    let doubled = value * 2;\n    doubled + 1\n}\n\npub struct Point;\n\nimpl Point {\n    pub fn origin() -> Self {\n        Point\n    }\n}\n";
@@ -171,10 +162,8 @@ fn a_cold_symbols_view_seeds_the_declarations_cache_from_its_own_parse() {
     let query = qj(&file, serde_json::json!({"view": "symbols"}));
     let out = fetch(&query, &workspace_policy(dir.path()));
     assert!(out.error.is_none(), "{out:?}");
-    let path = file.to_string_lossy();
-    // The shared cache is bounded across parallel tests: assert the parse
-    // went through it, not that it is still resident.
-    assert!(crate::tools::declarations_cache::parsed_through_cache(
-        source, &path, None
-    ));
+    let content = out.content.as_deref().expect("outline");
+    assert!(content.contains("1-4\tpub fn first"), "{content}");
+    assert!(content.contains("9-11\t    pub fn origin"), "{content}");
+    assert!(content.contains("pub struct Point"), "{content}");
 }

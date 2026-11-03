@@ -228,6 +228,7 @@ fn listed_file_chars_match_the_rendered_entry() {
                 let counted = matches!(view, View::CountMatches | View::CountLines);
                 let rendered = SearchFile {
                     path: file.path.clone(),
+                    declarations: Vec::new(),
                     matches: None,
                     match_keys: Vec::new(),
                     total_occurrences: (view == View::CountMatches).then_some(count),

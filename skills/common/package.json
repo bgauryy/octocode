@@ -6,7 +6,9 @@
   "description": "Canonical shared skill report renderers, templates, and output guidance.",
   "scripts": {
     "build": "node build.mjs",
-    "lint": "node build.mjs --check && cd .. && yarn run -T oxlint -c ../.oxlintrc.json .",
+    "lint:own": "node build.mjs --check",
+    "lint:oxlint": "cd .. && yarn run -T oxlint -c ../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
     "test": "node --test tests/*.test.mjs && node scripts/render-report.mjs --self-test"
   },
   "devDependencies": {

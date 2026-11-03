@@ -38,8 +38,8 @@ test('Pi keeps optional fields and projects top-level unions for provider functi
 });
 test('Pi removes only top-level composition; the shared runtime retains exact validation',()=>{
  const {host,tools}=fakePi();
- const inputSchema={type:'object',properties:{to:{type:'string'},topic:{type:'string'},body:{type:'string'}},
-  required:['body'],additionalProperties:false,oneOf:[{required:['to']},{required:['topic']}],
+ const inputSchema={type:'object',properties:{to:{type:'string'},topic:{type:'string'},parts:{type:'array',items:{type:'object'}}},
+  required:['parts'],additionalProperties:false,oneOf:[{required:['to']},{required:['topic']}],
   allOf:[{not:{required:['to','topic']}}]};
  registerBoundTools(host,{tools:[{name:'send_message',description:'Send',inputSchema}]});
  const [registered]=tools;
@@ -58,7 +58,7 @@ function senderTool(t: TestContext, executable=binary) {
  const cli=jsonCall(binary,workspace,database);
  const sender=cli('join',{name:'sender',vendor:'pi'}).id,recipient=cli('join',{name:'recipient',vendor:'raw'}).id;
  const {host,tools}=fakePi();
- const definition=JSON.parse(execFileSync(binary,['schema','send_message'],{encoding:'utf8'}));
+ const definition=JSON.parse(execFileSync(binary,['schema','messages'],{encoding:'utf8'}));
  registerBoundTools(host,{binary:executable,workspace,database,session:sender,tools:[definition]});
  const [tool]=tools;
  assert.ok(tool,'the send_message tool is registered');
@@ -67,7 +67,7 @@ function senderTool(t: TestContext, executable=binary) {
 
 test('Pi validation errors retain CLI evidence and idempotency key without duplicating command flags',async t=>{
  const f=senderTool(t),key=`pi:${createHash('sha256').update('invalid-send').digest('hex')}`;
- await assert.rejects(f.tool.execute('invalid-send',{to:f.recipient,body:'Review',reasoning:''}),(error: unknown)=>{assert.ok(error instanceof Error);
+ await assert.rejects(f.tool.execute('invalid-send',{type:'send',input:{to:f.recipient,parts:[{text:'Review'}],reasoning:''}}),(error: unknown)=>{assert.ok(error instanceof Error);
   assert.match(error.message,/reasoning/);assert.ok(error.message.includes(key));
   assert.equal(error.message.includes('--workspace'),false);assert.equal(error.message.includes('--database'),false);
   return true;
@@ -84,12 +84,12 @@ const marker=${JSON.stringify(join(directory,'stalled'))};
 if(result.status===0&&!existsSync(marker)){writeFileSync(marker,'');await new Promise(resolve=>setTimeout(resolve,30000));}
 process.exit(result.status);
 `);
- const f=senderTool(t,shim),input={to:f.recipient,body:'Review the API',reasoning:'Verify ambiguous send recovery'};
+ const f=senderTool(t,shim),input={type:'send',input:{to:f.recipient,parts:[{text:'Review the API'}],reasoning:'Verify ambiguous send recovery'}};
  const key=`pi:${createHash('sha256').update('ambiguous-send').digest('hex')}`;
  await assert.rejects(f.tool.execute('ambiguous-send',input),(error: unknown)=>{assert.ok(error instanceof Error);
   assert.ok(error.message.includes(key));assert.match(error.message,/unknown/i);return true;
  });
  const original=f.cli('inbox',{},f.recipient).items[0];assert.equal(f.cli('inbox',{},f.recipient).items.length,1);
- const retry=await f.tool.execute('new-model-call',{...input,key});assert.equal(retry.details.id,original.id);
+ const retry=await f.tool.execute('new-model-call',{...input,input:{...input.input,key}});assert.equal(retry.details.id,original.id);
  assert.equal(f.cli('inbox',{},f.recipient).items.length,1);
 });

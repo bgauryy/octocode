@@ -4,47 +4,17 @@ description: "Write, revise or review READMEs, guides, tutorials, runbooks, ADRs
 ---
 
 # Octocode Documentation
-Write or review the requested document with verified facts and a useful next step for its reader.
 
-```mermaid
-flowchart LR
-  A[Read request and existing page] --> B{Facts uncertain?}
-  B -- yes --> C[Check sources]
-  B -- no --> D[Write or review]
-  C --> D --> E[Check claims, examples and links]
-  E -- gap --> C
-  E -- ready --> F[Deliver; name unchecked items]
-```
-
-## Workflow
-
-1. Read the requested page, nearby conventions and relevant sources. Infer the reader and goal; ask only when missing information changes the content or destination. A named document authorizes editing it.
-2. Verify changed claims about commands, paths, APIs, settings and behavior against code, contracts and tests. For wording-only edits, preserve meaning without a broad investigation. If sources disagree, resolve from evidence or state the discrepancy.
-3. Write at the owning path; return findings for a review. Lead with the answer, put conditions beside actions, and arrange steps in execution order. Match the reader's task; no mode labels or page-type classification is required.
-4. Use short paragraphs, lists for steps, tables for comparisons, and diagrams only when they clarify relationships. Keep each fact in its owning page and link to it. Choose Mermaid by the question using the [shared format chooser](references/report-output.md#choose-the-format); explain its takeaway and draw only evidenced relationships.
-5. Check changed facts, commands, examples and links; run the project's documentation check. Correct failures, then report what changed and what remains unverified. Never imply an example ran when it was only read.
+Read the requested page and nearby conventions to identify the reader, their next action and the destination. A named document authorizes editing there. For a review, return findings. Ask only if missing information changes the content or destination.
 
 ## Writing rules
 
-- Follow the user, then project style, local convention and this skill. Preserve verified meaning.
-- Use concrete verbs, consistent terms and descriptive links. Keep prerequisites before steps and expected results beside examples.
-- Use the smallest document that serves the reader; split only when it improves navigation or ownership. Do not force a taxonomy or a fixed section template onto shipped docs.
-- Link stable source paths; use line anchors for review findings. Explain behavior without copying implementation. Omit unsupported claims or name their uncertainty and impact.
+Follow the user, then project style, local convention and this skill. Preserve meaning in wording-only edits. Verify changed commands, paths, APIs, settings and behavior against their owning code, contracts or tests. Resolve conflicting sources with evidence or state the discrepancy and its impact.
 
-## Resources (load only as needed)
+Lead with the answer. Use concrete verbs and consistent terms. Put prerequisites before ordered steps, conditions beside actions and expected results beside examples. Give each fact one owning page and a descriptive link. Split pages only to improve navigation or ownership. Use stable paths for durable docs and line anchors for review findings.
 
-| When | Read | Why |
-|---|---|---|
-| Repository evidence needs Octocode | [MCP/CLI guide](references/octocode-usage.md) | Search, exact reads, recovery |
-| Evidence spans files, or writing an ADR or agent instructions | [Write and verify](references/write.md) | Source checks and specialized conventions |
-| Detailed wording or style review | [Style guide](references/style-guide.md) | Editorial rules and optional word lookup |
-| Delivering or saving the result | [output.md](output.md) | Response and saved-report contract |
-| Rendering a saved report | [render-report.mjs](scripts/render-report.mjs) | Shared Markdown viewer and catalog |
+Use the [writing and verification guide](references/write.md) for cross-file evidence, APIs, settled ADRs and agent instruction files. The [style guide](references/style-guide.md) covers editorial review and word lookup. For comparisons or diagrams, use the [format chooser](references/report-output.md#choose-the-format). Draw evidenced relationships and explain their significance.
 
-## Related skills
+Check changed facts, examples, commands and links. Run the project's documentation check, correct failures and distinguish examples run from examples inspected. Deliver the document in its own format or a [review with evidence and unverified items](output.md). Use the [renderer](scripts/render-report.mjs) for saved reports.
 
-Use `octocode-research` for unresolved code evidence, `octocode-rfc-generator` for an open design decision, `octocode-agentic-prompts` when wording controls agent behavior, and `octocode-skills` for skill packaging. Use [workflow composition](../octocode-workflows/references/composition.md) only when coordinating multiple actors.
-
-## Output
-
-Follow [output.md](output.md); shipped documents keep their own format. Report BLUF with evidence and verification gaps.
+Use the [MCP/CLI guide](references/octocode-usage.md) and `octocode-research` for unresolved code claims, `octocode-rfc-generator` for open design decisions, `octocode-agentic-prompts` for behavioral wording and `octocode-skills` for packaging. For multiple actors, use [workflow composition](../octocode-workflows/references/composition.md).

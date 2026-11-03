@@ -21,9 +21,6 @@ pub(super) fn answered(
             "output_tokens": judged.output_tokens,
         },
     });
-    if judged.replayed {
-        out["replayed"] = json!(true);
-    }
     if let Some(assets) = assets {
         out["assets"] = assets;
     }

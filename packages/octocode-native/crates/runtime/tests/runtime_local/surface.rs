@@ -82,7 +82,8 @@ async fn cli_ignores_discovery_filters_but_mcp_on_cli_host_enforces_them() {
             .await
             .expect("MCP response");
         assert_eq!(
-            refused["structuredContent"]["errorCode"], "toolUnavailable",
+            crate::support::mcp_payload(&refused)["errorCode"],
+            "toolUnavailable",
             "{refused}"
         );
         runtime.close().await;
@@ -131,7 +132,8 @@ async fn host_options_environment_controls_embedded_tool_availability() {
         .await
         .expect("MCP answers a refused call as a tool error");
     assert_eq!(
-        error["structuredContent"]["errorCode"], "toolUnavailable",
+        crate::support::mcp_payload(&error)["errorCode"],
+        "toolUnavailable",
         "ghCloneRepo requires its own opt-in: {error}"
     );
     runtime.close().await;
@@ -241,21 +243,14 @@ async fn graph_mcp_gate_covers_discovery_calls_and_cli_host_embedding() {
                     )
                     .await
                     .expect("MCP response");
+                let payload = crate::support::mcp_payload(&result);
                 if beta == "false" {
-                    assert_eq!(
-                        result["structuredContent"]["errorCode"], "toolUnavailable",
-                        "{result}"
-                    );
-                    assert!(
-                        result["structuredContent"]
-                            .to_string()
-                            .contains("OCTOCODE_BETA"),
-                        "{result}"
-                    );
+                    assert_eq!(payload["errorCode"], "toolUnavailable", "{result}");
+                    assert!(payload.to_string().contains("OCTOCODE_BETA"), "{result}");
                     assert!(!workspace.workspace.join(".octocode/graph").exists());
                 } else {
                     assert_ne!(result["isError"], true, "{result}");
-                    let data = &result["structuredContent"]["results"][0]["data"];
+                    let data = &payload["results"][0]["data"];
                     assert!(data.get("errorCode").is_none(), "{result}");
                     assert_eq!(data["counts"]["nodesByKind"]["symbol"], 1, "{result}");
                 }

@@ -1,11 +1,11 @@
 use super::*;
+use octocode_io::cancellation::Cancellation;
 use serde_json::json;
 use std::time::{Duration, Instant};
-use tokio_util::sync::CancellationToken;
 
 fn context() -> ExecutionContext {
     ExecutionContext {
-        cancellation: CancellationToken::new(),
+        cancellation: Cancellation::new(),
         deadline: Instant::now() + Duration::from_secs(30),
         response_window: None,
         github_credential: None,

@@ -17,7 +17,7 @@ pub(crate) use validate::levenshtein;
 use crate::id::ToolId;
 pub(crate) use schema_facts::{
     child_schemas, item_schemas, property_schemas, query_declares, query_schema_max,
-    query_schema_number, query_schema_value, resolve_ref,
+    query_schema_number, query_schema_value, resolve_ref, schema_keyword,
 };
 pub(crate) use validate::validate_output_in_place;
 pub use validate::{
@@ -291,6 +291,15 @@ pub fn cli_tool_help(name: &str) -> Option<&'static str> {
         .iter()
         .find(|(tool, _)| *tool == name)
         .map(|(_, help)| *help)
+}
+
+/// When to use the tool `name`: the first sentence of its `<when>` text.
+#[must_use]
+pub fn cli_tool_trigger(name: &str) -> Option<&'static str> {
+    generated::CLI_TOOL_TRIGGERS
+        .iter()
+        .find(|(tool, _)| *tool == name)
+        .map(|(_, when)| *when)
 }
 
 /// Provenance written by `@octocodeai/config`: core package version, contract

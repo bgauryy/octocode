@@ -1,11 +1,12 @@
 //! The pull requests that close an issue (`closedBy`) and the fix read
 //! they lead to.
-use crate::id::ToolId;
+use crate::response::result::wire_query;
 use crate::response::result::{Continuation, remove_nulls};
 use crate::tools::gh_get_history_item::HistoryItemRequest;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::util::str_at;
 use crate::tools::gh_shared::ensure_calls;
+use octocode_contract_types::{GhGetHistoryItemQuery, GhSearchHistoryQuery};
 use octocode_github::{GitHubTransport, RequestContext};
 use serde_json::{Value, json};
 
@@ -113,11 +114,17 @@ async fn page_of(
         .filter(Value::is_object)
 }
 
+/// The linked pull requests as `closedBy` rows, merged first. A node whose
+/// number is not a valid one (GitHub numbers start at 1) names no pull
+/// request: it yields no row and no lead.
 fn map_closing_pull_requests(nodes: &[Value]) -> Vec<ClosingPr> {
     let mut prs = nodes
         .iter()
         .filter_map(|node| {
-            let number = node.get("number").and_then(Value::as_u64)?;
+            let number = node
+                .get("number")
+                .and_then(Value::as_u64)
+                .filter(|&n| n >= 1)?;
             let mut row = json!({
                 "number": number,
                 "state": str_at(node, "/state").unwrap_or("closed").to_ascii_lowercase(),
@@ -152,25 +159,29 @@ pub(super) fn attach_fix_pr(
         // Files the caller's goal names: their patches are the evidence, and
         // the filter rides the copied query, so the narrowing is visible.
         Some(pr) => {
-            let read = json!({
+            let Some(read) = wire_query::<GhGetHistoryItemQuery>(json!({
                 "operation":"pullRequest","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),
                 "number":pr.row["number"],
-                "sections": if pr.small { json!(["patches"]) } else { json!(["body", "files"]) }});
-            (
-                "readPullRequest",
-                Continuation::related(ToolId::GhGetHistoryItem, read).build(),
-            )
+                "sections": if pr.small { json!(["patches"]) } else { json!(["body", "files"]) }}))
+            else {
+                return;
+            };
+            ("readPullRequest", Continuation::related_query(read).build())
         }
-        None if closed && closed_by.is_none() => (
-            "findPullRequest",
-            Continuation::related(
-                ToolId::GhSearchHistory,
+        None if closed && closed_by.is_none() => {
+            let Some(search) = wire_query::<GhSearchHistoryQuery>(
                 json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),
                     "keywords":[gh_get_history_item_query::number(query).unwrap_or_default().to_string()]}),
+            ) else {
+                return;
+            };
+            (
+                "findPullRequest",
+                Continuation::related_query(search).build(),
             )
-            .build(),
-        ),
-        None => return};
+        }
+        None => return,
+    };
     ensure_calls(out);
     // Related fix evidence precedes optional discussion exploration.
     if let Some(leads) = out["calls"].as_object_mut() {

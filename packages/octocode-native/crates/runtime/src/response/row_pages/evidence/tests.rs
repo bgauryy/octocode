@@ -38,7 +38,7 @@ fn origin(index: usize, shared_source: bool) -> Value {
 
 fn indexed(count: usize, shared_source: bool) -> Catalog {
     let mut row = json!({"data":{"sourceEvidence": descriptors(count, shared_source)}});
-    Catalog::take(&mut row, &CancellationToken::new())
+    Catalog::take(&mut row, &Cancellation::new())
         .unwrap()
         .unwrap()
 }
@@ -50,10 +50,10 @@ fn one_hundred_independent_units_select_only_their_closures() {
         let set = catalog
             .dependencies(
                 &json!({"sourceOrigin":origin(index, false)}),
-                &CancellationToken::new(),
+                &Cancellation::new(),
             )
             .unwrap();
-        let selected = catalog.selected(&set, &CancellationToken::new()).unwrap();
+        let selected = catalog.selected(&set, &Cancellation::new()).unwrap();
         for name in NAMES {
             assert_eq!(selected[name].as_array().unwrap().len(), 1);
         }
@@ -62,7 +62,7 @@ fn one_hundred_independent_units_select_only_their_closures() {
         assert_eq!(selected["snapshots"][0]["id"], format!("s{index}"));
         assert_eq!(
             catalog.chars(&set).unwrap(),
-            size(&selected, &CancellationToken::new()).unwrap()
+            size(&selected, &Cancellation::new()).unwrap()
         );
     }
 }
@@ -74,31 +74,29 @@ fn shared_sources_are_counted_once_and_merges_price_exactly() {
     let mut charged = 0;
     for index in 0..100 {
         let set = catalog
-            .dependencies(&origin(index, true), &CancellationToken::new())
+            .dependencies(&origin(index, true), &Cancellation::new())
             .unwrap();
-        let candidate_delta = catalog
-            .delta(&union, &set, &CancellationToken::new())
-            .unwrap();
+        let candidate_delta = catalog.delta(&union, &set, &Cancellation::new()).unwrap();
         assert_eq!(
             catalog
-                .merge_delta(&mut union, &set, &CancellationToken::new())
+                .merge_delta(&mut union, &set, &Cancellation::new())
                 .unwrap(),
             candidate_delta
         );
         charged += candidate_delta;
         assert_eq!(
             catalog
-                .merge_delta(&mut union, &set, &CancellationToken::new())
+                .merge_delta(&mut union, &set, &Cancellation::new())
                 .unwrap(),
             0
         );
-        let selected = catalog.selected(&union, &CancellationToken::new()).unwrap();
+        let selected = catalog.selected(&union, &Cancellation::new()).unwrap();
         assert_eq!(selected["snapshots"].as_array().unwrap().len(), 1);
         assert_eq!(selected["units"].as_array().unwrap().len(), index + 1);
-        assert_eq!(charged, size(&selected, &CancellationToken::new()).unwrap());
+        assert_eq!(charged, size(&selected, &Cancellation::new()).unwrap());
         assert_eq!(catalog.chars(&union).unwrap(), charged);
     }
-    let selected = catalog.selected(&union, &CancellationToken::new()).unwrap();
+    let selected = catalog.selected(&union, &Cancellation::new()).unwrap();
     assert_eq!(selected["units"][0]["id"], "u99");
     assert_eq!(selected["units"][99]["id"], "u0");
     assert_eq!(selected["representations"][0]["id"], "r0");
@@ -117,17 +115,15 @@ fn every_span_attachment_is_walked_without_changing_origins() {
     for nested in [false, true] {
         let body = json!({"sourceEvidence":descriptors(100, true), "items":[spans.clone()]});
         let mut row = if nested { json!({"data":body}) } else { body };
-        let catalog = Catalog::take(&mut row, &CancellationToken::new())
+        let catalog = Catalog::take(&mut row, &Cancellation::new())
             .unwrap()
             .unwrap();
         assert!(row.get("sourceEvidence").is_none());
         assert!(row.pointer("/data/sourceEvidence").is_none());
-        let set = catalog
-            .dependencies(&row, &CancellationToken::new())
-            .unwrap();
+        let set = catalog.dependencies(&row, &Cancellation::new()).unwrap();
         assert_eq!(set.indices[UNITS].len(), 7);
         catalog
-            .attach(&mut row, &set, &CancellationToken::new())
+            .attach(&mut row, &set, &Cancellation::new())
             .unwrap();
         let body = if nested { &row["data"] } else { &row };
         assert_eq!(body["items"][0], spans);
@@ -145,11 +141,11 @@ fn all_dangling_reference_levels_fail_explicitly() {
     duplicate["units"][0]["id"] = json!("u0");
     for value in [bad_unit, bad_representation, duplicate] {
         let mut row = json!({"sourceEvidence":value});
-        assert!(Catalog::take(&mut row, &CancellationToken::new()).is_err());
+        assert!(Catalog::take(&mut row, &Cancellation::new()).is_err());
     }
     let catalog = indexed(2, false);
     assert!(matches!(
-        catalog.dependencies(&origin(2, false), &CancellationToken::new()),
+        catalog.dependencies(&origin(2, false), &Cancellation::new()),
         Err(DependencyError::UnknownId {
             collection: "units",
             ..
@@ -158,7 +154,7 @@ fn all_dangling_reference_levels_fail_explicitly() {
     let mut unknown_source = origin(0, false);
     unknown_source["segments"][0]["branches"][0]["origin"]["sourceId"] = json!("missing");
     assert!(matches!(
-        catalog.dependencies(&unknown_source, &CancellationToken::new()),
+        catalog.dependencies(&unknown_source, &Cancellation::new()),
         Err(DependencyError::UnknownId {
             collection: "snapshots",
             ..
@@ -166,14 +162,14 @@ fn all_dangling_reference_levels_fail_explicitly() {
     ));
     unknown_source["segments"][0]["branches"][0]["origin"]["sourceId"] = json!("s1");
     assert!(matches!(
-        catalog.dependencies(&unknown_source, &CancellationToken::new()),
+        catalog.dependencies(&unknown_source, &Cancellation::new()),
         Err(DependencyError::Invalid(
             "origin source is outside representation closure"
         ))
     ));
     let mut row = json!({"sourceEvidence":descriptors(2, false), "sourceOrigin":origin(2, false)});
     assert!(
-        Catalog::take(&mut row, &CancellationToken::new()).is_err(),
+        Catalog::take(&mut row, &Cancellation::new()).is_err(),
         "constructor checks emitted origins too"
     );
 }
@@ -190,9 +186,7 @@ fn mixed_branch_contributors_preserve_alternatives_and_validate_sources() {
         ]})
     ]);
     let original = mixed.clone();
-    let set = catalog
-        .dependencies(&mixed, &CancellationToken::new())
-        .unwrap();
+    let set = catalog.dependencies(&mixed, &Cancellation::new()).unwrap();
     assert_eq!(
         set.indices[SNAPSHOTS].iter().copied().collect::<Vec<_>>(),
         [0]
@@ -200,7 +194,7 @@ fn mixed_branch_contributors_preserve_alternatives_and_validate_sources() {
     assert_eq!(mixed, original);
     mixed["segments"][0]["branches"][2]["contributors"][0]["origin"]["sourceId"] = json!("absent");
     assert!(matches!(
-        catalog.dependencies(&mixed, &CancellationToken::new()),
+        catalog.dependencies(&mixed, &Cancellation::new()),
         Err(DependencyError::UnknownId {
             collection: "snapshots",
             ..
@@ -212,35 +206,35 @@ fn mixed_branch_contributors_preserve_alternatives_and_validate_sources() {
 fn empty_and_foreign_sets_never_create_invalid_or_wrong_catalogs() {
     let catalog = indexed(1, true);
     let empty = catalog
-        .dependencies(&json!({"literal":1}), &CancellationToken::new())
+        .dependencies(&json!({"literal":1}), &Cancellation::new())
         .unwrap();
     assert_eq!(catalog.chars(&empty).unwrap(), 0);
     let mut row = json!({"data":{"literal":1}});
     catalog
-        .attach(&mut row, &empty, &CancellationToken::new())
+        .attach(&mut row, &empty, &Cancellation::new())
         .unwrap();
     assert!(row.pointer("/data/sourceEvidence").is_none());
-    assert!(catalog.selected(&empty, &CancellationToken::new()).is_err());
+    assert!(catalog.selected(&empty, &Cancellation::new()).is_err());
     let mut unrelated = json!({"analysisUnitId":"arbitrary user data"});
     for _ in 0..100 {
         unrelated = json!({"nested":unrelated});
     }
     assert!(
-        Catalog::take(&mut unrelated, &CancellationToken::new())
+        Catalog::take(&mut unrelated, &Cancellation::new())
             .unwrap()
             .is_none(),
         "catalog-free rows are not scanned"
     );
     let other = indexed(1, true);
     let foreign = other
-        .dependencies(&origin(0, true), &CancellationToken::new())
+        .dependencies(&origin(0, true), &Cancellation::new())
         .unwrap();
     assert!(matches!(
-        catalog.merge_delta(&mut empty.clone(), &foreign, &CancellationToken::new()),
+        catalog.merge_delta(&mut empty.clone(), &foreign, &Cancellation::new()),
         Err(DependencyError::ForeignSet)
     ));
     assert!(matches!(
-        catalog.selected(&foreign, &CancellationToken::new()),
+        catalog.selected(&foreign, &Cancellation::new()),
         Err(DependencyError::ForeignSet)
     ));
 }

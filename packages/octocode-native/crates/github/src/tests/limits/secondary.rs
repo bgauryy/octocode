@@ -50,7 +50,8 @@ async fn a_queued_request_is_not_sent_after_a_cooldown_lands_while_it_waits() {
         .mount(&server)
         .await;
     let budget = Arc::new(GitHubBudget::with_config(ExecutorConfig {
-        search_spacing: Duration::from_millis(300),
+        // The 403 reports 4000 searches left for an hour: 0.9 s apart.
+        quota_pacing: true,
         ..ExecutorConfig::relaxed()
     }));
     let (transport, endpoint) = executor_transport(&server, budget, short_retry());

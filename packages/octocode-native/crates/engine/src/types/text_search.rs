@@ -133,7 +133,7 @@ impl CapReason {
         match self {
             Self::MaxOnlyMatchingPerFile => "maxOnlyMatchingPerFile",
             Self::Pcre2Deadline => "pcre2Deadline",
-            Self::MaxFileSize => "maxFileSize",
+            Self::MaxFileSize => "fileTooLarge",
             Self::Cancelled => "cancelled",
             Self::BinaryQuit => "binaryQuit",
         }
@@ -236,14 +236,13 @@ pub struct TextSearchOptions {
     pub max_depth: Option<u32>,
 
     // ── ordering & result shaping ────────────────────────────────────────────
-    /// The order of the collected files (and which survive the collection
-    /// cap).
+    /// The order of the collected files.
     pub sort: SearchSort,
     /// Reverse the sort order (`--sortr`).
     pub sort_reverse: Option<bool>,
 
     /// Per-file byte ceiling: a file larger than this is skipped before it is
-    /// searched (surfaced as a `maxFileSize` cap reason). `None` uses
+    /// searched (surfaced as a `fileTooLarge` cap reason). `None` uses
     /// [`DEFAULT_MAX_SEARCH_FILE_BYTES`]. Guards against OOM on pathological
     /// multi-GB single-line files.
     pub max_file_bytes: Option<u32>,
@@ -324,7 +323,7 @@ pub enum SpanValues {
 }
 
 /// The order of a text search's collected files. Every key ends with the
-/// path, so a collection cap always keeps the same files.
+/// path, so the order is total and repeatable.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SearchSort {
     /// Lexicographic by full path.

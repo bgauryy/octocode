@@ -15,6 +15,16 @@ function toolInput(queries, extra) {
   return { queries: Array.isArray(queries) ? queries : [queries], ...extra };
 }
 
+/** Decode the tool payload once; consumers validate the unchanged parsed envelope. */
+function mcpPayload(response) {
+  const text = response.result?.content?.filter(c => c.type === 'text').map(c => c.text).join('') ?? JSON.stringify(response.error ?? '');
+  let raw = response.result?.structuredContent;
+  if (raw === undefined && response.result) {
+    try { raw = JSON.parse(text); } catch { /* Preserve invalid text and mark the call failed. */ }
+  }
+  return { text, raw };
+}
+
 /** Start the MCP server at `entry`; `env` is merged over process.env, or with `replaceEnv` is the whole environment. */
 export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, entry = path.join(ROOT, 'packages/octocode-mcp/dist/index.js'), timeoutMs = Number(process.env.OCTOCODE_TEST_CALL_TIMEOUT_MS ?? 240_000) } = {}) {
   const server = spawn(process.execPath, [entry], {
@@ -78,22 +88,21 @@ export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, en
 
   /**
    * Call with arguments exactly as given (e.g. a typed continuation or related input).
-   * `bytes(structuredContent, text)` overrides the UTF-8 text measure; `keepRaw`
-   * adds the unexpanded `raw` structuredContent and the `transport` error.
+   * `bytes(payload, text)` overrides the UTF-8 text measure; `keepRaw` adds the
+   * unmodified parsed `raw` payload, complete JSON-RPC `wire`, and transport error.
    */
   async function raw(tool, args, label = '', { bytes, keepRaw = false } = {}) {
     const started = Date.now();
     let response;
     try { response = await rpc('tools/call', { name: tool, arguments: args }); } catch (error) { response = { error: { message: error.message } }; }
-    const text = response.result?.content?.filter(c => c.type === 'text').map(c => c.text).join('') ?? JSON.stringify(response.error ?? '');
-    const rawSc = response.result?.structuredContent;
+    const { text, raw: rawSc } = mcpPayload(response);
     const sc = rawSc;
     const entry = {
       label, tool, args, ms: Date.now() - started, bytes: bytes ? bytes(rawSc, text) : Buffer.byteLength(text, 'utf8'),
       responseBytes: Buffer.byteLength(JSON.stringify(response.result ?? response.error ?? null), 'utf8'), text, sc,
-      isError: !!(response.error || response.result?.isError),
+      isError: !!(response.error || response.result?.isError || rawSc === undefined),
       rowErrors: collect(sc, r => r.status === 'error').length,
-      ...(keepRaw && { raw: rawSc, transport: response.error?.message }),
+      ...(keepRaw && { raw: rawSc, wire: response, transport: response.error?.message }),
     };
     log.push(entry);
     return entry;

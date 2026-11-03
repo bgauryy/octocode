@@ -15,7 +15,7 @@ New calls contain `queries` and an optional `responseChars`; resumed calls conta
 3. Follow the continuations needed for the claim and inspect coverage disclosures.
 4. Cite the evidence; identify what remains unknown.
 
-Batch independent queries of one tool. Build dependent calls from observed identities. [Routing and examples](OCTOCODE_WORKFLOWS.md).
+Batch independent queries of one tool. Build dependent calls from observed identities. [Routing and examples](../skills/octocode-research/references/tool-flow.md).
 
 ## Evidence and views
 

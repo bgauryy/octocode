@@ -27,12 +27,16 @@ impl NativeLspClient {
 
     /// Replace the remembered scope snapshot (relative path → stamp) with
     /// `current` and return what changed: `(relative path, change type)`
-    /// for every created, changed or deleted file. `None` when there was no
-    /// snapshot to compare with (the first request of this process).
+    /// for every created, changed or deleted file. `unchanged(path, before,
+    /// after)` decides whether two stamps of one file describe the same
+    /// file: stamps are the caller's, which knows what a stamp observed.
+    /// `None` when there was no snapshot to compare with (the first request
+    /// of this process).
     #[must_use]
     pub fn watched_files_diff(
         &self,
         current: &BTreeMap<String, String>,
+        unchanged: impl Fn(&str, &str, &str) -> bool,
     ) -> Option<Vec<(String, u8)>> {
         let mut slot = self
             .inner
@@ -44,7 +48,9 @@ impl NativeLspClient {
         for (path, stamp) in current {
             match previous.get(path) {
                 None => changes.push((path.clone(), CREATED)),
-                Some(before) if before != stamp => changes.push((path.clone(), CHANGED)),
+                Some(before) if before != stamp && !unchanged(path, before, stamp) => {
+                    changes.push((path.clone(), CHANGED));
+                }
                 Some(_) => {}
             }
         }
@@ -57,19 +63,17 @@ impl NativeLspClient {
     }
 
     /// Send `workspace/didChangeWatchedFiles` for `changes` (`(uri, change
-    /// type)`), bumping the content epoch so no cached answer predates it.
+    /// type)`) before this request asks the server for its current answer.
     pub async fn notify_watched_files(&self, changes: Vec<(String, u8)>) -> Result<()> {
         if changes.is_empty() {
             return Ok(());
         }
         let connection = self.connection_handle().await?;
+        connection.supersede_all_push_diagnostics();
         let changes = changes
             .into_iter()
             .map(|(uri, kind)| json!({ "uri": uri, "type": kind }))
             .collect::<Vec<Value>>();
-        self.inner
-            .content_epoch
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         connection
             .notify(
                 "workspace/didChangeWatchedFiles",
@@ -104,13 +108,14 @@ mod tests {
             ("a.go".to_owned(), "1".to_owned()),
             ("b.go".to_owned(), "1".to_owned()),
         ]);
-        assert!(client.watched_files_diff(&first).is_none());
+        let exact = |_: &str, before: &str, after: &str| before == after;
+        assert!(client.watched_files_diff(&first, exact).is_none());
         let second = BTreeMap::from([
             ("a.go".to_owned(), "2".to_owned()),
             ("c.go".to_owned(), "1".to_owned()),
         ]);
         let mut changes = client
-            .watched_files_diff(&second)
+            .watched_files_diff(&second, exact)
             .expect("a snapshot to compare with");
         changes.sort();
         assert_eq!(
@@ -121,6 +126,18 @@ mod tests {
                 ("c.go".to_owned(), CREATED),
             ]
         );
-        assert_eq!(client.watched_files_diff(&second), Some(Vec::new()));
+        assert_eq!(client.watched_files_diff(&second, exact), Some(Vec::new()));
+        // Stamps the caller proves the same file owe no event.
+        let restamped = BTreeMap::from([
+            ("a.go".to_owned(), "2'".to_owned()),
+            ("c.go".to_owned(), "1".to_owned()),
+        ]);
+        let same_a = |path: &str, before: &str, after: &str| {
+            before == after || (path == "a.go" && after == "2'")
+        };
+        assert_eq!(
+            client.watched_files_diff(&restamped, same_a),
+            Some(Vec::new())
+        );
     }
 }

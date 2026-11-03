@@ -132,11 +132,11 @@ async fn redact_emails_masks_github_rows() {
     assert!(redacted.contains("mail "), "the row stays: {redacted}");
 }
 
-/// The runtime's rate-limit wait decides whether a short provider rate limit
-/// is waited out (the retry answers) or fails fast with `rateLimited`.
+/// A provider rate limit that ends inside the call's deadline is waited out
+/// (the retry answers); no fixed wait cap turns it into `rateLimited`.
 #[tokio::test]
-async fn max_rate_limit_wait_decides_wait_or_fail_fast() {
-    let outcome = |wait_ms: u64| async move {
+async fn a_rate_limit_inside_the_deadline_is_waited_out() {
+    let outcome = || async move {
         let server = MockServer::builder().start().await;
         Mock::given(method("GET"))
             .and(path("/api/v3/search/repositories"))
@@ -157,11 +157,7 @@ async fn max_rate_limit_wait_decides_wait_or_fail_fast() {
         let home = tempfile::tempdir().expect("home");
         let cwd = tempfile::tempdir().expect("cwd");
         let rc = json!({"github":{"apiUrl":format!("{}/api/v3", server.uri())}});
-        let limits = RuntimeLimits {
-            max_rate_limit_wait: std::time::Duration::from_millis(wait_ms),
-            ..RuntimeLimits::DEFAULT
-        };
-        let runtime = runtime_with(home.path(), cwd.path(), &rc, limits);
+        let runtime = runtime_with(home.path(), cwd.path(), &rc, RuntimeLimits::DEFAULT);
         let outcome = call(
             &runtime,
             "ghSearchRepo",
@@ -170,14 +166,10 @@ async fn max_rate_limit_wait_decides_wait_or_fail_fast() {
         .await;
         outcome.structured_content["results"][0].clone()
     };
-    let limited = outcome(0).await;
-    assert_eq!(
-        limited["data"]["errorCode"],
-        json!("rateLimited"),
-        "{limited}"
-    );
-    let waited = outcome(5_000).await;
+    let started = std::time::Instant::now();
+    let waited = outcome().await;
     assert_eq!(waited["status"], "empty", "waited and answered: {waited}");
+    assert!(started.elapsed() >= std::time::Duration::from_secs(1));
 }
 
 /// `lsp.trustProjectConfig` reaches the language-server settings every

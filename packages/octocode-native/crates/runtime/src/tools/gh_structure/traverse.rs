@@ -3,15 +3,13 @@ use super::*;
 mod contents;
 mod entries;
 pub(super) use contents::walk_contents;
-pub(super) use entries::{
-    entry_kind, missing_ref, not_a_directory, root_is_directory, traversal_from_git_tree,
-};
+pub(super) use entries::{entry_kind, missing_ref, not_a_directory, traversal_from_git_tree};
 use entries::{git_kind, note_unlisted, unlisted_kind};
 
 /// Deepest level a listing may reach: every level (the contract bounds no
 /// `maxDepth`), spelled as the largest depth a lead can carry.
 pub(super) fn max_listing_depth() -> usize {
-    crate::num::usize_of(u32::MAX)
+    octocode_engine::num::saturating_usize(u32::MAX)
 }
 
 /// One `include` glob over repository-relative paths, matched as authored.
@@ -92,12 +90,7 @@ async fn level_tree(
     } else {
         format!("{}:{}", listing.branch, listing.root)
     };
-    let resource = format!(
-        "{}:{reference}",
-        repo_key("git-tree-level", listing.owner, listing.repo)
-    );
-    let Some(mut tree) = read_tree(provider, listing, resource, &reference, false, context).await?
-    else {
+    let Some(mut tree) = read_tree(provider, listing, &reference, false, context).await? else {
         return Ok(None);
     };
     if !listing.root.is_empty() {
@@ -116,25 +109,31 @@ pub(super) enum DeepTree {
     Unavailable,
 }
 
-/// A deep listing from one recursive git tree (cached by commit); a
-/// truncated or unavailable tree leaves the walk to the Contents API.
+/// A deep listing from one recursive git tree of the listed directory at a
+/// commit (`<commit>:<root>`; the commit's own tree for the repository
+/// root), so a listing below a large repository's root reads that directory's
+/// tree, not a truncated tree of the whole repository and a read per
+/// subtree. A truncated or unavailable tree (a path that is no directory
+/// included) leaves the walk to the Contents API.
 pub(super) async fn recursive_tree(
     provider: &GitHubProvider,
     listing: &Listing<'_>,
     context: &RequestContext,
 ) -> Result<DeepTree, ProviderError> {
-    let Listing {
-        owner,
-        repo,
-        branch,
-        root,
-        ..
-    } = *listing;
-    let resource = format!("{}:{branch}", repo_key("git-tree", owner, repo));
+    let Listing { branch, root, .. } = *listing;
+    let reference = if root.is_empty() {
+        branch.to_owned()
+    } else {
+        format!("{branch}:{root}")
+    };
     Ok(
-        match fetch_tree(provider, listing, resource, branch, true, context).await? {
-            TreeRead::Whole(tree) => {
-                root_is_directory(&tree, root)?;
+        match fetch_tree(provider, listing, &reference, true, context).await? {
+            TreeRead::Whole(mut tree) => {
+                if !root.is_empty() {
+                    for entry in &mut tree.tree {
+                        entry.path = format!("{root}/{}", entry.path);
+                    }
+                }
                 DeepTree::Read(traversal_from_git_tree(tree, listing))
             }
             TreeRead::Truncated => DeepTree::Truncated,
@@ -144,7 +143,7 @@ pub(super) async fn recursive_tree(
 }
 
 /// One subdirectory's whole subtree from a recursive git tree read by its
-/// tree SHA (content-addressed, so cached like a commit's tree), with
+/// tree SHA, with
 /// repo-relative paths; `None` when that subtree is truncated too or
 /// unreadable, so the Contents walk descends into it instead.
 async fn subtree(
@@ -154,11 +153,7 @@ async fn subtree(
     sha: &str,
     context: &RequestContext,
 ) -> Result<Option<octocode_github::TreeResponse>, ProviderError> {
-    let resource = format!(
-        "{}:{sha}",
-        repo_key("git-tree", listing.owner, listing.repo)
-    );
-    let Some(mut tree) = read_tree(provider, listing, resource, sha, true, context).await? else {
+    let Some(mut tree) = read_tree(provider, listing, sha, true, context).await? else {
         return Ok(None);
     };
     for entry in &mut tree.tree {
@@ -168,19 +163,17 @@ async fn subtree(
 }
 
 /// One untruncated git tree of the listed repository at `reference` (a
-/// commit or tree SHA, or `<commit>:<path>`: immutable either way), cached
-/// under `resource`; `None` when it is truncated or unreadable. Access
+/// commit or tree SHA, or `<commit>:<path>`); `None` when truncated or unreadable. Access
 /// failures propagate.
 async fn read_tree(
     provider: &GitHubProvider,
     listing: &Listing<'_>,
-    resource: String,
     reference: &str,
     recursive: bool,
     context: &RequestContext,
 ) -> Result<Option<octocode_github::TreeResponse>, ProviderError> {
     Ok(
-        match fetch_tree(provider, listing, resource, reference, recursive, context).await? {
+        match fetch_tree(provider, listing, reference, recursive, context).await? {
             TreeRead::Whole(tree) => Some(tree),
             TreeRead::Truncated | TreeRead::Unavailable => None,
         },
@@ -196,46 +189,14 @@ enum TreeRead {
     Unavailable,
 }
 
-/// The process's in-flight git tree reads, one per `(credential, resource)`;
-/// a slot remembers that the first read came back truncated (never cached).
-fn tree_flights()
--> &'static octocode_io::flight::KeyedFlight<(octocode_github::Partition, String), bool> {
-    static FLIGHTS: octocode_io::flight::KeyedFlight<(octocode_github::Partition, String), bool> =
-        octocode_io::flight::KeyedFlight::transient();
-    &FLIGHTS
-}
-
-/// The git tree at `reference` (immutable: a commit or tree SHA, or
-/// `<commit>:<path>`), from the cache under `resource` or one read that
-/// stores an untruncated answer there. Single flight: concurrent rows on one
-/// tree wait for the first read, then take what it cached (or its
-/// truncation), so a tree of many MB downloads once. Access failures
-/// propagate.
+/// Read the git tree, preserving truncation and access failures.
 async fn fetch_tree(
     provider: &GitHubProvider,
     listing: &Listing<'_>,
-    resource: String,
     reference: &str,
     recursive: bool,
     context: &RequestContext,
 ) -> Result<TreeRead, ProviderError> {
-    let partition = provider.transport.cache_partition(context, None).ok();
-    let ticket = partition
-        .as_ref()
-        .map(|partition| tree_flights().join((partition.clone(), resource.clone())));
-    let mut turn = match &ticket {
-        Some(ticket) => Some(context.budget.wait(ticket.turn()).await?),
-        None => None,
-    };
-    if turn.as_deref() == Some(&true) {
-        return Ok(TreeRead::Truncated);
-    }
-    if let Some(partition) = &partition
-        && let Some(cached) = provider.transport.cache.get(partition, &resource).await
-        && let Ok(tree) = serde_json::from_slice(&cached.bytes)
-    {
-        return Ok(TreeRead::Whole(tree));
-    }
     match provider
         .transport
         .get_tree(
@@ -249,47 +210,9 @@ async fn fetch_tree(
         )
         .await
     {
-        Ok(tree) if !tree.truncated => {
-            cache_tree(provider, context, resource, listing.branch, &tree).await;
-            Ok(TreeRead::Whole(tree))
-        }
-        Ok(_) => {
-            if let Some(truncated) = turn.as_deref_mut() {
-                *truncated = true;
-            }
-            Ok(TreeRead::Truncated)
-        }
+        Ok(tree) if !tree.truncated => Ok(TreeRead::Whole(tree)),
+        Ok(_) => Ok(TreeRead::Truncated),
         Err(error) if access_failure(&error) => Err(error),
         Err(_) => Ok(TreeRead::Unavailable),
-    }
-}
-
-/// Keep a complete git tree under its commit (or tree SHA): it never
-/// changes.
-pub(super) async fn cache_tree(
-    provider: &GitHubProvider,
-    context: &RequestContext,
-    resource: String,
-    commit: &str,
-    tree: &octocode_github::TreeResponse,
-) {
-    if let Ok(partition) = provider.transport.cache_partition(context, None)
-        && let Ok(bytes) = serde_json::to_vec(tree)
-    {
-        provider
-            .transport
-            .cache
-            .put(
-                &partition,
-                resource,
-                octocode_github::CachedContent {
-                    etag: None,
-                    bytes: bytes.into(),
-                    resolved_ref: commit.to_owned(),
-                    has_more: false,
-                },
-                octocode_github::Retention::Pinned,
-            )
-            .await;
     }
 }

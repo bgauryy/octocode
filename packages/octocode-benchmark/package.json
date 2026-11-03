@@ -19,9 +19,12 @@
     "directory": "packages/octocode-benchmark"
   },
   "scripts": {
-    "lint": "python3 -c \"import ast,sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]\" scripts/*.py local/*.py dashboard/*.py && bash -n scripts/run_arm.sh && bash -n scripts/run_campaign.sh && bash -n scripts/judge_pair.sh && bash -n scripts/preflight.sh && bash -n scripts/ghc && bash -n scripts/guard/gh && yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint:own": "python3 -c \"import ast,sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]\" scripts/*.py local/*.py dashboard/*.py && bash -n scripts/run_arm.sh && bash -n scripts/run_campaign.sh && bash -n scripts/judge_pair.sh && bash -n scripts/preflight.sh && bash -n scripts/ghc && bash -n scripts/guard/gh",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
     "test": "python3 -m unittest discover -s scripts -p 'test_*.py' && node --test scripts/*.test.mjs local/e2e/harness/*.test.mjs local/e2e/harness/*/*.test.mjs",
-    "verify": "yarn lint && yarn test"
+    "verify:own": "yarn lint:own && yarn test",
+    "verify": "yarn verify:own && yarn lint:oxlint"
   },
   "type": "module"
 }

@@ -4,7 +4,7 @@ use std::{path::Path, sync::Arc};
 
 use rayon::prelude::*;
 
-mod cached;
+mod facts;
 mod outcome;
 use super::{
     FactsSource, GraphFactsMappedScan, GraphFactsView, GraphScanError, MAX_GRAPH_SOURCE_BYTES,
@@ -164,7 +164,7 @@ struct MappedFacts<'a> {
 
 impl<T> EntryEvaluator<'_, T> {
     /// Reads one walked file and maps its facts, parsed or reused from the
-    /// memo: `None` when `keep` rejects its source, a skip diagnostic when it
+    /// caller's checkpoint: `None` when `keep` rejects its source, a skip diagnostic when it
     /// cannot be read, matches several parsers, or yields no facts.
     fn evaluate(
         &self,
@@ -296,13 +296,9 @@ impl<T> EntryEvaluator<'_, T> {
             )?;
             return mapped_outcome(relative_path, kept);
         }
-        let Some((parsed, reused)) = self.cached_facts(
-            &admitted,
-            &relative_path,
-            parser,
-            selected_entry,
-            &content_digest,
-        ) else {
+        let Some((parsed, reused)) =
+            self.extract_facts(&admitted, &relative_path, parser, &content_digest)
+        else {
             return outcome(
                 "graph.scan.extractFailed",
                 "native graph-fact extraction returned no result",

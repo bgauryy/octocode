@@ -28,9 +28,9 @@ function seed(db: DatabaseSync, workspace: string, owner: string) {
   const others = Array.from({ length: 100 }, () => randomUUID());
   const session = db.prepare('INSERT INTO sessions(id,workspace,name,vendor,expiresAt) VALUES(?,?,?,?,1)');
   for (const id of others) session.run(id, workspace, 'history', 'raw');
-  const message = db.prepare("INSERT INTO messages(sender,target,body,key,expiresAt,reasoning,wake) VALUES(?,?,?,?,1,'r','passive')");
+  const message = db.prepare("INSERT INTO messages(sender,target,parts,key,expiresAt,reasoning,wake) VALUES(?,?,?, ?,1,'r','passive')");
   const delivery = db.prepare('INSERT INTO deliveries(message,recipient,acknowledgedAt) VALUES(?,?,1)');
-  for (let i = 0; i < 2000; i++) delivery.run(message.run(others[i % 100], others[(i + 1) % 100], 'b', `k${i}`).lastInsertRowid, others[(i + 1) % 100]);
+  for (let i = 0; i < 2000; i++) delivery.run(message.run(others[i % 100], others[(i + 1) % 100], JSON.stringify([{ text: 'b' }]), `k${i}`).lastInsertRowid, others[(i + 1) % 100]);
   const lease = db.prepare("INSERT INTO leases(workspace,path,kind,owner,expiresAt,reasoning,pathKey) VALUES(?,?,'file',?,?,'r',?)");
   for (let i = 0; i < 2000; i++) {
     const path = join(workspace, `d${i % 16}`, `f${i}.txt`);
@@ -84,14 +84,14 @@ test('coordination and unified fetch search large tables only through indexes', 
   assert.deepEqual(context.items.map((item: JsonRecord) => item.name), ['early.md']); assert.equal(context.next ?? null, null);
   await run(owner, 'share_document', { name: 'late.md', content: 'proof' });
   await assert.rejects(run(peer, 'read_document', { name: 'late' }), /late\.md/);
-  const mail = await run(owner, 'send_message', { to: peer, body: 'Indexed incoming evidence' });
+  const mail = await run(owner, 'send_message', {parts: [{ text: 'Indexed incoming evidence' }],  to: peer, });
   const incoming = await run(peer, 'fetch', { incoming: true });
   assert.deepEqual(incoming.items.map((item: JsonRecord) => item.data.messageId), [mail.id]);
   const memory = await run(owner, 'record', { type: 'memory', branch: 'scale', data: { content: 'Unique search needle', category: 'performance' } });
   const searched = await run(peer, 'fetch', { type: 'memory', branch: 'scale', search: '"search needle"', where: { category: 'performance' } });
   assert.deepEqual(searched.items, [memory]);
   const selected = await run(peer, 'fetch', { type: 'message', where: { messageId: mail.id } });
-  assert.equal(selected.items[0].data.body, 'Indexed incoming evidence');
+  assert.deepEqual(selected.items[0].data.parts, [{ text: 'Indexed incoming evidence' }]);
 
   const byCommand = plans(db, statements);
   const scans = [...byCommand].flatMap(([name, details]) => details.filter(detail => LARGE.test(detail)).map(detail => `${name}: ${detail}`));

@@ -58,10 +58,6 @@ fn bom_empty_anchors_and_scalar_boundaries_are_exact() {
 }
 
 #[test]
-#[expect(
-    clippy::print_stderr,
-    reason = "explicit resource-profile test emits its measured accounting receipt"
-)]
 fn utf16_checkpoint_index_is_bounded_for_eight_mib_input() {
     let text = "x".repeat(8 << 20);
     let raw: Vec<_> = [0xff, 0xfe]

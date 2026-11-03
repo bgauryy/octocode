@@ -205,11 +205,10 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
     for file in &v.files {
         if let Some(dir) = unit_of(*file)
             && v.language(*file) != "go"
+            && !dirs.contains_key(dir)
         {
-            if !dirs.contains_key(dir) {
-                dirs.insert(dir, crate::num::u32_of_usize(names.len()));
-                names.push(dir);
-            }
+            dirs.insert(dir, octocode_engine::num::saturating_u32(names.len()));
+            names.push(dir);
         }
     }
     let mut adj = vec![BTreeMap::<u32, (u32, u32)>::new(); names.len()];

@@ -32,7 +32,6 @@ pub(crate) struct ClassificationUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub(crate) discovery_calls: u64,
-    pub(crate) replayed_evaluations: u64,
     pub models: BTreeSet<String>,
 }
 
@@ -45,7 +44,6 @@ impl ClassificationUsage {
             unknown_usage_calls: count(self.unknown_usage_calls),
             input_tokens: count(self.input_tokens),
             output_tokens: count(self.output_tokens),
-            replayed_evaluations: count(self.replayed_evaluations),
             models: self
                 .models
                 .iter()
@@ -83,21 +81,14 @@ impl ClassificationUsage {
         self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
         self.discovery_calls = self.discovery_calls.saturating_add(other.discovery_calls);
-        self.replayed_evaluations = self
-            .replayed_evaluations
-            .saturating_add(other.replayed_evaluations);
         self.models.extend(other.models.iter().cloned());
     }
 
-    /// Fold one evaluation in: its provider requests and reported tokens. A
-    /// replay made no request; its tokens are the earlier evaluation's.
+    /// Fold one evaluation in: its provider requests and reported tokens.
     pub(crate) fn add(&mut self, outcome: &Result<super::Judged, super::ClassificationError>) {
         match outcome {
             Ok(judged) => {
                 self.models.insert(judged.model.clone());
-                if judged.replayed {
-                    self.replayed_evaluations = self.replayed_evaluations.saturating_add(1);
-                }
                 if judged.provider_calls > 0 {
                     self.add_usage(
                         judged.provider_calls,

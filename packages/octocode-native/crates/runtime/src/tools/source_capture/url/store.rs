@@ -4,8 +4,12 @@ use super::{Captured, Selection, SourceReader, capture_root};
 use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::tools::judgment::ClassificationError;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{
+    ErrorCode, LocalFetchQuery, LocalFetchQueryContentRanges, LocalFetchQueryContentRangesView,
+    SourceLineRange,
+};
 use serde_json::json;
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -84,15 +88,40 @@ impl<'a> Store<'a> {
         let file = saved["path"].as_str().unwrap_or_default();
         let lines = selection.text.lines().count();
         let url = selection.url.as_str();
-        let read = crate::response::result::Continuation::continued(
-            ToolId::LocalFetch,
-            json!({
-                "path": file,
-                "snapshot": snapshot,
-                "ranges": [{"startLine":1,"endLine":lines}],
-            }),
-        )
-        .build();
+        let unreadable = |detail: String| {
+            ClassificationError::new(
+                ErrorCode::ClassificationContextUnavailable,
+                format!("The saved capture cannot be read back: {detail}"),
+                "Supply the page text as content.",
+            )
+        };
+        let end_line = NonZeroU64::new(u64::try_from(lines).unwrap_or(u64::MAX))
+            .ok_or_else(|| unreadable(format!("{file} has no lines")))?;
+        let read = LocalFetchQueryContentRanges {
+            block: None,
+            classification: None,
+            limit: None,
+            main_goal: None,
+            path: file
+                .try_into()
+                .map_err(|error| unreadable(format!("{error}")))?,
+            ranges: vec![SourceLineRange {
+                start_line: NonZeroU64::MIN,
+                end_line,
+            }],
+            read_progress: None,
+            reasoning: None,
+            selection: None,
+            snapshot: Some(
+                snapshot
+                    .parse()
+                    .map_err(|error| unreadable(format!("{error}")))?,
+            ),
+            view: LocalFetchQueryContentRangesView::Content,
+        };
+        let read =
+            crate::response::result::Continuation::continued_query(LocalFetchQuery::from(read))
+                .build();
         Ok(Captured {
             state: json!({
                 "source": { "url": url, "section": selection.section },

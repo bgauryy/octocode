@@ -2,32 +2,10 @@
 //! the ingest advances: each stage's start and end, and parsed-file counts
 //! at each twentieth of the inventory. They go to the call's own listener
 //! when its host gave one (an MCP call that sent a progress token:
-//! [`octocode_io::notice::Scope::with_progress`]), else to the process sink
-//! (the CLI writes them to stderr); with neither, nothing is emitted.
-use std::sync::{Arc, RwLock};
-
-type Sink = Arc<dyn Fn(&str) + Send + Sync>;
-
-static SINK: RwLock<Option<Sink>> = RwLock::new(None);
-
-/// Sends every later ingest's progress lines to `sink`.
-pub fn report_to(sink: impl Fn(&str) + Send + Sync + 'static) {
-    *SINK
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(sink));
-}
-
-/// Where the running call's lines go: its scope's listener, else the
-/// process sink.
-fn sink() -> Option<Sink> {
-    octocode_io::notice::Scope::current()
-        .and_then(|scope| scope.progress())
-        .or_else(|| {
-            SINK.read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .clone()
-        })
-}
+//! [`octocode_io::notice::Scope::with_progress`]), else wherever
+//! [`octocode_io::notice::progress_sink`] sends them (the CLI writes them to
+//! stderr); with nothing listening, nothing is emitted.
+use octocode_io::notice::{Progress as Sink, progress_sink as sink};
 
 fn send(sink: Option<&Sink>, line: impl FnOnce() -> String) {
     if let Some(sink) = sink {
@@ -85,6 +63,7 @@ impl Parsing {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     /// A call whose host listens gets its own progress lines, those of
     /// files finished on other threads included, and no other call's.

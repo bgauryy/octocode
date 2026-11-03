@@ -1,5 +1,5 @@
 import { defineCli, defineCommand, commandToken, parseCommandInput, runCli, type CliCommand, type CliIo, type CliSpec, type JsonSchema } from 'octocode-mcp-cli';
-import { catalog as runtimeCatalog } from '../runtime/catalog.js';
+import { catalog as runtimeCatalog, definition } from '../runtime/catalog.js';
 import { asObject, isObject, type JsonObject } from '../runtime/validation.js';
 import { capture, stream } from '../runtime/cli.js';
 import manifest from '../../package.json' with { type: 'json' };
@@ -33,6 +33,7 @@ const booleanFlags = new Set(['trace', 'managed', 'compact']);
 const payloadSchemas = new WeakMap<CliCommand, JsonSchema>();
 export function createCommunicationCli(): CliSpec {
   const catalog = runtimeCatalog();
+  catalog.commands.push(...catalog.tools.map(tool => definition(tool.name)));
   catalog.commands.push(
     { name: 'schema types', description: 'Discover every record type; --compact returns a summary.', usage: 'schema types', cliFlags: ['compact'], inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
     { name: 'schema type', description: 'Inspect one exact record type and its example.', usage: 'schema type', cliFlags: [], inputSchema: { type: 'object', properties: { type: { type: 'string', description: 'Exact record type name, for example coordinate.in.' } }, required: ['type'], additionalProperties: false } },

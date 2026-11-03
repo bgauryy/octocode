@@ -1,10 +1,11 @@
 //! Primary and secondary rate limits, spacing, the circuit breaker and the
-//! code-search window, one behavior per child module.
+//! code-search quota, one behavior per child module.
 use super::*;
 
 mod circuit;
-mod code_search_window;
+mod code_search_quota;
 mod primary;
+mod quota_pacing;
 mod secondary;
 mod spacing;
 

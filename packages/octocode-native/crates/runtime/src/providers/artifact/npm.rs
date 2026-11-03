@@ -201,8 +201,7 @@ fn not_found_page(registry: &ResolvedNpmRegistry) -> ArtifactProviderPage {
 
 /// The published versions of a package and its `latest` tag, from the
 /// abbreviated packument; `None` when the package does not exist. Only
-/// that view is decoded and cached: a large packument (typescript's is
-/// 8.7 MB) never lives in memory as a whole.
+/// that view is decoded, so unrelated manifest fields are skipped.
 async fn packument(
     encoded: &str,
     registry: &ResolvedNpmRegistry,
@@ -219,7 +218,6 @@ async fn packument(
             authorization,
             dns_pin,
             NPM_INSTALL_JSON,
-            "versions",
             version_view,
         )
         .await

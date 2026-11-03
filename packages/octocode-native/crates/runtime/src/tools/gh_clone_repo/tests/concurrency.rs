@@ -48,8 +48,8 @@ fn concurrent_requests_replace_serially_and_validation_fails_closed() {
         .filter(|call| call.contains("fetch requested commit"))
         .count();
     assert_eq!(
-        fetches, 2,
-        "concurrent invocations serialize fresh replacements"
+        fetches, 1,
+        "concurrent invocations serialize: the second reuses the first's checkout"
     );
     assert_eq!(values[0].location.commit_sha, values[1].location.commit_sha);
 

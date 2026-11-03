@@ -1,4 +1,4 @@
-//! Permits during backoff, per-key search spacing and token isolation.
+//! Permits during backoff, per-key search pacing and token isolation.
 use super::*;
 
 #[tokio::test]
@@ -61,11 +61,12 @@ async fn permits_are_released_while_backing_off() {
 }
 
 #[tokio::test]
-async fn search_requests_are_spaced_per_key() {
+async fn search_requests_within_quota_burst_per_key() {
     let server = MockServer::builder().start().await;
-    let search = Sequence::new(vec![
+    let search = Sequence::new(vec![reporting_quota_spacing(
         ResponseTemplate::new(200).set_body_json(serde_json::json!({"items": []})),
-    ]);
+        Duration::from_millis(150),
+    )]);
     let arrivals = search.arrivals.clone();
     Mock::given(method("GET"))
         .and(path("/api/v3/search/issues"))
@@ -73,7 +74,7 @@ async fn search_requests_are_spaced_per_key() {
         .mount(&server)
         .await;
     let budget = Arc::new(GitHubBudget::with_config(ExecutorConfig {
-        search_spacing: Duration::from_millis(150),
+        quota_pacing: true,
         ..ExecutorConfig::relaxed()
     }));
     let (transport, endpoint) = executor_transport(&server, budget, short_retry());
@@ -95,8 +96,8 @@ async fn search_requests_are_spaced_per_key() {
     assert_eq!(arrivals.len(), 3);
     for pair in arrivals.windows(2) {
         assert!(
-            pair[1].duration_since(pair[0]) >= Duration::from_millis(120),
-            "search starts not spaced: {arrivals:?}"
+            pair[1].duration_since(pair[0]) < Duration::from_millis(120),
+            "quota-covered search starts were spaced: {arrivals:?}"
         );
     }
 }

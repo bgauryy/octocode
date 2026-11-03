@@ -22,6 +22,22 @@ test('output fields, continuation channels and config keys are valid vocabulary'
   assert.deepEqual(findingsIn(text), []);
 });
 
+test('error-row continuation channels are valid next children', () => {
+  const own = contractVocabulary({ tools: [], continuationChannels: {}, errorContinuationChannels: { retry: 'branch' } }, { sections: {} });
+  assert.deepEqual(proseFindings('Run `next.retry`.', own), []);
+  assert.deepEqual(findingsIn('A rateLimited row offers `next.retry`.'), []);
+});
+
+test('schema fields behind IR-root shared definitions remain valid vocabulary', () => {
+  const shared = {
+    $defs: { Coverage: { type: 'object', properties: { importerScan: { type: 'object' } } } },
+    tools: [{ name: 'lspSearch', querySchema: { properties: { coverage: { $ref: '#/$defs/Coverage' } } } }],
+  };
+  const own = contractVocabulary(shared, { sections: {} });
+  assert.deepEqual([...own.children.get('coverage')], ['importerScan']);
+  assert.deepEqual(proseFindings('Read `coverage.importerScan`.', own), []);
+});
+
 test('file names, method calls, fenced code and unknown parents are not field claims', () => {
   const text = [
     'Writes `data.json` and `graph.rs`; calls `error.format()`; `process.env.HOME` is the shell.',

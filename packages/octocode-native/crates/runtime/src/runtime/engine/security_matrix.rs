@@ -204,8 +204,8 @@ fn oversized_or_too_deep_input_is_rejected_for_any_tool() {
 }
 
 /// (d) A rejected call of any tool whose error text or payload carries a
-/// credential answers on every surface (MCP structured and text content,
-/// CLI JSON and terminal text) without it.
+/// credential answers on every surface (MCP text content, CLI JSON and
+/// terminal text) without it.
 #[test]
 fn a_credential_in_an_error_never_leaves_any_tool() {
     for tool in ToolId::ALL {
@@ -223,7 +223,6 @@ fn a_credential_in_an_error_never_leaves_any_tool() {
             ("CLI JSON", projected.envelope.to_string()),
             ("CLI text", projected.text),
             ("MCP text", mcp.text),
-            ("MCP structured", mcp.structured_content.to_string()),
         ] {
             assert!(!shown.contains(TOKEN), "{tool:?} {surface}: {shown}");
         }
@@ -261,9 +260,11 @@ async fn a_credential_in_evidence_is_redacted_on_both_channels() {
             );
             assert!(!shown.contains(TOKEN), "{tool} {channel:?}: {shown}");
             let mcp = super::super::error::mcp_result(tool, Ok(outcome)).expect("mcp");
-            for shown in [&mcp.text, &mcp.structured_content.to_string()] {
-                assert!(!shown.contains(TOKEN), "{tool} {channel:?}: {shown}");
-            }
+            assert!(
+                !mcp.text.contains(TOKEN),
+                "{tool} {channel:?}: {}",
+                mcp.text
+            );
         }
     }
 }

@@ -77,19 +77,9 @@ impl Axis {
         Self::ALL.into_iter().find(|axis| axis.key() == key)
     }
 
-    /// The `next.*` page that continues the axis.
-    pub(super) fn next_name(self) -> &'static str {
-        match self {
-            Self::Body => "continueBody",
-            Self::ReviewBody => "continueReviewBody",
-            Self::Patches => "continuePatch",
-            Self::CommentBody => "continueCommentBody",
-            Self::Files => "nextFilePage",
-            Self::Comments => "nextCommentPage",
-            Self::ReviewComments => "nextReviewCommentPage",
-            Self::Reviews => "nextReviewPage",
-            Self::Commits => "nextCommitPage",
-        }
+    /// The one linear page name inside this axis's pagination.
+    pub(super) fn next_name() -> &'static str {
+        "nextPage"
     }
 
     pub(super) fn cursor(self) -> Cursor {

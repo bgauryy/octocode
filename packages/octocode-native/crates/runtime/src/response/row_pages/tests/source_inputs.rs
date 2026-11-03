@@ -1,5 +1,5 @@
 use super::*;
-use tokio_util::sync::CancellationToken;
+use octocode_io::cancellation::Cancellation;
 
 #[test]
 fn section_pages_preserve_source_input_arrays() {
@@ -20,13 +20,13 @@ fn section_pages_preserve_source_input_arrays() {
         "sections":sections
     }}}});
     let plan = PreparedRows::new(vec![row], &[None], crate::id::ToolId::Clasify)
-        .plan(700, &CancellationToken::new())
+        .plan(700, &Cancellation::new())
         .expect("valid plan");
     assert!(plan.total_pages > 1);
     let mut seen = Vec::new();
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &CancellationToken::new())
+            .build_page(page, &[None], &[], &Cancellation::new())
             .expect("valid build_page")
         {
             let resource = &row["data"]["resources"]["picked"];

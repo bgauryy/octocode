@@ -158,7 +158,6 @@ impl FileFacts {
 /// codes, so diagnostics sort as their stored text does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum DiagnosticCode {
-    FactsSchemaUnsupported,
     ParseRecovery,
     PathPolicyWithheld,
     ScanSkip,
@@ -172,7 +171,6 @@ impl DiagnosticCode {
     /// The code a snapshot stores and graphQuery `diagnostics` returns.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            Self::FactsSchemaUnsupported => "facts-schema-unsupported",
             Self::ParseRecovery => "parse-recovery",
             Self::PathPolicyWithheld => "path-policy-withheld",
             Self::ScanSkip => "scan-skip",
@@ -259,6 +257,8 @@ pub(crate) struct BuiltGraph {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BuildProgress {
+    /// The extraction job this build may complete after publication.
+    pub(super) checkpoint_generation: Option<String>,
     pub resumed_files: usize,
     pub checkpointed_files: usize,
     pub spilled_bytes: u64,

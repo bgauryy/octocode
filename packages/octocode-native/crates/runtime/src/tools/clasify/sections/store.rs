@@ -9,24 +9,24 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+/// Frozen assessment plans remain reachable for thirty minutes.
+const SESSION_RETENTION: Duration = Duration::from_secs(30 * 60);
+
 /// Runtime-owned retention; policy/access identities are supplied by the same
 /// owner as display snapshots, never reconstructed from environment here.
 pub(crate) struct Sessions {
     pub(super) store: Store<Session>,
     pub(super) flights: KeyedFlight<String, ()>,
     policy: String,
-    pub(super) max_bytes: usize,
     disk: Option<PathBuf>,
 }
 
 impl Sessions {
     pub(crate) fn new(config: CacheConfig, disk: Option<PathBuf>, policy: String) -> Self {
-        let max_bytes = config.max_bytes;
         Self {
             store: Store::new(config, disk.clone()),
             flights: KeyedFlight::transient(),
             policy,
-            max_bytes,
             disk,
         }
     }
@@ -93,7 +93,7 @@ impl Sessions {
         let _storage = self.process_lock("assessment.lock", context)?;
         Ok(self
             .store
-            .get_current(key)
+            .get(key)
             .map(|saved| saved.value.as_ref().clone()))
     }
 
@@ -114,7 +114,7 @@ impl Sessions {
                 session,
                 bytes,
                 CacheClass::Volatile {
-                    ttl: crate::tools::judgment::retention(),
+                    ttl: SESSION_RETENTION,
                 },
             )
             .1

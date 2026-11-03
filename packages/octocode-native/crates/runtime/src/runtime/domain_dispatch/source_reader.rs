@@ -107,7 +107,7 @@ impl SourceReader for DomainDispatcher {
     }
 
     fn text_capture_limit(&self) -> usize {
-        crate::num::usize_of(crate::tools::local_fetch::MAX_SOURCE_BYTES)
+        octocode_engine::num::saturating_usize(crate::tools::local_fetch::MAX_SOURCE_BYTES)
     }
 
     fn capture_local_text(
@@ -136,7 +136,7 @@ impl SourceReader for DomainDispatcher {
     }
 
     /// Acquire source bytes through the same GitHub credential, commit
-    /// resolution, byte cache and request budget as a file read.
+    /// resolution and request budget as a file read.
     fn capture_github_content(
         &self,
         query: &Value,

@@ -12,8 +12,10 @@ pub(in super::super) async fn with_canonical_memo<F: std::future::Future>(reques
     CANONICAL.scope(RefCell::default(), request).await
 }
 
-/// `path` with symlinks resolved, or as given when it cannot be (gone, or
-/// not local). Inside [`with_canonical_memo`] each spelling is resolved
+/// `path` with symlinks resolved; a file that is gone keeps its name under
+/// its resolved directory (so it compares with live paths, e.g. a scope
+/// root under a symlinked temp directory); as given when neither resolves
+/// (not local). Inside [`with_canonical_memo`] each spelling is resolved
 /// once per request: a server answer names the same few files hundreds of
 /// times. Outside it (blocking workers, tests) every call resolves.
 /// [`canonical`] of the path a `file://` URI names.
@@ -23,7 +25,14 @@ pub(in super::super) fn canonical_uri(uri: &str) -> String {
 
 pub(in super::super) fn canonical(path: &str) -> String {
     let resolve = || {
-        std::fs::canonicalize(path)
+        let given = std::path::Path::new(path);
+        std::fs::canonicalize(given)
+            .or_else(|_| match (given.parent(), given.file_name()) {
+                (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => {
+                    std::fs::canonicalize(parent).map(|parent| parent.join(name))
+                }
+                _ => Err(std::io::ErrorKind::NotFound.into()),
+            })
             .map(|path| path.to_string_lossy().into_owned())
             .unwrap_or_else(|_| path.to_owned())
     };

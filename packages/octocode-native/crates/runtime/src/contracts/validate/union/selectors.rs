@@ -12,14 +12,12 @@ use serde_json::Value;
 /// its other selectors, so `view` on a callers query points at the
 /// operations that take a view, once.
 pub(super) fn sibling_selector_values(
+    root: &Value,
     declaring: &[&Value],
     value: &Value,
     field: &str,
 ) -> Option<Vec<Value>> {
-    // One mismatched selector per branch merges by name across branches;
-    // a branch needing several selectors stays its own alternative.
-    let mut merged: Vec<(String, Vec<Value>)> = Vec::new();
-    let mut options = Vec::new();
+    let mut alternatives = Vec::new();
     for branch in declaring {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
@@ -28,20 +26,33 @@ pub(super) fn sibling_selector_values(
             .iter()
             .filter(|(name, _)| name.as_str() != field)
             .filter_map(|(name, schema)| {
-                let literals = selector_literals(schema)?;
+                let literals = selector_literals(root, schema)?;
                 let actual = value.get(name)?;
                 (!literals.iter().any(|literal| equivalent(literal, actual)))
-                    .then_some((name, literals))
+                    .then_some((name.as_str(), literals))
             })
             .collect::<Vec<_>>();
+        alternatives.push(selectors);
+    }
+    merge_alternatives(alternatives).map(|text| vec![Value::String(text)])
+}
+
+/// Alternatives, each the selectors one form needs: a form needing one
+/// selector merges with the others needing that selector (`view one of
+/// "matchOnly", "count"`); a form needing several stays its own
+/// alternative (`a:1 and b:2`). `None` when no form needs any.
+fn merge_alternatives<'a>(alternatives: Vec<Vec<(&'a str, Vec<&'a Value>)>>) -> Option<String> {
+    let mut merged: Vec<(&str, Vec<&Value>)> = Vec::new();
+    let mut options = Vec::new();
+    for selectors in alternatives {
         match selectors.as_slice() {
             [] => {}
             [(name, literals)] => {
                 let index = merged
                     .iter()
-                    .position(|(merged_name, _)| merged_name == *name)
+                    .position(|(known, _)| known == name)
                     .unwrap_or_else(|| {
-                        merged.push(((*name).clone(), Vec::new()));
+                        merged.push((name, Vec::new()));
                         merged.len() - 1
                     });
                 for literal in literals {
@@ -50,7 +61,7 @@ pub(super) fn sibling_selector_values(
                         .iter()
                         .any(|known| equivalent(known, literal))
                     {
-                        merged[index].1.push((*literal).clone());
+                        merged[index].1.push(literal);
                     }
                 }
             }
@@ -71,18 +82,18 @@ pub(super) fn sibling_selector_values(
         .map(|(name, literals)| render_selector(name, literals))
         .collect::<Vec<_>>();
     rendered.extend(options);
-    (!rendered.is_empty()).then(|| vec![Value::String(rendered.join(" or "))])
+    (!rendered.is_empty()).then(|| rendered.join(" or "))
 }
 
 /// Whether every literal selector of `branch` accepts the query's value.
-pub(super) fn selectors_accept(branch: &Value, value: &Value) -> bool {
+pub(super) fn selectors_accept(root: &Value, branch: &Value, value: &Value) -> bool {
     branch
         .get("properties")
         .and_then(Value::as_object)
         .into_iter()
         .flatten()
         .all(
-            |(name, schema)| match (selector_literals(schema), value.get(name)) {
+            |(name, schema)| match (selector_literals(root, schema), value.get(name)) {
                 (Some(literals), Some(actual)) => {
                     literals.iter().any(|literal| equivalent(literal, actual))
                 }
@@ -92,7 +103,8 @@ pub(super) fn selectors_accept(branch: &Value, value: &Value) -> bool {
 }
 
 /// The literal values a `const` or `enum` selector accepts.
-pub(super) fn selector_literals(schema: &Value) -> Option<Vec<&Value>> {
+pub(super) fn selector_literals<'a>(root: &'a Value, schema: &'a Value) -> Option<Vec<&'a Value>> {
+    let schema = branch_object(root, schema);
     if let Some(literal) = schema.get("const") {
         return Some(vec![literal]);
     }
@@ -116,7 +128,8 @@ pub(super) fn render_selector<V: std::borrow::Borrow<Value>>(name: &str, literal
     }
 }
 
-fn literal_accepts(schema: &Value, value: &Value) -> bool {
+fn literal_accepts(root: &Value, schema: &Value, value: &Value) -> bool {
+    let schema = branch_object(root, schema);
     schema
         .get("const")
         .is_some_and(|constant| equivalent(constant, value))
@@ -126,7 +139,8 @@ fn literal_accepts(schema: &Value, value: &Value) -> bool {
             .is_some_and(|values| values.iter().any(|literal| equivalent(literal, value)))
 }
 
-pub(super) fn single_literal(schema: &Value) -> Option<&Value> {
+pub(super) fn single_literal<'a>(root: &'a Value, schema: &'a Value) -> Option<&'a Value> {
+    let schema = branch_object(root, schema);
     schema.get("const").or_else(|| {
         schema
             .get("enum")
@@ -143,9 +157,6 @@ fn render_literal(value: &Value) -> String {
 /// A literal rejected by the selected branch but accepted by a sibling is a
 /// cross-field rule (e.g. `unique:"list"` needs `view:"matchOnly"`).
 /// Name the sibling's selector values instead of only the local constant.
-/// A sibling whose selector rejects a value the row sent (a
-/// `direction:"both"` form whose `operation` lacks `hubs`) is another form
-/// of query, not a companion field this one is missing: it is skipped.
 pub(super) fn annotate_sibling_selectors(
     issues: &mut [ValidationIssue],
     root: &Value,
@@ -163,25 +174,7 @@ pub(super) fn annotate_sibling_selectors(
         let Some(received) = value.get(field) else {
             continue;
         };
-        let requirement = branches
-            .iter()
-            .map(|branch| branch_object(root, branch))
-            .find_map(|branch| {
-                let properties = branch.get("properties")?.as_object()?;
-                if !literal_accepts(properties.get(field)?, received) {
-                    return None;
-                }
-                let selectors = properties
-                    .iter()
-                    .filter(|(name, _)| *name != field)
-                    .map(|(name, schema)| sibling_requirement(name, schema, value))
-                    .collect::<Option<Vec<_>>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>();
-                (!selectors.is_empty()).then(|| selectors.join(" and "))
-            });
-        if let Some(requirement) = requirement {
+        if let Some(requirement) = sibling_requirement(root, branches, value, (field, received)) {
             item.message = format!(
                 "{} ({field}:{} requires {requirement})",
                 item.message,
@@ -191,18 +184,73 @@ pub(super) fn annotate_sibling_selectors(
     }
 }
 
-/// What a sibling's property `name` asks of the row: `None` when it is a
-/// selector that rejects the value the row sent, which rules the sibling
-/// out; `Some(Some("name:literal"))` when the row omits a field the sibling
-/// pins to one literal; `Some(None)` otherwise.
-fn sibling_requirement(name: &str, schema: &Value, value: &Value) -> Option<Option<String>> {
-    match value.get(name) {
-        Some(actual) => {
-            (selector_literals(schema).is_none() || literal_accepts(schema, actual)).then_some(None)
+/// The single-literal selectors that let a sibling accept `field:received`,
+/// merged across every sibling that needs any. `None` when a sibling accepting
+/// the value differs from the row by a multi-value selector (a
+/// `direction:"both"` form whose `operation` enum lacks `hubs`): no
+/// `name:literal` names that form, so any requirement would be partial.
+fn sibling_requirement(
+    root: &Value,
+    branches: &[Value],
+    value: &Value,
+    (field, received): (&str, &Value),
+) -> Option<String> {
+    let mut alternatives = Vec::new();
+    for branch in branches.iter().map(|branch| branch_object(root, branch)) {
+        let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
+            continue;
+        };
+        if !properties
+            .get(field)
+            .is_some_and(|schema| literal_accepts(root, schema, received))
+        {
+            continue;
         }
-        None => Some(
-            single_literal(schema).map(|literal| format!("{name}:{}", render_literal(literal))),
-        ),
+        let mut selectors = Vec::new();
+        for (name, schema) in properties.iter().filter(|(name, _)| name.as_str() != field) {
+            match selector_change(root, schema, value, name) {
+                SelectorChange::None => {}
+                SelectorChange::Name(literal) => selectors.push((name.as_str(), vec![literal])),
+                SelectorChange::Unnameable => return None,
+            }
+        }
+        alternatives.push(selectors);
+    }
+    merge_alternatives(alternatives)
+}
+
+/// The change a sibling's property asks of the row.
+enum SelectorChange<'a> {
+    /// It accepts the row as sent, or it is no selector.
+    None,
+    /// It pins one literal the row lacks: `name:literal`.
+    Name(&'a Value),
+    /// A multi-value selector rejects the row's value.
+    Unnameable,
+}
+
+fn selector_change<'a>(
+    root: &'a Value,
+    schema: &'a Value,
+    value: &Value,
+    name: &str,
+) -> SelectorChange<'a> {
+    let actual = value.get(name);
+    if let Some(literal) = single_literal(root, schema) {
+        return if actual.is_some_and(|actual| equivalent(literal, actual)) {
+            SelectorChange::None
+        } else {
+            SelectorChange::Name(literal)
+        };
+    }
+    match actual {
+        Some(actual)
+            if selector_literals(root, schema).is_some()
+                && !literal_accepts(root, schema, actual) =>
+        {
+            SelectorChange::Unnameable
+        }
+        _ => SelectorChange::None,
     }
 }
 
@@ -217,7 +265,7 @@ pub(super) fn annotate_forbidden_fields(
     path: &[String],
 ) {
     let forbids = |schema: &Value| {
-        schema
+        branch_object(root, schema)
             .get("not")
             .is_some_and(|not| not == &Value::Object(Default::default()))
     };
@@ -274,7 +322,8 @@ pub(super) fn annotate_missing_selector(
     };
     let declares = |properties: &serde_json::Map<String, Value>, name: &str| {
         properties.get(name).is_some_and(|schema| {
-            schema.get("not") != Some(&Value::Object(serde_json::Map::default()))
+            branch_object(root, schema).get("not")
+                != Some(&Value::Object(serde_json::Map::default()))
         })
     };
     for item in issues
@@ -291,7 +340,10 @@ pub(super) fn annotate_missing_selector(
             let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
                 continue;
             };
-            let Some(literals) = properties.get(field).and_then(selector_literals) else {
+            let Some(literals) = properties
+                .get(field)
+                .and_then(|schema| selector_literals(root, schema))
+            else {
                 continue;
             };
             let undeclared = sent

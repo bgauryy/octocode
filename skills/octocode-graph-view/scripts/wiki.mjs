@@ -5,7 +5,7 @@
 // Jaccard overlap), notes go stale when a member file changes, and index.md is the map. Conventions: references/wiki.md.
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isMainModule } from './lib/entrypoint.mjs';
 import { ISOLATED, appendLog, firstSentence, isSlug, matchPages, memberHashes, notesOf, pageFile, readMap, readText, rootOf, slugify, staleMembers, today, wikiPaths, withNotes, writeIfChanged, writeMap } from './wiki-store.mjs';
 import { communityFacts, factLine, isolatedFacts, pagerankOf, pathOfFile, wikiContext } from './wiki-facts.mjs';
 import { HEADER, headerLine, notesState, orphanFacts, renderIndex, renderPage } from './wiki-render.mjs';
@@ -245,7 +245,7 @@ function run(args) {
   return COMMANDS[command](resolve(dir), args) ?? 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   try {
     process.exitCode = run(process.argv.slice(2));
   } catch (error) {

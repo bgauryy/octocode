@@ -41,7 +41,6 @@ async fn github_file_read_goes_through_execute_and_redacts() {
             "repo": "b",
             "path": "src/lib.rs",
             "ref": "main",
-            "refresh": true,
             "ranges": [{"startLine":1,"endLine":2}]
         }),
     )
@@ -88,7 +87,7 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"src","ref":"main","refresh":true}),
+        json!({"owner":"a","repo":"b","path":"src","ref":"main"}),
     )
     .await
     .expect("directory read is a row error, not a contract violation");
@@ -142,7 +141,7 @@ async fn gh_file_read_of_binary_content_reports_size_and_blob() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"icon.png","ref":sha,"refresh":true}),
+        json!({"owner":"a","repo":"b","path":"icon.png","ref":sha}),
     )
     .await
     .expect("error row");

@@ -39,6 +39,11 @@ pub struct PatternDeclaration {
     pub kind: String,
     /// The name node's kind and text, when the pattern spells a name.
     pub name: Option<(String, String)>,
+    /// The grammar's fuller forms of this declaration kind: kinds whose
+    /// name words are a strict subsequence of this kind's (`function_item`
+    /// for `function_signature_item`). A pattern of a smaller form matches
+    /// none of them.
+    pub fuller_kinds: Vec<String>,
 }
 
 /// Nodes a grammar names by a `name` field that refer to a declaration
@@ -108,7 +113,37 @@ impl CompiledPattern {
         Some(PatternDeclaration {
             kind: root.kind().to_owned(),
             name: named,
+            fuller_kinds: self.fuller_kinds(root.kind()),
         })
+    }
+
+    /// The named, concrete kinds of this grammar that spell `kind` with
+    /// words left out of its name: the kinds `kind` is a smaller form of.
+    fn fuller_kinds(&self, kind: &str) -> Vec<String> {
+        let words = |kind: &str| kind.split('_').map(str::to_owned).collect::<Vec<_>>();
+        let smaller = words(kind);
+        let is_subsequence = |fuller: &[String]| {
+            fuller.len() < smaller.len() && {
+                let mut rest = smaller.iter();
+                fuller.iter().all(|word| rest.any(|other| other == word))
+            }
+        };
+        let mut kinds = Vec::new();
+        for id in 0..self.language.node_kind_count() {
+            let Ok(id) = u16::try_from(id) else { break };
+            let Some(name) = self.language.node_kind_for_id(id) else {
+                continue;
+            };
+            if self.language.node_kind_is_named(id)
+                && self.language.node_kind_is_visible(id)
+                && !self.language.node_kind_is_supertype(id)
+                && is_subsequence(&words(name))
+                && !kinds.iter().any(|known| known == name)
+            {
+                kinds.push(name.to_owned());
+            }
+        }
+        kinds
     }
 
     pub(super) fn is_special(&self) -> bool {

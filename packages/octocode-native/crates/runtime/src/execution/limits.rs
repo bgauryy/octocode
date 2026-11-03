@@ -12,10 +12,6 @@ pub struct RuntimeLimits {
     pub network_timeout: Duration,
     /// Retries after a failed request.
     pub max_retries: u8,
-    /// Longest GitHub rate-limit wait (primary or secondary limit,
-    /// code-search window) before a call fails with `retryAfter`. It stays
-    /// under the 60 s tool-call timeout some MCP hosts apply.
-    pub max_rate_limit_wait: Duration,
     /// Characters of the automatic response page when a call names no
     /// `responseChars`.
     pub auto_page_chars: usize,
@@ -47,7 +43,6 @@ impl RuntimeLimits {
     pub const DEFAULT: Self = Self {
         network_timeout: Duration::from_secs(30),
         max_retries: 3,
-        max_rate_limit_wait: Duration::from_secs(45),
         auto_page_chars: crate::id::DEFAULT_RESPONSE_CHARS,
         capture_ttl: Duration::from_secs(24 * 60 * 60),
         classification_concurrency: 10,

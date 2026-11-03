@@ -121,11 +121,11 @@ async fn a_reader_match_limit_discloses_the_limit_and_links_to_search() {
     for mcp in [false, true] {
         let input = json!({"queries":[{"path":path,"matchString":["hit"],"regexEngine":"rust"}]});
         let envelope = if mcp {
-            runtime
+            let result = runtime
                 .run_mcp("limit".into(), "localFetch".into(), input)
                 .await
-                .expect("MCP")["structuredContent"]
-                .clone()
+                .expect("MCP");
+            crate::support::mcp_payload(&result)
         } else {
             runtime
                 .run("limit".into(), "localFetch".into(), input)

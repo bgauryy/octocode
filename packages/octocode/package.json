@@ -66,11 +66,14 @@
     "build:dev": "node build.mjs",
     "clean": "rm -rf out/ coverage/",
     "format": "prettier --write src tests",
-    "lint": "prettier --check src tests && yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint:own": "prettier --check src tests",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
     "prepack": "node scripts/prepack.mjs",
     "test": "vitest run --coverage",
     "typecheck": "yarn run -T tsgo --noEmit",
-    "verify": "yarn lint && yarn typecheck && yarn test"
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test",
+    "verify": "yarn verify:own && yarn lint:oxlint"
   },
   "type": "module"
 }

@@ -67,7 +67,8 @@ fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
         read["input"],
         json!({"queries":[{"owner":"cli","repo":"cli","ref":"8fcd6a6",
             "path":"pkg/cmd/pr/merge/merge.go",
-            "matchString":["crossRepoPR:        pr.IsCrossRepository,"]}]})
+            "matchString":["crossRepoPR:        pr.IsCrossRepository,"],
+            "view":"content"}]})
     );
     // An `include` read offers only a file it selected.
     let view = |file: &Value| file["filename"] == "pkg/cmd/pr/view.go";
@@ -112,10 +113,12 @@ fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
     assert!(read_at_merge(&query, &merged, &no_code, all).is_none());
 }
 
-/// A change's top file reads whole at its new side (`readAtCommit`)
-/// and at its old side over the hunks' old-side windows
-/// (`readParent`): gutters number `-` lines on the old side, so parent
-/// ranges come from `-a,b`, never from `+c,d`.
+/// A change's top file reads over the hunks' new-side windows at its new
+/// side (`readAtCommit`, from `+c,d`) and over the old-side windows at its
+/// old side (`readParent`, from `-a,b`): gutters number `-` lines on the old
+/// side. A side with no lines in the diff (a pure addition has no old side,
+/// a pure removal no new side) has no read: a patched change never leads to
+/// a whole-file read.
 #[test]
 fn change_reads_number_each_side_from_its_own_hunk_side() {
     let file = |name: &str, status: &str, patch: &str| json!({"filename":name,"status":status,"additions":2,"deletions":1,"patch":patch});
@@ -133,11 +136,11 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     assert_eq!(names, ["readAtCommit", "readParent"]);
     assert_eq!(
         reads[0].1["input"],
-        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"c0ffee"}]})
+        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"c0ffee","ranges":[{"startLine": 50, "endLine": 73}],"view":"content"}]})
     );
     assert_eq!(
         reads[1].1["input"],
-        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"parent1","ranges":[{"startLine": 30, "endLine": 52}]}]})
+        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"parent1","ranges":[{"startLine": 30, "endLine": 52}],"view":"content"}]})
     );
     // A rename reads its parent under the old path; an added file has
     // no parent side, a removed one no new side.
@@ -151,6 +154,24 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     assert_eq!(
         reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
         ["readAtCommit"]
+    );
+    assert_eq!(
+        reads[0].1["input"]["queries"][0]["ranges"],
+        json!([{"startLine":1,"endLine":2}])
+    );
+    // A modified file that only adds lines has no old side to read; one
+    // that only removes lines has no new side.
+    let adds = file("src/adds.rs", "modified", "@@ -5,0 +6,2 @@\n+x\n+y");
+    let reads = change_reads("o", "r", &[adds], &sides, |_| true);
+    assert_eq!(
+        reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        ["readAtCommit"]
+    );
+    let drops = file("src/drops.rs", "modified", "@@ -5,2 +4,0 @@\n-x\n-y");
+    let reads = change_reads("o", "r", &[drops], &sides, |_| true);
+    assert_eq!(
+        reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        ["readParent"]
     );
     let removed = file("src/gone.rs", "removed", "@@ -1,2 +0,0 @@\n-x\n-y");
     let reads = change_reads("o", "r", &[removed], &sides, |_| true);

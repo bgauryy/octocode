@@ -13,11 +13,10 @@ Each example runs after you replace IDs, paths and placeholders. For every optio
 | `resume` | Reuse an expired identity of the same vendor; reacquire leases. | `agent resume '{"vendor":"claude"}'` |
 | `leave` | Finish a lifecycle this process owns; release leases/subscriptions/claims. | `agent leave` |
 | `peers` | Find live collaborators and exact recipient IDs. | `agent peers` |
-| `send_message` | One protocol message (exactly one kind field) to a peer or subscribed topic. | `agent send_message '{"to":"api-reviewer","task":{"objective":"Review src/api.ts for compatibility risks","inputs":["src/api.ts"],"output":"List of risks","done":"Given the diff, when reviewed, then each risk cites path:line"},"reasoning":"Resolve compatibility before release"}'` |
-| `notify_all` | A relevant FYI to current active peers. | `agent notify_all '{"body":"API review is ready","reasoning":"Coordinate review"}'` |
+| `send_message` | Send parts to one peer, every current peer (`to:"*"`), or a subscribed topic. `replyRequired` is explicit; `contextId` groups related messages. | `agent send_message '{"to":"api-reviewer","parts":[{"text":"Review src/api.ts for compatibility risks and return evidence."}],"replyRequired":true,"reasoning":"Resolve compatibility before release"}'` |
 | `inbox` | Read pending unexpired deliveries; optionally one message. | `agent inbox '{"message":17}'` |
 | `inbox wait` | Explicitly wait for pending mail; does not renew presence or acknowledge it. | `agent inbox wait '{"timeoutMs":1000}'` |
-| `complete` | Answer a request with an outcome and BLUF reply, or acknowledge read FYIs. | `agent complete '{"message":17,"outcome":"done","reply":{"conclusion":"No breaking change","evidence":[{"claim":"Signature unchanged","source":"src/api.ts:42"}]}}'` |
+| `complete` | Report an explicit request outcome with reply parts, or silently acknowledge handled messages. | `agent complete '{"message":17,"outcome":"completed","reply":[{"text":"No breaking change; the signature is unchanged (src/api.ts:42)."}]}'` |
 | `subscribe` | Replace the topics this identity receives. | `agent subscribe '{"topics":["api"]}'` |
 | `lock` | Reserve one file or subtree before editing; `wait:true` queues on conflict. | `agent lock '{"path":"src/api.ts","kind":"file","reasoning":"Implement reviewed API change"}'` |
 | `lock_many` | Reserve up to 32 distinct paths atomically; conflicts grant none. `wait:true` queues the set until every path is free. | `agent lock_many '{"paths":[{"path":"src/api.ts"},{"path":"tests/api.ts"}],"reasoning":"Change API and its tests"}'` |
@@ -42,7 +41,7 @@ Each example runs after you replace IDs, paths and placeholders. For every optio
 | `context` | Discover live path/branch notes; follow next even on an empty page. | `agent context '{"path":"src/api.ts","branch":"feature/api"}'` |
 | `activity` | Read Git files/commits/reflog evidence; not edit ownership. | `comm activity '{"view":"files","limit":20}'` |
 | `record_usage` | Record measured request/turn/cumulative usage without inventing missing counts. | `agent record_usage '{"key":"api-turn-1","scope":"turn","model":"HOST_MODEL","inputTokens":120,"outputTokens":40}'` |
-| `fetch` | Query the unified typed history or pending incoming mail efficiently. | `agent fetch '{"type":"event","where":{"name":"review.finished"},"limit":20}'` |
+| `fetch` | Query the unified typed history efficiently. Use `inbox` for pending deliveries. | `agent fetch '{"type":"event","where":{"name":"review.finished"},"limit":20}'` |
 | `record` | Save generic JSON memory/events or a checkpoint (`type:"checkpoint"`, returned by `binding` and `resume`); does not notify or mutate operational state. | `agent record '{"type":"memory","data":{"content":"Verified API behavior","tags":["api"]}}'` |
 | `health` | Read delivery issues without creating storage or exposing bodies. | `comm health '{"staleAfterMs":300000,"limit":20}'` |
 | `prune` | Remove expired leases in batches of 100; preserve audit history. | `comm prune` |

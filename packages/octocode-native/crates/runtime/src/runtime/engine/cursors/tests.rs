@@ -3,7 +3,7 @@ use serde_json::json;
 
 fn context() -> ExecutionContext {
     ExecutionContext {
-        cancellation: tokio_util::sync::CancellationToken::new(),
+        cancellation: octocode_io::cancellation::Cancellation::new(),
         deadline: Instant::now() + Duration::from_secs(5),
         response_window: None,
         github_credential: None,
@@ -40,7 +40,7 @@ fn page_planning_reserves_the_issued_handle_width() {
             },
             remaining: Vec::new(),
         },
-        &tokio_util::sync::CancellationToken::new(),
+        &octocode_io::cancellation::Cancellation::new(),
     )
     .expect("page");
     let planned = response.value["responsePagination"]["next"]["input"]["cursor"]
@@ -57,7 +57,7 @@ fn page_planning_reserves_the_issued_handle_width() {
 fn a_busy_store_honors_cancellation_and_deadline_without_publishing() {
     let disk = tempfile::tempdir().unwrap();
     let registry = Registry::new(
-        CacheConfig::default(),
+        CacheConfig::derived(),
         Some(disk.path().into()),
         "policy".into(),
     );
@@ -131,8 +131,6 @@ fn independent_runtimes_merge_branches_and_refresh_cached_sets() {
     let make = || {
         Registry::new(
             CacheConfig {
-                max_entries: 8,
-                max_bytes: 1024 * 1024,
                 disk_bytes: 1024 * 1024,
             },
             Some(disk.path().into()),
@@ -169,8 +167,6 @@ fn independent_runtimes_merge_branches_and_refresh_cached_sets() {
 fn registry(policy: &str) -> Registry {
     Registry::new(
         CacheConfig {
-            max_entries: 8,
-            max_bytes: 1024 * 1024,
             disk_bytes: 1024 * 1024,
         },
         None,
@@ -223,11 +219,7 @@ fn issued_work_retains_the_complete_request_and_rejects_other_access_or_tool() {
 /// many never evicts one of its own.
 #[test]
 fn an_output_retains_many_handles_without_evicting_its_own() {
-    let registry = Registry::new(
-        super::super::page_replay::PageReplayMemo::cache_config(),
-        None,
-        "policy".into(),
-    );
+    let registry = Registry::new(crate::cache::CacheConfig::derived(), None, "policy".into());
     let mut pending = Pending::new([0; 32], None);
     let tokens = (0..30)
         .map(|page| {
@@ -247,8 +239,6 @@ fn an_output_retains_many_handles_without_evicting_its_own() {
 fn disk_reopen_preserves_work_but_different_contract_or_policy_cannot_open_it() {
     let disk = tempfile::tempdir().expect("disk");
     let config = CacheConfig {
-        max_entries: 8,
-        max_bytes: 1024 * 1024,
         disk_bytes: 1024 * 1024,
     };
     let first = Registry::new(
@@ -297,13 +287,10 @@ fn disk_reopen_preserves_work_but_different_contract_or_policy_cannot_open_it() 
 
 #[test]
 fn unavailable_storage_never_claims_an_issued_handle() {
+    let storage = tempfile::tempdir().unwrap();
     let registry = Registry::new(
-        CacheConfig {
-            max_entries: 0,
-            max_bytes: 32,
-            disk_bytes: 0,
-        },
-        None,
+        CacheConfig { disk_bytes: 0 },
+        Some(storage.path().into()),
         "policy".into(),
     );
     let mut pending = Pending::new([0; 32], None);

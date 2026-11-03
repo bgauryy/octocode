@@ -3,11 +3,8 @@ use super::{GhFailure, RenameCheck, RepoPath, canonical_repo, tree_recovery};
 use octocode_github::{GitHubProvider, RequestContext};
 use serde_json::json;
 
-/// What a failed read or listing names in its leads, both from the
-/// memos the failed request filled and read at once: the commit its ref
-/// resolved (when the path failed after the ref did: leads pin it, as the
-/// request's own continuations would) and its repository's canonical name
-/// (leads name a renamed repository as it is now).
+/// The failed operation's resolved commit and current canonical repository.
+/// The caller carries the commit directly from the attempted read.
 pub(crate) struct FailureScope {
     pub commit: Option<String>,
     pub canonical: Option<(String, String)>,
@@ -17,42 +14,14 @@ pub(crate) async fn failure_scope(
     provider: &GitHubProvider,
     owner: &str,
     repo: &str,
-    reference: Option<&str>,
-    path_failed: bool,
+    commit: Option<String>,
     context: &RequestContext,
 ) -> FailureScope {
-    let (commit, canonical) = futures_util::future::join(
-        async {
-            if path_failed {
-                failed_at_commit(provider, owner, repo, reference, context).await
-            } else {
-                None
-            }
-        },
-        canonical_repo(provider, owner, repo, context, RenameCheck::Redirected),
-    )
-    .await;
-    FailureScope {
-        commit,
-        canonical: canonical.ok().flatten(),
-    }
-}
-
-/// The commit a failed read or listing resolved before it failed (the ref
-/// memo answers; a full SHA is itself), so its recovery leads pin the same
-/// commit its success leads would, not the movable ref. Called only after
-/// the repository and ref resolved (a path failure); `None` otherwise.
-pub(crate) async fn failed_at_commit(
-    provider: &GitHubProvider,
-    owner: &str,
-    repo: &str,
-    reference: Option<&str>,
-    context: &RequestContext,
-) -> Option<String> {
-    provider
-        .resolve_reference(owner, repo, reference, false, context)
+    let canonical = canonical_repo(provider, owner, repo, context, RenameCheck::Redirected)
         .await
         .ok()
+        .flatten();
+    FailureScope { commit, canonical }
 }
 
 /// The failure of a request that named a submodule path (a read or a
@@ -64,10 +33,12 @@ pub(crate) async fn submodule_failure(
     context: &RequestContext,
     failure: GhFailure,
 ) -> GhFailure {
-    let submodule = match failed_at_commit(provider, at.owner, at.repo, at.reference, context).await
+    let submodule = match at
+        .reference
+        .filter(|reference| octocode_github::is_full_sha(reference))
     {
         Some(commit) => provider
-            .submodule(at.owner, at.repo, at.path, &commit, context)
+            .submodule(at.owner, at.repo, at.path, commit, context)
             .await
             .ok()
             .flatten(),

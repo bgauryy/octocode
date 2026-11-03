@@ -15,18 +15,22 @@ process environment + home .env + workspace .octocode/.env
 
 ## Declarative contract
 
-Cross-language field policy has one source: `config-contract.json`, validated
-against `config-contract.schema.json`. The TypeScript generator emits field
-metadata, defaults, environment policy, and user documentation. Native
-`build.rs` validates the same contract without Node, then emits Rust structs,
+Cross-language field policy has one source: the Zod declaration in
+`scripts/config-contract/declaration/`, shaped by `scripts/config-contract/schema.ts`.
+The generator validates it with that schema and emits `config-contract.json` and
+`config-contract.schema.json` (`z.toJSONSchema`), field
+metadata, defaults, environment policy, and user documentation. A test fails when
+any generated file drifts from the declaration. Native
+`build.rs` reads the emitted JSON without Node, then emits Rust structs,
 defaults, environment policy, and the generic resolver metadata the runtime
 resolves settings with. Generated files are never edited by hand.
 
 ```text
-config-contract.json + config-contract.schema.json
-      ├── Ajv build validation → contract.generated.ts → field metadata, defaults, .env policy
+declaration/ (Zod schema.ts validates)
+      ├── emit → config-contract.json + config-contract.schema.json
+      ├── contract.generated.ts → field metadata, defaults, .env policy
       ├── documentation generation → docs/generated/CONFIG_SETTINGS.md
-      └── Rust build validation → OUT_DIR/config_contract.rs → native resolver
+      └── config-contract.json → Rust build → OUT_DIR/config_contract.rs → native resolver
 ```
 
 Hand-written source owns language mechanics only. It must not contain
@@ -99,7 +103,7 @@ tightening a payload shape is a core schema change, never a hand-written type.
 - Credential source priority applies across aliases before alias priority within the same source; token discovery, refresh, and storage remain native responsibilities.
 - Parsing is deterministic and does not execute shell syntax.
 - Consumers receive explicit environment objects where isolation matters.
-- The root entry uses Node builtins only, so public packages and standalone skills can bundle it without importing another policy owner; only `./schema` and `./chrome` import core. Ajv is build/test-only and is absent from `dist`.
+- The root entry uses Node builtins only, so public packages and standalone skills can bundle it without importing another policy owner; only `./schema` and `./chrome` import core. The config-contract generator's Zod declaration and the tests' Ajv are build/test-only; the root entry imports neither.
 
 ## Distribution
 

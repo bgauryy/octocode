@@ -1,101 +1,17 @@
 //! `octocode mcp` over real stdio, one process per protocol era: the
 //! handshake, the listing, a tool call, the protocol error of an unlisted
 //! tool, the language-server prewarm after `initialize`, and the exit on
-//! stdin close.
+//! stdin close; `progress` covers a rate-limit wait's progress notifications.
 
 use crate::support;
 use serde_json::{Value, json};
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use server::{Server, assert_cli_json_parity, local_search, tool_names};
 use std::time::Duration;
 use support::Workspace;
 
-const REPLY_TIMEOUT: Duration = Duration::from_secs(60);
-
-struct Server {
-    child: Child,
-    stdin: Option<ChildStdin>,
-    replies: Receiver<Value>,
-    next_id: u64,
-}
-
-impl Server {
-    fn start(workspace: &Workspace) -> Self {
-        Self::start_with(workspace, &[])
-    }
-
-    /// [`Self::start`] with extra environment variables.
-    fn start_with(workspace: &Workspace, env: &[(&str, &str)]) -> Self {
-        let mut child = workspace
-            .cli()
-            .envs(env.iter().copied())
-            .arg("mcp")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        let stdin = child.stdin.take();
-        let stdout = child.stdout.take().unwrap();
-        let (sender, replies) = channel();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                if sender.send(serde_json::from_str(&line).unwrap()).is_err() {
-                    break;
-                }
-            }
-        });
-        Self {
-            child,
-            stdin,
-            replies,
-            next_id: 0,
-        }
-    }
-
-    fn send(&mut self, message: &Value) {
-        let stdin = self.stdin.as_mut().unwrap();
-        writeln!(stdin, "{message}").unwrap();
-        stdin.flush().unwrap();
-    }
-
-    /// One request and its reply: the full JSON-RPC message.
-    fn request(&mut self, method: &str, params: Value) -> Value {
-        self.next_id += 1;
-        let id = self.next_id;
-        self.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
-        match self.replies.recv_timeout(REPLY_TIMEOUT) {
-            Ok(reply) => {
-                assert_eq!(reply["id"], id, "{reply}");
-                reply
-            }
-            Err(RecvTimeoutError::Timeout) => panic!("no reply to {method}"),
-            Err(RecvTimeoutError::Disconnected) => panic!("server closed before replying"),
-        }
-    }
-
-    /// Close stdin and wait for the server to leave.
-    fn finish(mut self) -> std::process::ExitStatus {
-        drop(self.stdin.take());
-        self.child.wait().unwrap()
-    }
-}
-
-fn local_search(path: &str) -> Value {
-    json!({"name": "localSearch", "arguments": {"queries": [{
-        "matchString": ["needle"], "path": path
-    }]}})
-}
-
-fn tool_names(list: &Value) -> Vec<&str> {
-    list["result"]["tools"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|tool| tool["name"].as_str())
-        .collect()
-}
+mod graph_parity;
+mod progress;
+mod server;
 
 #[test]
 fn serves_the_2025_era_over_stdio() {
@@ -142,10 +58,8 @@ fn serves_the_2025_era_over_stdio() {
         text.contains("a.txt") && text.contains("beta needle"),
         "{text}"
     );
-    assert_eq!(
-        serde_json::from_str::<Value>(text).unwrap(),
-        call["result"]["structuredContent"]
-    );
+    assert!(call["result"].get("structuredContent").is_none(), "{call}");
+    assert!(serde_json::from_str::<Value>(text).unwrap().is_object());
 
     let invalid = server.request(
         "tools/call",
@@ -159,6 +73,57 @@ fn serves_the_2025_era_over_stdio() {
     assert_eq!(unlisted["error"]["code"], -32602);
     assert_eq!(unlisted["error"]["message"], "Tool noSuchTool not found");
 
+    assert!(server.finish().success());
+}
+
+#[test]
+fn every_result_shape_sends_json_once_and_matches_cli() {
+    let workspace = Workspace::new();
+    std::fs::write(
+        workspace.workspace.join("a.txt"),
+        (0..200)
+            .map(|line| format!("needle {line}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
+    let mut server = Server::start(&workspace);
+    server.request(
+        "initialize",
+        json!({"protocolVersion": "2025-11-25", "capabilities": {},
+               "clientInfo": {"name": "test", "version": "1"}}),
+    );
+    server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    for (tool, input) in [
+        ("localFetch", json!({"queries":[{"path":"a.txt"}]})),
+        (
+            "localFetch",
+            json!({"queries":[{"path":"a.txt"},{"path":"missing.txt"}]}),
+        ),
+        ("localFetch", json!({"queries":[{"path":"missing.txt"}]})),
+        (
+            "localFetch",
+            json!({"queries":[{"path":"a.txt","matchstring":"x"}]}),
+        ),
+    ] {
+        assert_cli_json_parity(&workspace, &mut server, tool, input);
+    }
+    // A separate paged execution has a fresh opaque cursor and expiry. The
+    // same-fixture projection test in cli/output.rs pins its exact bytes.
+    let paged = server.request(
+        "tools/call",
+        json!({"name":"localSearch","arguments":{"queries":[{"path":"a.txt","matchString":["needle"]}],"responseChars":900}}),
+    );
+    assert!(
+        paged["result"].get("structuredContent").is_none(),
+        "{paged}"
+    );
+    assert_eq!(paged["result"]["content"].as_array().map(Vec::len), Some(1));
+    assert!(
+        paged["result"]["content"][0]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("responsePagination"))
+    );
     assert!(server.finish().success());
 }
 
@@ -214,6 +179,89 @@ fn serves_the_2026_era_over_stdio() {
     assert!(server.finish().success());
 }
 
+/// The instructions name the tool flow by URI: a host reads it on demand, so
+/// an agent without the skills installed can still reach it.
+#[test]
+fn the_tool_flow_is_readable_as_a_resource() {
+    let workspace = Workspace::new();
+    let mut server = Server::start(&workspace);
+    let init = server.request(
+        "initialize",
+        json!({"protocolVersion": "2025-11-25", "capabilities": {},
+               "clientInfo": {"name": "test", "version": "1"}}),
+    );
+    assert!(
+        init["result"]["capabilities"]["resources"].is_object(),
+        "{init}"
+    );
+    let uri = "octocode://research/tool-flow";
+    assert!(
+        init["result"]["instructions"]
+            .as_str()
+            .is_some_and(|text| text.contains(uri)),
+        "{init}"
+    );
+    server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    let listed = server.request("resources/list", json!({}));
+    let listed_uris: Vec<&str> = listed["result"]["resources"]
+        .as_array()
+        .expect("resources")
+        .iter()
+        .filter_map(|resource| resource["uri"].as_str())
+        .collect();
+    assert!(listed_uris.contains(&uri), "{listed}");
+    let references = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../skills/octocode-research/references");
+    // Follow every sibling link from the tool flow: each must be listed and
+    // read back as its skill source file. A link with a path segment points
+    // into the installed skill, outside the served references.
+    let mut pending = vec![uri.to_string()];
+    let mut read_uris = Vec::new();
+    while let Some(current) = pending.pop() {
+        if read_uris.contains(&current) {
+            continue;
+        }
+        let read = server.request("resources/read", json!({"uri": current}));
+        let text = read["result"]["contents"][0]["text"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{current} is not readable: {read}"));
+        let file = current.rsplit('/').next().expect("file");
+        let file = if file.ends_with(".md") {
+            file.to_string()
+        } else {
+            format!("{file}.md")
+        };
+        assert_eq!(
+            text,
+            std::fs::read_to_string(references.join(&file)).expect("skill file"),
+            "{current}"
+        );
+        assert!(
+            listed_uris.contains(&current.as_str()),
+            "{current} unlisted"
+        );
+        for target in markdown_links(text) {
+            let path = target.split('#').next().unwrap_or_default();
+            if !path.is_empty() && !path.contains('/') {
+                pending.push(format!("octocode://research/{path}"));
+            }
+        }
+        read_uris.push(current);
+    }
+    assert!(read_uris.len() > 1, "the tool flow links no reference");
+    let unknown = server.request("resources/read", json!({"uri": "octocode://nope"}));
+    assert!(unknown["error"].is_object(), "{unknown}");
+    assert!(server.finish().success());
+}
+
+/// The target of every inline `[text](target)` link in a markdown text.
+fn markdown_links(text: &str) -> Vec<&str> {
+    text.split("](")
+        .skip(1)
+        .filter_map(|rest| rest.split(')').next())
+        .collect()
+}
+
 #[test]
 fn a_rejected_call_leaves_the_server_serving() {
     let workspace = Workspace::new();
@@ -235,14 +283,15 @@ fn a_rejected_call_leaves_the_server_serving() {
     assert!(server.finish().success());
 }
 
-/// After `initialize`, the server starts the workspace's language server in
-/// the background: the configured server runs before any call names a file.
-/// `lsp.prewarm` off starts none.
+/// `lsp.prewarm` all starts the workspace's language server in the background
+/// after `initialize`, before any call names a file. `targeted` waits for a
+/// result that offers an lspSearch call: a session that never needs one starts
+/// no whole-project index. `off` starts none.
 #[cfg(unix)]
 #[test]
-fn initialize_prewarms_the_workspace_language_server() {
+fn only_prewarm_all_starts_the_workspace_language_server_at_initialize() {
     use std::os::unix::fs::PermissionsExt;
-    for (prewarm, starts) in [("targeted", true), ("off", false)] {
+    for (prewarm, starts) in [("all", true), ("targeted", false), ("off", false)] {
         let workspace = Workspace::new();
         let root = &workspace.workspace;
         std::fs::write(root.join("package.json"), "{}\n").unwrap();

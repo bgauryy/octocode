@@ -5,8 +5,8 @@ use super::binaries::*;
 use super::layout::*;
 use super::local_search_query;
 use super::types::*;
-use crate::num::u32_of_usize;
 use octocode_contract_types::LocalSearchQuery;
+use octocode_engine::num::saturating_u32;
 use octocode_engine::types::CapReason;
 
 /// What the scan could not cover, and how the row says so.
@@ -93,7 +93,7 @@ impl Coverage {
                 .not_utf8_files
                 .as_deref()
                 .filter(|files| !files.is_empty())
-                .map(|files| binary_file_list(files, u32_of_usize(files.len()), output_root)),
+                .map(|files| binary_file_list(files, saturating_u32(files.len()), output_root)),
             pcre2_deadline: cap_has(CapReason::Pcre2Deadline),
             scope_miss: !root.is_file()
                 && stats.files_searched == 0
@@ -148,7 +148,7 @@ impl Coverage {
         }
         if unverified {
             warnings.push(
-                "Some match values were redacted because their source file could not be re-read to check selected text for secrets. Use localFetch at the returned anchors.".into(),
+                "Some match values are [REDACTED: …] placeholders because their source file changed during the call or could not be re-read to check selected text for secrets. Use localFetch at the returned anchors.".into(),
             );
         }
         // Values are decoded as localFetch decodes the file; say so once.
@@ -225,7 +225,7 @@ const NOTHING_WALKED_HINT: &str = "Nothing searched: no file under path; check t
 const SCOPE_MISS_HINT: &str = "Nothing searched: include/exclude matched no file; the related[] structureSearch request lists the names to fix the globs.";
 
 /// A query that explicitly targets a single file which the engine then skips
-/// (e.g. over the per-file byte ceiling, surfaced as `capReason:"maxFileSize"`
+/// (e.g. over the per-file byte ceiling, surfaced as `capReason:"fileTooLarge"`
 /// with `filesScanned:0`) is a silent false negative without an explanation:
 /// nothing was searched, so "no matches" would be misleading.
 pub(super) fn skipped_target_hint(

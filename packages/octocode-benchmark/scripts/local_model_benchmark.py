@@ -76,13 +76,17 @@ def native_call(binary, name, arguments, root, timeout=40):
     return record
 
 
-def mcp_start(command):
-    client = McpClient({'command': command[0], 'args': command[1:]})
-    initialize = client.call('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {},
-                             'clientInfo': {'name': 'octocode-local-model-benchmark', 'version': '1'}})
-    client.proc.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
-    client.proc.stdin.flush()
-    return client, initialize
+def mcp_start(command, env=None):
+    client = McpClient({'command': command[0], 'args': command[1:]}, env=env)
+    try:
+        initialize = client.call('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {},
+                                 'clientInfo': {'name': 'octocode-local-model-benchmark', 'version': '1'}})
+        client.proc.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+        client.proc.stdin.flush()
+        return client, initialize
+    except Exception:
+        client.close()
+        raise
 
 
 def model_turn(client, model, messages, tools, output_tokens, context_tokens):
@@ -201,16 +205,34 @@ def constrain_response_budget(schema):
 
 
 def capture_schemas(binary, out):
-    tools = []
-    for name in LOCAL_TOOLS:
-        run = subprocess.run([str(binary), 'schema', name, '--view', 'query'],
-                             env=dict(os.environ, OCTOCODE_BETA='0', OCTOCODE_CLASSIFICATION_API='', OCTOCODE_ENABLE_LOCAL='true'),
-                             capture_output=True, text=True, check=True)
-        schema = json.loads(run.stdout)
-        save(out / 'schemas' / (name + '.json'), schema)
-        parameters = copy.deepcopy(schema['inputSchema'])
-        constrain_response_budget(parameters)
-        tools.append({'type': 'function', 'function': {'name': name, 'description': schema['description'], 'parameters': parameters}})
+    """Read callable envelopes from the same native runtime's MCP catalog."""
+    env = dict(os.environ, OCTOCODE_BETA='0', OCTOCODE_CLASSIFICATION_API='', OCTOCODE_ENABLE_LOCAL='true',
+               TOOLS_TO_RUN=','.join(LOCAL_TOOLS), DISABLE_TOOLS='')
+    client, _initialize = mcp_start([str(binary), 'mcp'], env=env)
+    try:
+        schemas, cursors, params = {}, set(), {}
+        while True:
+            page = client.call('tools/list', params)
+            for schema in page['tools']:
+                if schema['name'] in schemas:
+                    raise RuntimeError('Duplicate catalog tool: ' + schema['name'])
+                schemas[schema['name']] = schema
+            cursor = page.get('nextCursor')
+            if cursor is None:
+                break
+            if cursor in cursors:
+                raise RuntimeError('Repeated tools/list cursor')
+            cursors.add(cursor)
+            params = {'cursor': cursor}
+        tools = []
+        for name in LOCAL_TOOLS:
+            schema = schemas[name]
+            save(out / 'schemas' / (name + '.json'), schema)
+            parameters = copy.deepcopy(schema['inputSchema'])
+            constrain_response_budget(parameters)
+            tools.append({'type': 'function', 'function': {'name': name, 'description': schema['description'], 'parameters': parameters}})
+    finally:
+        client.close()
     save(out / 'tools.json', tools)
     return tools
 

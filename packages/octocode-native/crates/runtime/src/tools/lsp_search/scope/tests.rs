@@ -1,6 +1,5 @@
 use super::*;
 use crate::tools::test_support::workspace_policy;
-use std::time::Instant;
 
 mod reach;
 mod text_scans;
@@ -102,7 +101,9 @@ fn fingerprint_changes_on_edit_add_delete() {
         server_root: Some(&root),
         include: &include,
     };
-    let scope = |stopped: &(dyn Fn() -> bool + Sync)| scan::fingerprint(&walked, stopped);
+    let scope = |stopped: &(dyn Fn() -> bool + Sync)| {
+        scan::fingerprint(&walked, SystemTime::now(), stopped)
+    };
     let never = || false;
     let first = scope(&never).expect("fingerprint");
     assert_eq!(scope(&never).as_ref(), Some(&first));
@@ -144,18 +145,50 @@ fn fingerprint_changes_after_same_size_edit_with_restored_old_mtime() {
         server_root: Some(&root),
         include: &include,
     };
-    let digest = || scan::fingerprint(&walked, &|| false).expect("fingerprint");
+    let digest = || scan::fingerprint(&walked, SystemTime::now(), &|| false).expect("fingerprint");
     let first = digest();
     write(&path, "export const a = 2;\n");
     set_old_time();
     assert_ne!(digest(), first);
 }
 
+/// A fingerprint is the scope as of an instant, never of the walk's clock:
+/// a file modified just before `observed` digests its content at every walk
+/// observing that instant, however long after it the walk runs, so a
+/// continuation observing its first page's instant again sees an unchanged
+/// scope unchanged after the file ages. A later instant settles the file.
+#[test]
+fn a_fingerprint_observed_at_one_instant_does_not_change_as_files_age() {
+    let (_dir, root) = fixture();
+    let path = root.join("a.ts");
+    write(&path, "export const a = 1;\n");
+    let modified = std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000);
+    std::fs::File::open(&path)
+        .expect("file")
+        .set_times(std::fs::FileTimes::new().set_modified(modified))
+        .expect("mtime");
+    let include = ["*.ts".to_owned()];
+    let walked = scan::FingerprintScope {
+        root: &root,
+        server_root: Some(&root),
+        include: &include,
+    };
+    let digest = |observed| scan::fingerprint(&walked, observed, &|| false).expect("fingerprint");
+    let observed = modified + FRESH_MTIME / 2;
+    let first = digest(observed);
+    assert_eq!(
+        digest(observed),
+        first,
+        "the same instant, an unchanged scope"
+    );
+    assert_ne!(digest(modified + FRESH_MTIME * 2), first, "a later instant");
+}
+
 /// Queries that ask for one scope's fingerprint while its walk runs (a
 /// batch's rows start together) share that one walk and its digest; a
 /// request asking after it ends walks again and sees an edit made since.
 #[test]
-fn concurrent_requests_share_one_fingerprint_walk_of_a_scope() {
+fn concurrent_requests_own_their_fingerprint_walks() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     const REQUESTS: usize = 5;
     let (_dir, root) = fixture();
@@ -177,21 +210,11 @@ fn concurrent_requests_share_one_fingerprint_walk_of_a_scope() {
             let (scope, started) = (&walked_scope, &started);
             threads.spawn(move || {
                 started.wait();
-                // The walking request holds its walk until every request
-                // has joined it (the table, the walker and each joiner
-                // hold the flight), so none can arrive after it ends.
                 let stopped = || {
-                    if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                        let deadline = Instant::now() + Duration::from_secs(20);
-                        while scan::flight_holders(scope) < REQUESTS + 1
-                            && Instant::now() < deadline
-                        {
-                            std::thread::yield_now();
-                        }
-                    }
+                    calls.fetch_add(1, Ordering::SeqCst);
                     false
                 };
-                scan::shared_fingerprint(scope, &stopped).expect("fingerprint")
+                scan::fingerprint(scope, SystemTime::now(), &stopped).expect("fingerprint")
             })
         });
         requests
@@ -205,14 +228,12 @@ fn concurrent_requests_share_one_fingerprint_walk_of_a_scope() {
         .iter()
         .filter(|calls| calls.load(Ordering::SeqCst) > 0)
         .count();
-    assert_eq!(walkers, 1, "one walk for the requests that asked at once");
     assert_eq!(
-        scan::flight_holders(&walked_scope),
-        0,
-        "nothing in flight after"
+        walkers, REQUESTS,
+        "every request proves its own source revision"
     );
     write(&root.join("m0.ts"), "export const x = 22;\n");
-    let after = scan::shared_fingerprint(&walked_scope, &|| false).expect("again");
+    let after = scan::fingerprint(&walked_scope, SystemTime::now(), &|| false).expect("again");
     assert_ne!(after.0, digests[0].0, "a later request walks again");
 }
 
@@ -313,7 +334,9 @@ async fn a_fingerprint_walk_without_a_fingerprint_is_counted_in_the_trace() {
     write(&root.join("a.ts"), "export const a = 1;\n");
     let scope = resolve(&root.join("a.ts"), &root, &root, "typescript");
     let trace = octocode_engine::lsp::diagnostics::Trace::default();
-    let found = trace.run(scope.walk_fingerprint(&Cancelled(false))).await;
+    let found = trace
+        .run(scope.walk_fingerprint(SystemTime::now(), &Cancelled(false)))
+        .await;
     assert!(found.expect("walked").is_some());
     assert!(
         trace.summary().contains("scopeFingerprint: ") && trace.summary().contains("completed=1"),
@@ -321,7 +344,9 @@ async fn a_fingerprint_walk_without_a_fingerprint_is_counted_in_the_trace() {
         trace.summary()
     );
     let trace = octocode_engine::lsp::diagnostics::Trace::default();
-    let stopped = trace.run(scope.walk_fingerprint(&Cancelled(true))).await;
+    let stopped = trace
+        .run(scope.walk_fingerprint(SystemTime::now(), &Cancelled(true)))
+        .await;
     assert!(!matches!(stopped, Ok(Some(_))));
     let summary = trace.summary();
     assert!(
@@ -350,7 +375,8 @@ fn the_fingerprint_walks_ignored_files_only_under_the_server_root() {
         server_root: Some(&server),
         include: &include,
     };
-    let (first, entries) = scan::fingerprint(&scope, &|| false).expect("fingerprint");
+    let (first, entries) =
+        scan::fingerprint(&scope, SystemTime::now(), &|| false).expect("fingerprint");
     let walked = entries.keys().map(String::as_str).collect::<Vec<_>>();
     assert_eq!(walked, ["app/gen/out.rs", "app/src/lib.rs"], "{walked:?}");
     write(
@@ -358,12 +384,16 @@ fn the_fingerprint_walks_ignored_files_only_under_the_server_root() {
         "pub fn x() { changed() }\n",
     );
     assert_eq!(
-        scan::fingerprint(&scope, &|| false).expect("again").0,
+        scan::fingerprint(&scope, SystemTime::now(), &|| false)
+            .expect("again")
+            .0,
         first
     );
     write(&root.join("app/gen/out.rs"), "pub fn g() { changed() }\n");
     assert_ne!(
-        scan::fingerprint(&scope, &|| false).expect("again").0,
+        scan::fingerprint(&scope, SystemTime::now(), &|| false)
+            .expect("again")
+            .0,
         first
     );
 }

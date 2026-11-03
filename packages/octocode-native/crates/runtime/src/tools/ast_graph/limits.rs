@@ -20,11 +20,10 @@ pub(crate) struct Limits {
     pub source_work: usize,
     /// Checkpoint artifacts on disk.
     pub spill_bytes: u64,
-    /// Artifacts held in memory because they hold secrets.
+    /// Artifacts held in memory because their sources hold secrets.
     pub memory_only_bytes: u64,
     /// Encoded bytes of the artifacts a checkpointed build keeps decoded
-    /// for linking; past it, linking reads them back from disk. The facts
-    /// memo's budget, which a checkpointed build no longer fills.
+    /// for linking; past it, linking reads them back from disk.
     pub retained_bytes: u64,
     /// One extraction artifact.
     pub artifact_bytes: usize,

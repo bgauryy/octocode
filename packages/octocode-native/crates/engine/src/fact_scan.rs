@@ -13,27 +13,16 @@ use crate::stamp::SourceStamp;
 use crate::types::{FileSystemQueryOptions, GraphFactsScanDiagnostic, GraphFactsScanOptions};
 
 mod evaluate;
-pub use evaluate::SOURCE_BUDGET_EXCEEDED;
-mod memo;
-
-/// Drop parsed source facts held by this process.
-pub fn clear_cache() {
-    memo::FACTS_MEMO.invalidate_all();
-    memo::FACTS_MEMO.run_pending_tasks();
-}
-
 use crate::signatures::languages::RegistryView;
 use crate::text::analysis::{AnalysisOperation, MapLimits};
+pub use evaluate::SOURCE_BUDGET_EXCEEDED;
 #[cfg(test)]
 use evaluate::evaluate_walk;
-#[cfg(test)]
-use memo::facts_heap_bytes;
-
 /// Largest source the graph-facts scan parses; a larger file stays an
 /// unparsed (skipped) node. One bound for graphBuild and its reuse check.
 pub const MAX_GRAPH_SOURCE_BYTES: u32 = 1_000_000;
 
-/// One parsed file, borrowed from the scan's cache: a caller reduces it to
+/// One parsed file, borrowed during extraction: a caller reduces it to
 /// what it keeps before the next file is read.
 pub struct GraphFactsView<'a> {
     pub relative_path: &'a str,
@@ -45,8 +34,7 @@ pub struct GraphFactsView<'a> {
     pub admitted: &'a crate::text::analysis::AdmittedSource<'a>,
     pub source: &'a crate::text::analysis::BoundSource<'a>,
     pub reference_counts: &'a [crate::graph::GraphReferenceCount],
-    /// Full graph facts came from an in-memory or caller-provided cache.
-    /// The declarations-only extractor owns separate cache telemetry.
+    /// Full graph facts came from a caller-provided, validated checkpoint.
     pub reused: bool,
 }
 
@@ -165,12 +153,11 @@ pub fn parser_overrides_with_registry(
 /// Where a scan takes each file's facts from.
 #[derive(Clone, Copy)]
 pub enum FactsSource<'a> {
-    /// Full graph facts (declarations, calls, paths, references), parsed
-    /// once per content version and kept in the scan's own memo.
+    /// Full graph facts (declarations, calls, paths, references), freshly
+    /// parsed from the selected source in this scan.
     Graph,
     /// Full facts may be reused from the caller's versioned persistent store,
-    /// after the scan reads and fingerprints the current source. That store
-    /// replaces the scan's memo: this scan neither fills nor reads it.
+    /// after the scan reads and fingerprints the current source.
     CachedGraph(&'a GraphFactsReuse<'a>),
     /// Declarations only, from the caller's [`DeclarationsExtraction`] and
     /// its cache. The scan keeps no copy, so one cache holds a file's

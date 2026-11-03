@@ -45,8 +45,16 @@ export function leadsIn(json, schema) {
   return found;
 }
 
-/** Cursor bytes vary by runtime. Only their opaque presence is comparable. */
-export const graphInput = input => Object.hasOwn(input, 'cursor') ? { cursor: '<issued>' } : input;
+/**
+ * Cursor bytes vary by runtime, and a `graph` pin names an exact snapshot id that
+ * each graphBuild mints per call. Only their opaque presence is comparable.
+ */
+const pinsSnapshot = query => Boolean(query) && typeof query === 'object' && Object.hasOwn(query, 'graph');
+export const graphInput = input => {
+  if (Object.hasOwn(input, 'cursor')) return { cursor: '<issued>' };
+  if (!Array.isArray(input.queries) || !input.queries.some(pinsSnapshot)) return input;
+  return { ...input, queries: input.queries.map(query => pinsSnapshot(query) ? { ...query, graph: '<per-build snapshot>' } : query) };
+};
 
 /** Map only declared output fields; arbitrary evidence values remain untouched. */
 export function mapDeclared(json, schema, transform) {

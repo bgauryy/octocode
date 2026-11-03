@@ -207,7 +207,7 @@ async fn location_page(
         lsp_search_query::page(query).unwrap_or(1),
         &Pages::of(query, budget, &sizes, &snapshot),
     );
-    let mut declaration_reads: Vec<Value> = Vec::new();
+    let mut declaration_reads: Vec<crate::response::result::Continuation> = Vec::new();
     let (key, rows) = if grouped {
         ("files", json!(page))
     } else {
@@ -224,7 +224,10 @@ async fn location_page(
                 .collect();
         }
         let page = page.into_iter().map(public_location).collect::<Vec<_>>();
-        ("matches", json!(page))
+        match rows::located_files(page.clone()) {
+            Some(files) => ("files", json!(files)),
+            None => ("matches", json!(page)),
+        }
     };
     let mut row = location_payload(kind, provider, key, rows, locations, pagination);
     offer_next_page(query, &mut row, next_page);
@@ -235,11 +238,14 @@ async fn location_page(
     }
     // One read per capped body: `readDeclaration`, `readDeclaration2`, ….
     for (index, read) in declaration_reads.into_iter().enumerate() {
-        let key = match index {
-            0 => "readDeclaration".to_owned(),
-            n => format!("readDeclaration{}", n + 1),
-        };
-        row["next"][key] = read;
+        match index {
+            0 => crate::response::result::insert_next(
+                &mut row["next"],
+                octocode_contract_types::LspSearchChannel::ReadDeclaration,
+                read,
+            ),
+            n => row["next"][format!("readDeclaration{}", n + 1)] = read.build(),
+        }
     }
     row
 }

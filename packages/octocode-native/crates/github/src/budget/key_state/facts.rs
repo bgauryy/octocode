@@ -1,5 +1,5 @@
 //! What one key learns and reports: observed rate-limit headers, exhausted buckets and cooldowns,
-//! code-search room, and the git gate.
+//! code-search quota room, and the git gate.
 use super::{Bucket, KeyState};
 use crate::ProviderError;
 use crate::budget::slots::{SlotPlan, Subject};
@@ -13,7 +13,9 @@ use std::{
 use tokio::sync::OwnedSemaphorePermit;
 
 impl KeyState {
-    /// Record the primary bucket carried by any response.
+    /// Record the primary bucket carried by any response. An exhausted
+    /// bucket, and any bucket a quota-paced group spaces its starts by, is
+    /// mirrored at once, so the next process blocks or paces from it too.
     pub(crate) fn observe(self: &Arc<Self>, headers: &HeaderMap, fallback_resource: &str) {
         let (Some(remaining), Some(reset)) = (
             header_u64(headers, "x-ratelimit-remaining"),
@@ -28,55 +30,54 @@ impl KeyState {
             .filter(|value| !value.is_empty())
             .unwrap_or(fallback_resource)
             .to_owned();
+        let paces = Group::paces_bucket(&resource);
         self.facts()
             .buckets
             .insert(resource, Bucket { remaining, reset });
-        if remaining == 0 {
+        if remaining == 0 || paces {
             self.persist();
         }
     }
 
     /// A row that needs `searches` sends (one per extension) is refused
-    /// before the first one when the planner puts the last start past the
-    /// cap or the deadline; a refusal midway would spend window slots on a
-    /// page that is then discarded. The starts are simulated with the rule
-    /// the admission uses, on a copy of the facts, so nothing is reserved.
+    /// before the first one when the planner puts the last start at or past
+    /// the deadline; a refusal midway would spend quota on a page that is then
+    /// discarded. The starts are simulated with the rule the admission uses,
+    /// on a copy of the facts, so nothing is reserved.
     pub(crate) fn code_search_batch_refusal(
         &self,
         searches: usize,
         config: &ExecutorConfig,
-        cap: Duration,
         deadline: Instant,
     ) -> Option<ProviderError> {
         if searches < 2 {
             return None;
         }
         self.refresh_from_disk();
-        let plan = SlotPlan::new(Group::CodeSearch, config, true, cap, deadline);
+        let plan = SlotPlan::new(Group::CodeSearch, config, searches, deadline);
         let facts = self.facts();
-        let mut ahead = self
-            .groups
-            .get(Group::CodeSearch.name())
-            .map(|lane| lane.queued.ahead())
-            .unwrap_or_default();
-        ahead.add(plan.window, searches - 1);
-        let last = plan.start_after(&facts, now_ms(), ahead);
+        let ahead = self.groups.get(Group::CodeSearch.name()).map_or(0, |lane| {
+            lane.queued.load(std::sync::atomic::Ordering::SeqCst)
+        });
+        let last = plan.batch_start(&facts, now_ms(), ahead);
         drop(facts);
         plan.refusal(last, Subject::Batch(searches))
     }
 
-    /// Code searches the 60 s window still has room for, counting what other
-    /// processes on this key reserved.
+    /// Code searches the quota still covers: what GitHub last reported for
+    /// the `code_search` resource (shared by every process on this key), or
+    /// the assumed quota until a response reports one. An unpaced config
+    /// plans against no quota.
     pub(crate) fn code_search_room(&self, config: &ExecutorConfig) -> usize {
+        if !config.quota_pacing {
+            return usize::MAX;
+        }
         self.refresh_from_disk();
-        let now = now_ms();
-        let used = self
-            .facts()
-            .code_search_ms
-            .iter()
-            .filter(|stamp| stamp.saturating_add(60_000) > now)
-            .count();
-        config.code_search_per_minute.saturating_sub(used)
+        self.facts()
+            .quota(Group::CodeSearch, now_ms())
+            .map_or(usize::MAX, |bucket| {
+                usize::try_from(bucket.remaining).unwrap_or(usize::MAX)
+            })
     }
 
     /// Mark a resource exhausted until `reset` (epoch seconds).

@@ -291,16 +291,22 @@ impl ProviderFailure {
 /// from its first window, without classification or private progress.
 /// `keep` names cursors that are source identity here (a provider `page`).
 pub(crate) fn unfiltered_row(query: &Value, keep: &[&str]) -> Value {
-    let mut row = query.clone();
-    if let Some(fields) = row.as_object_mut() {
-        fields.remove("classification");
-        for field in progress_fields() {
-            if !keep.contains(&field.as_str()) {
-                fields.remove(field);
-            }
+    crate::response::result::with_changes(query.clone(), &unfiltered_changes(keep))
+}
+
+/// The edits that make a classified query its unfiltered recovery
+/// ([`unfiltered_row`]): classification and every private cursor not in
+/// `keep` dropped. Apply with [`crate::response::result::edited_query`]
+/// for a typed query.
+pub(crate) fn unfiltered_changes(keep: &[&str]) -> Value {
+    let mut changes = serde_json::Map::new();
+    changes.insert("classification".into(), Value::Null);
+    for field in progress_fields() {
+        if !keep.contains(&field.as_str()) {
+            changes.insert(field.clone(), Value::Null);
         }
     }
-    row
+    Value::Object(changes)
 }
 
 /// [`unfiltered_row`] as the `next.unfiltered` lead of `tool`.

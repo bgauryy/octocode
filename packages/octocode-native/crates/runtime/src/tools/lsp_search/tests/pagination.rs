@@ -60,7 +60,7 @@ fn a_page_past_the_former_ceiling_continues() {
         }),
     );
     assert_eq!(
-        row["next"]["nextPage"]["input"]["queries"][0]["page"], 1001,
+        row["pagination"]["next"]["nextPage"]["input"]["queries"][0]["page"], 1001,
         "{row}"
     );
     assert_eq!(row["matches"].as_array().expect("evidence").len(), 1);

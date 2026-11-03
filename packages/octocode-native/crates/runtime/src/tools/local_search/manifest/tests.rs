@@ -1,38 +1,5 @@
 use super::*;
 
-#[test]
-fn stored_scans_stay_within_the_aggregate_budget() {
-    let store = PageMemo::new(TTL, MAX_ENTRIES, MAX_TOTAL_BYTES);
-    for tag in 0..40 {
-        store.put(
-            format!("scan-{tag}"),
-            "policy".into(),
-            MAX_BYTES,
-            Scan {
-                sources: Vec::new().into(),
-                value: Arc::new(
-                    pack(&TextSearchResult {
-                        files: Vec::new(),
-                        stats: Default::default(),
-                    })
-                    .expect("packed"),
-                ),
-                query_key: String::new(),
-                redaction: None,
-                skipped: Default::default(),
-                prices: Default::default(),
-                proof: Walked::settled(std::env::temp_dir(), Vec::new())
-                    .proof()
-                    .expect("proof"),
-            },
-        );
-    }
-    let (snapshots, bytes) = store.contents();
-    assert!(bytes <= MAX_TOTAL_BYTES);
-    assert_eq!(snapshots.last().map(String::as_str), Some("scan-39"));
-    assert!(snapshots.iter().all(|snapshot| snapshot != "scan-0"));
-}
-
 /// `value` offered for storage, its walk the files it matched.
 fn fresh(value: TextSearchResult) -> Fresh {
     let entries = value
@@ -45,7 +12,7 @@ fn fresh(value: TextSearchResult) -> Fresh {
         .and_then(|path| path.parent())
         .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf);
     Fresh {
-        value: pack(&value).expect("packed"),
+        value: encode(&value).expect("encoded"),
         query_key: String::new(),
         redaction: Redaction::default(),
         skipped: Default::default(),
@@ -103,7 +70,7 @@ fn a_scan_is_stored_only_with_the_bytes_that_hold_its_values() {
         fresh(one_match(&path, 2, "…QUJDQUJ…")),
     );
     let stored = get(snapshot, "policy").expect("consistent scan stored");
-    let digest: Digest = Sha256::digest(held.as_bytes()).into();
+    let digest: Digest = octocode_engine::digest::sha256_digest(held.as_bytes());
     assert_eq!(stored.digests.get(&path), Some(&digest));
     assert_eq!(super::super::sources::digest_file(&path).ok(), Some(digest));
 }
@@ -137,24 +104,20 @@ fn a_searched_digest_is_stored_without_reading_the_file() {
     assert!(get(snapshot, "policy").is_none());
 }
 
-/// The re-read is bounded by the hash budget left: a file past it is
-/// refused unread and spends nothing; one within it spends its size.
+/// A re-read file larger than `max_file` is refused unread; one within it
+/// is hashed.
 #[test]
-fn a_reread_source_is_bounded_by_the_budget_left() {
+fn a_reread_source_is_bounded_per_file() {
     let dir = tempfile::tempdir().expect("fixture directory");
     let path = dir.path().join("ten.txt");
     std::fs::write(&path, "0123456789").expect("fixture");
     let path = path.to_string_lossy().into_owned();
-    let mut budget = 9;
-    assert!(read_source(path.clone(), &[], &mut budget).is_none());
-    assert_eq!(budget, 9);
-    let mut budget = 25;
-    let source = read_source(path, &[], &mut budget).expect("within budget");
-    assert_eq!(budget, 15);
-    let digest: Digest = Sha256::digest(b"0123456789").into();
+    assert!(read_source(path.clone(), &[], 9).is_none());
+    let source = read_source(path, &[], 10).expect("within the bound");
+    let digest: Digest = octocode_engine::digest::sha256_digest(b"0123456789");
     assert_eq!(source.digest, digest);
     // A directory is not a regular file and is never read.
-    assert!(read_source(dir.path().to_string_lossy().into_owned(), &[], &mut 100).is_none());
+    assert!(read_source(dir.path().to_string_lossy().into_owned(), &[], 100).is_none());
 }
 
 #[test]

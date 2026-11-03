@@ -6,12 +6,21 @@ use crate::response::result::Continuation;
 use crate::tools::ast_graph::store::detect::VerifyStep;
 
 /// Root-relative files changed since `rev` (committed, staged, unstaged) plus
-/// untracked files, via git.
-pub(super) fn git_changed(root: &Path, rev: &str) -> Result<Vec<String>, String> {
+/// untracked files, via git. Only the request's cancellation bounds the runs:
+/// a large repository or a cold filesystem is valid work, and the output is
+/// read whole.
+pub(super) fn git_changed(
+    root: &Path,
+    rev: &str,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Vec<String>, GraphOutput> {
     if rev.starts_with('-') {
-        return Err(format!("invalid revision {rev:?}"));
+        return Err(GraphOutput::error(
+            ErrorCode::GitFailed,
+            format!("invalid revision {rev:?}"),
+        ));
     }
-    let run = |args: &[&str]| -> Result<Vec<String>, String> {
+    let run = |args: &[&str]| -> Result<Vec<String>, GraphOutput> {
         let mut command = std::process::Command::new("git");
         // The repository's own config must not run programs: an fsmonitor
         // hook executes on every index read. No prompts, no index rewrites.
@@ -25,12 +34,26 @@ pub(super) fn git_changed(root: &Path, rev: &str) -> Result<Vec<String>, String>
         let output = crate::tools::bounded_process::run_bounded(
             command,
             "git",
-            std::time::Duration::from_secs(30),
-            32 * 1024 * 1024,
-            &crate::execution::cancel::NeverCancel,
-        )?;
+            std::time::Duration::MAX,
+            usize::MAX,
+            cancel,
+        )
+        .map_err(|error| {
+            use crate::tools::bounded_process::BoundedError;
+            match error {
+                BoundedError::Cancelled(message) => {
+                    GraphOutput::error(ErrorCode::Cancelled, message)
+                }
+                BoundedError::TimedOut(message) | BoundedError::Failed(message) => {
+                    GraphOutput::error(ErrorCode::GitFailed, message)
+                }
+            }
+        })?;
         if !output.status.success() {
-            return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+            return Err(GraphOutput::error(
+                ErrorCode::GitFailed,
+                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            ));
         }
         Ok(String::from_utf8_lossy(&output.stdout)
             .lines()
@@ -47,6 +70,12 @@ pub(super) fn git_changed(root: &Path, rev: &str) -> Result<Vec<String>, String>
 
 impl Query<'_> {
     pub(super) fn impact(&self) -> Result<GraphOutput, GraphOutput> {
+        let (extra, page) = self.complete_rows(|| self.impact_rows())?;
+        Ok(run_page(self.options, self.g, extra, page))
+    }
+
+    /// The blast radius's complete rows and the facts its first page states.
+    fn impact_rows(&self) -> Result<(Map<String, Value>, Vec<Value>), GraphOutput> {
         let (g, options) = (self.g, self.options);
         let root = PathBuf::from(g.manifest["root"].as_str().unwrap_or_default());
         let mut refs = options.target.iter().cloned().collect::<Vec<_>>();
@@ -62,8 +91,7 @@ impl Query<'_> {
         let mut global = Vec::new();
         let mut unmapped = Vec::new();
         if let Some(rev) = &options.since {
-            let changed = git_changed(&root, rev)
-                .map_err(|message| GraphOutput::error(ErrorCode::GitFailed, message))?;
+            let changed = git_changed(&root, rev, self.cancel)?;
             for path in changed {
                 if super::super::super::freshness::is_global_config(&path) {
                     global.push((
@@ -98,16 +126,7 @@ impl Query<'_> {
             }
             let mut extra = Map::new();
             extra.insert("summary".into(), summary);
-            return Ok(run_page(
-                options,
-                g,
-                extra,
-                Page {
-                    total: 0,
-                    rows: Vec::new(),
-                    start: 0,
-                },
-            ));
+            return Ok((extra, Vec::new()));
         }
         let mut seeds = Vec::new();
         for reference in &refs {
@@ -127,20 +146,20 @@ impl Query<'_> {
             summary["unmapped"] = json!(unmapped);
         }
         extra.insert("summary".into(), summary);
-        let rows = impact.rows;
-        Ok(run_page(
-            options,
-            g,
-            extra,
-            Page {
-                total: rows.len(),
-                rows,
-                start: 0,
-            },
-        ))
+        Ok((extra, impact.rows))
     }
 
     pub(super) fn issues(&self, paths: &PathPolicy) -> Result<GraphOutput, GraphOutput> {
+        let (extra, page) = self.complete_rows(|| self.issue_rows(paths))?;
+        Ok(run_page(self.options, self.g, extra, page))
+    }
+
+    /// The findings' complete rows, detectors run once, and the facts the
+    /// first page states.
+    fn issue_rows(
+        &self,
+        paths: &PathPolicy,
+    ) -> Result<(Map<String, Value>, Vec<Value>), GraphOutput> {
         let (g, options) = (self.g, self.options);
         let detectors = options
             .detectors
@@ -190,7 +209,22 @@ impl Query<'_> {
             notes.push(note);
         }
         summary["minTier"] = json!(min_tier);
-        summary["hiddenBelowTier"] = json!(total_before - findings.len());
+        let hidden = total_before - findings.len();
+        summary["hiddenBelowTier"] = json!(hidden);
+        if hidden > 0
+            && let Some(notes) = summary["notes"].as_array_mut()
+        {
+            // byDetector counts before this filter, so its sum is not the
+            // page's totalItems: say by how much and why.
+            notes.push(json!({
+                "filter": "minTier",
+                "hidden": hidden,
+                "explanation": format!(
+                    "byDetector counts all {total_before} findings the detectors raised; minTier {min_tier} and minScore hid {hidden}, so {} are listed (pagination.totalItems). Lower minTier or minScore to list the rest.",
+                    findings.len()
+                ),
+            }));
+        }
         extra.insert("summary".into(), summary);
         let mut status = BTreeMap::<String, &str>::new();
         if let Some(base) = &options.baseline {
@@ -206,26 +240,29 @@ impl Query<'_> {
                     row["status"] = json!(state);
                 }
                 if !finding.verify.is_empty() {
-                    let calls = finding.verify.iter().map(|step| verify_call(step, options, &g.id));
+                    let calls = finding
+                        .verify
+                        .iter()
+                        .map(|step| verify_call(step, options, &g.id));
                     row["verify"] = Value::Array(calls.collect());
                 }
                 row
             })
             .collect::<Vec<_>>();
-        Ok(run_page(
-            options,
-            g,
-            extra,
-            Page {
-                total: rows.len(),
-                rows,
-                start: 0,
-            },
-        ))
+        Ok((extra, rows))
     }
 
     /// The structural drift from the `baseline` snapshot to this one.
     pub(super) fn drift(&self, paths: &PathPolicy) -> Result<GraphOutput, GraphOutput> {
+        let (extra, page) = self.complete_rows(|| self.drift_rows(paths))?;
+        Ok(run_page(self.options, self.g, extra, page))
+    }
+
+    /// The drift's complete rows and the facts its first page states.
+    fn drift_rows(
+        &self,
+        paths: &PathPolicy,
+    ) -> Result<(Map<String, Value>, Vec<Value>), GraphOutput> {
         let base = self.options.baseline.as_deref().ok_or_else(|| {
             GraphOutput::error(
                 ErrorCode::InvalidInput,
@@ -242,17 +279,7 @@ impl Query<'_> {
         let mut extra = Map::new();
         extra.insert("baseline".into(), base_graph.summary());
         extra.insert("summary".into(), drift.summary);
-        let rows = drift.rows;
-        Ok(run_page(
-            self.options,
-            self.g,
-            extra,
-            Page {
-                total: rows.len(),
-                rows,
-                start: 0,
-            },
-        ))
+        Ok((extra, drift.rows))
     }
 
     /// Findings compared with a baseline graph: each current one is `new`
@@ -356,7 +383,7 @@ fn manifest_above(
         "detector": "unreachable-file",
         "skipped": format!(
             "the snapshot root holds no package manifest, so entrypoints came from file conventions only; {shown} holds {manifest}: build it with {} so its entries count",
-            super::paging::call("graphBuild", Map::from_iter([("path".to_owned(), json!(shown))]))
+            super::paging::call(crate::id::ToolId::GraphBuild.as_str(), Map::from_iter([("path".to_owned(), json!(shown))]))
         ),
     }))
 }
@@ -377,3 +404,6 @@ fn verify_call(step: &VerifyStep, options: &QueryOptions, id: &str) -> Value {
     }
     Continuation::related(step.tool, Value::Object(row)).build()
 }
+
+#[cfg(test)]
+mod tests;

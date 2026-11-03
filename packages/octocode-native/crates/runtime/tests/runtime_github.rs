@@ -6,4 +6,6 @@ mod failures;
 mod file_reads;
 mod materialize;
 mod missing_targets;
+mod owner_pages;
 mod refs;
+mod search_pages;

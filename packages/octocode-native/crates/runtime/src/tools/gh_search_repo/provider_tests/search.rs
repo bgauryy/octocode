@@ -40,10 +40,11 @@ async fn default_archived_search_exclusion_offers_no_lead() {
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
         .and(query_param("q", "x archived:false"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 40, "incomplete_results": false,
-            "items": [repo_item("live", false)]
-        })))
+        .respond_with(octocode_github::mock_http::SearchIndex(
+            (0..=50)
+                .map(|n| repo_item(&format!("live{n}"), false))
+                .collect(),
+        ))
         .mount(&server)
         .await;
 

@@ -177,6 +177,18 @@ mod tests {
             };
             assert_eq!(tool["family"], family, "{id}");
             assert_eq!(tool["beta"], id.is_beta(), "{id}");
+            assert_eq!(
+                tool.get("rowPageWindow") == Some(&serde_json::Value::Bool(true)),
+                id.pages_by_row_window(),
+                "{id}"
+            );
+            assert_eq!(
+                tool.get("hostFacts")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|facts| facts.iter().any(|fact| fact == "lspServers")),
+                id.lists_lsp_servers(),
+                "{id}"
+            );
             assert_eq!(tool["title"], id.title(), "{id}");
             assert_eq!(
                 crate::contracts::tool_contract(id).expect("tool contract"),

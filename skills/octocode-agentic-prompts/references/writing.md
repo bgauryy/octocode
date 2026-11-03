@@ -31,7 +31,7 @@ Load when an instruction is wordy, ambiguous, or buried, instructions and data b
   - Hard planning → inspectable plan + checkpoints; no private reasoning.
   - Stable prefix → [caching](context.md#caching). Unknown fix → metaprompting: minimal addition or deletion, verified by the eval.
 - Use the real tool, schema, filter, or checker, never prose asking the model to simulate one.
-- Skip techniques that only sound advanced: personas, chain-of-thought requests, debate, branching.
+- For multi-angle decisions, use [question selection](question-selection.md) to turn distinct perspectives into testable checks. Drop personas, debate or branches that add no decision-changing observation.
 
 ## Runtime context
 

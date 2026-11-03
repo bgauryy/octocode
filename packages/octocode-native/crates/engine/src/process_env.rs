@@ -27,7 +27,7 @@ pub const PROCESS_ENV: &[&str] = &[
     "HOMEPATH",
     "SYSTEMROOT",
     "SystemRoot",
-    // Toolchain and scratch variables forwarded to Python, Go and JVM
+    // Toolchain and scratch variables forwarded to Python, Go, JVM and .NET
     // language servers (`lsp::client`).
     "VIRTUAL_ENV",
     "CONDA_PREFIX",
@@ -40,6 +40,12 @@ pub const PROCESS_ENV: &[&str] = &[
     "GOPRIVATE",
     "GONOSUMDB",
     "JAVA_HOME",
+    "DOTNET_ROOT",
+    "DOTNET_ROOT_ARM",
+    "DOTNET_ROOT_ARM64",
+    "DOTNET_ROOT_X64",
+    "DOTNET_ROOT_X86",
+    "DOTNET_ROOT(x86)",
     "LANG",
     "LC_ALL",
     "TMPDIR",

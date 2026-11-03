@@ -6,67 +6,45 @@
  * via the `definition` "SendMessageInput".
  */
 export type SendMessageInput = ({
-[k: string]: unknown | undefined
-} & {
 /**
- * Peer name or exact ID
+ * Peer name/ID; "*" snapshots live repository peers except you.
  */
 to?: string
 /**
- * Subscribed topic; excludes to.
+ * Snapshot current subscribers; excludes to.
  */
 topic?: string
-body?: Body
+parts: Parts
 /**
- * FYI text.
+ * Require a final result from each recipient.
  */
-question?: string
-task?: TaskContract
-decision?: DecisionRequest
-handoff?: HandoffPacket
-blocker?: SBAR
-delta?: DeltaUpdate
-checkback?: CheckBack
-issue?: W2H
+replyRequired?: boolean
 key?: Key
 ttlMs?: TtlMs
 reasoning: Reasoning
 wake?: Wake
-conversationId?: ConversationId
-})
+contextId?: ContextId
+} & SendMessageInput1)
 /**
- * FYI text.
+ * Ordered content. Data is opaque; no automatic actions.
+ *
+ * @minItems 1
  *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
- * via the `definition` "body".
+ * via the `definition` "parts".
  */
-export type Body = string
+export type Parts = ({
+[k: string]: unknown | undefined
+} & {
+text?: string
+data?: unknown
 /**
- * Observable checks, e.g. Given-When-Then.
+ * Reference only; never fetched automatically.
  */
-export type DefinitionOfDone = string
-export type CheckBackBeforeCompletingSendCheckbackWithThisMessageId = boolean
-/**
- * This interface was referenced by `CatalogTypes`'s JSON-Schema
- * via the `definition` "informed".
- */
-export type InformedCopiedOnTheAnswer = string[]
-/**
- * Applies if unanswered by expiry.
- */
-export type DefaultIfUnanswered = string
-/**
- * This interface was referenced by `CatalogTypes`'s JSON-Schema
- * via the `definition` "evidence".
- */
-export type Evidence = {
-claim: string
-/**
- * path:line, URL, commit or document:NAME
- */
-source: string
-}[]
-export type DefinitionOfDone1 = string
+url?: string
+mediaType?: string
+filename?: string
+})[]
 /**
  * Idempotency key; reuse only for unchanged input.
  *
@@ -75,7 +53,7 @@ export type DefinitionOfDone1 = string
  */
 export type Key = string
 /**
- * Lifetime in ms; renew before expiry.
+ * Lifetime in milliseconds.
  *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
  * via the `definition` "ttlMs".
@@ -89,19 +67,22 @@ export type TtlMs = number
  */
 export type Reasoning = string
 /**
- * action: wake now; passive: next turn. Default action for requests and blocker.
+ * action may wake an idle recipient; passive waits for a host boundary. Default: action for requests, passive for notices.
  *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
  * via the `definition` "wake".
  */
 export type Wake = ("action" | "passive")
 /**
- * Thread ID shared by related messages.
+ * Related-work ID; final replies inherit it.
  *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
- * via the `definition` "conversationId".
+ * via the `definition` "contextId".
  */
-export type ConversationId = string
+export type ContextId = string
+export type SendMessageInput1 = {
+[k: string]: unknown | undefined
+}
 /**
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
  * via the `definition` "CompleteInput".
@@ -118,16 +99,20 @@ message?: number
  * @maxItems 100
  */
 messages?: number[]
-reply?: BLUF
-/**
- * Final status; needs message and reply.
- */
-outcome?: ("done" | "partial" | "failed" | "refused" | "canceled")
+reply?: Parts
+outcome?: Outcome
 /**
  * Purpose; ≤512 UTF-8 bytes.
  */
 reasoning?: string
 } & CompleteInput1)
+/**
+ * Final work outcome.
+ *
+ * This interface was referenced by `CatalogTypes`'s JSON-Schema
+ * via the `definition` "outcome".
+ */
+export type Outcome = ("completed" | "failed" | "rejected" | "canceled")
 export type CompleteInput1 = {
 [k: string]: unknown | undefined
 }
@@ -179,7 +164,7 @@ export type ActivityInput = {
  */
 view?: ("files" | "commits" | "reflog")
 /**
- * Page size; follow next.
+ * Results per page.
  */
 limit?: number
 /**
@@ -203,11 +188,11 @@ untilMs?: number
  */
 withinMs?: number
 /**
- * Entries scanned per page; follow next.
+ * Entries scanned per page.
  */
 scanLimit?: number
 /**
- * Cursor from next.input; keep filters.
+ * Cursor from next.input.
  */
 after?: number
 /**
@@ -221,7 +206,7 @@ snapshot?: string
  */
 export type RecordInput = ({
 /**
- * Record type.
+ * Record kind; distinct from the outer operation type.
  */
 type: ("memory" | "event" | "checkpoint")
 /**
@@ -233,7 +218,7 @@ to?: string
  */
 branch?: (string | null)
 /**
- * Data per schema type <type>.
+ * Payload for this record kind.
  */
 data: {
 [k: string]: unknown | undefined
@@ -270,6 +255,11 @@ files?: string[]
 }
 })
 /**
+ * This interface was referenced by `CatalogTypes`'s JSON-Schema
+ * via the `definition` "status".
+ */
+export type Status = ("available" | "busy" | "blocked" | "unknown")
+/**
  * Either an acknowledgement of read messages or the receipt of a stored final reply.
  *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
@@ -290,13 +280,6 @@ recipients: number
 recipientOffline?: true
 completed: true
 count: 1
-leases?: {
-id: number
-path: string
-kind: ("file" | "tree")
-expiresAt: number
-}[]
-leasesNotMoved?: string
 })
 /**
  * Lease acquired, or the conflict and how to queue.
@@ -308,6 +291,11 @@ export type LockResult = ({
 ok: true
 lease: Lease
 } | LockRefused)
+/**
+ * This interface was referenced by `CatalogTypes`'s JSON-Schema
+ * via the `definition` "pathKind".
+ */
+export type PathKind = ("file" | "tree")
 /**
  * Lease extended, or a refusal to reacquire.
  *
@@ -378,6 +366,11 @@ usage: {
 }
 })
 /**
+ * This interface was referenced by `CatalogTypes`'s JSON-Schema
+ * via the `definition` "transport".
+ */
+export type Transport = ("raw" | "claude" | "codex" | "opencode" | "grok")
+/**
  * One JSON line per event: the start notice, then each delivery pass that submitted mail.
  *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
@@ -400,6 +393,11 @@ expiresAt: number
 leases: Lease[]
 } | LockRefused)
 /**
+ * This interface was referenced by `CatalogTypes`'s JSON-Schema
+ * via the `definition` "activityView".
+ */
+export type ActivityView = ("files" | "commits" | "reflog")
+/**
  * Tool definitions of the selected profile.
  *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
@@ -411,8 +409,6 @@ export type SchemaToolsResult = Tool[]
  * via the `definition` "MessageData".
  */
 export type MessageData = ({
-kind?: ("note" | "question" | "task" | "decision" | "blocker" | "handoff" | "delta" | "checkback" | "issue" | "answer")
-body?: Body
 /**
  * Idempotency key; reuse only for unchanged input.
  */
@@ -420,9 +416,9 @@ key?: string
 ttlMs?: TtlMs
 reasoning?: Reasoning
 wake?: Wake
-conversationId?: ConversationId
+contextId?: ContextId
 /**
- * Set by kind: question, task, decision and handoff are requests.
+ * Whether each recipient owes a final result.
  */
 replyRequired?: boolean
 messageId: number
@@ -432,7 +428,7 @@ replyTo?: number
 /**
  * Hook budget reference only; fetch data.messageId for the full payload.
  */
-bodyOmitted?: boolean
+contentOmitted?: boolean
 /**
  * Lossless continuation from an oversized hook reference; run unchanged with the current binding.
  */
@@ -442,12 +438,24 @@ input: {
 recordId: number
 }
 }
+parts?: Parts
+outcome?: Outcome
 } & MessageData1)
 export type MessageData1 = ({
-bodyOmitted?: false
+contentOmitted?: false
 } | {
-bodyOmitted: true
+contentOmitted: true
 })
+/**
+ * This interface was referenced by `CatalogTypes`'s JSON-Schema
+ * via the `definition` "usageScope".
+ */
+export type UsageScope = ("request" | "turn" | "cumulative")
+/**
+ * This interface was referenced by `CatalogTypes`'s JSON-Schema
+ * via the `definition` "presenceFilter".
+ */
+export type PresenceFilter = ("active" | "expired" | "all")
 /**
  * Filter active, expired, or all presence.
  *
@@ -465,7 +473,6 @@ LeaveInput: LeaveInput
 PruneInput: PruneInput
 PeersInput: PeersInput
 SendMessageInput: SendMessageInput
-NotifyAllInput: NotifyAllInput
 InboxInput: InboxInput
 CompleteInput: CompleteInput
 SubscribeInput: SubscribeInput
@@ -508,7 +515,6 @@ LeaveResult: LeaveResult
 PruneResult: PruneResult
 PeersResult: PeersResult
 SendMessageResult: SendMessageResult
-NotifyAllResult: NotifyAllResult
 InboxResult: InboxResult
 CompleteResult: CompleteResult
 SubscribeResult: SubscribeResult
@@ -557,7 +563,7 @@ MessageData: MessageData
 LeaseAcquiredData: LeaseRemovedData
 LeaseRenewedData: LeaseRemovedData
 LeaseRemovedData: LeaseRemovedData
-SubscriptionAddedData: SubscriptionAddedData
+SubscriptionAddedData: SubscriptionRemovedData
 SubscriptionRemovedData: SubscriptionRemovedData
 AttachmentCreatedData: AttachmentUpdatedData
 AttachmentUpdatedData: AttachmentUpdatedData
@@ -582,7 +588,7 @@ CheckpointData: CheckpointData
  */
 export interface JoinInput {
 /**
- * Unique among live repository peers; a taken name gets the first free -2, -3 suffix (see the returned name).
+ * Unique live peer name; conflicts get a numeric suffix. Use the returned name.
  */
 name: string
 /**
@@ -590,19 +596,19 @@ name: string
  */
 vendor: string
 /**
- * Exact host session ID bound to this identity.
+ * Exact current host session ID; omit if unknown.
  */
 vendorSession?: string
 /**
- * Current task visible to peers.
+ * Task shown to peers.
  */
 task?: string
 /**
- * Current presence status visible to peers.
+ * Status shown to peers.
  */
 status?: ("available" | "busy" | "blocked" | "unknown")
 /**
- * Git branch associated with this entry.
+ * Git branch.
  */
 branch?: (string | null)
 }
@@ -684,94 +690,9 @@ export interface PruneInput {
  */
 export interface PeersInput {
 /**
- * Cursor from next.input; keep filters.
+ * Cursor from next.input.
  */
 after?: string
-}
-export interface TaskContract {
-objective: string
-inputs?: string[]
-constraints?: string[]
-output: string
-done: DefinitionOfDone
-/**
- * Limits, stop and escalation; at exhaustion complete partial.
- */
-budget?: string
-checkBack?: CheckBackBeforeCompletingSendCheckbackWithThisMessageId
-informed?: InformedCopiedOnTheAnswer
-}
-export interface DecisionRequest {
-question: string
-/**
- * @minItems 2
- */
-options: string[]
-tradeoffs?: string[]
-recommendation: string
-default: DefaultIfUnanswered
-informed?: InformedCopiedOnTheAnswer
-}
-/**
- * No raw logs, private reasoning or abandoned branches.
- */
-export interface HandoffPacket {
-state: string
-evidence?: Evidence
-blockers?: string[]
-next: string
-constraints?: string[]
-/**
- * Your lease IDs, moved to the recipient on done.
- */
-leases?: number[]
-}
-export interface SBAR {
-situation: string
-background: string
-assessment: string
-recommendation: string
-}
-export interface DeltaUpdate {
-phase?: string
-changes: string[]
-blockers?: string[]
-next?: string
-}
-export interface CheckBack {
-/**
- * Task message ID.
- */
-request: number
-objective: string
-done: DefinitionOfDone1
-}
-export interface W2H {
-what: string
-/**
- * path:line.
- */
-where: string
-when: string
-/**
- * Affected party, not an assignee.
- */
-who: string
-why: string
-how: string
-howMuch: string
-}
-/**
- * This interface was referenced by `CatalogTypes`'s JSON-Schema
- * via the `definition` "NotifyAllInput".
- */
-export interface NotifyAllInput {
-body: Body
-key?: Key
-ttlMs?: TtlMs
-reasoning: Reasoning
-wake?: Wake
-conversationId?: ConversationId
 }
 /**
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
@@ -779,24 +700,13 @@ conversationId?: ConversationId
  */
 export interface InboxInput {
 /**
- * Cursor from next.input; keep filters.
+ * Cursor from next.input.
  */
 after?: number
 /**
  * Message ID.
  */
 message?: number
-}
-/**
- * Facts as evidence, apart from assumptions and unknowns.
- */
-export interface BLUF {
-conclusion: string
-confidence?: ("high" | "medium" | "low")
-evidence?: Evidence
-assumptions?: string[]
-unknowns?: string[]
-next?: string
 }
 /**
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
@@ -835,7 +745,7 @@ wait?: boolean
 export interface RenewInput {
 leaseId: LeaseId
 /**
- * Lifetime in ms; renew before expiry.
+ * Lifetime in milliseconds.
  */
 ttlMs?: number
 }
@@ -1023,7 +933,7 @@ export interface LockManyInput {
  */
 paths: PathTarget[]
 /**
- * Lifetime in ms; renew before expiry.
+ * Lifetime in milliseconds.
  */
 ttlMs?: number
 reasoning: Reasoning
@@ -1033,8 +943,6 @@ reasoning: Reasoning
 wait?: boolean
 }
 /**
- * Path target.
- *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
  * via the `definition` "pathTarget".
  */
@@ -1103,7 +1011,7 @@ name: string
  */
 offset?: number
 /**
- * Page size; follow next.
+ * Bytes per page.
  */
 limit?: number
 }
@@ -1121,7 +1029,7 @@ path?: string
  */
 branch?: string
 /**
- * Cursor from next.input; keep filters.
+ * Cursor from next.input.
  */
 after?: number
 /**
@@ -1129,7 +1037,7 @@ after?: number
  */
 through?: number
 /**
- * Page size; follow next.
+ * Notes per page.
  */
 limit?: number
 }
@@ -1156,14 +1064,14 @@ after?: number
  */
 export interface CheckWriteInput {
 /**
- * Path targets to check or lease as one operation.
+ * Files to check; include both rename paths.
  *
  * @minItems 1
  * @maxItems 32
  */
 paths: (PathTarget & {
 /**
- * File or whole directory tree scope.
+ * Only file targets are accepted.
  */
 kind?: "file"
 })[]
@@ -1263,7 +1171,7 @@ cwd: string
  */
 export interface LocksInput {
 /**
- * Cursor from next.input; keep filters.
+ * Cursor from next.input.
  */
 after?: string
 /**
@@ -1338,7 +1246,7 @@ since?: number
  */
 until?: number
 /**
- * Cursor from next.input; keep filters.
+ * Cursor from next.input.
  */
 after?: number
 /**
@@ -1346,7 +1254,7 @@ after?: number
  */
 through?: number
 /**
- * Page size; follow next.
+ * Records per page.
  */
 limit?: number
 /**
@@ -1411,7 +1319,7 @@ renewedLeases?: number
 export interface SetStatusResult {
 id: string
 task: string
-status: ("available" | "busy" | "blocked" | "unknown")
+status: Status
 }
 /**
  * The revived identity with its latest checkpoint.
@@ -1428,7 +1336,7 @@ vendorSession?: string
 branch?: string
 expiresAt: number
 task: string
-status: ("available" | "busy" | "blocked" | "unknown")
+status: Status
 /**
  * Present on binding.
  */
@@ -1505,7 +1413,7 @@ vendor: string
 vendorSession?: string
 branch?: string
 task: string
-status: ("available" | "busy" | "blocked" | "unknown")
+status: Status
 expiresAt: number
 }[]
 next?: Continuation
@@ -1536,19 +1444,6 @@ recipients: number
 recipientOffline?: true
 }
 /**
- * Receipt of the stored broadcast.
- *
- * This interface was referenced by `CatalogTypes`'s JSON-Schema
- * via the `definition` "NotifyAllResult".
- */
-export interface NotifyAllResult {
-/**
- * Message ID.
- */
-id: number
-recipients: number
-}
-/**
  * Pending deliveries; follow next.
  *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
@@ -1559,15 +1454,15 @@ items: {
 id: number
 sender: string
 senderName: string
-kind: ("note" | "question" | "task" | "decision" | "handoff" | "blocker" | "delta" | "checkback" | "issue" | "answer")
-body: string
 reasoning: string
 topic?: string
 expiresAt: number
-wake: ("action" | "passive")
-conversationId?: string
+wake: Wake
+contextId?: string
 replyTo?: number
 replyRequired: boolean
+parts: Parts
+outcome?: Outcome
 }[]
 next?: Continuation
 budget?: Budget
@@ -1590,7 +1485,7 @@ subscribed: true
 export interface Lease {
 id: number
 path: string
-kind: ("file" | "tree")
+kind: PathKind
 owner: string
 reasoning: string
 acquiredAt: number
@@ -1611,7 +1506,7 @@ conflict: {
  */
 id?: number
 waitId?: number
-kind: ("file" | "tree")
+kind: PathKind
 acquiredAt: number
 refreshedAt: number
 expiresAt: number
@@ -1629,10 +1524,15 @@ heldLeaseIds: number[]
 guidance?: string
 next?: Continuation
 queued?: true
-wait?: {
+wait?: LeaseExpiry
+}
+/**
+ * This interface was referenced by `CatalogTypes`'s JSON-Schema
+ * via the `definition` "leaseExpiry".
+ */
+export interface LeaseExpiry {
 id: number
 expiresAt: number
-}
 }
 /**
  * Whether an owned live lease was released.
@@ -1714,15 +1614,15 @@ items: {
 id: number
 sender: string
 senderName: string
-kind: ("note" | "question" | "task" | "decision" | "handoff" | "blocker" | "delta" | "checkback" | "issue" | "answer")
-body: string
 reasoning: string
 topic?: string
 expiresAt: number
-wake: ("action" | "passive")
-conversationId?: string
+wake: Wake
+contextId?: string
 replyTo?: number
 replyRequired: boolean
+parts: Parts
+outcome?: Outcome
 }[]
 next?: Continuation
 budget?: Budget
@@ -1761,12 +1661,6 @@ annotations?: {
 }
 }[]
 tools: Tool[]
-messageKinds: {
-kind: string
-field: string
-request: boolean
-wake: boolean
-}[]
 recordTypes: {
 type: string
 writer: string
@@ -1824,7 +1718,7 @@ inputSchema: {
  */
 export interface AttachResult {
 session: string
-transport: ("raw" | "claude" | "codex" | "opencode" | "grok")
+transport: Transport
 endpoint?: string
 updatedAt: number
 vendorSession?: string
@@ -2058,7 +1952,7 @@ next?: Continuation
  * via the `definition` "ActivityResult".
  */
 export interface ActivityResult {
-view: ("files" | "commits" | "reflog")
+view: ActivityView
 workspace: string
 observedAt: number
 items: ({
@@ -2128,10 +2022,7 @@ checks: {
  */
 path: string
 covered: boolean
-lease?: {
-id: number
-expiresAt: number
-}
+lease?: LeaseExpiry
 }[]
 }
 /**
@@ -2172,7 +2063,7 @@ limit: number
 count: number
 hasMore: boolean
 expiredSettledMessages: number
-expiredSettledBodyBytes: number
+expiredSettledContentBytes: number
 unacknowledgedMessages: number
 unresolvedDispatchMessages: number
 }
@@ -2283,7 +2174,7 @@ workspace: string
  * Absolute path.
  */
 path: string
-kind: ("file" | "tree")
+kind: PathKind
 owner: string
 acquiredAt: number
 refreshedAt: number
@@ -2375,7 +2266,7 @@ vendorSession?: string
 branch?: string
 expiresAt: number
 task: string
-status: ("available" | "busy" | "blocked" | "unknown")
+status: Status
 /**
  * Present on binding.
  */
@@ -2465,12 +2356,11 @@ expiresAt: number
 }
 /**
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
+ * via the `definition` "topicData".
+ *
+ * This interface was referenced by `CatalogTypes`'s JSON-Schema
  * via the `definition` "SubscriptionAddedData".
- */
-export interface SubscriptionAddedData {
-topic: string
-}
-/**
+ *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
  * via the `definition` "SubscriptionRemovedData".
  */
@@ -2557,16 +2447,43 @@ error?: (string | null)
 }
 /**
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
+ * via the `definition` "usageData".
+ *
+ * This interface was referenced by `CatalogTypes`'s JSON-Schema
  * via the `definition` "UsageData".
  */
 export interface UsageData {
+/**
+ * Stable idempotency key; reuse only for unchanged input.
+ */
 key: string
+/**
+ * Usage accounting scope.
+ */
 scope: ("request" | "turn" | "cumulative")
+/**
+ * Host model identifier.
+ */
 model?: string
+/**
+ * Consumed input tokens.
+ */
 inputTokens?: number
+/**
+ * Produced output tokens.
+ */
 outputTokens?: number
+/**
+ * Input tokens served from cache.
+ */
 cachedInputTokens?: number
+/**
+ * Tokens currently in model context.
+ */
 contextTokens?: number
+/**
+ * Tokens written to cache.
+ */
 cacheWriteTokens?: number
 }
 /**
@@ -2635,7 +2552,7 @@ vendorSession?: string
 branch?: string
 expiresAt: number
 task: string
-status: ("available" | "busy" | "blocked" | "unknown")
+status: Status
 /**
  * Present on binding.
  */
@@ -2657,15 +2574,15 @@ items: {
 id: number
 sender: string
 senderName: string
-kind: ("note" | "question" | "task" | "decision" | "handoff" | "blocker" | "delta" | "checkback" | "issue" | "answer")
-body: string
 reasoning: string
 topic?: string
 expiresAt: number
-wake: ("action" | "passive")
-conversationId?: string
+wake: Wake
+contextId?: string
 replyTo?: number
 replyRequired: boolean
+parts: Parts
+outcome?: Outcome
 }[]
 next?: Continuation
 budget?: Budget
@@ -2681,7 +2598,6 @@ export interface CommandInputs {
   'prune': CatalogTypes['PruneInput'];
   'peers': CatalogTypes['PeersInput'];
   'send_message': CatalogTypes['SendMessageInput'];
-  'notify_all': CatalogTypes['NotifyAllInput'];
   'inbox': CatalogTypes['InboxInput'];
   'complete': CatalogTypes['CompleteInput'];
   'subscribe': CatalogTypes['SubscribeInput'];
@@ -2727,7 +2643,6 @@ export interface CommandResults {
   'prune': CatalogTypes['PruneResult'];
   'peers': CatalogTypes['PeersResult'];
   'send_message': CatalogTypes['SendMessageResult'];
-  'notify_all': CatalogTypes['NotifyAllResult'];
   'inbox': CatalogTypes['InboxResult'];
   'complete': CatalogTypes['CompleteResult'];
   'subscribe': CatalogTypes['SubscribeResult'];

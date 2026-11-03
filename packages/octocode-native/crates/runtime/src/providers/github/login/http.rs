@@ -1,12 +1,12 @@
 use super::LoginEndpoints;
 use crate::civil_date::unix_secs;
 use octocode_github::{ProviderError, ProviderErrorKind};
+use octocode_io::cancellation::Cancellation;
 use reqwest::header::{ACCEPT, USER_AGENT};
 use std::{
     future::Future,
     time::{Duration, Instant},
 };
-use tokio_util::sync::CancellationToken;
 
 pub(super) const LOGIN_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -82,7 +82,7 @@ pub(super) fn login_cancelled() -> ProviderError {
 /// key: these calls authenticate with the client id, not a token).
 pub(super) async fn auth_call<T>(
     endpoints: &LoginEndpoints,
-    cancellation: &CancellationToken,
+    cancellation: &Cancellation,
     call: impl Future<Output = Result<T, ProviderError>>,
 ) -> Result<T, ProviderError> {
     let origin = url::Url::parse(&endpoints.api_origin)
@@ -95,9 +95,7 @@ pub(super) async fn auth_call<T>(
         })?;
     let budget = octocode_github::GitHubBudget::global();
     let deadline = Instant::now() + LOGIN_HTTP_TIMEOUT * 2;
-    let _admission = budget
-        .admit_auth(&origin, Duration::from_secs(10), deadline, cancellation)
-        .await?;
+    let _admission = budget.admit_auth(&origin, deadline, cancellation).await?;
     tokio::select! {
         _ = cancellation.cancelled() => Err(login_cancelled()),
         result = call => result,

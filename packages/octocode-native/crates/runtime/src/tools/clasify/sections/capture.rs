@@ -116,6 +116,7 @@ pub(super) fn create(
                 metadata,
                 units,
                 local_check,
+                shown: None,
             });
         }
     }
@@ -151,12 +152,7 @@ fn prepare(
     // Leave room for escaped target text, supporting context and coordinates.
     // Every original byte remains in a target even when it needs a fragment.
     let target_chars = super::super::max_state_chars(row.long_context == Some(true)) / 4;
-    let safe = SafeSource::new(
-        &captured.text,
-        &captured.path,
-        dispatcher,
-        captured.metadata["snapshot"].as_str().unwrap_or_default(),
-    )?;
+    let safe = SafeSource::new(&captured.text, &captured.path, dispatcher)?;
     let mut units = Vec::new();
     let mut retained_bytes = octocode_engine::json_size::bytes(&metadata).unwrap_or(usize::MAX);
     let line_starts = octocode_engine::text::line_starts(&captured.text);
@@ -269,19 +265,18 @@ impl<'a> SafeSource<'a> {
         raw: &'a str,
         path: &std::path::Path,
         dispatcher: &dyn SourceReader,
-        digest: &str,
     ) -> Result<Self, ClassificationError> {
         let (blocks, _) = dispatcher.security().redact_key_blocks(raw);
         let (safe, _) = dispatcher
             .security()
-            .redact_source_lines(&blocks, path, digest)
+            .redact_source_lines(&blocks, path)
             .map_err(|_| {
                 super::unavailable(
                     "The complete source could not be sanitized before section planning.",
                 )
             })?;
         let safe = if dispatcher.config().resolved.output.redact_emails {
-            dispatcher.security().redact_emails(&safe)
+            std::borrow::Cow::Owned(dispatcher.security().redact_emails(&safe))
         } else {
             safe
         };

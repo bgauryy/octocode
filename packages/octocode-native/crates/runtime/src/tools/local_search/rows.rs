@@ -1,7 +1,7 @@
 //! Match rows: ranking, projection, and context-window merging.
 
 use super::types::*;
-use crate::num::u32_of_usize;
+use octocode_engine::num::saturating_u32;
 use octocode_engine::types::SearchContext;
 
 /// Order a file's rows for paging: by lexical hit rank, then distinct
@@ -156,7 +156,7 @@ pub(super) fn merge_context_windows(
         }
         let (start, lines) = {
             let (low, high) = owned_lines(row.line, context, hits);
-            let end = start.saturating_add(u32_of_usize(lines.len())); // exclusive
+            let end = start.saturating_add(saturating_u32(lines.len())); // exclusive
             let from = low.max(start);
             let to = high.saturating_add(1).min(end).max(from);
             (
@@ -165,9 +165,11 @@ pub(super) fn merge_context_windows(
             )
         };
         if let Some(block) = open.as_mut() {
-            let end = block.start.saturating_add(u32_of_usize(block.lines.len())); // exclusive
+            let end = block
+                .start
+                .saturating_add(saturating_u32(block.lines.len())); // exclusive
             let last_match = block.match_lines.last().copied().unwrap_or(0);
-            let shared_agrees = (start..end.min(start.saturating_add(u32_of_usize(lines.len()))))
+            let shared_agrees = (start..end.min(start.saturating_add(saturating_u32(lines.len()))))
                 .all(|n| block.lines[(n - block.start) as usize] == lines[(n - start) as usize]);
             let fresh = (end.saturating_sub(start) as usize).min(lines.len());
             if row.line > last_match && start >= block.start && start <= end && shared_agrees {

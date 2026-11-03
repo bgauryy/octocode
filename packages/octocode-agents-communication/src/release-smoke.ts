@@ -83,20 +83,20 @@ try {
   call(workspace, database, 'unlock', { leaseId: object(handoff.lease, 'handoff lease').id }, b);
   result.checks.push('workspace discovery and conflicting lease handoff');
 
-  const request = { to: b, question: 'Confirm this work handoff', reasoning: 'Verify durable delivery across CLI and MCP', key: 'release-question', wake: 'action' };
+  const request = { to: b, parts: [{ text: 'Confirm this work handoff' }], replyRequired: true, reasoning: 'Verify durable delivery across CLI and MCP', key: 'release-question', wake: 'action' };
   const sent = call(workspace, database, 'send_message', request, a);
   assert.deepEqual(call(workspace, database, 'send_message', request, a), sent);
   const frames = [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'release-smoke', version: '1' } } },
     { jsonrpc: '2.0', method: 'notifications/initialized' },
     { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
-    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'complete', arguments: { message: sent.id, outcome: 'done', reply: { conclusion: 'Handoff confirmed' }, reasoning: 'Complete the requested check' } } },
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'messages', arguments: { type: 'complete', input: { message: sent.id, outcome: 'completed', reply: [{ text: 'Handoff confirmed' }], reasoning: 'Complete the requested check' } } } },
   ];
-  const responses = runRuntime(binary, ['mcp', '--tools', 'peers,send_message,complete', ...bindingFlags(workspace, database, b)], { input: frames.map(frame => JSON.stringify(frame)).join('\n') + '\n' }).trim().split('\n').map(parseReply);
+  const responses = runRuntime(binary, ['mcp', '--tools', 'agents,messages', ...bindingFlags(workspace, database, b)], { input: frames.map(frame => JSON.stringify(frame)).join('\n') + '\n' }).trim().split('\n').map(parseReply);
   assert.equal(responses.length, 3);
   const [initialized, listed, completed] = responses.map((response, index) => object(response.result, `MCP response ${index + 1} result`));
   assert.equal(initialized?.protocolVersion, '2024-11-05');
-  assert.deepEqual(list(listed?.tools, 'MCP tools').map(tool => object(tool, 'MCP tool').name).sort(), ['complete', 'peers', 'send_message']);
+  assert.deepEqual(list(listed?.tools, 'MCP tools').map(tool => object(tool, 'MCP tool').name).sort(), ['agents', 'messages']);
   assert.equal(completed?.isError, undefined, JSON.stringify(responses[2]));
   const reply = parseReply(text(object(list(completed?.content, 'MCP content')[0], 'MCP content item').text, 'MCP content text'));
   assert.equal(reply.completed, true);

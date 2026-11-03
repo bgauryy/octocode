@@ -7,8 +7,9 @@ mod split_pages;
 mod split_parts;
 
 /// The tool whose declared collections (`/data/files`,
-/// `/data/files/*/matches`) the [`envelope`] rows split on.
-const TOOL: crate::id::ToolId = crate::id::ToolId::LocalSearch;
+/// `/data/files/*/matches`, `/data/diagnostics`,
+/// `/data/skippedPaths/entries`) the [`envelope`] rows split on.
+const TOOL: crate::id::ToolId = crate::id::ToolId::AstSearch;
 
 fn envelope() -> Map<String, Value> {
     envelope_of(400)
@@ -47,17 +48,26 @@ fn walk(
     structured: &Map<String, Value>,
     length: usize,
 ) -> Vec<(Map<String, Value>, ResponsePagination)> {
+    walk_as(TOOL, structured, length)
+}
+
+/// [`walk`] with `tool`'s declared collections.
+fn walk_as(
+    tool: crate::id::ToolId,
+    structured: &Map<String, Value>,
+    length: usize,
+) -> Vec<(Map<String, Value>, ResponsePagination)> {
     let (_, first) = paginate_rows(
         structured.clone(),
         &options(length, 0, None),
         Vec::new(),
         &[],
-        TOOL,
+        tool,
     );
     (0..first.total_pages)
         .map(|offset| {
             let request = options(length, offset, Some(first.snapshot.clone()));
-            paginate_rows(structured.clone(), &request, Vec::new(), &[], TOOL)
+            paginate_rows(structured.clone(), &request, Vec::new(), &[], tool)
         })
         .collect()
 }
@@ -82,8 +92,9 @@ fn delivered(pages: &[(Map<String, Value>, ResponsePagination)]) -> Vec<(u64, St
     seen
 }
 
-/// A cycle row as a graph tool lists it: `files` module paths, `runtime` runtime
-/// cycles of `members` paths each, and its edge records.
+/// A graphQuery cycle finding row: `files` module paths, `runtime` runtime
+/// cycles of `members` paths each as `evidence.members`, and its edge
+/// records as `evidence.witness` and `evidence.suggestedCuts`.
 fn cycle_row(cycle: usize, files: usize, runtime: usize, members: usize) -> Value {
     let edges = |kind: &str, count: usize| {
         (0..count)
@@ -95,15 +106,17 @@ fn cycle_row(cycle: usize, files: usize, runtime: usize, members: usize) -> Valu
             .collect::<Vec<_>>()
     };
     json!({
-        "runtimeCycleCount": runtime,
-        "runtimeCycles": (0..runtime)
-            .map(|r| (0..members)
-                .map(|n| format!("packages/c{cycle}/runtime_{r}/member_{n:03}.ts"))
-                .collect::<Vec<_>>())
-            .collect::<Vec<_>>(),
-        "cycleEdges": edges("cycle", 4),
-        "runtimeCycleEdges": edges("runtime", 7),
-        "edgeKinds": ["static-import", "type-import"],
+        "detector": "cycles",
+        "subject": format!("c{cycle}"),
+        "evidence": {
+            "runtime": runtime > 0,
+            "members": (0..runtime)
+                .flat_map(|r| (0..members)
+                    .map(move |n| format!("packages/c{cycle}/runtime_{r}/member_{n:03}.ts")))
+                .collect::<Vec<_>>(),
+            "witness": edges("cycle", 4),
+            "suggestedCuts": edges("runtime", 7),
+        },
         "files": (0..files)
             .map(|n| format!("excalidraw-app/c{cycle}/components/Module_{n:04}.tsx"))
             .collect::<Vec<_>>(),
@@ -117,10 +130,7 @@ fn row_parts(pages: &[(Map<String, Value>, ResponsePagination)]) -> Vec<(Value, 
         .flat_map(|(page, _)| page["results"].as_array().cloned().unwrap_or_default())
         .filter(|row| row["index"] == 0)
         .map(|row| {
-            let cycles = row["data"]["results"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
+            let cycles = row["data"]["rows"].as_array().cloned().unwrap_or_default();
             (row["rowPart"].clone(), cycles)
         })
         .collect()

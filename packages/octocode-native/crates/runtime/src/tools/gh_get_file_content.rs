@@ -6,13 +6,12 @@ mod shape;
 mod timestamp;
 
 use octocode_contract_types::{ErrorCode, GhGetFileContentQuery};
-use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::response::result::ToolData;
-use crate::security::scan::{ContentScan, MemoizedScan};
+use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{GhFailure, locate_path, missing_path};
 use octocode_github::{ContentRequest, GitHubProvider, ProviderError, RequestContext};
 use shape::{Fetched, shape};
@@ -49,13 +48,11 @@ pub struct GhGetFileContentFile {
 
 /// What shapes a fetched body, owned, so a ranked read shapes it on a
 /// blocking worker: the scanner `S` (production's `ContentSecurity`) with
-/// the shared sanitized-view memo, the call's context (its cancellation)
-/// and the selection runtime a ranked read judges with.
+/// the call's context (its cancellation) and the selection runtime a ranked
+/// read judges with.
 #[derive(Clone)]
 pub(crate) struct Shaping<S> {
     pub security: S,
-    pub memo: Arc<crate::security::scan::SanitizedViewMemo>,
-    pub views: Arc<crate::tools::source_view::ViewCache>,
     pub context: crate::execution::ExecutionContext,
     pub selection: crate::tools::selection::Runtime,
 }
@@ -73,7 +70,17 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
     let resolved = resolved_at(query).map_err(|error| errors::failure(error, query, None))?;
     let query = resolved.as_ref().unwrap_or(query);
     let request_context = request.map_err(|error| errors::failure(error, query, None))?;
-    let error = match execute(provider, query, request_context, window, shaping).await {
+    let mut read_commit = None;
+    let error = match execute(
+        provider,
+        query,
+        request_context,
+        window,
+        shaping,
+        &mut read_commit,
+    )
+    .await
+    {
         Ok(result) => {
             return file_read(result).map_err(|error| errors::failure(error, query, None));
         }
@@ -81,9 +88,11 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
     };
     if error.reason == Some(octocode_github::ProviderErrorReason::Submodule) {
         let failure = errors::failure(error, query, None);
+        let mut at = errors::repo_path(query);
+        at.reference = read_commit.as_deref().or(at.reference);
         return Err(crate::tools::gh_shared::submodule_failure(
             provider,
-            &errors::repo_path(query),
+            &at,
             request_context,
             failure,
         )
@@ -96,9 +105,10 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
         provider,
         access::owner(query),
         access::repo(query),
-        access::reference(query),
-        missing_path(&error, Some(access::path(query)))
-            || error.reason == Some(octocode_github::ProviderErrorReason::PathIsDirectory),
+        read_commit.filter(|_| {
+            missing_path(&error, Some(access::path(query)))
+                || error.reason == Some(octocode_github::ProviderErrorReason::PathIsDirectory)
+        }),
         request_context,
     )
     .await;
@@ -182,31 +192,41 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     request_context: &RequestContext,
     window: Option<usize>,
     shaping: Shaping<S>,
+    read_commit: &mut Option<String>,
 ) -> Result<GhGetFileContentResult, ProviderError> {
-    // Resolve the ref once (memoized across a batch), then read the body at
+    // Resolve the ref once, then read the body at
     // the immutable SHA.
-    let continuing = access::progress(query).is_some()
-        && access::reference(query).is_some_and(octocode_github::is_full_sha);
-    let force_refresh = access::refresh(query).unwrap_or(false) && !continuing;
     let sha = provider
         .resolve_reference(
             access::owner(query),
             access::repo(query),
             access::reference(query),
-            force_refresh,
             request_context,
         )
         .await?;
+    *read_commit = Some(sha.clone());
     let content_request = ContentRequest {
         owner: access::owner(query).to_owned(),
         repo: access::repo(query).to_owned(),
         path: access::path(query).to_owned(),
-        reference: Some(sha),
-        force_refresh,
+        reference: Some(sha.clone()),
     };
-    let acquired = provider
-        .get_file_bytes(&content_request, request_context)
-        .await?;
+    // The contract has the first page state when the file last changed at
+    // the read commit, so that request is owed; it needs only the resolved
+    // SHA, so it travels beside the body instead of after it. A later page
+    // repeats nothing.
+    let first_page = access::progress(query).is_none_or(|progress| progress.offset == 0);
+    let (acquired, stamp) = tokio::join!(
+        provider.get_file_bytes(&content_request, request_context),
+        async {
+            if first_page {
+                file_timestamp(provider, query, &sha, request_context).await
+            } else {
+                (None, None)
+            }
+        }
+    );
+    let acquired = acquired?;
     // The one text rule localFetch reads by: binary is refused here, once.
     crate::tools::gh_shared::text::admit_read(&acquired)?;
     // A renamed repository: later requests and every lead use the canonical
@@ -224,21 +244,25 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     let fetched = Fetched {
         window,
         renamed_warning,
-        views: shaping.views.clone(),
     };
     let mut result = if !access::classified(query) {
-        let scanner = MemoizedScan::new(&shaping.security, &shaping.memo);
-        shape(query, acquired, fetched, &scanner, &shaping.context, None)
+        shape(
+            query,
+            acquired,
+            fetched,
+            &shaping.security,
+            &shaping.context,
+            None,
+        )
     } else {
         // A ranked read judges its chunks: shaped on a blocking worker.
         let query = query.clone();
         tokio::task::spawn_blocking(move || {
-            let scanner = MemoizedScan::new(&shaping.security, &shaping.memo);
             shape(
                 &query,
                 acquired,
                 fetched,
-                &scanner,
+                &shaping.security,
                 &shaping.context,
                 Some(&shaping.selection),
             )
@@ -251,15 +275,15 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
             )
         })?
     }?;
-    // A receipts read's first page states when the file last changed: one
-    // commits request once the read succeeded, so a failed, throttled or
-    // invalid read never spends it, and later pages repeat nothing. A
-    // default read sends no extra request.
-    if access::progress(query).is_none_or(|progress| progress.offset == 0)
-        && result.file.content.error.is_none()
-    {
-        let (last_modified, last_modified_by) =
-            file_timestamp(provider, query, &result.file.commit_sha, request_context).await;
+    if first_page && result.file.content.error.is_none() {
+        // A renamed repository answered the read by redirect; the stamp of
+        // the old name is asked again under the canonical one.
+        let (last_modified, last_modified_by) = match stamp {
+            (None, None) if canonical.is_some() => {
+                file_timestamp(provider, query, &sha, request_context).await
+            }
+            stamp => stamp,
+        };
         result.file.last_modified = last_modified;
         result.file.last_modified_by = last_modified_by;
     }

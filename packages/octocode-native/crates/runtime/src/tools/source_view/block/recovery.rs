@@ -1,16 +1,18 @@
 //! Notes for a parse the parser recovered from: which lines it skipped,
 //! and why a block or outline may miss declarations there.
-use crate::tools::declarations_cache::file_document;
+use crate::tools::declarations::file_document;
 
 /// The 1-based line spans the parser could not parse and recovered from;
 /// empty after a clean parse.
-fn unparsed_spans(content: &str, path: &str) -> Vec<[usize; 2]> {
-    file_document(content, path)
+fn unparsed_spans(
+    document: Option<&octocode_engine::graph::GraphFactsDocument>,
+) -> Vec<[usize; 2]> {
+    document
         .map(|document| {
             document
                 .error_lines
                 .iter()
-                .map(|span| span.map(crate::num::usize_of))
+                .map(|span| span.map(octocode_engine::num::saturating_usize))
                 .collect()
         })
         .unwrap_or_default()
@@ -36,8 +38,13 @@ fn span_list(spans: &[[usize; 2]]) -> String {
 /// meets the placeholder's missing syntax) is redacted text the grammar
 /// cannot read; the rest are syntax the grammar lacks (Flow types, in
 /// JavaScript). `None` after a clean parse.
-fn unparsed_note(content: &str, path: &str, redacted: &[usize], misses: &str) -> Option<String> {
-    let (by_redaction, by_syntax): (Vec<_>, Vec<_>) = unparsed_spans(content, path)
+fn unparsed_note(
+    document: Option<&octocode_engine::graph::GraphFactsDocument>,
+    path: &str,
+    redacted: &[usize],
+    misses: &str,
+) -> Option<String> {
+    let (by_redaction, by_syntax): (Vec<_>, Vec<_>) = unparsed_spans(document)
         .into_iter()
         .partition(|&[start, end]| {
             redacted
@@ -71,8 +78,9 @@ fn unparsed_note(content: &str, path: &str, redacted: &[usize], misses: &str) ->
 /// from syntax errors, named with the skipped line spans. A read states it
 /// once, however many of its windows it explains.
 pub(super) fn recovered_parse(content: &str, path: &str) -> Option<String> {
+    let document = file_document(content, path);
     unparsed_note(
-        content,
+        document.as_deref(),
         path,
         &[],
         "the outline may miss the enclosing declaration",
@@ -83,12 +91,12 @@ pub(super) fn recovered_parse(content: &str, path: &str) -> Option<String> {
 /// Why a symbols outline may miss declarations: the same recovered parse
 /// a block read names, with the `redacted` lines (1-based) of `content`.
 pub(in crate::tools::source_view) fn outline_recovery_warning(
-    content: &str,
+    document: Option<&octocode_engine::graph::GraphFactsDocument>,
     path: &str,
     redacted: &[usize],
 ) -> Option<String> {
     unparsed_note(
-        content,
+        document,
         path,
         redacted,
         "this outline may miss declarations there",

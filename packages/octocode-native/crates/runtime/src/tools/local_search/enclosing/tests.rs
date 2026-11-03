@@ -141,16 +141,16 @@ fn the_outline_keeps_every_declaration_with_its_lines() {
     }
 }
 
-/// An outline reads the shared typed parse: the parse it built is the
-/// one the next reader of the same source version takes, unparsed again.
+/// Independent requests produce the same typed declarations without retaining them.
 #[test]
-fn an_outline_reads_the_shared_declarations_parse() {
+fn an_outline_agrees_with_independent_declaration_requests() {
     let path = "enclosing-test/shared-parse.rs";
     let source = format!("{SOURCE}\n// shared parse\n");
     assert!(Outline::of(&source, path).is_some());
-    let first = crate::tools::declarations_cache::file_document(&source, path).expect("parse");
-    let again = crate::tools::declarations_cache::file_document(&source, path).expect("parse");
-    assert!(std::sync::Arc::ptr_eq(&first, &again));
+    let first = crate::tools::declarations::file_document(&source, path).expect("parse");
+    let again = crate::tools::declarations::file_document(&source, path).expect("parse");
+    assert_eq!(first, again);
+    assert!(!std::sync::Arc::ptr_eq(&first, &again));
     assert!(Outline::of("not a supported file", "enclosing-test/a.unknownext").is_none());
 }
 

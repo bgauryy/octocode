@@ -5,12 +5,13 @@ use super::{
     FragmentArena, PartShare, Placed, delivered_collections, drop_delivered_elsewhere,
     keep_row_next, row_next_chars, row_part_chars, volatile_reserve,
 };
+use octocode_io::cancellation::Cancellation;
 use serde_json::{Map, Value, json};
-use tokio_util::sync::CancellationToken;
 
 mod fields;
 mod pages;
 use fields::{insert_field, restore_fields, take_guidance};
+pub(super) use pages::PageBudget;
 use pages::{Pages, head_limit};
 
 /// The page plan of a row-scoped response: every fragment of every row,
@@ -158,18 +159,29 @@ impl PreparedRows {
     pub(super) fn plan(
         self,
         row_budget: usize,
-        cancelled: &CancellationToken,
+        cancelled: &Cancellation,
     ) -> Result<RowPlan, DependencyError> {
-        self.plan_with_terminal(row_budget, None, cancelled)
+        self.plan_with_terminal(
+            PageBudget {
+                rows: row_budget,
+                terminal: None,
+                envelope: 0,
+            },
+            cancelled,
+        )
     }
 
     /// Only the final query row's tail may use the finished envelope allowance.
     pub(super) fn plan_with_terminal(
         self,
-        row_budget: usize,
-        terminal_budget: Option<usize>,
-        cancelled: &CancellationToken,
+        budget: PageBudget,
+        cancelled: &Cancellation,
     ) -> Result<RowPlan, DependencyError> {
+        let PageBudget {
+            rows: row_budget,
+            terminal: terminal_budget,
+            envelope,
+        } = budget;
         let Self {
             rows,
             first_fields,
@@ -227,6 +239,7 @@ impl PreparedRows {
                     cancelled,
                     continuation_chars: 0,
                     tail: kept[2],
+                    envelope,
                 },
                 reserves[position],
                 &extra,
@@ -257,7 +270,7 @@ impl RowPlan {
         page: usize,
         volatile: &[Option<Map<String, Value>>],
         remaining: &[Vec<Remaining>],
-        cancelled: &CancellationToken,
+        cancelled: &Cancellation,
     ) -> Result<Vec<Value>, DependencyError> {
         let mut parts: Vec<&Placed> = self.placed.iter().filter(|p| p.page == page).collect();
         parts.sort_by_key(|p| (p.row, p.part));

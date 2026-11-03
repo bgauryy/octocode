@@ -97,11 +97,6 @@ struct NativeLspClientInner {
     /// (with a `didClose`) once the cap is exceeded so the set cannot grow
     /// without bound over a long session.
     open_docs: StdMutex<OpenDocuments>,
-    /// Bumped each time the text of an open document changes on the server
-    /// (`didChange`, or `didClose` of a document whose file changed or went
-    /// away). Part of every cached response key: an answer given before the
-    /// change is never reused after it, whatever the caller's generation.
-    content_epoch: AtomicU64,
     /// The [`CallId`] whose first request last brought the open documents
     /// in line with their files (`0`: none).
     documents_checked_for: AtomicU64,
@@ -122,35 +117,11 @@ struct NativeLspClientInner {
     /// The server tree's resident bytes at the watchdog's last sample; `0`
     /// before the first one or without a watchdog.
     resident_bytes: Arc<AtomicU64>,
-    /// Query responses (generation + `method` + params) from this server,
-    /// reused only inside a [`RESPONSE_SCOPE`] that allows it.
-    responses: moka::sync::Cache<String, CachedResponse>,
     /// The scope's files (relative path → stamp) as of the last request,
     /// for a server that registered for `workspace/didChangeWatchedFiles`:
     /// the next request sends it the difference (see `watched.rs`).
     watched_files: StdMutex<Option<std::collections::BTreeMap<String, String>>>,
     options: LspClientOptions,
-}
-
-/// One cached response, the call that asked for it, and its JSON size,
-/// measured once at insert so the cache weigher reads a number instead of
-/// serializing the value again.
-#[derive(Clone)]
-struct CachedResponse {
-    value: Arc<Value>,
-    call: Option<CallId>,
-    json_bytes: usize,
-}
-
-impl CachedResponse {
-    fn new(value: Arc<Value>, call: Option<CallId>) -> Self {
-        let json_bytes = crate::json_size::bytes_or(value.as_ref(), usize::MAX);
-        Self {
-            value,
-            call,
-            json_bytes,
-        }
-    }
 }
 
 /// One tool call's identity, unique within the process.
@@ -170,42 +141,30 @@ impl CallId {
     }
 }
 
-/// Response reuse for one lspSearch call. `generation` is part of every
-/// cached key: the anchor document's content hash, and for incoming walks
-/// also a fingerprint of every project file the answer can depend on, so an
-/// edited anchor or project never reuses. `reuse` lets a request read the
-/// cache (continuation pages, and first pages whose generation carries the
-/// project fingerprint); without it requests reach the server and refresh
-/// the cache. An empty generation bypasses the cache.
-///
-/// `call` names the one tool call the scope serves. Within it, an answer
-/// the same call already got is reused even without `reuse` (files do not
-/// change under one call; an edit to an open document still misses), and
-/// open documents are compared with their files once, at its first
-/// request. `None` asks and compares at every request.
-#[derive(Clone, Debug, Default)]
+mod answers;
+pub use answers::ProviderAnswers;
+
+/// A single tool call's selected provider evidence and document synchronization.
+/// A fresh call owns an empty transcript. Only an issued continuation restores one.
+#[derive(Clone, Debug)]
 pub struct ResponseScope {
-    pub reuse: bool,
     pub generation: String,
     pub call: Option<CallId>,
+    pub answers: Option<Arc<StdMutex<ProviderAnswers>>>,
+}
+
+impl Default for ResponseScope {
+    fn default() -> Self {
+        Self {
+            generation: String::new(),
+            call: Some(CallId::next()),
+            answers: Some(Arc::default()),
+        }
+    }
 }
 
 tokio::task_local! {
     pub static RESPONSE_SCOPE: std::cell::RefCell<ResponseScope>;
-}
-
-/// Bytes of cached responses per server process, and idle lifetime.
-const RESPONSE_CACHE_BYTES: u64 = 64 * 1024 * 1024;
-const RESPONSE_CACHE_IDLE: std::time::Duration = std::time::Duration::from_secs(600);
-
-fn response_cache() -> moka::sync::Cache<String, CachedResponse> {
-    moka::sync::Cache::builder()
-        .max_capacity(RESPONSE_CACHE_BYTES)
-        .weigher(|key: &String, entry: &CachedResponse| {
-            u32::try_from(key.len() + entry.json_bytes).unwrap_or(u32::MAX)
-        })
-        .time_to_idle(RESPONSE_CACHE_IDLE)
-        .build()
 }
 
 impl NativeLspClient {
@@ -234,7 +193,6 @@ impl NativeLspClient {
                 activity: Arc::new(AtomicUsize::new(0)),
                 sync_lock: Mutex::new(()),
                 open_docs: StdMutex::new(OpenDocuments::new(MAX_OPEN_DOCUMENTS)),
-                content_epoch: AtomicU64::new(0),
                 documents_checked_for: AtomicU64::new(0),
                 project_config: StdMutex::new(ProjectConfigWatch::new(
                     crate::lsp::config::project_config_files(&config_command),
@@ -242,7 +200,6 @@ impl NativeLspClient {
                 memory_cap_guard: StdMutex::new(None),
                 memory_watchdog: StdMutex::new(None),
                 resident_bytes: Arc::new(AtomicU64::new(0)),
-                responses: response_cache(),
                 watched_files: StdMutex::new(None),
                 options,
             }),

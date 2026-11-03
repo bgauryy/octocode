@@ -1,12 +1,12 @@
 use octocode_contract_types::ErrorCode;
 use octocode_github::{CredentialSource, ResolvedCredential};
+use octocode_io::cancellation::Cancellation;
 use secrecy::SecretString;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
-use tokio_util::sync::CancellationToken;
 
 /// Longest per-request timeout a runtime accepts. Deadlines are
 /// `Instant::now() + timeout`; a bound keeps that sum representable on every
@@ -88,7 +88,7 @@ impl std::fmt::Display for ExecutionError {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ExecutionContext {
-    pub cancellation: CancellationToken,
+    pub cancellation: Cancellation,
     pub deadline: Instant,
     /// This row's share of the response page (an explicit `responseChars`,
     /// else the runtime's `auto_page_chars`) that a streamed page must
@@ -123,7 +123,7 @@ impl ExecutionContext {
 #[derive(Default)]
 struct State {
     closed: bool,
-    requests: HashMap<String, CancellationToken>,
+    requests: HashMap<String, Cancellation>,
 }
 
 struct Inner {
@@ -237,7 +237,7 @@ impl RequestRuntime {
     }
 
     pub fn admit(&self, request_id: String) -> Result<RequestAdmission, ExecutionError> {
-        let token = CancellationToken::new();
+        let token = Cancellation::new();
         let mut state = self
             .inner
             .state

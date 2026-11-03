@@ -31,12 +31,16 @@ pub(crate) async fn nuget(
     // below [`REACHABLE_END`] and end the last reachable page.
     let offset = state.offset.unwrap_or(0);
     let base = service_endpoint("SearchQueryService", client).await?;
-    let size = artifact_search_query::page_size(query)
-        .min(crate::num::usize_of(REACHABLE_END.saturating_sub(offset)));
+    let size = artifact_search_query::page_size(query).min(octocode_engine::num::saturating_usize(
+        REACHABLE_END.saturating_sub(offset),
+    ));
     // NuGet rejects skip > 3000. Past it, fetch one window from skip=3000
     // (take stays <= 1000) and slice the saved page window out locally.
     let (skip, drop) = if offset > MAX_SKIP {
-        (MAX_SKIP, crate::num::usize_of(offset - MAX_SKIP))
+        (
+            MAX_SKIP,
+            octocode_engine::num::saturating_usize(offset - MAX_SKIP),
+        )
     } else {
         (offset, 0)
     };

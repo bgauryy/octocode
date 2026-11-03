@@ -38,10 +38,10 @@ function start(t: TestContext, f: ReturnType<typeof fixture>, args: string[], en
 const initialize = JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'test',version:'1'}}})+'\n';
 
 test('managed MCP joins once, binds tools, keeps stdout pure and leaves on EOF', async t => {
-  const f = fixture(t), worker = start(t,f,['--managed','--name','worker','--vendor','generic','--tools','peers,inbox']);
+  const f = fixture(t), worker = start(t,f,['--managed','--name','worker','--vendor','generic','--tools','agents,messages']);
   const ready = await worker.ready();
   assert.equal(ready.delivery,'manual-inbox');assert.equal(ready.automaticWake,false);
-  worker.child.stdin.end(initialize + JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'peers',arguments:{}}})+'\n');
+  worker.child.stdin.end(initialize + JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'agents',arguments:{type:'list',input:{}}}})+'\n');
   const result = await worker.closed;assert.equal(result.code,0,result.stderr);
   const frames = result.stdout.trim().split('\n').map((line): JsonRecord => JSON.parse(line));
   assert.equal(frames.length,2);assert.ok(frames.every((frame: JsonRecord)=>frame.jsonrpc==='2.0'));
@@ -71,6 +71,9 @@ test('managed MCP resumes expired identity and removes stale leases; plain MCP l
   f.call('resume','{"vendor":"generic"}','--session',agent.id);
   const plain=start(t,f,['--session',agent.id]);plain.child.stdin.end(initialize);const result=await plain.closed;
   assert.equal(result.code,0,result.stderr);assert.equal(result.stderr,'');assert.equal(f.call('peers').items[0].id,agent.id);
+  const instructions = JSON.parse(result.stdout.trim()).result.instructions;
+  assert.match(instructions, /external lifecycle owner/);
+  assert.match(instructions, /does not renew or release/);
 });
 
 test('managed MCP maintains idle presence and fails closed on externally expired identity', async t => {
@@ -102,8 +105,8 @@ test('built entry exposes managed stdio MCP with discovery, calls and EOF cleanu
   const requests=initialize+[
     {method:'notifications/initialized'},
     {id:2,method:'tools/list'},
-    {id:3,method:'tools/call',params:{name:'set_status',arguments:{status:'busy',task:'Verify launcher binding'}}},
-    {id:4,method:'tools/call',params:{name:'inbox',arguments:{}}},
+    {id:3,method:'tools/call',params:{name:'agents',arguments:{type:'status',input:{status:'busy',task:'Verify launcher binding'}}}},
+    {id:4,method:'tools/call',params:{name:'messages',arguments:{type:'read',input:{}}}},
   ].map(frame=>JSON.stringify({jsonrpc:'2.0',...frame})).join('\n')+'\n';
   const frames=execFileSync(binary,['mcp','--managed','--name','launcher-check','--vendor','generic','--tools','messaging',...f.flags],{input:requests,encoding:'utf8',timeout:10000,stdio:['pipe','pipe','pipe']}).trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
   assert.equal(frames.length,4,'Notifications emit no stdout frame');

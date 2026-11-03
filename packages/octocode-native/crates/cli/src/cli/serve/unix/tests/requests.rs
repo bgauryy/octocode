@@ -65,6 +65,7 @@ pub(super) async fn exchange_reply(
         std::future::pending(),
         std::future::pending::<()>(),
         || {},
+        |_| {},
     )
     .await
 }
@@ -180,6 +181,7 @@ async fn ctrl_c_closes_the_request_side_and_drains_the_server() {
         std::future::ready(()),
         std::future::pending::<()>(),
         || noticed.set(true),
+        |_| {},
     )
     .await;
     assert_eq!(
@@ -198,6 +200,7 @@ async fn ctrl_c_closes_the_request_side_and_drains_the_server() {
         std::future::ready(()),
         std::future::ready(()),
         || {},
+        |_| {},
     )
     .await;
     assert_eq!(

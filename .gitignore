@@ -27,16 +27,16 @@ packages/octocode-benchmark/local/e2e/results/
 packages/octocode-benchmark/local/e2e/.octocode/
 # Package READMEs are authored source and must remain trackable.
 !packages/*/README.md
-!packages/*/npm/*/README.md
 
 # ─── Rust packages ──────────────────────────────────────────────────────────
 # Cargo build artefacts
 target/
 .octocode-*-target/
-# Compiled native binaries in platform packages — built per platform at
-# publish time, never committed.
-packages/*/npm/*/octocode
-packages/*/npm/*/octocode.exe
+# Platform packages track only their manifest and README; binaries and any
+# other build output staged there are built per platform, never committed.
+packages/*/npm/*/*
+!packages/*/npm/*/package.json
+!packages/*/npm/*/README.md
 # cargo-mutants run output (current and previous run)
 mutants.out/
 mutants.out.old/

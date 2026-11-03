@@ -86,9 +86,9 @@ fn is_private_key_end(line: &str) -> bool {
 /// its END marker or, when it has none, at the first line that is not
 /// key-shaped (see [`KeyBlockState`]): code after a literal marker string stays
 /// readable.
-pub(crate) fn redact_private_key_blocks(content: &str) -> (String, bool) {
+pub(crate) fn redact_private_key_blocks(content: &str) -> (std::borrow::Cow<'_, str>, bool) {
     if !content.contains("PRIVATE KEY") {
-        return (content.to_owned(), false);
+        return (content.into(), false);
     }
     let placeholder = key_fragment_placeholder();
     let mut out = String::with_capacity(content.len());
@@ -106,12 +106,12 @@ pub(crate) fn redact_private_key_blocks(content: &str) -> (String, bool) {
         }
     }
     if !changed {
-        return (content.to_owned(), false);
+        return (content.into(), false);
     }
     if content.ends_with('\n') {
         out.push('\n');
     }
-    (out, true)
+    (out.into(), true)
 }
 
 /// Placeholder emitted for a redacted private-key fragment. Shared by the
@@ -214,11 +214,11 @@ impl ContentSecurity {
             .into_owned()
     }
 
-    pub(crate) fn sanitize_text(
+    pub(crate) fn sanitize_text<'a>(
         &self,
-        content: &str,
+        content: &'a str,
         file_path: Option<&Path>,
-    ) -> SanitizationResult {
+    ) -> SanitizationResult<'a> {
         let path = file_path.map(|path| path.to_string_lossy());
         let native =
             octocode_engine::security::sanitizer::sanitize_content(content, path.as_deref());
@@ -240,13 +240,13 @@ impl ContentSecurity {
         redact_split_private_key(redacted.as_deref().unwrap_or(content), None).or(redacted)
     }
 
-    fn guard_native(
+    fn guard_native<'a>(
         &self,
-        native: octocode_engine::error::Result<SanitizationResult>,
+        native: octocode_engine::error::Result<SanitizationResult<'a>>,
         file_path: Option<&Path>,
-    ) -> SanitizationResult {
+    ) -> SanitizationResult<'a> {
         let native = native.unwrap_or_else(|error| SanitizationResult {
-            content: octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned(),
+            content: octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.into(),
             has_secrets: true,
             secrets_detected: vec!["sanitizer-failure".to_owned()],
             warnings: vec![error.to_string()],
@@ -259,7 +259,7 @@ impl ContentSecurity {
             let mut secrets = native.secrets_detected;
             secrets.push(SPLIT_KEY_SECRET.to_owned());
             return SanitizationResult {
-                content: guarded,
+                content: guarded.into(),
                 has_secrets: true,
                 warnings: vec![format!("{} secret(s) redacted", secrets.len())],
                 secrets_detected: secrets,
@@ -273,9 +273,9 @@ impl ContentSecurity {
         bytes: &[u8],
         file_path: Option<&Path>,
         max_bytes: usize,
-    ) -> Result<SanitizationResult, PolicyError> {
+    ) -> Result<SanitizationResult<'static>, PolicyError> {
         let text = self.decode_source_bytes(bytes, max_bytes)?;
-        Ok(self.sanitize_text(&text, file_path))
+        Ok(self.sanitize_text(&text, file_path).into_owned())
     }
 
     /// Bounded, non-binary source text for a parser, NOT redacted: redacting

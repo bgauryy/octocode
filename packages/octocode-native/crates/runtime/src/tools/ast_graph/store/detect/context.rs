@@ -10,7 +10,7 @@ pub(super) fn step(tool: ToolId, row: Value) -> VerifyStep {
 // ── Detectors ───────────────────────────────────────────────────────────────
 
 /// `(timing label, detectors it produces, runner)`.
-pub(super) type DetectorStep = (&'static str, &'static [&'static str], fn(&mut Ctx));
+pub(super) type DetectorStep = (&'static [&'static str], fn(&mut Ctx));
 
 pub(super) struct Ctx<'a> {
     pub(super) v: View<'a>,

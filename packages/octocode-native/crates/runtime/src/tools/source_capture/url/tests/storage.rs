@@ -86,6 +86,7 @@ fn a_capture_is_saved_immutably_and_its_lead_reads_exactly_those_bytes() {
             "path": file,
             "snapshot": snapshot,
             "ranges": [{"startLine":1,"endLine":selection.text.lines().count()}],
+            "view": "content",
         })
     );
     assert_eq!(row["ranges"], json!([{"startLine":1,"endLine":4}]));

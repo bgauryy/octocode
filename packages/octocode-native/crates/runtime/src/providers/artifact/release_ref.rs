@@ -1,6 +1,6 @@
 //! Release refs for registries whose metadata names no commit. Each is a
 //! lead source only: any failure leaves the lookup without a release ref.
-use super::util::{github_repo_dir, github_slug, string};
+use super::util::{github_repo_dir, github_slug};
 use super::{ArtifactItem, http::RegistryClient};
 
 /// A pending release-tag check.
@@ -49,9 +49,7 @@ pub(crate) async fn pin_release_tag(
 /// upstream: `v<version>`, `<version>`, then the shapes a monorepo uses for
 /// one package's releases ([`tag_candidates`]). Without a GitHub check, or
 /// when the check fails (rate limit, missing repository), there is no tag.
-/// A found tag is remembered as a release fact, so a repeated lookup spends
-/// no GitHub request; an absence is remembered as long as a registry answer
-/// (the tag may be pushed later).
+/// Each lookup checks current tags; neither matches nor absences are retained.
 async fn github_release_tag(
     repository: &str,
     directory: Option<&str>,
@@ -61,15 +59,6 @@ async fn github_release_tag(
 ) -> Option<String> {
     let tags = client.tags?;
     let (owner, repo) = github_slug(repository)?;
-    let resource = format!(
-        "tag:{}/{}/{}:{package}@{version}",
-        owner.to_ascii_lowercase(),
-        repo.to_ascii_lowercase(),
-        directory.unwrap_or_default()
-    );
-    if let Some(fact) = client.fact(&resource).await {
-        return string(fact.get("tag"));
-    }
     let candidates = tag_candidates(&repo, package, directory, version);
     // Two rounds: the plain tags most releases carry, then a monorepo
     // package's own shapes, each round's checks together.
@@ -82,16 +71,10 @@ async fn github_release_tag(
         for (tag, exists) in round.iter().zip(answers) {
             // A failed check is no answer: nothing is remembered.
             if exists? {
-                client
-                    .remember_fact(&resource, &serde_json::json!({ "tag": tag }))
-                    .await;
                 return Some(tag.clone());
             }
         }
     }
-    client
-        .remember_answer(&resource, &serde_json::json!({ "tag": null }))
-        .await;
     None
 }
 
@@ -203,26 +186,22 @@ mod tests {
     fn tag_client<'a>(
         http: &'a super::super::test_http::RouteHttp,
         budget: &'a octocode_io::budget::RequestBudget,
-        cache: &'a super::super::ArtifactCache,
         tags: &'a super::super::test_http::KnownTags,
     ) -> RegistryClient<'a> {
         RegistryClient {
             http,
             budget,
-            cache: Some(cache),
             tags: Some(tags),
         }
     }
 
-    /// A package with no matching tag is checked once per registry-answer
-    /// lifetime: the repeat lookup spends no GitHub request.
+    /// A package with no matching tag is checked again on each lookup.
     #[tokio::test]
-    async fn an_absent_release_tag_is_remembered_for_a_registry_answer_lifetime() {
+    async fn each_release_lookup_checks_current_upstream_tags() {
         let http = super::super::test_http::RouteHttp::new();
         let budget = super::super::test_http::test_budget();
-        let cache = super::super::ArtifactCache::new(None);
         let tags = super::super::test_http::KnownTags::always(Some(false));
-        let client = tag_client(&http, &budget, &cache, &tags);
+        let client = tag_client(&http, &budget, &tags);
         let repository = "https://github.com/acme/monorepo";
         for _ in 0..2 {
             assert_eq!(
@@ -238,10 +217,10 @@ mod tests {
             );
         }
         let candidates = tag_candidates("monorepo", "widget", Some("packages/widget"), "1.0.0");
-        assert_eq!(tags.seen().len(), candidates.len(), "{:?}", tags.seen());
+        assert_eq!(tags.seen().len(), candidates.len() * 2, "{:?}", tags.seen());
         // A failed check is not an absence: it is asked again.
         let failing = super::super::test_http::KnownTags::always(None);
-        let client = tag_client(&http, &budget, &cache, &failing);
+        let client = tag_client(&http, &budget, &failing);
         for _ in 0..2 {
             assert_eq!(
                 github_release_tag(repository, None, "other", "2.0.0", &client).await,
@@ -258,9 +237,8 @@ mod tests {
     async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
         let http = super::super::test_http::RouteHttp::new();
         let budget = super::super::test_http::test_budget();
-        let cache = super::super::ArtifactCache::new(None);
         let plain = super::super::test_http::KnownTags::new(vec!["acme/widget@v1.0.0"]);
-        let client = tag_client(&http, &budget, &cache, &plain);
+        let client = tag_client(&http, &budget, &plain);
         assert_eq!(
             github_release_tag(
                 "https://github.com/acme/widget",
@@ -278,8 +256,7 @@ mod tests {
             "acme/widget@core@1.0.0",
             "acme/widget@core-v1.0.0",
         ]);
-        let cache = super::super::ArtifactCache::new(None);
-        let client = tag_client(&http, &budget, &cache, &stems);
+        let client = tag_client(&http, &budget, &stems);
         assert_eq!(
             github_release_tag(
                 "https://github.com/acme/widget",

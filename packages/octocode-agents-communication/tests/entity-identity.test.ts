@@ -13,7 +13,7 @@ test('every public entity exposes its declared agent identity and documents pres
  call('lock',{path:'fixture',reasoning:'Verify owner'},a);
  call('attach',{transport:'raw'},b);
  call('subscribe',{topics:['review']},b);
- call('send_message',{to:b,body:'Inspect fixture',reasoning:'Verify sender/recipient'},a);
+ call('send_message',{parts: [{ text: 'Inspect fixture' }], to:b,reasoning:'Verify sender/recipient'},a);
  call('hook',{format:'json'},b);
  const document=call('share_document',{name:'context.md',content:'Evidence',reasoning:'Verify author',context:{summary:'Fixture',path:'.'}},a).document;
  assert.equal(document.author,a);

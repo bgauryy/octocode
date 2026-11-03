@@ -3,14 +3,16 @@
 use super::emit::{answered_cell, emit, terminal_saved};
 use super::{Budget, Outcome, Runtime, Session, error_value, token};
 use crate::execution::{ExecutionContext, SelectionLimits};
-use crate::id::ToolId;
 use crate::providers::classification::gate::call_cap;
-use crate::response::result::Continuation;
+use crate::response::result::{Continuation, insert_next};
 use crate::tools::judgment::stats::ClassificationUsage;
 use crate::tools::judgment::{ClassificationError, EvaluationInput, QuestionOutcomes};
 use crate::tools::source_capture::SourceReader;
 use futures_util::{StreamExt as _, stream};
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{
+    ClasifyChannel, ClasifyQuery, ClasifyQuerySectionsAssessment,
+    ClasifyQuerySectionsAssessmentOperation, ErrorCode,
+};
 use serde_json::json;
 
 pub(super) fn pending_cost(session: &Session) -> (usize, usize) {
@@ -159,7 +161,25 @@ pub(super) fn assess_and_save(
     }
     let mut output = emit(session, &usage, None);
     if remaining > 0 {
-        output["next"] = json!({"nextSectionPage":Continuation::continued(ToolId::Clasify, json!({"operation":"sections","assessment":token(&session.id, ordinal + 1)})).build()});
+        let Ok(assessment) = token(&session.id, ordinal + 1).try_into() else {
+            unreachable!("a batch token is a valid assessment token");
+        };
+        let next = ClasifyQuery {
+            subtype_0: None,
+            subtype_1: None,
+            subtype_2: None,
+            subtype_3: Some(ClasifyQuerySectionsAssessment {
+                assessment,
+                main_goal: None,
+                operation: ClasifyQuerySectionsAssessmentOperation::Sections,
+                reasoning: None,
+            }),
+        };
+        insert_next(
+            &mut output["next"],
+            ClasifyChannel::NextPage,
+            Continuation::continued_query(next),
+        );
     }
     session.batches.push(output.clone());
     if runtime.can_resume
@@ -173,6 +193,9 @@ pub(super) fn assess_and_save(
         // Include this batch again in the full terminal result because its
         // provisional output has not yet reached the caller.
         for resource in &mut session.resources {
+            if output["resources"].get(&resource.key).is_some() {
+                resource.shown = None;
+            }
             if let Some(shown) = output["resources"][&resource.key]["sections"].as_array() {
                 for unit in &mut resource.units {
                     if shown.iter().any(|item| item["id"] == unit.metadata["id"]) {

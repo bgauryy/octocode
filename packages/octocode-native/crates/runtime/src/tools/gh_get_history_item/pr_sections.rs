@@ -8,13 +8,14 @@ use super::text::{body_matches, delivered_earlier, needle, shape_comment, window
 use super::util::{str_at, string};
 use super::window::{WindowState, lift_page_limits};
 use super::{HistoryItemRequest, validation};
-use crate::id::ToolId;
-use crate::response::result::remove_nulls;
+use crate::response::result::wire_query;
+use crate::response::result::{Continuation, remove_nulls};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_shared::commit;
 use crate::tools::gh_shared::dates::utc_value;
 use futures_util::{StreamExt as _, TryStreamExt as _};
+use octocode_contract_types::GhGetFileContentQuery;
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Map, Value, json};
@@ -81,22 +82,19 @@ fn comment_code_reads(query: &HistoryItemRequest, comments: &[Value]) -> Vec<Val
     }
     merged
         .chunks(COMMENT_CODE_RANGES)
-        .map(|spans| {
+        .filter_map(|spans| {
             let ranges = spans
                 .iter()
                 .map(|(start, end)| json!({"startLine":start,"endLine":end}))
                 .collect::<Vec<_>>();
-            crate::response::result::Continuation::related(
-                ToolId::GhGetFileContent,
-                json!({
-                    "owner": gh_get_history_item_query::owner(query),
-                    "repo": gh_get_history_item_query::repo(query),
-                    "path": path,
-                    "ref": sha,
-                    "ranges": ranges,
-                }),
-            )
-            .build()
+            let read = wire_query::<GhGetFileContentQuery>(json!({
+                "owner": gh_get_history_item_query::owner(query),
+                "repo": gh_get_history_item_query::repo(query),
+                "path": path,
+                "ref": sha,
+                "ranges": ranges,
+            }))?;
+            Some(Continuation::related_query(read).build())
         })
         .collect()
 }
@@ -278,7 +276,7 @@ pub(super) async fn shape_pr_commits(
                     .and_then(|page| page.remove("nextPage"))
                     .and_then(|page| page.as_u64())
                 {
-                    more_files = Some(commit_files::next_page(query, &sha, next_page, per_page));
+                    more_files = commit_files::next_page(query, &sha, next_page, per_page);
                 }
                 if more_files.is_some() || files_page["terminalLimit"] == true {
                     commit["contentPagination"][Axis::Files.key()] = files_page;

@@ -100,6 +100,7 @@ pub(super) fn decode_admitted(
             sorted_ids(descriptors.units.iter().map(|row| row.id.as_str()), cancel)?;
             pool::OriginPool::read(&mut input, &descriptors)?
         }
+        #[cfg(test)]
         Admission::Accessed => {
             check_catalog(&descriptors, cancel)?;
             pool::OriginPool::read_index(&mut input, &descriptors)?

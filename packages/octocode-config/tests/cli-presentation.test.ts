@@ -9,6 +9,7 @@ import {
   toolVariants,
 } from '@octocodeai/octocode-core/schema';
 import { at, presentation, tool, tools } from './cli-presentation-fixture.ts';
+import { toolHelpSection } from '../scripts/tool-contract/presentation.ts';
 
 const ajv = new Ajv2020({ strict: false, validateFormats: false });
 
@@ -73,6 +74,16 @@ describe('canonical CLI and MCP discovery', () => {
           expect(validate({ ...query, unknownField: true })).toBe(false);
         }
       }
+    }
+  });
+
+  it('lists each required-fields form of a tool once, however many examples share it', () => {
+    for (const definition of DIRECT_TOOL_DEFINITIONS) {
+      const blocks = toolHelpSection(definition).split('\n\n');
+      const block = blocks.find(text => text.startsWith('Required fields, by operation:'));
+      if (!block) continue;
+      const rows = block.split('\n').slice(1);
+      expect(new Set(rows).size, `${definition.name}: ${rows.join(' | ')}`).toBe(rows.length);
     }
   });
 });

@@ -14,7 +14,7 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9
 
 test('npm archive runs through npx outside the repository with CLI and MCP communication', async t => {
   const directory = tempWorkspace(t, 'communication-npm-', { real: true });
-  const options: ExecFileSyncOptionsWithStringEncoding = { encoding: 'utf8', timeout: 30000, stdio: 'pipe' };
+  const options: ExecFileSyncOptionsWithStringEncoding = { encoding: 'utf8', stdio: 'pipe' };
   const [packed] = JSON.parse(execFileSync('npm', [
     'pack', '--ignore-scripts', '--json', '--pack-destination', directory,
   ], { ...options, cwd: root }));
@@ -54,18 +54,17 @@ test('npm archive runs through npx outside the repository with CLI and MCP commu
   try {
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map(tool => tool.name), catalog.selectedTools().map((tool: JsonRecord) => tool.name));
-    const sent = launch('send_message', '--to', receiver.id, '--question', 'CLI to packed MCP', '--reasoning', 'Verify installed interfaces', '--session', agent.id, ...flags);
-    const inbox = await client.callTool({ name: 'inbox', arguments: {} });
+    const sent = launch('send_message', JSON.stringify({ to: receiver.id, parts: [{ text: 'CLI to packed MCP' }], replyRequired: true, reasoning: 'Verify installed interfaces' }), '--session', agent.id, ...flags);
+    const inbox = await client.callTool({ name: 'messages', arguments: { type: 'read', input: {} } });
     assert.notEqual(inbox.isError, true);
     assert.ok(Array.isArray(inbox.content));
     const [block] = inbox.content;
     assert.equal(block?.type, 'text');
     assert.equal(JSON.parse(block?.type === 'text' ? block.text : '').items[0].id, sent.id);
-    const completed = await client.callTool({ name: 'complete', arguments: { message: sent.id, outcome:'done',reply:{conclusion:'Packed MCP to CLI'} } });
+    const completed = await client.callTool({ name: 'messages', arguments: { type: 'complete', input: { message: sent.id, outcome:'completed',reply:[{text:'Packed MCP to CLI'}] } } });
     assert.notEqual(completed.isError, true);
     const reply = launch('inbox', '--session', agent.id, ...flags).items[0];
-    assert.equal(reply.kind, 'answer');
-    assert.match(reply.body, /\nConclusion: Packed MCP to CLI$/);
+    assert.deepEqual(reply.parts, [{ text: 'Packed MCP to CLI' }]);
     assert.equal(reply.replyTo, sent.id);
     launch('complete', '--message', String(reply.id), '--session', agent.id, ...flags);
   } finally { await client.close(); }

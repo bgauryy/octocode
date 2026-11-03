@@ -7,22 +7,12 @@
 mod recovery;
 
 use super::types::LineRange;
-use crate::tools::declarations_cache::{Declared, all_declarations};
+use crate::tools::declarations::{Declared, all_declarations};
 pub(super) use recovery::outline_recovery_warning;
 use recovery::recovered_parse;
 
 /// Largest declaration a block read returns in one window.
 pub const BLOCK_MAX_LINES: usize = 400;
-
-/// The multi-line declarations the engine outlines, in outline order.
-pub(crate) fn declarations(content: &str, path: &str) -> Option<Vec<Declared>> {
-    let declared: Vec<Declared> = all_declarations(content, path)?
-        .into_iter()
-        // A one-line declaration is not a block to widen to.
-        .filter(|declared| declared.end > declared.start)
-        .collect();
-    (!declared.is_empty()).then_some(declared)
-}
 
 /// A file's outline as a block read widens with it: the multi-line
 /// declarations, and the lines of the one-line ones (nothing to widen to,

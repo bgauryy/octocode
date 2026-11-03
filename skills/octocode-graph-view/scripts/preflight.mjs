@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // What can run here, and how to enable the rest. Never installs or starts anything.
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { isMainModule } from './lib/entrypoint.mjs';
 import { cliOk, octocode } from './lib.mjs';
 
 const has = (cmd, args) => { try { execFileSync(cmd, args, { stdio: 'ignore' }); return true; } catch { return false; } };
@@ -37,7 +37,7 @@ export async function preflight() {
   return r;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMainModule(import.meta.url)) {
   const r = await preflight();
   const todo = Object.entries(r).filter(([, v]) => !v.startsWith('ok')).map(([k, v]) => ({ layer: k, state: v, enable: HINTS[k] }));
   if (process.argv.includes('--json')) console.log(JSON.stringify({ layers: r, todo }));

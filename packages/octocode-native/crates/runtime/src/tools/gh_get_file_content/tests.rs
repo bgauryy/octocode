@@ -2,7 +2,6 @@ use super::local_query::local_query;
 use super::shape::row_envelope_chars;
 use super::*;
 use crate::execution::cancel::NeverCancel;
-use crate::security::scan::{MemoizedScan, SanitizedViewMemo};
 use crate::tools::gh_shared::test_support::{default_context, fixture_context, mock_provider};
 use crate::tools::source_view::{ReadStatus, process_fetched_content};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -33,9 +32,7 @@ fn shaping(judge: impl crate::tools::selection::SelectionJudge + 'static) -> Sha
         Duration::from_secs(10),
     );
     Shaping {
-        views: Default::default(),
         security: Safe,
-        memo: Arc::new(SanitizedViewMemo::new()),
         context: selection.context.clone(),
         selection,
     }
@@ -54,6 +51,7 @@ async fn execute_default_regex(
         request_context,
         window,
         shaping(select_all),
+        &mut None,
     )
     .await
 }

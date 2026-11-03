@@ -21,6 +21,16 @@ node skills-dev/octocode-graph-dev/scripts/bench-compare.mjs <dir>/before.json <
 - `--edges` adds every call edge into the probe (`witnesses`: from, to, line, confidence) to each row.
 - Per-edge agreement with LSP: [lsp-crosscheck.mjs](../scripts/lsp-crosscheck.mjs) `--peer <graph-view data.json> --crates <dir,...> --out <file>` compares every `witnesses` call edge of each crate with an octocode-graph-view LSP cross-check.
 
+Use [graph-bench.mjs](../scripts/graph-bench.mjs) `--help` for flags. The battery exits 1 on failed calls or incomplete callers pages. Inspect the failed input before using a partial measurement. [bench-compare.mjs](../scripts/bench-compare.mjs) exits 1 on a precision drop, a new ingest failure, or a previously successful workflow stage that now fails or is missing. It reports recall changes for source review.
+
+When changing the runner, oracle or comparison gate, run both suites from the skill directory:
+
+```bash
+node --test scripts/bench-compare.test.mjs scripts/battery-status.test.mjs
+```
+
+[Comparison and oracle tests](../scripts/bench-compare.test.mjs) cover per-language metrics and matched sites. [Battery status tests](../scripts/battery-status.test.mjs) distinguish an empty result from a failed call, incomplete paging or a missing workflow stage.
+
 ## Reading a row
 
 | Field | Meaning |

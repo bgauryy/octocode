@@ -57,7 +57,11 @@ async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
         .collect::<Vec<_>>();
     // One page: the parents and their continuations go on the last page.
     let mut row = items_payload(&q, "callers", serde_json::json!(items), 1_000_000);
-    assert!(row["next"].get("nextPage").is_none(), "{}", row["next"]);
+    assert!(
+        row["pagination"]["next"].get("nextPage").is_none(),
+        "{}",
+        row["next"]
+    );
     mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, &deep)]);
     assert_eq!(row["clipped"], true);
     assert_eq!(row["isPartial"], true);
@@ -175,7 +179,11 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
     let last = requery(&q, serde_json::json!({ "page": pages }));
     let mut row = items_payload(&last, "callers", serde_json::json!(items), TEST_BUDGET);
     mark_truncation(&mut row, &last, &[(Expansion::IncomingCalls, &walk)]);
-    assert!(row["next"].get("nextPage").is_none(), "{}", row["next"]);
+    assert!(
+        row["pagination"]["next"].get("nextPage").is_none(),
+        "{}",
+        row["next"]
+    );
     assert_eq!(row["clipped"], true);
     assert_eq!(
         row["partialReasons"],

@@ -20,20 +20,17 @@ pub(super) struct Record {
 
 /// Encodes `origin` on its own, then decodes it once to price its
 /// reconstruction exactly. The index keeps neither cloned ids nor nested
-/// vectors.
+/// vectors. `pass` polls the request once per origin; each charge is the
+/// origin's own.
 pub(super) fn encode(
     origin: &OriginProjection,
     descriptors: &SourceDescriptors,
-    cancel: &dyn CancellationCheck,
+    pass: &Budget<'_>,
 ) -> Result<Record, SourceError> {
+    pass.check()?;
     let mut bytes = Vec::new();
-    codec::write(
-        &mut bytes,
-        origin,
-        descriptors,
-        &mut Budget::new(cancel, &LIMITS),
-    )?;
-    let mut decode = Budget::new(cancel, &LIMITS);
+    codec::write(&mut bytes, origin, descriptors, &mut pass.scratch())?;
+    let mut decode = pass.scratch();
     let (unit, decoded) = codec::read(&mut Input::new(&bytes, &mut decode), descriptors)?;
     Ok(Record {
         unit,
@@ -66,9 +63,10 @@ impl OriginPool {
             let width = crate::tools::workers::workers(window.len(), None);
             let mut ranges = batches(window.len(), width);
             let encoded = crate::tools::workers::each_parallel(&mut ranges, width, |range| {
+                let pass = Budget::new(cancel, &LIMITS);
                 window[range.clone()]
                     .iter()
-                    .map(|origin| encode(origin, descriptors, cancel))
+                    .map(|origin| encode(origin, descriptors, &pass))
                     .collect::<Vec<_>>()
             });
             for record in encoded.into_iter().flatten() {

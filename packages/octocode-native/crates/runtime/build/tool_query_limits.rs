@@ -7,22 +7,26 @@ use std::error::Error;
 /// field itself, else the one value its `anyOf`/`oneOf` members declare (a
 /// `string | string[]` field's `maxItems` lives on the array member).
 fn field_fact(schema: &Value, defs: &Value, keyword: &str) -> Option<u64> {
-    if let Some(value) = schema.get(keyword) {
+    let chain = reference_chain(schema, defs);
+    if let Some(value) = chain.iter().find_map(|part| part.get(keyword)) {
         return value.as_u64();
     }
     let mut found = None;
-    for member in ["anyOf", "oneOf"]
+    for member in chain
         .iter()
-        .filter_map(|key| schema.get(*key).and_then(Value::as_array))
+        .flat_map(|schema| {
+            ["anyOf", "oneOf"]
+                .iter()
+                .filter_map(|key| schema.get(*key).and_then(Value::as_array))
+        })
         .flatten()
     {
-        let Some(value) = resolve_schema_ref(member, defs).get(keyword) else {
+        let Some(value) = field_fact(member, defs, keyword) else {
             continue;
         };
-        match (found, value.as_u64()) {
-            (_, None) => return None,
-            (Some(previous), Some(value)) if previous != value => return None,
-            (_, value) => found = value,
+        match found {
+            Some(previous) if previous != value => return None,
+            _ => found = Some(value),
         }
     }
     found
@@ -37,8 +41,8 @@ pub(super) struct QueryVariant<'a> {
 
 /// The `oneOf`/`anyOf` branches of a tool's query schema (the schema itself
 /// when it has none) that declare properties.
-pub(super) fn query_variants(schema: &Value) -> Vec<QueryVariant<'_>> {
-    let defs = &schema["$defs"];
+pub(super) fn query_variants<'a>(schema: &'a Value, defs: &'a Value) -> Vec<QueryVariant<'a>> {
+    let schema = resolve_schema_ref(schema, defs);
     let branches = ["oneOf", "anyOf"]
         .iter()
         .find_map(|key| schema.get(*key).and_then(Value::as_array))
@@ -85,7 +89,6 @@ fn query_facts(
         .filter(|variant| admits(&variant.operations))
     {
         for (field, schema) in variant.fields {
-            let schema = resolve_schema_ref(schema, defs);
             for keyword in KEYWORDS {
                 let value = field_fact(schema, defs, keyword);
                 let name = format!(
@@ -111,12 +114,28 @@ fn query_facts(
 }
 
 pub(super) fn resolve_schema_ref<'a>(schema: &'a Value, defs: &'a Value) -> &'a Value {
-    schema
-        .get("$ref")
-        .and_then(Value::as_str)
-        .and_then(|reference| reference.strip_prefix("#/$defs/"))
-        .and_then(|name| defs.get(name))
+    reference_chain(schema, defs)
+        .last()
+        .copied()
         .unwrap_or(schema)
+}
+
+pub(super) fn reference_chain<'a>(mut schema: &'a Value, defs: &'a Value) -> Vec<&'a Value> {
+    let mut chain = Vec::new();
+    let mut seen = BTreeSet::new();
+    while seen.insert(std::ptr::from_ref(schema)) {
+        chain.push(schema);
+        let Some(target) = schema
+            .get("$ref")
+            .and_then(Value::as_str)
+            .and_then(|reference| reference.strip_prefix("#/$defs/"))
+            .and_then(|name| defs.get(name))
+        else {
+            break;
+        };
+        schema = target;
+    }
+    chain
 }
 
 /// `contracts::query_limits::<tool>`: every agreed integer query-schema fact
@@ -141,8 +160,8 @@ pub(in super::super) fn render_query_limits(contract: &Value) -> Result<String, 
         let schema = tool
             .get("querySchema")
             .ok_or_else(|| invalid(format!("{name} has no querySchema")))?;
-        let defs = &schema["$defs"];
-        let variants = query_variants(schema);
+        let defs = &contract["$defs"];
+        let variants = query_variants(schema, defs);
         output.push_str(&format!(
             "pub mod {} {{\n{}",
             rust_ident(name),

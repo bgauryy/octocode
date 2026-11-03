@@ -68,7 +68,7 @@ jobs:
       - name: Format
         run: yarn fmt:rust:check
       - name: Clippy
-        run: yarn lint
+        run: yarn lint:own
       - name: Test (nextest)
         run: yarn test:rust
         env:

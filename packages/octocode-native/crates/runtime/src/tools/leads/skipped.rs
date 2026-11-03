@@ -226,6 +226,11 @@ pub(crate) struct Unchecked<'a> {
     pub(crate) named: &'a str,
 }
 
+/// What a lead built from a cut probe costs: the probe proved a prefix of
+/// the skipped paths at most, so the lead lifts the causes for the whole
+/// scope (narrowing to the sampled entries would drop matches past them).
+pub(crate) const WALKS_ALL_SKIPPED: &str = "The includeSkipped call walks everything those causes hide, not only these files, and can take far longer than this search.";
+
 /// The disclosure of `verdict` about what `subject` (the noun phrase for
 /// one and for several: `["entry", "entries"]`, `["file that matches",
 /// "files that match"]`) the skipped paths hold; `unchecked` is what a cut
@@ -248,7 +253,10 @@ pub(crate) fn disclose(
                     subject[usize::from(found.count != 1)],
                 )
             };
-            let text = say(&diagnosis.because());
+            let mut text = say(&diagnosis.because());
+            if found.cut {
+                text = format!("{text} {WALKS_ALL_SKIPPED}");
+            }
             Some(Disclosure {
                 causes: diagnosis.causes().to_vec(),
                 text,
@@ -258,7 +266,7 @@ pub(crate) fn disclose(
         Verdict::Unproven => (!unchecked.causes.is_empty()).then(|| Disclosure {
             causes: unchecked.causes.to_vec(),
             text: format!(
-                "Skipped paths ({}) were not checked in time, so absence there is unproven.",
+                "Skipped paths ({}) were not checked in time, so absence there is unproven. {WALKS_ALL_SKIPPED}",
                 unchecked.named
             ),
             unchecked: true,
@@ -276,6 +284,11 @@ pub(crate) fn lead(tool: ToolId, query: &impl serde::Serialize, causes: &[Cause]
             .map(String::as_str)
             .collect::<Vec<_>>(),
     );
+    // A related call is fresh work: its brief is the caller's to state.
+    if let Some(fields) = row.as_object_mut() {
+        fields.remove("mainGoal");
+        fields.remove("reasoning");
+    }
     lift(&mut row, causes);
     Continuation::related(tool, row).build()
 }
@@ -297,92 +310,4 @@ pub(crate) fn attach(out: &mut Value, disclosure: &Disclosure, lead: Value) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tools::empty_walk::Walk;
-
-    const ENTRIES: [&str; 2] = ["entry", "entries"];
-
-    fn verdict(lifted: &[Cause], count: usize) -> Verdict {
-        let root = std::path::Path::new("/w");
-        crate::tools::empty_walk::diagnose(
-            root,
-            Walk {
-                ignored: false,
-                hidden: false,
-                default_excludes: true,
-            },
-            |walk| {
-                let reached = lifted.iter().all(|cause| !walk.skipping().contains(cause));
-                Ok::<_, ()>(crate::tools::empty_walk::Hits {
-                    count: if reached { count } else { 0 },
-                    sample: if reached {
-                        (0..count)
-                            .map(|index| root.join(format!(".h/{index}.rs")))
-                            .collect()
-                    } else {
-                        Vec::new()
-                    },
-                    cut: false,
-                })
-            },
-        )
-        .expect("diagnosis")
-    }
-
-    /// One sentence shape whatever the tool: the count, the subject and the
-    /// reasons (the lead sits in `next`); a cut check is a warning that leaves the
-    /// result partial and lifts every cause the walk skipped by.
-    #[test]
-    fn every_tool_discloses_skipped_paths_in_one_shape() {
-        let none = Unchecked {
-            causes: &[],
-            named: "",
-        };
-        let found = disclose(&verdict(&[Cause::Hidden], 2), ENTRIES, none).expect("found");
-        assert_eq!(found.causes, [Cause::Hidden]);
-        assert_eq!(found.text, "2 entries behind skipped paths (hidden .h/).");
-        assert!(!found.unchecked);
-        assert_eq!(disclose(&Verdict::Absent, ENTRIES, none), None);
-        assert_eq!(disclose(&Verdict::Unproven, ENTRIES, none), None);
-        let cut = disclose(
-            &Verdict::Unproven,
-            ENTRIES,
-            Unchecked {
-                causes: &[Cause::Ignored, Cause::DefaultExcluded],
-                named: "3 ignored",
-            },
-        )
-        .expect("cut");
-        assert!(cut.unchecked);
-        assert_eq!(cut.causes, [Cause::Ignored, Cause::DefaultExcluded]);
-        let mut out = serde_json::json!({});
-        attach(
-            &mut out,
-            &cut,
-            lead(
-                ToolId::StructureSearch,
-                &serde_json::json!({"operation": "files", "path": ".", "page": 3, "snapshot": "x"}),
-                &cut.causes,
-            ),
-        );
-        assert_eq!(
-            out["partialReasons"],
-            serde_json::json!([SKIPPED_UNCHECKED])
-        );
-        assert!(
-            out["warnings"][0]
-                .as_str()
-                .expect("warning")
-                .contains("unproven")
-        );
-        assert_eq!(out["calls"]["includeSkipped"]["kind"], "related");
-        let row = &out["calls"]["includeSkipped"]["input"]["queries"][0];
-        assert_eq!(row["includeIgnored"], true, "{row}");
-        assert_eq!(row["defaultExcludes"], false, "{row}");
-        assert!(
-            row.get("page").is_none() && row.get("snapshot").is_none(),
-            "{row}"
-        );
-    }
-}
+mod tests;

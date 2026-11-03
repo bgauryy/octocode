@@ -35,6 +35,7 @@ fn resume_points_count_occurrences_on_the_servers_lines() {
         &mut sources,
     )
     .expect("resumable");
+    let second = serde_json::to_value(second).expect("row");
     assert_eq!(second["line"], 2, "{second}");
     assert_eq!(
         second["occurrence"], 1,
@@ -53,6 +54,7 @@ fn resume_points_count_occurrences_on_the_servers_lines() {
         &mut sources,
     )
     .expect("resumable");
+    let again = serde_json::to_value(again).expect("row");
     assert_eq!(again["occurrence"], 1, "{again}");
     assert_eq!(sources.len(), 1);
 }

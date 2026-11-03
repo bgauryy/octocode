@@ -8,6 +8,8 @@ use crate::tools::lsp_search::{LspSearchQuery, lsp_search_query};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
+use octocode_contract_types::LspSearchQuery as Query;
+
 /// An executable query that walks `resume.depth` levels from `resume.node`:
 /// the same operation re-anchored on the node by its name and 1-based selection line, with
 /// `occurrence` when the name repeats on that line before the node (no
@@ -18,41 +20,38 @@ pub(super) fn resume_query(
     query: &LspSearchQuery,
     resume: &Resume,
     sources: &mut HashMap<String, Option<Source>>,
-) -> Option<Value> {
+) -> Option<Query> {
     let uri = resume.node.get("uri").and_then(Value::as_str)?;
     let name = resume.node.get("name").and_then(Value::as_str)?;
     let anchor = anchor_range(&resume.node)?;
     let line = u32::try_from(anchor.pointer("/start/line")?.as_u64()?).ok()?;
     let character = u32::try_from(anchor.pointer("/start/character")?.as_u64()?).ok()?;
     let path = uri_to_path(uri);
-    let mut next = lsp_search_query::to_row(query);
-    let object = next.as_object_mut()?;
-    object.insert("path".into(), json!(path));
-    // Re-anchored, the node starts its own walk: no page, window or
-    // candidate cursor of this one carries over.
-    for field in [
-        "occurrence",
-        "page",
-        "snapshot",
-        "importerPage",
-        "candidatePage",
-    ] {
-        object.remove(field);
-    }
-    object.insert("symbolName".into(), json!(name));
-    object.insert("line".into(), json!(line.saturating_add(1)));
     let source = sources
         .entry(path.clone())
         .or_insert_with(|| std::fs::read_to_string(&path).ok().map(Source::new));
-    if let Some(order) = source
+    let order = source
         .as_ref()
         .and_then(|source| order_on_line(source, line, name, character))
-        .filter(|order| *order > 0)
-    {
-        object.insert("occurrence".into(), json!(order));
-    }
-    object.insert("depth".into(), json!(resume.depth));
-    Some(next)
+        .filter(|order| *order > 0);
+    // Re-anchored, the node starts its own walk: no page, window or
+    // candidate cursor of this one carries over. A node that no query shape
+    // can anchor (a name or path the contract rejects) cannot be resumed.
+    lsp_search_query::edited(
+        query,
+        &json!({
+            "path": path,
+            "symbolName": name,
+            "line": line.saturating_add(1),
+            "occurrence": order,
+            "depth": resume.depth,
+            "page": null,
+            "snapshot": null,
+            "importerPage": null,
+            "candidatePage": null,
+        }),
+    )
+    .ok()
 }
 
 /// How many whole-word occurrences of `name` start before the UTF-16

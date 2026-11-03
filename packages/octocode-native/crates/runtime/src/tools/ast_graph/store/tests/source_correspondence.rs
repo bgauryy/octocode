@@ -80,18 +80,23 @@ fn saved_raw_identity_is_immutable_after_rewrites_and_encoding_changes() {
         octocode_engine::digest::sha256(source.as_bytes())
     );
 
-    // Force a new graph while the original file reuses its neutral extraction cache.
+    // A new graph extracts the unchanged original source again. Its captured
+    // identity and provenance must remain exact across independent extractions.
     dir.write("app/other.ts", "export function other() {}\n");
-    let warm = ingest_root(&dir.0, &dir.0.join("app"), Some(10), false);
-    assert_eq!(warm.class, ExitClass::Success, "{}", warm.value);
-    assert!(warm.value["extraction"]["reusedFiles"].as_u64().unwrap() >= 1);
-    let warm_node = ask(&dir.0, "node", Some("encoded.ts#run"), |_| {});
+    let rebuilt = ingest_root(&dir.0, &dir.0.join("app"), Some(10), false);
+    assert_eq!(rebuilt.class, ExitClass::Success, "{}", rebuilt.value);
+    assert_eq!(rebuilt.value["extraction"]["reusedFiles"], 0);
     assert_eq!(
-        warm_node.value["node"]["sourceOrigin"],
+        rebuilt.value["extraction"]["parsedFiles"],
+        rebuilt.value["scan"]["filesScanned"]
+    );
+    let rebuilt_node = ask(&dir.0, "node", Some("encoded.ts#run"), |_| {});
+    assert_eq!(
+        rebuilt_node.value["node"]["sourceOrigin"],
         original.value["node"]["sourceOrigin"]
     );
     assert_eq!(
-        warm_node.value["sourceEvidence"],
+        rebuilt_node.value["sourceEvidence"],
         original.value["sourceEvidence"]
     );
 
@@ -228,8 +233,12 @@ fn registry_only_toml_provider_reaches_normal_ingest_store_find_and_stats() {
     assert_eq!(stats.value["counts"]["nodesByKind"]["symbol"], 2);
     let stale = ask(&dir.0, "stale", None, |_| {});
     assert_eq!(stale.class, ExitClass::Success, "{}", stale.value);
-    assert_eq!(stale.value["pagination"]["totalItems"], 0, "{}", stale.value);
-    let reused = super::super::ingest::ingest_with_registry(
+    assert_eq!(
+        stale.value["pagination"]["totalItems"], 0,
+        "{}",
+        stale.value
+    );
+    let rebuilt = super::super::ingest::ingest_with_registry(
         &options,
         &workspace_policy(&dir.0),
         &ContentSecurity::new(),
@@ -238,8 +247,8 @@ fn registry_only_toml_provider_reaches_normal_ingest_store_find_and_stats() {
         registry,
         &crate::tools::ast_graph::limits::LIMITS,
     );
-    assert_eq!(reused.class, ExitClass::Success, "{}", reused.value);
-    assert_eq!(reused.value["id"], built.value["id"]);
+    assert_fresh_build(&rebuilt);
+    assert_eq!(rebuilt.value["sha256"], built.value["sha256"]);
     assert!(RegistryView::installed().find("toml").is_none());
 }
 

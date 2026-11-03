@@ -24,15 +24,19 @@ const resolveQuery = (ctx, query) => (typeof query === 'function' ? query(ctx) :
 const caseInput = (ctx, spec) => spec.input ? resolveQuery(ctx, spec.input) : { queries: [resolveQuery(ctx, spec.query)] };
 
 /** The state of one tool run: its checks, timings, skips, explore reports and call helpers. */
-function createRun(suite, { name, spec, cwd, server }) {
+export function createRun(suite, { name, spec, cwd, server }) {
   const { surfaces: s } = suite;
   const run = { suite, name, spec, cwd, server, ctx: s.ctx, phase: 'happy', checks: [], timings: [], skips: [], advancedCalls: [], reports: { cli: [], mcp: [] } };
   run.surfaces = ['cli', 'mcp'];
-  run.record = (check, ok, detail) => { run.checks.push({ check, ok: !!ok, detail: detail === undefined ? '' : String(detail).slice(0, 300) }); return !!ok; };
+  run.record = (check, ok, detail) => { run.checks.push({ check, ok: !!ok, detail: detail === undefined ? '' : String(detail) }); return !!ok; };
   run.na = (check, reason) => run.checks.push({ check, ok: null, na: reason });
   const timed = res => { run.timings.push({ phase: run.phase, surface: res.surface, ms: res.ms, responseBytes: res.responseBytes }); return res; };
   /** Any tool on one surface, in this tool's workspace and with its credential. */
-  run.callOn = surface => async (tool, input, { env: extraEnv, cwd: directory = cwd } = {}) => timed(surface === 'mcp' ? await s.mcpCall(server, tool, input) : await s.cliCall(tool, input, { cwd: directory, credentialTool: name, extraEnv }));
+  run.callOn = surface => async (tool, input, { env: extraEnv, cwd: directory = cwd } = {}) => {
+    const result = timed(surface === 'mcp' ? await s.mcpCall(server, tool, input) : await s.cliCall(tool, input, { cwd: directory, credentialTool: name, extraEnv }));
+    suite.inputCoverage?.observe(tool, surface, input, result);
+    return result;
+  };
   run.call = (input, surface) => run.callOn(surface)(name, input);
   run.q = query => ({ queries: [resolveQuery(s.ctx, query)] });
   run.input = entry => caseInput(s.ctx, entry);

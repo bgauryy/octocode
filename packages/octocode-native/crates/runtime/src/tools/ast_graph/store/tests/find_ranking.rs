@@ -127,7 +127,11 @@ fn find_single_word_keeps_its_population_and_ranks_exact_names_by_callers() {
             name.contains("read") || id.contains("read")
         })
         .count();
-    assert_eq!(out.value["pagination"]["totalItems"], containing, "{}", out.value);
+    assert_eq!(
+        out.value["pagination"]["totalItems"], containing,
+        "{}",
+        out.value
+    );
 }
 
 #[test]

@@ -1,6 +1,7 @@
 pub mod cpu;
 pub mod fs_query;
 pub mod glob;
+pub mod pattern_reach;
 pub mod pcre2_ranges;
 pub(crate) mod relevance;
 pub use relevance::is_declaration_keyword;

@@ -14,10 +14,8 @@ import type { JsonRecord } from './json-record.ts';
 const { database, databaseExport, records, timing, ValidationError } = runtime;
 type Database = ReturnType<typeof database.openDatabase>;
 type RecordsHost = Parameters<typeof records.fetch>[0];
-// A database the previous runtime created, with its workspace (/usr), identities and outputs frozen in
-// fixtures/legacy-database.{sqlite,json}; every expiry lies in the year 2100.
-const legacy = JSON.parse(readFileSync(new URL('./fixtures/legacy-database.json', import.meta.url), 'utf8'));
 const sha256 = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
+const legacy = JSON.parse(readFileSync(new URL('./fixtures/legacy-database.json', import.meta.url), 'utf8'));
 
 /** The slice of the store the record operations need, over a database and its single workspace. */
 function host(db: Database, workspace: string): RecordsHost {
@@ -35,12 +33,22 @@ function host(db: Database, workspace: string): RecordsHost {
   };
 }
 
-/** A private copy of the legacy database in a scratch directory. */
-const legacySession = (t: TestContext) => {
+/** A small current-schema workspace for exercising database and record operations. */
+const currentSession = (t: TestContext) => {
   const directory = tempWorkspace(t, 'database-', { real: true });
-  const file = join(directory, 'legacy.sqlite');
+  const file = join(directory, 'current.sqlite');
+  const id = 'typescript-owner';
+  const db = database.openDatabase(file, false, true);
+  db.run('INSERT INTO workspaces(workspace,coordinationScope) VALUES(?,?)', [directory, directory]);
+  db.run('INSERT INTO sessions(id,workspace,name,vendor,expiresAt) VALUES(?,?,?,?,?)', [id, directory, 'owner', 'generic', timing.now() + 600000]);
+  db.close();
+  return { directory, workspace: directory, file, id };
+};
+const legacyV7Database = (t: TestContext) => {
+  const directory = tempWorkspace(t, 'database-v7-', { real: true });
+  const file = join(directory, 'legacy-v7.sqlite');
   copyFileSync(new URL('./fixtures/legacy-database.sqlite', import.meta.url), file);
-  return { directory, workspace: legacy.info.workspace, file, id: legacy.agent };
+  return { file, workspace: legacy.info.workspace };
 };
 
 test('typed column reads return SQLite values and refuse a column of another type', () => {
@@ -54,45 +62,27 @@ test('typed column reads return SQLite values and refuse a column of another typ
   } finally { db.close(); }
 });
 
-test('a database created by the legacy runtime is compatible and usable from TypeScript', t => {
-  const { workspace, file, id } = legacySession(t);
-  const info = legacy.info;
-  assert.equal(info.compatible, true);
-  assert.equal(info.expectedSchemaSha256, database.schema().schemaSha256);
-  assert.equal(info.schemaSha256, database.schema().schemaSha256);
-  assert.equal(info.applicationId, database.schema().applicationId);
-  assert.equal(info.schemaVersion, database.schema().schemaVersion);
-
+test('a schema-v7 database is refused unchanged rather than migrated', t => {
+  const { workspace, file } = legacyV7Database(t);
+  const before = sha256(file);
   const inspected = database.inspect(file, workspace);
-  assert.equal(inspected.compatible, true);
-  assert.equal(inspected.schemaSha256, info.schemaSha256);
-  assert.deepEqual(Object.keys(inspected).filter(key => key !== 'sqliteVersion' && key !== 'path'), Object.keys(info).filter(key => key !== 'path'));
-  for (const key of ['workspace', 'exists', 'applicationId', 'schemaVersion', 'schemaSha256', 'compatible', 'expectedSchemaSha256']) assert.equal(inspected[key as keyof typeof inspected], info[key as keyof typeof info], key);
-
-  const reader = database.openDatabase(file, true);
-  assert.equal(database.compatible(reader), true);
-  assert.deepEqual(database.query(reader, 'SELECT id FROM sessions ORDER BY name').map(row => row.id), [id, legacy.peer]);
-  assert.throws(() => reader.run('DELETE FROM sessions'), /readonly/i);
-  reader.close();
-
-  // Records written by the legacy runtime read back identically through the TypeScript fetch.
-  const db = database.openDatabase(file);
-  assert.deepEqual(records.fetch(host(db, workspace), id, {}), legacy.fetch);
-  assert.deepEqual(records.fetch(host(db, workspace), id, { type: 'event' }), legacy.fetchEvent);
-  assert.deepEqual(records.fetch(host(db, workspace), id, { type: 'event', where: { name: 'c', 'checks.passed': true } }).items.map((item: JsonRecord) => item.data.name), ['c']);
-  assert.deepEqual(records.fetch(host(db, workspace), id, { where: { 'checks.passed': false }, type: 'event' }).items, []);
-  assert.equal(records.fetch(host(db, workspace), id, { search: '"coordinate.in"' }).items.length, 0);
-  db.close();
+  assert.equal(inspected.compatible, false);
+  assert.equal(inspected.schemaVersion, 7);
+  assert.ok(inspected.expectedSchemaVersion > 7);
+  for (const [readOnly, create] of [[true, false], [false, true], [false, false]])
+    assert.throws(() => database.openDatabase(file, readOnly, create), /Incompatible agents-communication database.*existing data is not modified/);
+  assert.equal(sha256(file), before);
 });
 
-test('TypeScript records are idempotent by key and store the legacy compact encoding', t => {
-  const { workspace, file, id } = legacySession(t);
+test('current-schema records are idempotent by key and store compact JSON', t => {
+  const { workspace, file, id } = currentSession(t);
   const db = database.openDatabase(file);
   const store = host(db, workspace);
+  const baseline = records.fetch(store, id, { limit: 100 }).items.length;
   const input: RecordInput = { type: 'event', data: { z: 1, a: { y: [1, 'é', '😀'], b: null }, name: 'ts' }, key: 'k' };
   const written = records.record(store, id, input);
   assert.deepEqual(records.fetch(store, id, { type: 'event', where: { name: 'ts' } }).items, [written]);
-  // Same key and an equal body in another key order is the same record; different data is refused.
+  // Same key and equal data in another key order is the same record; different data is refused.
   assert.deepEqual(records.record(store, id, { ...input, data: { name: 'ts', a: { b: null, y: [1, 'é', '😀'] }, z: 1 } }), written);
   assert.throws(() => records.record(store, id, { ...input, data: { name: 'other' } }), /Record key reused with different data, routing or branch/);
   assert.throws(() => records.record(store, id, { ...input, to: id }), /Record key reused/);
@@ -111,19 +101,22 @@ test('TypeScript records are idempotent by key and store the legacy compact enco
   }
   assert.deepEqual(seen, records.fetch(store, id, { limit: 100 }).items.map((item: JsonRecord) => item.recordId));
   assert.equal(new Set(seen).size, seen.length);
-  assert.equal(seen.length, legacy.fetchAll.items.length + 8);
+  assert.equal(seen.length, baseline + 8);
   db.close();
 });
 
-test('message envelopes and append read what the legacy runtime wrote', t => {
-  const { workspace, file, id } = legacySession(t);
+test('message audit rows keep only messageId and hydrated envelopes contain parts', t => {
+  const { workspace, file, id } = currentSession(t);
   const db = database.openDatabase(file);
   const store = host(db, workspace);
-  const sent = legacy.tasks.items.find((item: JsonRecord) => item.data.body === 'hello é').data.messageId;
+  const sent = db.run('INSERT INTO messages(sender,target,parts,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)', [id, id, '[{"text":"hello é"}]', 'message-key', timing.now() + 60000, 'Verify message hydration']).lastInsertRowid;
+  const audit = JSON.parse(String(database.query(db, "SELECT data FROM records WHERE type='message' AND entityId=?", [String(sent)])[0].data));
+  assert.deepEqual(audit, { messageId: sent });
   const [envelope] = records.messageEnvelopes(store, [{ id: sent }]);
   assert.equal(envelope.type, 'message');
-  assert.equal(envelope.data.body, 'hello é');
-  assert.equal(envelope.data.kind, 'note');
+  assert.deepEqual(envelope.data.parts, [{ text: 'hello é' }]);
+  assert.equal('body' in envelope.data, false);
+  assert.equal('kind' in envelope.data, false);
   assert.deepEqual(records.messageEnvelopes(store, []), []);
   assert.throws(() => records.messageEnvelopes(store, [{ id: 99999 }]), /Message envelope is missing/);
   const first = records.append(db, id, 'event', { name: 'append', n: 1 }, timing.now(), 'append-key');
@@ -132,7 +125,7 @@ test('message envelopes and append read what the legacy runtime wrote', t => {
   db.close();
 });
 
-test('a database created by TypeScript has the schema the legacy runtime created', t => {
+test('a database created by TypeScript uses the current schema and parts columns', t => {
   const workspace = tempWorkspace(t, 'database-', { real: true });
   const file = join(workspace, 'nested/dir/typescript.sqlite');
   const db = database.openDatabase(file, false, true);
@@ -146,14 +139,15 @@ test('a database created by TypeScript has the schema the legacy runtime created
   // While a writer is open its -wal/-shm files exist, which every SQLite can read through a read-only connection.
   const info = database.inspect(file, workspace);
   assert.equal(info.compatible, true);
-  assert.equal(info.schemaSha256, legacy.info.schemaSha256);
-  assert.equal(info.schemaVersion, legacy.info.schemaVersion);
-  assert.equal(info.applicationId, legacy.info.applicationId);
-  // The same objects: every table, index and trigger statement of the legacy database exists here verbatim.
-  const objects = (connection: Database) => database.query(connection, "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name");
-  const reference = database.openDatabase(legacySession(t).file, true);
-  assert.deepEqual(objects(db), objects(reference));
-  reference.close();
+  assert.equal(info.schemaSha256, database.schema().schemaSha256);
+  assert.equal(info.schemaVersion, database.schema().schemaVersion);
+  assert.ok(info.schemaVersion > 7);
+  assert.equal(info.applicationId, database.schema().applicationId);
+  const messageColumns = database.query(db, 'PRAGMA table_info(messages)').map(row => row.name);
+  assert.ok(messageColumns.includes('parts'));
+  assert.ok(messageColumns.includes('contextId'));
+  assert.ok(messageColumns.includes('outcome'));
+  for (const removed of ['body', 'kind', 'slots', 'conversationId']) assert.ok(!messageColumns.includes(removed), `${removed} is not a messages column`);
   db.close();
 });
 
@@ -235,10 +229,9 @@ test('a second writer waits on the busy timeout instead of failing at once', asy
     db.exec('COMMIT');
   `, { eval: true, workerData: { file } });
   await new Promise(resolve => worker.once('message', resolve));
-  const started = Date.now();
+  // The insert can only succeed after the worker's COMMIT; failing at once would throw SQLITE_BUSY.
   const result = database.transaction(waiter, () => waiter.run('INSERT INTO workspaces(workspace,coordinationScope) VALUES(?,?)', ['w', 'w']));
   assert.equal(result.changes, 1);
-  assert.ok(Date.now() - started >= 200, 'the writer waited for the lock');
   await new Promise(resolve => worker.once('exit', resolve));
   waiter.close();
 });
@@ -275,8 +268,11 @@ test('bound values keep the legacy semantics: booleans are 0/1, whole numbers ar
   db.close();
 });
 
-test('exporting writes a verified, never-overwriting snapshot the legacy runtime format accepts', async t => {
-  const { directory: workspace, file } = legacySession(t);
+test('exporting writes a verified, never-overwriting snapshot the current runtime accepts', async t => {
+  const { directory: workspace, file, id } = currentSession(t);
+  const db = database.openDatabase(file);
+  records.record(host(db, workspace), id, { type: 'event', data: { name: 'exported' }, key: 'export-event' });
+  db.close();
   const destination = join(workspace, 'snapshot.sqlite');
   const result = await databaseExport.exportDatabase(file, destination);
   assert.deepEqual(Object.keys(result), ['path', 'source', 'schemaVersion', 'sha256', 'bytes', 'scope', 'includesWorkspaceDocuments', 'documents', 'integrity', 'directorySynced']);
@@ -285,12 +281,12 @@ test('exporting writes a verified, never-overwriting snapshot the legacy runtime
   assert.equal(result.sha256, sha256(destination));
   assert.equal(result.bytes, statSync(destination).size);
   assert.equal(result.integrity, 'ok');
-  assert.equal(result.schemaVersion, 7);
-  assert.equal(database.inspect(destination, legacy.info.workspace).compatible, true);
+  assert.ok(result.schemaVersion > 7);
+  assert.equal(database.inspect(destination, workspace).compatible, true);
   const copy = database.openDatabase(destination, true);
   assert.equal(copy.value('PRAGMA journal_mode'), 'delete');
   assert.equal(database.query(copy, "SELECT count(*) AS n FROM records WHERE type='event'")[0].n, 1);
-  assert.equal(database.query(copy, 'SELECT count(*) AS n FROM sessions')[0].n, 2);
+  assert.equal(database.query(copy, 'SELECT count(*) AS n FROM sessions')[0].n, 1);
   copy.close();
   assert.deepEqual(readdirSyncNames(workspace).filter(name => name.startsWith('.communication-export-')), []);
 

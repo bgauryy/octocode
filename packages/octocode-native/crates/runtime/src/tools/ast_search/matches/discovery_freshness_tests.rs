@@ -28,7 +28,7 @@ fn settled_match_memo_observes_empty_directories_and_ignore_edits() {
         let snapshot = first["snapshot"].as_str().expect("snapshot");
         // A repository scan is stored like any other: its rules are watched.
         assert!(SCANS.holds(snapshot), "stored: {ignore_name:?}");
-        let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
+        let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
         let unchanged = run_row(&next, &paths, &security);
         assert_eq!(
             unchanged["files"][0]["matches"][0]["value"],

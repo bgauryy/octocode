@@ -19,6 +19,9 @@
 //!   printed in process ([`Printed`]) plus the notices raised in the call's
 //!   own [`octocode_io::notice::Scope`], which its row work carries to
 //!   other threads; the client prints its own configuration warnings.
+//!   The call's progress lines (quota waits, language-server start) are
+//!   not in the reply: the server writes each as a frame line while the
+//!   call runs and the client prints it at once (`unix/frames.rs`).
 //! - `MAX_SERVERS` per socket directory, least recently asked (`touch`)
 //!   stopped first; a `STOP` request drains the calls taken. The server
 //!   exits after `IDLE_EXIT` without a request.
@@ -28,7 +31,8 @@
 //!   server; the client drains, and a second Ctrl-C stops waiting.
 //!
 //! The Unix machinery lives in `unix`: `client` (the call side),
-//! `identity` (what keys a server), `sockets` (the socket directory) and
+//! `frames` (progress lines on the socket), `identity` (what keys a
+//! server), `sockets` (the socket directory) and
 //! `daemon` (the server). Elsewhere every call runs in process.
 //!
 //! [`PROCESS_ENV`]: octocode_engine::process_env::PROCESS_ENV

@@ -6,6 +6,8 @@ How the skill, runtime, database and host adapters work together. [DB.md](DB.md)
 
 A local coordination service: a standalone CLI, persistent MCP tools and host adapters; the skill says when to use it. Routing, discovery, presence, fanout and advisory leases need no model. `run` creates a worker only on explicit request.
 
+The local data model borrows A2A terminology for message parts, correlated requests and artifacts ([A2A v1.0 specification](https://a2a-protocol.org/v1.0.0/specification/), [task lifecycle](https://a2a-protocol.org/latest/topics/life-of-a-task/)). Requests remain messages whose recipients report an explicit outcome; named documents store reusable artifacts. There is no separate Task or Artifact API and no A2A wire compatibility, remote endpoint, authentication layer, or AgentCard.
+
 ```mermaid
 flowchart LR
     A[Agent: skill + bound tools or CLI] --> B[Store]
@@ -30,7 +32,7 @@ The DB is the durable outbox and inbox for every vendor. Native APIs only carry 
 | --- | --- | --- |
 | Bind | Match transport, endpoint, native session and canonical workspace | Existing endpoint validation; no new agent/session |
 | Prepare | `Ready` or `Deferred`; failures leave messages unstaged | Check identity/workspace/status where the API supports it |
-| Offer | One rendered batch, dispatch token and action intent | Translate to one native input effect; never inject then prompt the same body |
+| Offer | One bounded message batch, dispatch token and action intent | Translate to one native input effect; never inject then prompt the same content |
 | Observe | `Pending` or a typed receipt | Grok polls its in-flight request; synchronous APIs return immediately |
 | Finalize | One dispatcher commits submitted/uncertain state and reported usage | Adapters do not write DB state or ACKs |
 | Handle | Recipient replies/ACKs through the shared audited protocol | Host controls model turns and tool permissions |
@@ -85,9 +87,9 @@ Capability depends on host version and endpoint, not vendor name. Use a verified
 
 ## Durable conversation
 
-Message input: direct target or exact topic, exactly one protocol kind field ([kinds](../OPERATING.md#send-and-handle-messages)), sender-scoped idempotency key, required `reasoning` (purpose, not a reasoning transcript), expiry, optional wake override, and optional root `conversationId`. The runtime stores the kind and its slots and renders the body from the catalog's slot titles (optional slots such as `handoff.constraints` and `delta.phase` appear in protocol order), so every adapter carries the same text. `replyTo` is output-only: `complete` sets it on final answers. Large context goes in an immutable document cited as `document:NAME` evidence.
+Message input targets one peer, `"*"`, or one topic and carries `parts`: `{text:string}`, `{data:any JSON}`, or `{url,mediaType?,filename?}`. The optional `mediaType` and `filename` fields are allowed on each part. `replyRequired` defaults to false; `contextId` groups related messages; required `reasoning`, idempotency key, expiry, and wake intent remain explicit message metadata. Payload data is opaque and has no implicit lease, recipient, evidence, or expiry effects. `replyTo` is set on a correlated final response by `complete`. Use `share_document` for a named immutable document whose content hash and discovery metadata are verified independently of message delivery.
 
-Replies inherit the parent's nullable conversation; only `complete` creates them, and final answers, batch handling (1–100 IDs, atomic) and the `complete:<ID>` idempotency key follow [DB.md](DB.md#atomic-final-reply). Completion needs a live bound identity and never renews presence or leases. New requests and progress use `send_message`; progress is a `delta` (or a `checkback`) to an explicit recipient, reuses the `conversationId`, and never completes work. A request that needs input from its sender stays pending and asks with a `blocker` (SBAR): it wakes the sender, which a passive `delta` does not.
+`complete` creates a correlated response with an explicit outcome (`completed`, `failed`, `rejected`, or `canceled`) and reply parts, and acknowledges the parent delivery atomically. Silent completion accepts one or a batch of message IDs. Completion needs a live bound identity and never renews presence or leases. Progress is a new `send_message` using the same `contextId`, and does not complete a request. A request that needs input from its sender stays pending while the recipient sends a separate message.
 
 ### Lifecycle and receipts
 
@@ -114,21 +116,21 @@ stateDiagram-v2
 | `complete` | Recipient reports handling or no action needed | Agreement, approval or correct side effect |
 | Reply/result | New immutable correlated content | Completion of another task |
 
-Staged/submitted/uncertain attempts are never replayed on timeout ([DB.md](DB.md#one-time-delivery-and-host-hooks)). Inspect receipts and the recipient before `retry_delivery`; it never resends a `submitted` attempt and is bounded (3 retries with backoff, then one SBAR to the sender; [DB.md](DB.md#one-time-delivery-and-host-hooks)). Only Pi reconciles its own staged tokens, against its complete durable host ledger.
+Staged/submitted/uncertain attempts are never replayed on timeout ([DB.md](DB.md#one-time-delivery-and-host-hooks)). Inspect receipts and the recipient before `retry_delivery`; it never resends a `submitted` attempt and is bounded (3 retries with backoff, then one retry-exhausted notice to the sender; [DB.md](DB.md#one-time-delivery-and-host-hooks)). Only Pi reconciles its own staged tokens, against its complete durable host ledger.
 
 ## Delivery scheduling and subscriptions
 
-The wake defaults to `action` for requests (question, task, decision, handoff), blockers and the answer that `complete` sends, else `passive`; the catalog's `messageKinds` markers (`request`, `wake`) define the kinds, and `schema.sql` enforces the request set. Use passive for FYIs. On Claude and Grok, passive mail is delivered at the recipient's next hook or turn, not pushed. Wake schedules; it does not request a reply. `replyRequired` (carried unchanged by every adapter) determines the completion contract: required requests need a final answer; FYIs and answers accept acknowledgement without a reply. An unblocking answer can be actionable without requiring another answer. Action stays within the recipient's authorized task.
+`wake` is explicit delivery scheduling intent; `replyRequired` is explicit task completion intent. They are independent: a wake does not request a reply, and a reply requirement does not grant new objective or permissions. On Claude and Grok, passive mail is delivered at the recipient's next hook or turn, not pushed. Each fanout recipient has an independent delivery and completion state.
 
 Managed workers wait for eligible action mail, then take bounded pending mail in one turn. Startup carries only the assigned task; queued mail stays unstaged until that turn completes. Passive-only mail starts no inference. Managed Claude/Codex workers check their durable inbox every 100 ms, even during active turns: Claude through an owned Unix inbox socket that marks peer origin, Codex through the same named tool-output items as native delivery. Initial assignments stay user inputs. Attached adapters keep native scheduling (table above); native host policy stays authoritative. Pi defers while busy and suppresses nested wake during a starting turn; identity, heartbeat and passive context never request a turn.
 
 Delivery uses deterministic host events: context between tool calls, idle wake only on request. A running tool is not interrupted; transport acceptance and the model's next read are different moments. Heartbeats run independently of model work. Never attach a model turn to every filesystem event, heartbeat, receipt or passive notice.
 
-Topics are exact strings with replaceable subscriptions. Topic sends and `notify_all` snapshot recipients in the send transaction, with no replay for late joiners ([DB.md](DB.md#messages-and-notifications)): notification fanout, not a retained event stream.
+Topics are exact strings with replaceable subscriptions. Topic sends and `send_message` to `"*"` snapshot recipients in the send transaction, with no replay for late joiners ([DB.md](DB.md#messages-and-notifications)): notification fanout, not a retained event stream.
 
 `listen` reads `PRAGMA data_version` every tick (250 ms; 1 s after 10 s idle) and queries candidates only after another connection commits, after a submission, or every 5 s for time-based eligibility. Presence renews on a wall-clock schedule; an identity that expired during suspend resumes. Vendor failures before staging (connect, preflight, non-200) or after an offer (already `uncertain`) go to stderr and retry with backoff from 250 ms to 30 s; busy recipients back off to 5 s. DB, identity and database-replacement errors stop the listener. Codex and Grok reconnect per batch so unread recipient events never accumulate.
 
-Delivered context is one rule line plus a JSON array of unified records (`id,path,from,to,type,timestamp,branch?,data`). `from` is the exact DB agent ID. Message `data` includes `messageId`, `wake` and `replyRequired`; absent optional fields may be omitted, but explicit generic JSON nulls and required envelope fields remain intact. `hook '{"format":"json"}'` adds `action:true` when any item requests handling.
+Delivered context is one rule line plus a JSON array of unified records (`id,path,from,to,type,timestamp,branch?,data`). `from` is the exact DB agent ID. Message `data` includes `messageId`, `parts`, `wake` and `replyRequired`; absent optional fields may be omitted, but explicit generic JSON nulls and required envelope fields remain intact. `hook '{"format":"json"}'` adds `action:true` when any item requests handling.
 
 ## Leases and cooperative handoff
 

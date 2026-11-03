@@ -22,7 +22,7 @@ pub(super) struct ExactMiss {
     pub(super) kind: String,
     pub(super) count: usize,
     pub(super) files: usize,
-    pub(super) query: Value,
+    pub(super) query: AstSearchQueryMatch0,
     /// The syntax tree of the first missed declaration, where the pattern's
     /// shape is compared with the source.
     pub(super) tree: Option<Value>,
@@ -74,11 +74,11 @@ pub(super) fn exact_miss(
                     &path.to_string_lossy(),
                     parser,
                     None,
-                    query.get("rule"),
+                    MatchQuery::Content(&query).rule().as_ref(),
                 );
                 first_line(&found.matches)
             });
-            Some(tree_lead(q, scope, &path, line))
+            tree_lead(q, scope, &path, line)
         });
     (count > 0).then_some(ExactMiss {
         kind: declaration.kind,
@@ -97,9 +97,29 @@ pub(super) fn pattern_declaration(
     octocode_engine::structural::pattern_declaration(&q.pattern_text()?, &scope_extension(scope)?)
 }
 
+/// The hint of a pattern that spells the smaller form of a declaration (a
+/// signature without its body): it matches that form alone, so the fuller
+/// kind the grammar has is what lists the definitions. `None` for a rule
+/// that already names its kind, or a pattern of no smaller form.
+pub(super) fn fuller_form_hint(q: MatchQuery<'_>, scope: &Scope) -> Option<String> {
+    if q.rule()?.get("kind").is_some() {
+        return None;
+    }
+    let declaration = pattern_declaration(q, scope)?;
+    let fuller = declaration.fuller_kinds.first()?;
+    Some(format!(
+        "The pattern spells a {} without the parts of a {fuller}, so it matches only the former. Spell the missing part (a body, `{{ $$$ }}`) or use rule {{\"kind\":\"{fuller}\"}}.",
+        declaration.kind
+    ))
+}
+
 /// `q` as a fresh `rule` query over the same scope (a directory scan pins
 /// the grammar it inferred).
-pub(super) fn with_rule(q: MatchQuery<'_>, scope: &Scope, rule: Value) -> Option<Value> {
+pub(super) fn with_rule(
+    q: MatchQuery<'_>,
+    scope: &Scope,
+    rule: Value,
+) -> Option<AstSearchQueryMatch0> {
     let mut query = crate::response::result::fresh_query_row(ToolId::AstSearch, &q.to_value());
     let fields = query.as_object_mut()?;
     fields.insert("rule".into(), rule);
@@ -109,17 +129,16 @@ pub(super) fn with_rule(q: MatchQuery<'_>, scope: &Scope, rule: Value) -> Option
     {
         fields.insert("parser".into(), json!(inferred));
     }
-    Some(query)
+    serde_json::from_value(query).ok()
 }
 
 /// One scan of a rule `query` over its scope.
 pub(super) fn rule_scan(
-    query: &Value,
+    query: &AstSearchQueryMatch0,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Option<Scan> {
-    let rule_query: AstSearchQueryMatch0 = serde_json::from_value(query.clone()).ok()?;
-    let rule_query = MatchQuery::Content(&rule_query);
+    let rule_query = MatchQuery::Content(query);
     let rule_scope = resolve_scope(rule_query, paths, cancel).ok()?;
     if rule_scope.is_file {
         scan_file(rule_query, &rule_scope, paths, cancel)
@@ -147,7 +166,7 @@ pub(super) fn kind_broaden(
         .files
         .iter()
         .any(|file| !file.matches.is_empty())
-        .then(|| crate::response::result::Continuation::related(ToolId::AstSearch, query).build())
+        .then(|| crate::response::result::Continuation::related_query(query).build())
 }
 
 impl ExactMiss {
@@ -178,6 +197,6 @@ impl ExactMiss {
             out["calls"]["viewSyntax"] = tree;
         }
         out["calls"]["broadenSearch"] =
-            crate::response::result::Continuation::related(ToolId::AstSearch, query).build();
+            crate::response::result::Continuation::related_query(query).build();
     }
 }

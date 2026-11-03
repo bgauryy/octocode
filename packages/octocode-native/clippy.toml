@@ -4,6 +4,8 @@
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
+# Tests may print diagnostics; library code may not (`print_stdout`/`print_stderr`).
+allow-print-in-tests = true
 # Ceiling for non-exempt functions. The structural matcher's recursive
 # `match_multi_capture` (structural/octo/pattern.rs) threads 9 arguments; the
 # two at 10 (`match_multi_split`, `walk_expanding`) carry `#[expect]` with a

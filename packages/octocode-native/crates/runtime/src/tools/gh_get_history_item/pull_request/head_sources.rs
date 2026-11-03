@@ -15,9 +15,8 @@ use octocode_github::{ContentRequest, GitHubProvider, GitHubTransport, RequestCo
 use serde_json::Value;
 
 /// The head text of every file on this page whose `matchString` hit runs
-/// need more context than its hunks hold, read once at `headSha` (the
-/// history read cache revalidates it; the transport's request budget paces
-/// the concurrent reads). `None` when no file needs it.
+/// need more context than its hunks hold, read at `headSha`. The request
+/// budget paces concurrent reads. `None` when no file needs it.
 pub(super) async fn head_sources(
     transport: &GitHubTransport,
     query: &HistoryItemRequest,
@@ -53,9 +52,8 @@ pub(super) async fn head_sources(
     if paths.is_empty() {
         return None;
     }
-    // The one file read every GitHub tool shares (commit-pinned cache, single
-    // flight, the blob fallback past 1 MB). A provider is the transport's
-    // read API: this one shares the transport's cache, memos and flights.
+    // The same file reader every GitHub tool uses, including the blob
+    // fallback, shares this transport's connections and admission policy.
     let provider = GitHubProvider {
         transport: transport.clone(),
     };
@@ -66,7 +64,6 @@ pub(super) async fn head_sources(
             repo: gh_get_history_item_query::repo(query).to_owned(),
             path: path.clone(),
             reference: Some(sha.to_owned()),
-            force_refresh: false,
         };
         let text = provider
             .get_file_bytes(&request, context)

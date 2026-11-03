@@ -1,6 +1,7 @@
 //! Bounded reads of the source lines a verification needs.
 
 use super::*;
+use crate::tools::local_search::sources::Expected;
 
 pub(in crate::tools::local_search) enum VerifyReadError {
     /// The source could not be opened or read.
@@ -149,24 +150,34 @@ pub(in crate::tools::local_search) fn read_bounded_line(
     }))
 }
 
+/// Match indexes (in line order) whose values a fresh page withheld: their
+/// file changed, or could no longer be read, after the scan matched it, so
+/// the values cannot be rebuilt from the bytes the scan read. Each row now
+/// holds [`UNVERIFIED_PLACEHOLDER`] and is no longer deferred.
+pub(in crate::tools::local_search) type WithheldRows = Vec<usize>;
+
 pub(in crate::tools::local_search) fn materialize(
     scope: &PageScope<'_, impl CancellationCheck>,
     file: &mut octocode_engine::types::TextSearchFile,
     rows: std::ops::Range<usize>,
-) -> Result<(), ToolError> {
+) -> Result<WithheldRows, ToolError> {
     visit_values(scope, file, rows, |_, _| Ok(()))
 }
 
 /// Reconstruct one value at a time, then release or consume it before reading
 /// the next. Every read is policy-checked and hashes the complete source; no
-/// result escapes when that digest differs from the search's bytes.
+/// result escapes when that digest differs from the search's bytes. Then a
+/// stored scan restarts (`staleSnapshot`), and a fresh scan, which is this
+/// call's own, withholds the rows it could not rebuild ([`WithheldRows`]):
+/// one file written during the call leaves the other files' rows valid.
+/// `visit` may see a value before the digest is known, so it must keep
+/// nothing a withheld row's value could escape through.
 pub(super) fn visit_values(
     scope: &PageScope<'_, impl CancellationCheck>,
     file: &mut octocode_engine::types::TextSearchFile,
     rows: std::ops::Range<usize>,
     mut visit: impl FnMut(usize, &mut octocode_engine::types::TextSearchMatch) -> Result<(), ToolError>,
-) -> Result<(), ToolError> {
-    use std::io::BufRead;
+) -> Result<WithheldRows, ToolError> {
     // One check per file: a row's visit is bounded work, and every worker
     // polling the shared cancel per row contended on its lock.
     scope.cancel.check().map_err(ToolError::cancelled)?;
@@ -182,19 +193,73 @@ pub(super) fn visit_values(
         }
     }
     if wanted.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     wanted.sort_unstable_by_key(|&i| file.matches[i].line);
     let path = scope.output_root.join(&file.path);
     validate_matched(scope.paths, &path)?;
-    let source = file.source.ok_or_else(|| changed_since_scan(scope.query))?;
-    let (input, _) =
-        octocode_engine::text::open_regular(&path).map_err(|_| changed_since_scan(scope.query))?;
+    match reread(scope, file, &path, &wanted, &mut visit)? {
+        Reread::Same => Ok(Vec::new()),
+        Reread::Changed => withhold(scope, file, &path, wanted),
+    }
+}
+
+/// Whether a re-read found the bytes the scan matched.
+enum Reread {
+    Same,
+    /// Other bytes, or none: the file changed or could not be read.
+    Changed,
+}
+
+/// A changed source's `wanted` rows: a stored scan restarts; a fresh one
+/// replaces each value with the placeholder (see [`WithheldRows`]).
+fn withhold(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+    path: &std::path::Path,
+    wanted: Vec<usize>,
+) -> Result<WithheldRows, ToolError> {
+    if let Expected::Stored(_) = (scope.expected_digest)(path) {
+        return Err(changed_since_scan(scope.query));
+    }
+    for &index in &wanted {
+        let hit = &mut file.matches[index];
+        hit.value = super::guard::UNVERIFIED_PLACEHOLDER.to_owned();
+        hit.deferred = None;
+    }
+    Ok(wanted)
+}
+
+/// A failed read: the cancel's reason when it stopped the read, else a
+/// changed source.
+fn read_failed(cancel: &impl CancellationCheck) -> Result<Reread, ToolError> {
+    cancel
+        .check()
+        .map(|()| Reread::Changed)
+        .map_err(ToolError::cancelled)
+}
+
+/// Rebuild the `wanted` rows (sorted by line) from `path`, visiting each,
+/// while hashing the whole source against the scan's digest.
+fn reread(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+    path: &std::path::Path,
+    wanted: &[usize],
+    visit: &mut impl FnMut(usize, &mut octocode_engine::types::TextSearchMatch) -> Result<(), ToolError>,
+) -> Result<Reread, ToolError> {
+    use std::io::BufRead;
+    let Some(source) = file.source else {
+        return Ok(Reread::Changed);
+    };
+    let Ok((input, _)) = octocode_engine::text::open_regular(path) else {
+        return Ok(Reread::Changed);
+    };
     let mut input = std::io::BufReader::new(CheckedRead {
         input,
         cancel: scope.cancel,
     });
-    let mut digest = Sha256::new();
+    let mut digest = octocode_engine::digest::HashWriter::default();
     let mut bytes = Vec::new();
     let mut line = 0u32;
     let mut at = 0;
@@ -204,20 +269,16 @@ pub(super) fn visit_values(
     while at < wanted.len() {
         bytes.clear();
         // Match the engine's line-buffer ceiling, including a terminating newline.
-        let read = std::io::Read::take(&mut input, 64 * 1024 * 1024 + 1)
-            .read_until(b'\n', &mut bytes)
-            .map_err(|_| {
-                scope
-                    .cancel
-                    .check()
-                    .err()
-                    .map_or_else(|| changed_since_scan(scope.query), ToolError::cancelled)
-            })?;
+        let Ok(read) =
+            std::io::Read::take(&mut input, 64 * 1024 * 1024 + 1).read_until(b'\n', &mut bytes)
+        else {
+            return read_failed(scope.cancel);
+        };
         if read == 0 {
             break;
         }
         if read > 64 * 1024 * 1024 {
-            return Err(changed_since_scan(scope.query));
+            return Ok(Reread::Changed);
         }
         digest.update(&bytes);
         size += read as u64;
@@ -251,26 +312,19 @@ pub(super) fn visit_values(
     let mut chunk = vec![0u8; 64 * 1024];
     loop {
         scope.cancel.check().map_err(ToolError::cancelled)?;
-        let read = std::io::Read::read(&mut input, &mut chunk).map_err(|_| {
-            scope
-                .cancel
-                .check()
-                .err()
-                .map_or_else(|| changed_since_scan(scope.query), ToolError::cancelled)
-        })?;
+        let Ok(read) = std::io::Read::read(&mut input, &mut chunk) else {
+            return read_failed(scope.cancel);
+        };
         if read == 0 {
             break;
         }
         digest.update(&chunk[..read]);
         size += read as u64;
     }
-    if at != wanted.len()
-        || size != source.size
-        || <[u8; 32]>::from(digest.finalize()) != source.digest
-    {
-        return Err(changed_since_scan(scope.query));
+    if at != wanted.len() || size != source.size || digest.finalize() != source.digest {
+        return Ok(Reread::Changed);
     }
-    Ok(())
+    Ok(Reread::Same)
 }
 
 struct CheckedRead<'a, C> {

@@ -1,5 +1,5 @@
-//! `limit` on ghStructure: tree entries per page (the tree is held whole,
-//! so no provider maximum applies) and refs per GitHub page (GitHub's
+//! `limit` on ghStructure: tree entries per page (each page reads the tree
+//! at the pinned commit, so no provider maximum applies) and refs per GitHub page (GitHub's
 //! documented `per_page` maximum, 100). An omitted `limit` is the page size
 //! each operation served before `limit` existed, read from the contract;
 //! a small-`limit` walk lists every entry or ref exactly once.
@@ -52,7 +52,9 @@ async fn a_small_tree_limit_walk_lists_every_entry_once() {
 }
 
 /// The tree page holds `limit` entries, 300 when omitted (the contract
-/// default, today's page size); any `limit` pages the held tree.
+/// default); any `limit` pages the held tree. A dated page lists at most
+/// one date request's entries, so `page` and `totalPages` count the calls of
+/// the walk; a materialized page is not dated and holds the whole `limit`.
 #[test]
 fn a_tree_page_holds_limit_entries() {
     assert_eq!(limits::tree::LIMIT_DEFAULT, 300);
@@ -63,20 +65,31 @@ fn a_tree_page_holds_limit_entries() {
             size: Some(1),
         })
         .collect::<Vec<_>>();
-    let tree = |limit: Option<u64>| {
+    let tree = |limit: Option<u64>, materialize: bool| {
         let mut row = json!({"operation":"tree","owner":"a","repo":"b"});
         if let Some(limit) = limit {
             row["limit"] = json!(limit);
         }
+        if materialize {
+            row["materialize"] = json!(true);
+        }
         serde_json::from_value::<GhStructureQueryTree>(row).expect("tree query")
     };
-    for (limit, rows, pages) in [(None, 300, 2), (Some(7), 7, 43), (Some(1_000), 301, 1)] {
-        let query = tree(limit);
+    let dated = crate::tools::gh_structure::dates::DATED_PER_PAGE;
+    assert!(dated < 300, "the default page exceeds one date request");
+    for (limit, materialize, rows, pages) in [
+        (None, false, dated, entries.len().div_ceil(dated)),
+        (Some(7), false, 7, 43),
+        (Some(1_000), false, dated, entries.len().div_ceil(dated)),
+        (None, true, 300, 2),
+        (Some(1_000), true, 301, 1),
+    ] {
+        let query = tree(limit, materialize);
         let page = ListingPage::of(&query, &entries);
         assert_eq!(
             (page.entries.len(), page.total_pages),
             (rows, pages),
-            "{limit:?}"
+            "{limit:?} materialize {materialize}"
         );
     }
 }

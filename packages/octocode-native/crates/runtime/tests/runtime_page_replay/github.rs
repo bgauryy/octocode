@@ -36,11 +36,24 @@ async fn github_file_server(content_hits: u64) -> MockServer {
     server
 }
 
-/// A matching snapshot replays the stored answer at a commit SHA and on a
-/// branch alike. A mismatched snapshot fails without fetching content again.
+/// Requests to `path` so far.
+async fn hits(server: &MockServer, path: &str) -> usize {
+    let requests = server.received_requests().await.expect("recorded");
+    requests
+        .iter()
+        .filter(|request| request.url.path() == path)
+        .count()
+}
+
+/// A continuation answers from the provider evidence its cursor owns, at a
+/// commit SHA and on a branch alike: only the first page reads the source,
+/// no continuation run reaches GitHub (neither the body nor the branch),
+/// and each answers the same evidence. A mismatched snapshot fails without
+/// any request.
 #[tokio::test]
 async fn a_matching_snapshot_replays_and_a_mismatch_fails_without_dispatch() {
     for reference in [SHA, "main"] {
+        // Only the first page reads; the cursor owns that answer.
         let content_hits = 1;
         let server = github_file_server(content_hits).await;
         pages_at(&server, reference).await;
@@ -56,8 +69,7 @@ async fn pages_at(server: &MockServer, reference: &str) {
             "gh-page-1".into(),
             "ghGetFileContent".into(),
             json!({
-                "queries":[{"owner":"a","repo":"b","path":"src/lib.rs","ref":reference,
-                    "refresh":true}],
+                "queries":[{"owner":"a","repo":"b","path":"src/lib.rs","ref":reference}],
                 "responseChars": 800
             }),
         )
@@ -70,6 +82,8 @@ async fn pages_at(server: &MockServer, reference: &str) {
         .query;
     support::assert_cursor_only(&next);
     let mut captured = None;
+    let resolutions = hits(server, "/api/v3/repos/a/b/commits/main").await;
+    assert_eq!(resolutions, usize::from(reference == "main"));
 
     for page in ["gh-page-2", "gh-page-2-again"] {
         let replayed = runtime
@@ -89,6 +103,13 @@ async fn pages_at(server: &MockServer, reference: &str) {
         }
     }
 
+    // The continuation is pinned: the branch is not resolved again.
+    assert_eq!(
+        hits(server, "/api/v3/repos/a/b/commits/main").await,
+        resolutions
+    );
+    server.verify().await;
+    let sent = server.received_requests().await.expect("recorded").len();
     let mut stale = next;
     stale["cursor"] = json!(format!("cursor2.{}", "A".repeat(44)));
     let error = runtime
@@ -96,13 +117,19 @@ async fn pages_at(server: &MockServer, reference: &str) {
         .await
         .expect_err("a mismatched snapshot never executes");
     assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
+    assert_eq!(
+        server.received_requests().await.expect("recorded").len(),
+        sent,
+        "a mismatched snapshot sends nothing"
+    );
     runtime.close().await;
 }
 
 #[tokio::test]
-async fn saved_github_pages_check_current_home_credentials_without_network_replay() {
+async fn saved_github_pages_check_current_home_credentials_before_any_provider_read() {
     use octocode_native::providers::github::{CredentialStore, StoredCredentials};
     for tool in ["ghGetFileContent", "clasify"] {
+        // A continuation answers from the evidence its cursor owns.
         let server = github_file_server(1).await;
         Mock::given(method("POST"))
             .and(path("/v1/systemone"))
@@ -137,8 +164,7 @@ async fn saved_github_pages_check_current_home_credentials_without_network_repla
             ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
         ];
         let runtime = workspace.runtime(&env);
-        let source = json!({"owner":"a","repo":"b","path":"src/lib.rs","ref":SHA,
-            "refresh":true});
+        let source = json!({"owner":"a","repo":"b","path":"src/lib.rs","ref":SHA});
         let row = if tool == "clasify" {
             let criteria: serde_json::Map<_, _> = (0..64)
                 .map(|index| (format!("label{index:02}"), json!("criterion")))
@@ -176,6 +202,10 @@ async fn saved_github_pages_check_current_home_credentials_without_network_repla
             .await
             .expect("same local identity");
         support::checks::assert_output_contract(tool, &same.structured_content);
+        let requests = server.received_requests().await.expect("requests");
+        let sent = &requests[before_replay..];
+        assert!(sent.is_empty(), "{tool}: the cursor owns its evidence");
+        let before_replay = requests.len();
         save("switched-local-token");
         let changed = runtime
             .run("auth-switched".into(), tool.into(), next.clone())
@@ -197,7 +227,7 @@ async fn saved_github_pages_check_current_home_credentials_without_network_repla
         assert_eq!(
             requests.len(),
             before_replay,
-            "saved reads must not call either provider"
+            "a changed identity calls neither provider"
         );
     }
 }

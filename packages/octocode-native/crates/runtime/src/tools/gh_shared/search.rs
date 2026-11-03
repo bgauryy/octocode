@@ -29,7 +29,7 @@ pub(crate) fn reject_boolean_keywords<S: AsRef<str>>(keywords: &[S]) -> Result<(
 }
 
 /// Results GitHub search reaches for one query, however many match.
-pub(crate) const SEARCH_RESULT_CAP: usize = 1000;
+pub(crate) const SEARCH_RESULT_CAP: usize = octocode_github::SEARCH_RESULT_CAP;
 
 /// Where a GitHub search endpoint draws its 1,000-result line through the
 /// pages of one query.

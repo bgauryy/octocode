@@ -55,8 +55,13 @@ pub fn file_matches(
             return Ok(Rebuilt::Changed);
         }
         let path_string = path.to_string_lossy();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-        let mut budget = MapBudget::new(MapLimits::default(), deadline, stop);
+        // Admission is bounded by the map limits and the caller's
+        // cancellation (its request deadline), not a clock of its own.
+        let mut budget = MapBudget::new(
+            MapLimits::default(),
+            crate::signatures::extractor::whole_file_deadline(),
+            stop,
+        );
         let content = match AdmittedSource::from_bytes(&bytes, &path_string, &mut budget) {
             Ok(content) => content,
             Err(crate::text::analysis::SourceError::Refused(_)) => return Ok(Rebuilt::Changed),

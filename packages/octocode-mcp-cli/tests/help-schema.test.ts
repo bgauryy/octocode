@@ -217,3 +217,52 @@ it('includes conditional required fields and refuses invalid supplied examples',
   }, run: input => input });
   expect(commandHelp(spec, invalid)).not.toContain('EXAMPLES');
 });
+
+it('samples nested content unions without a depth cutoff and terminates recursive schemas', () => {
+  const nested = defineCommand({ name: 'send', description: 'Send', inputSchema: {
+    type: 'object', properties: {
+      to: { type: 'string' }, topic: { type: 'string' },
+      parts: { type: 'array', minItems: 1, items: {
+        type: 'object', properties: { text: { type: 'string' }, data: {} },
+        oneOf: [{ required: ['text'] }, { required: ['data'] }], additionalProperties: false,
+      } },
+    }, required: ['parts'], oneOf: [{ required: ['to'] }, { required: ['topic'] }], additionalProperties: false,
+  }, run: input => input });
+  expect(commandHelp(spec, nested)).toContain(`--parts '[{"text":"value"}]'`);
+  expect(commandHelp(spec, nested)).toContain('--to "value"');
+  const recursive = defineCommand({ name: 'recursive', description: 'Recursive', inputSchema: {
+    type: 'object', $defs: { node: { type: 'object', properties: { next: { $ref: '#/$defs/node' } }, required: ['next'] } },
+    properties: { node: { $ref: '#/$defs/node' } }, required: ['node'],
+  }, run: input => input });
+  expect(commandHelp(spec, recursive)).not.toContain('EXAMPLES');
+});
+
+it('renders shared fields and branch requirements at any depth, terminating recursive references', () => {
+  const part = { type: 'object', properties: { text: { type: 'string' }, data: {}, url: { type: 'string' } },
+    oneOf: [{ required: ['text'] }, { required: ['data'] }, { required: ['url'] }] };
+  let nested: Record<string, unknown> = part;
+  for (let i = 0; i < 8; i++) nested = { type: 'object', properties: { child: nested } };
+  const command = defineCommand({ name: 'deep', description: 'Deep', inputSchema: {
+    type: 'object', $defs: { node: { type: 'object', properties: { next: { $ref: '#/$defs/node' } } } },
+    properties: { payload: nested, recursive: { $ref: '#/$defs/node' } }, required: ['payload'],
+  }, run: input => input });
+  const help = commandHelp(spec, command);
+  expect(help).toMatch(/text string\s+\(required\)/);
+  expect(help).toMatch(/data json\s+\(required\)/);
+  expect(help).toMatch(/url string\s+\(required\)/);
+  expect(help).toContain('next json');
+});
+
+it('shows required content alternatives inside grouped array inputs', () => {
+  const command = defineCommand({ name: 'messages', description: 'Messages', inputSchema: {
+    type: 'object', properties: { input: { type: 'object' } }, required: ['input'],
+    oneOf: [{ properties: { input: { type: 'object', properties: { parts: { type: 'array', items: {
+      type: 'object', properties: { text: { type: 'string' }, data: {}, url: { type: 'string' } },
+      oneOf: [{ required: ['text'] }, { required: ['data'] }, { required: ['url'] }],
+    } } }, required: ['parts'] } } }],
+  }, run: input => input });
+  const help = commandHelp(spec, command);
+  expect(help).toMatch(/\[ \]\.text string\s+\(required\)/);
+  expect(help).toMatch(/\[ \]\.data json\s+\(required\)/);
+  expect(help).toMatch(/\[ \]\.url string\s+\(required\)/);
+});

@@ -52,7 +52,6 @@ fn cancellation_is_checked_around_io() {
         &Cancel(AtomicUsize::new(0)),
         None,
         None,
-        &Default::default(),
     );
     assert_eq!(r.error_code, Some(ErrorCode::Cancelled));
 }
@@ -151,10 +150,9 @@ fn a_late_nul_byte_makes_an_in_memory_source_binary() {
     );
 }
 
-/// The pages of one large file version decode and key-redact it once; an
-/// edited version is prepared again.
+/// Each page reads and prepares its own source, and source edits are observed.
 #[test]
-fn a_large_source_is_prepared_once_per_version() {
+fn each_large_source_page_prepares_its_own_bytes() {
     struct CountingKeys(AtomicUsize);
     impl ContentScan for CountingKeys {
         fn sanitize(
@@ -164,7 +162,7 @@ fn a_large_source_is_prepared_once_per_version() {
         ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
             Ok((text.to_owned(), vec![]))
         }
-        fn redact_key_blocks(&self, content: &str) -> (String, bool) {
+        fn redact_key_blocks<'a>(&self, content: &'a str) -> (std::borrow::Cow<'a, str>, bool) {
             self.0.fetch_add(1, Ordering::Relaxed);
             crate::security::redact_private_key_blocks(content)
         }
@@ -175,15 +173,7 @@ fn a_large_source_is_prepared_once_per_version() {
     fs::write(&p, line.repeat(4_000)).expect("fixture");
     let scan = CountingKeys(AtomicUsize::new(0));
     let read = |req: &LocalFetchQuery| {
-        execute_local_fetch(
-            req,
-            &Paths(t.0.clone()),
-            &scan,
-            &NeverCancel,
-            None,
-            None,
-            &Default::default(),
-        )
+        execute_local_fetch(req, &Paths(t.0.clone()), &scan, &NeverCancel, None, None)
     };
     let first = read(&q(&p));
     let next = first
@@ -195,23 +185,21 @@ fn a_large_source_is_prepared_once_per_version() {
     assert_eq!(second.status, ReadStatus::Success, "{second:?}");
     assert_eq!(
         scan.0.load(Ordering::Relaxed),
-        1,
-        "one preparation for both pages"
+        2,
+        "each page prepares its source"
     );
     fs::write(&p, line.repeat(4_001)).expect("edit");
     assert_eq!(read(&q(&p)).total_lines, Some(4_001));
     assert_eq!(
         scan.0.load(Ordering::Relaxed),
-        2,
+        3,
         "a new version is prepared again"
     );
 }
 
-/// Rows of one batch reading the same large version at once prepare it
-/// once: the rest wait for the first preparation and share it, whether they
-/// read the same window or different ones.
+/// Concurrent rows own their preparation and preserve every selected view.
 #[test]
-fn concurrent_rows_share_one_preparation() {
+fn concurrent_rows_own_independent_preparations() {
     struct SlowKeys(AtomicUsize);
     impl ContentScan for SlowKeys {
         fn sanitize(
@@ -221,10 +209,8 @@ fn concurrent_rows_share_one_preparation() {
         ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
             Ok((text.to_owned(), vec![]))
         }
-        fn redact_key_blocks(&self, content: &str) -> (String, bool) {
+        fn redact_key_blocks<'a>(&self, content: &'a str) -> (std::borrow::Cow<'a, str>, bool) {
             self.0.fetch_add(1, Ordering::Relaxed);
-            // Long enough that every row arrives while the first prepares.
-            std::thread::sleep(std::time::Duration::from_millis(200));
             crate::security::redact_private_key_blocks(content)
         }
     }
@@ -253,15 +239,7 @@ fn concurrent_rows_share_one_preparation() {
                 let (scan, start, paths) = (&scan, &start, Paths(t.0.clone()));
                 scope.spawn(move || {
                     start.wait();
-                    execute_local_fetch(
-                        row,
-                        &paths,
-                        scan,
-                        &NeverCancel,
-                        None,
-                        None,
-                        &Default::default(),
-                    )
+                    execute_local_fetch(row, &paths, scan, &NeverCancel, None, None)
                 })
             })
             .collect::<Vec<_>>();
@@ -274,5 +252,9 @@ fn concurrent_rows_share_one_preparation() {
         results.iter().all(|result| result.error.is_none()),
         "{results:?}"
     );
-    assert_eq!(scan.0.load(Ordering::Relaxed), 1, "one shared preparation");
+    assert_eq!(
+        scan.0.load(Ordering::Relaxed),
+        rows.len(),
+        "each row prepares its own source"
+    );
 }

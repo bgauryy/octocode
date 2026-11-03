@@ -4,6 +4,7 @@ mod home_store;
 mod resolver;
 mod storage;
 pub use credential_store::CredentialStore;
+pub(crate) use resolver::CallSelection;
 pub use resolver::{AuthMode, AuthSelection, Authentication};
 pub use storage::{OAuthToken, StoredCredentials};
 

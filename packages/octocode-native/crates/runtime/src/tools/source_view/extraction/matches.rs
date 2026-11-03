@@ -5,7 +5,7 @@ use super::super::types::{
 };
 use super::search_lead::match_limit_lead;
 use super::spans::{MAX_REGEX_MATCHES, hit_lines, match_spans};
-use super::{Extraction, first_unseen, follow_up, merge_ranges, windows_text};
+use super::{Extraction, LineOffsets, first_unseen, follow_up, merge_ranges, windows_text};
 use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
 /// A requested line range and the byte span it covers.
@@ -13,14 +13,7 @@ type Region = (LineRange, (usize, usize));
 
 /// Each requested range clamped to the file, with its byte span in
 /// `lines`' source: where a region grep counts hits.
-fn region_bytes(lines: &[&str], ranges: &[LineRange]) -> Vec<Region> {
-    let mut starts = Vec::with_capacity(lines.len() + 1);
-    let mut offset = 0;
-    for line in lines {
-        starts.push(offset);
-        offset += line.len();
-    }
-    starts.push(offset);
+fn region_bytes(lines: &LineOffsets, ranges: &[LineRange]) -> Vec<Region> {
     ranges
         .iter()
         .filter(|range| range.start <= lines.len())
@@ -31,7 +24,7 @@ fn region_bytes(lines: &[&str], ranges: &[LineRange]) -> Vec<Region> {
                     start: range.start,
                     end,
                 },
-                (starts[range.start - 1], starts[end]),
+                (lines.start(range.start - 1), lines.start(end)),
             )
         })
         .collect()
@@ -42,7 +35,7 @@ fn region_bytes(lines: &[&str], ranges: &[LineRange]) -> Vec<Region> {
 /// the range that holds them. A range past the file end is invalid input.
 fn ranged_spans(
     q: &LocalFetchQuery,
-    lines: &[&str],
+    lines: &LineOffsets,
     spans: &mut Vec<(usize, usize)>,
 ) -> Result<Vec<Region>, ExtractionError> {
     let regions = region_bytes(lines, &local_fetch_query::line_ranges(q));
@@ -68,7 +61,7 @@ fn ranged_spans(
 /// Requested context stays inside the selected source ranges.
 fn context_windows(
     q: &LocalFetchQuery,
-    lines: &[&str],
+    lines: &LineOffsets,
     hits: &[usize],
     regions: &[Region],
 ) -> Vec<LineRange> {
@@ -77,10 +70,10 @@ fn context_windows(
         .map(|&line| {
             let window = LineRange {
                 start: line
-                    .saturating_sub(crate::num::usize_of(context.before))
+                    .saturating_sub(octocode_engine::num::saturating_usize(context.before))
                     .max(1),
                 end: line
-                    .saturating_add(crate::num::usize_of(context.after))
+                    .saturating_add(octocode_engine::num::saturating_usize(context.after))
                     .min(lines.len()),
             };
             match regions
@@ -101,7 +94,7 @@ fn context_windows(
 pub(super) fn match_extract(
     q: &LocalFetchQuery,
     content: &str,
-    lines: &[&str],
+    lines: &LineOffsets,
     patterns: &[&str],
 ) -> Result<Extraction, ExtractionError> {
     let RegexSpans {
@@ -151,7 +144,7 @@ pub(super) fn match_extract(
         continue_block: line_read(q, &first_unseen(oversized, &ranges)).and_then(follow_up),
         ..NextCalls::default()
     };
-    let (text, selected) = windows_text(lines, &ranges);
+    let (text, selected) = windows_text(content, lines, &ranges);
     if let Some(line) = limit_line {
         warnings.push(format!(
             "Regex match limit: the scan stopped after {MAX_REGEX_MATCHES} matches at line {line}; matches after it are not selected; narrow the regex to select them."

@@ -26,14 +26,7 @@ async fn call(runtime: &ToolRuntime, mcp: bool, id: usize, input: Value) -> Valu
             .await
             .expect("mcp call");
         assert_ne!(result["isError"], true, "{result}");
-        let text = result["content"][0]["text"].as_str().expect("text block");
-        let structured = &result["structuredContent"];
-        assert_eq!(
-            serde_json::from_str::<Value>(text).expect("JSON text"),
-            *structured,
-            "the text block is the structured JSON"
-        );
-        structured.clone()
+        crate::support::mcp_payload(&result)
     } else {
         runtime
             .run(format!("walk-{id}"), "astSearch".into(), input)

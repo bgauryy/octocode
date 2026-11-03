@@ -1,10 +1,10 @@
 //! Discovery paging: the page facts, the next page and the deepest reachable page.
 use super::{ArtifactSearchQuery, artifact_search_query};
 use crate::id::ToolId;
-use crate::num::usize_of;
 use crate::providers::artifact::{ArtifactProviderState, page_out_of_range, reachable_end};
 use crate::response::paging;
 use crate::response::result::Continuation;
+use octocode_engine::num::saturating_usize;
 use serde_json::Value;
 
 /// A discovery page's facts, from the shared page facts: the page, its size,
@@ -30,7 +30,7 @@ pub(super) fn discovery_page(
     );
     let unreachable = more.then(|| page_out_of_range(&next_query)).flatten();
     let facts = crate::response::pages::PageFacts::open(
-        usize_of(current),
+        saturating_usize(current),
         Some(artifact_search_query::page_size(query)),
         more && unreachable.is_none(),
     );

@@ -40,36 +40,20 @@ Include the worktree and branch when you ask about files or hand off evidence.
 ## Send and handle messages
 
 `reasoning` is the purpose, not private reasoning.
-Each `send_message` carries exactly one kind field; the table names the protocol behind each. `schema send_message` lists the slots. The runtime checks cross-references and renders the body, so every host reads the same text.
+Each `send_message` carries `parts`: text, JSON data, or URL references, with optional `mediaType` and `filename` on each part. The runtime treats payloads as opaque data; use explicit message, document, or lease operations for their effects. `replyRequired` defaults to false and determines whether the recipient is expected to report a correlated outcome. `wake` independently controls delivery scheduling. `contextId` groups related messages. `schema send_message` lists the accepted shape.
 
-| Field | Protocol | Reply policy |
-| --- | --- | --- |
-| `question` | Question text | Request: wakes, owes `complete` |
-| `task` | Task contract with Definition of Done and `budget` (budget and stop condition); `checkBack:true` requires a check-back before the recipient completes (renders `Check back before completing: send checkback with this message id`); `informed` lists RACI Informed peers (renders `Informed (copied on the answer)`) | Request |
-| `decision` | Decision request: options, recommendation, `default` (renders `Default if unanswered`; the expiry notice says it applies); `informed` as for `task` | Request |
-| `handoff` | Handoff packet: state, `document:NAME` evidence (pinned to its sha256), blockers, next, optional `constraints` (list), in that order; no raw logs, private reasoning or abandoned branches; `leases` move to the recipient when it completes done | Request |
-| `blocker` | SBAR: situation, background, assessment, recommendation; use it when work needs someone else's action or input | FYI that wakes |
-| `delta` | Delta update: optional `phase`, then `changes`, `blockers`, `next`; only what changed; progress, never a request for input | FYI |
-| `checkback` | Check-back: `request` is the ID of a pending `task` you received; restate its objective and Definition of Done to its sender | FYI |
-| `issue` | 5W2H; write unknown for an unverified slot; `where` is `path:line`, `who` the affected party, not an assignee | FYI |
-| `body` | Plain FYI | FYI |
-
-Answer what was asked. Do not echo acknowledgements, readiness, FYIs, the transcript, this guide, or the catalog; follow up only for new evidence or an open blocker.
-Use a direct recipient when one owner must act.
-Use `notify_all` only for an announcement every live repository peer needs (sender excluded; passive, no reply, no backfill).
-The kind sets the reply policy and `wake`; set `wake` only to override it (urgent FYI, or a request that is not urgent).
+Use a direct peer when one owner must act, `to:"*"` for current active peers, or a topic for its current subscribers. Fanout snapshots recipients at send time; each recipient has independent delivery and handling state. Answer what was asked. Do not echo acknowledgements, readiness, FYIs, the transcript, this guide, or the catalog; follow up only for new evidence or an open question.
 
 | Received work | Action after handling |
 | --- | --- |
-| Request (`replyRequired:true`) | `complete {message:ID,outcome,reply:{conclusion,confidence?,evidence?,assumptions?,unknowns?,next?}}`: BLUF, claim–evidence, facts/assumptions/unknowns; `outcome` is `done`, `partial`, `failed`, `refused` or `canceled` |
+| Request (`replyRequired:true`) | `complete {message:ID,outcome,reply:[{text:...}]}` or other reply parts; outcomes are `completed`, `failed`, `rejected` or `canceled` |
 | FYI or answer | `complete {messages:[IDs]}` without `reply` or `reasoning` |
-| Unfinished request | Keep it pending; send a `delta` with the same `conversationId` |
-| Request that needs input from its sender | Keep it pending; send a `blocker` (SBAR) with the same `conversationId`; it wakes the sender, a `delta` does not |
+| Unfinished request | Keep it pending; send a progress message with the same `contextId` |
+| Request that needs input from its sender | Keep it pending and send a separate message asking for input |
 
-A `checkBack:true` task cannot complete as `done`, `partial` or `failed` until you have sent a `checkback` for it; `refused` and `canceled` need none. The gate checks that a check-back exists, not what it says, and it follows the work rather than preceding it. When a request names `informed` peers, they receive the final answer as an FYI whose body leads `BLUF`, then `Re <kind> <id>: <headline>` (the request's first text slot, at most 200 characters), so the copy stands alone.
-Only `complete` creates the final correlated reply. `replyTo` is output-only; progress uses `conversationId`.
+Only `complete` creates the final correlated reply and acknowledges the request atomically. Progress does not acknowledge or complete it. `contextId` groups related messages; `replyTo` links the final response.
 The message ID is `data.messageId` in `fetch` and delivered records, and `item.id` in `inbox`; `recordId` is only a history cursor. `fetch` with `incoming:true` returns pending mail; without it, `fetch` pages repository history.
-Read omitted bodies through their `data.next` before acting.
+Read omitted content through its `data.next` before acting.
 Check mail at task boundaries, or use host delivery. Do not repeatedly poll from model turns.
 Delivery acceptance proves neither completed work nor user approval.
 
@@ -77,7 +61,7 @@ Delivery acceptance proves neither completed work nor user approval.
 
 Acquire `lock` or atomic `lock_many` before editing. Include the purpose in `reasoning`.
 Only `ok:true` grants a reservation. Retain each lease ID (`lease.id` from `lock`, `leases[].id` from `lock_many`) for renewal and release.
-On conflict, run the returned `next` (`wait:true`) and stop affected edits; owners receive an SBAR, and a delta update arrives when ownership is granted. Configured native delivery wakes an idle host; a raw CLI agent maintains presence and checks `inbox` at task boundaries. Until then keep the request that needs it pending; a progress note does not complete it. On a deadlock refusal, release your held leases first.
+On conflict, run the returned `next` (`wait:true`) and stop affected edits; owners receive an informational lease message, and the waiter receives a lease-granted message when ownership is granted. Configured native delivery wakes an idle host; a raw CLI agent maintains presence and checks `inbox` at task boundaries. Until then keep the request that needs it pending; a progress note does not complete it. On a deadlock refusal, release your held leases first.
 Preserve peer changes. Leases and optional guards cover declared paths; they are not an OS fence.
 If identity, lease renewal, or write coverage fails, stop affected edits and reacquire live ownership.
 Use the binding's lifecycle policy. Managed owners maintain presence and live leases.
@@ -90,7 +74,7 @@ Use immutable `share_document` names for larger evidence; a revision takes a new
 Notify the next owner explicitly. Stored documents, memories, events and checkpoints send no notification.
 Before an interruption, `record` a `checkpoint` (goal, done, next); `binding` and `resume` return the latest one.
 Follow each read continuation (`next.command` with `next.input`) unchanged, including empty pages. A `next` on a conflict or receipt is a suggested action, not a page.
-For retries, preserve the key (idempotency key) and unchanged input. Inspect uncertain delivery before an explicit retry; `retry_delivery` is a bounded retry (3, with backoff), after which the sender receives an SBAR.
+For retries, preserve the key (idempotency key) and unchanged input. Inspect uncertain delivery before an explicit retry; `retry_delivery` is bounded (3 retries, with backoff), after which the sender receives a retry-exhausted notice.
 
 ## Load details when needed
 

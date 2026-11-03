@@ -11,7 +11,7 @@ One query language answers over the whole stitched, weighted file graph of a res
 | `path <a> <b>` | The strongest dependency path a → b (Dijkstra, cost Σ 1/weight); every hop with its weight, import lines and symbol calls. No path: says so and checks b → a |
 | `cycle <file>` | Its strongly connected set (the `metrics.cycles` id when production), first the files of one shortest ring through it in order, then the rest by PageRank |
 | `community <file\|id>` | Members by PageRank and the weight to every other community (`links`, out and in) |
-| `callers <sym>` / `callees <sym>` | Symbol-level calls with `via` (graph, stitched, both, lsp), confidence and lines; `sym` is `file#name` (any file form) or a bare name |
+| `callers <sym>` / `callees <sym>` | Symbol-level calls with the saved `via` value, confidence and lines. Look in `data.json` for `resolution: ["stitched-import"]` to identify calls bound by name across chunks. Use `file#name` (any file form) or a bare symbol name. |
 | `top <metric> [n\|all]` | Files ranked by `pagerank`, `betweenness`, `inWeight`, `outWeight`, `core` or `depth`; 20 unless n or `all`, and the summary says how many were ranked |
 | `find <text>` | Files whose path and symbols whose name contain the text |
 

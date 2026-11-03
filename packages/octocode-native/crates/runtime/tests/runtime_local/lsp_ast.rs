@@ -71,11 +71,10 @@ process.stdin.on('data', chunk => {
             )
             .await
             .expect("MCP references");
-        let row = &output["structuredContent"]["results"][0]["data"];
+        let payload = crate::support::mcp_payload(&output);
+        let row = &payload["results"][0]["data"];
         assert_eq!(row["path"], "src/lib.ts", "{output}");
-        let items = row[if view == "files" { "files" } else { "matches" }]
-            .as_array()
-            .expect("locations");
+        let items = row["files"].as_array().expect("locations");
         assert!(
             items.iter().all(|item| item["path"] == "src/lib.ts"),
             "{output}"
@@ -90,11 +89,12 @@ process.stdin.on('data', chunk => {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .flat_map(|row| row["data"]["matches"].as_array().into_iter().flatten())
-                .map(|location| {
-                    assert_eq!(location["path"], "src/lib.ts");
-                    format!("{}", location["displayRange"]["startLine"])
+                .flat_map(|row| row["data"]["files"].as_array().into_iter().flatten())
+                .flat_map(|file| {
+                    assert_eq!(file["path"], "src/lib.ts");
+                    file["matches"].as_array().expect("locations")
                 })
+                .map(|location| format!("{}", location["displayRange"]["startLine"]))
                 .collect()
         },
     )
@@ -252,7 +252,8 @@ async fn unsupported_ast_batch_keeps_indices_hints_and_executable_document_recov
         .await
         .expect("MCP error batch");
     assert_eq!(response["isError"], true);
-    let rows = &response["structuredContent"]["results"];
+    let payload = crate::support::mcp_payload(&response);
+    let rows = &payload["results"];
     assert_eq!(rows[0]["index"], 0);
     assert_eq!(rows[1]["index"], 1);
     assert_eq!(rows[0]["data"]["errorCode"], "invalidInput");

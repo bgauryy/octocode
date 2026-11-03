@@ -136,33 +136,6 @@ async fn rejects_cross_origin_pagination() {
     assert_eq!(error.kind, ProviderErrorKind::RedirectDenied);
 }
 
-#[tokio::test]
-async fn cache_partition_covers_endpoint_credential_and_session() {
-    let server = MockServer::builder().start().await;
-    let endpoint = mock_endpoint(&server);
-    let transport = GitHubTransport::new(endpoint, RetryPolicy::default(), GitHubBudget::relaxed())
-        .expect("transport");
-    let context = with_token("one", Duration::from_secs(2), 16);
-    let a = transport
-        .cache_partition(&context, Some("a"))
-        .expect("partition");
-    let b = transport
-        .cache_partition(&context, Some("b"))
-        .expect("partition");
-    assert_ne!(a, b);
-    let other = transport
-        .cache_partition(&with_token("two", Duration::from_secs(2), 16), Some("a"))
-        .expect("partition");
-    assert_ne!(a, other);
-    let anonymous = transport
-        .cache_partition(
-            &RequestContext::with_timeout(Duration::from_secs(2), 16),
-            Some("a"),
-        )
-        .expect("partition");
-    assert_ne!(a, anonymous);
-}
-
 /// One transport serves many requests; each carries its own context's
 /// credential (a credential rotated between requests is used at once).
 #[tokio::test]

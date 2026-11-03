@@ -192,15 +192,20 @@ test('a measurement change cannot silently compare new UTF-8 bytes to old code-u
 });
 
 test('local evidence excludes skipped paths and diagnostics and counts each actual location once', () => {
-  const raw = { results: [{ data: { files: [{ path: 'real.rs', matches: [{ line: 7, value: 'needle', enclosing: { line: 2 }, parseAssessment: { range: { start: { line: 6 } } } }] }], diagnostics: [{ path: 'diagnostic.rs', line: 55 }], skippedPaths: { entries: [{ path: 'hidden.rs' }] } } }] };
+  const raw = { results: [{ data: { files: [{ path: 'real.rs', matches: [{ line: 7, value: 'needle', enclosing: 0, parseAssessment: { range: { start: { line: 6 } } } }], declarations: [{ symbolName: 'owner', kind: 'function', line: 2, endLine: 9 }] }], diagnostics: [{ path: 'diagnostic.rs', line: 55 }], skippedPaths: { entries: [{ path: 'hidden.rs' }] } } }] };
   const ev = emptyEvidence();
   octocodeEvidence(entry(raw), ev);
   assert.deepEqual(ev.pairs, [{ file: 'real.rs', line: 7 }]);
   assert.deepEqual([...ev.files], ['real.rs']);
-  const refs = entry({ results: [{ data: { matches: [{ path: 'ref.rs', displayRange: { startLine: 10 }, content: '10\tcall();\n' }] } }] }, undefined, { tool: 'lspSearch' });
+  const refs = entry({ results: [{ data: { files: [{ path: 'ref.rs', matches: [{ displayRange: { startLine: 10 }, content: '10\tcall();\n' }] }] } }] }, undefined, { tool: 'lspSearch' });
   const refEvidence = emptyEvidence();
   octocodeEvidence(refs, refEvidence);
   assert.deepEqual(refEvidence.pairs, [{ file: 'ref.rs', line: 10 }]);
+  assert.match(refEvidence.text, /call\(\);/);
+  const symbols = entry({ results: [{ data: { matches: [{ path: 'sym.rs', displayRange: { startLine: 3 }, content: '' }] } }] }, undefined, { tool: 'lspSearch' });
+  const symbolEvidence = emptyEvidence();
+  octocodeEvidence(symbols, symbolEvidence);
+  assert.deepEqual(symbolEvidence.pairs, [{ file: 'sym.rs', line: 3 }]);
 });
 
 test('document-analysis errors remain a semantic coverage gap without inventing missing pages', () => {

@@ -18,7 +18,6 @@ async fn retries_secondary_rate_limit_without_remaining_zero() {
             max_attempts: 3,
             base_delay: Duration::from_millis(1),
             max_retry_after: Duration::from_secs(5),
-            max_rate_limit_wait: Duration::from_secs(5),
         },
         GitHubBudget::relaxed(),
     )

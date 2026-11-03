@@ -1,5 +1,6 @@
 use super::super::{invalid, rust_ident, string};
-use super::{query_variants, resolve_schema_ref};
+use super::query_variants;
+use super::tool_query_limits::reference_chain;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -34,14 +35,14 @@ pub(in super::super) fn render_listing_roles(contract: &Value) -> Result<String,
         let schema = tool
             .get("querySchema")
             .ok_or_else(|| invalid(format!("{name} has no querySchema")))?;
-        let defs = &schema["$defs"];
+        let defs = &contract["$defs"];
         // Every field with its role (`None`: none).
         let mut declared: BTreeMap<&str, Option<&str>> = BTreeMap::new();
-        for variant in query_variants(schema) {
+        for variant in query_variants(schema, defs) {
             for (field, field_schema) in variant.fields {
-                let role = resolve_schema_ref(field_schema, defs)
-                    .get("x-listing")
-                    .or_else(|| field_schema.get("x-listing"))
+                let role = reference_chain(field_schema, defs)
+                    .into_iter()
+                    .find_map(|part| part.get("x-listing"))
                     .map(|role| string(role, &format!("{name}.{field}.x-listing")))
                     .transpose()?;
                 match declared.get(field.as_str()) {

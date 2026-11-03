@@ -133,36 +133,33 @@ pub(super) fn lock(
     Ok(lock)
 }
 
-/// Points `latest` at the reused snapshot `receipt` names; under the lock.
-pub(super) fn point_latest(home: &Path, mut receipt: Value, started: Instant) -> GraphOutput {
-    let id = receipt["id"].as_str().unwrap_or_default();
-    if let Err(error) = write_atomic(&home.join(LATEST_FILE), id.as_bytes(), false) {
-        return GraphOutput::error(
-            ErrorCode::FileAccessFailed,
-            format!("cannot point latest at graph {id}: {error}"),
-        );
-    }
-    crate::tools::ast_graph::progress::emit(|| format!("reused {id}: its sources are unchanged"));
-    receipt["totalMs"] = json!(crate::num::millis_of(started.elapsed()));
-    GraphOutput::ok(receipt)
-}
-
-/// Marks the scope's extraction job complete once the snapshot `receipt`
-/// names is published.
+/// Removes this build's extraction job once the snapshot `receipt` names is
+/// published, preserving any newer or still-held job for the same scope.
 pub(super) fn finish_checkpoint(
     options: &IngestOptions,
     home: &Path,
     built: &super::super::super::types::BuiltGraph,
     receipt: &Value,
 ) -> Result<(), GraphOutput> {
+    if options.memory_only {
+        return Ok(());
+    }
+    let generation = built
+        .construction
+        .checkpoint_generation
+        .as_deref()
+        .ok_or_else(|| {
+            GraphOutput::error(
+                ErrorCode::ExecutionFailed,
+                "published build has no extraction job identity",
+            )
+        })?;
     let job = checkpoint::job_path(&home.join(".facts"), &built.root);
-    if !options.memory_only
-        && let Err(error) = checkpoint::complete(&job)
-    {
+    if let Err(error) = checkpoint::complete(&job, generation) {
         return Err(GraphOutput::error(
             error.code,
             format!(
-                "graph {} was published at {}, but its extraction checkpoint could not be marked complete: {}",
+                "graph {} was published at {}, but its extraction checkpoint could not be removed: {}",
                 receipt["id"].as_str().unwrap_or_default(),
                 receipt["dir"].as_str().unwrap_or_default(),
                 error.message

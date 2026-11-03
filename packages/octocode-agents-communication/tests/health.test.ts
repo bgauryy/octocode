@@ -21,23 +21,24 @@ function fixture(t: TestContext) {
 }
 test('health stays read-only under a writer, omits bodies, and treats passive waiting as normal',async t=>{
   const f=fixture(t);
-  f.call('send_message',{to:f.b,body:'private-context-never-in-health',wake:'passive',reasoning:'Inform without waking'},f.a);
+  f.call('send_message',{parts: [{ text: 'private-context-never-in-health' }], to:f.b,wake:'passive',reasoning:'Inform without waking'},f.a);
   const audit=only(f.db.prepare('SELECT count(*) n FROM records').get()).n;
   f.db.exec('BEGIN IMMEDIATE');
   let health: JsonRecord;
-  try {health=JSON.parse((await exec(binary,f.args('health'),{timeout:1500})).stdout);}
+  // A reader that waited on the writer lock would hit the busy timeout and exit non-zero, failing exec.
+  try {health=JSON.parse((await exec(binary,f.args('health'))).stdout);}
   finally {f.db.exec('ROLLBACK');}
   assert.equal(health.status,'clear');assert.equal(health.counts.waitingPassive,1);assert.equal(health.counts.attention,0);
   assert.deepEqual(health.issues,[]);assert.equal(health.next,undefined);
   assert.ok(!JSON.stringify(health).includes('private-context-never-in-health'));
   assert.equal(only(f.db.prepare('SELECT count(*) n FROM records').get()).n,audit);
   assert.equal(only(f.db.prepare('SELECT acknowledgedAt FROM deliveries').get()).acknowledgedAt,null);
-  f.call('send_message',{to:f.b,question:'New action',reasoning:'Distinguish pending work from a fault'},f.a);
+  f.call('send_message',{parts: [{ text: 'New action' }], replyRequired: true, to:f.b,reasoning:'Distinguish pending work from a fault'},f.a);
   const pending=f.call('health');assert.equal(pending.status,'pending');assert.equal(pending.counts.attention,0);
 });
 test('health reports uncertain, stalled and expired action work without replay or missing fanout pages',t=>{
   const f=fixture(t),c=f.call('join',{name:'third',vendor:'raw'}).id;
-  const notice=f.call('notify_all',{body:'Shared work',wake:'action',reasoning:'Validate operational visibility'},f.a);
+  const notice=f.call("send_message",{to: '*', parts: [{ text: 'Shared work' }], wake:'action',reasoning:'Validate operational visibility'},f.a);
   for(const [recipient,state] of [[f.b,'uncertain'],[c,'staged']])f.db.prepare('INSERT INTO dispatches(message,recipient,token,transport,state,attemptedAt) VALUES(?,?,?,\'raw\',?,?)').run(notice.id,recipient,recipient,state,Date.now()-10000);
   const first=f.call('health',{limit:1,staleAfterMs:1000});
   assert.equal(first.status,'attention');assert.equal(first.counts.attention,2);assert.equal(first.issues.length,1);
@@ -46,13 +47,13 @@ test('health reports uncertain, stalled and expired action work without replay o
   assert.notEqual(second.issues[0].recipient,first.issues[0].recipient);
   assert.deepEqual([first.issues[0].issue,second.issues[0].issue].sort(),['stalledOffer','uncertain']);
   assert.equal(only(f.db.prepare('SELECT count(*) n FROM dispatches').get()).n,2);
-  const old=f.call('send_message',{to:f.b,question:'Expired work',reasoning:'Keep failed work visible',ttlMs:1000},f.a);
+  const old=f.call('send_message',{parts: [{ text: 'Expired work' }], replyRequired: true, to:f.b,reasoning:'Keep failed work visible',ttlMs:1000},f.a);
   f.db.prepare('UPDATE messages SET expiresAt=0 WHERE id=?').run(old.id);
   assert.ok(f.call('health').issues.some((row: JsonRecord)=>row.message===old.id&&row.issue==='expiredAction'));
 });
 test('health separates stale handling from offline recipients and isolates workspaces',t=>{
   const f=fixture(t);
-  const message=f.call('send_message',{to:f.b,question:'Please handle',reasoning:'Inspect submitted vs handled'},f.a);
+  const message=f.call('send_message',{parts: [{ text: 'Please handle' }], replyRequired: true, to:f.b,reasoning:'Inspect submitted vs handled'},f.a);
   f.db.prepare("INSERT INTO dispatches(message,recipient,token,transport,state,attemptedAt,submittedAt) VALUES(?,?,?,'raw','submitted',?,?)").run(message.id,f.b,'receipt',Date.now()-10000,Date.now()-10000);
   assert.equal(f.call('health',{staleAfterMs:1000}).issues[0].issue,'overdueHandling');
   f.db.prepare('UPDATE sessions SET expiresAt=0 WHERE id=?').run(f.b);
@@ -70,7 +71,7 @@ test('health rejects invalid limits and never creates a missing DB',t=>{
 test('health flags an ownerless staged offer promptly but not one held by a live delivery owner',async t=>{
   const f=fixture(t);
   f.call('attach',{transport:'raw'},f.b);
-  const message=f.call('send_message',{to:f.b,question:'Offered then crashed',reasoning:'Surface stranded offers'},f.a);
+  const message=f.call('send_message',{parts: [{ text: 'Offered then crashed' }], replyRequired: true, to:f.b,reasoning:'Surface stranded offers'},f.a);
   f.db.prepare("INSERT INTO dispatches(message,recipient,token,transport,state,attemptedAt) VALUES(?,?,?,'hook:grok','staged',?)").run(message.id,f.b,'crashed',Date.now()-31000);
   const orphan=f.call('health');
   assert.equal(orphan.status,'attention');assert.equal(orphan.issues[0].issue,'stalledOffer');
@@ -90,7 +91,7 @@ test('health probes a recipient\'s delivery owner once however many of its offer
   await using lock = await runtime.ownerLock.claimDeliveryOwner(f.file, recipient);
   const insert = f.store.db.raw.prepare("INSERT INTO dispatches(message,recipient,token,transport,state,attemptedAt) VALUES(?,?,?,'raw','staged',?)");
   for (let i = 0; i < 4; i += 1) {
-    const message = await f.call(sender, 'send_message', { to: recipient, question: `Offer ${i}`, key: `k${i}`, reasoning: 'Stage several offers for one recipient' });
+    const message = await f.call(sender, 'send_message', {parts: [{ text: `Offer ${i}` }], replyRequired: true,  to: recipient, key: `k${i}`, reasoning: 'Stage several offers for one recipient' });
     insert.run(message.id, recipient, `t${i}`, Date.now() - 60000);
   }
   const bin = mkdtempSync(join(tmpdir(), 'health-ps-'));

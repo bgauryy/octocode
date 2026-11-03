@@ -18,6 +18,6 @@ export function completionCheck(host: AttachmentHost, session: string, input: Co
   });
   if (!pending.length) return {};
   const ids = pending.slice(0, 16).map(row => rowInteger(row, 'id'));
-  const reason = `Peer work is still unacknowledged: IDs ${compactAscii(ids)}${pending.length > 16 ? ' (more pending; use inbox recovery as needed)' : ''}. Handle these IDs from existing context; only if a body is missing, recover it with inbox(message:ID). Finish requests with complete {message:ID,outcome,reply:{conclusion}}; handled FYIs/answers with complete {messages:[IDs]} without a reply. Leave unfinished work pending. If genuinely blocked, explain why and stop; this check will not block the recovery turn again.`;
+  const reason = `Peer work is still unacknowledged: IDs ${compactAscii(ids)}${pending.length > 16 ? ' (more pending; use inbox recovery as needed)' : ''}. Handle these IDs from existing context; only if a content is missing, recover it with inbox(message:ID). Finish requests with complete {message:ID,outcome,reply:[{text:"result"}]}; handled FYIs/answers with complete {messages:[IDs]} without a reply. Leave unfinished work pending. If genuinely blocked, explain why and stop; this check will not block the recovery turn again.`;
   return { decision: 'block', pending: ids, reason };
 }

@@ -92,11 +92,10 @@ fn prior_schema_facts_cannot_be_reused_for_unchanged_bytes() {
     assert_eq!(actual.facts, expected.facts);
 }
 
-/// A caller that persists facts (`CachedGraph`) owns their reuse: its scan
-/// neither fills nor reads the process-wide memo, which only `Graph` scans
-/// keep.
+/// Only a caller-owned, validated checkpoint may reuse facts. Plain scans
+/// extract their selected sources each time and retain no process cache.
 #[test]
-fn persisted_scans_leave_the_process_memo_to_memo_scans() {
+fn plain_scans_extract_again_without_a_process_cache() {
     let fixture = tempfile::tempdir().expect("fixture");
     let unique = fixture
         .path()
@@ -104,15 +103,18 @@ fn persisted_scans_leave_the_process_memo_to_memo_scans() {
         .expect("name")
         .to_string_lossy()
         .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
-    let source = format!("fn memo_{unique}() {{}}\n");
-    fs::write(fixture.path().join("memo.rs"), &source).expect("source");
+    let source = format!("fn fresh_{unique}() {{}}\n");
+    fs::write(fixture.path().join("fresh.rs"), &source).expect("source");
     let (_, reused) = scan_cached(fixture.path(), &|_| None);
     assert!(!reused);
     let (_, reused) = scan_from(fixture.path(), FactsSource::Graph);
-    assert!(!reused, "a persisted scan filled the process memo");
+    assert!(!reused, "plain scans extract after a checkpoint miss");
     let (_, reused) = scan_cached(fixture.path(), &|_| None);
-    assert!(!reused, "a persisted scan read the process memo");
+    assert!(
+        !reused,
+        "a checkpoint miss cannot reuse a previous plain scan"
+    );
     let (entry, reused) = scan_from(fixture.path(), FactsSource::Graph);
-    assert!(reused, "a memo scan reuses its own memo");
-    assert_eq!(entry.facts, persisted(&source, "memo.rs").facts);
+    assert!(!reused, "a plain scan must not reuse process-cached facts");
+    assert_eq!(entry.facts, persisted(&source, "fresh.rs").facts);
 }

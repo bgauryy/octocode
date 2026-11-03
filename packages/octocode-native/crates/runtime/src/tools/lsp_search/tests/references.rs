@@ -101,7 +101,7 @@ async fn recovered_alias_references_are_labeled_in_output() {
         None,
     )
     .await;
-    let matches = result["matches"].as_array().expect("full locations");
+    let matches = location_rows(&result);
     assert_eq!(matches.len(), 2);
     assert_eq!(matches[1]["source"], "recoveredAlias");
     assert!(matches[0].get("source").is_none());
@@ -131,10 +131,10 @@ async fn default_references_preserve_full_location_geometry_and_content() {
     )
     .await;
     assert!(
-        result.get("files").is_none(),
+        result.get("matches").is_none(),
         "default has one explicit location form: {result}"
     );
-    let found = result["matches"].as_array().expect("locations");
+    let found = location_rows(&result);
     assert_eq!(found.len(), 1);
     assert_eq!(found[0]["displayRange"]["startLine"], 1);
     assert_eq!(found[0]["displayRange"]["endLine"], 2);

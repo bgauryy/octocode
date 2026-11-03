@@ -1,4 +1,6 @@
 use super::*;
+use octocode_engine::types::{SearchedSource, TextSearchFile, TextSearchMatch};
+use std::time::{Duration, SystemTime};
 
 fn hit(line: u32, value: &str) -> TextSearchMatch {
     TextSearchMatch {
@@ -130,7 +132,9 @@ fn compact_classes_store_an_oversized_scan_and_preserve_all_duplicate_relations(
         }],
         stats: Default::default(),
     };
-    let cap = super::super::manifest::MAX_BYTES;
+    // Between the compact payload and the old one, whatever a stored scan may
+    // keep: this is about what compaction fits, not about that budget.
+    let cap = 4 * 1024 * 1024;
     assert!(
         Packed::pack(&scan, 64 * 1024 * 1024, cap).is_none(),
         "old payload exceeds cap"
@@ -152,7 +156,10 @@ fn compact_classes_store_an_oversized_scan_and_preserve_all_duplicate_relations(
             ((index / 10 * 9 + (index % 10).min(8)) as u64).to_le_bytes()
         );
     }
-    assert!(Packed::pack_checked(&scan, usize::MAX, usize::MAX, &|| true).is_none());
+    assert!(Encoded::encode_checked(&scan, usize::MAX, &|| true).is_none());
+    let encoded = Encoded::encode_checked(&scan, usize::MAX, &|| false).expect("encoded");
+    assert!(encoded.decode_checked(&|| true).is_none());
+    assert!(encoded.deflate_checked(usize::MAX, &|| true).is_none());
     assert!(packed.unpack_checked(&|| true).is_none());
 }
 

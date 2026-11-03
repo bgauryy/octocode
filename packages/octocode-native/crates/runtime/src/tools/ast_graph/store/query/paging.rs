@@ -8,8 +8,6 @@ pub(super) struct Page<T = Value> {
     pub(super) start: usize,
 }
 
-pub(super) const LIST_PREVIEW: usize = 100;
-
 /// Answer facts that do not change from page to page: they go out once,
 /// with the first page of the results.
 pub(super) const FIRST_PAGE_ONLY: [&str; 4] =
@@ -20,97 +18,27 @@ pub(super) fn first_page(options: &QueryOptions) -> bool {
     options.offset.unwrap_or(0) == 0 && options.list.is_none()
 }
 
-pub(super) fn select_list(
-    options: &QueryOptions,
-    extra: &mut Map<String, Value>,
-) -> Result<Option<Page>, GraphOutput> {
-    let Some(list) = options.list.as_deref() else {
-        return Ok(None);
-    };
-    let Some((section, field)) = list.split_once('.') else {
-        return Err(GraphOutput::error(
-            ErrorCode::InvalidInput,
-            "list needs summary.<field> or baseline.<field>",
-        ));
-    };
-    if !matches!(section, "summary" | "baseline") {
-        return Err(GraphOutput::error(
-            ErrorCode::InvalidInput,
-            "list names a summary or baseline array",
-        ));
-    }
-    let Some(Value::Array(rows)) = extra
-        .get_mut(section)
-        .and_then(Value::as_object_mut)
-        .and_then(|object| object.remove(field))
-    else {
-        return Err(GraphOutput::error(
-            ErrorCode::InvalidInput,
-            format!("unknown evidence list {list:?}"),
-        ));
-    };
-    let total = rows.len();
-    extra.insert("list".into(), json!(list));
-    Ok(Some(Page {
-        rows,
-        total,
-        start: 0,
-    }))
-}
-
-/// Cuts each summary or baseline list longer than [`LIST_PREVIEW`] to its
-/// preview; returns the channel that lists the rest of each.
-pub(super) fn preview_extra_lists(extra: &mut Map<String, Value>) -> Vec<(Channel, Resume)> {
-    let mut continuations = Vec::new();
-    for section in ["summary", "baseline"] {
-        let Some(object) = extra.get_mut(section).and_then(Value::as_object_mut) else {
-            continue;
-        };
-        for (field, value) in object {
-            let Some(rows) = value.as_array_mut() else {
-                continue;
-            };
-            if rows.len() <= LIST_PREVIEW {
-                continue;
-            }
-            let list = format!("{section}.{field}");
-            rows.truncate(LIST_PREVIEW);
-            // The preview listed the first rows; the list resumes after them.
-            let resume = Resume::Row {
-                offset: LIST_PREVIEW,
-                list: Some(list.clone()),
-                cycle: None,
-            };
-            continuations.push((Channel::List(list), resume));
-        }
-    }
-    continuations
-}
-
 pub(super) fn run_page(
     options: &QueryOptions,
     graph: &Graph,
     mut extra: Map<String, Value>,
-    mut page: Page,
+    page: Page,
 ) -> GraphOutput {
-    if options.list.as_deref() != Some("cycleNodes") {
-        match select_list(options, &mut extra) {
-            Ok(Some(selected)) => page = selected,
-            Ok(None) => {}
-            Err(error) => return error,
-        }
+    if options
+        .list
+        .as_deref()
+        .is_some_and(|list| list != "cycleNodes")
+    {
+        return GraphOutput::error(ErrorCode::InvalidInput, "unknown graph evidence list");
     }
     let offset = options.offset.unwrap_or(0);
     // The summary, its evidence lists and coverage go out once, with the
     // first page of the results; later pages and `list` pages carry rows only.
-    let lists = if first_page(options) {
-        preview_extra_lists(&mut extra)
-    } else {
+    if !first_page(options) {
         for section in FIRST_PAGE_ONLY {
             extra.remove(section);
         }
-        Vec::new()
-    };
+    }
     let limit = options.limit.unwrap_or_else(default_limit);
     let total = page.total;
     let rows = page
@@ -131,24 +59,29 @@ pub(super) fn run_page(
     } else {
         GraphOutput::ok(Value::Object(out))
     };
-    output.next = lists;
     settle(&mut output, options, total);
     output
 }
 
 /// States the page of a list answer's `rows`: its `pagination`, and the
 /// channels that continue the rows it shows (the rows after them, each cycle
-/// cut at its preview). Evidence-list channels stay.
+/// cut at its preview). Summary and baseline arrays belong to the shared response pager.
 pub(super) fn settle(output: &mut GraphOutput, options: &QueryOptions, total: usize) {
     let offset = options.offset.unwrap_or(0);
-    let rows = output.value["rows"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let rows = output.value["rows"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
     let shown = rows.len();
     let cycles = rows
         .iter()
         .enumerate()
         .filter(|(_, row)| row["nodesTruncated"] == true)
         .map(|(index, row)| {
-            let nodes = row["nodes"].as_array().map(Vec::as_slice).unwrap_or_default();
+            let nodes = row["nodes"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default();
             // The preview shows the first members: the listing reads on after them.
             let resume = Resume::Row {
                 offset: nodes.len(),
@@ -159,7 +92,7 @@ pub(super) fn settle(output: &mut GraphOutput, options: &QueryOptions, total: us
         })
         .collect::<Vec<_>>();
     let has_more = offset + shown < total;
-    output.next.retain(|(channel, _)| matches!(channel, Channel::List(_)));
+    output.next.clear();
     if has_more {
         let resume = Resume::Row {
             offset: offset + shown,
@@ -185,7 +118,11 @@ pub(super) fn pagination(options: &QueryOptions, total: usize, has_more: bool) -
 /// the room a page reserves for each continuation it states.
 pub(super) fn resume_row(options: &QueryOptions, id: &str, resume: &Resume) -> Map<String, Value> {
     let (mut row, offset) = match resume {
-        Resume::Row { offset, list, cycle } => {
+        Resume::Row {
+            offset,
+            list,
+            cycle,
+        } => {
             let mut row = query_row(options, id);
             if let Some(list) = list {
                 row.insert("list".into(), json!(list));
@@ -205,6 +142,12 @@ pub(super) fn resume_row(options: &QueryOptions, id: &str, resume: &Resume) -> M
 /// call named inside a prose note.
 pub(super) fn call(tool: &str, row: Map<String, Value>) -> String {
     format!("{tool} {}", Value::Object(row))
+}
+
+/// `row` as the generated query type of the tool it addresses; `None` when
+/// the row breaks that tool's contract (a lead is then not offered).
+pub(crate) fn typed_row<Q: serde::de::DeserializeOwned>(row: Value) -> Option<Q> {
+    serde_json::from_value(row).ok()
 }
 
 /// The graphQuery row `options` asks, in contract field names, pinned to

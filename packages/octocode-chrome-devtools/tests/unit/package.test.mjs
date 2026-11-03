@@ -71,6 +71,32 @@ async function readTopic(client, topic) {
   return text;
 }
 
+/** The archive contains the runtime and guide, without workspace-only files. */
+function assertArchiveFiles(manifest) {
+  for (const file of [
+    'dist/runtime.js',
+    'dist/cli.js',
+    'dist/mcp.js',
+    'bin/octocode-chrome-devtools.mjs',
+    'dist/engine/octocode-config.mjs',
+    'OPERATING.md',
+    'docs/browser-execution.md',
+    'docs/web-research.md',
+    'dist/skills/octocode-chrome-devtools/SKILL.md',
+  ])
+    assert(
+      manifest.files.some(row => row.path === file),
+      file + ' missing'
+    );
+  assert(
+    !manifest.files.some(
+      row =>
+        /^(src|node_modules|tools|tests)\//.test(row.path) ||
+        row.path === 'SKILL.md'
+    )
+  );
+}
+
 test('npm archive runs CLI and MCP alone and serves complete package guidance', async () => {
   const root = resolve(import.meta.dirname, '../..'),
     work = mkdtempSync(join(tmpdir(), 'octo-chrome-pack-'));
@@ -96,28 +122,7 @@ test('npm archive runs CLI and MCP alone and serves complete package guidance', 
     );
     assert.equal(npx.status, 0, npx.stderr);
     assert(JSON.parse(npx.stdout).inputSchema.properties.method);
-    for (const file of [
-      'dist/runtime.js',
-      'dist/cli.js',
-      'dist/mcp.js',
-      'bin/octocode-chrome-devtools.mjs',
-      'dist/engine/octocode-config.mjs',
-      'OPERATING.md',
-      'docs/browser-execution.md',
-      'docs/web-research.md',
-      'dist/skills/octocode-chrome-devtools/SKILL.md',
-    ])
-      assert(
-        manifest.files.some(row => row.path === file),
-        file + ' missing'
-      );
-    assert(
-      !manifest.files.some(
-        row =>
-          /^(src|node_modules|tools|tests)\//.test(row.path) ||
-          row.path === 'SKILL.md'
-      )
-    );
+    assertArchiveFiles(manifest);
     const extracted = join(work, 'extracted');
     mkdirSync(extracted);
     execFileSync('tar', [

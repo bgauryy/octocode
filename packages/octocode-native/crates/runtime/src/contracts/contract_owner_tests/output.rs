@@ -65,6 +65,24 @@ fn executable_calls_require_explicit_kind_and_the_correct_request_form() {
 }
 
 #[test]
+fn next_rejects_keys_the_tool_registry_does_not_declare() {
+    let continued =
+        json!({"kind":"continue","tool":"localFetch","input":{"cursor":"issued-handle"}});
+    let output = |name: &str| {
+        json!({"results":[{"index":0,"data":{
+            "path":"src/lib.rs","content":"fn main() {}",
+            "next":{name:continued}
+        }}]})
+    };
+    validate_output("localFetch", &output("readOtherRanges2"))
+        .expect("a numbered instance of a declared branch");
+    for name in ["nextMatchPage", "undeclared"] {
+        validate_output("localFetch", &output(name))
+            .expect_err("an undeclared continuation key must fail output validation");
+    }
+}
+
+#[test]
 fn heritage_scan_rows_keep_their_label_under_the_lsp_contract() {
     // `implementation` lists the declarations a syntax scan found beside
     // the server's rows, each labelled `source: "native-graph-facts"`; the

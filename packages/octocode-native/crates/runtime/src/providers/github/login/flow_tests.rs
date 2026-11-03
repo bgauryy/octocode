@@ -1,11 +1,11 @@
 use super::*;
 use octocode_github::{CredentialSource, ProviderError};
+use octocode_io::cancellation::Cancellation;
 use serde_json::json;
 use std::sync::{
     Mutex,
     atomic::{AtomicUsize, Ordering},
 };
-use tokio_util::sync::CancellationToken;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{header, method, path},

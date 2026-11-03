@@ -1,9 +1,21 @@
-//! What a checkpoint writes: artifacts past one secret scan, and reused
-//! artifacts kept rather than written again.
+//! What a checkpoint writes: the extraction record a restart reads, only for
+//! sources without a secret, and reused artifacts kept rather than written
+//! again.
 use super::*;
 
-/// `count` exported functions, each calling the next: dense facts, so its
-/// extraction artifact outgrows what one secret scan admits.
+fn token() -> String {
+    format!("ghp_{}", &"a1B2c3D4e5F6g7H8i9J0".repeat(2)[..36])
+}
+
+fn artifact(scan: &GraphScan, name: &str) -> PathBuf {
+    job_path(scan.checkpoint.as_ref().unwrap(), &scan.root).join(format!(
+        "{}.fact",
+        octocode_engine::digest::sha256(name.as_bytes())
+    ))
+}
+
+/// `count` exported functions, each calling the next: a source whose facts
+/// run to megabytes.
 fn dense_source(count: usize, tail: &str) -> String {
     let mut text = (0..count)
         .map(|id| {
@@ -17,54 +29,76 @@ fn dense_source(count: usize, tail: &str) -> String {
     text
 }
 
-/// An artifact larger than one secret scan admits is scanned in windows:
-/// without a secret it is checkpointed on disk like any other, and with one
-/// anywhere in it, it never is.
+/// The secret scan reads each file's source once: a secret anywhere in it,
+/// in a comment the facts never hold or in an extracted literal, keeps that
+/// file's facts off disk, while a clean file is checkpointed. A restart
+/// resumes the clean files, parses the withheld ones again, and links the
+/// same graph.
 #[test]
-fn an_artifact_past_one_scan_is_scanned_in_windows() {
+fn a_source_holding_a_secret_is_never_checkpointed() {
+    let (dir, scan) = fixture();
+    let token = token();
+    dir.write(
+        "comment.ts",
+        format!("// deploy key {token}\nexport function c() {{ return 1; }}\n"),
+    );
+    dir.write(
+        "literal.ts",
+        format!("import key from '{token}';\nexport const l = () => key;\n"),
+    );
+    let built = build(&scan, &NeverCancel).unwrap();
+    assert_eq!(built.construction.memory_only_files, 2);
+    assert_eq!(built.construction.checkpointed_files, 12);
+    assert!(!artifact(&scan, "comment.ts").exists());
+    assert!(!artifact(&scan, "literal.ts").exists());
+    assert!(artifact(&scan, "f00.ts").exists());
+    let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
+    for entry in std::fs::read_dir(&job_dir).unwrap().map(Result::unwrap) {
+        assert!(!String::from_utf8_lossy(&std::fs::read(entry.path()).unwrap()).contains(&token));
+    }
+    let retry = build(&scan, &NeverCancel).unwrap();
+    assert_eq!(retry.construction.resumed_files, 12);
+    assert_eq!(retry.construction.memory_only_files, 2);
+    assert_eq!(retry.parsed_files, 2);
+    equivalent(built, retry);
+}
+
+/// A large source is scanned whole: clean, it is checkpointed; with a secret
+/// on its last line, never.
+#[test]
+fn a_large_source_is_scanned_whole() {
     let (dir, scan) = fixture();
     dir.write("big.ts", dense_source(7_000, ""));
     let clean = build(&scan, &NeverCancel).unwrap();
     assert_eq!(clean.construction.memory_only_files, 0);
-    let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
-    let artifact = job_dir.join(format!(
-        "{}.fact",
-        octocode_engine::digest::sha256(b"big.ts")
-    ));
-    let size = std::fs::metadata(&artifact)
-        .expect("big.ts checkpointed")
-        .len();
-    assert!(
-        size > 10_000_000,
-        "the artifact must outgrow one scan: {size}"
-    );
-
-    let token = format!("ghp_{}", &"a1B2c3D4e5F6g7H8i9J0".repeat(2)[..36]);
-    dir.write(
-        "big.ts",
-        // An import specifier is kept in the facts, so the token reaches the
-        // artifact.
-        dense_source(7_000, &format!("import key from '{token}';\n")),
-    );
+    assert!(artifact(&scan, "big.ts").exists());
+    dir.write("big.ts", dense_source(7_000, &format!("// {}\n", token())));
     let secret = build(&scan, &NeverCancel).unwrap();
     assert_eq!(secret.construction.memory_only_files, 1);
-    assert!(!artifact.exists());
+    assert!(!artifact(&scan, "big.ts").exists());
 }
 
-/// Windows overlap, so a secret placed across a window boundary is still
-/// read whole; a text with none is clean however many windows it spans.
+/// An artifact holds exactly what a restart reads: the extraction record
+/// [`Job::load`] decodes, with no source correspondence a restart captures
+/// again from the current source. Every checkpointed byte is one a resumed
+/// build reads back.
 #[test]
-fn a_secret_across_a_window_boundary_is_found() {
-    let token = format!("ghp_{}", &"a1B2c3D4e5F6g7H8i9J0".repeat(2)[..36]);
-    let filler = "x ".repeat(SECRET_SCAN_WINDOW / 2);
-    let at = SECRET_SCAN_WINDOW - token.len() / 2;
-    let text = format!("{}{token} tail", &filler[..at]);
-    let security = ContentSecurity::new();
-    assert!(holds_secret(&security, &text));
-    assert!(!holds_secret(
-        &security,
-        &"word ".repeat(SECRET_SCAN_WINDOW / 2)
-    ));
+fn an_artifact_holds_only_what_a_restart_reads() {
+    let (_dir, scan) = fixture();
+    let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
+    build(&scan, &AfterCommitted(job_dir.clone())).unwrap_err();
+    let mut artifacts = 0;
+    for entry in std::fs::read_dir(&job_dir).unwrap().map(Result::unwrap) {
+        if entry.path().extension().is_none_or(|ext| ext != "fact") {
+            continue;
+        }
+        let bytes = std::fs::read(entry.path()).unwrap();
+        let record: cache::OwnedArtifact = serde_json::from_slice(&bytes[65..])
+            .expect("the artifact is the extraction record, nothing more");
+        assert!(!record.facts.declarations.is_empty());
+        artifacts += 1;
+    }
+    assert!(artifacts >= 2);
 }
 
 /// A file reused from its own verified artifact keeps that artifact: after
@@ -74,15 +108,8 @@ fn a_secret_across_a_window_boundary_is_found() {
 fn reused_artifacts_are_kept_not_rewritten() {
     let (dir, scan) = fixture();
     build(&scan, &NeverCancel).unwrap();
-    let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
-    let artifact = |name: &str| {
-        job_dir.join(format!(
-            "{}.fact",
-            octocode_engine::digest::sha256(name.as_bytes())
-        ))
-    };
     let written = |name: &str| {
-        std::fs::metadata(artifact(name))
+        std::fs::metadata(artifact(&scan, name))
             .unwrap()
             .modified()
             .unwrap()

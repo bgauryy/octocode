@@ -11,8 +11,7 @@ use serde_json::Value;
 pub(in crate::providers::artifact) const GO_SEARCH_CAP: u64 = 1_000;
 
 /// The identity of one Go discovery page's start: its terms, page size and
-/// page. The cache remembers each start's token under it, and a cursor is
-/// bound to it.
+/// page. Each emitted cursor carries its token bound to this identity.
 pub(super) fn go_page_key(query: &ArtifactSearchQuery, page: u64) -> String {
     format!(
         "go:search:{}:{}:{page}",
@@ -67,9 +66,8 @@ pub(super) async fn go_search(
     Ok(object_for(&response, ArtifactType::Go)?.clone())
 }
 
-/// Search page `page` reached by following tokens from the deepest page
-/// whose start the cache remembers (else page 1), remembering each start
-/// on the way, and whether it was reached: the results can end before it
+/// Search page `page` reached by following tokens from page 1 when the
+/// caller supplied no bound cursor, and whether it was reached: the results can end before it
 /// (then the last page read, for its total).
 pub(super) async fn go_walk(
     query: &ArtifactSearchQuery,
@@ -77,13 +75,6 @@ pub(super) async fn go_walk(
     client: &RegistryClient<'_>,
 ) -> Result<(serde_json::Map<String, Value>, bool), ArtifactError> {
     let (mut hop, mut token) = (1, None);
-    for candidate in (2..=page).rev() {
-        if let Some(saved) = client.cursor(&go_page_key(query, candidate)).await {
-            hop = candidate;
-            token = Some(saved);
-            break;
-        }
-    }
     let walked = hop < page;
     loop {
         let data = go_search(query, token, client).await.map_err(|mut error| {
@@ -94,7 +85,7 @@ pub(super) async fn go_walk(
                     "Go search pages are walked one registry token at a time; the walk stopped at page {hop} of {page}."
                 );
                 error.hints = vec![
-                    "Follow an earlier page's nextPage (one request each), or retry: walked pages persist unless storage is in memory mode.".into(),
+                    "Follow an earlier page's nextPage to continue with its exact registry token (one request each).".into(),
                 ];
             }
             error
@@ -105,9 +96,6 @@ pub(super) async fn go_walk(
         let Some(next) = string(data.get("nextPageToken")) else {
             return Ok((data, false));
         };
-        client
-            .remember_cursor(&go_page_key(query, hop + 1), &next)
-            .await;
         token = Some(next);
         hop += 1;
     }

@@ -26,7 +26,7 @@ pub(super) fn project(
 
 fn slice_index(index: i64, length: usize) -> usize {
     if index < 0 {
-        length.saturating_sub(crate::num::usize_of(index.unsigned_abs()))
+        length.saturating_sub(octocode_engine::num::saturating_usize(index.unsigned_abs()))
     } else {
         usize::try_from(index).map_or(length, |index| index.min(length))
     }

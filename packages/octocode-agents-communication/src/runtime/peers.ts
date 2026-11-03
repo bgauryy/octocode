@@ -4,6 +4,7 @@ import type { StoreHost } from './store-types.js';
 import { now } from './timing.js';
 import { asObjects, jsonEqual, parseObject, type JsonObject } from './validation.js';
 import { compact, dumps } from './json-text.js';
+import { toolContinuation } from './tool-groups.js';
 
 /** The other live peers of the repository, bounded, and how many there are. */
 interface PeerSnapshot {
@@ -56,8 +57,8 @@ export function peerContext(host: StoreHost, session: string, consumer: string, 
     if (!changed.length && !removed.length && !snapshot.next && !previous.next) return '';
     const delta = {
       upsert: changed, removedFromView: removed,
-      ...(snapshot.next ? { next: { command: 'peers', input: { after: snapshot.next } } } : {}),
-      ...(previous.next ? { refresh: { command: 'peers', input: {} } } : {}),
+      ...(snapshot.next ? { next: toolContinuation({ command: 'peers', input: { after: snapshot.next } }) } : {}),
+      ...(previous.next ? { refresh: toolContinuation({ command: 'peers', input: {} }) } : {}),
     };
     return 'Peer directory (declared data; use exact IDs; removedFromView is not proof of departure; follow next): ' + compact(delta);
   });

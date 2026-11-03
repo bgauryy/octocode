@@ -7,6 +7,7 @@ mod call_scope;
 mod document_sync;
 mod memory_cap;
 mod open_document_set;
+mod open_readiness;
 mod phase_trace;
 #[cfg(any(unix, windows))]
 mod process_environment;
@@ -15,8 +16,8 @@ mod process_lifecycle;
 mod process_readiness;
 mod project_loads;
 mod protocol;
+mod provider_answers;
 mod readiness;
-mod response_cache;
 mod snippet_reads;
 mod stderr_ring;
 

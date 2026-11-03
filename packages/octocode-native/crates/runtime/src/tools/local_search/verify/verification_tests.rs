@@ -71,7 +71,9 @@ fn a_parallel_redaction_records_in_file_order() {
     };
     let redact = || {
         let mut parsed = scan.clone();
-        let (redacted, record) = redact_scan(&scope, &mut parsed, None).expect("redaction");
+        let (redacted, withheld, record) =
+            redact_scan(&scope, &mut parsed, None).expect("redaction");
+        assert!(withheld.is_empty(), "no file changed");
         (redacted, record, parsed)
     };
     let (redacted, record, parsed) = redact();
@@ -223,7 +225,8 @@ fn a_stored_digest_binds_the_check_to_the_stored_bytes() {
     let source = dir.path().join("source.txt");
     let stored = "one\nthe hit\nthree\n";
     std::fs::write(&source, stored).expect("fixture");
-    let digest: super::super::sources::Digest = Sha256::digest(stored.as_bytes()).into();
+    let digest: super::super::sources::Digest =
+        octocode_engine::digest::sha256_digest(stored.as_bytes());
     let check = |expected| {
         let mut file = file_with(vec![hit(2, "the hit")]);
         let outcome = guard_source_secrets(

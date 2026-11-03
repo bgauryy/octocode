@@ -17,12 +17,14 @@ use octocode_contract_types::LocalSearchQuery;
 /// `stored` is the redaction a fresh page made of this stored scan: it is
 /// replayed when every key-block scan reads the same bytes again (see
 /// [`replay_redaction`]); otherwise every value is redacted afresh. Returns
-/// the redacted rows and the record of this redaction.
+/// the redacted rows, the rows a fresh scan withheld because their file
+/// changed during the call (a stored scan restarts instead), and the record
+/// of this redaction.
 pub(in crate::tools::local_search) fn redact_scan(
     scope: &PageScope<'_, impl CancellationCheck>,
     parsed: &mut octocode_engine::types::TextSearchResult,
     stored: Option<&Redaction>,
-) -> Result<(Redacted, Redaction), ToolError> {
+) -> Result<(Redacted, Withheld, Redaction), ToolError> {
     let PageScope {
         query,
         paths,
@@ -36,10 +38,11 @@ pub(in crate::tools::local_search) fn redact_scan(
         if let Some(redacted) =
             replay_redaction(query, parsed, output_root, expected_digest, paths, stored)?
         {
-            return Ok((redacted, stored.clone()));
+            return Ok((redacted, Withheld::new(), stored.clone()));
         }
     }
     let mut redacted = Redacted::new();
+    let mut withheld = Withheld::new();
     let mut record = Redaction {
         output_root: output_root.to_path_buf(),
         ..Redaction::default()
@@ -54,8 +57,13 @@ pub(in crate::tools::local_search) fn redact_scan(
         let FileRedaction {
             key_scan,
             changes,
+            held,
             path,
         } = outcome?;
+        withheld.extend(
+            held.into_iter()
+                .map(|(line, column)| (path.clone(), line, column)),
+        );
         if let Some(KeyScan { digest }) = key_scan {
             record.key_files.push((file_index, digest));
         }
@@ -64,7 +72,7 @@ pub(in crate::tools::local_search) fn redact_scan(
             record.changes.push((file_index, match_index, value));
         }
     }
-    Ok((redacted, record))
+    Ok((redacted, withheld, record))
 }
 
 /// What redacting one file changed.
@@ -73,6 +81,9 @@ struct FileRedaction {
     key_scan: Option<KeyScan>,
     /// The values replaced: match index, line, column, new value.
     changes: Vec<(usize, u32, u32, String)>,
+    /// The rows withheld because the file changed during the call: line,
+    /// column.
+    held: Vec<(u32, u32)>,
     /// The file's row path.
     path: String,
 }
@@ -101,7 +112,7 @@ fn redact_file(
         file.path = relative.to_string_lossy().into_owned();
     }
     let mut key_material = false;
-    visit_values(scope, file, 0..file.matches.len(), |_, hit| {
+    let mut held = visit_values(scope, file, 0..file.matches.len(), |_, hit| {
         key_material |= crate::security::snippet_may_hold_key_material(&hit.value);
         if hit.deferred.is_some() {
             hit.value = String::new();
@@ -115,7 +126,7 @@ fn redact_file(
         let bytes = read_key_scan_bytes(&source_path);
         let digest = bytes
             .as_ref()
-            .map(|bytes| <[u8; 32]>::from(Sha256::digest(bytes)));
+            .map(|bytes| octocode_engine::digest::sha256_digest(bytes));
         key_scan = Some(KeyScan { digest });
         if let (Some(digest), Expected::Stored(stored)) = (digest, expected_digest(&source_path))
             && stored != Some(digest)
@@ -135,7 +146,7 @@ fn redact_file(
         .as_ref()
         .map(|(ranges, text)| (ranges, text.lines().collect::<Vec<_>>()));
     let mut changes = Vec::new();
-    visit_values(
+    held.extend(visit_values(
         scope,
         file,
         0..file.matches.len(),
@@ -151,18 +162,23 @@ fn redact_file(
                 });
                 let sanitized = security.sanitize_text(&kept, Some(&source_path));
                 let changed = sanitized.content != matched.value;
-                matched.value = sanitized.content;
+                matched.value = match sanitized.content {
+                    std::borrow::Cow::Borrowed(_) => kept,
+                    std::borrow::Cow::Owned(text) => text,
+                };
                 changed
             } else {
                 let sanitized = security.sanitize_text(&matched.value, Some(&source_path));
                 let changed = sanitized.content != matched.value;
-                matched.value = sanitized.content;
+                if let std::borrow::Cow::Owned(text) = sanitized.content {
+                    matched.value = text;
+                }
                 changed
             };
             if matched.deferred.is_some() {
                 matched.deferred = None;
                 let price = crate::tools::local_search::layout::row_chars(matched, false);
-                matched.deferred = Some(u32_of_usize(price));
+                matched.deferred = Some(saturating_u32(price));
                 if !changed {
                     matched.value = String::new();
                 }
@@ -177,10 +193,17 @@ fn redact_file(
             }
             Ok(())
         },
-    )?;
+    )?);
+    // A withheld row's value came from bytes the scan did not read: none of
+    // it is kept.
+    changes.retain(|(index, ..)| !held.contains(index));
     Ok(FileRedaction {
         key_scan,
         changes,
+        held: held
+            .iter()
+            .map(|&index| (file.matches[index].line, file.matches[index].column))
+            .collect(),
         path: file.path.clone(),
     })
 }
@@ -213,20 +236,20 @@ pub(super) fn redact_key_block_lines<'a>(
     };
     let mut redact = vec![false; value_lines.len()];
     let mut aligned = false;
-    for offset in 0..u32_of_usize(value_lines.len().max(1)) {
+    for offset in 0..saturating_u32(value_lines.len().max(1)) {
         let Some(first) = line.checked_sub(offset).filter(|first| *first >= 1) else {
             break;
         };
         if !value_lines
             .iter()
             .enumerate()
-            .all(|(i, value_line)| fits(value_line, first.saturating_add(u32_of_usize(i))))
+            .all(|(i, value_line)| fits(value_line, first.saturating_add(saturating_u32(i))))
         {
             continue;
         }
         aligned = true;
         for (i, flag) in redact.iter_mut().enumerate() {
-            *flag |= in_block(first.saturating_add(u32_of_usize(i)));
+            *flag |= in_block(first.saturating_add(saturating_u32(i)));
         }
     }
     if !aligned {
@@ -284,7 +307,7 @@ fn replay_redaction(
         let Some(bytes) = read_key_scan_bytes(&source_path) else {
             return Ok(None);
         };
-        let digest = <[u8; 32]>::from(Sha256::digest(&bytes));
+        let digest = octocode_engine::digest::sha256_digest(&bytes);
         if let Expected::Stored(stored) = expected_digest(&source_path)
             && stored != Some(digest)
         {

@@ -30,16 +30,18 @@ pub(super) fn hits(
     numbered: bool,
     out: &mut Vec<String>,
 ) -> Option<()> {
-    // With context, as `rg --heading`: the path once, then `N:text` hits and
-    // `N-text` context, a blank line between files; the path is not repeated
-    // on every line of a window.
-    if numbered {
+    // With context or several hits, as `rg --heading`: the path once, then
+    // `N:text` hits and `N-text` context, a blank line between files. One hit
+    // stays one `path:N:text` line.
+    let heading = numbered || matches.len() > 1;
+    if heading {
         if !out.is_empty() {
             out.push(String::new());
         }
         out.push(path.to_owned());
     }
     let mut last_line: Option<u64> = None;
+    let mut last_owner: Option<String> = None;
     for item in matches {
         let item = item.as_object()?;
         let line = item.get("line")?.as_u64()?;
@@ -74,14 +76,14 @@ pub(super) fn hits(
         for (n, text) in &lines {
             let hit = !numbered || is_hit(*n);
             let sep = if hit { ':' } else { '-' };
-            let mut entry = if numbered {
+            let mut entry = if heading {
                 format!("{n}{sep}{text}")
             } else {
                 format!("{path}{sep}{n}{sep}{text}")
             };
             if hit && !annotated {
                 annotated = true;
-                if let Some(note) = match_note(&mut extra) {
+                if let Some(note) = match_note(&mut extra, &mut last_owner) {
                     entry.push_str("  ");
                     entry.push_str(&note);
                 }
@@ -93,9 +95,13 @@ pub(super) fn hits(
     Some(())
 }
 
-/// `[function build_searcher 992-1016]` for the usual enclosing declaration,
-/// then any other match field as words (`declaration`).
-pub(super) fn match_note(extra: &mut Map<String, Value>) -> Option<String> {
+/// `[function build_searcher 992-1016]` when a hit's enclosing declaration
+/// differs from the previous hit's in this file, then any other match field
+/// as words (`declaration`).
+pub(super) fn match_note(
+    extra: &mut Map<String, Value>,
+    last_owner: &mut Option<String>,
+) -> Option<String> {
     let mut parts = Vec::new();
     if let Some(Value::Object(enclosing)) = extra.get("enclosing")
         && let (Some(kind), Some(name)) = (
@@ -111,7 +117,11 @@ pub(super) fn match_note(extra: &mut Map<String, Value>) -> Option<String> {
             (Some(start), None) => format!(" {start}"),
             _ => String::new(),
         };
-        parts.push(format!("{kind} {name}{span}"));
+        let owner = format!("{kind} {name}{span}");
+        if last_owner.as_deref() != Some(owner.as_str()) {
+            parts.push(owner.clone());
+        }
+        *last_owner = Some(owner);
         extra.shift_remove("enclosing");
     }
     if !extra.is_empty() {

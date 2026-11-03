@@ -3,7 +3,7 @@ use super::*;
 use octocode_github::mock_http::mount_json;
 use serde_json::json;
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer};
 
 /// A non-empty page GitHub marks incomplete says so in its data,
 /// without extras, separately from whether another page exists.
@@ -80,7 +80,8 @@ async fn capped_search_is_terminal_only_on_the_last_reachable_page() {
 
 /// Several `extensions` are one call for the agent: one indexed search
 /// per extension (GitHub ANDs repeated qualifiers), merged into one page.
-/// The searches share `pageSize`, so the page does not grow with them.
+/// The searches share `pageSize`, so the page does not grow with them: at
+/// the default 50, two searches of 30 files fill it with 25 of each.
 #[tokio::test]
 async fn several_extensions_share_one_page() {
     let server = MockServer::builder().start().await;
@@ -91,13 +92,51 @@ async fn several_extensions_share_one_page() {
                 "q",
                 format!("extension:{extension}"),
             ))
-            .and(wiremock::matchers::query_param("per_page", "25"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "total_count":1,"incomplete_results":false,"items":[code_item(file)]
-            })))
+            .respond_with(octocode_github::mock_http::SearchIndex(vec![code_item(
+                file,
+            )]))
             .expect(1)
             .mount(&server)
             .await;
+    }
+    let wide = MockServer::builder().start().await;
+    for extension in ["ts", "js"] {
+        let items = (0..30)
+            .map(|index| {
+                let name = format!("f{index}.{extension}");
+                json!({"name":name,"path":name,"sha":"1","html_url":"https://x",
+                    "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}})
+            })
+            .collect::<Vec<_>>();
+        Mock::given(method("GET"))
+            .and(path("/api/v3/search/code"))
+            .and(wiremock::matchers::query_param_contains(
+                "q",
+                format!("extension:{extension}"),
+            ))
+            .respond_with(octocode_github::mock_http::SearchIndex(items))
+            .expect(1)
+            .mount(&wide)
+            .await;
+    }
+    let full = run(
+        &wide,
+        json!({"owner":"a","keywords":["needle"],"matchIn":["path"],"extensions":["ts","js"]}),
+    )
+    .await
+    .expect("search");
+    let listed = full.data["files"].as_array().expect("files");
+    for extension in ["ts", "js"] {
+        let suffix = format!(".{extension}");
+        assert_eq!(
+            listed
+                .iter()
+                .filter(|row| row["path"].as_str().is_some_and(|p| p.ends_with(&suffix)))
+                .count(),
+            25,
+            "{}",
+            full.data
+        );
     }
     let out = run(
         &server,

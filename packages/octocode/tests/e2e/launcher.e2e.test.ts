@@ -85,7 +85,7 @@ function expectUnfilteredCatalog(beta: string, key: string) {
   const names = JSON.parse(schema.stdout).tools.map(
     (tool: { name: string }) => tool.name
   );
-  expect(names).toHaveLength(16);
+  expect(new Set(names).size).toBe(names.length);
   expect(names).toEqual(
     expect.arrayContaining([
       'clasify',

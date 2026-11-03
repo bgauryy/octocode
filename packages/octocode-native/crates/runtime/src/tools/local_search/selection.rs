@@ -6,14 +6,14 @@
 //! lead to exactly the files holding them.
 use super::cursor::stale_snapshot;
 use super::local_search_query;
-use super::verify::{PageScope, Redacted, verify_candidate};
+use super::verify::{PageScope, Redacted, Withheld, verify_candidate};
 use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
-use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::response::result::query_value;
 use crate::tools::selection::{Candidate, Decision, Failure, Outcome, ProviderError, Runtime};
 use octocode_contract_types::SelectionUnit;
+use octocode_engine::num::saturating_u32;
 use octocode_engine::types::{SearchContext, TextSearchFile, TextSearchResult};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -72,7 +72,7 @@ pub(super) fn select_hits(
     parsed: &mut TextSearchResult,
     runtime: Option<&Runtime>,
     identity: &str,
-    redacted: &mut Redacted,
+    (redacted, withheld): (&mut Redacted, &Withheld),
 ) -> Result<Option<Selected>, ToolError> {
     let query = scope.query;
     if !local_search_query::has_classification(query) {
@@ -101,7 +101,7 @@ pub(super) fn select_hits(
     let needs_states = crate::tools::selection::needs_candidate_states(runtime, prior, None, total);
     let mut candidates = Vec::with_capacity(total);
     for (file, groups) in parsed.files.iter_mut().zip(&file_groups) {
-        let verified = needs_states && verify_candidate(scope, file, redacted)?;
+        let verified = needs_states && verify_candidate(scope, file, (&mut *redacted, withheld))?;
         // The declaration around each hit (the same `enclosing` a shown row
         // names), so a predicate about scope (test or production code, which
         // function) can be judged from the candidate itself.
@@ -215,7 +215,7 @@ pub(super) fn select_hits(
         file.matches.retain(|_| flags.next().unwrap_or(false));
         lines_removed += lines_before - distinct_lines(&file);
         if !file.matches.is_empty() {
-            file.match_count = u32_of_usize(file.matches.len());
+            file.match_count = saturating_u32(file.matches.len());
             kept.push(file);
         }
     }

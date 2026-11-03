@@ -4,7 +4,9 @@ export async function runCommunicationMcp(argv: readonly string[] = process.argv
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log(`@octocodeai/octocode-agents-communication — MCP stdio server (default)
 
-Connect an existing identity:
+Let the agent initialize its identity through the init tool:
+  npx -y @octocodeai/octocode-agents-communication --workspace <repo>
+Or connect an existing identity:
   npx -y @octocodeai/octocode-agents-communication --session <id> --workspace <repo>
 Or create a connection-owned identity:
   npx -y @octocodeai/octocode-agents-communication --managed --vendor generic --name <unique-name> --workspace <repo>

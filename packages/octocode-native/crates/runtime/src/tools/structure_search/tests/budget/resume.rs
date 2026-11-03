@@ -31,7 +31,7 @@ fn a_time_cut_listing_resumes_exactly_where_it_stopped() {
             let out = within_checked(&root.0, query.clone(), STEP * 3, &Slow);
             assert_row_contract(ToolId::StructureSearch, &out);
             chained.extend(listed_entries(&out));
-            let Some(next) = out["next"].get("continueWalk") else {
+            let Some(next) = out["next"].get("nextPage") else {
                 assert!(out.get("isPartial").is_none(), "{operation}: {out}");
                 break;
             };
@@ -112,9 +112,9 @@ fn a_sorted_listing_cut_by_time_resumes_exactly() {
     }
 }
 
-/// A window-cut `continueWalk` skips the rows an earlier window listed. A walk
+/// A window-cut `nextPage` skips the rows an earlier window listed. A walk
 /// it cut by time that never reached them lists nothing; its resuming
-/// `continueWalk` skips the
+/// `nextPage` skips the
 /// rows still owed, so the rows between its cut and the earlier window's end
 /// are not listed twice.
 #[test]
@@ -129,12 +129,12 @@ fn a_walk_cut_before_the_rows_an_earlier_window_listed_skips_the_rest_after_it()
         WINDOW.set(None);
         let mut chained = listed_entries(&first);
         assert_eq!(chained.len(), 4, "{operation}: {first}");
-        let widen = first["next"]["continueWalk"]["input"]["queries"][0].clone();
+        let widen = first["next"]["nextPage"]["input"]["queries"][0].clone();
         assert_eq!(widen["scanOffset"], 4, "{operation}: {first}");
         // The next walk is cut after two or three entries, before the four
         // rows the first window listed.
         let second = within_checked(&root.0, widen, STEP * 5 / 3, &Slow);
-        let cut = second["next"]["continueWalk"]["input"]["queries"][0].clone();
+        let cut = second["next"]["nextPage"]["input"]["queries"][0].clone();
         let at = cut["walkOffset"].as_u64().expect("resume position");
         assert!(at < 4, "{operation}: {second}");
         assert!(listed_entries(&second).is_empty(), "{operation}: {second}");
@@ -158,7 +158,7 @@ fn a_sorted_listing_cut_before_the_rows_an_earlier_window_listed_lists_none_and_
     assert_row_contract(ToolId::StructureSearch, &out);
     assert!(listed_entries(&out).is_empty(), "{out}");
     assert_eq!(out["terminalLimit"], true, "{out}");
-    assert!(out["next"].get("continueWalk").is_none(), "{out}");
+    assert!(out["next"].get("nextPage").is_none(), "{out}");
     assert!(
         out["warnings"].to_string().contains("cannot skip the rows"),
         "{out}"
@@ -230,7 +230,7 @@ fn deep_tree() -> Fixture {
 fn first_cut(root: &Fixture, operation: &str) -> (Vec<String>, Value, u64) {
     let query = rows(operation, &root.0);
     let out = within_checked(&root.0, query, STEP * 40, &Slow);
-    let next = out["next"]["continueWalk"]["input"]["queries"][0].clone();
+    let next = out["next"]["nextPage"]["input"]["queries"][0].clone();
     let at = next["walkOffset"].as_u64().expect("the walk was cut");
     (listed_entries(&out), next, at)
 }
@@ -281,7 +281,7 @@ fn a_resumed_window_of_a_changed_tree_replays_and_lists_every_entry_once() {
             assert!(chained.len() < 200, "{operation}: the walk never finishes");
             let out = within_checked(&root.0, query.clone(), UNSPENT, &NeverCancel);
             chained.extend(listed_entries(&out));
-            match out["next"].get("continueWalk") {
+            match out["next"].get("nextPage") {
                 Some(next) => query = next["input"]["queries"][0].clone(),
                 None => break,
             }

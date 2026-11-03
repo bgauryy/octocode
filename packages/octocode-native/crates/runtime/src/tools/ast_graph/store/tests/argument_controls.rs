@@ -30,12 +30,20 @@ fn recovered_and_dynamic_scope_arguments_do_not_create_bindings() {
         let linked = ask(&dir.0, "witnesses", Some(target), |o| {
             o.edges = vec!["passes".into()];
         });
-        assert_eq!(linked.value["pagination"]["totalItems"], 0, "{}", linked.value);
+        assert_eq!(
+            linked.value["pagination"]["totalItems"], 0,
+            "{}",
+            linked.value
+        );
     }
     let healthy = ask(&dir.0, "witnesses", Some("scope.js#healthy"), |o| {
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(healthy.value["pagination"]["totalItems"], 1, "{}", healthy.value);
+    assert_eq!(
+        healthy.value["pagination"]["totalItems"], 1,
+        "{}",
+        healthy.value
+    );
     assert!(
         built.value["argumentCoverage"]["byLanguage"]["javascript"]
             .get("counts")
@@ -61,7 +69,11 @@ fn argument_binding_premises_exclude_unrelated_members() {
     let imported = ask(&dir.0, "witnesses", Some("imported.ts#run"), |o| {
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(imported.value["pagination"]["totalItems"], 1, "{}", imported.value);
+    assert_eq!(
+        imported.value["pagination"]["totalItems"], 1,
+        "{}",
+        imported.value
+    );
     assert_eq!(imported.value["rows"][0]["to"], "exported.ts#handler");
     assert_eq!(imported.value["rows"][0]["detail"], "import-binding");
     let rust = ask(&dir.0, "witnesses", Some("scope.rs"), |o| {

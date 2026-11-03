@@ -3,7 +3,6 @@
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
-use octocode_contract_types::ErrorCode;
 
 /// A file's line count as a listing shows it: counted, or why not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,48 +67,28 @@ pub(crate) fn count_lines(
     cancel: &dyn CancellationCheck,
     deadline: Option<std::time::Instant>,
 ) -> Result<(Vec<Option<Lines>>, Option<usize>), ToolError> {
-    let workers = line_count_workers(files.len());
-    let next = std::sync::atomic::AtomicUsize::new(0);
     let first_file = files.iter().position(Option::is_some);
-    let counted = std::thread::scope(|scope| {
-        let tasks = (0..workers)
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut counted = Vec::new();
-                    loop {
-                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(file) = files.get(index) else {
-                            return Ok(counted);
-                        };
-                        let Some(path) = file else { continue };
-                        let late = Some(index) != first_file
-                            && deadline
-                                .is_some_and(|at| octocode_engine::scan_budget::walk_now() >= at);
-                        let lines = if late {
-                            None
-                        } else {
-                            Some(line_count(path, paths, cancel)?)
-                        };
-                        counted.push((index, lines));
-                    }
-                })
-            })
-            .collect::<Vec<_>>();
-        tasks
-            .into_iter()
-            .map(|task| {
-                task.join().unwrap_or_else(|_| {
-                    Err(ToolError::new(
-                        ErrorCode::ExecutionFailed,
-                        "A line-count worker failed.",
-                    ))
-                })
-            })
-            .collect::<Result<Vec<_>, ToolError>>()
-    })?;
+    let mut indexes = (0..files.len()).collect::<Vec<_>>();
+    // Per file: `None` once the deadline passed, else its count (`None`
+    // for an entry that is not a file).
+    let counted = crate::tools::workers::try_each_parallel(
+        &mut indexes,
+        line_count_workers(files.len()),
+        |&mut index| -> Result<Option<Option<Lines>>, ToolError> {
+            let Some(path) = files[index] else {
+                return Ok(Some(None));
+            };
+            let late = Some(index) != first_file
+                && deadline.is_some_and(|at| octocode_engine::scan_budget::walk_now() >= at);
+            if late {
+                return Ok(None);
+            }
+            line_count(path, paths, cancel).map(Some)
+        },
+    )?;
     let mut lines = vec![None; files.len()];
     let mut cut = None::<usize>;
-    for (index, count) in counted.into_iter().flatten() {
+    for (index, count) in counted.into_iter().enumerate() {
         match count {
             Some(count) => lines[index] = count,
             None => cut = Some(cut.map_or(index, |at| at.min(index))),

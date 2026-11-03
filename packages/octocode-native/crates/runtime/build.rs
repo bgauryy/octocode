@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 mod config_gen;
 #[path = "build/embed.rs"]
 mod embed;
+#[path = "build/schema_defaults.rs"]
+mod schema_defaults;
 #[path = "build/tool_gen.rs"]
 mod tool_gen;
 

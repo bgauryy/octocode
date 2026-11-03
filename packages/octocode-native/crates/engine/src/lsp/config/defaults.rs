@@ -122,6 +122,13 @@ pub(crate) fn typescript_headless_options(cap_mb: Option<u32>) -> Value {
     options
 }
 
+/// tsgo `workspace/configuration` settings for a headless, read-only run: no
+/// `npm install` of typings for an inferred project. tsgo reads this only from
+/// a configuration section, under its own spelling.
+fn tsgo_headless_options() -> Value {
+    json!({ "js/ts": { "disableAutomaticTypeAcquisition": true } })
+}
+
 /// The per-workspace jdtls data directory, outside the repository:
 /// `<octocode home>/lsp-workspaces/jdtls/<sha256(workspace root)[..16]>`.
 pub(crate) fn jdtls_data_dir(octocode_home: &Path, workspace_root: &str) -> PathBuf {
@@ -193,6 +200,7 @@ pub(crate) fn apply_server_default_options(
                     .entry("GOMEMLIMIT".to_owned())
                     .or_insert_with(|| format!("{}MiB", cap.saturating_sub(512).max(1024)));
             }
+            merge_default_options(config, tsgo_headless_options());
         }
         Some("metals") => merge_default_options(config, metals_headless_options()),
         Some("typescript-language-server") => {

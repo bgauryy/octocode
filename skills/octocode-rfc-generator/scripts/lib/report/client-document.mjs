@@ -53,7 +53,7 @@ export function documentView(ctx) {
 
   // Unique heading ids with copy-link anchors, and the table of contents from h2/h3.
   function headings(art, f) {
-    const seen = {}, toc = [];
+    const seen = Object.create(null), toc = [];
     $$('h1,h2,h3,h4', art).forEach((h) => {
       let id = slugify(h.textContent);
       seen[id] = seen[id] == null ? 0 : seen[id] + 1;
@@ -96,6 +96,7 @@ export function documentView(ctx) {
   // Routes in-page, document, web, and workspace-file links; cites every external target.
   function links(art, f) {
     const refs = f.refs || {};
+    const refFor = key => Object.hasOwn(refs, key) ? refs[key] : null;
     $$('a[href]', art).forEach((a) => {
       const raw = a.getAttribute('href');
       if (a.classList.contains('anchor') || raw.startsWith('#/')) return;
@@ -105,12 +106,13 @@ export function documentView(ctx) {
       const [file, frag] = raw.split('#');
       const target = resolvePath(f.path, decode(file));
       if (byPath.has(target)) { a.href = href(target, frag && slugify(decode(frag))); a.classList.add('doclink'); return; }
-      if (refs[raw]) codeLink(a, refs[raw]);
+      const ref = refFor(raw);
+      if (ref) codeLink(a, ref);
       else { a.classList.add('missing'); a.title = 'Not found in this workspace'; a.setAttribute('aria-disabled', 'true'); a.removeAttribute('href'); }
     });
     $$('code', art).forEach((c) => {
       if (c.closest('pre,a')) return;
-      const ref = refs[c.textContent];
+      const ref = refFor(c.textContent);
       if (!ref) return;
       const a = document.createElement('a');
       c.replaceWith(a); a.append(c);

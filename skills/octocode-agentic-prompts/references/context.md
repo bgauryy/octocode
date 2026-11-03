@@ -3,7 +3,7 @@ Load when context can overflow, needs compaction or caching, a cost or token sav
 ## Budget
 
 - Separate window, occupancy (all sent, tool definitions included), usable input (window minus output reserve and margin), billed tokens; cached tokens still occupy the window.
-- Count with the provider's count endpoint or production tokenizer, never characters.
+- Count tokens with the provider's count endpoint or production tokenizer, never infer them from characters. UTF-8 bytes can compare serialized surfaces; label them as bytes, not tokens or billed savings. For MCP discovery, use the [served-context comparison](tools.md#measure-the-served-surface).
 - Send the smallest actionable evidence; fetch more by identifier on need, never a corpus "in case":
   - Known target: one focused lookup; more only if a needed handle is missing.
   - Search: query + scope + small limit + needed fields; widen if evidence is thin or conflicting.

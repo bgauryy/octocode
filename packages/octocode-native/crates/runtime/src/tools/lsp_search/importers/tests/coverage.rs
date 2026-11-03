@@ -64,8 +64,8 @@ fn unverified_candidates_are_not_answered_and_fail_the_scan() {
 
 /// A gitignored file that imports the name, one the check could not
 /// decide, or a scan that stopped at its bound makes the row partial;
-/// files that only spell it and nested repositories leave a lead and no
-/// partial reason.
+/// nested repositories leave a lead and no partial reason. Files the check
+/// ruled out (they only spell the name) are no lead: the scan proved them.
 #[test]
 fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
     let query: LspSearchQuery = serde_json::from_value(json!({
@@ -161,18 +161,39 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
         "{unfinished}"
     );
 
-    // Bundled copies that only spell the name: their exact lead.
-    let copies = annotate(IgnoredMentions {
+    // Bundled copies that only spell the name, however many: a finished
+    // scan checked each and none imports it, so nothing is left to read
+    // (an unfiltered walk of the whole root over more than a few of them
+    // cost far more than the answer).
+    let localsearch_leads = |row: &Value| {
+        row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|call| call["tool"] == "localSearch")
+            .count()
+    };
+    for count in [1, crate::tools::lsp_search::failure::LISTED_TEXT_FILES + 1] {
+        let copies = annotate(IgnoredMentions {
+            files: (0..count)
+                .map(|n| format!("/r/releases/copy{n}.mjs"))
+                .collect(),
+            rules: vec![".gitignore:1 'releases/**'".into()],
+            ..IgnoredMentions::default()
+        });
+        assert!(copies.get("isPartial").is_none(), "{copies}");
+        assert_eq!(localsearch_leads(&copies), 0, "{copies}");
+    }
+    // Beside a nested repository, the lead reaches only into it.
+    let copies_nested = annotate(IgnoredMentions {
         files: vec!["/r/releases/copy.mjs".into()],
-        rules: vec![".gitignore:1 'releases/**'".into()],
+        nested_repositories: vec!["repos/a".into()],
         ..IgnoredMentions::default()
     });
-    assert!(copies.get("isPartial").is_none(), "{copies}");
     assert_eq!(
-        crate::tools::test_support::checks::related_call(&copies, "localSearch", |_| true)["input"]
-            ["queries"][0]["path"],
-        "/r/releases/copy.mjs",
-        "{copies}"
+        lead_paths(&copies_nested),
+        [json!("/r/repos/a")],
+        "{copies_nested}"
     );
 
     // An ignored importer: partial, named with its rule, lead to it.

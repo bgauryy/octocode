@@ -1,6 +1,33 @@
 use super::*;
 use serde_json::json;
 
+/// A call its tool's contract rejects fails where it is built, and the
+/// failure names that site (this file, not the builder), for related and
+/// continued calls alike.
+#[test]
+fn calls_the_contract_rejects_fail_at_their_building_site() {
+    let outcomes = [
+        std::panic::catch_unwind(|| {
+            Continuation::related(ToolId::LocalSearch, json!({"path":"src"}))
+        }),
+        std::panic::catch_unwind(|| {
+            Continuation::continued(ToolId::LocalFetch, json!({"path":"a","noSuchField":1}))
+        }),
+    ];
+    for outcome in outcomes {
+        let payload = outcome
+            .err()
+            .expect("a call the contract rejects never builds");
+        let message = payload
+            .downcast_ref::<String>()
+            .expect("the failure is a formatted message");
+        assert!(
+            message.contains(&format!(" built at {}:", file!())),
+            "names the building site: {message}"
+        );
+    }
+}
+
 #[test]
 fn related_calls_keep_distinct_work_once_in_first_seen_order() {
     let search = Continuation::related(
@@ -42,33 +69,43 @@ fn restarts_remove_only_declared_private_progress_and_are_new_work() {
 
 /// Every tool's related call publishes without the private progress its
 /// contract marks `x-cursor`, whatever row it was built from; continued work
-/// keeps it for its cursor.
+/// keeps the progress its contract accepts, for its cursor.
 #[test]
 fn related_calls_of_every_tool_publish_no_private_progress() {
-    let mut private = 0;
+    let (mut private, mut kept) = (0, 0);
     for tool in ToolId::ALL.iter().copied() {
         let fields = crate::contracts::state_fields(tool);
         private += fields.len();
-        let mut row = json!({"path":"src"});
+        let fresh = crate::tools::test_support::accepted_row(tool, &json!({}));
+        let mut row = fresh.clone();
         for field in fields {
             row[field] = json!("state");
         }
+        let expected =
+            Continuation::related(tool, fresh.clone()).build()["input"]["queries"][0].clone();
         let related = Continuation::related(tool, row.clone()).build();
-        let batch =
-            Continuation::related_input(tool, json!({"queries":[row.clone(), row.clone()]}))
-                .build();
+        let batch = Continuation::related_input(
+            tool,
+            json!({"queries": vec![row.clone(); rows_per_call(tool)]}),
+        )
+        .build();
         for published in [
             &related["input"]["queries"][0],
-            &batch["input"]["queries"][1],
+            &batch["input"]["queries"][rows_per_call(tool) - 1],
         ] {
-            assert_eq!(published, &json!({"path":"src"}), "{tool:?}");
+            assert_eq!(published, &expected, "{tool:?}");
         }
-        let continued = Continuation::continued(tool, row.clone()).build();
         for field in fields {
-            assert_eq!(continued["input"]["queries"][0][field], "state", "{tool:?}");
+            let saved = with_changes(fresh.clone(), &json!({field: "state"}));
+            if crate::contracts::validate_built_query(tool.as_str(), saved.clone()).is_ok() {
+                kept += 1;
+                let continued = Continuation::continued(tool, saved).build();
+                assert_eq!(continued["input"]["queries"][0][field], "state", "{tool:?}");
+            }
         }
     }
     assert!(private > 0, "some tool declares private progress");
+    assert!(kept > 0, "some continued work kept its private progress");
 }
 
 #[test]

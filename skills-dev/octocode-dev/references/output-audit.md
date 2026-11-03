@@ -23,7 +23,7 @@ Load when evaluating what a tool returns through CLI and MCP, or whether an agen
 - A typed call names its tool and complete input using observed path, line, SHA or symbol values. Validate every emitted input against the receiving tool. Flag repeated tips and calls to unavailable tools.
 - Producer fields feed consumer inputs without reshaping: search → fetch (`path` + line/anchor), ghSearchCode/ghStructure → ghGetFileContent (owner/repo/ref), history → item (number/SHA), astSearch topology → lspSearch confirmation. Check against `<repo>/docs/TOOL_DATA_CONTRACT.md` "Connections between tools".
 - The instructions' locate cascade (anchor → search → fetch → rerank/clasify → lsp) matches what tools return. Flag guidance that asks for a field the tool does not emit.
-- Classification uses the declared `context`; the provider receives it with each question. A source row's typed saved read retrieves exactly the judged selection at its snapshot or commit; execute it. No search or fetch result offers a `clasify` handoff or an automatic reread of evidence it returned ([classifier and clasify guide](../../../docs/OCTOCODE_CLASIFY.md#shared-mechanism)).
+- Classification uses the declared `context`; the provider receives it with each question. A source row's typed saved read retrieves exactly the judged selection at its snapshot or commit; execute it. No search or fetch result offers a `clasify` handoff or an automatic reread of evidence it returned ([classifier and clasify guide](../../../docs/OCTOCODE_CLASIFY.md#what-every-call-does)).
 - `kind`, `confidence`, coverage, and `lowSignal` states are consistent across tools and tell the agent when to verify.
 - Instructions say when to batch independent queries (1–5) and when a dependent query must wait.
 

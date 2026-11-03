@@ -124,7 +124,6 @@ pub(super) fn test_registry(url: &str) -> ResolvedNpmRegistry {
     ResolvedNpmRegistry {
         base: Url::parse(url).expect("valid url"),
         authorization: None,
-        cache_identity: "test".into(),
     }
 }
 

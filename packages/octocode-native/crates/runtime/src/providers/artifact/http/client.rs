@@ -1,11 +1,7 @@
-//! The registry client every provider reads through: cached JSON and text answers, remembered facts and cursors, registry errors.
+//! Registry reads decode directly into the representation the caller needs.
 use super::super::util::invalid;
 use super::super::{ArtifactError, ReleaseTags};
-use super::{
-    ArtifactCache, ArtifactHttp, ArtifactHttpRequest, ArtifactHttpResponse, BodySink, DnsPin,
-    REGISTRY_ANSWER, cache_key, cursor_key, fact_key,
-};
-use crate::cache::{CacheClass, CacheKey};
+use super::{ArtifactHttp, ArtifactHttpRequest, ArtifactHttpResponse, BodySink, DnsPin};
 use crate::providers::artifact::query::artifact_type;
 use octocode_contract_types::ArtifactType;
 use octocode_github::ProviderErrorKind;
@@ -16,31 +12,23 @@ use url::Url;
 pub(crate) struct RegistryClient<'a> {
     pub http: &'a dyn ArtifactHttp,
     pub budget: &'a RequestBudget,
-    /// The runtime's registry cache; `None` (`storage.mode == "memory"`)
-    /// bypasses it for both reads and writes.
-    pub cache: Option<&'a ArtifactCache>,
-    /// Upstream release-tag checks; `None` reads no tags.
     pub tags: Option<&'a dyn ReleaseTags>,
 }
 
 #[cfg(test)]
 impl<'a> RegistryClient<'a> {
-    /// A client that skips the registry cache and reads no release tags.
-    pub(crate) fn uncached(http: &'a dyn ArtifactHttp, budget: &'a RequestBudget) -> Self {
+    pub(crate) fn new(http: &'a dyn ArtifactHttp, budget: &'a RequestBudget) -> Self {
         Self {
             http,
             budget,
-            cache: None,
             tags: None,
         }
     }
 }
 
 impl RegistryClient<'_> {
-    /// A registry's JSON answer for `url` in the `accept` representation
-    /// ([`JSON`] by default), through the runtime cache. `dns_pin` connects a
-    /// custom registry only to its validated addresses; `None` when absent
-    /// (404) and `not_found_is_empty`.
+    /// Decode a current JSON answer. DNS pins and credentials belong to this
+    /// request, and no answer survives its execution scope.
     pub async fn json(
         &self,
         artifact_type: ArtifactType,
@@ -50,24 +38,20 @@ impl RegistryClient<'_> {
         dns_pin: Option<DnsPin>,
         accept: &'static str,
     ) -> Result<Option<serde_json::Value>, ArtifactError> {
-        let key = cache_key(&url, accept, authorization.as_ref());
         let request = ArtifactHttpRequest {
             url,
             accept,
             authorization,
             dns_pin,
         };
-        self.cached(artifact_type, key, request, not_found_is_empty, |bytes| {
-            let value = serde_json::from_slice(bytes).ok()?;
-            Some((value, bytes.len()))
+        self.read(artifact_type, request, not_found_is_empty, |bytes| {
+            serde_json::from_slice(bytes).ok()
         })
         .await
     }
 
-    /// [`Self::json`] reduced to the part a caller reads (`view`, decoded
-    /// straight from the body) before it is cached: an 8 MB packument read
-    /// for its version list keeps only that list. `name` keys the view apart
-    /// from the full answer.
+    /// Decode only the selected representation, without constructing a full
+    /// packument when the caller needs its version list.
     pub(crate) async fn json_view(
         &self,
         artifact_type: ArtifactType,
@@ -76,147 +60,53 @@ impl RegistryClient<'_> {
         authorization: Option<SecretString>,
         dns_pin: Option<DnsPin>,
         accept: &'static str,
-        name: &str,
         view: fn(&[u8]) -> Option<serde_json::Value>,
     ) -> Result<Option<serde_json::Value>, ArtifactError> {
-        let mut key = cache_key(&url, accept, authorization.as_ref());
-        key.resource = format!("{} #{name}", key.resource);
         let request = ArtifactHttpRequest {
             url,
             accept,
             authorization,
             dns_pin,
         };
-        self.cached(artifact_type, key, request, not_found_is_empty, |bytes| {
-            let value = view(bytes)?;
-            let weight = octocode_engine::json_size::bytes(&value).unwrap_or(usize::MAX);
-            Some((value, weight))
-        })
-        .await
+        self.read(artifact_type, request, not_found_is_empty, view)
+            .await
     }
 
-    /// An XML answer (Maven metadata and POMs, NuGet nuspecs) through the
-    /// same cache as JSON answers.
     pub async fn text(
         &self,
         artifact_type: ArtifactType,
         url: Url,
         not_found_is_empty: bool,
     ) -> Result<Option<String>, ArtifactError> {
-        const XML: &str = "application/xml";
-        let key = cache_key(&url, XML, None);
         let request = ArtifactHttpRequest {
             url,
-            accept: XML,
+            accept: "application/xml",
             authorization: None,
             dns_pin: None,
         };
-        let value = self
-            .cached(artifact_type, key, request, not_found_is_empty, |bytes| {
-                let text = std::str::from_utf8(bytes).ok()?;
-                Some((serde_json::Value::String(text.to_owned()), bytes.len()))
-            })
-            .await?;
-        value
-            .map(|value| match value {
-                serde_json::Value::String(text) => Ok(text),
-                _ => Err(invalid(artifact_type)),
-            })
-            .transpose()
+        self.read(artifact_type, request, not_found_is_empty, |bytes| {
+            std::str::from_utf8(bytes).ok().map(str::to_owned)
+        })
+        .await
     }
 
-    /// The answer under `key`, else the registry's answer to `request`
-    /// decoded (with its cache weight) and cached. Entries are stored
-    /// decoded: a hit copies the answer, never re-decodes it. Only a body
-    /// that decodes is cached, so a malformed answer never outlives the call
-    /// that received it.
-    async fn cached(
+    async fn read<T>(
         &self,
         artifact_type: ArtifactType,
-        key: CacheKey,
         request: ArtifactHttpRequest,
         not_found_is_empty: bool,
-        decode: impl FnOnce(&[u8]) -> Option<(serde_json::Value, usize)>,
-    ) -> Result<Option<serde_json::Value>, ArtifactError> {
-        // An entry that does not deserialize is a miss and is removed.
-        if let Some(cache) = self.cache
-            && let Some(hit) = cache.0.get_async(key.clone()).await
-        {
-            return Ok(Some(hit.value.as_ref().clone()));
-        }
+        decode: impl FnOnce(&[u8]) -> Option<T>,
+    ) -> Result<Option<T>, ArtifactError> {
         let response = self.http.get(request, self.budget).await?;
         let Some(bytes) = response_body(artifact_type, response, not_found_is_empty)? else {
             return Ok(None);
         };
-        let (value, weight) = decode(&bytes).ok_or_else(|| invalid(artifact_type))?;
-        if let Some(cache) = self.cache {
-            cache
-                .0
-                .put_async(key, value.clone(), weight, REGISTRY_ANSWER)
-                .await;
-        }
-        Ok(Some(value))
+        decode(&bytes)
+            .map(Some)
+            .ok_or_else(|| invalid(artifact_type))
     }
 
-    /// A release fact remembered under `resource` (`type:name@version:…`);
-    /// published versions never change, so a fact never expires.
-    pub(crate) async fn fact(&self, resource: &str) -> Option<serde_json::Value> {
-        let hit = self.cache?.0.get_async(fact_key(resource)).await?;
-        Some(hit.value.as_ref().clone())
-    }
-
-    pub(crate) async fn remember_fact(&self, resource: &str, fact: &serde_json::Value) {
-        let Some(cache) = self.cache else {
-            return;
-        };
-        let size = octocode_engine::json_size::bytes(fact).unwrap_or(usize::MAX);
-        cache
-            .0
-            .put_async(
-                fact_key(resource),
-                fact.clone(),
-                size,
-                CacheClass::Immutable,
-            )
-            .await;
-    }
-
-    /// A release fact that may change (an absent tag, pushed later),
-    /// remembered under `resource` for as long as a registry answer lives.
-    pub(crate) async fn remember_answer(&self, resource: &str, fact: &serde_json::Value) {
-        if let Some(cache) = self.cache {
-            let size = octocode_engine::json_size::bytes(fact).unwrap_or(usize::MAX);
-            cache
-                .0
-                .put_async(fact_key(resource), fact.clone(), size, REGISTRY_ANSWER)
-                .await;
-        }
-    }
-
-    /// A discovery page's start remembered under `resource` (an opaque
-    /// next-page token), for as long as a registry answer lives.
-    pub(crate) async fn cursor(&self, resource: &str) -> Option<String> {
-        let hit = self.cache?.0.get_async(cursor_key(resource)).await?;
-        hit.value.as_str().map(str::to_owned)
-    }
-
-    pub(crate) async fn remember_cursor(&self, resource: &str, cursor: &str) {
-        if let Some(cache) = self.cache {
-            cache
-                .0
-                .put_async(
-                    cursor_key(resource),
-                    serde_json::Value::String(cursor.to_owned()),
-                    cursor.len(),
-                    REGISTRY_ANSWER,
-                )
-                .await;
-        }
-    }
-
-    /// An uncached binary download fed to `sink` as it arrives, until the
-    /// sink breaks (an archive read for one small entry); `None` when it is
-    /// absent (404).
+    /// Stream an archive until the selected entry is reached or the body ends.
     pub(crate) async fn stream(
         &self,
         artifact_type: ArtifactType,

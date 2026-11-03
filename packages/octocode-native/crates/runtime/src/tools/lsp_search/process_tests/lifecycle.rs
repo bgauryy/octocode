@@ -4,7 +4,7 @@
 use super::*;
 use octocode_contract_types::LspSearchQuery;
 
-fn execution_config(
+pub(super) fn execution_config(
     root: &Path,
     script: &Path,
     language_id: &str,
@@ -86,6 +86,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
             &paths,
             &execution,
             None,
+            crate::tools::lsp_search::test_answers(),
         ))
         .expect("indexing row");
     assert_row_contract(ToolId::LspSearch, &first);
@@ -132,6 +133,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
             &paths,
             &execution,
             None,
+            crate::tools::lsp_search::test_answers(),
         ))
         .expect("retry row");
     assert_row_contract(ToolId::LspSearch, &second);

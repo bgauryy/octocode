@@ -1,11 +1,12 @@
 //! The one projection of a rejected call. The CLI (JSON and terminal), the
 //! warm server, and MCP all answer a [`RuntimeError`] with
 //! [`tool_error_result`]: the typed `{error, details?, errorCode}` envelope
-//! (MCP structured and text content) and its one-line terminal text.
+//! (MCP text content and CLI JSON) and its one-line terminal text.
 
 use super::RuntimeError;
 use crate::id::ToolId;
 use crate::response::outcome::ToolOutcome;
+use crate::response::wire::wire_json;
 use crate::security::Sanitized;
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
@@ -13,8 +14,8 @@ use serde_json::{Value, json};
 /// A rejected call as every surface prints it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RejectedCall {
-    /// `{error, details?, errorCode}`: MCP structuredContent (and, serialized,
-    /// its text content), CLI JSON stdout. Every string leaf is scrubbed.
+    /// `{error, details?, errorCode}`: serialized as MCP text content and CLI
+    /// JSON stdout. Every string leaf is scrubbed.
     pub envelope: Sanitized,
     /// The error, each repair detail, then `(errorCode: code)`: CLI terminal
     /// stderr.
@@ -64,30 +65,13 @@ pub fn tool_error_result(tool: &str, error: &RuntimeError) -> RejectedCall {
     RejectedCall { envelope, text }
 }
 
-/// The parts of an MCP `CallToolResult`: `structured_content` and, as its one
-/// text block, `text`, the serialized JSON of that same value (MCP
-/// server/tools: a tool returning structured content also returns it
-/// serialized as text), so a client that reads only `content` sees the same
-/// result. The host builds its protocol result from these parts directly, so
-/// the envelope is serialized once for the text and once on the wire.
+/// The parts of an MCP `CallToolResult`: one text block carrying the shared
+/// compact JSON projection, and the tool error flag. No structured copy is
+/// produced, so every host reads the same evidence exactly once.
 #[derive(Debug)]
 pub struct McpResult {
     pub text: String,
-    pub structured_content: Value,
     pub is_error: bool,
-}
-
-impl McpResult {
-    /// The `CallToolResult` JSON object of these parts, for a consumer that
-    /// reads the result as a value rather than through a protocol type.
-    #[must_use]
-    pub fn into_value(self) -> Value {
-        json!({
-            "content": [{"type": "text", "text": self.text}],
-            "structuredContent": self.structured_content,
-            "isError": self.is_error,
-        })
-    }
 }
 
 /// The MCP result of a finished call ([`McpResult`]). A rejected call
@@ -97,20 +81,17 @@ pub fn mcp_result(
     tool: &str,
     result: Result<ToolOutcome, RuntimeError>,
 ) -> Result<McpResult, RuntimeError> {
-    let (structured_content, is_error) = match result {
-        Ok(outcome) => (outcome.structured_content.into_value(), outcome.all_failed),
+    let (text, is_error) = match result {
+        Ok(outcome) => (wire_json(&outcome.structured_content), outcome.all_failed),
         Err(error) if matches!(error.code, ErrorCode::Cancelled | ErrorCode::Closed) => {
             return Err(error);
         }
-        Err(error) => (tool_error_result(tool, &error).envelope.into_value(), true),
+        Err(error) => {
+            let projected = tool_error_result(tool, &error);
+            (wire_json(&projected.envelope), true)
+        }
     };
-    let text = serde_json::to_string(&structured_content)
-        .map_err(|_| RuntimeError::new(ErrorCode::Response, "Cannot serialize response"))?;
-    Ok(McpResult {
-        text,
-        structured_content,
-        is_error,
-    })
+    Ok(McpResult { text, is_error })
 }
 
 /// An error envelope as one line, preserving the error, details and prose hints.
@@ -156,15 +137,14 @@ mod tests {
 
     /// The MCP tool error of `error`: its text is its envelope's JSON.
     fn mcp(tool: &str, error: RuntimeError) -> Value {
-        let result = mcp_result(tool, Err(error))
-            .expect("an MCP tool error")
-            .into_value();
-        assert_eq!(
-            result["content"],
-            json!([{"type":"text","text":result["structuredContent"].to_string()}]),
-            "{result}"
-        );
-        result
+        let result = mcp_result(tool, Err(error)).expect("an MCP tool error");
+        json!({"content":[{"type":"text","text":result.text}],"isError":result.is_error})
+    }
+
+    fn payload(result: &Value) -> Value {
+        assert!(result.get("structuredContent").is_none(), "{result}");
+        serde_json::from_str(result["content"][0]["text"].as_str().expect("text"))
+            .expect("JSON text")
     }
 
     /// The terminal line of a rejected `input`, after checking its MCP
@@ -172,10 +152,9 @@ mod tests {
     fn text(tool: &str, input: Value) -> String {
         let result = mcp(tool, invalid(tool, input.clone()));
         assert_eq!(result["isError"], true);
-        // The structured row is the CLI's error envelope, typed: an agent
-        // reading structuredContent branches on errorCode. The caller knows
-        // the tool, so there is no kind/version/tool frame.
-        let envelope = &result["structuredContent"];
+        // The text row is the CLI's error envelope, typed: an agent branches
+        // on errorCode. The caller knows the tool, so there is no frame.
+        let envelope = payload(&result);
         for frame in ["kind", "version", "tool"] {
             assert!(
                 envelope.get(frame).is_none(),
@@ -198,7 +177,7 @@ mod tests {
             RuntimeError::new(ErrorCode::InvalidInput, "clasify pages by itself"),
         );
         assert_eq!(
-            result["structuredContent"],
+            payload(&result),
             json!({"error":"clasify pages by itself","errorCode":"invalidInput",
                 "hints":[crate::response::rows::error_code_hint(ToolId::Clasify.output(), ErrorCode::InvalidInput, &Value::Null).expect("input recovery")]})
         );
@@ -234,11 +213,8 @@ mod tests {
             assert!(!issues.is_empty(), "{tool}: {input}");
             let projected = tool_error_result(tool, &rejected);
             let response = mcp(tool, rejected);
-            assert_eq!(
-                response["structuredContent"],
-                projected.envelope.into_value()
-            );
-            let envelope = &response["structuredContent"];
+            let envelope = payload(&response);
+            assert_eq!(envelope, projected.envelope.into_value());
             assert!(
                 envelope.get("next").is_none(),
                 "no guessed continuation: {envelope}"
@@ -278,10 +254,7 @@ mod tests {
         let text = tool_error_result("ghGetHistoryItem", &error).text;
         let result = mcp("ghGetHistoryItem", error);
         assert_eq!(result["isError"], true);
-        assert_eq!(
-            result["structuredContent"]["errorCode"],
-            "outputContractViolation"
-        );
+        assert_eq!(payload(&result)["errorCode"], "outputContractViolation");
         assert!(
             text.ends_with("(errorCode: outputContractViolation)"),
             "{text}"
@@ -304,11 +277,7 @@ mod tests {
         ] {
             let result = mcp("localFetch", RuntimeError::new(code, "m"));
             assert_eq!(result["isError"], true, "{code}");
-            assert_eq!(
-                result["structuredContent"]["errorCode"],
-                json!(code),
-                "{code}"
-            );
+            assert_eq!(payload(&result)["errorCode"], json!(code), "{code}");
             let text = tool_error_result("localFetch", &RuntimeError::new(code, "m")).text;
             assert!(text.starts_with("m"), "{code}: {text}");
             assert!(text.ends_with(&format!("(errorCode: {code})")), "{text}");

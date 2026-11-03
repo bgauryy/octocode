@@ -5,12 +5,11 @@ use crate::tools::local_search::local_search_query::View;
 
 use super::{cursor::*, layout::*};
 use crate::execution::cancel::CancellationCheck;
-use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
 use octocode_contract_types::LocalSearchQuery;
+use octocode_engine::num::saturating_u32;
 use octocode_engine::signatures::MAX_PARSE_SIZE;
-use sha2::{Digest, Sha256};
 
 mod guard;
 mod lines;
@@ -58,6 +57,23 @@ pub(super) struct PageScope<'a, C> {
 /// so via a `redactedMatches` warning.
 pub(super) type Redacted = std::collections::HashSet<(String, u32, u32)>;
 
+/// (path, line, column) of every match whose value redacting a fresh scan
+/// withheld because its file changed during the call (see
+/// [`lines::WithheldRows`]): a page that shows one is unverified.
+pub(super) type Withheld = std::collections::HashSet<(String, u32, u32)>;
+
+/// Whether a row in `rows` of `file` is `withheld`.
+fn shows_withheld(
+    withheld: &Withheld,
+    file: &octocode_engine::types::TextSearchFile,
+    rows: &[octocode_engine::types::TextSearchMatch],
+) -> bool {
+    !withheld.is_empty()
+        && rows
+            .iter()
+            .any(|hit| withheld.contains(&(file.path.clone(), hit.line, hit.column)))
+}
+
 /// What redacting a fresh scan changed, so a later page of the same stored
 /// scan replays it instead of sanitizing every value again. Sanitizing is a
 /// pure function of a value and its source path; the only file input is a
@@ -100,15 +116,18 @@ pub(super) fn validate_matched(
     })
 }
 
+/// Whether every value of `file` was checked against its source, so the
+/// candidate's state can be judged; a withheld value never is.
 pub(super) fn verify_candidate(
     scope: &PageScope<'_, impl CancellationCheck>,
     file: &mut octocode_engine::types::TextSearchFile,
-    redacted: &mut Redacted,
+    (redacted, withheld): (&mut Redacted, &Withheld),
 ) -> Result<bool, ToolError> {
     scope.cancel.check().map_err(ToolError::cancelled)?;
     let source = scope.output_root.join(&file.path);
     validate_matched(scope.paths, &source)?;
-    materialize(scope, file, 0..file.matches.len())?;
+    let held = !materialize(scope, file, 0..file.matches.len())?.is_empty()
+        || shows_withheld(withheld, file, &file.matches);
     let before = file
         .matches
         .iter()
@@ -134,7 +153,7 @@ pub(super) fn verify_candidate(
         }
     }
     match verification {
-        Verification::Verified => Ok(true),
+        Verification::Verified => Ok(!held),
         Verification::Unverified => Ok(false),
         Verification::Changed => Err(changed_since_scan(scope.query)),
     }
@@ -150,13 +169,14 @@ pub(super) type Outlines =
 /// prove it in the secret check, which reads the same bytes, and every
 /// shown file with rows is outlined into `outlines`:
 /// taken from the page cut's outlines (`cut`) when it parsed the file, else
-/// parsed from the secret check's read. Returns whether some values were
-/// redacted because their source could not be re-read.
+/// parsed from the secret check's read. Returns whether some shown values
+/// were withheld or redacted because their source changed during the call
+/// or could not be re-read.
 pub(super) fn verify_shown(
     scope: &PageScope<'_, impl CancellationCheck>,
     parsed: &mut octocode_engine::types::TextSearchResult,
     layout: &Layout,
-    redacted: &mut Redacted,
+    (redacted, withheld): (&mut Redacted, &Withheld),
     (cut, outlines): (&mut CutOutlines, &mut Outlines),
 ) -> Result<bool, ToolError> {
     let PageScope {
@@ -189,11 +209,12 @@ pub(super) fn verify_shown(
     let mut to_outline: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
     for (index, rows) in &layout.shown {
         let file = &mut parsed.files[*index];
-        materialize(scope, file, rows.clone())?;
+        let held = materialize(scope, file, rows.clone())?;
         cancel.check().map_err(ToolError::cancelled)?;
         // The check rewrites only the shown rows, so only they are compared.
         let end = rows.end.min(file.matches.len());
         let start = rows.start.min(end);
+        unverified |= !held.is_empty() || shows_withheld(withheld, file, &file.matches[start..end]);
         let before = file.matches[start..end]
             .iter()
             .map(|matched| matched.value.clone())
@@ -257,28 +278,14 @@ fn parallel_outlines(
             .collect();
     }
     let workers = crate::tools::workers::workers(files.len(), None);
-    let per_worker = files.len().div_ceil(workers);
     let mut files = files;
-    std::thread::scope(|scope| {
-        let mut tasks = Vec::with_capacity(workers);
-        while !files.is_empty() {
-            let chunk: Vec<_> = files.drain(..per_worker.min(files.len())).collect();
-            tasks.push(scope.spawn(move || {
-                chunk
-                    .into_iter()
-                    .map(|(source, bytes)| {
-                        let outline = super::enclosing::outline_of(&bytes, &source, security);
-                        (source, outline)
-                    })
-                    .collect::<Vec<_>>()
-            }));
-        }
-        // A worker that panicked leaves its files without enclosing names.
-        tasks
-            .into_iter()
-            .filter_map(|task| task.join().ok())
-            .flatten()
-            .collect()
+    crate::tools::workers::each_parallel(&mut files, workers, |(source, bytes)| {
+        // A file whose parse panicked keeps its rows, without enclosing names.
+        let outline = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            super::enclosing::outline_of(bytes, source, security)
+        }))
+        .unwrap_or(None);
+        (std::mem::take(source), outline)
     })
 }
 
@@ -306,7 +313,7 @@ pub(super) fn outline_for_cut(
             continue;
         };
         if let super::sources::Expected::Stored(stored) = (scope.expected_digest)(&source)
-            && stored != Some(<[u8; 32]>::from(Sha256::digest(&bytes)))
+            && stored != Some(octocode_engine::digest::sha256_digest(&bytes))
         {
             return Err(changed_since_scan(scope.query));
         }

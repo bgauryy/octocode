@@ -25,9 +25,7 @@ impl Graph {
         id: u32,
         cancel: &dyn crate::execution::cancel::CancellationCheck,
     ) -> Result<Option<super::super::format::DeclarationRec>, GraphOutput> {
-        if let Some(reader) = &self.selective
-            && reader.borrow().is_point()
-        {
+        if let Some(reader) = &self.selective {
             reader
                 .borrow_mut()
                 .declaration(id, &self.t, cancel)

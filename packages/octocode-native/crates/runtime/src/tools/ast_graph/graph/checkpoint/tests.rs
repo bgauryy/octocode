@@ -2,6 +2,7 @@ use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, workspace_policy};
 
+mod completion;
 mod durability;
 mod locking;
 mod scan_and_reuse;
@@ -92,7 +93,6 @@ fn changed_deleted_and_corrupt_artifacts_cannot_supply_stale_facts() {
     let (dir, mut scan) = fixture();
     build(&scan, &NeverCancel).unwrap();
     let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
-    complete(&job_dir).unwrap();
     let target = job_dir.join(format!(
         "{}.fact",
         octocode_engine::digest::sha256(b"f03.ts")
@@ -119,40 +119,21 @@ fn changed_deleted_and_corrupt_artifacts_cannot_supply_stale_facts() {
 }
 
 #[test]
-fn completed_job_and_configuration_changes_are_reuse_not_resume() {
+fn changed_resolution_policy_rebinds_an_unfinished_job() {
     let (dir, scan) = fixture();
-    build(&scan, &NeverCancel).unwrap();
-    let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
-    complete(&job_dir).unwrap();
-    assert!(Manifest::read(&job_dir).is_some_and(|manifest| manifest.stage == Stage::Complete));
-    let artifact = job_dir.join(format!(
-        "{}.fact",
-        octocode_engine::digest::sha256(b"f01.ts")
-    ));
-    let written = std::fs::metadata(&artifact).unwrap().modified().unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(20));
-    let reused = build(&scan, &NeverCancel).unwrap();
-    assert_eq!(reused.construction.resumed_files, 0);
-    assert_eq!((reused.parsed_files, reused.reused_files), (0, 12));
-    assert_eq!(
-        std::fs::metadata(&artifact).unwrap().modified().unwrap(),
-        written
-    );
+    let first = build(&scan, &NeverCancel).unwrap();
     dir.write("tsconfig.json", r#"{"compilerOptions":{"baseUrl":"."}}"#);
     let changed = build(&scan, &NeverCancel).unwrap();
     assert_eq!(changed.construction.resumed_files, 0);
-    assert_eq!(changed.reused_files, 12);
+    assert_eq!(changed.reused_files, first.parsed_files);
     let mut parser = scan.clone();
     parser
         .language_globs
         .insert("javascript".into(), vec!["**/*.ts".into()]);
-    assert_eq!(
-        build(&parser, &NeverCancel)
-            .unwrap()
-            .construction
-            .resumed_files,
-        0
-    );
+    let reparsed = build(&parser, &NeverCancel).unwrap();
+    assert_eq!(reparsed.construction.resumed_files, 0);
+    assert_eq!(reparsed.reused_files, 0);
+    assert_eq!(reparsed.parsed_files, first.parsed_files);
 }
 
 #[test]
@@ -190,7 +171,6 @@ fn checkpoint_open_refuses_corruption_that_would_exceed_disk_quota() {
     let (_dir, scan) = fixture();
     build(&scan, &NeverCancel).unwrap();
     let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
-    complete(&job_dir).unwrap();
     let target = job_dir.join(format!(
         "{}.fact",
         octocode_engine::digest::sha256(b"f00.ts")
@@ -222,10 +202,11 @@ fn checkpoint_write_errors_are_terminal_and_keep_prior_commits() {
                 .is_some_and(|extension| extension == "fact")
         })
         .count();
+    let generation = Manifest::read(&job_dir).unwrap().generation;
     std::fs::remove_file(job_dir.join("job.json")).unwrap();
     std::fs::create_dir(job_dir.join("job.json")).unwrap();
     assert_eq!(
-        complete(&job_dir).unwrap_err().code,
+        complete(&job_dir, &generation).unwrap_err().code,
         ErrorCode::FileAccessFailed
     );
     assert_eq!(

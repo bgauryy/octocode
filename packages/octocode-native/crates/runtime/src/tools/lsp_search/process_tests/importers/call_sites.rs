@@ -90,6 +90,7 @@ fn an_implementing_declaration_is_not_a_caller() {
             &paths,
             &execution,
             None,
+            crate::tools::lsp_search::test_answers(),
         ))
         .expect("row");
     assert_row_contract(ToolId::LspSearch, &row);

@@ -198,7 +198,7 @@ fn oversized_candidate_is_terminal_unknown_without_provider_work() {
 #[test]
 fn cancelled_judgment_never_becomes_a_fallback_page() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
-    let cancellation = tokio_util::sync::CancellationToken::new();
+    let cancellation = octocode_io::cancellation::Cancellation::new();
     cancellation.cancel();
     let mut runtime = selection_fake::runtime(
         FailedJudge,

@@ -16,7 +16,7 @@ function fixture(t: TestContext) {
   call('attach', { transport: 'raw' }, receiver);
   const db = new DatabaseSync(database, { readOnly: true });
   t.after(() => { db.close(); rmSync(workspace, { recursive: true, force: true }); });
-  const send = (body: string, to: string = receiver) => call('send_message', { to, body, wake:'action', reasoning: 'Coordinate a pending decision', conversationId: 'shared-decision' }, sender).id;
+  const send = (body: string, to: string = receiver) => call('send_message', {parts: [{ text: body }],  to, wake:'action', reasoning: 'Coordinate a pending decision', contextId: 'shared-decision' }, sender).id;
   const pending = () => db.prepare('SELECT message FROM deliveries WHERE recipient=? AND acknowledgedAt IS NULL ORDER BY message').all(receiver).map(x => x.message);
   const audits = () => only(db.prepare("SELECT count(*) AS n FROM records WHERE type='delivery.acknowledged'").get()).n;
   return { call, sender, receiver, send, db, pending, audits };
@@ -59,10 +59,10 @@ test('ready bursts retain every field and ID, drain 16 at a time and never repla
     assert.equal(rendered[0].from, f.sender);
     for (const message of rendered) {
       assert.equal(message.data.reasoning, 'Coordinate a pending decision');
-      assert.equal(message.data.conversationId, 'shared-decision');
+      assert.equal(message.data.contextId, 'shared-decision');
       assert.equal(message.from, f.sender);
       assert.equal(message.path, only(f.db.prepare('SELECT workspace FROM sessions WHERE id=?').get(f.sender)).workspace);
-      assert.equal(message.data.body, `fact ${ids.indexOf(message.data.messageId)}`);
+      assert.deepEqual(message.data.parts, [{ text: `fact ${ids.indexOf(message.data.messageId)}` }]);
       assert.equal(message.data.wake, 'action');
       assert.equal(message.dispatchToken, undefined);
     }
@@ -86,7 +86,7 @@ test('larger row cap preserves byte bound and oversized-first-item progress', t 
 // Reproduces the mixed batch where an agent handled requests but overlooked an answer.
 test('mixed delivered batches enumerate request and notice obligations without completing either', t => {
  const f=fixture(t);
- const request=f.call('send_message',{to:f.receiver,question:'Please review',reasoning:'Mixed batch regression'},f.sender).id;
+ const request=f.call('send_message',{parts: [{ text: 'Please review' }], replyRequired: true, to:f.receiver,reasoning:'Mixed batch regression'},f.sender).id;
  const answer=f.send('A received answer is still a notice to complete');
  const batch=f.call('hook',{format:'json'},f.receiver);
  assert.ok(batch.context.split('\n')[0].includes(`Requests: [${request}]. Notices/answers: [${answer}].`));

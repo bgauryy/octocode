@@ -72,7 +72,7 @@ fn read_range_cap_comes_from_the_contract() {
 }
 
 /// The read list names each read as it serializes, covers every read
-/// field, and decides `leaves_more` and the source binding alone.
+/// field, and decides `leaves_unread` and the source binding alone.
 #[test]
 fn the_read_list_is_every_read_by_its_wire_name() {
     let query = serde_json::from_value(serde_json::json!({"path": "a.txt"})).expect("query");
@@ -98,20 +98,24 @@ fn the_read_list_is_every_read_by_its_wire_name() {
             "{name} serializes as listed: {wire}"
         );
     }
-    assert!(next.leaves_more());
+    assert!(next.leaves_unread());
     let lead = NextCalls {
         read: Some(FetchCall::related(call.query.clone())),
         restart: Some(FetchCall::related(call.query.clone())),
         ..NextCalls::default()
     };
     assert!(
-        !lead.leaves_more(),
+        !lead.leaves_unread(),
         "a lead or a restart reads no more of the result"
     );
     let mut page = NextCalls {
         continue_window: Some(call.clone()),
-        restart: Some(call),
+        restart: Some(FetchCall::related(call.query.clone())),
         ..NextCalls::default()
     };
     assert_eq!(page.reads_of_mut(ReadSource::Page).count(), 1);
+    assert!(
+        !page.leaves_unread(),
+        "the next window is pagination, not unread evidence"
+    );
 }

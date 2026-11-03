@@ -339,37 +339,27 @@ fn a_cpp_header_parsed_as_c_suggests_cpp() {
     assert!(!suggests(&plain), "{plain}");
 }
 
-/// An outline parsed under an explicit `language` reuses its cached parse:
-/// the entry is keyed by the parser extension actually used, so a second
-/// identical call hits it and another override never reads it.
+/// An explicit parser is applied on every request, independently of another grammar.
 #[test]
-fn an_overridden_outline_is_cached_under_the_parser_it_used() {
+fn an_overridden_outline_uses_the_requested_parser() {
     let root = Fixture::new();
-    let file = root.0.join("cached-script");
+    let file = root.0.join("script");
     std::fs::write(&file, SCRIPT).expect("source");
     let row = json!({"operation":"symbols","path":file,"parser":"typescript"});
     let first = run(&root.0, row.clone()).expect("first symbols");
-    let canonical = file.canonicalize().expect("canonical");
-    let canonical = canonical.to_string_lossy();
-    let typescript =
-        crate::tools::ast_rule::primary_extension("typescript").expect("typescript extension");
-    assert!(
-        crate::tools::declarations_cache::parsed_through_cache(
-            SCRIPT,
-            &canonical,
-            Some(&typescript)
-        ),
-        "the overridden parse is cached"
-    );
     let second = run(&root.0, row).expect("second symbols");
     assert_eq!(second["symbols"], first["symbols"], "{second}");
     assert_eq!(second["symbols"][0]["symbolName"], "hello", "{second}");
-    let javascript =
-        crate::tools::ast_rule::primary_extension("javascript").expect("javascript extension");
-    assert_ne!(javascript, typescript);
-    let other =
-        crate::tools::declarations_cache::document(SCRIPT, &canonical, Some(&javascript), || None);
-    assert!(other.is_none(), "another override never reuses the entry");
+    let canonical = file.canonicalize().expect("canonical");
+    let canonical = canonical.to_string_lossy();
+    for parser in ["typescript", "javascript"] {
+        let extension = crate::tools::ast_rule::primary_extension(parser).expect("extension");
+        let actual = crate::tools::declarations::document(SCRIPT, &canonical, Some(&extension));
+        let expected = octocode_engine::signatures::extract_declarations_document_with_extension(
+            SCRIPT, &canonical, &extension,
+        );
+        assert_eq!(actual.as_deref(), expected.as_ref(), "{parser}");
+    }
 }
 
 /// A directory outline takes `parser` as `match` does: each file still

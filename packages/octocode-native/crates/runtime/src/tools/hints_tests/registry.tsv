@@ -102,6 +102,7 @@ shared	tools/ast_rule.rs	Make each pattern one parseable node and each rule a ru
 astSearch	tools/ast_search/language.rs	set parser:"cpp" (parserGlobs for a directory).
 astSearch	tools/ast_search/language.rs	{} parses as C with {c} syntax error(s) and as C++ with {cpp}; {repair}
 astSearch	tools/ast_search/language.rs	{} spells C++ `{keyword}`, which the C parser reads as a name; {repair}
+astSearch	tools/ast_search/matches/exact_miss.rs	The pattern spells a {} without the parts of a {fuller}, so it matches only the former. Spell the missing part (a body, `{{ $$$ }}`) or use rule {{"kind":"{fuller}"}}.
 astSearch	tools/ast_search/matches/render.rs	No{language} file under this path was parsed.
 astSearch	tools/ast_search/matches/render.rs	{matches} matches in {files} files fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).
 astSearch	tools/ast_search/matches/types.rs	1 file skipped: no AST grammar for its name ({names}); it was not searched, so absence there is unproven; if it is source code, parserGlobs maps its name to a grammar.
@@ -123,7 +124,7 @@ astSearch	tools/ast_search/symbols/page.rs	0 declarations {named}in {files_scann
 astSearch	tools/ast_search/symbols/page.rs	named {} 
 shared	tools/bounded_process/capture.rs	[stderr cut: {error}]
 shared	tools/bounded_process/capture.rs	[stderr truncated at {STDERR_BYTES} bytes]
-clasify	tools/clasify/sections.rs	Copy nextSectionPage unchanged, or start a fresh sections request.
+clasify	tools/clasify/sections.rs	Copy nextPage unchanged, or start a fresh sections request.
 clasify	tools/clasify/sections.rs	Use persistent storage across CLI calls or a long-lived MCP runtime; start a fresh sections request explicitly if the saved plan expired.
 clasify	tools/clasify/sections/assess.rs	Use the pinned raw reader to inspect the complete target.
 clasify	tools/clasify/sections/capture.rs	Use its pinned raw reader or assess a narrower resource set.
@@ -137,7 +138,7 @@ ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 `{branch}`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 with `pathPrefix:"{}"`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Code search indexes only the default branch{branch}; `{reference}` was not searched.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match across the owner is unproven absence: the index may not cover every repository; list them with the related[] ghSearchRepo request, then search or read one.
-ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match is unproven absence: check the source with the related[] ghStructure or ghCloneRepo request.
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match is unproven absence: list the repository with the related[] ghStructure request, then narrow to a path.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Repository is archived, so its code-search index may lag: list its files with the related[] ghStructure request.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`pathPrefix:"{}"` is a directory scope: to search one file there, set `nameContains` to its name and `pathPrefix` to its parent.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`pathPrefix` is a directory prefix and `{}` looks like a file: search it by `nameContains:"{}"`{under}, or read it with matchString.

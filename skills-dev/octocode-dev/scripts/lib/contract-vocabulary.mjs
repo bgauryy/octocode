@@ -28,12 +28,13 @@ function walkSchema(vocabulary, schema, context) {
     return;
   }
   if (!schema || typeof schema !== 'object') return;
-  const { root, parent, seen } = context;
+  const { root, globalRoot, parent, seen } = context;
   if (typeof schema.$ref === 'string') {
     const key = `${schema.$ref}|${parent}`;
     if (!seen.has(key)) {
       seen.add(key);
-      walkSchema(vocabulary, resolveRef(schema.$ref, root), context);
+      const target = resolveRef(schema.$ref, root) ?? resolveRef(schema.$ref, globalRoot);
+      walkSchema(vocabulary, target, context);
     }
   }
   for (const [key, value] of Object.entries(schema)) walkKeyword(vocabulary, key, value, context);
@@ -77,13 +78,15 @@ function addToolContract(vocabulary, contract) {
   for (const tool of contract.tools ?? []) {
     vocabulary.names.add(tool.name);
     for (const key of ['inputSchema', 'querySchema', 'outputSchema']) {
-      if (tool[key]) walkSchema(vocabulary, tool[key], { root: tool[key], parent: null, seen: new Set() });
+      if (tool[key]) walkSchema(vocabulary, tool[key], { root: tool[key], globalRoot: contract, parent: null, seen: new Set() });
     }
   }
   // Continuation channels are the `next.*` names a response may emit; collections page their own sections.
   for (const channel of Object.values(contract.continuationChannels ?? {})) {
     for (const name of [...Object.keys(channel.row ?? {}), ...(channel.collections ?? [])]) vocabulary.addChild('next', name);
   }
+  // Any tool's error row may carry these (`next.retry` on a rateLimited row).
+  for (const name of Object.keys(contract.errorContinuationChannels ?? {})) vocabulary.addChild('next', name);
   for (const key of ['errorCodes', 'partialReasons']) {
     for (const name of Object.keys(contract[key] ?? {})) vocabulary.values.add(name);
   }

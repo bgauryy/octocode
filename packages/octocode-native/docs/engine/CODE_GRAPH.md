@@ -46,11 +46,12 @@ reads the CLI schemas and invokes the installed binary with JSON on stdin. Its
 `request` wrapper and `reason` field belong to the host, not the Rust CLI input.
 
 `graphBuild` accepts one query per call; `graphQuery` accepts up to five. On the
-CLI, `graphQuery` runs on the warm `octocode serve` server like every read-only tool,
-so later pages and questions reuse the snapshot it already decoded; `graphBuild`
+CLI, `graphQuery` runs on the warm `octocode serve` server like every read-only tool.
+Each query opens its selected snapshot and reads the tables and evidence it needs;
+decoded graph snapshots are not retained across queries. `graphBuild`
 writes, so it runs in the calling process and prints its progress (`graphBuild:
-scanning …`, `parsed N/M files`, `linked …`, `encoding snapshot`, `published` or
-`reused`) on stderr while stdout keeps the result. MCP `graphBuild` reports no
+scanning …`, `parsed N/M files`, `linked …`, `encoding snapshot`, `published`)
+on stderr while stdout keeps the result. MCP `graphBuild` reports no
 progress. A bulk walk sends `responseChars: 50000` (the contract maximum) so each
 page carries as many rows as fit.
 Inspect `octocode schema graphBuild --view query` or the query schema above for
@@ -58,15 +59,17 @@ the contract embedded in the installed binary. Query alternatives reject
 missing required inputs and options that do not apply to the chosen operation.
 
 A build writes only under the current workspace's `.octocode/graph`, refusing
-scopes or storage symlinks that escape it. Unchanged inputs and options reuse a
-snapshot. The manifest's `analysisVersion` invalidates reuse after linking rules
-change, independently of the binary format. The manifest also records the installed
-registry identity and discovery extensions; provider, version or capability changes
-invalidate reuse. Builds of different scopes run in parallel: an OS lock serializes only
+scopes or storage symlinks that escape it. Every build extracts its selected inputs
+and publishes its computed snapshot, including when the inputs are unchanged.
+Queries can keep reading an explicit published snapshot. The manifest's
+`analysisVersion` identifies older linking rules independently of the binary format.
+It also records the installed registry identity and discovery extensions.
+Builds of different scopes run in parallel: an OS lock serializes only
 staging, publication, `latest` and retention across processes, and a per-scope lock lets
 one build at a time write a scope's extraction checkpoint. A build stopped by a deadline
 or cancellation keeps its committed extraction, and the next build of that scope resumes
-from it; cancellation releases both locks. `keep` defaults to three snapshots per
+from it; `refresh` discards interrupted extraction and starts fresh. Cancellation
+releases both locks. `keep` defaults to three snapshots per
 scope, with a maximum of 100 for retained baselines. Builds redact stored text and
 return location, digest, counts, coverage, diagnostics and elapsed milliseconds.
 
@@ -170,9 +173,10 @@ a partial count as complete. No constant-memory or sublinear query claim follows
 
 What a query reads depends on its operation. `node`, `find` and `candidates` read
 the lookup index, the record string table (`STRS`) and only the node and
-declaration blocks their rows need. Topology operations read every record but
-not occurrence evidence (`WITN`, `UNRS`) or the strings only that evidence uses
-(`STRE`). The source catalog (`SRCE`) is read only when a result renders a
+declaration blocks their rows need. Topology operations read the node, edge,
+lookup and file metadata tables; declaration blocks are read when rows render
+them. They skip occurrence evidence (`WITN`, `UNRS`) and its strings (`STRE`).
+The source catalog (`SRCE`) is read only when a result renders a
 declaration or origin, and then only the origin blocks (`SRCO`) holding the
 origins it renders; outside a full decode, each block's origin index is checked
 structurally and each origin is decoded and validated when rendered.
@@ -181,8 +185,8 @@ occurrence section they page; they count and filter every occurrence, then read
 only the `STRE` blocks the rendered rows reference. Occurrences are checked
 structurally on read; their full semantic validation runs when the snapshot is
 published. Each read section or block is checksum-verified; corruption in a block
-a query does not read is not detected by that query, and `validation` reports the
-bytes and blocks a query read.
+a query does not read is not detected by that query. Reader tests record the
+bytes and blocks read to verify this boundary.
 
 Traversals count every reachable result within the requested depth and filters.
 They render only the requested page; continuations retain the full total and
@@ -210,7 +214,7 @@ lspSearch steps name workspace-relative paths.
 |---|---|
 | Structure | `cycle` (runtime imports; witness plus `suggestedCuts`) · `dir-cycle` · `unreachable-file` · `test-only` · `unused-export` (JS/TS/Python) · `export-only-local` (exported but used only in its own file) |
 | Dependencies | `undeclared-dependency` (including hoisted phantoms) · `boundary-violation` (deep imports between npm packages) · `unresolved-import` |
-| Architecture | `critical-file` (PageRank) · `single-point-of-failure` (articulation points) · `unstable-dependency` · `main-sequence` |
+| Architecture | `critical-file` (PageRank) · `single-point-of-failure` (articulation points) |
 
 - Any edge keeps code alive. Only runtime imports between authored files prove
   cycles, hubs, or layering; type-only, dynamic, and Python function-level
@@ -231,8 +235,9 @@ lspSearch steps name workspace-relative paths.
 - Each finding has a `tier`: `100` nothing references it; `90` no graph or code
   reference (bare prose words are listed in `evidence.textMentions`); `60` the
   file path, or every unused export, is referenced in code or qualified text
-  such as `mod.run` (`evidence.mentionedIn`; some exports alone keep 90), or
-  no mention scan ran. `minTier` defaults to 90; `minTier: 60` shows all, and
+  such as `mod.run` (`evidence.mentionedIn`; some exports alone keep 90; a
+  `test-only` file counts only mentions outside tests and its importers), or a mentioned
+  file imports it (the finding names that file), or no mention scan ran. `minTier` defaults to 90; `minTier: 60` shows all, and
   `summary.hiddenBelowTier` counts the rest.
 - `baseline` (a snapshot ID of the same scope) labels findings `new` or
   `existing` and lists `baseline.resolvedFindings`. `summary.health` reports
@@ -348,12 +353,13 @@ count. Unsupported or unassessed extraction has no fabricated counts. Build
 receipts, `stats`, every evidence page and queries explicitly selecting `passes`
 carry the persisted population. Argument observations do not change call linkage.
 
-Changed trees reuse validated per-file extraction artifacts and rebuild all
-bindings against the current file and configuration inventory. This handles
-added, removed and renamed dependencies without relying on stale positive or
-negative bindings. It does not implement dependency-based incremental resolution.
-`extraction.parsedFiles` and `extraction.reusedFiles` report work for the build;
-a whole-snapshot reuse reports zero parsed files. Interrupted builds can recover
+Changed trees extract their selected files afresh and rebuild all bindings against
+the current file and configuration inventory. An unfinished build can reuse its
+validated per-file extraction artifacts when retried. This handles added, removed
+and renamed dependencies without relying on stale positive or negative bindings.
+It does not implement dependency-based incremental resolution.
+`extraction.parsedFiles` and `extraction.reusedFiles` report work for the build.
+Interrupted builds can recover
 committed extraction artifacts on retry. `extraction.resumedFiles` is the subset
 of reused files recovered from an interrupted job; it does not mean linking or
 projection resumed. Source digests are checked again before reuse.
@@ -371,19 +377,24 @@ parsed again after interruption. `checkpointedFiles`, `spilledBytes` and
 declare its terminal budgets (2 GiB of retained disk artifacts and 64 MiB of
 memory-only artifacts per job). Atomic replacement can temporarily add one
 artifact of at most 64 MiB; retry removes leftover temporary job files before
-writing more. One current job is retained per canonical scope root,
-including after completion for extraction reuse. Removed source artifacts are
-pruned on retry; `refresh` or a changed extraction policy resets the job. This is
-not a global disk budget across scopes and does not bound linking or projection
-memory. A failed build leaves previously published snapshots available.
+writing more. One unfinished job is retained per canonical scope root. Publication
+removes that build's extraction artifacts; a generation identity and the job lock
+prevent an older publication from removing another build's work. A durable
+completion marker makes artifacts ineligible for reuse if deletion is interrupted.
+Removed source artifacts are pruned on retry; `refresh` or a changed extraction
+policy resets the job. This is not a global disk budget across scopes and does not
+bound linking or projection memory. A failed build leaves previously published
+snapshots available.
 
 Artifact namespaces bind the canonical root, parser overrides, installed
 provider/capability identity, fact schema, runtime version and extraction version.
 Within an admitted job, artifacts that fail content validation are extracted again.
 A retained job over its disk quota fails explicitly. `refresh` resets the stored
-extraction job, while the engine may still reuse matching facts in memory.
-Tests compare reused snapshots with a full binding and projection
-rebuild after source, file-inventory and resolution-configuration changes.
+extraction job. Plain engine graph scans extract their selected sources afresh;
+there is no process-wide parsed-facts cache.
+Tests compare resumed extraction with a fresh binding and projection rebuild
+after source, file-inventory and resolution-configuration changes, and verify that
+completed artifacts cannot supply facts to the next build.
 
 ## Persisted graphs
 
@@ -392,7 +403,7 @@ rebuild after source, file-inventory and resolution-configuration changes.
 
 ```text
 <workspace>/.octocode/graph/
-  .facts/                        # extraction cache and per-scope durable jobs
+  .facts/                        # unfinished per-scope extraction jobs
   latest                         # id of the newest snapshot
   <YYYYMMDDTHHMMSSZ>-<scope>-<root tag>/
     manifest.json                # root, scope, counts, link tallies, diagnostics,
@@ -408,7 +419,7 @@ those suffixes numerically and never fills a pruned gap. Before any read, hash o
 
 Freshness has one owner (`ast_graph/freshness.rs`). It covers every source and the linking configs that change
 resolution (tsconfig/jsconfig, `package.json`, `Cargo.toml`, `go.mod`, and the
-like). Both build reuse and the `stale` operation use it: `stale` rescans the
+like). Query freshness and the `stale` operation use it: `stale` rescans the
 scoped file list, so it reports `changed`, `missing`, `added` and `excluded`
 sources and changed configs. A snapshot truncated at its file limit is never
 reported fresh.
@@ -446,7 +457,7 @@ reported fresh.
   message, and the file node a diagnostic is about, when that is another
   file), per-file digests, components, and entrypoints.
 - **`FSTM`** (optional): per-file size, mtime, ctime and inode, recorded only
-  for files untouched for 2 seconds (`stamp::SourceStamp::SETTLE`) before the scan. An unchanged-tree re-ingest
+  for files untouched for 2 seconds (`stamp::SourceStamp::SETTLE`) before the scan. Query freshness
   compares these stamps before hashing a source; a file without a stamp, or with
   a different one, is hashed.
 - **Adjacency:** topology operations rebuild both CSR directions in O(V + E).
@@ -594,7 +605,6 @@ snapshot. It needs no new dependencies:
 - BFS witness cycles
 - PageRank (damping 0.85, at most 50 iterations)
 - articulation points with separated-side sizes
-- Martin instability and abstractness
 - Lakos CCD/NCCD over the SCC condensation, using bitset reachability
 
 Finding ids hash the detector, the subject, and the identifying evidence, which
@@ -643,8 +653,9 @@ Large inputs are bounded:
   locally evident stay unlinked rather than guessed. The answers that follow
   calls report syntax linkage counts and unresolved reasons so agents can inspect
   the gap; the ratio is not semantic recall.
-- Per-file extraction can be reused, but binding and graph projection are rebuilt
-  for the whole selected scope. There is no dependency-based resolution cache.
+- Unfinished extraction can be resumed, but completed builds retain only their
+  published snapshots. Binding and graph projection are rebuilt for the whole
+  selected scope. There is no dependency-based resolution cache.
 - `passes` covers named argument expressions admitted by each grammar adapter.
   It does not prove callable type, callback invocation, argument propagation,
   alias flow or execution. Unsupported forms remain explicit evidence; a missing

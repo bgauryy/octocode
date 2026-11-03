@@ -37,7 +37,7 @@ pub(super) fn assert_clean_equivalent(dir: &Path) {
 }
 
 #[test]
-fn incremental_extraction_relinks_add_edit_delete_rename_and_negative_dependencies() {
+fn fresh_extraction_relinks_add_edit_delete_rename_and_negative_dependencies() {
     let dir = git_app(&[
         (
             "main.ts",
@@ -56,10 +56,11 @@ fn incremental_extraction_relinks_add_edit_delete_rename_and_negative_dependenci
     )
     .unwrap();
     let added = ingest_root(&dir.0, &root, None, false);
-    assert!(
-        added.value["extraction"]["reusedFiles"].as_u64().unwrap() >= 1,
-        "{}",
-        added.value
+    assert_eq!(added.class, ExitClass::Success, "{}", added.value);
+    assert_eq!(added.value["extraction"]["reusedFiles"], 0);
+    assert_eq!(
+        added.value["extraction"]["parsedFiles"],
+        added.value["scan"]["filesScanned"]
     );
     assert_eq!(
         ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["pagination"]["totalItems"],
@@ -83,7 +84,7 @@ fn incremental_extraction_relinks_add_edit_delete_rename_and_negative_dependenci
 }
 
 #[test]
-fn unchanged_extraction_is_rebound_when_resolution_configuration_changes() {
+fn unchanged_sources_are_rebound_when_resolution_configuration_changes() {
     let dir = git_app(&[
         (
             "main.ts",
@@ -105,9 +106,5 @@ fn unchanged_extraction_is_rebound_when_resolution_configuration_changes() {
     .unwrap();
     assert_clean_equivalent(&dir.0);
     let out = ask(&dir.0, "callees", Some("main.ts#run"), |_| {});
-    assert_eq!(
-        out.value["rows"][0]["id"], "right.ts#work",
-        "{}",
-        out.value
-    );
+    assert_eq!(out.value["rows"][0]["id"], "right.ts#work", "{}", out.value);
 }

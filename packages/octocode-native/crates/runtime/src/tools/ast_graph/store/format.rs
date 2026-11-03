@@ -35,7 +35,6 @@
 //! blocks, and read `SRCE` and the `SRCO` blocks they need only when they render
 //! a declaration or origin; each origin is validated when it is read. Readers
 //! reject unknown versions.
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 pub(crate) mod arguments;
@@ -50,10 +49,14 @@ pub(crate) mod sources;
 mod writer;
 use super::super::limits::{LIMITS, Limits, MAX_SECTIONS};
 pub(crate) use limits::validate_counts;
+#[cfg(test)]
+pub(crate) use reader::decode_files;
+#[cfg(test)]
+pub(crate) use reader::decode_with_cancel;
 use reader::*;
-pub(crate) use reader::{decode_files, decode_with_cancel};
 use sections::*;
 pub(crate) use selective::SnapshotReader;
+#[cfg(test)]
 pub(crate) use selective::full_validation;
 #[cfg(test)]
 pub(crate) use writer::encode_for_publish;

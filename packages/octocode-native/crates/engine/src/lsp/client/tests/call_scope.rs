@@ -51,11 +51,11 @@ fn line_at(request: &Value, line: usize) -> Value {
     }])
 }
 
-fn scope(reuse: bool, call: Option<CallId>) -> ResponseScope {
+fn scope(call: Option<CallId>) -> ResponseScope {
     ResponseScope {
-        reuse,
         generation: "anchor".to_owned(),
         call,
+        ..Default::default()
     }
 }
 
@@ -88,16 +88,17 @@ async fn one_call_asks_the_server_once_per_distinct_request() {
         client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
     let (server, mut frames) = serve(reader, writer, line_at);
     let call = Some(CallId::next());
-    let first = definition_line(&client, &path, scope(false, call)).await;
+    let selected = scope(call);
+    let first = definition_line(&client, &path, selected.clone()).await;
     assert_eq!(
-        definition_line(&client, &path, scope(false, call)).await,
+        definition_line(&client, &path, selected.clone()).await,
         first,
         "the same call reuses its own answer without scope-wide reuse"
     );
     assert_eq!(methods(&mut frames).len(), 1);
-    let next_call = definition_line(&client, &path, scope(false, Some(CallId::next()))).await;
+    let next_call = definition_line(&client, &path, scope(Some(CallId::next()))).await;
     assert_ne!(next_call, first, "another call asks again");
-    let outside = definition_line(&client, &path, scope(false, None)).await;
+    let outside = definition_line(&client, &path, scope(None)).await;
     assert_ne!(outside, next_call, "no call: every request asks");
     server.abort();
 }
@@ -117,14 +118,14 @@ async fn open_documents_are_compared_with_their_files_once_per_call() {
         .await
         .expect("open");
     let call = Some(CallId::next());
-    definition_line(&client, &anchor, scope(false, call)).await;
+    definition_line(&client, &anchor, scope(call)).await;
     std::fs::write(&other, "new text\n").expect("edit");
-    definition_line(&client, &anchor, scope(false, call)).await;
+    definition_line(&client, &anchor, scope(call)).await;
     assert!(
         !methods(&mut frames).contains(&"textDocument/didChange".to_owned()),
         "files do not change under one call"
     );
-    definition_line(&client, &anchor, scope(false, Some(CallId::next()))).await;
+    definition_line(&client, &anchor, scope(Some(CallId::next()))).await;
     assert_eq!(
         methods(&mut frames),
         ["textDocument/didChange", "textDocument/definition"],

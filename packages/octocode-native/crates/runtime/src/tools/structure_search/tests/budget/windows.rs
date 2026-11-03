@@ -59,7 +59,7 @@ fn left_out(out: &Value) -> (u64, u64, u64) {
 /// A walk's windows count what the walk left out once between them: a window
 /// that ends at its `limit`-th row leaves the entries after it to the
 /// window that resumes there, and neither counts them twice. (A widening
-/// `continueWalk` walks the same walk again, so it is no resume: only chains
+/// `nextPage` walks the same walk again, so it is no resume: only chains
 /// of resuming windows, whose query carries `walkOffset`, add up.)
 #[test]
 fn windows_count_what_the_walk_left_out_once_whatever_the_timing() {

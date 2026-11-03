@@ -25,8 +25,8 @@ async fn notices_reach_the_client_as_an_in_process_call_says_them() {
     std::fs::create_dir_all(fixture.home.path().join("tmp")).expect("tmp");
     std::fs::write(fixture.home.path().join("tmp/ratelimit"), "").expect("blocker");
     let cwd = fixture.dir("a");
-    // Two rows: they run on threads of their own.
-    let row = json!({"owner": "o", "repo": "r", "path": "README", "refresh": true});
+    // Two rows: they run on threads of their own, each reading GitHub.
+    let row = json!({"owner": "o", "repo": "r", "path": "README"});
     let input = json!({"queries": [row, row]});
     // A call in flight the whole time, such as a localSearch, that
     // raises nothing itself.

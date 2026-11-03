@@ -4,7 +4,7 @@ use octocode_engine::graph::GraphFactsTypedEntry;
 use octocode_engine::types::FileSystemQueryResult;
 
 pub(super) enum Kept {
-    Spill(checkpoint::Kept),
+    Spill(Box<checkpoint::Kept>),
     Memory(
         Box<(
             GraphFactsTypedEntry,
@@ -44,7 +44,7 @@ impl Kept {
                 .ok_or_else(|| {
                     ToolError::new(ErrorCode::ExecutionFailed, "missing graph checkpoint owner")
                 })?
-                .restore(relative, kept),
+                .restore(relative, *kept),
             Self::Memory(kept) => Ok(*kept),
         }
     }
@@ -163,7 +163,7 @@ pub(super) fn extract<'a>(
         job.as_ref().and_then(|job| job.load(context))
     };
     // A checkpointed build reuses its own verified artifacts; one without
-    // reuses the process memo of earlier builds.
+    // extracts the selected sources afresh.
     let source = match &job {
         Some(_) => FactsSource::CachedGraph(&reuse),
         None => FactsSource::Graph,
@@ -191,10 +191,7 @@ pub(super) fn extract<'a>(
                     }
                     Err(error) => return Err(error),
                 };
-                // A file of another fact schema is never linked (`link_entry`).
-                let linked = view.facts.schema_version
-                    == octocode_engine::signatures::GRAPH_FACTS_SCHEMA_VERSION;
-                admission.admit(&source, linked.then_some(view.facts.declarations.len()))?;
+                admission.admit(&source, view.facts.declarations.len())?;
                 match &job {
                     Some(job) => job.keep(view, source).map(Some),
                     None => {

@@ -99,7 +99,7 @@ class SummaryTest(unittest.TestCase):
                      "totalItems": 3, "selectedItems": 1, "excludedItems": 1, "unknownItems": 1,
                      "failures": [{"candidate": 2, "errorCode": "providerUnavailable", "error": "offline"}],
                      "usage": {"calls": 2, "knownUsageCalls": 1, "unknownUsageCalls": 1,
-                               "inputTokens": 10, "outputTokens": 2, "replayedEvaluations": 0}}
+                               "inputTokens": 10, "outputTokens": 2}}
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "transcript.jsonl"
             path.write_text(json.dumps({"type": "item.completed", "item": {

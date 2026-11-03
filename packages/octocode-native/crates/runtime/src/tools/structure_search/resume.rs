@@ -1,5 +1,5 @@
 //! Where a listing walk cut by time stands, kept for the window that resumes
-//! it (`next.continueWalk`, `walkOffset`): the directories the walk is
+//! it (`next.nextPage`, `walkOffset`): the directories the walk is
 //! inside, with the entries still to inspect, so the resumed walk starts at
 //! its first new entry and replays nothing (replaying a deep offset costs
 //! most of a window's budget).
@@ -16,20 +16,15 @@ use super::super::page_memo::{PageMemo, Proof};
 use super::memo::{self, Seen};
 use octocode_engine::types::WalkCursor;
 use serde_json::{Value, json};
-use std::time::Duration;
-
-const MAX_CURSORS: usize = 16;
-/// Entries all kept cursors hold to inspect together, the oldest dropped
-/// first.
-const MAX_WEIGHT: usize = 200_000;
-const TTL: Duration = Duration::from_secs(600);
 
 struct Kept {
     proof: Proof,
     cursor: WalkCursor,
 }
 
-static STORE: PageMemo<Kept> = PageMemo::new(TTL, MAX_CURSORS, MAX_WEIGHT);
+/// Kept cursors, weighed by the bytes they hold against the one process
+/// budget ([`crate::cache::MEMORY`]), the oldest dropped first.
+static STORE: PageMemo<Kept> = PageMemo::new();
 
 /// What the cursor belongs to: the walk (`identity`: the root and everything
 /// that decides its order and what it enters) and the position it resumes at.
@@ -83,6 +78,7 @@ pub(super) fn take(identity: &Value, policy: &str, position: u32) -> Option<Walk
 mod tests {
     use super::*;
     use octocode_engine::types::FileSystemQueryOptions;
+    use std::time::Duration;
 
     /// The cursor of a walk of `root` cut by time just after its first entry.
     fn cut_after_first_entry(root: &std::path::Path) -> WalkCursor {

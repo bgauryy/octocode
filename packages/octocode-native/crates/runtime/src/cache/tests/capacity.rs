@@ -13,11 +13,7 @@ fn bytes(dir: &Path) -> u64 {
 #[test]
 fn every_disk_write_obeys_the_byte_budget_across_store_instances() {
     let dir = tempfile::tempdir().unwrap();
-    let config = CacheConfig {
-        max_bytes: 512,
-        disk_bytes: 1024,
-        ..Default::default()
-    };
+    let config = CacheConfig { disk_bytes: 1024 };
     let stores: Vec<_> = (0..3)
         .map(|_| Store::<String>::new(config.clone(), Some(dir.path().into())))
         .collect();
@@ -39,13 +35,7 @@ fn every_disk_write_obeys_the_byte_budget_across_store_instances() {
 #[test]
 fn entries_larger_than_the_disk_budget_are_never_confirmed() {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::<String>::new(
-        CacheConfig {
-            disk_bytes: 1,
-            ..Default::default()
-        },
-        Some(dir.path().into()),
-    );
+    let store = Store::<String>::new(CacheConfig { disk_bytes: 1 }, Some(dir.path().into()));
     for index in 0..4 {
         let (_, saved) = store.put_confirmed(
             key(&format!("{index}"), "scope"),
@@ -62,10 +52,7 @@ fn entries_larger_than_the_disk_budget_are_never_confirmed() {
 fn missing_or_corrupt_accounting_is_rebuilt_before_admission() {
     for corrupt in [false, true] {
         let dir = tempfile::tempdir().unwrap();
-        let config = CacheConfig {
-            disk_bytes: 1024,
-            ..Default::default()
-        };
+        let config = CacheConfig { disk_bytes: 1024 };
         let store = Store::<String>::new(config.clone(), Some(dir.path().into()));
         for i in 0..6 {
             assert!(
@@ -98,11 +85,7 @@ fn missing_or_corrupt_accounting_is_rebuilt_before_admission() {
         );
         assert!(bytes(dir.path()) <= config.disk_bytes);
         assert_eq!(
-            reopened
-                .get_current(&key("new", "scope"))
-                .unwrap()
-                .value
-                .as_str(),
+            reopened.get(&key("new", "scope")).unwrap().value.as_str(),
             "n".repeat(100)
         );
     }
@@ -111,10 +94,7 @@ fn missing_or_corrupt_accounting_is_rebuilt_before_admission() {
 #[test]
 fn replacements_and_deleted_entries_do_not_leak_capacity() {
     let dir = tempfile::tempdir().unwrap();
-    let config = CacheConfig {
-        disk_bytes: 1024,
-        ..Default::default()
-    };
+    let config = CacheConfig { disk_bytes: 1024 };
     let store = Store::<String>::new(config.clone(), Some(dir.path().into()));
     for i in 0..100 {
         let value = "x".repeat(if i % 2 == 0 { 500 } else { 100 });
@@ -129,11 +109,7 @@ fn replacements_and_deleted_entries_do_not_leak_capacity() {
                 .1
         );
         assert_eq!(
-            store
-                .get_current(&key("same", "scope"))
-                .unwrap()
-                .value
-                .as_str(),
+            store.get(&key("same", "scope")).unwrap().value.as_str(),
             value
         );
         assert!(bytes(dir.path()) <= config.disk_bytes);
@@ -154,13 +130,7 @@ fn an_abandoned_reservation_is_reconciled_under_pressure() {
         .unwrap(),
     )
     .unwrap();
-    let store = Store::<String>::new(
-        CacheConfig {
-            disk_bytes: 1024,
-            ..Default::default()
-        },
-        Some(dir.path().into()),
-    );
+    let store = Store::<String>::new(CacheConfig { disk_bytes: 1024 }, Some(dir.path().into()));
     assert!(
         store
             .put_confirmed(
@@ -179,13 +149,7 @@ fn an_abandoned_reservation_is_reconciled_under_pressure() {
 fn disk_writer_process() {
     let dir = PathBuf::from(std::env::var_os("OCTOCODE_CACHE_TEST_DIR").unwrap());
     let writer = std::env::var("OCTOCODE_CACHE_TEST_WRITER").unwrap();
-    let store = Store::<String>::new(
-        CacheConfig {
-            disk_bytes: 2048,
-            ..Default::default()
-        },
-        Some(dir),
-    );
+    let store = Store::<String>::new(CacheConfig { disk_bytes: 2048 }, Some(dir));
     for i in 0..40 {
         assert!(
             store
@@ -246,7 +210,7 @@ fn independent_processes_share_one_disk_budget() {
 fn immediately_expired_work_is_never_confirmed_in_either_storage_mode() {
     let dir = tempfile::tempdir().unwrap();
     for disk in [None, Some(dir.path().join("store"))] {
-        let store = Store::<String>::new(CacheConfig::default(), disk.clone());
+        let store = Store::<String>::new(CacheConfig::derived(), disk.clone());
         let entry = key("expired", "scope");
         let (_, retained) = store.put_confirmed(entry.clone(), "value".into(), 5, volatile(0));
         assert!(

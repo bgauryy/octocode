@@ -7,21 +7,32 @@ import { data, display, noul, PNG, providerSession, readCaptured, same } from '.
 import { sectionChecks, unreadSectionsChecks, memorySectionsChecks } from './classification-sections.mjs';
 import { inlineChecks } from './classification-inline.mjs';
 import { githubImageChecks, urlPolicyChecks } from './classification-network.mjs';
+import { contract } from '../contract.mjs';
 
-const CONTRACT = new URL('../../../../../octocode-config/contract/tool-contract.json', import.meta.url);
+const resolve = (node, root) => {
+  const seen = new Set();
+  while (node?.$ref?.startsWith('#/') && !seen.has(node)) {
+    seen.add(node);
+    node = node.$ref.slice(2).split('/').reduce((value, key) => value?.[key.replace(/~1/g, '/').replace(/~0/g, '~')], root);
+  }
+  return node;
+};
 
 /** The score criteria maximum the generated contract admits; core owns it. */
-function scoreLevelsMaximum() {
-  const clasify = JSON.parse(fs.readFileSync(CONTRACT, 'utf8')).tools.find(tool => tool.name === 'clasify');
+export function scoreLevelsMaximum() {
+  const clasify = contract.tools.find(tool => tool.name === 'clasify');
   const maxima = [];
-  const walk = node => {
-    if (Array.isArray(node)) return node.forEach(walk);
-    if (!node || typeof node !== 'object') return;
-    const criteria = node.properties?.criteria;
+  const walk = (node, root, seen = new Set()) => {
+    if (Array.isArray(node)) return node.forEach(value => walk(value, root, seen));
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    const resolved = resolve(node, root);
+    if (resolved !== node) walk(resolved, root, seen);
+    const criteria = resolve(node.properties?.criteria, root);
     if (typeof criteria?.maxItems === 'number') maxima.push(criteria.maxItems);
-    Object.values(node).forEach(walk);
+    Object.values(node).forEach(value => walk(value, root, seen));
   };
-  walk(clasify);
+  for (const key of ['querySchema', 'inputSchema', 'outputSchema']) walk(clasify[key], clasify[key]);
   assert.ok(maxima.length, 'clasify score criteria declare a maximum');
   return Math.max(...maxima);
 }
@@ -64,8 +75,8 @@ async function literalValues(call, provider, questions) {
     assert.ok(first.answers && packet, JSON.stringify(first));
     checks.push(['literal.wire', provider.sent.length === before + 1 && same(packet.state, content) && same(Object.values(packet.questions), Object.values(questions)) && provider.sent.at(-1).headers['typesafe-danger-zone-long-context'] === 'true' && packet.model === query.model, packet]);
     checks.push(['literal.typedAnswers', first.answers.fact.noul === 0.9 && first.answers.route.choice === 'allowed' && first.answers.strength.score === 2 && same(first.answers.strength.legend['2'], questions.strength.criteria[2]), first]);
-    const cached = data(await call(query));
-    checks.push(['literal.cache', provider.sent.length === before + 1 && cached.replayed === true && same(cached.answers, first.answers), cached]);
+    const repeated = data(await call(query));
+    checks.push(['literal.fresh', provider.sent.length === before + 2 && repeated.replayed !== true && same(repeated.answers, first.answers), repeated]);
   }
   return checks;
 }
@@ -125,10 +136,10 @@ async function imageChecks(ctx, surface, provider) {
     ['image.box', same(first.answers.object.box, { top: 0.1, bottom: 0.9, left: 0.2, right: 0.8 }) && first.answers.object.confidence === null && !JSON.stringify(first).includes(PNG.toString('base64')), first.answers]];
   const before = provider.sent.length;
   const repeated = data(await ctx.call(ctx.q(query), surface));
-  checks.push(['image.cache', provider.sent.length === before && repeated.replayed === true && repeated.assets.screen.snapshot === asset.snapshot, repeated.assets]);
+  checks.push(['image.fresh', provider.sent.length === before + 1 && repeated.replayed !== true && repeated.assets.screen.snapshot === asset.snapshot, repeated.assets]);
   fs.appendFileSync(file, Buffer.from([0]));
   const changed = data(await ctx.call(ctx.q(query), surface));
-  checks.push(['image.mutation', provider.sent.length === before + 1 && changed.assets.screen.snapshot !== asset.snapshot && fs.readFileSync(asset.path).equals(PNG), changed.assets]);
+  checks.push(['image.mutation', provider.sent.length === before + 2 && changed.assets.screen.snapshot !== asset.snapshot && fs.readFileSync(asset.path).equals(PNG), changed.assets]);
   fs.rmSync(file);
   return checks;
 }

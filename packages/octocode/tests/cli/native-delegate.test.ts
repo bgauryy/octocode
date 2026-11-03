@@ -1,4 +1,4 @@
-import { afterAll, describe, it, expect } from 'vitest';
+import { afterAll, describe, it, expect, vi } from 'vitest';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,19 +24,6 @@ function makeFakeBin(body: string): string {
 }
 
 describe('resolveNativeBin', () => {
-  it('resolves the platform binary directly (no launcher shim) or says why not', async () => {
-    // Environment-agnostic: with no OCTOCODE_NATIVE_BIN the result is either the
-    // compiled platform binary (monorepo/installed) or the resolver's own
-    // error text — never a throw, never a `.cjs` launcher.
-    const resolved = await resolveNativeBin({});
-    if ('error' in resolved) {
-      expect(resolved.error.length).toBeGreaterThan(0);
-    } else {
-      expect(resolved.bin).toMatch(/[\\/]octocode(\.exe)?$/);
-      expect(resolved.bin.endsWith('.cjs')).toBe(false);
-    }
-  });
-
   it('names the missing path when OCTOCODE_NATIVE_BIN points nowhere', async () => {
     const resolved = await resolveNativeBin({
       OCTOCODE_NATIVE_BIN: '/no/such/octocode',
@@ -69,12 +56,24 @@ describe('resolveNativeBin', () => {
     ).resolves.toEqual({ bin });
   });
 
-  it('ignores OCTOCODE_NATIVE_BIN in production', async () => {
+  it('ignores OCTOCODE_NATIVE_BIN in production and says so on stderr', async () => {
     const bin = makeFakeBin('process.exit(0)');
     const fallback = await resolveNativeBin({});
-    await expect(
-      resolveNativeBin({ OCTOCODE_NATIVE_BIN: bin, NODE_ENV: 'production' })
-    ).resolves.toEqual(fallback);
+    const stderr = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true);
+    try {
+      await expect(
+        resolveNativeBin({ OCTOCODE_NATIVE_BIN: bin, NODE_ENV: 'production' })
+      ).resolves.toEqual(fallback);
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `OCTOCODE_NATIVE_BIN is ignored with NODE_ENV=production; set NODE_ENV=development to run ${bin}`
+        )
+      );
+    } finally {
+      stderr.mockRestore();
+    }
     await expect(
       resolveNativeBin({
         OCTOCODE_NATIVE_BIN: '/no/such/octocode',

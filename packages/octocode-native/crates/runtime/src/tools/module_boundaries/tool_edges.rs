@@ -31,8 +31,8 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
     &[
         ("bounded_process", "bounded subprocess runner"),
         (
-            "declarations_cache",
-            "single-file declaration extraction cache",
+            "declarations",
+            "request-owned single-file declaration facts",
         ),
         (
             "empty_walk",
@@ -41,7 +41,7 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
         ("gh_shared", "GitHub failure, paging and history helpers"),
         (
             "judgment",
-            "the one classification evaluator: provider client, judgment cache, single flight, accounting",
+            "the one classification evaluator: provider client, request-owned single flight, accounting",
         ),
         ("line_spans", "line-span arithmetic"),
         ("match_keys", "JSON/TOML key matching"),
@@ -63,7 +63,7 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
         // Reads empty_walk's walk and globs.
         ("ast_rule", "AST rule parsing shared by the ast tools"),
         ("leads", "follow-up queries one tool offers into another"),
-        ("page_memo", "page memoization"),
+        ("page_memo", "results kept for continuation pages"),
         (
             "selection",
             "bounded relevance ordering for local search files and fetch windows, judged through the judgment evaluator",
@@ -72,12 +72,12 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
             "source_capture",
             "one complete source selection captured through the authorized readers as a classification state",
         ),
-        // Plans over declarations_cache's outlines.
+        // Plans over declarations's outlines.
         (
             "source_sections",
             "source-coordinate section planning shared by localFetch and clasify",
         ),
-        // Reads source's bounded reads and declarations_cache's parse.
+        // Reads source's bounded reads and declarations's parse.
         (
             "test_code",
             "the one test-code rule (paths, Rust mounts, cfg(test) lines) every local search scopes by",

@@ -1,6 +1,7 @@
 use super::*;
 use octocode_contract_types::ErrorCode;
 use serde_json::json;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use wiremock::{
     Mock, MockServer, Request, ResponseTemplate,
@@ -17,14 +18,13 @@ fn evaluator(server: &MockServer) -> Evaluator {
         1,
         4,
         None,
-        None,
     )
 }
 
 fn evaluation_budget(evaluator: &Evaluator) -> RequestBudget {
     evaluator.budget(
         Instant::now() + Duration::from_secs(10),
-        tokio_util::sync::CancellationToken::new(),
+        octocode_io::cancellation::Cancellation::new(),
     )
 }
 
@@ -41,6 +41,7 @@ fn response(request: &Request) -> ResponseTemplate {
 }
 
 mod media;
+mod shared;
 mod usage;
 
 #[tokio::test]

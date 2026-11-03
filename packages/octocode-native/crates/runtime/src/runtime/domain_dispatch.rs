@@ -2,7 +2,7 @@
 mod finalize;
 mod panic_site;
 mod source_reader;
-use super::{dispatch, github, github_cache::GitHubContentCache};
+use super::{dispatch, github};
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::tools::lsp_search::lsp_search_query;
 use crate::{
@@ -25,7 +25,6 @@ pub(crate) struct DomainDispatcher {
     pub paths: Arc<PathPolicy>,
     pub security: Arc<ContentSecurity>,
     pub(super) github_services: Arc<OnceLock<Result<github::GitHubServices, ProviderError>>>,
-    pub(super) github_cache: GitHubContentCache,
     pub(super) github_access: github::ResponseAccess,
     pub config: Arc<ConfigOutput>,
     /// Internal limits: the runtime's code constants.
@@ -33,16 +32,14 @@ pub(crate) struct DomainDispatcher {
     pub home: PathBuf,
     pub handle: tokio::runtime::Handle,
     pub lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
-    pub(crate) local_views: Arc<crate::security::scan::SanitizedViewMemo>,
-    pub(crate) source_views: Arc<crate::tools::source_view::ViewCache>,
     pub lsp_execution_config: Arc<LspExecutionConfig>,
+    pub lsp_answers: Arc<crate::tools::lsp_search::ContinuationAnswers>,
+    pub graph_rows: Arc<crate::tools::ast_graph::store::SavedRows>,
     pub availability: Arc<crate::execution::availability::ToolAvailability>,
     /// Provider readiness and an enabled goals surface, independent of the
     /// public clasify tool's availability.
     pub(crate) selection_available: bool,
     pub(crate) evaluator: crate::tools::judgment::Evaluator,
-    /// Registry answers for artifactSearch under the runtime's storage policy.
-    pub(crate) artifact_cache: Arc<crate::providers::artifact::ArtifactCache>,
 }
 
 #[cfg(test)]
@@ -57,13 +54,7 @@ impl DomainDispatcher {
     fn github_services(&self) -> Result<&github::GitHubServices, &ProviderError> {
         self.github_services
             .get_or_init(|| {
-                github::GitHubServices::new(
-                    self.config.clone(),
-                    &self.limits,
-                    self.home.clone(),
-                    self.github_cache.clone(),
-                    self.source_views.clone(),
-                )
+                github::GitHubServices::new(self.config.clone(), &self.limits, self.home.clone())
             })
             .as_ref()
     }
@@ -74,7 +65,7 @@ impl DomainDispatcher {
     ) -> Result<String, ProviderError> {
         self.github_services()
             .map_err(Clone::clone)?
-            .response_identity(context, &self.handle)
+            .response_identity(context, &self.handle, &self.github_access)
     }
 
     pub(super) fn selection_runtime(
@@ -158,7 +149,6 @@ impl DomainDispatcher {
             deadline: context.deadline,
             cancellation: context.cancellation.clone(),
             allow_private_registry: self.config.resolved.network.allow_private_registry,
-            cache: Some(&self.artifact_cache),
             timeout: self.limits.network_timeout,
             max_retries: self.limits.max_retries,
             tags: tags
@@ -216,6 +206,7 @@ impl DomainDispatcher {
                     &self.paths,
                     &self.lsp_execution_config,
                     local_response_window(ToolId::LspSearch, context, self.limits.auto_page_chars),
+                    &self.lsp_answers,
                 ),
             )
             .await?
@@ -273,10 +264,8 @@ impl DomainDispatcher {
         // the runtime context ([`Self::execute`]): no further thread hop.
         // lspSearch leads offered by local tools probe the runtime's resolved
         // server settings, not the bare process env.
-        let result = crate::tools::leads::lsp::with_lead_discovery(
-            lsp.lead_discovery(&self.paths),
-            lsp.lead_cache.clone(),
-            || {
+        let result =
+            crate::tools::leads::lsp::with_lead_discovery(lsp.lead_discovery(&self.paths), || {
                 dispatch::execute_local(
                     tool,
                     query,
@@ -290,13 +279,11 @@ impl DomainDispatcher {
                             .env_value(crate::config::environment::OCTOCODE_CARGO),
                         paths: &self.paths,
                         security: &self.security,
-                        views: &self.local_views,
-                        source_views: &self.source_views,
                         selection: Some(&selection),
+                        graph_rows: Some(&self.graph_rows),
                     },
                 )
-            },
-        )?;
+            })?;
         // Start a language server in the background so a following
         // lspSearch finds a warm pooled client: for the file an offered
         // lspSearch call names, or (opt-in) the file a read or search names.
@@ -356,7 +343,7 @@ fn local_response_window(
     context: &ExecutionContext,
     auto_page_chars: usize,
 ) -> Option<usize> {
-    let window = if matches!(tool, ToolId::LocalFetch | ToolId::GraphQuery) {
+    let window = if tool.pages_by_row_window() {
         context.row_page_chars(auto_page_chars)
     } else {
         auto_page_chars

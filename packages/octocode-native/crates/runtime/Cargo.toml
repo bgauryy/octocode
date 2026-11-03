@@ -31,6 +31,11 @@ harness = false
 name = "output_stages"
 harness = false
 
+# Complete recorded envelopes: validation throughput with no provider or I/O in the loop.
+[[bench]]
+name = "contract_layout"
+harness = false
+
 [features]
 # Dev-loop feature unification, enabled by `build:dev` and `test:rust` but never
 # by release builds. wiremock and tempfile (dev-dependencies) turn these features
@@ -41,7 +46,7 @@ harness = false
 # `octocode-engine/test-hooks` mirrors the dev-dependency below: without it the
 # engine (and everything above it) compiled under a second hash on every switch
 # between `build:dev` and `test:rust`. It adds one thread-local read per scan.
-dev-unify = ["dep:hyper", "dep:hyper-util", "dep:bitflags", "dep:fastrand", "dep:slab", "tokio-util/codec", "octocode-engine/test-hooks", "octocode-github/test-support"]
+dev-unify = ["dep:hyper", "dep:hyper-util", "dep:bitflags", "dep:fastrand", "dep:slab", "dep:tokio-util", "tokio-util/codec", "octocode-engine/test-hooks", "octocode-github/test-support"]
 
 [dependencies]
 octocode-io = { path = "../io" }
@@ -54,7 +59,6 @@ regex = { workspace = true }
 regress = "0.12"
 url = { workspace = true }
 base64 = { workspace = true }
-sha2 = { workspace = true }
 getrandom = { workspace = true }
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
 reqwest = { workspace = true }
@@ -88,13 +92,15 @@ zune-png = "0.5"
 octocode-engine = { path = "../engine" }
 octocode-github = { path = "../github" }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
-tokio-util = { workspace = true }
+# Only for `dev-unify`: request cancellation is `octocode_io::cancellation`.
+tokio-util = { workspace = true, optional = true }
 
 [build-dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+sha2 = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 octocode-engine = { path = "../engine", features = ["test-hooks"] }
 octocode-github = { path = "../github", features = ["test-support"] }
@@ -122,7 +128,7 @@ workspace = true
 
 # These exist only to unify features under `dev-unify`; no code uses them.
 [package.metadata.cargo-shear]
-ignored = ["hyper", "hyper-util", "bitflags", "fastrand", "slab"]
+ignored = ["hyper", "hyper-util", "bitflags", "fastrand", "slab", "tokio-util"]
 # build.rs mounts build/{config,tool}_gen.rs by #[path]; their child modules
 # resolve from build/, which cargo-shear does not follow.
 ignored-paths = ["build/*.rs"]

@@ -52,7 +52,6 @@ async fn retries_transient_failures_once_including_request_timeout() {
                 max_attempts: 2,
                 base_delay: Duration::from_millis(1),
                 max_retry_after: Duration::from_secs(1),
-                max_rate_limit_wait: Duration::from_secs(1),
             },
             GitHubBudget::relaxed(),
         )

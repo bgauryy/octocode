@@ -1,7 +1,7 @@
 // Compare evidence and executable requests; independent issued handles and
 // retention timestamps are metadata, while source identities remain evidence.
 import { contract } from '../contract.mjs';
-import { canon, leadsIn, mapDeclared } from './calls.mjs';
+import { canon, graphInput, leadsIn, mapDeclared } from './calls.mjs';
 import { dataOf, rowsOf } from './driver.mjs';
 const EXIT = { invalidInput: 2, notFound: 3, authentication: 4, permission: 4, execution: 5, rateLimited: 7 };
 
@@ -52,6 +52,10 @@ export function firstError(json) {
 const isCloneCompletion = (value, path, tool) => tool === 'ghCloneRepo' && path.length === 5
   && path[0] === 'results' && path[2] === 'data' && path[3] === 'location' && path[4] === 'clonedAt'
   && typeof value === 'string' && Number.isFinite(Date.parse(value));
+// Every explicit graphBuild publishes its own snapshot, so the id a build
+// receipt names (and any lead's graph pin, see graphInput) is per call; counts and linkage are the evidence.
+const isBuiltSnapshotId = (value, path, tool) => tool === 'graphBuild' && path.length === 4
+  && path[0] === 'results' && path[2] === 'data' && path[3] === 'id' && typeof value === 'string';
 
 export function parityView(json, tool) {
   const schema = contract.tools.find(entry => entry.name === tool)?.outputSchema;
@@ -59,11 +63,14 @@ export function parityView(json, tool) {
   return mapDeclared(json, schema, (value, path) => {
     const call = calls.get(JSON.stringify(path));
     if (call) {
-      return call.kind === 'continue' ? { kind: call.kind, tool: call.tool, input: { cursor: '<issued>' } } : value;
+      if (call.kind === 'continue') return { kind: call.kind, tool: call.tool, input: { cursor: '<issued>' } };
+      const input = graphInput(value.input);
+      return input === value.input ? value : { ...value, input };
     }
     if (path.at(-1) === 'hints') return undefined;
     if (path.at(-1) === 'expiresAt') return '<retention deadline>';
     if (isCloneCompletion(value, path, tool)) return '<per-call completion>';
+    if (isBuiltSnapshotId(value, path, tool)) return '<per-build snapshot>';
     return value;
   });
 }

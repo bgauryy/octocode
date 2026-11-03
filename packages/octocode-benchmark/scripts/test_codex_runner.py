@@ -54,6 +54,17 @@ class CodexRunnerTests(unittest.TestCase):
         self.assertTrue(has_classification({'properties':{'queries':{'items':{'properties':{'classification':{'type':'object'}}}}}}))
         self.assertFalse(has_classification({'description':'classifiers are optional'}))
         self.assertFalse(has_classification({'properties':{'queries':{'items':{'properties':{'goals':{'type':'array'}}}}}}))
+    def test_shared_schema_gate_follows_only_reachable_definitions(self):
+        root = {'$defs': {
+            'reader': {'properties': {'classification': {'type': 'object'}}},
+            'alias': {'$ref': '#/$defs/reader'},
+            'cycle': {'$ref': '#/$defs/cycle'},
+        }}
+        self.assertTrue(has_classification({'$ref': '#/$defs/alias'}, root))
+        self.assertFalse(has_classification({'$ref': '#/$defs/cycle'}, root))
+        self.assertFalse(has_classification({'$ref': '#/$defs/missing'}, root))
+        self.assertFalse(has_classification(root))
+        self.assertFalse(has_classification({'default': root['$defs']['reader']}))
     def test_clasify_and_reader_classifiers_need_a_credential_independent_of_beta(self):
         inherited = {'OCTOCODE_CLASSIFICATION_API': 'test-credential'}
         for beta, expected in [('false', (True, True)), ('true', (True, True))]:

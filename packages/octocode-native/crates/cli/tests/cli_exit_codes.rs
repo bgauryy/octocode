@@ -14,6 +14,22 @@ fn run(mut command: Command, tool: &str, input: &Value) -> Output {
     command.args([tool, &input.to_string()]).output().unwrap()
 }
 
+fn run_json(mut command: Command, tool: &str, input: &Value) -> Output {
+    command
+        .args([tool, "--json", &input.to_string()])
+        .output()
+        .unwrap()
+}
+
+fn json_output(output: &Output) -> Value {
+    serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("JSON output: {error}; {output:?}"))
+}
+
+fn first_data(output: &Output) -> Value {
+    json_output(output)["results"][0]["data"].clone()
+}
+
 fn assert_exit(output: &Output, expected: i32) {
     assert_eq!(
         output.status.code(),
@@ -124,6 +140,62 @@ fn local_rows_exit_by_outcome() {
 }
 
 #[test]
+fn invalid_provider_configuration_uses_the_one_config_code() {
+    let workspace = Workspace::new();
+    let mut command = workspace.cli();
+    command
+        .env("OCTOCODE_STORAGE_MODE", "persistent")
+        .env("GITHUB_API_URL", "https://user:pass@example.com/api/v3");
+    let output = run_json(
+        command,
+        "ghCloneRepo",
+        &json!({"queries":[{"owner":"a","repo":"b"}]}),
+    );
+    assert_exit(&output, 5);
+    assert_eq!(first_data(&output)["errorCode"], "config");
+}
+
+#[test]
+fn source_size_gaps_share_the_file_too_large_reason() {
+    let workspace = Workspace::new();
+    let utf16 = workspace.workspace.join("large-utf16.txt");
+    let mut head = vec![0xff, 0xfe];
+    for unit in "a".repeat(8192).encode_utf16() {
+        head.extend(unit.to_le_bytes());
+    }
+    std::fs::write(&utf16, head).expect("UTF-16 text sample");
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&utf16)
+        .expect("open UTF-16 source")
+        .set_len(10 * 1024 * 1024 + 2)
+        .expect("grow UTF-16 source past the whole-file decode guard");
+    let fetched = run_json(
+        workspace.cli(),
+        "localFetch",
+        &json!({"queries":[fetch(&utf16.to_string_lossy())]}),
+    );
+    assert_exit(&fetched, 5);
+    let data = first_data(&fetched);
+    assert_eq!(data["errorCode"], "fileTooLarge", "{data}");
+    assert_eq!(data["partialReasons"], json!(["fileTooLarge"]), "{data}");
+
+    let searched = workspace.workspace.join("oversize-search.txt");
+    std::fs::File::create(&searched)
+        .expect("create search source")
+        .set_len(20 * 1024 * 1024 + 1)
+        .expect("grow search source past the multiline ceiling");
+    let output = run_json(
+        workspace.cli(),
+        "localSearch",
+        &json!({"queries":[{"path":searched,"matchString":["needle"],"multiline":"on"}]}),
+    );
+    assert_exit(&output, 1);
+    let data = first_data(&output);
+    assert_eq!(data["partialReasons"], json!(["fileTooLarge"]), "{data}");
+}
+
+#[test]
 fn cli_tool_executes_despite_mcp_local_and_tool_filters() {
     let workspace = Workspace::new();
     let source = workspace.write("source.txt", "verified needle\n");
@@ -160,8 +232,8 @@ async fn github(status: u16, headers: &[(&str, &str)]) -> (Workspace, MockServer
         .env("GITHUB_API_URL", format!("{}/api/v3", server.uri()))
         .env("GITHUB_TOKEN", &workspace.token);
     let input = json!({"queries":[{"owner":"a","repo":"b","path":"x.rs",
-        "ref":"0123456789abcdef0123456789abcdef01234567","refresh":true}]});
-    let output = tokio::task::spawn_blocking(move || run(command, "ghGetFileContent", &input))
+        "ref":"0123456789abcdef0123456789abcdef01234567"}]});
+    let output = tokio::task::spawn_blocking(move || run_json(command, "ghGetFileContent", &input))
         .await
         .unwrap();
     (workspace, server, output)
@@ -171,6 +243,9 @@ async fn github(status: u16, headers: &[(&str, &str)]) -> (Workspace, MockServer
 async fn github_failures_exit_by_failure_kind() {
     assert_exit(&github(404, &[]).await.2, 3);
     assert_exit(&github(401, &[]).await.2, 4);
+    let denied = github(403, &[]).await;
+    assert_exit(&denied.2, 4);
+    assert_eq!(first_data(&denied.2)["errorCode"], "permissionDenied");
     let limited = [
         ("x-ratelimit-remaining", "0"),
         ("x-ratelimit-reset", "4102444800"),

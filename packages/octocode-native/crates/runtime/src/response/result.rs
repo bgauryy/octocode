@@ -1,66 +1,123 @@
 //! Tool-owned diagnostics remain separate from public domain data, and the
 //! one builder of executable follow-up calls.
+mod channel;
 mod error;
+mod typed_row;
+pub(crate) use channel::insert_next;
 pub use error::{FailureKind, ToolError};
 pub(crate) use error::{STALE_SNAPSHOT_ERROR, failure_kind, missing_path_lead};
 use serde::Serialize;
 use serde_json::Value;
+pub(crate) use typed_row::{edited_query, query_row, query_value, wire_query, with_changes};
 
 use crate::id::ToolId;
+use octocode_contract_types::ToolQuery;
 
 /// An explicit follow-up: saved work or a fresh related request.
+///
+/// The call is complete when constructed. Debug and test builds also check
+/// it there against its tool's query contract, through the same check
+/// publication applies ([`crate::response::continuations::checked_input`]),
+/// and panic at the constructing call site: a test that builds a bad call
+/// fails at its source instead of failing whichever tool call publishes it.
+/// Release builds skip the check; publication still applies it.
 #[must_use]
 pub(crate) struct Continuation {
     tool: ToolId,
-    input: Value,
-    kind: ContinuationKind,
-}
-
-#[derive(Clone, Copy)]
-enum ContinuationKind {
-    Continue,
-    Related,
+    call: Value,
 }
 
 impl Continuation {
+    #[track_caller]
     pub fn continued(tool: ToolId, row: Value) -> Self {
         Self::continued_input(tool, serde_json::json!({"queries": [row]}))
     }
 
+    #[track_caller]
     pub fn related(tool: ToolId, row: Value) -> Self {
         Self::related_input(tool, serde_json::json!({"queries": [row]}))
     }
 
-    pub fn continued_input(tool: ToolId, input: Value) -> Self {
-        Self {
-            tool,
-            input,
-            kind: ContinuationKind::Continue,
-        }
+    /// A continuation of saved work: `query` is the row to run, its tool the
+    /// one the generated [`ToolQuery`] variant names.
+    #[track_caller]
+    pub fn continued_query(query: impl Into<ToolQuery>) -> Self {
+        Self::from_query(query.into(), false)
     }
 
+    /// A fresh related request: `query` is the row to run, its tool the one
+    /// the generated [`ToolQuery`] variant names.
+    #[track_caller]
+    pub fn related_query(query: impl Into<ToolQuery>) -> Self {
+        Self::from_query(query.into(), true)
+    }
+
+    #[track_caller]
+    fn from_query(query: ToolQuery, related: bool) -> Self {
+        let Some(tool) = ToolId::from_name(query.tool_name()) else {
+            unreachable!("a generated ToolQuery variant names a runtime tool");
+        };
+        let row = match query.to_value() {
+            Ok(row) => row,
+            Err(error) => unreachable!("a generated query is plain data: {error}"),
+        };
+        Self::new(tool, serde_json::json!({"queries": [row]}), related)
+    }
+
+    #[track_caller]
+    pub fn continued_input(tool: ToolId, input: Value) -> Self {
+        Self::new(tool, input, false)
+    }
+
+    #[track_caller]
     pub fn related_input(tool: ToolId, input: Value) -> Self {
-        Self {
-            tool,
-            input,
-            kind: ContinuationKind::Related,
-        }
+        Self::new(tool, input, true)
     }
 
     /// The call: its input's rows without the fields that hold their
     /// contract default ([`without_defaults`]). A related call is a fresh
     /// public request, so its rows also drop the tool's private progress
     /// ([`fresh_query_row`]); only continued work keeps it, for its cursor.
-    pub fn build(self) -> Value {
-        let input = match self.kind {
-            ContinuationKind::Continue => self.input,
-            ContinuationKind::Related => without_private_progress(self.tool, self.input),
+    #[track_caller]
+    fn new(tool: ToolId, input: Value, related: bool) -> Self {
+        let input = if related {
+            without_private_progress(tool, input)
+        } else {
+            input
         };
-        serde_json::json!({
-            "kind": match self.kind { ContinuationKind::Continue => "continue", ContinuationKind::Related => "related" },
-            "tool": self.tool.as_str(),
-            "input": without_defaults(self.tool, input),
-        })
+        let input = without_defaults(tool, input);
+        #[cfg(debug_assertions)]
+        {
+            let checked = crate::response::continuations::checked_input(tool, related, &input);
+            debug_assert!(
+                checked.is_ok(),
+                "{} call built at {} breaks its query contract: {}",
+                tool.as_str(),
+                std::panic::Location::caller(),
+                checked
+                    .as_ref()
+                    .err()
+                    .and_then(|error| serde_json::to_string(&error.issues).ok())
+                    .unwrap_or_default(),
+            );
+        }
+        Self {
+            tool,
+            call: serde_json::json!({
+                "kind": if related { "related" } else { "continue" },
+                "tool": tool.as_str(),
+                "input": input,
+            }),
+        }
+    }
+
+    /// The tool this call runs.
+    pub fn tool(&self) -> ToolId {
+        self.tool
+    }
+
+    pub fn build(self) -> Value {
+        self.call
     }
 }
 
@@ -111,7 +168,10 @@ pub(crate) fn rows_per_call(tool: ToolId) -> usize {
             let input = &contract["inputSchema"];
             crate::contracts::property_schemas(input, &input["$defs"], "queries")
                 .into_iter()
-                .filter_map(|schema| schema["maxItems"].as_u64())
+                .filter_map(|schema| {
+                    crate::contracts::schema_keyword(schema, &input["$defs"], "maxItems")
+                        .and_then(Value::as_u64)
+                })
                 .min()
         })
         .and_then(|rows| usize::try_from(rows).ok())
@@ -126,11 +186,6 @@ pub(crate) fn continuation_row(call: &Value) -> Option<&Value> {
     call.get("input")?.get("queries")?.get(0)
 }
 
-/// The first row of a continuation call (`input.queries[0]`), mutable.
-pub(crate) fn continuation_row_mut(call: &mut Value) -> Option<&mut Value> {
-    call.get_mut("input")?.get_mut("queries")?.get_mut(0)
-}
-
 /// Explicit executable calls are never inferred from a source identity object.
 #[must_use]
 pub(crate) fn is_call(value: &Value) -> bool {
@@ -139,21 +194,6 @@ pub(crate) fn is_call(value: &Value) -> bool {
         Some("continue" | "related")
     ) && value.get("tool").is_some_and(Value::is_string)
         && value.get("input").is_some_and(Value::is_object)
-}
-
-/// `row` with `changes` applied: each change sets its field, and a `null`
-/// change drops it.
-pub(crate) fn with_changes(mut row: Value, changes: &Value) -> Value {
-    if let (Some(to), Some(from)) = (row.as_object_mut(), changes.as_object()) {
-        for (field, value) in from {
-            if value.is_null() {
-                to.shift_remove(field);
-            } else {
-                to.insert(field.clone(), value.clone());
-            }
-        }
-    }
-    row
 }
 
 /// Canonical public guidance keys.
@@ -230,6 +270,7 @@ pub(crate) fn fresh_query_row(tool: ToolId, row: &Value) -> Value {
 }
 
 /// A new request over the same scope; private progress belongs only to the saved work.
+#[track_caller]
 pub(crate) fn restart_query(tool: ToolId, row: &Value) -> Value {
     Continuation::related(tool, row.clone()).build()
 }
@@ -244,24 +285,6 @@ pub(crate) fn stale_snapshot(restart: Value) -> Value {
         attach_calls(&mut data, *calls);
     }
     data
-}
-
-/// A generated query as JSON, every field as written. A generated query is
-/// plain data, so serializing it cannot fail.
-pub(crate) fn query_value(query: &impl Serialize) -> Value {
-    serde_json::to_value(query).unwrap_or_default()
-}
-
-/// A typed query as a continuation row: every field it sets, except `omit`.
-pub(crate) fn query_row(query: &impl Serialize, omit: &[&str]) -> Value {
-    let mut row = query_value(query);
-    remove_nulls(&mut row);
-    if let Some(row) = row.as_object_mut() {
-        for key in omit {
-            row.remove(*key);
-        }
-    }
-    row
 }
 
 /// Drop `null` members from every object in `value`, including objects nested

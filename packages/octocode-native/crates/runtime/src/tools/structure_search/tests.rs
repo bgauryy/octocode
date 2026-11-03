@@ -75,6 +75,12 @@ fn related<'a>(out: &'a Value, tool: &str) -> &'a Value {
         .unwrap_or(&Value::Null)
 }
 
+/// The `files` query of the workspace root, as a listing continuation moves it.
+fn files_query() -> octocode_contract_types::StructureSearchQueryFiles {
+    serde_json::from_value(json!({"operation":"files","path":"."}))
+        .expect("a files query over the root")
+}
+
 fn paths(out: &Value) -> Vec<String> {
     listed(out)
         .iter()

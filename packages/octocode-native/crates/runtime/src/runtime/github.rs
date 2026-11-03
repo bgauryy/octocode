@@ -1,11 +1,11 @@
 //! One pooled HTTP client; credential acquisition stays inside admitted blocking work.
-use super::{FailureKind, github_cache::GitHubContentCache};
+use super::FailureKind;
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::{
     config::ConfigOutput,
     id::ToolId,
     policy::path::PathPolicy,
-    providers::github::{AuthMode, Authentication},
+    providers::github::{Authentication, CallSelection},
     response::outcome::DomainResult,
     security::ContentSecurity,
     tools::gh_clone_repo::SystemGit,
@@ -45,17 +45,9 @@ pub(super) struct GitHubServices {
     /// The automatic response page: file and patch pages are sized to fit
     /// it when the call names no `responseChars`.
     auto_page_chars: usize,
-    /// Sanitized full views of recently paged files (scoped to this runtime's
-    /// single security policy), so each `next.nextPage` skips a full rescan.
-    sanitized_views: Arc<crate::security::scan::SanitizedViewMemo>,
-    source_views: Arc<crate::tools::source_view::ViewCache>,
 }
 
 impl GitHubServices {
-    pub(super) fn clear_memory(&self) {
-        self.provider.transport.clear_metadata();
-    }
-
     pub(crate) fn capture_content(
         &self,
         query: &Value,
@@ -66,14 +58,13 @@ impl GitHubServices {
     ) -> Result<ContentResponse, ProviderError> {
         let mut request_context = self.request_context(context, handle, access)?;
         // GitHub's JSON content envelope includes base64 and metadata. The
-        // decoded bytes are checked separately, including cache hits.
+        // decoded bytes are checked separately.
         request_context.budget.max_body_bytes = max_bytes.saturating_mul(2);
         let request = ContentRequest {
             owner: query["owner"].as_str().unwrap_or_default().into(),
             repo: query["repo"].as_str().unwrap_or_default().into(),
             path: query["path"].as_str().unwrap_or_default().into(),
             reference: query["ref"].as_str().map(str::to_owned),
-            force_refresh: false,
         };
         let result = handle.block_on(self.provider.get_file_bytes(&request, &request_context));
         if result
@@ -81,7 +72,7 @@ impl GitHubServices {
             .is_err_and(|error| error.kind == ProviderErrorKind::Authentication)
             && context.github_credential.is_none()
         {
-            self.reject_credential(Some(&request_context));
+            self.reject_credential(access.selection(), Some(&request_context));
         }
         result
     }
@@ -90,8 +81,6 @@ impl GitHubServices {
         config: Arc<ConfigOutput>,
         limits: &crate::execution::RuntimeLimits,
         home: PathBuf,
-        cache: GitHubContentCache,
-        source_views: Arc<crate::tools::source_view::ViewCache>,
     ) -> Result<Self, ProviderError> {
         let endpoint =
             GitHubEndpoint::new(url::Url::parse(&config.resolved.github.api_url).map_err(
@@ -101,14 +90,12 @@ impl GitHubServices {
             endpoint,
             RetryPolicy {
                 max_attempts: limits.max_retries.saturating_add(1),
-                max_rate_limit_wait: limits.max_rate_limit_wait,
                 ..Default::default()
             },
             octocode_github::GitHubBudget::paced(limits.github_pacing),
         )?;
         transport.graphql_enabled = config.resolved.github.graphql_enabled;
-        // Same persistence switch as the response cache: cross-process
-        // rate-limit facts live under ~/.octocode/tmp/ratelimit.
+        // Cross-process rate-limit coordination follows the storage policy.
         transport.set_rate_limit_state_dir(
             crate::config::is_persistent_storage_enabled(&config.resolved)
                 .then(|| home.join("tmp").join("ratelimit")),
@@ -117,13 +104,11 @@ impl GitHubServices {
         let credentials = Authentication::new(config);
         Ok(Self {
             credentials,
-            provider: GitHubProvider::new(transport, cache),
+            provider: GitHubProvider::new(transport),
             timeout: limits.network_timeout,
             home,
             git,
             auto_page_chars: limits.auto_page_chars,
-            sanitized_views: Arc::new(crate::security::scan::SanitizedViewMemo::new()),
-            source_views,
         })
     }
 
@@ -156,6 +141,9 @@ impl GitHubServices {
             paths,
             selection,
         ))?;
+        if let Ok(request) = &request_context {
+            access.collect(request);
+        }
         if result.failure == Some(FailureKind::Authentication) {
             if context.github_credential.is_some() {
                 // The host supplied this token: the host re-authenticates
@@ -163,7 +151,7 @@ impl GitHubServices {
                 result.data["hints"] = json!([REQUEST_TOKEN_AUTH_HINT]);
             } else {
                 // GitHub rejected the credential: the next row selects again without it.
-                self.reject_credential(request_context.as_ref().ok());
+                self.reject_credential(access.selection(), request_context.as_ref().ok());
             }
         }
         let anonymous = request_context
@@ -180,11 +168,14 @@ impl GitHubServices {
         handle: &tokio::runtime::Handle,
         access: &ResponseAccess,
     ) -> Result<RequestContext, ProviderError> {
-        handle.block_on(self.resolve_request(context, access))
+        handle
+            .block_on(self.resolve_request(context, access))
+            .map(|request| access.resume(request))
     }
 
-    fn reject_credential(&self, request: Option<&RequestContext>) {
-        self.credentials.reject(
+    fn reject_credential(&self, call: &CallSelection, request: Option<&RequestContext>) {
+        self.credentials.reject_shared(
+            call,
             self.provider.transport.endpoint().credential_host(),
             request.and_then(RequestContext::resolved_credential),
         );
@@ -198,11 +189,13 @@ impl GitHubServices {
         budget
     }
 
-    /// Read-only local auth inspection for an already saved response.
+    /// The identity a saved response is checked against: the call's own
+    /// credential once a row selected it, else a read-only inspection.
     pub(super) fn response_identity(
         &self,
         context: &ExecutionContext,
         handle: &tokio::runtime::Handle,
+        access: &ResponseAccess,
     ) -> Result<String, ProviderError> {
         let host = self.provider.transport.endpoint().credential_host();
         if let Some(credential) = &context.github_credential {
@@ -210,13 +203,14 @@ impl GitHubServices {
                 .identity()
                 .to_owned());
         }
-        handle.block_on(
-            self.credentials
-                .inspect_response_identity(host, &self.request_budget(context)),
-        )
+        handle.block_on(self.credentials.identity_shared(
+            access.selection(),
+            host,
+            &self.request_budget(context),
+        ))
     }
 
-    /// Resolve and record the exact credential used by every GitHub entry.
+    /// The call's credential, resolved by its first row and recorded for every entry.
     async fn resolve_request(
         &self,
         context: &ExecutionContext,
@@ -229,7 +223,7 @@ impl GitHubServices {
                 Some(credential) => Some(credential.clone()),
                 None => self
                     .credentials
-                    .resolve(host, AuthMode::Request, &budget)
+                    .resolve_shared(access.selection(), host, &budget)
                     .await?
                     .map(|selection| selection.credential),
             };

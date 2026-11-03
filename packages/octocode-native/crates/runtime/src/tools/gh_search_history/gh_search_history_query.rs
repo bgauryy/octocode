@@ -1,17 +1,33 @@
 //! Operation-independent projections of the generated canonical history query.
 use super::{GhSearchHistoryQuery, HistoryOperation};
-use crate::num::usize_of;
-use octocode_contract_types::DateRange;
+use crate::tools::variant_field::variant_field;
+use octocode_contract_types::{DateRange, GhSearchHistoryQueryPullRequest};
+use octocode_engine::num::saturating_usize;
 
+/// Binds `$row` to the query struct of every operation.
 macro_rules! each_query {
     ($query:expr, $row:ident => $body:expr) => {
-        match $query {
-            GhSearchHistoryQuery::PullRequest($row) => $body,
-            GhSearchHistoryQuery::Issue($row) => $body,
-            GhSearchHistoryQuery::CommitKeywords($row) => $body,
-            GhSearchHistoryQuery::Commit3($row) => $body,
-        }
+        variant_field!($query, each [
+            GhSearchHistoryQuery::PullRequest, GhSearchHistoryQuery::Issue,
+            GhSearchHistoryQuery::CommitKeywords, GhSearchHistoryQuery::Commit3,
+        ] $row => $body)
     };
+}
+
+/// Binds `$row` to the query struct of an operation that names its
+/// repository (all but pull requests, where it is optional); `$other`
+/// answers for pull requests.
+macro_rules! repo_query {
+    ($query:expr, $row:ident => $body:expr, else => $other:expr) => {
+        variant_field!($query, each [
+            GhSearchHistoryQuery::Issue, GhSearchHistoryQuery::CommitKeywords,
+            GhSearchHistoryQuery::Commit3,
+        ] $row => $body, else => $other)
+    };
+}
+
+fn pull_request(query: &GhSearchHistoryQuery) -> Option<&GhSearchHistoryQueryPullRequest> {
+    variant_field!(query, each [GhSearchHistoryQuery::PullRequest] row => Some(row), else => None)
 }
 pub(crate) fn operation(query: &GhSearchHistoryQuery) -> HistoryOperation {
     match query {
@@ -23,72 +39,44 @@ pub(crate) fn operation(query: &GhSearchHistoryQuery) -> HistoryOperation {
     }
 }
 pub(crate) fn owner(query: &GhSearchHistoryQuery) -> Option<&str> {
-    match query {
-        GhSearchHistoryQuery::PullRequest(query) => query.owner.as_deref().map(String::as_str),
-        GhSearchHistoryQuery::Issue(query) => Some(query.owner.as_str()),
-        GhSearchHistoryQuery::CommitKeywords(query) => Some(query.owner.as_str()),
-        GhSearchHistoryQuery::Commit3(query) => Some(query.owner.as_str()),
-    }
+    repo_query!(query, row => Some(row.owner.as_str()),
+        else => pull_request(query)?.owner.as_deref().map(String::as_str))
 }
 pub(crate) fn repo(query: &GhSearchHistoryQuery) -> Option<&str> {
-    match query {
-        GhSearchHistoryQuery::PullRequest(query) => query.repo.as_deref().map(String::as_str),
-        GhSearchHistoryQuery::Issue(query) => Some(query.repo.as_str()),
-        GhSearchHistoryQuery::CommitKeywords(query) => Some(query.repo.as_str()),
-        GhSearchHistoryQuery::Commit3(query) => Some(query.repo.as_str()),
-    }
+    repo_query!(query, row => Some(row.repo.as_str()),
+        else => pull_request(query)?.repo.as_deref().map(String::as_str))
 }
 pub(crate) fn keywords(query: &GhSearchHistoryQuery) -> Vec<&str> {
-    match query {
-        GhSearchHistoryQuery::PullRequest(query) => {
-            query.keywords.iter().map(|value| value.as_str()).collect()
-        }
-        GhSearchHistoryQuery::Issue(query) => {
-            query.keywords.iter().map(|value| value.as_str()).collect()
-        }
-        GhSearchHistoryQuery::CommitKeywords(query) => {
-            query.keywords.iter().map(|value| value.as_str()).collect()
-        }
-        GhSearchHistoryQuery::Commit3(_) => Vec::new(),
-    }
+    variant_field!(query, each [
+        GhSearchHistoryQuery::PullRequest, GhSearchHistoryQuery::Issue,
+        GhSearchHistoryQuery::CommitKeywords,
+    ] row => row.keywords.iter().map(|value| value.as_str()).collect(), else => Vec::new())
 }
 pub(crate) fn fields(query: &GhSearchHistoryQuery) -> Vec<String> {
     each_query!(query, row => row.fields.iter().map(ToString::to_string).collect())
 }
 pub(crate) fn page(query: &GhSearchHistoryQuery) -> Option<usize> {
-    each_query!(query, row => Some(usize_of(row.page)))
+    each_query!(query, row => Some(saturating_usize(row.page.get())))
 }
 /// Rows per page: the query's `limit`, its contract default when omitted.
 pub(crate) fn limit(query: &GhSearchHistoryQuery) -> usize {
-    each_query!(query, row => usize_of(row.limit))
+    each_query!(query, row => saturating_usize(row.limit.get()))
 }
 pub(crate) fn path(query: &GhSearchHistoryQuery) -> Option<&str> {
-    match query {
-        GhSearchHistoryQuery::Commit3(query) => query.path_prefix.as_deref().map(String::as_str),
-        _ => None,
-    }
+    variant_field!(query, each [GhSearchHistoryQuery::Commit3]
+        row => row.path_prefix.as_deref().map(String::as_str), else => None)
 }
 pub(crate) fn reference(query: &GhSearchHistoryQuery) -> Option<&str> {
-    match query {
-        GhSearchHistoryQuery::Commit3(query) => query.ref_.as_deref().map(String::as_str),
-        _ => None,
-    }
+    variant_field!(query, each [GhSearchHistoryQuery::Commit3]
+        row => row.ref_.as_deref().map(String::as_str), else => None)
 }
 pub(crate) fn committed_at(query: &GhSearchHistoryQuery) -> Option<&DateRange> {
-    match query {
-        GhSearchHistoryQuery::Commit3(query) => query.filters.as_ref()?.committed_at.as_ref(),
-        GhSearchHistoryQuery::CommitKeywords(query) => {
-            query.filters.as_ref()?.committed_at.as_ref()
-        }
-        _ => None,
-    }
+    variant_field!(query, each [GhSearchHistoryQuery::Commit3]
+        row => row.filters.as_ref()?.committed_at.as_ref(), else => None)
 }
 fn sort_value(query: &GhSearchHistoryQuery) -> Option<serde_json::Value> {
-    match query {
-        GhSearchHistoryQuery::PullRequest(query) => serde_json::to_value(query.sort.as_ref()?).ok(),
-        GhSearchHistoryQuery::Issue(query) => serde_json::to_value(query.sort.as_ref()?).ok(),
-        _ => None,
-    }
+    variant_field!(query, each [GhSearchHistoryQuery::PullRequest, GhSearchHistoryQuery::Issue]
+        row => serde_json::to_value(row.sort.as_ref()?).ok(), else => None)
 }
 pub(crate) fn sort(query: &GhSearchHistoryQuery) -> Option<String> {
     let value = sort_value(query)?;

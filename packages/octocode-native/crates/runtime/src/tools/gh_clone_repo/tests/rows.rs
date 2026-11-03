@@ -133,9 +133,9 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
     assert!(Path::new(path).is_file(), "{file}");
 }
 
-/// Replacing a checkout probes Git and reports the freshly checked-out size.
+/// Reusing a checkout probes Git, fetches nothing and reports its size.
 #[test]
-fn replacements_probe_git_and_report_the_checked_out_size() {
+fn reuse_probes_git_and_reports_the_checked_out_size() {
     let fixture = Fixture::shared();
     let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
@@ -160,6 +160,11 @@ fn replacements_probe_git_and_report_the_checked_out_size() {
     assert!(seen.iter().any(|request| request.contains("--version")));
     assert!(
         seen.iter()
+            .any(|request| request.contains("check checkout cleanliness"))
+    );
+    assert!(
+        !seen
+            .iter()
             .any(|request| request.contains("fetch requested commit"))
     );
 }
@@ -204,4 +209,23 @@ fn clone_timeout_defaults_to_the_runtime_network_limit() {
             .network_timeout,
         Duration::from_secs(9)
     );
+}
+
+/// `clonedAt` is the completion time of the fetch that made the checkout:
+/// a reuse reports the very time the fresh clone did, never the time the
+/// stage directory was created while the fetch was still running.
+#[test]
+fn reuse_reports_the_fresh_clones_completion_time() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let reused = clone_pinned(&fixture, &query(), &context).expect("reuse");
+    assert!(fresh.location.cloned_at.is_some());
+    assert_eq!(fresh.location.cloned_at, reused.location.cloned_at);
 }

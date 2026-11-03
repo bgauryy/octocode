@@ -1,10 +1,10 @@
-// The message-protocol cross-reference rules reach the public CLI and MCP server unchanged; store-protocol-rules.test.ts
-// and store-protocol.test.ts own the rules themselves.
+// The universal multipart contract reaches the public CLI and MCP server unchanged; store-protocol-rules.test.ts
+// checks opaque payloads do not trigger policy side effects.
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { answer, binary, decision, execFileSync, jsonCall, restate, task, tempWorkspace, withReasoning } from './helpers.ts';
+import { binary, execFileSync, jsonCall, tempWorkspace, withReasoning } from './helpers.ts';
 import type { JsonRecord } from './json-record.ts';
 
 function fixture(t: TestContext) {
@@ -16,29 +16,37 @@ function fixture(t: TestContext) {
   const inbox = (session: string) => call('inbox', {}, session).items;
   const mcp = (session: string, calls: JsonRecord[]) => {
     const frames = calls.map((params, index) => JSON.stringify({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params })).join('\n') + '\n';
-    const out = execFileSync(binary, ['mcp', '--tools', 'send_message,complete', '--workspace', workspace, '--database', database, '--session', session], { input: frames, encoding: 'utf8', timeout: 15000 });
+    const out = execFileSync(binary, ['mcp', '--tools', 'messages', '--workspace', workspace, '--database', database, '--session', session], { input: frames, encoding: 'utf8', timeout: 15000 });
     return out.trim().split('\n').map(line => JSON.parse(line));
   };
   return { call, alice, bob, carol, inbox, mcp };
 }
 
-// --- MCP parity ------------------------------------------------------------------------------------------------
-
-test('Given the MCP server, when cross-reference rules are broken, then the same errors surface and valid calls produce the same bodies', t => {
+test('MCP sends opaque structured parts and completes the exact correlated request', t => {
   const f = fixture(t);
-  const asked = f.call('send_message', { to: 'bob', task: task({ checkBack: true, informed: ['carol'] }) }, f.alice);
+  const opaque = { question: 'metadata only', informed: ['carol'], checkBack: true, default: 'invalid', leases: [999], evidence: [{ source: 'missing.md' }] };
+  const request = f.call('send_message', { to: f.bob, parts: [{ data: opaque }], replyRequired: true, contextId: 'mcp-context' }, f.alice);
   const text = (row: JsonRecord) => row.result.content[0].text;
   const rows = f.mcp(f.bob, [
-    { name: 'send_message', arguments: { to: 'alice', decision: decision({ default: 'mysql' }), reasoning: 'Verify the decision default rule over MCP' } },
-    { name: 'complete', arguments: { ...answer(asked.id, 'Fine'), reasoning: 'Verify the check-back gate over MCP' } },
-    { name: 'send_message', arguments: { to: 'alice', checkback: restate(asked.id), reasoning: 'Verify the check-back is accepted over MCP' } },
-    { name: 'complete', arguments: { ...answer(asked.id, 'Fine'), reasoning: 'Verify completion after check-back over MCP' } },
+    { name: 'messages', arguments: { type: 'complete', input: { message: request.id, outcome: 'completed', reply: [{ text: 'Reviewed over MCP' }] } } },
   ]);
-  assert.equal(rows[0].result.isError, true);
-  assert.match(text(rows[0]), /Decision default must be one of its options/);
+  assert.equal(rows[0].result.isError, undefined);
+  assert.deepEqual(JSON.parse(text(rows[0])), { completed: true, count: 1, id: JSON.parse(text(rows[0])).id, recipients: 1 });
+  const reply = f.inbox(f.alice).find((item: JsonRecord) => item.replyTo === request.id);
+  assert.ok(reply);
+  assert.deepEqual(reply.parts, [{ text: 'Reviewed over MCP' }]);
+  assert.equal(reply.contextId, 'mcp-context');
+  assert.equal(f.inbox(f.carol).length, 0, 'informed-shaped data does not route copies');
+  assert.deepEqual(f.inbox(f.bob), []);
+});
+
+test('MCP family schemas reject removed message-kind fields and accept explicit typed parts', t => {
+  const f = fixture(t);
+  const rows = f.mcp(f.alice, [
+    { name: 'messages', arguments: { type: 'send', input: { to: f.bob, parts: [{ text: 'valid' }], reasoning: 'Validate the public multipart contract' } } },
+    { name: 'messages', arguments: { type: 'send', input: { to: f.bob, question: 'removed field' } } },
+  ]);
+  assert.equal(rows[0].result.isError, undefined);
   assert.equal(rows[1].result.isError, true);
-  assert.match(text(rows[1]), /asks for a check-back/);
-  assert.equal(JSON.parse(text(rows[2])).recipients, 1);
-  assert.equal(JSON.parse(text(rows[3])).completed, true);
-  assert.equal(f.inbox(f.carol)[0].body, `BLUF\nRe task ${asked.id}: Review storage\nOutcome: done\nConclusion: Fine`);
+  assert.equal(f.inbox(f.bob).length, 1);
 });

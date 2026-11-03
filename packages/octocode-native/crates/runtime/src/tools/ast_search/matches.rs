@@ -1,11 +1,11 @@
 use crate::id::ToolId;
-use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::{execution::cancel::CancellationCheck, policy::path::PathPolicy};
 use exact_miss::{exact_miss, kind_broaden};
 use gaps::ScopeGaps;
 use groups::{group_files, rebuild_page};
-use memo::{SCANS, remember_scan, scan_key, shared_scan, stored_scan};
+use memo::{SCANS, fresh_scan, remember_scan, scan_key, stored_scan};
+use octocode_engine::num::saturating_u32;
 use octocode_engine::structural::{StructuralDemand, StructuralDetailedMatch};
 use qualified::qualified_miss;
 use render::{file_page, render_match_page};
@@ -39,7 +39,7 @@ fn match_price(
     m: &StructuralDetailedMatch,
     cancel: &dyn CancellationCheck,
 ) -> Result<u32, ToolError> {
-    Ok(u32_of_usize(row_chars(&match_row(q, m, cancel)?)))
+    Ok(saturating_u32(row_chars(&match_row(q, m, cancel)?)))
 }
 
 /// What a directory scan keeps of each match: a file view needs only the
@@ -84,7 +84,7 @@ fn run_match(
     let fresh = stored.is_none();
     let (scan, started) = match stored {
         Some(scan) => (scan, octocode_engine::stamp::settle_clock()),
-        None => shared_scan(q, &scope, paths, cancel, &key)?,
+        None => fresh_scan(q, &scope, paths, cancel)?,
     };
     let mut scope = scope;
     let grammars = compile_in_grammars(q, &scope, &scan);
@@ -132,7 +132,7 @@ fn run_match(
             // Counted and disclosed as the scan counts a file its limit cut.
             grouped.unevaluated_files = grouped
                 .unevaluated_files
-                .saturating_add(crate::num::u32_of_usize(incomplete.len()));
+                .saturating_add(saturating_u32(incomplete.len()));
             grouped
                 .diagnostics
                 .extend(incomplete.iter().flatten().map(diag));
@@ -196,6 +196,7 @@ fn run_match(
         && grouped.scanned_files > 0
         && !scan.truncated
         && q.scan_offset() == 0;
+    let hits = grouped.total_matches;
     let mut out = render_match_page(
         q,
         &scope,
@@ -208,6 +209,11 @@ fn run_match(
     )?;
     if let Some(qualified) = qualified {
         qualified.attach(&mut out);
+    }
+    if hits > 0
+        && let Some(hint) = exact_miss::fuller_form_hint(q, &scope)
+    {
+        crate::tools::leads::push_hint(&mut out, hint);
     }
     if exact_miss_scope {
         match exact_miss(q, &scope, paths, cancel) {
@@ -223,7 +229,7 @@ fn run_match(
         && !scan.untracked_ignore_dependencies
         && out["calls"]
             .as_object()
-            .is_some_and(|next| next.contains_key("nextPage") || next.contains_key("nextMatchPage"))
+            .is_some_and(|next| next.contains_key("nextPage"))
     {
         remember_scan((snapshot, key), &scope, &scan, started);
     }
@@ -263,7 +269,7 @@ mod discovery_freshness_tests;
 mod external_ignore_freshness_tests;
 
 #[cfg(test)]
-mod flight_tests;
+mod concurrent_scan_tests;
 
 #[cfg(test)]
 mod demand_tests;

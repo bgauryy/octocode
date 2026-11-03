@@ -1,5 +1,5 @@
 use super::*;
-use tokio_util::sync::CancellationToken;
+use octocode_io::cancellation::Cancellation;
 
 #[test]
 fn every_code_fragment_keeps_optional_provenance_and_evidence_qualifiers() {
@@ -15,13 +15,13 @@ fn every_code_fragment_keeps_optional_provenance_and_evidence_qualifiers() {
         &[None],
         crate::id::ToolId::GhSearchCode,
     )
-    .plan(1000, &CancellationToken::new())
+    .plan(1000, &Cancellation::new())
     .expect("valid plan");
     assert!(plan.total_pages > 1);
     let mut seen = Vec::new();
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &CancellationToken::new())
+            .build_page(page, &[None], &[], &Cancellation::new())
             .expect("valid build_page")
         {
             for file in row["data"]["files"].as_array().expect("files") {
@@ -235,6 +235,7 @@ fn rows_scope_preserves_dominant_context_with_complete_bounded_pages() {
         crate::id::ToolId::LocalSearch,
     );
     let mut seen = Vec::new();
+    let mut stats = Vec::new();
     assert!(pagination.total_pages > 1);
     for page in 0..pagination.total_pages {
         let (envelope, current) = paginate_rows(
@@ -253,14 +254,13 @@ fn rows_scope_preserves_dominant_context_with_complete_bounded_pages() {
         assert_eq!(current.total_pages, pagination.total_pages);
         assert_eq!(current.has_more, page + 1 < pagination.total_pages);
         for row in envelope["results"].as_array().unwrap() {
-            assert_eq!(
-                row["data"]["stats"],
-                structured["results"][0]["data"]["stats"]
-            );
+            // The row's dominant context is evidence: whole, on its first part only.
+            stats.extend(row["data"].get("stats").cloned());
             for file in row["data"]["files"].as_array().unwrap() {
                 seen.extend(file["matches"].as_array().unwrap().iter().cloned());
             }
         }
     }
     assert_eq!(seen, matches);
+    assert_eq!(stats, [structured["results"][0]["data"]["stats"].clone()]);
 }

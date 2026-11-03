@@ -78,9 +78,10 @@ fn candidate_mutation_stales_later_result_pages_even_when_rows_disappear() {
             super::super::render::plain_sizes,
         ),
     );
-    let next: LspSearchQuery =
-        serde_json::from_value(first["next"]["nextPage"]["input"]["queries"][0].clone())
-            .expect("next result page");
+    let next: LspSearchQuery = serde_json::from_value(
+        first["pagination"]["next"]["nextPage"]["input"]["queries"][0].clone(),
+    )
+    .expect("next result page");
     let stable = locations::salted_items_payload(
         &next,
         "subtypes",

@@ -8,12 +8,15 @@ use super::promotion::promote_pr_continuations;
 use super::pull_request::{FileOutcome, PrPlan, ShapedPr};
 use super::util::str_at;
 use super::{HistoryItemRequest, Sections};
-use crate::id::ToolId;
 use crate::response::paging::{mark_partial, push_warnings};
-use crate::response::result::ToolData;
+use crate::response::result::wire_query;
+use crate::response::result::{Continuation, ToolData, insert_next};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_shared::ensure_calls;
+use octocode_contract_types::{
+    GhGetFileContentQuery, GhGetHistoryItemChannel, GhGetHistoryItemQuery,
+};
 use serde_json::{Map, Value, json};
 
 mod metadata;
@@ -69,10 +72,12 @@ fn unmatched_leads(query: &HistoryItemRequest, literal_missed: bool) -> Map<Stri
         remove_key(&mut inventory, key);
     }
     Sections::of([Section::Files]).set_on(&mut inventory);
-    leads.insert(
-        "readFiles".into(),
-        crate::response::result::Continuation::related(ToolId::GhGetHistoryItem, inventory).build(),
-    );
+    if let Some(read) = wire_query::<GhGetHistoryItemQuery>(inventory) {
+        leads.insert(
+            "readFiles".into(),
+            Continuation::related_query(read).build(),
+        );
+    }
     leads
 }
 
@@ -211,20 +216,24 @@ pub(super) fn attach_unsearched_read(
     let (Some(needle), Some(sha)) = (gh_get_history_item_query::match_strings(query), sha) else {
         return;
     };
+    let Some(read) = wire_query::<GhGetFileContentQuery>(json!({
+        "owner": gh_get_history_item_query::owner(query),
+        "repo": gh_get_history_item_query::repo(query),
+        "path": path,
+        "ref": sha,
+        "matchString": needle,
+        "caseMode":gh_get_history_item_query::match_options(query).map(|o|o.0),
+        "regexEngine":gh_get_history_item_query::match_options(query).map(|o|o.1),
+        "wholeWord":gh_get_history_item_query::match_options(query).map(|o|o.2)}))
+    else {
+        return;
+    };
     ensure_calls(out);
-    out["calls"]["searchUnpatchedFile"] = crate::response::result::Continuation::continued(
-        ToolId::GhGetFileContent,
-        json!({
-            "owner": gh_get_history_item_query::owner(query),
-            "repo": gh_get_history_item_query::repo(query),
-            "path": path,
-            "ref": sha,
-            "matchString": needle,
-            "caseMode":gh_get_history_item_query::match_options(query).map(|o|o.0),
-            "regexEngine":gh_get_history_item_query::match_options(query).map(|o|o.1),
-            "wholeWord":gh_get_history_item_query::match_options(query).map(|o|o.2)}),
-    )
-    .build();
+    insert_next(
+        &mut out["calls"],
+        GhGetHistoryItemChannel::SearchUnpatchedFile,
+        Continuation::continued_query(read),
+    );
 }
 
 /// `matchString` context the hunks cut short and the head text did not
@@ -252,17 +261,17 @@ fn attach_context_reads(
     );
     ensure_calls(out);
     for (index, (path, ranges)) in clipped.iter().enumerate() {
+        let Some(read) = wire_query::<GhGetFileContentQuery>(json!({
+            "owner": gh_get_history_item_query::owner(query),
+            "repo": gh_get_history_item_query::repo(query),
+            "path": path,
+            "ref": sha,
+            "ranges": ranges.iter().map(|(start, end)| json!({"startLine":start,"endLine":end})).collect::<Vec<_>>()}))
+        else {
+            continue;
+        };
         out["calls"][crate::id::numbered("expandContext", index)] =
-            crate::response::result::Continuation::continued(
-                ToolId::GhGetFileContent,
-                json!({
-                    "owner": gh_get_history_item_query::owner(query),
-                    "repo": gh_get_history_item_query::repo(query),
-                    "path": path,
-                    "ref": sha,
-                    "ranges": ranges.iter().map(|(start, end)| json!({"startLine":start,"endLine":end})).collect::<Vec<_>>()}),
-            )
-            .build();
+            Continuation::continued_query(read).build();
     }
 }
 

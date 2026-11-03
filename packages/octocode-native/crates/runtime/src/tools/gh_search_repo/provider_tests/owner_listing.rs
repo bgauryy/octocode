@@ -128,8 +128,8 @@ async fn an_owner_listing_page_never_exceeds_its_page_size() {
 }
 
 /// The token's own login lists every repository it owns, private ones
-/// included; another user's listing is public. A user owner is recognized
-/// once per transport, not with a failed organization lookup on every page.
+/// included; another user's listing is public. Each page independently
+/// resolves the route from its credential.
 #[tokio::test]
 async fn an_owner_listing_of_the_token_user_includes_private_repositories() {
     let server = MockServer::builder().start().await;
@@ -137,14 +137,15 @@ async fn an_owner_listing_of_the_token_user_includes_private_repositories() {
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/orgs/{owner}/repos")))
             .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
-            .expect(1)
+            // One probe per listing call, however many pages it reads.
+            .expect(if owner == "me" { 2 } else { 1 })
             .mount(&server)
             .await;
     }
     Mock::given(method("GET"))
         .and(path("/api/v3/user"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"login":"Me"})))
-        .expect(1)
+        .expect(3)
         .mount(&server)
         .await;
     let link = format!(
@@ -175,12 +176,12 @@ async fn an_owner_listing_of_the_token_user_includes_private_repositories() {
         .mount(&server)
         .await;
     let provider = one_shot_provider(&server);
-    let context = default_context();
+    // Each call is its own request: it resolves the route afresh.
     let listing = |owner: &str| {
         serde_json::from_value::<GhSearchRepoQuery>(json!({"operation":"list","owner": owner}))
             .expect("query")
     };
-    let mine = execute(&provider, &listing("me"), &context)
+    let mine = execute(&provider, &listing("me"), &default_context())
         .await
         .expect("own");
     assert_eq!(
@@ -188,7 +189,7 @@ async fn an_owner_listing_of_the_token_user_includes_private_repositories() {
         "{}",
         mine.data
     );
-    let again = execute(&provider, &listing("me"), &context)
+    let again = execute(&provider, &listing("me"), &default_context())
         .await
         .expect("own again");
     assert_eq!(
@@ -196,7 +197,7 @@ async fn an_owner_listing_of_the_token_user_includes_private_repositories() {
         "{}",
         again.data
     );
-    let theirs = execute(&provider, &listing("other"), &context)
+    let theirs = execute(&provider, &listing("other"), &default_context())
         .await
         .expect("other");
     assert_eq!(
@@ -239,16 +240,19 @@ async fn a_failed_viewer_lookup_is_not_remembered() {
         .mount(&server)
         .await;
     let provider = one_shot_provider(&server);
-    let context = default_context();
     let query: GhSearchRepoQuery =
         serde_json::from_value(json!({"owner":"me","operation":"list"})).expect("query");
-    let first = execute(&provider, &query, &context).await.expect("first");
+    let first = execute(&provider, &query, &default_context())
+        .await
+        .expect("first");
     assert_eq!(
         first.data["repositories"][0]["repo"], "public",
         "{}",
         first.data
     );
-    let second = execute(&provider, &query, &context).await.expect("second");
+    let second = execute(&provider, &query, &default_context())
+        .await
+        .expect("second");
     assert_eq!(
         second.data["repositories"][0]["repo"], "secret",
         "{}",

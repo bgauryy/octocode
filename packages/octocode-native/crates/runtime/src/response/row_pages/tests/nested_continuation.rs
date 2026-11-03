@@ -5,9 +5,9 @@
 //! pointer's path continues too.
 use super::*;
 use crate::id::ToolId;
-use tokio_util::sync::CancellationToken;
+use octocode_io::cancellation::Cancellation;
 
-fn symbols_row() -> Value {
+pub(super) fn symbols_row() -> Value {
     json!({"filesScanned":3,"files":[
         {"path":"src/app.ts","symbols":[{"symbolName":"main","kind":"function","line":5,"endLine":9,"exported":true,"docStartLine":4}]},
         {"path":"src/greeter.ts","symbols":[
@@ -24,7 +24,7 @@ fn symbols_row() -> Value {
 
 /// The continued elements a marker names: each array element on its
 /// pointer's path, then the element it names, as (array pointer, index).
-fn continued_elements(marker: &Value) -> Vec<(String, usize)> {
+pub(super) fn continued_elements(marker: &Value) -> Vec<(String, usize)> {
     let Some(array) = marker["array"].as_str() else {
         return Vec::new();
     };
@@ -45,7 +45,7 @@ fn continued_elements(marker: &Value) -> Vec<(String, usize)> {
 /// first item merges into the element the marker names, which must be the
 /// last one joined so far; any other item is appended; repeated context
 /// scalars must agree.
-fn merge(joined: &mut Value, part: Value, at: &str, continued: &[(String, usize)]) {
+pub(super) fn merge(joined: &mut Value, part: Value, at: &str, continued: &[(String, usize)]) {
     match (joined, part) {
         (Value::Object(joined), Value::Object(part)) => {
             for (key, value) in part {
@@ -61,9 +61,18 @@ fn merge(joined: &mut Value, part: Value, at: &str, continued: &[(String, usize)
         (Value::Array(joined), Value::Array(part)) => {
             let mut items = part.into_iter();
             if let Some((_, index)) = continued.iter().find(|(array, _)| array == at) {
-                assert_eq!(*index + 1, joined.len(), "{at}: the marker names the last element");
+                assert_eq!(
+                    *index + 1,
+                    joined.len(),
+                    "{at}: the marker names the last element"
+                );
                 let first = items.next().expect("a continued array resumes its element");
-                merge(&mut joined[*index], first, &format!("{at}/{index}"), continued);
+                merge(
+                    &mut joined[*index],
+                    first,
+                    &format!("{at}/{index}"),
+                    continued,
+                );
             }
             joined.extend(items);
         }
@@ -81,16 +90,18 @@ fn parts_split_several_levels_deep_join_back_exactly_once() {
             &[None],
             ToolId::AstSearch,
         )
-        .plan(budget, &CancellationToken::new())
+        .plan(budget, &Cancellation::new())
         .expect("valid plan");
         let mut joined: Option<Value> = None;
         for page in 0..plan.total_pages {
             for row in plan
-                .build_page(page, &[None], &[], &CancellationToken::new())
+                .build_page(page, &[None], &[], &Cancellation::new())
                 .expect("valid page")
             {
                 let marker = &row["rowPart"]["continues"];
-                nested |= marker["array"].as_str().is_some_and(|array| array.contains("/symbols"));
+                nested |= marker["array"]
+                    .as_str()
+                    .is_some_and(|array| array.contains("/symbols"));
                 let continued = continued_elements(marker);
                 match joined.as_mut() {
                     None => joined = Some(row["data"].clone()),

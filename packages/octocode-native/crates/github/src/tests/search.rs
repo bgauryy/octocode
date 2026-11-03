@@ -1,8 +1,7 @@
-//! Search and history reads: caching, credentials and SSO-withheld results.
+//! Fresh search and history reads, credentials and SSO-withheld results.
 use super::*;
 
 mod sso;
-mod store_reads;
 
 fn code_search_request() -> CodeSearchRequest {
     CodeSearchRequest {
@@ -14,21 +13,19 @@ fn code_search_request() -> CodeSearchRequest {
 }
 
 /// Production shape: one process-wide transport with an anonymous resolver,
-/// the credential resolved per request. A cached search page fetched with
-/// one token must never answer a request made with another.
+/// the credential resolved per request. Each call asks GitHub using that credential.
 #[tokio::test]
-async fn code_search_cache_is_scoped_to_the_request_credential() {
+async fn code_search_uses_each_request_credential() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "total_count": 0, "incomplete_results": false, "items": []
         })))
-        .expect(3)
+        .expect(4)
         .mount(&server)
         .await;
-    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
-    transport.cache = Arc::new(PartitionedCache::default());
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let context = |token: Option<&str>| {
         RequestContext::new(
             RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20),
@@ -43,16 +40,15 @@ async fn code_search_cache_is_scoped_to_the_request_credential() {
     }
 }
 
-/// `confirm_user` reads `/users/{login}` through the response cache: one
-/// request per credential and login; a 404 is the typed missing user, and a
+/// `confirm_user` reads `/users/{login}` for each call; a 404 is the typed missing user, and a
 /// failure of any other kind keeps its own kind.
 #[tokio::test]
-async fn confirm_user_is_cached_per_credential_and_types_a_missing_login() {
+async fn confirm_user_reads_fresh_and_types_a_missing_login() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/users/dev"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"login": "dev"})))
-        .expect(2)
+        .expect(3)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -67,15 +63,14 @@ async fn confirm_user_is_cached_per_credential_and_types_a_missing_login() {
         .respond_with(ResponseTemplate::new(500))
         .mount(&server)
         .await;
-    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
-    transport.cache = Arc::new(PartitionedCache::default());
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let context = |token: &str| {
         RequestContext::new(
             RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20),
             Some(ResolvedCredential::new(token, CredentialSource::Storage)),
         )
     };
-    // alice twice (one request), bob once (his own partition): two requests.
+    // Every call independently checks the account, including repeats.
     for token in ["alice", "alice", "bob"] {
         transport
             .confirm_user("dev", &context(token))
@@ -98,7 +93,7 @@ async fn confirm_user_is_cached_per_credential_and_types_a_missing_login() {
 }
 
 #[tokio::test]
-async fn incomplete_code_search_pages_are_not_cached() {
+async fn incomplete_code_search_pages_keep_partiality_on_every_read() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
@@ -108,8 +103,7 @@ async fn incomplete_code_search_pages_are_not_cached() {
         .expect(2)
         .mount(&server)
         .await;
-    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
-    transport.cache = Arc::new(PartitionedCache::default());
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let context = || with_token("t", Duration::from_secs(5), 1 << 20);
     for _ in 0..2 {
         let page = transport
@@ -120,93 +114,8 @@ async fn incomplete_code_search_pages_are_not_cached() {
     }
 }
 
-/// Repository, issue and commit searches use the code-search cache policy:
-/// an identical repeat is a cache hit, so it sends no request and does not
-/// wait out the search spacing the first request reserved.
 #[tokio::test]
-async fn repeated_searches_are_served_from_cache_without_spacing() {
-    let server = MockServer::builder().start().await;
-    let page = serde_json::json!({"total_count": 0, "incomplete_results": false, "items": []});
-    for route in [
-        "/api/v3/search/code",
-        "/api/v3/search/repositories",
-        "/api/v3/search/issues",
-        "/api/v3/search/commits",
-    ] {
-        Mock::given(method("GET"))
-            .and(path(route))
-            .respond_with(ResponseTemplate::new(200).set_body_json(page.clone()))
-            .expect(1)
-            .mount(&server)
-            .await;
-    }
-    // Wide enough that twelve cache hits finish in a quarter of it.
-    let spacing = Duration::from_millis(600);
-    let budget = Arc::new(GitHubBudget::with_config(ExecutorConfig {
-        search_spacing: spacing,
-        ..ExecutorConfig::relaxed()
-    }));
-    let (mut transport, _) = executor_transport(&server, budget, short_retry());
-    transport.cache = Arc::new(PartitionedCache::default());
-    let context = || with_token("t", Duration::from_secs(30), 1 << 20);
-    let repositories = RepositorySearchRequest {
-        query: "ripgrep".into(),
-        sort: None,
-        page: 1,
-        per_page: 5,
-    };
-    let history = HistoryRequest {
-        query: "repo:o/r is:pr is:merged".into(),
-        page: 1,
-        per_page: 10,
-        sort: None,
-        order: None,
-    };
-    // Cold: the four searches share one spacing lane, so three of them wait.
-    transport
-        .search_code(&code_search_request(), &context())
-        .await
-        .expect("code");
-    transport
-        .search_repositories(&repositories, &context())
-        .await
-        .expect("repositories");
-    transport
-        .search_issues(&history, &context())
-        .await
-        .expect("issues");
-    transport
-        .search_commits(&history, &context())
-        .await
-        .expect("commits");
-    let started = std::time::Instant::now();
-    for _ in 0..3 {
-        transport
-            .search_code(&code_search_request(), &context())
-            .await
-            .expect("code");
-        transport
-            .search_repositories(&repositories, &context())
-            .await
-            .expect("repositories");
-        transport
-            .search_issues(&history, &context())
-            .await
-            .expect("issues");
-        transport
-            .search_commits(&history, &context())
-            .await
-            .expect("commits");
-    }
-    let elapsed = started.elapsed();
-    assert!(
-        elapsed < spacing / 4,
-        "cache hits must not wait for search spacing: {elapsed:?}"
-    );
-}
-
-#[tokio::test]
-async fn incomplete_repository_and_history_search_pages_are_not_cached() {
+async fn incomplete_repository_and_history_pages_keep_partiality_on_every_read() {
     let server = MockServer::builder().start().await;
     for route in ["/api/v3/search/repositories", "/api/v3/search/issues"] {
         Mock::given(method("GET"))
@@ -218,8 +127,7 @@ async fn incomplete_repository_and_history_search_pages_are_not_cached() {
             .mount(&server)
             .await;
     }
-    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
-    transport.cache = Arc::new(PartitionedCache::default());
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let context = || with_token("t", Duration::from_secs(5), 1 << 20);
     for _ in 0..2 {
         let repositories = transport
@@ -253,16 +161,8 @@ async fn incomplete_repository_and_history_search_pages_are_not_cached() {
 }
 
 #[tokio::test]
-async fn history_reads_revalidate_and_pinned_commits_are_served_from_cache() {
+async fn history_reads_fetch_mutable_and_pinned_items_every_time() {
     let server = MockServer::builder().start().await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/o/r/pulls/1"))
-        .and(header("if-none-match", "\"v1\""))
-        .respond_with(ResponseTemplate::new(304))
-        .with_priority(1)
-        .expect(2)
-        .mount(&server)
-        .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/pulls/1"))
         .respond_with(
@@ -271,7 +171,7 @@ async fn history_reads_revalidate_and_pinned_commits_are_served_from_cache() {
                 .set_body_json(serde_json::json!({"number": 1})),
         )
         .with_priority(2)
-        .expect(1)
+        .expect(3)
         .mount(&server)
         .await;
     let sha = "a".repeat(40);
@@ -282,11 +182,10 @@ async fn history_reads_revalidate_and_pinned_commits_are_served_from_cache() {
                 .insert_header("etag", "\"c1\"")
                 .set_body_json(serde_json::json!({"sha": sha})),
         )
-        .expect(1)
+        .expect(3)
         .mount(&server)
         .await;
-    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
-    transport.cache = Arc::new(PartitionedCache::default());
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let context = || with_token("t", Duration::from_secs(5), 1 << 20);
     for _ in 0..3 {
         let item = transport

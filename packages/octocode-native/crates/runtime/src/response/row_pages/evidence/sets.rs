@@ -53,7 +53,7 @@ impl Catalog {
         &self,
         target: &DependencySet,
         added: &DependencySet,
-        cancel: &CancellationToken,
+        cancel: &Cancellation,
     ) -> Result<usize, DependencyError> {
         self.additions(target, added, cancel)
             .map(|(delta, _)| delta)
@@ -63,7 +63,7 @@ impl Catalog {
         &self,
         target: &DependencySet,
         added: &DependencySet,
-        cancel: &CancellationToken,
+        cancel: &Cancellation,
     ) -> Result<(usize, usize), DependencyError> {
         check(cancel)?;
         self.check_owner(target)?;
@@ -109,7 +109,7 @@ impl Catalog {
         &self,
         target: &mut DependencySet,
         added: &DependencySet,
-        cancel: &CancellationToken,
+        cancel: &Cancellation,
     ) -> Result<usize, DependencyError> {
         let (delta, member_chars) = self.additions(target, added, cancel)?;
         target
@@ -131,7 +131,7 @@ impl Catalog {
     pub(super) fn collect_set(
         &self,
         units: BTreeSet<usize>,
-        cancel: &CancellationToken,
+        cancel: &Cancellation,
     ) -> Result<DependencySet, DependencyError> {
         check(cancel)?;
         let mut representations = BTreeSet::new();

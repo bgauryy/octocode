@@ -16,8 +16,8 @@ pub(super) fn repo(q: &GhSearchRepoQuery) -> Option<&str> {
 }
 pub(super) fn page(q: &GhSearchRepoQuery) -> usize {
     match q {
-        GhSearchRepoQuery::Search(q) => crate::num::usize_of(q.page),
-        GhSearchRepoQuery::List(q) => crate::num::usize_of(q.page),
+        GhSearchRepoQuery::Search(q) => octocode_engine::num::saturating_usize(q.page.get()),
+        GhSearchRepoQuery::List(q) => octocode_engine::num::saturating_usize(q.page.get()),
         GhSearchRepoQuery::Get(_) => 1,
     }
 }
@@ -25,8 +25,8 @@ pub(super) fn page(q: &GhSearchRepoQuery) -> usize {
 /// `get` reads one repository and pages nothing.
 pub(super) fn limit(q: &GhSearchRepoQuery) -> usize {
     match q {
-        GhSearchRepoQuery::Search(q) => crate::num::usize_of(q.limit),
-        GhSearchRepoQuery::List(q) => crate::num::usize_of(q.limit),
+        GhSearchRepoQuery::Search(q) => octocode_engine::num::saturating_usize(q.limit.get()),
+        GhSearchRepoQuery::List(q) => octocode_engine::num::saturating_usize(q.limit.get()),
         GhSearchRepoQuery::Get(_) => crate::contracts::query_limits::gh_search_repo::LIMIT_DEFAULT,
     }
 }
@@ -59,11 +59,7 @@ pub(super) fn keywords(q: &GhSearchRepoQuery) -> Vec<String> {
 }
 pub(super) fn order(q: &GhSearchRepoQuery) -> &str {
     match q {
-        GhSearchRepoQuery::List(q) => match q
-            .sort
-            .as_ref()
-            .map_or(octocode_contract_types::SortOrder::Desc, |s| s.order)
-        {
+        GhSearchRepoQuery::List(q) => match q.sort.order {
             octocode_contract_types::SortOrder::Asc => "asc",
             octocode_contract_types::SortOrder::Desc => "desc",
         },

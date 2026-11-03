@@ -38,6 +38,7 @@ fn one_request_decides_each_binding_of_a_candidate() {
             &crate::tools::test_support::workspace_policy(&root),
             &execution,
             None,
+            crate::tools::lsp_search::test_answers(),
         ))
         .expect("row");
     assert_ne!(row["status"], "error", "{row}");

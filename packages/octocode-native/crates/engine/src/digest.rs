@@ -7,12 +7,24 @@ pub fn sha256(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-/// A [`std::io::Write`] sink that SHA-256 hashes every byte written to it,
-/// so an encoding is hashed without being built.
-#[derive(Default)]
+/// The raw SHA-256 of `bytes`.
+#[must_use]
+pub fn sha256_digest(bytes: &[u8]) -> [u8; 32] {
+    Sha256::digest(bytes).into()
+}
+
+/// The one streaming SHA-256: feed it pieces with [`HashWriter::update`],
+/// or write an encoding into it ([`std::io::Write`]) so it is hashed
+/// without being built.
+#[derive(Clone, Default)]
 pub struct HashWriter(Sha256);
 
 impl HashWriter {
+    /// Hash `bytes` next.
+    pub fn update(&mut self, bytes: impl AsRef<[u8]>) {
+        self.0.update(bytes);
+    }
+
     /// The SHA-256 of everything written.
     #[must_use]
     pub fn finalize(self) -> [u8; 32] {

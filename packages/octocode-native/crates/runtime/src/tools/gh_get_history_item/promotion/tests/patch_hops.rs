@@ -1,7 +1,15 @@
-//! Patch continuations: `continuePatch` and file-page hops follow the page-stream cursor and offer whole patches a narrowed view hid.
+//! Patch continuations: `patch continuation` and file-page hops follow the page-stream cursor and offer whole patches a narrowed view hid.
 use super::*;
 
-/// A commit's `continuePatch` copies the page-stream cursor named on
+fn diff_page<'a>(out: &'a Value, axis: &str) -> &'a Value {
+    &out["contentPagination"][axis]["next"]["nextPage"]
+}
+
+fn pr_page<'a>(out: &'a Value, axis: &str) -> &'a Value {
+    &out["pullRequests"][0]["contentPagination"][axis]["next"]["nextPage"]
+}
+
+/// A commit's `patch continuation` copies the page-stream cursor named on
 /// `contentPagination.files`, never a file's own per-file `nextOffset`.
 #[test]
 fn commit_continue_patch_copies_the_page_stream_cursor() {
@@ -23,12 +31,12 @@ fn commit_continue_patch_copies_the_page_stream_cursor() {
         Some("abc"),
         cursors,
     );
-    let next = &out["calls"]["continuePatch"]["input"]["queries"][0];
+    let next = &diff_page(&out, "patches")["input"]["queries"][0];
     assert_eq!(next["offset"], 10, "{out}");
     assert!(next.get("length").is_none());
 }
 
-/// A patch-walk hop (`continuePatch`, the next file page) runs
+/// A patch-walk hop (`patch continuation`, the next file page) runs
 /// at the same automatic page as the first call: it carries no
 /// `responseChars`/`responseScope` knob (automatic paging already
 /// splits an oversized row by whole rows), and needs no offset marker.
@@ -48,7 +56,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
             "patches":{"hasMore":true,"nextOffset":900}
         }}]});
         promote_pr_continuations(&mut out, &query, &Remainder::default());
-        out["calls"]["continuePatch"]["input"].clone()
+        pr_page(&out, "patches")["input"].clone()
     };
     for hop in [
         lead(json!({}), Some(20_000)),
@@ -78,7 +86,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
         Some("abc"),
         cursors,
     );
-    let hop = &out["calls"]["continuePatch"]["input"];
+    let hop = &diff_page(&out, "patches")["input"];
     assert!(hop.get("responseLength").is_none(), "{out}");
     assert!(hop.get("responseScope").is_none(), "{out}");
 
@@ -96,7 +104,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
             "files":{"hasMore":true,"nextPage":2}
         }}]});
         promote_pr_continuations(&mut out, &query, &Remainder::default());
-        out["calls"]["nextFilePage"]["input"].clone()
+        pr_page(&out, "files")["input"].clone()
     };
     let walk = file_page(json!(["patches"]), Some(31_000));
     assert!(walk.get("responseLength").is_none(), "{walk}");
@@ -235,7 +243,7 @@ fn patch_hops_are_the_same_file_page_at_the_stream_cursor() {
     let mut remainder = Remainder::default();
     remainder.unfinished_patches(2);
     let notes = promote_pr_continuations(&mut out, &query, &remainder);
-    let hop = &out["calls"]["continuePatch"]["input"]["queries"][0];
+    let hop = &pr_page(&out, "patches")["input"]["queries"][0];
     assert!(hop.get("queries").is_none(), "{hop}");
     assert!(hop.get("content").is_none(), "{hop}");
     assert!(hop.get("minify").is_none(), "minify: {hop}");
@@ -248,16 +256,16 @@ fn patch_hops_are_the_same_file_page_at_the_stream_cursor() {
     assert_eq!(
         notes,
         [crate::response::result::Remaining {
-            page: "continuePatch".into(),
+            page: "nextPage".into(),
             left: "2 unfinished patches".into()
         }]
     );
     crate::contracts::validate_built_query("ghGetHistoryItem", hop.clone())
-        .expect("continuePatch is a valid ghGetHistoryItem query");
+        .expect("the patch continuation is a valid ghGetHistoryItem query");
 }
 
 /// One canonical query per page: a file page with unread patches offers
-/// only `continuePatch`; the window that finishes the page's patches
+/// only `patch continuation`; the window that finishes the page's patches
 /// offers the next file page at the patch stream's start.
 #[test]
 fn the_next_file_page_follows_the_last_patch_window() {
@@ -270,10 +278,8 @@ fn the_next_file_page_follows_the_last_patch_window() {
         "files":{"hasMore":true,"nextPage":2}
     }}]});
     promote_pr_continuations(&mut open, &query, &Remainder::default());
-    let names = open["calls"]
-        .as_object()
-        .map(|next| next.keys().cloned().collect::<Vec<_>>());
-    assert_eq!(names, Some(vec!["continuePatch".to_owned()]), "{open}");
+    assert!(pr_page(&open, "patches").is_object(), "{open}");
+    assert!(pr_page(&open, "files").is_null(), "{open}");
 
     let hop: HistoryItemRequest = HistoryItemRequest::from_row(json!({
         "operation":"pullRequest","owner":"o","repo":"r","number":5,"sections":["patches"],
@@ -284,11 +290,9 @@ fn the_next_file_page_follows_the_last_patch_window() {
         "files":{"hasMore":true,"nextPage":2}
     }}]});
     promote_pr_continuations(&mut last, &hop, &Remainder::default());
-    let names = last["calls"]
-        .as_object()
-        .map(|next| next.keys().cloned().collect::<Vec<_>>());
-    assert_eq!(names, Some(vec!["nextFilePage".to_owned()]), "{last}");
-    let page = &last["calls"]["nextFilePage"]["input"]["queries"][0];
+    assert!(pr_page(&last, "files").is_object(), "{last}");
+    assert!(pr_page(&last, "patches").is_null(), "{last}");
+    let page = &pr_page(&last, "files")["input"]["queries"][0];
     assert_eq!(page["page"], 2, "{page}");
     // The walk's next file page opens at the stream start, never at the
     // old cursor (no offset marker keeps the walk's page).

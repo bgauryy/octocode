@@ -194,7 +194,8 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
         .filter(|e| e.kind == EdgeKind::Imports && t.str(e.detail) == "dynamic-import")
         .map(|e| e.dst)
         .collect::<BTreeSet<_>>();
-    let mut by_file = BTreeMap::<u32, Vec<&str>>::new();
+    // Per file: each export's name and the line it is declared on.
+    let mut by_file = BTreeMap::<u32, Vec<(&str, u32)>>::new();
     let mut local_only = BTreeMap::<u32, Vec<&str>>::new();
     // Files whose exports this detector cannot judge, by language.
     let mut unjudged = BTreeMap::<&str, BTreeSet<u32>>::new();
@@ -235,8 +236,14 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
             || t.incoming(id).any(|e| {
                 e.kind != EdgeKind::Contains && v.file_of[e.src as usize] == file && e.src != id
             });
-        let bucket = if local { &mut local_only } else { &mut by_file };
-        bucket.entry(file).or_default().push(t.str(node.name));
+        if local {
+            local_only.entry(file).or_default().push(t.str(node.name));
+        } else {
+            by_file
+                .entry(file)
+                .or_default()
+                .push((t.str(node.name), node.line));
+        }
     }
     note_unjudged_exports(&mut c.notes, &unjudged);
     for (file, names) in local_only {
@@ -260,7 +267,9 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
             },
         );
     }
-    for (file, names) in by_file {
+    for (file, exports) in by_file {
+        let names = exports.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+        let (first, line) = exports[0];
         let key = v.key(file).to_owned();
         let lazy = dynamic.contains(&file);
         push(
@@ -284,7 +293,7 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
                 ],
                 verify: vec![step(
                     ToolId::LspSearch,
-                    json!({"operation": "references", "path": key, "symbolName": names[0]}),
+                    json!({"operation": "references", "path": key, "symbolName": first, "line": line}),
                 )],
             },
         );

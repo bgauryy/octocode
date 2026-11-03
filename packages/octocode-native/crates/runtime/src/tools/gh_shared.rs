@@ -20,8 +20,7 @@ pub(crate) mod test_support;
 mod tests;
 pub(crate) mod text;
 pub(crate) use default_branch::{
-    DefaultBranchRetry, default_branch, default_branch_retry, repo_key, unresolved_refs,
-    with_default_branch,
+    DefaultBranchRetry, default_branch, default_branch_retry, unresolved_refs, with_default_branch,
 };
 #[cfg(test)]
 pub(crate) use failed_read::hosted_repository;
@@ -42,8 +41,8 @@ pub(crate) use paths::{
     tree_recovery,
 };
 pub(crate) use rename::{
-    RenameCheck, Rescope, canonical_query, canonical_repo, remember_canonical, renamed_warning,
-    rerun_renamed, rescope_on_rename, search_may_be_renamed, with_repo,
+    RenameCheck, Rerun, Rescope, canonical_query, canonical_repo, renamed_warning, rerun_renamed,
+    rescope_on_rename, search_may_be_renamed, with_repo,
 };
 pub(crate) use search::{
     SearchCompleteness, SearchWindow, add_next, apply_partial, path_check, reject_boolean_keywords,

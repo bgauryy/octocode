@@ -3,7 +3,7 @@
 // results, checks), each pointing to the data.json field that holds every row. The live viewer is serve.mjs.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isMainModule } from './lib/entrypoint.mjs';
 import { flags } from './lib.mjs';
 import { computeMetrics } from './metrics.mjs';
 import { resolveModel } from './model.mjs';
@@ -78,7 +78,7 @@ export function writeBriefs(D, out, modelPath = join(out, 'model.json')) {
   return { brief, briefFull };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   if (process.argv.includes('--help')) { console.log(USAGE); process.exit(0); }
   const f = flags(process.argv.slice(2), { data: '', model: '' });
   if (!f.data) { console.error(USAGE); process.exit(2); }

@@ -9,12 +9,13 @@ pub(super) fn check(cancel: &dyn CancellationCheck) -> Result<(), GraphOutput> {
 }
 
 /// Count the entire population, projecting only the requested positions.
-/// A budgeted window also stops projecting once its rows exceed the page
-/// budget: [`Graph::fit_page`] would cut them, so they are only counted.
+/// A budgeted window also stops projecting once its rows, counted as
+/// delivered, exceed the page budget: [`Graph::fit_page`] would cut them, so
+/// they are only counted.
 pub(super) struct Window<T = Value> {
     range: Range<usize>,
     page: Page<T>,
-    budget: Option<usize>,
+    budget: Option<super::budget::RowBudget>,
     used: usize,
 }
 
@@ -23,7 +24,7 @@ impl<T: serde::Serialize> Window<T> {
         Self::budgeted(range, None)
     }
 
-    pub(super) fn budgeted(range: Range<usize>, budget: Option<usize>) -> Self {
+    pub(super) fn budgeted(range: Range<usize>, budget: Option<super::budget::RowBudget>) -> Self {
         Self {
             page: Page {
                 rows: Vec::new(),
@@ -42,12 +43,12 @@ impl<T: serde::Serialize> Window<T> {
     ) -> Result<(), GraphOutput> {
         let position = self.page.total;
         self.page.total += 1;
-        if self.range.contains(&position) && self.budget.is_none_or(|budget| self.used <= budget) {
+        if self.range.contains(&position)
+            && self.budget.is_none_or(|budget| self.used <= budget.chars)
+        {
             let row = project()?;
-            if self.budget.is_some() {
-                self.used = self
-                    .used
-                    .saturating_add(octocode_engine::json_size::utf16_units_or(&row, usize::MAX));
+            if let Some(budget) = self.budget {
+                self.used = self.used.saturating_add(budget.delivered(&row));
             }
             self.page.rows.push(row);
         }

@@ -10,7 +10,7 @@ export const SCRIPT_SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.m
 const SKIP_DIRS = new Set(['node_modules', 'tmp', 'view']);
 export const PRIMARY = ['rfc.md', 'readme.md', 'index.md'];
 export const KINDS = {
-  'octocode-research': 'Research', 'octocode-rfc-generator': 'RFC', 'octocode-brainstorming': 'Brainstorm',
+  'octocode-research': 'Research', 'octocode-pr-review': 'PR review', 'octocode-rfc-generator': 'RFC', 'octocode-brainstorming': 'Brainstorm',
   'octocode-architect': 'Architecture', 'octocode-roast': 'Roast', 'octocode-clean-agentic-code': 'Cleanup',
   'octocode-documentation': 'Documentation', 'octocode-eval-benchmark': 'Evaluation', 'octocode-skills': 'Skill review',
   'octocode-agentic-prompts': 'Prompt review', 'octocode-scraping': 'Scrape', 'octocode-chrome-devtools': 'Browser session',
@@ -107,7 +107,7 @@ function fragmentLine(abs, fragment) {
   let target;
   try { target = decodeURIComponent(fragment); } catch { target = fragment; }
   const sourceLines = fs.readFileSync(abs, 'utf8').split(/\r?\n/);
-  const seen = {};
+  const seen = Object.create(null);
   let fence = null;
   for (let i = 0; i < sourceLines.length; i++) {
     const next = fenceAfter(fence, sourceLines[i]);
@@ -152,13 +152,13 @@ export function resolveRefs(body, docDir, workspace) {
 
 function kindFor(absFile) {
   const segs = toPosix(absFile).split('/');
-  for (let i = segs.length - 2; i >= 0; i--) if (KINDS[segs[i]]) return KINDS[segs[i]];
+  for (let i = segs.length - 2; i >= 0; i--) if (Object.hasOwn(KINDS, segs[i])) return KINDS[segs[i]];
   return '';
 }
 
 export function skillFor(absFile) {
   const segs = toPosix(absFile).split('/');
-  for (let i = segs.length - 2; i >= 0; i--) if (KINDS[segs[i]]) return segs[i];
+  for (let i = segs.length - 2; i >= 0; i--) if (Object.hasOwn(KINDS, segs[i])) return segs[i];
   return '';
 }
 
@@ -178,7 +178,7 @@ export function collect(target, options = {}) {
     const { meta, body } = kit.frontmatter(fs.readFileSync(full, 'utf8'));
     const first = rel.includes('/') ? rel.split('/')[0] : '';
     const kind = meta.kind || kindFor(full);
-    const group = KINDS[first] || underOctocode ? first : (rel.includes('/') ? path.dirname(rel) : '');
+    const group = Object.hasOwn(KINDS, first) || underOctocode ? first : (rel.includes('/') ? path.dirname(rel) : '');
     return { path: rel, group, kind, meta, body, source: toPosix(full), refs: resolveRefs(body, path.dirname(full), workspace) };
   });
   return { abs, isDir, workspace, root, rels, files, underOctocode, kit };
