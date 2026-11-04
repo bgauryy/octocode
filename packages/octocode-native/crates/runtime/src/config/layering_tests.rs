@@ -10,6 +10,7 @@ mod acquisition;
 mod diagnostics;
 mod hardening;
 mod precedence;
+mod settings_matrix;
 mod workspace_trust;
 
 const HOME: &str = "/synthetic/.octocode";

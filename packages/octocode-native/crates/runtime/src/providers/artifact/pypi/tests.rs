@@ -35,9 +35,8 @@ async fn pypi_version_lookups_pin_exact_and_specifier_forms() {
     let tags = KnownTags::new(vec!["psf/requests@v2.31.0"]);
     let b = test_budget();
     let client = RegistryClient {
-        http: &http,
-        budget: &b,
         tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
     };
     let exact = pypi(
         &versioned(ArtifactType::Pypi, "requests", "2.31.0"),
@@ -209,9 +208,8 @@ async fn a_monorepo_pypi_release_is_pinned_to_its_prefixed_tag() {
     let tags = KnownTags::new(vec!["pydantic/pydantic@core-v2.50.1"]);
     let b = test_budget();
     let client = RegistryClient {
-        http: &http,
-        budget: &b,
         tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
     };
     let page = pypi(
         &versioned(ArtifactType::Pypi, "pydantic-core", "2.50.1"),
@@ -257,9 +255,8 @@ async fn release_tags_are_checked_for_each_lookup() {
     let tags = KnownTags::new(vec!["psf/requests@v2.31.0"]);
     let b = test_budget();
     let client = RegistryClient {
-        http: &http,
-        budget: &b,
         tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
     };
     let query = versioned(ArtifactType::Pypi, "requests", "2.31.0");
     for _ in 0..2 {

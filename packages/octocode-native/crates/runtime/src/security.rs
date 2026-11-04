@@ -6,10 +6,12 @@ pub(crate) mod scan;
 mod walk;
 
 pub use content::ContentSecurity;
+#[cfg(test)]
+pub(crate) use content::tests::{key_formats, marker_lines};
 pub(crate) use content::{
-    BlockLine, KeyBlockState, KeyBlockTracker, LineShape, LineShapeScan, is_key_header_prefix,
-    key_fragment_placeholder, match_window_intersects_key_block, private_key_block_line_ranges,
-    redact_private_key_blocks, snippet_may_hold_key_material,
+    KeyBlockState, KeyBlockTracker, LineShapeScan, MarkerScan, key_fragment_placeholder,
+    match_window_intersects_key_block, private_key_block_line_ranges, redact_private_key_blocks,
+    snippet_may_hold_key_material,
 };
 pub(crate) use input::{CheckedQuery, InputPolicy};
 pub use output::Sanitized;

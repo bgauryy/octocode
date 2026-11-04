@@ -38,10 +38,10 @@ const SCRIPT_TIMEOUT_MS = Number(getArg('--script-timeout', '300000'));
 const VERBOSE = hasFlag('--verbose');
 
 if (hasFlag('--help') || hasFlag('-h')) {
-  console.error(
+  console.log(
     '[CDP_SANDBOX] Usage: node cdp-sandbox.mjs <script.mjs> [--port 9222] [options]'
   );
-  console.error('[CDP_SANDBOX] Options are the same as cdp-runner.mjs');
+  console.log('[CDP_SANDBOX] Options are the same as cdp-runner.mjs');
   process.exit(0);
 }
 
@@ -171,6 +171,7 @@ const readPaths = [
       'cdp-runner-guard.mjs',
       'cdp-runner-session.mjs',
       'cdp-runner-targets.mjs',
+      'session-registry.mjs',
       'target-owner.mjs',
       // Source maps for dev-server-check stacks.
       'sourcemap-resolver.mjs',

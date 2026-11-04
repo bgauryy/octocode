@@ -66,7 +66,6 @@ fn unparseable_workspace_file_is_skipped_with_a_warning_and_global_applies() {
             ..NONE
         });
         assert_eq!(out.resolved.lsp.prewarm, LspPrewarm::Off, "{label}");
-        assert_eq!(out.source, ConfigSource::Invalid, "{label}");
         assert_eq!(
             out.project_config_path,
             Some(WORKSPACE_RC.into()),
@@ -104,7 +103,6 @@ fn schema_error_drops_only_the_bad_field_and_keeps_the_rest_of_the_file() {
         vec!["/global".to_owned()],
         "bad workspace field falls through to the global file"
     );
-    assert_eq!(out.source, ConfigSource::File);
     let fields: Vec<_> = out
         .diagnostics
         .iter()
@@ -148,7 +146,6 @@ fn non_object_section_drops_that_section_only() {
 fn invalid_environment_values_warn_with_their_source_and_never_the_value() {
     let out = resolve(Layers {
         env: &[("OCTOCODE_LSP_PREWARM", "private-abc")],
-        project_env: Some("OCTOCODE_GITHUB_GRAPHQL=private-maybe"),
         global_env: Some("OCTOCODE_STORAGE_MODE=private-xml"),
         global_rc: Some(r#"{"lsp":{"prewarm":"off"}}"#),
         ..NONE
@@ -177,10 +174,6 @@ fn invalid_environment_values_warn_with_their_source_and_never_the_value() {
         prewarm.message
     );
     assert_eq!(
-        by_field("github.graphqlEnabled").source_path,
-        Some("/synthetic/cwd/.octocode/.env".into())
-    );
-    assert_eq!(
         by_field("storage.mode").source_path,
         Some("/synthetic/.octocode/.env".into())
     );
@@ -188,6 +181,24 @@ fn invalid_environment_values_warn_with_their_source_and_never_the_value() {
         assert_eq!(d.severity, Severity::Warning);
         assert!(!d.to_string().contains("private-"), "value leaked: {d}");
     }
+}
+
+#[test]
+fn an_invalid_workspace_env_value_names_its_file() {
+    let out = resolve(Layers {
+        project_env: Some("OCTOCODE_LSP_PREWARM=private-maybe"),
+        ..NONE
+    });
+    let diagnostic = out
+        .diagnostics
+        .iter()
+        .find(|d| d.code == "invalid_env_value" && d.field_path.as_deref() == Some("lsp.prewarm"))
+        .unwrap_or_else(|| panic!("{:?}", out.diagnostics));
+    assert_eq!(
+        diagnostic.source_path,
+        Some("/synthetic/cwd/.octocode/.env".into())
+    );
+    assert!(!diagnostic.to_string().contains("private-"), "{diagnostic}");
 }
 
 #[test]
@@ -206,7 +217,7 @@ fn diagnostics_are_never_errors_for_any_file_misconfiguration() {
         "[]",
         "null",
         r#"{"version":"x"}"#,
-        r#"{"github":{"graphqlEnabled":"yes"}}"#,
+        r#"{"output":{"redactEmails":"yes"}}"#,
         r#"{"storage":{"mode":"disk"}}"#,
     ] {
         for out in [
@@ -239,7 +250,6 @@ fn invalid_global_file_does_not_discard_a_valid_workspace_file() {
         ..NONE
     });
     assert_eq!(out.resolved.lsp.prewarm, LspPrewarm::Off);
-    assert_eq!(out.source, ConfigSource::Invalid);
     assert!(
         out.diagnostics
             .iter()
@@ -255,7 +265,6 @@ fn unreadable_workspace_file_reports_its_path() {
         kind: "permission denied".into(),
     };
     let out = resolve_config(&i);
-    assert_eq!(out.source, ConfigSource::Invalid);
     assert_eq!(out.project_config_path, Some(WORKSPACE_RC.into()));
     assert!(out.diagnostics.iter().any(|d| d.code == "config_load_error"
         && d.severity == Severity::Warning
@@ -270,7 +279,6 @@ fn empty_workspace_file_is_valid_and_transparent() {
         ..NONE
     });
     assert_eq!(out.resolved.lsp.prewarm, LspPrewarm::Off);
-    assert_eq!(out.source, ConfigSource::File);
     assert!(out.diagnostics.is_empty());
 }
 

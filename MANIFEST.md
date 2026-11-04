@@ -239,7 +239,7 @@ One Rust engine serves both interfaces, the `octocode-mcp` server and the `npx o
 |           +-------------------------------------------+           |
 |                                v                                  |
 |           +-------------------------------------------+           |
-|           |  NEXT STEPS: next.* pages, hints.* leads  |           |
+|           | NEXT STEPS: next.* pages, related[] calls |           |
 |           +-------------------------------------------+           |
 +-------------------------------------------------------------------+
 ```
@@ -379,7 +379,7 @@ The concrete tool workflows that apply this theory have one owner each:
 - [Tool reference](docs/OCTOCODE_TOOLS.md): every tool's fields, results, and continuations.
 - [Research skill](skills/octocode-research/SKILL.md): the executable research workflow for agents.
 
-One rule connects them: every result carries the exact inputs of the next call. Reuse the returned `next.*` pages and `hints.*` leads unchanged; never recompute or guess them. This is "output bridges actions" (Part 2) made mechanical.
+One rule connects them: every result carries the exact inputs of the next call. Reuse the returned `next.*` pages and `related[]` calls unchanged; never recompute or guess them. This is "output bridges actions" (Part 2) made mechanical.
 
 ---
 

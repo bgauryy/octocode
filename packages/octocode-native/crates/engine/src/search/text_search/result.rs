@@ -133,7 +133,6 @@ pub(super) fn build_result(
         file_terms_dropped,
         depth_cut_dirs,
         skipped_binary_extensions,
-        pruned_dirs,
         cancelled,
         error_count,
         first_error,
@@ -243,7 +242,6 @@ pub(super) fn build_result(
         skipped_binary_count: (skipped_binary_count > 0).then_some(skipped_binary_count),
         skipped_binary_extensions: (!skipped_binary_extensions.is_empty())
             .then_some(skipped_binary_extensions),
-        pruned_dirs: (!pruned_dirs.is_empty()).then_some(pruned_dirs),
         file_terms_dropped: (file_terms_dropped > 0).then_some(file_terms_dropped),
         depth_cut_dirs: (depth_cut_dirs > 0).then_some(depth_cut_dirs),
     };

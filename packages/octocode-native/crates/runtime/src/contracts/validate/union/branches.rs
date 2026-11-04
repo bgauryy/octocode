@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 
 /// The object forms a branch stands for: a nested `anyOf`/`oneOf` (through
 /// `$ref`) contributes each of its own branches.
-fn alternatives<'a>(root: &'a Value, branch: &'a Value) -> Vec<&'a Value> {
+pub(super) fn alternatives<'a>(root: &'a Value, branch: &'a Value) -> Vec<&'a Value> {
     let target = branch_object(root, branch);
     match ["anyOf", "oneOf"]
         .iter()

@@ -14,7 +14,7 @@ flowchart TD
   K{Change in} -- Core: schema, description, instructions --> C1["edit CORE"]
   C1 --> C2["core: yarn test && yarn lint"]
   C2 --> C3["node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen at the monorepo root: refreshes the file: core copy, then regenerates packages/octocode-config/contract/"]
-  C3 --> C4["declare any new field in field-effect-coverage.json"]
+  C3 --> C4["declare a new field in field-effect-coverage.json or confirm it inherits its ancestor's effect; the field_effect_coverage test gates it"]
   C4 --> NB
   K -- Native runtime or engine --> N1["edit"]
   N1 --> N2["cargo fmt + clippy on the touched crate"]

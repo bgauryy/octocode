@@ -130,7 +130,7 @@ pub(super) async fn graphql_pull_request(
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<GraphqlOutcome, ProviderError> {
-    if !transport.graphql_enabled || !transport.graphql_available(context) {
+    if !transport.graphql_available(context) {
         return Ok(GraphqlOutcome::Unavailable);
     }
     let Some(number) = gh_get_history_item_query::number(query) else {

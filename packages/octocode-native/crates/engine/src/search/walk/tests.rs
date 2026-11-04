@@ -231,25 +231,6 @@ fn external_ignore_inputs_name_the_files_above_the_root() {
     assert_eq!(unique.len(), inputs.len(), "{inputs:?}");
 }
 
-#[test]
-fn prune_skips_named_directories_below_the_root_only() {
-    let dir = tempfile::tempdir().expect("dir");
-    let root = dir.path().join("target");
-    write(&root.join("src/a.rs"), "x");
-    write(&root.join("target/b.rs"), "x");
-    write(&root.join("node_modules/c.rs"), "x");
-    let prune = Prune::new(["target", "node_modules"]);
-    let mut walk = walk_builder(&root, IgnorePolicy::default(), None);
-    walk.filter_entry(move |entry| !prune.prunes_entry(entry));
-    let files: BTreeSet<String> = walk
-        .build()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
-        .map(|entry| relative(&root, entry.path()))
-        .collect();
-    assert_eq!(files, BTreeSet::from(["src/a.rs".to_owned()]));
-}
-
 /// A lifted walk enters neither a clone nor a submodule below its root
 /// (a `.git` directory or file), records both, and still walks the
 /// root's own repository and its gitignored directories.

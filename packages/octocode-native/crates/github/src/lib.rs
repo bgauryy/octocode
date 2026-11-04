@@ -34,7 +34,6 @@ mod tree;
 pub const MAX_PER_PAGE: usize = 100;
 
 pub use budget::{AuthAdmission, GitHubBudget, GitHubPacing, LimiterKey};
-pub use commit_dates::PathDates;
 pub use content::{
     ContentRequest, ContentResponse, GitHubProvider, Submodule, decode_content, is_full_sha,
 };
@@ -55,7 +54,8 @@ pub use search::{
 };
 pub use transport::{
     GitHubTransport, GraphQlError, GraphQlPage, HTTP_USER_AGENT, HttpMethod, ProviderAnswer,
-    ProviderEvidence, RequestContext, RequestSpec, ResponsePage, RetryPolicy, sso_partial_warning,
+    ProviderEvidence, RequestContext, RequestSpec, ResponsePage, RetryPolicy, Reuse, SavedAnswer,
+    SavedAnswers, sso_partial_warning, worth_keeping,
 };
 pub use tree::{ContentsEntry, ContentsListing};
 

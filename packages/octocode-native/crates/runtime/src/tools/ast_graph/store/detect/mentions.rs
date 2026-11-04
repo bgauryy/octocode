@@ -2,26 +2,23 @@
 //! candidate file stems and export names it mentions, and where.
 use super::*;
 use crate::tools::ast_graph::classify::VENDORED_DIRS;
+use crate::tools::page_memo::PageMemo;
+use octocode_engine::stamp::SourceStamp;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(super) const MENTION_MAX_FILE: u64 = 2 << 20;
-pub(super) const MENTION_MAX_TOTAL: u64 = 512 << 20;
 
-/// Directories the scan skips on top of the shared syntax-visible prune
-/// (build output, deps, VCS, credential stores): the environment and
-/// tool-output directories the ingest excludes, and vendored copies, which
-/// would mention every name. Both lists are the graph's own, so the scan
-/// reads what the graph builds from.
+/// Directories the scan skips on top of the one default prune (build output,
+/// deps, VCS, credential stores): vendored copies, which would mention every
+/// name.
 fn skipped_dirs() -> impl Iterator<Item = String> {
-    super::super::INGEST_EXCLUDES
-        .iter()
-        .chain(VENDORED_DIRS)
-        .map(|name| (*name).to_owned())
+    VENDORED_DIRS.iter().map(|name| (*name).to_owned())
 }
 
 /// What the mention scan did not read, so "no mention" stays a scoped claim.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct MentionGaps {
-    pub(super) truncated: bool,
     pub(super) oversized: u64,
 }
 
@@ -42,6 +39,113 @@ pub(super) struct MentionHits {
     pub(super) words: Mentions,
 }
 
+impl MentionHits {
+    /// About what the hits hold, for the memory budget.
+    fn weight(&self) -> usize {
+        [&self.stems, &self.references, &self.words]
+            .into_iter()
+            .flatten()
+            .map(|(key, list)| {
+                key.len()
+                    + std::mem::size_of::<(String, Vec<String>)>()
+                    + list
+                        .iter()
+                        .map(|mention| mention.len() + std::mem::size_of::<String>())
+                        .sum::<usize>()
+            })
+            .sum()
+    }
+}
+
+/// One text file the walk found, stamped before it is read.
+struct Listed {
+    path: std::path::PathBuf,
+    /// Root-relative, `/`-separated: the name findings cite.
+    rel: String,
+    size: u64,
+    stamp: Option<SourceStamp>,
+    /// Whether the stamp may stand in for the bytes ([`SourceStamp::settled`]).
+    settled: bool,
+}
+
+/// The text the scan may read under `root`, in path order, each file stamped
+/// before any is read.
+fn listed_files(root: &std::path::Path) -> Vec<Listed> {
+    let now = octocode_engine::stamp::settle_clock();
+    let mut files = crate::tools::pruned_walk(root, skipped_dirs())
+        .build()
+        .flatten()
+        .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
+        .map(|entry| {
+            let meta = entry.metadata().ok();
+            let rel = entry.path().strip_prefix(root).map_or_else(
+                |_| entry.path().to_string_lossy().into_owned(),
+                |path| path.to_string_lossy().replace('\\', "/"),
+            );
+            Listed {
+                rel,
+                size: meta.as_ref().map_or(0, std::fs::Metadata::len),
+                stamp: meta.as_ref().and_then(SourceStamp::of),
+                settled: meta
+                    .as_ref()
+                    .is_some_and(|meta| SourceStamp::settled(meta, now).is_some()),
+                path: entry.into_path(),
+            }
+        })
+        .collect::<Vec<_>>();
+    files.sort_unstable_by(|a, b| a.rel.cmp(&b.rel));
+    files
+}
+
+#[cfg(test)]
+pub(super) fn scan_mentions(
+    root: &std::path::Path,
+    stems: &BTreeSet<String>,
+    names: &BTreeSet<String>,
+) -> (MentionHits, MentionGaps) {
+    scan_listed(&listed_files(root), stems, names)
+}
+
+/// [`scan_listed`] of `root`, kept across calls while what it read stands:
+/// the key is the key sets and every listed file's stamp, so an edit, an added
+/// or removed file and a `.gitignore` change that alters the listing all miss.
+/// Only a listing of settled stamps is kept; an unsettled one scans each time.
+pub(super) fn memoized_mentions(
+    root: &std::path::Path,
+    stems: &BTreeSet<String>,
+    names: &BTreeSet<String>,
+) -> Arc<(MentionHits, MentionGaps)> {
+    static MENTIONS: PageMemo<Arc<(MentionHits, MentionGaps)>> = PageMemo::new();
+    let files = listed_files(root);
+    let mut key = octocode_engine::digest::HashWriter::default();
+    key.update(root.as_os_str().as_encoded_bytes());
+    for set in [stems, names] {
+        key.update([0]);
+        for item in set {
+            key.update(item);
+            key.update([0]);
+        }
+    }
+    for file in &files {
+        key.update(&file.rel);
+        key.update([0]);
+        let stamp = file.stamp.unwrap_or_default();
+        for part in [stamp.size, stamp.modified_ns, stamp.changed_ns, stamp.inode] {
+            key.update(part.to_le_bytes());
+        }
+    }
+    let key = hex::encode(key.finalize());
+    let provable = files.iter().all(|file| file.settled);
+    if provable && let Some(kept) = MENTIONS.get(&key, "", Arc::clone) {
+        return kept;
+    }
+    let scanned = Arc::new(scan_listed(&files, stems, names));
+    if provable {
+        MENTIONS.put(key, String::new(), scanned.0.weight(), Arc::clone(&scanned));
+    }
+    scanned
+}
+
 /// One pass over the repository's text: which candidate file stems appear as
 /// path-like tokens (`'./worker.ts'`, `"src/tool.ts"`) or whole string
 /// literals (`'worker'`, a name a loader builds a path from) and which export names
@@ -51,131 +155,69 @@ pub(super) struct MentionHits {
 /// [`octocode_engine::signatures::languages::may_reference_code`])
 /// or qualified by a module path or object (`mod.run`, `index.run`) is a
 /// reference; a bare word of other text (a README's "run") is only a word.
-pub(super) fn scan_mentions(
-    root: &std::path::Path,
+fn scan_listed(
+    files: &[Listed],
     stems: &BTreeSet<String>,
     names: &BTreeSet<String>,
 ) -> (MentionHits, MentionGaps) {
-    use std::collections::HashSet;
-    use std::sync::Mutex;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    // Hashed views of the key sets: a token lookup is the inner loop. Keys
-    // borrow from the sets, so a hit allocates nothing.
-    let stem_set: HashSet<&str> = stems.iter().map(String::as_str).collect();
-    let name_set: HashSet<&str> = names.iter().map(String::as_str).collect();
-    // One file's hits: per kind (stems, references, words), per key, its
-    // first line in the file.
-    type FileHits<'k> = (String, [BTreeMap<&'k str, usize>; 3]);
-    /// Each walker thread keeps its files' hits and hands them over once,
-    /// when the walk drops it: no lock per file.
-    struct Sink<'s, 'k> {
-        files: Vec<FileHits<'k>>,
-        shared: &'s Mutex<Vec<FileHits<'k>>>,
-    }
-    impl Drop for Sink<'_, '_> {
-        fn drop(&mut self) {
-            let mut shared = self
-                .shared
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            shared.append(&mut self.files);
-        }
-    }
-    let found = Mutex::new(Vec::<FileHits<'_>>::new());
-    // Bytes read so far; a file that would pass the total ends the scan.
-    let spent = AtomicU64::new(0);
-    let truncated = AtomicBool::new(false);
-    let oversized = AtomicU64::new(0);
-    let walker = crate::tools::pruned_walk(root, skipped_dirs()).build_parallel();
-    walker.run(|| {
-        let (stem_set, name_set) = (&stem_set, &name_set);
-        let spent = &spent;
-        let truncated = &truncated;
-        let oversized = &oversized;
-        let mut sink = Sink {
-            files: Vec::new(),
-            shared: &found,
-        };
-        Box::new(move |entry| {
-            let Ok(entry) = entry else {
-                return ignore::WalkState::Continue;
-            };
-            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-                return ignore::WalkState::Continue;
-            }
-            let size = entry.metadata().map_or(0, |meta| meta.len());
-            if size > MENTION_MAX_FILE {
-                oversized.fetch_add(1, Ordering::Relaxed);
-                return ignore::WalkState::Continue;
-            }
-            if spent
-                .fetch_add(size, Ordering::Relaxed)
-                .saturating_add(size)
-                > MENTION_MAX_TOTAL
-            {
-                truncated.store(true, Ordering::Relaxed);
-                return ignore::WalkState::Quit;
-            }
-            let Ok(source) = octocode_engine::text::read_source(entry.path(), MENTION_MAX_FILE)
-            else {
-                return ignore::WalkState::Continue;
-            };
-            // The one source admission: binary refused, any text decoded as
-            // the reader tools show it.
-            let Ok(decoded) = source.admit(octocode_engine::text::Decoding::Lenient) else {
-                return ignore::WalkState::Continue;
-            };
-            let rel = entry.path().strip_prefix(root).map_or_else(
-                |_| entry.path().to_string_lossy().into_owned(),
-                |path| path.to_string_lossy().replace('\\', "/"),
-            );
-            let extension = octocode_engine::text::extension_of(&rel, true, "");
-            let code = octocode_engine::signatures::languages::may_reference_code(&extension);
-            let text = decoded.text;
-            let mut local: [BTreeMap<&str, usize>; 3] = Default::default();
-            for (index, line) in text.lines().enumerate() {
-                for (offset, token) in tokens(line) {
-                    if token.contains(['/', '.']) {
-                        let last = token.rsplit('/').next().unwrap_or(token);
-                        let stem = last.split('.').next().unwrap_or(last);
-                        if let Some(&stem) = stem_set.get(stem) {
-                            local[0].entry(stem).or_insert(index + 1);
+    let keys = Keys::new(stems, names);
+    // A file past the size bound is counted. Workers hold one file's text at a
+    // time, so the text behind them has no bound to keep.
+    let (readable, oversized): (Vec<_>, Vec<_>) =
+        files.iter().partition(|file| file.size <= MENTION_MAX_FILE);
+    let gaps = MentionGaps {
+        oversized: oversized.len() as u64,
+    };
+    let next = AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .min(readable.len().max(1));
+    let found = std::thread::scope(|scope| {
+        let workers = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut hits = Vec::new();
+                    while let Some(file) = readable.get(next.fetch_add(1, Ordering::Relaxed)) {
+                        let local = scan_file(file, &keys);
+                        if local.iter().any(|kind| !kind.is_empty()) {
+                            hits.push((file.rel.as_str(), local));
                         }
-                    } else if let Some(&stem) = stem_set.get(token)
-                        && quoted(line, offset, token)
-                    {
-                        // A bare name as a whole string literal (`'worker'`)
-                        // is a file a loader may build a path from.
-                        local[0].entry(stem).or_insert(index + 1);
                     }
-                    let mut at = 0;
-                    for part in token.split(['.', '/', '-', '@']) {
-                        let start = at;
-                        at += part.len() + 1;
-                        let Some(&name) = name_set.get(part) else {
-                            continue;
-                        };
-                        let qualified =
-                            token[..start].strip_suffix(['.', '/']).is_some_and(|head| {
-                                head.ends_with(|c: char| c.is_alphanumeric() || "_$".contains(c))
-                            });
-                        let kind = if code || qualified { 1 } else { 2 };
-                        local[kind].entry(name).or_insert(index + 1);
-                    }
-                }
-            }
-            if local.iter().any(|hits| !hits.is_empty()) {
-                sink.files.push((rel, local));
-            }
-            ignore::WalkState::Continue
-        })
+                    hits
+                })
+            })
+            .collect::<Vec<_>>();
+        workers
+            .into_iter()
+            .flat_map(|worker| {
+                worker
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect::<Vec<_>>()
     });
-    let mut files = found
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    // Files in path order, so each key lists its files in path order
-    // whatever order the parallel walk visited them in.
-    files.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    (assemble(found), gaps)
+}
+
+/// The hits of one file, none when it cannot be read as text.
+fn scan_file<'k>(file: &Listed, keys: &Keys<'k>) -> [BTreeMap<&'k str, usize>; 3] {
+    let Ok(source) = octocode_engine::text::read_regular(&file.path, MENTION_MAX_FILE) else {
+        return Default::default();
+    };
+    // The one source admission: binary refused, any text decoded as the
+    // reader tools show it.
+    let Ok(decoded) = source.admit(octocode_engine::text::Decoding::Lenient) else {
+        return Default::default();
+    };
+    let extension = octocode_engine::text::extension_of(&file.rel, true, "");
+    let code = octocode_engine::signatures::languages::may_reference_code(&extension);
+    scan_text(&decoded.text, code, keys)
+}
+
+/// Per key, its mentions: files in path order, so each key lists its files in
+/// path order whatever order the workers read them in.
+fn assemble(mut files: Vec<(&str, [BTreeMap<&str, usize>; 3])>) -> MentionHits {
+    files.sort_unstable_by(|a, b| a.0.cmp(b.0));
     let mut hits: [Mentions; 3] = Default::default();
     for (rel, local) in &files {
         for (mentions, mine) in hits.iter_mut().zip(local) {
@@ -190,40 +232,11 @@ pub(super) fn scan_mentions(
         }
     }
     let [stems, references, words] = hits;
-    (
-        MentionHits {
-            stems,
-            references,
-            words,
-        },
-        MentionGaps {
-            truncated: truncated.load(Ordering::Relaxed),
-            oversized: oversized.load(Ordering::Relaxed),
-        },
-    )
-}
-
-/// `line`'s runs of name and path characters, with their byte offsets.
-fn tokens(line: &str) -> impl Iterator<Item = (usize, &str)> {
-    let mut start = None;
-    line.char_indices()
-        .chain(std::iter::once((line.len(), ' ')))
-        .filter_map(move |(at, c)| {
-            if c.is_alphanumeric() || "_$./@-".contains(c) {
-                start.get_or_insert(at);
-                None
-            } else {
-                start.take().map(|from| (from, &line[from..at]))
-            }
-        })
-}
-
-/// Whether `token` at `offset` is a whole string literal: the same quote
-/// right before and right after it.
-fn quoted(line: &str, offset: usize, token: &str) -> bool {
-    let before = line[..offset].chars().next_back();
-    let after = line[offset + token.len()..].chars().next();
-    matches!(before, Some('\'' | '"' | '`')) && before == after
+    MentionHits {
+        stems,
+        references,
+        words,
+    }
 }
 
 /// The `file:line` mentions of `key` in files other than `subject`.

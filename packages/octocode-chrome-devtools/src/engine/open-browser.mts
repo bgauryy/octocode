@@ -7,6 +7,7 @@ import { join } from 'path';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { browserMajorVersion, planRealProfile } from './real-profile.mjs';
 import { flagArgs } from './cli-flags.mjs';
+import { OPEN_BROWSER_HELP } from './open-browser-help.mjs';
 import { errorMessage } from './error-message.mjs';
 import {
   findChrome,
@@ -14,14 +15,18 @@ import {
   waitForExit,
 } from './browser-process.mjs';
 import {
-  STATE_SUBPATH,
-  checkRunning,
   discoverListenerSession,
   processMatchesTrackedSession,
+} from './browser-session.mjs';
+import {
+  STATE_SUBPATH,
+  checkRunning,
   profileDirIn,
   readSession,
   sessionFileIn,
-} from './browser-session.mjs';
+  isolatedProfileNote,
+  recordActiveSession,
+} from './session-registry.mjs';
 import {
   chromeLaunchArgs,
   effectiveProxy,
@@ -33,25 +38,7 @@ const { getArg, hasFlag } = flagArgs(argv);
 // getArg returns the default whenever the flag has no value, so these are never undefined.
 
 if (hasFlag('--help') || hasFlag('-h')) {
-  console.log(`Usage: open-browser.mjs [options]
-
-Launch or reuse a Chrome DevTools Protocol session.
-
-Options:
-  --port <n>              CDP port (default: 9222)
-  --url <url>             Initial URL
-  --headless              Use an isolated headless profile
-  --profile <name>        Use the real browser profile (needs approval; quit the browser;
-                          Google Chrome 136+ refuses, Chromium/Chrome for Testing work)
-  --chromePath <path>     Explicit Chrome executable
-  --windowSize <WxH>      Browser window size
-  --enableFeatures <csv>  Chrome feature flags
-  --userAgent <ua>        User-Agent override
-  --proxyServer <url>     Proxy (also --proxyBypassList, --proxyPacUrl)
-  --config <path>         Proxy configuration file
-  --cleanup               Stop the isolated session tracked for this port (from any cwd)
-  --dry-run               Preview cleanup without stopping Chrome
-  -h, --help              Show this help and exit`);
+  console.log(OPEN_BROWSER_HELP);
   process.exit(0);
 }
 
@@ -92,7 +79,7 @@ const CHROME_STATE_DIR = join(WORKSPACE, ...STATE_SUBPATH);
 const SESSION_FILE = sessionFileIn(CHROME_STATE_DIR, PORT);
 const HEADLESS_PROFILE_DIR = profileDirIn(CHROME_STATE_DIR, PORT);
 
-function writeSession(pid: number | undefined) {
+function writeSession(pid: number | undefined, wsUrl?: string) {
   writeFileSync(
     SESSION_FILE,
     JSON.stringify({
@@ -103,6 +90,7 @@ function writeSession(pid: number | undefined) {
       isolated: usingIsolatedProfile,
       startedAt: Date.now(),
       chromePath,
+      wsUrl,
     }),
     { mode: 0o600 }
   );
@@ -243,6 +231,14 @@ if (existing) {
     USER_AGENT && '--userAgent',
     hasFlag('--windowSize') && '--windowSize',
   ].filter(Boolean);
+  // Commands without a port use this browser next, unless another workspace owns it.
+  if (!owner.workspace || owner.workspace === WORKSPACE)
+    recordActiveSession(CHROME_STATE_DIR, {
+      port: PORT,
+      pid: owner.session?.pid,
+      wsUrl: existing.webSocketDebuggerUrl,
+      reused: true,
+    });
   ok({
     status: 'BROWSER_READY',
     wsUrl: existing.webSocketDebuggerUrl,
@@ -344,6 +340,14 @@ while (attempts < 40) {
   await new Promise(r => setTimeout(r, 500));
   const info = await checkRunning(PORT);
   if (info) {
+    if (usingIsolatedProfile)
+      writeSession(child.pid, info.webSocketDebuggerUrl);
+    recordActiveSession(CHROME_STATE_DIR, {
+      port: PORT,
+      pid: child.pid,
+      wsUrl: info.webSocketDebuggerUrl,
+      reused: false,
+    });
     ok({
       status: 'BROWSER_READY',
       wsUrl: info.webSocketDebuggerUrl,
@@ -351,6 +355,10 @@ while (attempts < 40) {
       reused: false,
       browser: info.Browser,
       isolated: usingIsolatedProfile,
+      profileDir: usingIsolatedProfile ? HEADLESS_PROFILE_DIR : undefined,
+      profileNote: usingIsolatedProfile
+        ? isolatedProfileNote(HEADLESS, PORT)
+        : undefined,
       sessionFile: usingIsolatedProfile ? SESSION_FILE : null,
       proxyConfigured: proxyRequested,
       enableFeaturesConfigured: ENABLE_FEATURES || undefined,

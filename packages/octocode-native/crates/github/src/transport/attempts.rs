@@ -91,6 +91,11 @@ impl<'a> Attempts<'a> {
             let headers = response.headers().clone();
             *self.failed = None;
             self.state.observe(&headers, self.resource.bucket());
+            if status == StatusCode::NOT_MODIFIED && self.spec.is_conditional() {
+                drop(admission);
+                self.state.record_success();
+                return Ok(self.page(status, headers, bytes::Bytes::new(), None));
+            }
             if status.is_redirection() {
                 drop(admission);
                 self.follow_redirect(status, &headers)?;
@@ -101,12 +106,7 @@ impl<'a> Attempts<'a> {
                 let body = read_bounded(response, self.context).await?;
                 drop(admission);
                 self.state.record_success();
-                return Ok(ResponsePage {
-                    status: status.as_u16(),
-                    headers,
-                    body,
-                    next,
-                });
+                return Ok(self.page(status, headers, body, next));
             }
             let (body, body_note) = read_error_body(response, self.context).await?;
             let (error, backoff) = self.classify(status, &headers, body, body_note);
@@ -115,6 +115,22 @@ impl<'a> Attempts<'a> {
                 return Err(error);
             };
             self.retry(error, backoff).await?;
+        }
+    }
+
+    fn page(
+        &self,
+        status: StatusCode,
+        headers: HeaderMap,
+        body: bytes::Bytes,
+        next: Option<url::Url>,
+    ) -> ResponsePage {
+        ResponsePage {
+            status: status.as_u16(),
+            headers,
+            body,
+            next,
+            redirected: self.redirects > 0,
         }
     }
 
@@ -219,10 +235,6 @@ impl<'a> Attempts<'a> {
             kind: ProviderErrorKind::RedirectDenied,
             message: "GitHub API redirect was not followed".into(),
             status: Some(status.as_u16()),
-            request_id: headers
-                .get("x-github-request-id")
-                .and_then(|value| value.to_str().ok())
-                .map(Into::into),
             rate_limit: None,
             retryable: false,
             reason: None,

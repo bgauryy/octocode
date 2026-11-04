@@ -7,15 +7,16 @@ async fn failed_split_evaluation_counts_all_completed_usage() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(|request: &Request| {
-            if request.body_json::<Value>().unwrap()["questions"]["answer"]["instructions"]
-                == "fail"
-            {
+            let body = request.body_json::<Value>().unwrap();
+            if body["questions"].as_object().unwrap().len() > 1 {
+                super::media::window_exceeded()
+            } else if body["questions"]["answer"]["instructions"] == "fail" {
                 ResponseTemplate::new(401)
             } else {
                 response(request)
             }
         })
-        .expect(3)
+        .expect(4)
         .mount(&server)
         .await;
     let evaluator = evaluator(&server);
@@ -38,16 +39,17 @@ async fn failed_split_evaluation_counts_all_completed_usage() {
         )
         .await
         .unwrap_err();
-    assert_eq!(error.provider_calls, 3);
+    // The refused group plus one request per question.
+    assert_eq!(error.provider_calls, 4);
     assert_eq!(
         (error.usage().input_tokens, error.usage().output_tokens),
         (20, 4)
     );
     let mut usage = stats::ClassificationUsage::default();
     usage.add(&Err(error));
-    assert_eq!(usage.calls, 3);
+    assert_eq!(usage.calls, 4);
     assert_eq!(usage.known_usage_calls, 2);
-    assert_eq!(usage.unknown_usage_calls, 1);
+    assert_eq!(usage.unknown_usage_calls, 2);
     assert_eq!(usage.input_tokens, 20);
     assert_eq!(usage.output_tokens, 4);
 }
@@ -110,9 +112,7 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
             }))
         }).expect(3).mount(&server).await;
     });
-    let home = tempfile::tempdir().unwrap();
-    let mut evaluator = evaluator(&server);
-    evaluator.stats_home = Some(home.path().to_owned());
+    let evaluator = evaluator(&server);
     let mut runtime = crate::tools::test_support::selection_fake::runtime(
         evaluator,
         executor.handle().clone(),
@@ -143,12 +143,6 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
         octocode_contract_types::SelectionStatus::Partial
     );
     assert!(outcome.receipt.reason.is_some());
-    let recorded: Value =
-        serde_json::from_slice(&std::fs::read(home.path().join("stats.json")).unwrap()).unwrap();
-    assert_eq!(
-        recorded["stats"]["clasify"],
-        json!({"calls":3,"known_usage_calls":2,"unknown_usage_calls":1,"input_tokens":20,"output_tokens":4})
-    );
     assert_eq!(
         executor.block_on(server.received_requests()).unwrap().len(),
         3

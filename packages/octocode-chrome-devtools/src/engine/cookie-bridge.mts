@@ -41,7 +41,9 @@ const argv = process.argv.slice(2);
 const { getArg, hasFlag } = flagArgs(argv);
 
 if (hasFlag('--help') || hasFlag('-h') || argv.length === 0) {
-  console.error(`Usage: node cookie-bridge.mjs --i-understand-secrets --to-port 9222 \\
+  (argv.length === 0
+    ? console.error
+    : console.log)(`Usage: node cookie-bridge.mjs --i-understand-secrets --to-port 9222 \\
   (--from-port 9333 | --from-profile Default | --from-storage-state state.json) \\
   [--urls "https://example.com"] [--export-storage-state out.json] [--dry-run]
   [--source-port 9333] [--chromePath <browser for --from-profile>]

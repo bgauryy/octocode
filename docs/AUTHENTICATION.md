@@ -7,51 +7,11 @@ npx octocode auth login            # GitHub OAuth device flow; stores an encrypt
 npx octocode auth status --json    # verify: source, username, hostname
 ```
 
-To skip login, set `GITHUB_TOKEN` (or another [token variable](#token-environment-variables)) in the shell, CI, or MCP client `env` block, or run `gh auth login`.
+To skip login, set `GITHUB_TOKEN` (or `GH_TOKEN`) in the shell, CI, or MCP client `env` block, or run `gh auth login`.
 
-## GitHub token resolution order
+## GitHub token resolution
 
-Each GitHub request uses the first credential found for its host:
-
-| # | Source | `tokenSource` |
-|---|---|---|
-| 1 | A token env var (process env → workspace `.octocode/.env` → home `.octocode/.env`) | `env` |
-| 2 | Octocode OAuth login: encrypted `<OCTOCODE_HOME>/credentials.json` | `octocode-storage` |
-| 3 | An older native login in the OS credential store (macOS Keychain, Linux Secret Service, Windows Credential Manager) | `platform` |
-| 4 | `gh auth token --hostname <host>` | `gh-cli` |
-
-- Environment always wins. `auth login` warns when a token variable is set, because the new login stays unused until you unset it.
-- An env token is sent only to the host of the configured `GITHUB_API_URL` (`api.github.com` maps to `github.com`).
-- A stored token that expires within 5 minutes is [refreshed](#refresh) first; if refresh fails, resolution falls through to `gh`.
-- With no credential, public requests run unauthenticated at GitHub's lower rate limit (`authenticated: false`).
-- The chosen credential is remembered per host for 60 seconds, so a login, logout, `gh auth switch`, or token rotation in another window applies within a minute.
-- When GitHub rejects a stored or `gh` token (HTTP 401), Octocode skips that token in this process and the next request falls through to the next source. A rejected env token is not skipped: fix or unset the variable.
-
-### Token environment variables
-
-| Priority | Variable | Typical origin |
-|---|---|---|
-| 1 | `GH_TOKEN` | GitHub CLI convention; the VS Code extension writes this one |
-| 2 | `GITHUB_TOKEN` | GitHub Actions |
-
-Source wins before name: any nonblank process variable beats every `.env` file, and a workspace `.env` token beats a home `.env` token even under the lower-priority name. Name priority only breaks ties inside one source. `.octocoderc` never supplies GitHub tokens.
-
-### Global vs workspace files
-
-| File | Scope | GitHub credential |
-|---|---|---|
-| Shell or MCP client `env` block | That process | Token variable; always wins |
-| `<cwd>/.octocode/.env` | Workspace: the directory Octocode starts in | Token variable |
-| `<OCTOCODE_HOME>/.env` (default `~/.octocode/.env`) | Global: every project | Token variable |
-| `<OCTOCODE_HOME>/credentials.json` + `.key` | Global only | `auth login` |
-| `.octocoderc` (global or workspace) | — | Never a token |
-
-- **Workspace means the working directory itself.** The CLI uses the directory you run it in; the MCP server uses the directory its client starts it in. A subfolder never reads its parent's `.octocode/.env`. When the working directory is your OS home, `~/.octocode/.env` is read once, as the global file.
-- **A workspace token goes only to your configured host.** `GITHUB_API_URL` and `OCTOCODE_HOME` are home-only: a workspace `.env` or `.octocoderc` cannot set them, so a repository's `.octocode/.env` can supply a token but cannot redirect it to another host. Other keys a workspace cannot set: [CONFIGURATION.md](CONFIGURATION.md#env--environment-fallback).
-- **Logins are never per workspace.** `auth login` always writes to `<OCTOCODE_HOME>/credentials.json`; to use another account in one project, put a token in that project's `.octocode/.env`.
-- **See which file won:** `npx octocode config get GH_TOKEN` (or `GITHUB_TOKEN`) prints the masked value and its file; `auth status --json` shows `tokenSource`.
-- **Reload:** the CLI reads both files on every call. The MCP server reads them at start; restart it after an edit.
-- Keep a workspace `.octocode/.env` out of version control: its token is stored in plain text.
+Which credential a request uses, in order, is in [GitHub token resolution](CONFIGURATION.md#github-token-resolution).
 
 ## OAuth device login
 
@@ -119,9 +79,9 @@ The classification key authorizes inline `classification` and `clasify` requests
 | Variable | Purpose |
 |---|---|
 | `OCTOCODE_CLASSIFICATION_API` | Provider API key (bearer) |
-| `OCTOCODE_CLASSIFICATION_API_HOST` | Optional API root (default `https://api.typesafe.ai`). HTTPS except on loopback. Home-only |
+| `OCTOCODE_CLASSIFICATION_API_HOST` | Optional API root (default `https://api.typesafe.ai`), `classification.apiHost` in `.octocoderc`. HTTPS except on loopback. Home-only. [Change it](CONFIGURATION.md#change-the-classification-host) |
 
-- The key follows [configuration precedence](CONFIGURATION.md#how-settings-override-each-other), with `classification.api` as its settings-file fallback. It never appears in resolved configuration output.
+- The key follows [configuration precedence](CONFIGURATION.md#where-every-value-comes-from), with `classification.api` as its settings-file fallback. It never appears in resolved configuration output.
 - A present-but-blank `OCTOCODE_CLASSIFICATION_API=` in the process environment disables classification requests, even when a file has a key. It hides `clasify` from MCP; the CLI command stays listed and reports the missing credential when invoked.
 
 ## npm registry credentials

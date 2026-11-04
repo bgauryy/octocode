@@ -4,7 +4,7 @@ CLI and MCP expose one core-owned contract. Native validates inputs, executes to
 
 ## Requests and result rows
 
-A new request is `{"queries":[query,...],"responseChars":20000}`; the optional responseChars sets a display target. A continuation request is only `{"cursor":"…"}`. There is no bare-query input, field alias conversion or public progress override.
+A new request is `{"queries":[query,...],"responseChars":20000}`; the optional responseChars sets a display target. A continuation request is only `{"cursor":"…"}`. A shape or value with one lossless reading is repaired, such as a bare row; anything ambiguous is rejected. There are no field aliases or public progress overrides.
 
 The schema a host lists is one closed object with each field once. It admits every canonical request; which operation a field goes with, what requires it and what it excludes are in the field's text. Native validation keeps the exact forms and its error names the fix. `octocode schema <tool> --select operation=X` shows one operation's exact form.
 
@@ -26,7 +26,7 @@ Structure listings group entries by `dir`. Entries may append a byte count in pa
 
 ### Minimal by default
 
-The default response includes evidence, required coverage facts and executable next steps. Rendered-size counters, read counters, build timings, storage integrity receipts and cache warmth stay internal; a zero count, an empty diagnostic list and `isPartial:false` are absent. There is no extras switch or hidden field-restoration mode. Size reductions may remove duplicate metadata, never evidence. Choose an explicit view to change the requested representation; compact and symbols views are transformed evidence, not verbatim source.
+The default response includes evidence, required coverage facts and executable next steps. Rendered-size counters, build timings and storage integrity receipts stay internal, and so does whether an answer came from a store, unless its origin was not asked: then a hint names when it was observed; a zero count, an empty diagnostic list and `isPartial:false` are absent. There is no extras switch or hidden field-restoration mode. Size reductions may remove duplicate metadata, never evidence. Choose an explicit view to change the requested representation; compact and symbols views are transformed evidence, not verbatim source.
 
 `structureSearch` offers `view:"paths"` for names and kind markers; its default `details` view includes metadata. Graph and AST rows place evidence by file and line by default (`includeProvenance:false`). `includeProvenance:true` adds every row's occurrence ID, source digest, byte spans, origin objects, parse assessment and any graph `derivation`, with `sourceEvidence`, for claims about exact source bytes. A default graph row with an origin that is not plainly the file's own text (transcoded, transformed, excluded or multi-source) keeps all of its provenance, and marks its plain spans `"identity"`: unchanged UTF-8 bytes of the row's file at `sourceDigest`. A parse that was not clean keeps `parseAssessment`. Neither setting changes graph scope or removes requested paths, rows, coverage facts or continuations, and continuations preserve it.
 

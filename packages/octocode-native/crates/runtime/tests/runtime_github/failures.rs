@@ -248,7 +248,5 @@ async fn gh_file_error_omits_provider_support_diagnostics() {
         "404 is not retryable: {data}"
     );
     assert!(data["error"].is_string(), "{data}");
-    assert!(data.get("requestId").is_none(), "{data}");
-    assert!(data.get("documentationUrl").is_none(), "{data}");
     runtime.close().await;
 }

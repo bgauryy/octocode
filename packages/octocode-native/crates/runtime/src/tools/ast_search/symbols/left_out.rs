@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 /// count and distinct names, so a prefix or substring search is not
 /// answered by the one exact name alone. The notice names every one; the
 /// `broadenSearch` lead runs them.
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub(super) struct Suppressed {
     /// The exact entries that suppressed them.
     exact: Vec<String>,
@@ -72,7 +72,7 @@ impl Suppressed {
 /// declaration although other kinds declare them: the kinds that do and how
 /// many declarations each holds, so an empty or substring-free answer is not
 /// read as absence. The `broadenSearch` lead adds those kinds.
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub(super) struct KindsLeftOut {
     /// The entries, in query order.
     names: Vec<String>,

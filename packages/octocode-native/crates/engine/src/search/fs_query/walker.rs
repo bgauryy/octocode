@@ -1,19 +1,21 @@
 //! The walk itself: directories read in name order (some read ahead), each
 //! entry decided, listed, counted, and the walk's position kept for a resume.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::compiled::{CompiledQuery, Verdict};
-use super::filters::{EntryKind, lstat, visit_path};
+use super::EntryFilter;
+use super::compiled::CompiledQuery;
 use super::read_ahead::{self, ReadAhead};
-use super::{EntryFilter, Visit};
 use crate::error::Error;
-use crate::search::walk::Stop;
-use crate::types::FileSystemEntry;
+use crate::search::walk::{ListedRules, Stop};
 use crate::types::fs_resume::{Child, Frame, WalkCursor, WalkTally};
+use crate::types::{FileSystemEntry, WalkedDir};
+
+mod level;
+
+use level::walk_level;
 
 /// Hard ceiling on directory-recursion depth. Symlink cycles are already
 /// avoided (symlink_metadata never reports a symlink as a dir), so this only
@@ -42,11 +44,16 @@ pub(super) struct QueryState {
     pub(super) cursor: Option<WalkCursor>,
     /// Where the walk stood at the `window_rows`-th listed entry.
     pub(super) window_cursor: Option<WalkCursor>,
+    /// Directories the walk entered, as their listings showed them.
+    pub(super) walked_dirs: Vec<WalkedDir>,
     /// Directories the walk read, itself or ahead.
     pub(super) directories_read: u32,
     /// The workers reading the walk's next directories, once it read
     /// [`read_ahead::START_AFTER_DIRECTORIES`] itself.
     pub(super) ahead: Option<ReadAhead>,
+    /// The directory the walk is about to enter, read early for what its
+    /// listing shows ([`entered_empty`]).
+    read_first: Option<(PathBuf, Children)>,
 }
 
 impl QueryState {
@@ -96,7 +103,13 @@ pub(super) fn walk_children(
 
 /// What reading a directory the walk enters gave.
 enum Children {
-    Read(Vec<Child>, Option<std::time::SystemTime>),
+    Read {
+        children: Vec<Child>,
+        read_at: Option<std::time::SystemTime>,
+        stamp: Option<crate::stamp::SourceStamp>,
+        /// Every entry of the listing could be read.
+        complete: bool,
+    },
     /// Too deep, past `max_depth`, or unreadable (counted, unless the walk
     /// this one resumes counted it): nothing to walk.
     None,
@@ -113,6 +126,11 @@ fn read_children(
     query: &CompiledQuery,
     state: &mut QueryState,
 ) -> Children {
+    if let Some((dir, children)) = state.read_first.take()
+        && dir == base
+    {
+        return children;
+    }
     // The walk this one resumes read this directory when it inspected the
     // entry that led here (the root: before its first entry), and counted
     // what failed to read: counted again, a failure would show twice.
@@ -162,7 +180,81 @@ fn read_children(
             state.unreadable(err);
         }
     }
-    Children::Read(children, listing.read_at)
+    Children::Read {
+        complete: errors.is_empty(),
+        children,
+        read_at: listing.read_at,
+        stamp: listing.stamp,
+    }
+}
+
+/// Whether the directory `base`, an entry at `depth`, holds no entries, from
+/// the listing the walk is about to enter it by, which it keeps for that.
+/// `None` when no listing tells: the walk will not enter it, or the walk's
+/// time ran out during the read. One it cannot read counts as not empty.
+pub(super) fn entered_empty(
+    base: &Path,
+    depth: u32,
+    query: &CompiledQuery,
+    state: &mut QueryState,
+) -> Option<bool> {
+    let entered = depth + 1;
+    if !query.recursive
+        || entered > MAX_RECURSION_DEPTH
+        || query.max_depth.is_some_and(|max_depth| entered > max_depth)
+    {
+        return None;
+    }
+    let children = read_children(base, entered, query, state);
+    let empty = match &children {
+        Children::Read {
+            children, complete, ..
+        } => Some(*complete && children.is_empty()),
+        Children::None => Some(false),
+        Children::Late => None,
+    };
+    state.read_first = Some((base.to_path_buf(), children));
+    empty
+}
+
+/// Whether a listing sorted by name holds `name`.
+fn listed<'c>(children: &'c [Child], name: &str) -> Option<&'c Child> {
+    children
+        .binary_search_by(|child| child.name.as_os_str().cmp(std::ffi::OsStr::new(name)))
+        .ok()
+        .map(|at| &children[at])
+}
+
+/// What a directory's name-sorted listing shows of its ignore rules.
+fn listed_rules(children: &[Child]) -> ListedRules {
+    ListedRules {
+        gitignore: listed(children, ".gitignore").is_some(),
+        ignore: listed(children, ".ignore").is_some(),
+        git: listed(children, ".git").is_some(),
+        jj: listed(children, ".jj").is_some(),
+    }
+}
+
+/// The directory `base` as its listing shows it, for the caller of the walk.
+fn walked_dir(
+    base: &Path,
+    stamp: Option<crate::stamp::SourceStamp>,
+    children: &[Child],
+) -> WalkedDir {
+    WalkedDir {
+        path: base.to_path_buf(),
+        stamp,
+        ignore_files: crate::search::walk::IGNORE_FILES
+            .iter()
+            .filter_map(|name| {
+                let regular = listed(children, name)?
+                    .file_type
+                    .is_some_and(|kind| kind.is_file());
+                Some((base.join(name), regular))
+            })
+            .collect(),
+        holds_git: listed(children, ".git").is_some(),
+    }
 }
 
 /// Walk one directory of the walk: `frame` from its `next` entry on, the
@@ -175,12 +267,25 @@ pub(super) fn walk_frame(
     admit: &EntryFilter<'_>,
     stop: &Stop<'_>,
 ) -> Result<(), Error> {
-    let children = match frame.children.clone() {
-        Some(children) => children,
+    let (children, complete) = match frame.children.clone() {
+        Some(children) => {
+            state
+                .walked_dirs
+                .push(walked_dir(&frame.base, None, &children));
+            (children, true)
+        }
         None => match read_children(&frame.base, frame.depth, query, state) {
-            Children::Read(children, read_at) => {
+            Children::Read {
+                children,
+                read_at,
+                stamp,
+                complete,
+            } => {
                 frame.read_at = read_at;
-                Arc::new(children)
+                state
+                    .walked_dirs
+                    .push(walked_dir(&frame.base, stamp, &children));
+                (Arc::new(children), complete)
             }
             Children::None => return Ok(()),
             Children::Late => {
@@ -193,184 +298,16 @@ pub(super) fn walk_frame(
             }
         },
     };
+    // A listing that read every entry shows whether the directory holds a
+    // rule file; one that did not leaves the rules to their own stats.
+    let rules = query
+        .ignore_rules
+        .as_ref()
+        .map(|rules| rules.enter(&frame.base, complete.then(|| listed_rules(&children))));
     frame.children = Some(children);
     state.stack.push(frame);
     let level = state.stack.len() - 1;
-    let walked = walk_level(level, inner, query, state, admit, stop);
+    let walked = walk_level(level, inner, query, state, admit, stop, rules.as_ref());
     state.stack.pop();
     walked
-}
-
-fn walk_level(
-    level: usize,
-    inner: &[Frame],
-    query: &CompiledQuery,
-    state: &mut QueryState,
-    admit: &EntryFilter<'_>,
-    stop: &Stop<'_>,
-) -> Result<(), Error> {
-    if let Some((first, rest)) = inner.split_first() {
-        walk_frame(first.clone(), rest, query, state, admit, stop)?;
-        if state.finished(query) {
-            return Ok(());
-        }
-    }
-    let frame = &state.stack[level];
-    let (base, depth, start) = (frame.base.clone(), frame.depth, frame.next);
-    let children = frame.children.clone().unwrap_or_default();
-    // Child directories this one reads at the next depth: the ones read
-    // ahead while the walk is inside an earlier sibling.
-    let reads_next = query.recursive
-        && depth < MAX_RECURSION_DEPTH
-        && query.max_depth.is_none_or(|max_depth| depth < max_depth);
-    // The directory child last inspected: when the walk did not enter it,
-    // its listing read ahead is dropped.
-    let mut passed: Option<PathBuf> = None;
-
-    for (index, child) in children.iter().enumerate().skip(start) {
-        if let Some(dir) = passed.take()
-            && let Some(ahead) = state.ahead.as_mut()
-        {
-            ahead.drop_unused(&dir);
-        }
-        // The next entry of this directory a resume inspects.
-        state.stack[level].next = index;
-        // Look ahead to one additional matching entry before declaring overflow.
-        // Reaching the stored-entry cap alone does not prove the scan is partial.
-        if query.stop_at_limit && state.total_discovered as usize > query.limit {
-            return Ok(());
-        }
-        if stop() {
-            return Err(Error::cancelled());
-        }
-        let file_name = child.name.as_os_str();
-        // The leading `skip_entries` entries were inspected by the walk this
-        // one resumes: replayed below, they spend none of the time budget.
-        let replaying = state.position < query.skip_entries;
-        if !replaying && let Some(budget) = query.time_budget {
-            // The budget starts at the first new entry, which a positive
-            // budget always inspects: every resumed window makes progress.
-            let first = state.deadline.is_none();
-            let deadline = *state
-                .deadline
-                .get_or_insert_with(|| crate::scan_budget::walk_now() + budget);
-            if (budget.is_zero() || !first) && crate::scan_budget::walk_now() >= deadline {
-                let path = base.join(file_name);
-                let relative = path.strip_prefix(&query.root).unwrap_or(&path);
-                state.time_cut = Some(crate::text::slash_path(relative));
-                state.cursor = Some(state.cursor(query.shape, None));
-                return Ok(());
-            }
-        }
-        state.position += 1;
-        state.stack[level].next = index + 1;
-
-        let path = base.join(file_name);
-        let file_type = child.file_type;
-        let mut metadata = None;
-        let kind = match file_type {
-            Some(file_type) => EntryKind::of(file_type),
-            // A replayed entry was counted by the walk it resumes.
-            None if replaying => match fs::symlink_metadata(&path) {
-                Ok(meta) => meta.file_type().into(),
-                Err(_) => continue,
-            },
-            None => match lstat(&path, state) {
-                Some(meta) => metadata.insert(meta).file_type().into(),
-                None => continue,
-            },
-        };
-        let is_directory = kind.is_dir;
-        if is_directory {
-            passed = Some(path.clone());
-        }
-        // A replayed entry only counts: the walk it resumes listed it or
-        // not, and entered it or not by this same verdict, which only a
-        // directory's entry needs again.
-        if replaying && !(query.recursive && is_directory) {
-            continue;
-        }
-        let visit = if replaying {
-            Visit::Replayed
-        } else {
-            Visit::Fresh {
-                position: state.position,
-            }
-        };
-        match query.verdict(&path, file_name, is_directory, (file_type, visit), admit) {
-            Verdict::Ignored { counted } => {
-                if counted && !replaying {
-                    let relative = path.strip_prefix(&query.root).unwrap_or(&path);
-                    let mut relative = crate::text::slash_path(relative);
-                    if is_directory {
-                        relative.push('/');
-                    }
-                    state.tally.ignored(state.position, relative);
-                }
-                continue;
-            }
-            Verdict::Pruned => {
-                if !replaying {
-                    let relative = path.strip_prefix(&query.root).unwrap_or(&path);
-                    state
-                        .tally
-                        .pruned(state.position, crate::text::slash_path(relative));
-                }
-                continue;
-            }
-            Verdict::Left => continue,
-            Verdict::Enters => {}
-        }
-
-        if !replaying {
-            let listed = state.entries.len();
-            if visit_path(
-                &path,
-                &file_name.to_string_lossy(),
-                depth,
-                kind,
-                &mut metadata,
-                query,
-                state,
-            )
-            .is_err()
-            {
-                continue;
-            }
-            if state.entries.len() > listed && state.position > 0 {
-                state.listed += 1;
-                if query.window_rows == Some(state.listed) {
-                    let entering = (query.recursive && is_directory).then(|| Frame {
-                        base: path.clone(),
-                        depth: depth + 1,
-                        children: None,
-                        read_at: None,
-                        next: 0,
-                    });
-                    state.window_cursor = Some(state.cursor(query.shape, entering));
-                }
-            }
-        }
-
-        if query.recursive && is_directory {
-            if reads_next && let Some(ahead) = state.ahead.as_mut() {
-                ahead.queue(
-                    children[index + 1..]
-                        .iter()
-                        .filter(|child| child.file_type.is_some_and(|kind| kind.is_dir()))
-                        .map(|child| base.join(&child.name)),
-                );
-            }
-            walk_children(&path, depth + 1, query, state, admit, stop)?;
-            if state.finished(query) {
-                return Ok(());
-            }
-        }
-    }
-    if let Some(dir) = passed
-        && let Some(ahead) = state.ahead.as_mut()
-    {
-        ahead.drop_unused(&dir);
-    }
-    Ok(())
 }

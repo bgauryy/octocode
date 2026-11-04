@@ -346,9 +346,7 @@ impl NativeLspClient {
         let request: std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<Value>> + Send + '_>,
         > = Box::pin(self.send_request_inner(method, params));
-        crate::lsp::diagnostics::Phase::Request
-            .measure(request)
-            .await
+        request.await
     }
 
     async fn send_request_inner(&self, method: &str, params: Value) -> Result<Value> {

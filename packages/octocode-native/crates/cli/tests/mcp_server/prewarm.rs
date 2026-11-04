@@ -25,7 +25,7 @@ fn targeted_prewarm_ignores_an_offered_lead_until_lsp_search_runs() {
     )
     .unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let config = root.join("lsp-servers.json");
+    let config = workspace.home.join("lsp-servers.json");
     std::fs::write(
         &config,
         json!({"languageServers": {".ts": {
@@ -34,14 +34,7 @@ fn targeted_prewarm_ignores_an_offered_lead_until_lsp_search_runs() {
         .to_string(),
     )
     .unwrap();
-    let config = config.to_string_lossy().into_owned();
-    let mut server = Server::start_with(
-        &workspace,
-        &[
-            ("OCTOCODE_LSP_CONFIG", config.as_str()),
-            ("OCTOCODE_LSP_PREWARM", "targeted"),
-        ],
-    );
+    let mut server = Server::start_with(&workspace, &[("OCTOCODE_LSP_PREWARM", "targeted")]);
     server.request(
         "initialize",
         json!({"protocolVersion": "2025-11-25", "capabilities": {},
@@ -90,7 +83,7 @@ fn only_prewarm_all_starts_the_workspace_language_server_at_initialize() {
         )
         .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let config = root.join("lsp-servers.json");
+        let config = workspace.home.join("lsp-servers.json");
         std::fs::write(
             &config,
             json!({"languageServers": {".ts": {
@@ -99,14 +92,7 @@ fn only_prewarm_all_starts_the_workspace_language_server_at_initialize() {
             .to_string(),
         )
         .unwrap();
-        let config = config.to_string_lossy().into_owned();
-        let mut server = Server::start_with(
-            &workspace,
-            &[
-                ("OCTOCODE_LSP_CONFIG", config.as_str()),
-                ("OCTOCODE_LSP_PREWARM", prewarm),
-            ],
-        );
+        let mut server = Server::start_with(&workspace, &[("OCTOCODE_LSP_PREWARM", prewarm)]);
         let init = server.request(
             "initialize",
             json!({"protocolVersion": "2025-11-25", "capabilities": {},

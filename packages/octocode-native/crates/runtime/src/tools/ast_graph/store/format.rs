@@ -84,7 +84,8 @@ pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// each restart, so an evidence page reads only the blocks its rows name.
 /// v16: the source origin pool moves from `SRCE` (now the catalog) to the
 /// blocked `SRCO`, so a page reads only the origin blocks it renders.
-pub(crate) const FORMAT_VERSION: u32 = 16;
+/// v17: the manifest's `scan.excludeDir` becomes `scan.exclude`.
+pub(crate) const FORMAT_VERSION: u32 = 17;
 /// Packed edge byte bit: the edge's evidence is test code.
 const EDGE_TEST: u8 = 0x80;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;
@@ -321,6 +322,10 @@ pub(crate) struct DeclarationRec {
 pub(crate) struct GraphTables {
     pub sources: sources::SourceTable,
     pub strings: Vec<String>,
+    /// Argument strings a build checked from their typed form when it
+    /// projected them; a redaction that rewrites one takes it out. Empty on
+    /// a read: a reader parses what it is given.
+    pub checked_arguments: std::collections::HashSet<u32>,
     pub nodes: Vec<NodeRec>,
     pub edges: Vec<EdgeRec>,
     pub witnesses: Vec<WitnessRec>,

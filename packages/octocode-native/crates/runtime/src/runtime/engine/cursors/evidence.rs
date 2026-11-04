@@ -3,26 +3,26 @@
 //! later page shapes the same bytes the first one did, so its rows continue
 //! the first page's exactly, however many pages the walk takes.
 //!
-//! An answer the output gate ([`ContentSecurity::seal_output`]) leaves
-//! unchanged is retained as text where the continuation is retained. An answer
-//! the gate would rewrite (one redacted line of a whole file is enough) is held
-//! in this process's memory only, so no credential a provider returned reaches
-//! a file: it passes the same gate again on every page it answers. Memory
+//! An answer with nothing any read would redact ([`gate_keeps`]) is retained
+//! as text where the continuation is retained. Any other answer (one redacted
+//! line of a whole file is enough) is held in this process's memory only, so no
+//! credential a provider returned reaches a file: it passes the output gate
+//! ([`ContentSecurity::seal_output`]) on every page it answers. Memory
 //! pressure, idle expiry or a restart drop it, and its request then reaches
 //! GitHub again.
 use crate::cache::{CacheKey, Store};
+use crate::providers::saved_answers::gate_keeps;
 use crate::security::ContentSecurity;
-use octocode_github::{ProviderAnswer, ProviderEvidence};
-use serde_json::Value;
+use octocode_github::ProviderEvidence;
 use std::sync::Arc;
 
-/// What one call's continuations own, split by the output gate.
+/// What one call's continuations own, split by [`gate_keeps`].
 pub(super) struct Owned {
     /// The digest of everything the call observed: the evidence's key.
     pub(super) digest: String,
-    /// The call's facts and the answers the gate leaves unchanged.
+    /// The call's facts and the answers [`gate_keeps`] accepts.
     sealed: ProviderEvidence,
-    /// The answers the gate would rewrite.
+    /// The answers it refuses.
     held: ProviderEvidence,
 }
 
@@ -37,12 +37,12 @@ impl Owned {
     }
 }
 
-/// `evidence` split by the output gate, and its content digest.
+/// `evidence` split by [`gate_keeps`], and its content digest.
 pub(super) fn owned(evidence: ProviderEvidence) -> Option<Owned> {
     if evidence.is_empty() {
         return None;
     }
-    let digest = crate::digest::json_sha256(&serde_json::to_value(&evidence).ok()?);
+    let digest = crate::digest::json_sha256(&evidence);
     let security = ContentSecurity::new();
     let (kept, held) = evidence
         .answers
@@ -59,54 +59,6 @@ pub(super) fn owned(evidence: ProviderEvidence) -> Option<Owned> {
             notes: Default::default(),
         },
     })
-}
-
-/// Whether the gate leaves everything `answer` exposes unchanged: its
-/// headers and its body, a JSON body as its values with any base64 file
-/// content decoded (GitHub's contents and blob payloads).
-fn gate_keeps(security: &ContentSecurity, answer: &ProviderAnswer) -> bool {
-    let mut body = serde_json::from_str::<Value>(&answer.body)
-        .unwrap_or_else(|_| Value::String(answer.body.clone()));
-    if !decode_contents(&mut body) {
-        return false;
-    }
-    let exposed = serde_json::json!({
-        "request": answer.request,
-        "headers": answer.headers,
-        "next": answer.next,
-        "body": body,
-    });
-    security
-        .seal_output(exposed.clone(), false, || {
-            Ok::<_, std::convert::Infallible>(())
-        })
-        .unwrap_or_else(|never| match never {})
-        .into_value()
-        == exposed
-}
-
-/// Replace every base64 `content` with its text; false when one is not
-/// UTF-8 text the gate can judge.
-fn decode_contents(value: &mut Value) -> bool {
-    match value {
-        Value::Object(object) => {
-            if object.get("encoding").and_then(Value::as_str) == Some("base64")
-                && let Some(Value::String(content)) = object.get("content")
-            {
-                let Some(text) =
-                    octocode_github::decode_content(Some("base64"), Some(content.clone()))
-                        .ok()
-                        .and_then(|bytes| String::from_utf8(bytes).ok())
-                else {
-                    return false;
-                };
-                object.insert("content".into(), Value::String(text));
-            }
-            object.values_mut().all(decode_contents)
-        }
-        Value::Array(items) => items.iter_mut().all(decode_contents),
-        _ => true,
-    }
 }
 
 /// Where evidence is stored: under the replay policy and the GitHub
@@ -162,6 +114,7 @@ pub(super) fn open(
 mod tests {
     use super::*;
     use base64::Engine as _;
+    use octocode_github::ProviderAnswer;
 
     /// A last-commit answer as live GitHub GraphQL sends it (headers and body
     /// shape captured 2026-11-02, identifiers replaced by same-shape values)
@@ -271,6 +224,41 @@ mod tests {
         assert!(only_held.sealed.is_empty());
         assert_ne!(only_held.digest, owned_by.digest);
         assert!(owned(ProviderEvidence::default()).is_none());
+    }
+
+    /// The digest is the evidence's content address: the bytes of its JSON
+    /// value, a persisted continuation's key. The split is the same however
+    /// often one process judges the same answers.
+    #[test]
+    fn the_address_and_the_split_stay_on_a_repeat() {
+        let secret = format!("token = \"ghp_{}\"\n", "z9X8c7V6b5N4".repeat(3));
+        let mut paged = answer("GET /address-paged", "[1]\n".into());
+        paged.next = Some("https://api.github.com/next".into());
+        let mut missing = answer("GET /address-missing", "gone é\n".into());
+        missing.status = 404;
+        missing.not_found = Some(octocode_github::ProviderError::new(
+            octocode_github::ProviderErrorKind::NotFound,
+            "missing",
+        ));
+        let held = answer("GET /address-held", secret);
+        let evidence = ProviderEvidence {
+            answers: vec![paged.clone(), missing.clone(), held.clone()],
+            notes: [
+                ("b".to_owned(), "2".to_owned()),
+                ("a".to_owned(), "1".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        let address = crate::digest::json_sha256(&serde_json::to_value(&evidence).unwrap());
+        for _ in 0..2 {
+            let split = owned(evidence.clone()).expect("owned");
+            assert_eq!(split.digest, address);
+            assert_eq!(split.sealed.answers, vec![paged.clone(), missing.clone()]);
+            assert_eq!(split.held.answers, vec![held.clone()]);
+            assert_eq!(split.sealed.notes, evidence.notes);
+            assert!(split.held.notes.is_empty());
+        }
     }
 
     /// A store of `evidence` splits by where each part may live: only the

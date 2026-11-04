@@ -52,7 +52,7 @@ impl Scope {
     /// first few; files in `skip` (already in the answer) are left out.
     /// The files come from the scope's ignored-file index (see
     /// `ignored_index`), built for this request. The request
-    /// walks the scope and reads every listed file,
+    /// walks the scope and checks every listed file,
     /// however long that takes: only its own cancellation or deadline ends
     /// either early (an error, never a shorter answer). An index the walk
     /// left incomplete says so in [`IgnoredMentions::unfinished`], with the
@@ -71,8 +71,10 @@ impl Scope {
             return Ok(IgnoredMentions::unfinished());
         };
         let (word, read) = (symbol.to_owned(), Arc::clone(&index));
+        let clock = octocode_engine::stamp::settle_clock();
         let Some((mentions, read_all)) =
-            blocking_cancellable(cancel, move |stopped| read.mentions(&word, stopped)).await?
+            blocking_cancellable(cancel, move |stopped| read.mentions(&word, clock, stopped))
+                .await?
         else {
             return Ok(IgnoredMentions::unfinished());
         };

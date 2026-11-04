@@ -14,6 +14,7 @@ fn classify_with(status: u16, not_found_is_empty: bool) -> Result<Option<Vec<u8>
         ArtifactHttpResponse {
             status,
             body: vec![],
+            headers: Vec::new(),
         },
         not_found_is_empty,
     )
@@ -94,6 +95,7 @@ fn a_rejected_request_states_the_registrys_reason() {
             status: 400,
             body: serde_json::to_vec(&serde_json::json!({"errors": [{"detail": detail}]}))
                 .expect("body"),
+            headers: Vec::new(),
         },
         true,
     )
@@ -129,9 +131,8 @@ async fn independent_reads_fetch_current_answers() {
     let http = SequenceHttp::new(vec![b"{\"name\":\"test\"}".to_vec()]);
     let budget = test_budget();
     let client = RegistryClient {
-        http: &http,
-        budget: &budget,
         tags: None,
+        ..RegistryClient::new(&http, &budget)
     };
     let url = Url::parse("https://cache-disabled-test.invalid/pkg").expect("test URL");
     // First call — must hit HTTP.
@@ -152,9 +153,8 @@ async fn every_authorized_read_uses_its_current_credential() {
     let http = SequenceHttp::new(vec![b"{\"name\":\"private\"}".to_vec()]);
     let budget = test_budget();
     let client = RegistryClient {
-        http: &http,
-        budget: &budget,
         tags: None,
+        ..RegistryClient::new(&http, &budget)
     };
     let url = Url::parse("https://authorized-cache-test.invalid/pkg").expect("test URL");
     let token = |value: &str| Some(SecretString::from(format!("Bearer {value}")));
@@ -180,9 +180,8 @@ async fn a_malformed_body_is_not_cached_and_the_retry_reads_again() {
     let http = SequenceHttp::new(vec![b"{\"name\":".to_vec(), b"{\"name\":\"ok\"}".to_vec()]);
     let budget = test_budget();
     let client = RegistryClient {
-        http: &http,
-        budget: &budget,
         tags: None,
+        ..RegistryClient::new(&http, &budget)
     };
     let url = Url::parse("https://malformed-cache-test.invalid/pkg").expect("test URL");
     let read = || client.json(ArtifactType::Npm, url.clone(), false, None, None, JSON);
@@ -193,4 +192,196 @@ async fn a_malformed_body_is_not_cached_and_the_retry_reads_again() {
     assert_eq!(read().await.expect("retry").expect("body")["name"], "ok");
     assert_eq!(read().await.expect("fresh").expect("body")["name"], "ok");
     assert_eq!(http.calls(), 3, "malformed, retry, independent fresh read");
+}
+
+mod kept_answers {
+    use super::super::*;
+    use crate::providers::saved_answers::{KeptAnswers, ReusedSince};
+    use std::sync::Mutex;
+
+    /// Answers each read with the next scripted answer and records what asked.
+    struct Scripted {
+        answers: Mutex<std::collections::VecDeque<ArtifactHttpResponse>>,
+        validators: Mutex<Vec<Option<String>>>,
+    }
+
+    /// One scripted reply: status, body, headers.
+    type ScriptedAnswer<'a> = (u16, &'a str, &'a [(&'a str, &'a str)]);
+
+    impl Scripted {
+        fn new(answers: Vec<ScriptedAnswer<'_>>) -> Self {
+            Self {
+                answers: Mutex::new(
+                    answers
+                        .into_iter()
+                        .map(|(status, body, headers)| ArtifactHttpResponse {
+                            status,
+                            body: body.as_bytes().to_vec(),
+                            headers: headers
+                                .iter()
+                                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                                .collect(),
+                        })
+                        .collect(),
+                ),
+                validators: Mutex::default(),
+            }
+        }
+
+        fn asked(&self) -> Vec<Option<String>> {
+            self.validators.lock().unwrap().clone()
+        }
+    }
+
+    impl ArtifactHttp for Scripted {
+        fn get<'a>(
+            &'a self,
+            request: ArtifactHttpRequest,
+            _budget: &'a RequestBudget,
+        ) -> ArtifactHttpFuture<'a> {
+            self.validators
+                .lock()
+                .unwrap()
+                .push(request.validator.map(|(_, value)| value));
+            let answer = self.answers.lock().unwrap().pop_front().expect("scripted");
+            Box::pin(async move { Ok(answer) })
+        }
+    }
+
+    fn budget() -> RequestBudget {
+        RequestBudget::with_timeout(std::time::Duration::from_secs(5), 1024 * 1024)
+    }
+
+    async fn read(
+        http: &Scripted,
+        answers: &KeptAnswers,
+        reused: &ReusedSince,
+        token: Option<&str>,
+    ) -> Result<Option<serde_json::Value>, ArtifactError> {
+        let budget = budget();
+        let client = RegistryClient {
+            answers: Some(answers),
+            reused,
+            ..RegistryClient::new(http, &budget)
+        };
+        client
+            .json(
+                octocode_contract_types::ArtifactType::Npm,
+                url::Url::parse("https://registry.invalid/zod").unwrap(),
+                true,
+                token.map(|token| secrecy::SecretString::from(token.to_owned())),
+                None,
+                JSON,
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_repeat_asks_with_its_validator_and_a_304_answers_the_same_value() {
+        let http = Scripted::new(vec![
+            (200, "{\"v\":1}", &[("etag", "\"e1\"")]),
+            (304, "", &[("etag", "\"e1\"")]),
+            (200, "{\"v\":2}", &[("etag", "\"e2\"")]),
+            (304, "", &[]),
+        ]);
+        let answers = KeptAnswers::new(None);
+        let reused = ReusedSince::default();
+        for version in [1, 1, 2, 2] {
+            let value = read(&http, &answers, &reused, None).await.unwrap().unwrap();
+            assert_eq!(value["v"], version);
+        }
+        assert_eq!(
+            http.asked(),
+            [
+                None,
+                Some("\"e1\"".to_owned()),
+                Some("\"e1\"".to_owned()),
+                Some("\"e2\"".to_owned())
+            ]
+        );
+        assert_eq!(
+            reused.get(),
+            None,
+            "confirmed each time: nothing to disclose"
+        );
+    }
+
+    /// The registry's own `max-age` answers unasked, and says so.
+    #[tokio::test]
+    async fn a_stated_lifetime_answers_with_nothing_sent_and_is_disclosed() {
+        let http = Scripted::new(vec![(
+            200,
+            "{\"v\":1}",
+            &[("cache-control", "max-age=300")],
+        )]);
+        let answers = KeptAnswers::new(None);
+        let reused = ReusedSince::default();
+        read(&http, &answers, &reused, None).await.unwrap();
+        assert_eq!(reused.get(), None);
+        let value = read(&http, &answers, &reused, None).await.unwrap().unwrap();
+        assert_eq!(value["v"], 1);
+        assert_eq!(http.asked().len(), 1);
+        assert!(reused.get().is_some());
+    }
+
+    #[tokio::test]
+    async fn one_tokens_answer_never_reaches_another() {
+        let http = Scripted::new(vec![
+            (
+                200,
+                "{\"v\":\"private\"}",
+                &[("cache-control", "max-age=300"), ("etag", "\"p\"")],
+            ),
+            (200, "{\"v\":\"public\"}", &[("etag", "\"q\"")]),
+        ]);
+        let answers = KeptAnswers::new(None);
+        let reused = ReusedSince::default();
+        read(&http, &answers, &reused, Some("Bearer one"))
+            .await
+            .unwrap();
+        let other = read(&http, &answers, &reused, None).await.unwrap().unwrap();
+        assert_eq!(other["v"], "public");
+        assert_eq!(
+            http.asked(),
+            [None, None],
+            "no validator crossed credentials"
+        );
+        assert_eq!(reused.get(), None);
+    }
+
+    /// An answer that does not decode is not kept, a 404 drops what was kept,
+    /// and a rate limit answers with what was kept, disclosed.
+    #[tokio::test]
+    async fn only_a_decoded_answer_is_kept_and_a_404_drops_it() {
+        let http = Scripted::new(vec![
+            (200, "not json", &[("etag", "\"bad\"")]),
+            (200, "{\"v\":1}", &[("etag", "\"e\"")]),
+            (429, "", &[]),
+            (404, "{}", &[]),
+            (200, "{\"v\":2}", &[]),
+        ]);
+        let answers = KeptAnswers::new(None);
+        let reused = ReusedSince::default();
+        assert!(read(&http, &answers, &reused, None).await.is_err());
+        read(&http, &answers, &reused, None).await.unwrap();
+        let limited = read(&http, &answers, &reused, None).await.unwrap().unwrap();
+        assert_eq!(limited["v"], 1);
+        assert!(
+            reused.get().is_some(),
+            "served because of a rate limit: said so"
+        );
+        assert_eq!(read(&http, &answers, &reused, None).await.unwrap(), None);
+        read(&http, &answers, &reused, None).await.unwrap();
+        assert_eq!(
+            http.asked(),
+            [
+                None,
+                None,
+                Some("\"e\"".to_owned()),
+                Some("\"e\"".to_owned()),
+                None
+            ],
+            "the undecoded answer gave no validator, and the 404 dropped the kept one"
+        );
+    }
 }

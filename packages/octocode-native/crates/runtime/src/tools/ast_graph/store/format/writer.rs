@@ -107,7 +107,10 @@ pub(super) struct Encoder<'t> {
     pub(super) tables: &'t GraphTables,
     pub(super) texts: Vec<&'t str>,
     pub(super) records: usize,
-    pub(super) ids: HashMap<&'t str, u32>,
+    /// Each table string id's dictionary id: every column reads one.
+    sids: Vec<u32>,
+    /// The dictionary id of the empty string, which an absent id names.
+    empty: u32,
 }
 
 impl<'t> Encoder<'t> {
@@ -142,50 +145,69 @@ impl<'t> Encoder<'t> {
         texts.sort_unstable();
         texts.dedup();
         let records = texts.len();
+        // Occurrences repeat a few strings many times: each string id is
+        // looked up once. An absent id names the empty string.
+        let mut seen = vec![false; tables.strings.len()];
         let mut evidence = Vec::<&str>::new();
+        let mut absent = false;
+        let mut note = |id: u32| match seen.get_mut(id as usize) {
+            Some(seen) if *seen => {}
+            Some(seen) => {
+                *seen = true;
+                evidence.push(tables.str(id));
+            }
+            None => absent = true,
+        };
         for witness in &tables.witnesses {
-            evidence.extend([
-                tables.str(witness.edge.detail),
-                tables.str(witness.occurrence),
-                tables.str(witness.argument),
-                tables.str(witness.provenance.source_digest),
-                tables.str(witness.provenance.derivation_version),
-            ]);
+            for id in [
+                witness.edge.detail,
+                witness.occurrence,
+                witness.argument,
+                witness.provenance.source_digest,
+                witness.provenance.derivation_version,
+            ] {
+                note(id);
+            }
         }
         for site in &tables.unresolved {
-            evidence.extend([
-                tables.str(site.occurrence),
-                tables.str(site.argument),
-                tables.str(site.callee),
-                tables.str(site.reason),
-                tables.str(site.provenance.source_digest),
-                tables.str(site.provenance.derivation_version),
-            ]);
+            for id in [
+                site.occurrence,
+                site.argument,
+                site.callee,
+                site.reason,
+                site.provenance.source_digest,
+                site.provenance.derivation_version,
+            ] {
+                note(id);
+            }
         }
-        evidence.retain(|text| texts.binary_search(text).is_err());
+        if absent {
+            evidence.push("");
+        }
         evidence.sort_unstable();
         evidence.dedup();
+        evidence.retain(|text| texts.binary_search(text).is_err());
         texts.extend(evidence);
         // String ids are `u32` columns; the preflight refuses a dictionary
         // past them before any id is written.
         let ids = (0..=u32::MAX)
             .zip(&texts)
             .map(|(index, text)| (*text, index))
-            .collect();
+            .collect::<HashMap<_, _>>();
+        let id = |text: &str| ids.get(text).copied().unwrap_or(0);
+        let sids = tables.strings.iter().map(|text| id(text)).collect();
+        let empty = id("");
         Self {
             tables,
             texts,
             records,
-            ids,
+            sids,
+            empty,
         }
     }
 
-    pub(super) fn id(&self, text: &str) -> u32 {
-        self.ids.get(text).copied().unwrap_or(0)
-    }
-
     pub(super) fn sid(&self, old: u32) -> u32 {
-        self.id(self.tables.str(old))
+        self.sids.get(old as usize).copied().unwrap_or(self.empty)
     }
 
     /// `STRS`: the record strings.
@@ -194,8 +216,8 @@ impl<'t> Encoder<'t> {
     }
 
     /// `STRE`: strings only witnesses and unresolved sites reference.
-    pub(super) fn evidence_strings(&self) -> Vec<u8> {
-        front_coded(&self.texts[self.records..])
+    pub(super) fn evidence_texts(&self) -> &[&'t str] {
+        &self.texts[self.records..]
     }
 
     pub(super) fn nodes(&self) -> Vec<u8> {
@@ -203,10 +225,9 @@ impl<'t> Encoder<'t> {
         let mut nodes = Vec::new();
         put(&mut nodes, tables.nodes.len() as u64);
         for node in &tables.nodes {
-            let key = tables.str(node.key);
             nodes.push(node.kind as u8);
             nodes.push(node.flags);
-            put(&mut nodes, u64::from(self.id(key)));
+            put(&mut nodes, u64::from(self.sid(node.key)));
             put(&mut nodes, u64::from(self.sid(node.name)));
             put(&mut nodes, u64::from(self.sid(node.detail)));
             put_opt(&mut nodes, node.file);
@@ -257,6 +278,10 @@ impl<'t> Encoder<'t> {
     }
 }
 
+pub(super) fn shared_prefix(left: &[u8], right: &[u8]) -> usize {
+    left.iter().zip(right).take_while(|(a, b)| a == b).count()
+}
+
 /// Sorted strings, front-coded: shared prefix length, suffix length, suffix.
 fn front_coded(texts: &[&str]) -> Vec<u8> {
     let mut strs = Vec::new();
@@ -264,11 +289,7 @@ fn front_coded(texts: &[&str]) -> Vec<u8> {
     let mut previous: &[u8] = &[];
     for text in texts {
         let bytes = text.as_bytes();
-        let shared = previous
-            .iter()
-            .zip(bytes)
-            .take_while(|(a, b)| a == b)
-            .count();
+        let shared = shared_prefix(previous, bytes);
         put(&mut strs, shared as u64);
         put(&mut strs, (bytes.len() - shared) as u64);
         strs.extend(&bytes[shared..]);

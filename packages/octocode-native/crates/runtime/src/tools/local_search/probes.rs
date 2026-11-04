@@ -1,5 +1,5 @@
 //! Bounded probe searches of an empty page: other spellings of a literal
-//! miss, and matches in the paths the walk skipped.
+//! miss ([`alternates`]), and matches in the paths the walk skipped.
 use crate::tools::local_search::local_search_query;
 use crate::tools::local_search::local_search_query::View;
 
@@ -14,6 +14,11 @@ use octocode_engine::search::text_search::search_cancellable;
 use octocode_engine::types::{SearchOutput, TextSearchOptions};
 use serde_json::{Value, json};
 use std::sync::Arc;
+
+mod alternates;
+pub(super) use alternates::Alternates;
+#[cfg(test)]
+mod tests;
 
 /// What the re-run of an empty search over its skipped paths found: the
 /// files, each tagged with the causes that hid it, and what the path policy
@@ -41,41 +46,14 @@ pub(super) fn probe_unsearched(
     )
 }
 
-/// The walk the query ran: the causes it skipped paths by.
-/// The hint of an empty search whose case rule decided it: a case-sensitive
-/// search (`caseMode:"sensitive"`, or `smart` with an uppercase letter)
-/// that the same walk matches with case ignored. `None` otherwise, without
-/// a probe when the search already ignored case.
-pub(super) fn case_hint(
-    query: &LocalSearchQuery,
-    paths: &PathPolicy,
-    search_options: &TextSearchOptions,
-    cancel: &impl CancellationCheck,
-) -> Option<String> {
-    let mode = local_search_query::case_mode(query);
-    let sensitive = match mode {
-        octocode_contract_types::CaseMode::Sensitive => true,
-        octocode_contract_types::CaseMode::Smart => local_search_query::patterns(query)
-            .0
-            .iter()
-            .any(|term| term.chars().any(char::is_uppercase)),
-        octocode_contract_types::CaseMode::Insensitive => false,
-    };
-    if !sensitive {
-        return None;
-    }
-    let mut probe = search_options.probe(SearchOutput::FilesWithMatch);
-    probe.case = octocode_engine::types::CaseRule::Insensitive;
-    let defaults = query_walk(query).default_excludes;
-    let (found, _, _) = probe_walked(probe, paths, defaults, cancel)?;
-    (!found.files.is_empty()).then(|| {
-        format!(
-            "No case-sensitive match, but {} file(s) match with case ignored; caseMode:\"insensitive\" finds them.",
-            found.files.len()
-        )
-    })
+/// Whether a walk's ledger names nothing: no skipped path a flag lifts, nothing
+/// the path policy withheld. A relaxed walk then has nothing to add, so an
+/// empty page needs no check of its skipped paths.
+pub(super) fn names_nothing(skipped: &crate::policy::discovery::WalkSkips) -> bool {
+    skipped.counts().is_empty() && skipped.withheld.total() == 0
 }
 
+/// The walk the query ran: the causes it skipped paths by.
 fn query_walk(query: &LocalSearchQuery) -> Walk {
     Walk {
         ignored: local_search_query::include_ignored(query) == Some(true),
@@ -227,6 +205,17 @@ fn observed_paths(
     )
 }
 
+#[cfg(test)]
+thread_local! {
+    static PROBE_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Probe walks this thread ran.
+#[cfg(test)]
+fn probe_walks() -> usize {
+    PROBE_WALKS.with(std::cell::Cell::get)
+}
+
 /// Run a bounded search over the skipped scope with policy enforcement.
 fn probe_walked(
     options: TextSearchOptions,
@@ -238,28 +227,36 @@ fn probe_walked(
     bool,
     crate::policy::discovery::Withheld,
 )> {
+    #[cfg(test)]
+    PROBE_WALKS.with(|walks| walks.set(walks.get() + 1));
     let walk = Arc::new(crate::policy::discovery::WalkAdmission::search(
         paths.clone(),
         std::path::PathBuf::from(&options.path),
         defaults,
         options.include.as_deref().unwrap_or_default(),
     ));
+    let (found, cut) = within_budget(cancel, |stopped| {
+        search_cancellable(options, walk.clone(), stopped)
+    });
+    Some((found.ok()?, cut, walk.skipped().withheld))
+}
+
+/// `run` under the probe budget and `cancel`, and whether the budget cut it.
+fn within_budget<T>(
+    cancel: &impl CancellationCheck,
+    run: impl FnOnce(&(dyn Fn() -> bool + Sync)) -> T,
+) -> (T, bool) {
     let started = std::time::Instant::now();
     let deadline = crate::tools::empty_walk::probe_budget();
     let cut = std::sync::atomic::AtomicBool::new(false);
-    let found = search_cancellable(options, walk.clone(), &|| {
+    let out = run(&|| {
         let late = started.elapsed() > deadline;
         if late {
             cut.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         cancel.check().is_err() || late
-    })
-    .ok()?;
-    Some((
-        found,
-        cut.load(std::sync::atomic::Ordering::Relaxed),
-        walk.skipped().withheld,
-    ))
+    });
+    (out, cut.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 /// The files `options`' search finds under the fully relaxed `walk` (files

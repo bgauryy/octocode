@@ -3,48 +3,10 @@
 
 use super::Streamed;
 use super::held::{Want, WindowLines};
+use super::proven::{Pass, Proof};
 use crate::execution::cancel::CancellationCheck;
-use crate::security::KeyBlockState;
 use crate::tools::source_view::ByteOrigin;
-
-/// The streamed source as it is copied: every piece is split at its
-/// newlines into [`WindowLines`], and a cancel ends the copy.
-struct LineSink<'a, C: CancellationCheck> {
-    lines: WindowLines,
-    /// The 1-based line the next byte belongs to.
-    line: usize,
-    /// Bytes seen on the current (unterminated) line.
-    pending: bool,
-    binary: bool,
-    cancel: &'a C,
-}
-
-impl<C: CancellationCheck> std::io::Write for LineSink<'_, C> {
-    fn write(&mut self, chunk: &[u8]) -> std::io::Result<usize> {
-        self.cancel.check().map_err(std::io::Error::other)?;
-        super::count_read(chunk.len());
-        self.binary |= chunk.contains(&0);
-        let mut rest = chunk;
-        while !rest.is_empty() {
-            let (piece, newline) = match rest.iter().position(|byte| *byte == b'\n') {
-                Some(index) => (&rest[..=index], true),
-                None => (rest, false),
-            };
-            rest = &rest[piece.len()..];
-            self.pending = !newline;
-            self.lines.push(piece, self.line);
-            if newline {
-                self.lines.finish(self.line);
-                self.line += 1;
-            }
-        }
-        Ok(chunk.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
+use std::io::Read;
 
 /// The windows `lines` held once a stream ends, with the source's totals.
 pub(super) fn streamed(
@@ -78,33 +40,59 @@ pub(super) fn seek(mut file: &std::fs::File, offset: u64) -> Result<(), String> 
         .map_err(|error| error.to_string())
 }
 
+/// Source bytes one pass reads at once.
+const READ_BYTES: usize = 64 * 1024;
+
+/// One whole pass, and whether the source holds a NUL byte.
+pub(super) struct Streaming {
+    pub(super) pass: Pass,
+    pub(super) binary: bool,
+}
+
 /// Stream the opened source once from its start: hash all bytes, count
 /// lines like `line_count`, and keep lines `first..=last` (1-based) of every
 /// requested window, from its byte `from` on. The handle is the one the read opened and stat'ed (never
 /// a reopen by path, which a swapped path could turn into a FIFO).
+pub(super) fn stream_pass(
+    source: &std::fs::File,
+    wants: &[Want],
+    cancel: &impl CancellationCheck,
+) -> Result<Streaming, String> {
+    seek(source, 0)?;
+    let mut proof = Proof::new(source, wants)?;
+    let mut buffer = vec![0u8; READ_BYTES];
+    let mut binary = false;
+    loop {
+        cancel.check()?;
+        let read = match (&mut &*source).read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.to_string()),
+        };
+        super::count_read(read);
+        let chunk = &buffer[..read];
+        binary |= chunk.contains(&0);
+        proof.feed(chunk);
+    }
+    Ok(Streaming {
+        pass: proof.finish(),
+        binary,
+    })
+}
+
+/// The windows of [`stream_pass`].
+#[cfg(test)]
 pub(super) fn stream(
     source: &std::fs::File,
     wants: &[Want],
     cancel: &impl CancellationCheck,
 ) -> Result<Vec<Streamed>, String> {
-    seek(source, 0)?;
-    let mut sink = LineSink {
-        lines: WindowLines::new(wants, KeyBlockState::default()),
-        line: 1,
-        pending: false,
-        binary: false,
-        cancel,
-    };
-    let (_, digest) = octocode_engine::digest::copy_hashed(source, &mut sink)
-        .map_err(|error| error.to_string())?;
-    if sink.pending {
-        sink.lines.finish(sink.line);
-    }
-    let total_lines = if sink.pending {
-        sink.line
-    } else {
-        sink.line - 1
-    };
-    let binary = sink.binary;
-    Ok(streamed(sink.lines, &digest, total_lines, binary))
+    let Streaming { pass, binary } = stream_pass(source, wants, cancel)?;
+    Ok(streamed(
+        pass.lines,
+        &pass.proven.digest,
+        pass.total_lines,
+        binary,
+    ))
 }

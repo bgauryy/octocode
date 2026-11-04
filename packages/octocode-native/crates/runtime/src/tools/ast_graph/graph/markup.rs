@@ -4,7 +4,7 @@
 //! that file: a `dependents` answer states it and is never silently empty.
 use super::*;
 use octocode_engine::signatures::markup::{MarkupScripts, markup_scripts};
-use octocode_engine::text::{Decoding, extension_of, read_source};
+use octocode_engine::text::{Decoding, extension_of, read_regular};
 use octocode_engine::types::FileSystemEntry;
 
 /// The scripts of one walked markup file. A file the scan cannot read may
@@ -14,7 +14,7 @@ fn read_scripts(entry: &FileSystemEntry, relative: &str, extension: &str) -> Mar
         has_script: true,
         imports: Vec::new(),
     };
-    let Ok(source) = read_source(
+    let Ok(source) = read_regular(
         Path::new(&entry.path),
         u64::from(octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES),
     ) else {

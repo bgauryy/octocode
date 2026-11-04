@@ -21,7 +21,6 @@ use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 /// Source capture resolves assets before evaluation; this view never owns or
@@ -136,8 +135,6 @@ pub(crate) struct Evaluator {
     pub(crate) timeout: Duration,
     pub(crate) retries: u32,
     pub(crate) max_concurrency: usize,
-    /// `<home>` when session statistics are recorded.
-    stats_home: Option<PathBuf>,
 }
 
 impl Evaluator {
@@ -149,7 +146,6 @@ impl Evaluator {
         timeout: Duration,
         retries: u32,
         max_concurrency: usize,
-        stats_home: Option<PathBuf>,
     ) -> Self {
         Self {
             key,
@@ -159,7 +155,6 @@ impl Evaluator {
             timeout,
             retries,
             max_concurrency,
-            stats_home,
         }
     }
 
@@ -266,14 +261,6 @@ impl Evaluator {
             gate,
         )
         .await;
-        let calls = match &result {
-            Ok((_, calls)) => *calls,
-            Err(error) => error.provider_calls,
-        };
-        self.record(stats::ClassificationUsage {
-            discovery_calls: calls,
-            ..stats::ClassificationUsage::default()
-        });
         let (response, calls) = result?;
         self.provider
             .models(&response)
@@ -281,12 +268,5 @@ impl Evaluator {
                 provider_calls: calls,
                 ..ClassificationError::invalid_response(error.message)
             })
-    }
-
-    /// Add one call's provider usage to the session statistics.
-    pub(crate) fn record(&self, usage: stats::ClassificationUsage) {
-        if let Some(home) = &self.stats_home {
-            stats::record_classification(home, usage);
-        }
     }
 }

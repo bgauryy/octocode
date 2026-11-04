@@ -25,6 +25,7 @@ pub(crate) struct DomainDispatcher {
     pub paths: Arc<PathPolicy>,
     pub security: Arc<ContentSecurity>,
     pub(super) github_services: Arc<OnceLock<Result<github::GitHubServices, ProviderError>>>,
+    pub(super) provider_answers: Arc<crate::providers::saved_answers::KeptAnswers>,
     pub(super) github_access: github::ResponseAccess,
     pub config: Arc<ConfigOutput>,
     /// Internal limits: the runtime's code constants.
@@ -57,7 +58,12 @@ impl DomainDispatcher {
     fn github_services(&self) -> Result<&github::GitHubServices, &ProviderError> {
         self.github_services
             .get_or_init(|| {
-                github::GitHubServices::new(self.config.clone(), &self.limits, self.home.clone())
+                github::GitHubServices::new(
+                    self.config.clone(),
+                    &self.limits,
+                    self.home.clone(),
+                    self.provider_answers.clone(),
+                )
             })
             .as_ref()
     }
@@ -154,6 +160,7 @@ impl DomainDispatcher {
             allow_private_registry: self.config.resolved.network.allow_private_registry,
             timeout: self.limits.network_timeout,
             max_retries: self.limits.max_retries,
+            answers: Some(&*self.provider_answers),
             tags: tags
                 .as_ref()
                 .map(|tags| tags as &dyn crate::providers::artifact::ReleaseTags),
@@ -270,26 +277,25 @@ impl DomainDispatcher {
         // the runtime context ([`Self::execute`]): no further thread hop.
         // lspSearch leads offered by local tools probe the runtime's resolved
         // server settings, not the bare process env.
-        let result =
-            crate::tools::leads::lsp::with_lead_discovery(lsp.lead_discovery(&self.paths), || {
-                dispatch::execute_local(
-                    tool,
-                    query,
-                    &context,
-                    &dispatch::LocalEnv {
-                        memory_only: !crate::config::is_persistent_storage_enabled(
-                            &self.config.resolved,
-                        ),
-                        cargo: self
-                            .config
-                            .env_value(crate::config::environment::OCTOCODE_CARGO),
-                        paths: &self.paths,
-                        security: &self.security,
-                        selection: Some(&selection),
-                        graph_rows: Some(&self.graph_rows),
-                    },
-                )
-            })?;
+        let result = crate::tools::leads::lsp::with_lead_discovery(lsp.discovery(), || {
+            dispatch::execute_local(
+                tool,
+                query,
+                &context,
+                &dispatch::LocalEnv {
+                    memory_only: !crate::config::is_persistent_storage_enabled(
+                        &self.config.resolved,
+                    ),
+                    cargo: self
+                        .config
+                        .env_value(crate::config::environment::OCTOCODE_CARGO),
+                    paths: &self.paths,
+                    security: &self.security,
+                    selection: Some(&selection),
+                    graph_rows: Some(&self.graph_rows),
+                },
+            )
+        })?;
         // Start a language server in the background so a following
         // lspSearch finds a warm pooled client: for the file an offered
         // lspSearch call names, or (opt-in) the file a read or search names.

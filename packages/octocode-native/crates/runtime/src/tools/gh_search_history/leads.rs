@@ -186,7 +186,7 @@ pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize) -> Option<Continu
     )?))
 }
 
-/// An empty search, broadened ([`broaden`]): drop `filters` and `pathPrefix`
+/// An empty search, broadened ([`broaden`]): drop `filters` and `path`
 /// as separate groups, then drop keywords one at a time. A
 /// variant keeps at least one keyword: without any it lists the scope, not
 /// the topic searched.
@@ -196,7 +196,7 @@ pub(super) fn broaden_search(q: &GhSearchHistoryQuery) -> Option<Value> {
         &query_row(q, &[]),
         &Broaden {
             strip: &[],
-            groups: &[&["filters"], &["pathPrefix"]],
+            groups: &[&["filters"], &["path"]],
             split_lone_keyword: false,
         },
         crate::response::result::rows_per_call(ToolId::GhSearchHistory),

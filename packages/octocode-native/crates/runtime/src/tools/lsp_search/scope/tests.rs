@@ -1,6 +1,7 @@
 use super::*;
 use crate::tools::test_support::workspace_policy;
 
+mod listing;
 mod reach;
 mod text_scans;
 
@@ -315,11 +316,10 @@ fn an_explicit_workspace_root_holding_the_anchor_bounds_the_scope() {
     assert!(!other.narrowed);
 }
 
-/// A request's fingerprint walk is traced (`lsp.trace`): one that found
-/// the fingerprint completes, and one that ended without it (here the
-/// request was cancelled) is counted as failed, never dropped silently.
+/// A request's fingerprint walk gives the fingerprint, and one its request
+/// cancelled gives none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_fingerprint_walk_without_a_fingerprint_is_counted_in_the_trace() {
+async fn a_cancelled_fingerprint_walk_gives_no_fingerprint() {
     struct Cancelled(bool);
     impl CancellationCheck for Cancelled {
         fn check(&self) -> Result<(), String> {
@@ -333,26 +333,14 @@ async fn a_fingerprint_walk_without_a_fingerprint_is_counted_in_the_trace() {
     let (_dir, root) = fixture();
     write(&root.join("a.ts"), "export const a = 1;\n");
     let scope = resolve(&root.join("a.ts"), &root, &root, "typescript");
-    let trace = octocode_engine::lsp::diagnostics::Trace::default();
-    let found = trace
-        .run(scope.walk_fingerprint(SystemTime::now(), &Cancelled(false)))
+    let found = scope
+        .walk_fingerprint(SystemTime::now(), &Cancelled(false))
         .await;
     assert!(found.expect("walked").is_some());
-    assert!(
-        trace.summary().contains("scopeFingerprint: ") && trace.summary().contains("completed=1"),
-        "{}",
-        trace.summary()
-    );
-    let trace = octocode_engine::lsp::diagnostics::Trace::default();
-    let stopped = trace
-        .run(scope.walk_fingerprint(SystemTime::now(), &Cancelled(true)))
+    let stopped = scope
+        .walk_fingerprint(SystemTime::now(), &Cancelled(true))
         .await;
     assert!(!matches!(stopped, Ok(Some(_))));
-    let summary = trace.summary();
-    assert!(
-        summary.contains("scopeFingerprint: ") && summary.contains("failed=1"),
-        "{summary}"
-    );
 }
 
 /// The fingerprint covers what can change an answer: the scope's files its

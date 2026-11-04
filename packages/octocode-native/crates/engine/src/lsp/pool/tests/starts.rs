@@ -17,16 +17,13 @@ async fn blocked_start_does_not_block_another_key_and_cancelled_waiter_keeps_own
         }
     });
     observed.await.unwrap();
-    let trace = crate::lsp::diagnostics::Trace::default();
     let waiter = tokio::spawn({
         let pool = Arc::clone(&pool);
-        let trace = trace.clone();
         async move {
-            trace
-                .run(pool.acquire("a".into(), || async {
-                    panic!("the existing start must be shared")
-                }))
-                .await
+            pool.acquire("a".into(), || async {
+                panic!("the existing start must be shared")
+            })
+            .await
         }
     });
     tokio::task::yield_now().await;
@@ -37,14 +34,8 @@ async fn blocked_start_does_not_block_another_key_and_cancelled_waiter_keeps_own
         .unwrap();
     assert_eq!(independent.id, 2);
     assert!(!owner.is_finished());
-    tokio::time::advance(Duration::from_millis(10)).await;
     waiter.abort();
     assert!(waiter.await.unwrap_err().is_cancelled());
-    assert!(
-        trace
-            .summary()
-            .contains("acquire: 10ms, completed=0, failed=0, cancelled=1")
-    );
     release.send(()).unwrap();
     assert_eq!(owner.await.unwrap().unwrap().unwrap().id, 1);
     let reused = pool

@@ -19,11 +19,6 @@ pub enum ConfigNormalize {
     Lower,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ConfigEnumStyle {
-    List,
-    QuotedOr,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConfigEnvBinding {
     pub name: &'static str,
     pub normalize: Option<ConfigNormalize>,
@@ -34,15 +29,36 @@ pub struct ConfigFieldSpec {
     pub section: &'static str,
     pub key: &'static str,
     pub kind: ConfigFieldKind,
-    pub file: bool,
     pub resolved: bool,
     pub credential: bool,
     /// The one environment variable that sets this field, if any.
     pub env: Option<ConfigEnvBinding>,
     pub default_json: &'static str,
+    /// What an unset value means when the default is not a literal value.
+    pub display_default: Option<&'static str>,
+    pub description: &'static str,
+    pub notes: Option<&'static str>,
+    pub section_title: &'static str,
+    /// The provider this setting belongs to on the settings page.
+    pub group: Option<&'static str>,
+    /// Where to get a key.
+    pub docs_url: Option<&'static str>,
     pub values: &'static [&'static str],
-    pub(crate) enum_style: ConfigEnumStyle,
     pub(crate) item_path: bool,
+}
+
+/// A declared environment entry that is not a setting: a key, endpoint or proxy.
+#[derive(Clone, Copy, Debug)]
+pub struct KnownEnv {
+    pub name: &'static str,
+    /// `key`, `string`, `url` or `path`.
+    pub kind: &'static str,
+    pub description: &'static str,
+    pub default: &'static str,
+    pub group: Option<&'static str>,
+    pub docs_url: Option<&'static str>,
+    /// Sensitive: masked in every output.
+    pub credential: bool,
 }
 
 include!(concat!(env!("OUT_DIR"), "/config_contract.rs"));
@@ -96,15 +112,6 @@ pub struct ConfigInput {
     pub runtime_surface: RuntimeSurface,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ConfigSource {
-    File,
-    Defaults,
-    Mixed,
-    Env,
-    Invalid,
-}
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Severity {
@@ -251,7 +258,6 @@ pub struct ConfigOutput {
     pub dotenv: EnvApplyReport,
     pub diagnostics: Vec<ConfigDiagnostic>,
     pub token: Option<PrivateTokenSelection>,
-    pub source: ConfigSource,
     /// Global `.octocoderc` path when that file exists (valid or not).
     pub config_path: Option<PathBuf>,
     /// Workspace `.octocoderc` path when that file exists (valid or not).
@@ -327,7 +333,6 @@ impl fmt::Debug for ConfigOutput {
             .field("dotenv", &self.dotenv)
             .field("diagnostics", &self.diagnostics)
             .field("token", &self.token)
-            .field("source", &self.source)
             .field("config_path", &self.config_path)
             .field("project_config_path", &self.project_config_path)
             .finish()
@@ -357,7 +362,6 @@ pub struct ConfigInspectorData {
     pub(crate) project_key_count: usize,
     pub storage_mode: String,
     pub config_keys: Vec<String>,
-    pub source: ConfigSource,
     pub config_path: Option<PathBuf>,
     /// Canonical workspace `.octocoderc` location, whether or not it exists.
     pub project_config_file: PathBuf,

@@ -78,7 +78,7 @@ fn one_walk_answers_every_relaxed_walk() {
         true
     };
     let keep = |path: &Path| path.extension().is_some_and(|ext| ext == "ts");
-    let probe = FileProbe::new(&root.0, 1_000, &permits, &keep).beyond(DEFAULTS);
+    let probe = FileProbe::new(&root.0, &permits, &keep).beyond(DEFAULTS);
     let verdict = diagnose(&root.0, DEFAULTS, |walk| probe.find(walk)).expect("probe");
     let Verdict::Skipped(diagnosis) = verdict else {
         panic!("{verdict:?}")

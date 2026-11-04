@@ -255,9 +255,21 @@ async fn npm_without_a_recorded_commit_pins_the_upstream_release_tag() {
     assert_eq!(page.artifacts[0].source_ref.as_deref(), Some("aaaaaaa1"));
     assert!(!page.artifacts[0].source_tag);
     assert_eq!(
+        page.artifacts[0]
+            .tag_differs
+            .as_ref()
+            .map(|tag| tag.tag.as_str()),
+        Some("v3.25.76"),
+        "the release tag names another commit"
+    );
+    assert_eq!(
         tags.seen()[checks..],
-        ["colinhacks/zod@aaaaaaa1"],
-        "only the gitHead is checked"
+        [
+            "colinhacks/zod@aaaaaaa1",
+            "colinhacks/zod@v3.25.76",
+            "colinhacks/zod@3.25.76"
+        ],
+        "the gitHead and the plain release tags are checked"
     );
     // A gitHead GitHub lacks is named, and the release tag pins instead.
     let tag_only = KnownTags::new(vec!["colinhacks/zod@v3.25.76"]);
@@ -271,6 +283,43 @@ async fn npm_without_a_recorded_commit_pins_the_upstream_release_tag() {
     let item = &page.artifacts[0];
     assert_eq!(item.missing_ref.as_deref(), Some("aaaaaaa1"));
     assert_eq!(item.source_ref.as_deref(), Some("v3.25.76"));
+}
+
+/// A recorded gitHead the release tag names is checked (`source_tag`), and no
+/// tag at all leaves it as the registry's claim.
+#[tokio::test]
+async fn a_release_tag_naming_the_recorded_commit_proves_it() {
+    let http = routes(Vec::new());
+    let budget = test_budget();
+    let query = artifact_query(
+        json!({"operation":"resolve","ecosystem": "npm", "packageName": "zod", "version": "3.25.76"}),
+        None,
+    );
+    let registry = test_registry("https://registry.npmjs.org/");
+    let tied = KnownTags::new(vec![
+        "colinhacks/zod@aaaaaaa1",
+        "colinhacks/zod@v3.25.76=AAAAAAA1",
+    ]);
+    let client = RegistryClient {
+        tags: Some(&tied),
+        ..RegistryClient::new(&http, &budget)
+    };
+    let page = super::npm(&query, &Default::default(), &registry, &client, false)
+        .await
+        .expect("lookup");
+    assert!(page.artifacts[0].source_tag, "the tag names the commit");
+    assert_eq!(page.artifacts[0].source_ref.as_deref(), Some("aaaaaaa1"));
+    assert!(page.artifacts[0].tag_differs.is_none());
+    let untagged = KnownTags::new(vec!["colinhacks/zod@aaaaaaa1"]);
+    let client = RegistryClient {
+        tags: Some(&untagged),
+        ..RegistryClient::new(&http, &budget)
+    };
+    let page = super::npm(&query, &Default::default(), &registry, &client, false)
+        .await
+        .expect("lookup");
+    assert!(!page.artifacts[0].source_tag);
+    assert!(page.artifacts[0].tag_differs.is_none());
 }
 
 /// A range reads the abbreviated packument for its version list only:

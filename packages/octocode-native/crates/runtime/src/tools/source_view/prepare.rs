@@ -20,7 +20,7 @@ pub(super) struct Source<'a> {
     pub(super) text: std::borrow::Cow<'a, str>,
     pub(super) bytes: usize,
     pub(super) total_lines: usize,
-    pub(super) offsets: Option<super::extraction::LineOffsets>,
+    pub(super) offsets: Option<std::sync::Arc<super::extraction::LineOffsets>>,
     pub(super) key_blocks_redacted: bool,
     pub(super) match_redacted: bool,
     /// The source lines the source-wide redactions changed (1-based,
@@ -31,6 +31,22 @@ pub(super) struct Source<'a> {
 }
 
 impl Source<'_> {
+    /// This source for one more read: its text stays where it is, and what a
+    /// read changes on its own view is its own copy.
+    pub(super) fn shared(&self) -> Source<'_> {
+        Source {
+            sha256: self.sha256.clone(),
+            text: std::borrow::Cow::Borrowed(&self.text),
+            bytes: self.bytes,
+            total_lines: self.total_lines,
+            offsets: self.offsets.clone(),
+            key_blocks_redacted: self.key_blocks_redacted,
+            match_redacted: self.match_redacted,
+            redacted_lines: self.redacted_lines.clone(),
+            warnings: self.warnings.clone(),
+        }
+    }
+
     /// Placeholders the source-wide redactions put on `lines` (1-based).
     pub(super) fn redactions_on(&self, lines: impl IntoIterator<Item = usize>) -> usize {
         lines
@@ -134,7 +150,8 @@ impl<'a> Prepared<'a> {
     }
 }
 
-/// Prepare this request's source. No decoded or redacted source survives it.
+/// Prepare this request's source. Of what it decodes and redacts, only a whole
+/// scanned source outlives the request ([`super::retained::ScannedSource`]).
 pub(crate) fn prepared<'a>(
     bytes: &'a [u8],
     interior: bool,
@@ -143,6 +160,41 @@ pub(crate) fn prepared<'a>(
 ) -> Result<Prepared<'a>, String> {
     cancel.check()?;
     Ok(Prepared::of(bytes, interior, security))
+}
+
+/// Why `q` selects nothing from `keyed` whatever the secret scan changes: a
+/// pattern that does not compile, or ranges that all start past the end (the
+/// scan keeps the line count). The error is the one extraction gives.
+fn refusal_before_scan(q: &LocalFetchQuery, keyed: &str) -> Option<ExtractionError> {
+    use octocode_engine::search::pcre2_ranges::{Pcre2RangesError, pcre2_find_ranges};
+    use octocode_engine::search::rust_ranges::rust_find_ranges;
+    let does_not_compile = |pattern: &&str| {
+        let insensitive = !local_fetch_query::case_sensitive_for(q, pattern);
+        if local_fetch_query::is_pcre2(q) {
+            matches!(
+                pcre2_find_ranges(pattern, insensitive, "", 1),
+                Err(Pcre2RangesError::InvalidPattern(_))
+            )
+        } else {
+            rust_find_ranges(pattern, insensitive, "", 1).is_err()
+        }
+    };
+    if local_fetch_query::is_regex(q)
+        && local_fetch_query::match_strings(q)
+            .iter()
+            .any(does_not_compile)
+    {
+        return super::extraction::match_spans(q, "")
+            .err()
+            .filter(|error| error.code == ErrorCode::InvalidPattern);
+    }
+    let requested = local_fetch_query::line_ranges(q);
+    let total = line_count(keyed);
+    if requested.is_empty() || requested.iter().any(|range| range.start <= total) {
+        return None;
+    }
+    let lines = super::extraction::LineOffsets::new(keyed);
+    super::extraction::extract_indexed(q, keyed, &lines).err()
 }
 
 /// Decode and redact the source; a stale snapshot, a cancel or a failed
@@ -172,37 +224,58 @@ pub(super) fn prepare_source<'a>(
     cancel.check().map_err(cancelled)?;
     let prepared = prepared(bytes, facts.interior, security, cancel).map_err(cancelled)?;
     let key_blocks_redacted = prepared.key_blocks_redacted;
+    let scan_refused = |(code, message)| {
+        Box::new(LocalFetchResult::error(
+            local_fetch_query::path(q).to_owned(),
+            code,
+            message,
+        ))
+    };
+    let selects = local_fetch_query::has_matches(q) || local_fetch_query::has_ranges(q);
+    if selects && let Some(error) = refusal_before_scan(q, &prepared.keyed) {
+        // A scanner refuses a source by its longest line, and that refusal
+        // comes first.
+        let longest = prepared
+            .keyed
+            .split('\n')
+            .max_by_key(|line| line.len())
+            .unwrap_or_default();
+        security
+            .sanitize(longest, source_path)
+            .map_err(scan_refused)?;
+        return Err(Box::new(extraction_error(
+            q,
+            error,
+            line_count(&prepared.keyed),
+        )));
+    }
     // Sanitize before selection: match probes cannot confirm secrets, and a
     // range cannot detach a secret value from its identifying source context.
-    // Both security passes preserve source line counts.
+    // Both security passes preserve source line counts. A whole read scans
+    // page by page, unless a page cannot show what makes a value secret.
+    let across_lines =
+        octocode_engine::security::WholeSourcePatterns::for_path(&source_path.to_string_lossy())
+            .is_some_and(|patterns| patterns.named_by(&prepared.keyed));
     let mut redacted = prepared.key_block_lines;
-    let (text, match_redacted) =
-        if local_fetch_query::has_matches(q) || local_fetch_query::has_ranges(q) {
-            let (text, changed) = security
-                .redact_source_lines(&prepared.keyed, source_path)
-                .map_err(|(code, message)| {
-                    Box::new(LocalFetchResult::error(
-                        local_fetch_query::path(q).to_owned(),
-                        code,
-                        message,
-                    ))
-                })?;
-            if changed {
-                add_redacted_lines(&mut redacted, &redacted_lines(&prepared.keyed, &text));
-            }
-            let text = match text {
-                std::borrow::Cow::Borrowed(_) => prepared.keyed,
-                std::borrow::Cow::Owned(text) => std::borrow::Cow::Owned(text),
-            };
-            (text, changed)
-        } else {
-            (prepared.keyed, false)
+    let (text, match_redacted) = if selects || across_lines {
+        let (text, changed) = security
+            .redact_source_lines(&prepared.keyed, source_path)
+            .map_err(scan_refused)?;
+        if changed {
+            add_redacted_lines(&mut redacted, &redacted_lines(&prepared.keyed, &text));
+        }
+        let text = match text {
+            std::borrow::Cow::Borrowed(_) => prepared.keyed,
+            std::borrow::Cow::Owned(text) => std::borrow::Cow::Owned(text),
         };
-    let offsets = (local_fetch_query::has_matches(q) || local_fetch_query::has_ranges(q))
-        .then(|| super::extraction::LineOffsets::new(&text));
+        (text, changed)
+    } else {
+        (prepared.keyed, false)
+    };
+    let offsets = selects.then(|| std::sync::Arc::new(super::extraction::LineOffsets::new(&text)));
     let total_lines = offsets
         .as_ref()
-        .map_or_else(|| line_count(&text), super::extraction::LineOffsets::len);
+        .map_or_else(|| line_count(&text), |offsets| offsets.len());
     Ok(Source {
         sha256,
         text,

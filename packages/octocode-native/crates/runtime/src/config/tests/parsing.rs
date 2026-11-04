@@ -124,13 +124,6 @@ fn all_fields_and_source_quirk_resolve() {
             |d| d.code == "invalid_env_value" && d.field_path.as_deref() == Some("lsp.prewarm")
         )
     );
-    assert_eq!(out.source, ConfigSource::Env);
-    let only = BTreeMap::from([("OCTOCODE_BETA".into(), "true".into())]);
-    assert_eq!(
-        resolve_config(&input(only, None)).source,
-        ConfigSource::Env,
-        "OCTOCODE_BETA is a frozen source key"
-    );
 }
 #[test]
 fn invalid_field_is_dropped_alone_with_a_warning() {
@@ -138,7 +131,6 @@ fn invalid_field_is_dropped_alone_with_a_warning() {
         BTreeMap::new(),
         Some("{\"local\":{\"enabled\":\"no\"},\"lsp\":{\"prewarm\":\"off\"}}"),
     ));
-    assert_eq!(out.source, ConfigSource::File);
     assert!(out.resolved.local.enabled, "bad field → default");
     assert_eq!(
         out.resolved.lsp.prewarm,
@@ -181,12 +173,6 @@ fn token_is_redacted_and_storage_stats_are_explicit() {
     let token = resolve_env_token(&env).expect("test fixture operation should succeed");
     assert_eq!(token.token(), "synthetic");
     assert!(!format!("{token:?}").contains("synthetic"));
-    let cfg = resolve_sections(
-        &[&json!({"storage":{"mode":"memory"}})],
-        &BTreeMap::from([("OCTOCODE_ENABLE_STATS".into(), "true".into())]),
-    );
-    assert!(cfg.is_ok());
-    assert!(!is_stats_enabled(&cfg.unwrap_or_default()));
 }
 #[test]
 fn fresh_acquisition_observes_file_changes_and_cleans_up() {
@@ -254,21 +240,11 @@ fn home_resolution_and_file_states_are_portable() {
 #[test]
 fn source_labels_and_dot_lookup_match_reference() {
     let file = "{\"lsp\":{\"prewarm\":\"off\"}}";
-    assert_eq!(
-        resolve_config(&input(BTreeMap::new(), None)).source,
-        ConfigSource::Defaults
-    );
-    assert_eq!(
-        resolve_config(&input(BTreeMap::new(), Some(file))).source,
-        ConfigSource::File
-    );
     let env = BTreeMap::from([("OCTOCODE_LSP_PREWARM".into(), "all".into())]);
     let mixed = resolve_config(&input(env.clone(), Some(file)));
-    assert_eq!(mixed.source, ConfigSource::Mixed);
     assert_eq!(
         get_config_value(&mixed.resolved, "lsp.prewarm"),
         Some(json!("all"))
     );
     assert_eq!(get_config_value(&mixed.resolved, "does.not.exist"), None);
-    assert_eq!(resolve_config(&input(env, None)).source, ConfigSource::Env);
 }

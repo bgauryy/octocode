@@ -127,26 +127,6 @@ impl<'a> MatchQuery<'a> {
     pub fn snapshot(self) -> Option<String> {
         either_form!(self, snapshot => snapshot.as_ref().map(ToString::to_string))
     }
-    /// `run` over this query with `rule` in place of its own.
-    pub(super) fn under_rule<R>(
-        self,
-        rule: octocode_contract_types::AstSearchRule,
-        run: impl FnOnce(MatchQuery<'_>) -> R,
-    ) -> R {
-        match self {
-            Self::Content(query) => {
-                let mut query = query.clone();
-                query.rule = rule;
-                run(MatchQuery::Content(&query))
-            }
-            Self::Summary(query) => {
-                let mut query = query.clone();
-                query.rule = rule;
-                run(MatchQuery::Summary(&query))
-            }
-        }
-    }
-
     /// The query as a continuation copies it.
     pub(super) fn query(self) -> AstSearchQuery {
         match self {

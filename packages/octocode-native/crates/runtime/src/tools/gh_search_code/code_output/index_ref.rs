@@ -52,10 +52,7 @@ pub(in crate::tools::gh_search_code) async fn disclose_index_ref(
     // across the whole tree (a moved file may leave the searched path).
     let moved = moved_names(value);
     let path = if moved.is_empty() {
-        query
-            .path_prefix
-            .as_deref()
-            .map_or("", |path| path.as_str())
+        query.path.as_deref().map_or("", |path| path.as_str())
     } else {
         ""
     };

@@ -1,10 +1,10 @@
 //! Management uses generated field metadata and never returns stored secret values.
 use super::resolver::{parse_candidate, workspace_file_allowed, workspace_setting_allowed};
-use super::validation::{get_path, validate_field};
+use super::validation::{get_path, is_http_url, url_embeds_secret, validate_field};
 use super::{
-    CONFIG_FIELDS, ConfigFieldKind, ConfigFieldSpec, ConfigOutput, SettingSource, config_revision,
-    edit_config_json, get_config_value, parse_config_json, parse_env, read_private_config,
-    replace_private_config,
+    CONFIG_FIELDS, ConfigFieldKind, ConfigFieldSpec, ConfigOutput, KNOWN_ENV, SettingSource,
+    config_revision, edit_config_json, get_config_value, parse_config_json, parse_env,
+    read_private_config, replace_private_config,
 };
 use serde_json::{Value, json};
 use std::path::Path;
@@ -19,9 +19,19 @@ fn field_value(field: &ConfigFieldSpec, value: &Value) -> Result<(), String> {
     }
     Ok(())
 }
+fn url_refusal(key: &str) -> String {
+    format!("Invalid value for {key}: use an API root without credentials, a query or a fragment.")
+}
 /// Whether `value` is one a setting's variable may be saved with: one the
 /// resolver accepts. Undeclared keys are free-form.
 pub(crate) fn validate_env_value(key: &str, value: &str) -> Result<(), String> {
+    if let Some(known) = KNOWN_ENV.iter().find(|known| known.name == key)
+        && known.kind == "url"
+        && !value.trim().is_empty()
+        && (!is_http_url(value.trim()) || url_embeds_secret(value.trim()))
+    {
+        return Err(url_refusal(key));
+    }
     let Some((field, binding)) = CONFIG_FIELDS.iter().find_map(|field| {
         field
             .env
@@ -32,6 +42,9 @@ pub(crate) fn validate_env_value(key: &str, value: &str) -> Result<(), String> {
     };
     if value.trim().is_empty() {
         return Ok(());
+    }
+    if field.kind == ConfigFieldKind::Url && url_embeds_secret(value) {
+        return Err(url_refusal(key));
     }
     if parse_candidate(
         field,
@@ -61,10 +74,13 @@ pub fn edit_setting(
     let invalid = |message: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
     let field = CONFIG_FIELDS
         .iter()
-        .find(|f| f.file && f.path == key)
+        .find(|f| f.path == key)
         .ok_or_else(|| invalid("Unknown configuration setting.".into()))?;
     if let Some(value) = value {
         field_value(field, value).map_err(invalid)?;
+        if field.kind == ConfigFieldKind::Url && value.as_str().is_some_and(url_embeds_secret) {
+            return Err(invalid(url_refusal(field.path)));
+        }
         if workspace && !workspace_setting_allowed(field, value) {
             return Err(invalid(
                 "This setting may only be configured in home scope.".into(),
@@ -104,15 +120,15 @@ pub fn edit_setting(
 /// A URL setting without the parts that carry credentials (userinfo, query
 /// values, fragment), so a token embedded in it is never shown. Query keys
 /// stay: they name what is set without revealing it.
-fn shown(field: &ConfigFieldSpec, value: Option<Value>) -> Option<Value> {
+pub(super) fn shown(field: &ConfigFieldSpec, value: Option<Value>) -> Option<Value> {
     if field.kind != ConfigFieldKind::Url {
         return value;
     }
-    let Some(mut url) = value
-        .as_ref()
-        .and_then(Value::as_str)
-        .and_then(|v| url::Url::parse(v).ok())
-    else {
+    value.map(shown_url)
+}
+/// `value` without any credential it embeds; anything but a URL stays as it is.
+pub(super) fn shown_url(value: Value) -> Value {
+    let Some(mut url) = value.as_str().and_then(|v| url::Url::parse(v).ok()) else {
         return value;
     };
     let sensitive = !url.username().is_empty()
@@ -133,7 +149,7 @@ fn shown(field: &ConfigFieldSpec, value: Option<Value>) -> Option<Value> {
             .extend_pairs(keys.iter().map(|key| (key.as_str(), "[REDACTED]")));
     }
     url.set_fragment(None);
-    Some(Value::String(url.into()))
+    Value::String(url.into())
 }
 /// Each file degrades on its own: one that cannot be read safely (a symlink,
 /// a device, too large) is reported read-only and never read through.
@@ -202,14 +218,14 @@ pub fn inspect_management(config: &ConfigOutput, workspace: &Path) -> Value {
     // Include credential presence saved in settings without disclosing its value.
     for (index, file) in saved.iter().enumerate() {
         if let Some(file) = file {
-            for field in CONFIG_FIELDS.iter().filter(|f| f.file && f.credential) {
+            for field in CONFIG_FIELDS.iter().filter(|f| f.credential) {
                 if let Some(value) = get_path(file, field.path) {
                     keys.push(json!({"key":field.env_name().unwrap_or(field.path),"setting":field.path,"set":value.as_str().is_some_and(|v|!v.trim().is_empty()),"scope":if index==0{"home"}else{"workspace"},"source":paths[index+2].1,"secret":true}));
                 }
             }
         }
     }
-    let settings = CONFIG_FIELDS.iter().filter(|f| f.file && !f.credential).map(|field| {
+    let settings = CONFIG_FIELDS.iter().filter(|f| !f.credential).map(|field| {
         let home_saved = saved[0].as_ref().and_then(|v| get_path(v, field.path));
         let workspace_saved = saved[1].as_ref().and_then(|v| get_path(v, field.path));
         let home = home_saved.filter(|v| field_value(field, v).is_ok());
@@ -234,7 +250,7 @@ pub fn inspect_management(config: &ConfigOutput, workspace: &Path) -> Value {
     }).collect::<Vec<_>>();
     let credential_settings = CONFIG_FIELDS
         .iter()
-        .filter(|f| f.file && f.credential)
+        .filter(|f| f.credential)
         .map(|f| f.path)
         .collect::<Vec<_>>()
         .join(", ");

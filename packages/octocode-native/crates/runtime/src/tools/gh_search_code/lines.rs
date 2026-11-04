@@ -7,6 +7,7 @@ use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::text::file_text;
 use futures_util::{FutureExt as _, StreamExt as _, stream::FuturesUnordered};
 use octocode_github::{GitHubProvider, ProviderError, ProviderErrorKind, RequestContext};
+use std::path::Path;
 
 mod blob;
 mod budget;
@@ -160,7 +161,7 @@ fn scan_all(
     } = *listing;
     // This scan computes on this host: it counts toward the process's CPU
     // budget while it runs and fans out to its share of the cores.
-    let _computing = octocode_engine::search::cpu::host().enter();
+    let _computing = octocode_engine::cpu::host().enter();
     let cores = crate::tools::workers::workers(files.len(), None);
     Ok(fan_out(
         &SCANS,
@@ -202,6 +203,7 @@ pub(super) fn scan(
     let mut blob = Blob {
         raw: text.lines().collect(),
         lowered: text.lines().map(str::to_lowercase).collect(),
+        clean: None,
         key_blocks: Vec::new(),
         declared: Vec::new(),
         path,
@@ -212,6 +214,14 @@ pub(super) fn scan(
     }
     // Only a file with a keyword line is outlined.
     blob.key_blocks = crate::security::private_key_block_line_ranges(&text);
+    if octocode_engine::security::WholeSourcePatterns::for_path(path)
+        .is_some_and(|patterns| patterns.named_by(&text))
+    {
+        let Ok((clean, _)) = security.redact_source_lines(&text, Path::new(path)) else {
+            return FileHits::Unavailable;
+        };
+        blob.clean = Some(clean.lines().map(str::to_owned).collect());
+    }
     let outline = crate::tools::declarations::file_document(&text, path);
     blob.declared = hit_declarations(outline.as_deref(), &found);
     let hits = blob.hits(found, &needles, goal);

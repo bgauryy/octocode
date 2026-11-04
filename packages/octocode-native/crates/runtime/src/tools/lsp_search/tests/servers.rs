@@ -21,7 +21,7 @@ fn user_server(
     )
     .expect("config");
     super::super::LspExecutionConfig {
-        config_path: Some(config.to_string_lossy().into_owned()),
+        octocode_home: Some(dir.to_path_buf()),
         ..super::super::LspExecutionConfig::default()
     }
 }
@@ -151,7 +151,7 @@ async fn a_server_that_fails_to_start_names_its_invocation() {
     )
     .expect("config");
     let execution = super::super::LspExecutionConfig {
-        config_path: Some(config.to_string_lossy().into_owned()),
+        octocode_home: Some(root.to_path_buf()),
         ..super::super::LspExecutionConfig::default()
     };
     let hover = |file: &str| {

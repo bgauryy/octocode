@@ -46,18 +46,18 @@ fn retained_entries_expire_only_by_their_declared_lifetime() {
 #[test]
 fn memory_draws_on_the_process_budget_and_refuses_oversized_entries() {
     let store = Store::<u32>::new(CacheConfig::derived(), None);
-    let before = crate::cache::MEMORY.used();
+    let before = octocode_engine::memory::MEMORY.used();
     assert!(
         store
             .put_confirmed(key("a", "x"), 1, 4096, CacheClass::Immutable)
             .1
     );
-    assert!(crate::cache::MEMORY.used() >= before + 4096);
+    assert!(octocode_engine::memory::MEMORY.used() >= before + 4096);
     assert!(store.get(&key("a", "x")).is_some());
     let (_, kept) = store.put_confirmed(
         key("big", "x"),
         4,
-        crate::cache::MEMORY.limit() + 1,
+        octocode_engine::memory::MEMORY.limit() + 1,
         CacheClass::Immutable,
     );
     assert!(!kept, "heavier than the whole budget is refused");
@@ -109,10 +109,10 @@ fn idle_entries_live_while_read_and_expire_when_unused() {
 fn derived_policy_retains_entries_over_the_retired_fixed_cap() {
     const RETIRED_CAP: usize = 32 * 1024 * 1024;
     let size = RETIRED_CAP + 8 * 1024 * 1024;
-    assert!(size <= crate::cache::MIN_MEMORY_BUDGET);
+    assert!(size <= octocode_engine::memory::MIN_MEMORY_BUDGET);
     assert_eq!(
         CacheConfig::derived().disk_bytes,
-        crate::cache::MEMORY.limit() as u64
+        octocode_engine::memory::MEMORY.limit() as u64
     );
     let memory = Store::<u8>::new(CacheConfig::derived(), None);
     assert!(

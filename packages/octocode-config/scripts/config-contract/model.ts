@@ -8,7 +8,6 @@ export type FlatField = Field & {
   path: string;
   section: string;
   key: string;
-  file: boolean;
   resolved: boolean;
 };
 
@@ -27,8 +26,7 @@ export function flattenFields(contract: Contract): FlatField[] {
       path: pathFor(sectionPath, key),
       section: sectionPath,
       key,
-      file: section.file,
-      resolved: section.resolved && field.credential !== true,
+      resolved: field.credential !== true,
     }))
   );
 }

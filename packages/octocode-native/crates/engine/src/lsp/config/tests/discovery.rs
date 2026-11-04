@@ -50,7 +50,7 @@ fn trusted_workspace_lsp_config_rejects_interpreter_eval_launch() {
 fn explicit_discovery_options_support_arbitrary_extensions() {
     let root = TmpDir::new();
     std::fs::create_dir_all(&root).expect("create temporary root");
-    let config_path = root.join("native-lsp.json");
+    let config_path = root.join("lsp-servers.json");
     std::fs::write(
         &config_path,
         r#"{"languageServers":{".php":{"command":"custom-php-server","args":["--stdio"],"languageId":"php"}}}"#,
@@ -61,7 +61,7 @@ fn explicit_discovery_options_support_arbitrary_extensions() {
         "demo.php",
         &root_str,
         &LspDiscoveryOptions {
-            config_path: Some(config_path),
+            octocode_home: Some(root.to_path_buf()),
             ..LspDiscoveryOptions::default()
         },
     )

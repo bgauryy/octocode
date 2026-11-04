@@ -4,7 +4,7 @@
 use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, workspace_policy};
-use octocode_engine::search::cpu;
+use octocode_engine::cpu;
 
 /// `(sha256, graph bytes)` of a fresh build of `app/` with every file's
 /// facts spilled, so restoring decodes artifacts.

@@ -103,9 +103,23 @@ async fn exact(
         artifact.missing_ref = Some(head);
     }
     // Without an attested or recorded commit, the upstream release tag pins
-    // the source, as for every registry that names no commit.
+    // the source, as for every registry that names no commit; a recorded
+    // commit is checked against that tag.
     let name = artifact.package_name.clone();
     super::release_ref::pin_release_tag(&mut artifact, &name, &version, client).await;
+    if !artifact.source_attested
+        && !artifact.source_tag
+        && let Some(commit) = artifact.source_ref.clone()
+    {
+        super::release_ref::check_commit_against_tag(
+            &mut artifact,
+            &name,
+            &version,
+            &commit,
+            client,
+        )
+        .await;
+    }
     artifact.version = Some(version);
     Ok(ArtifactProviderPage {
         registry: Some(trim_registry(&registry.base)),

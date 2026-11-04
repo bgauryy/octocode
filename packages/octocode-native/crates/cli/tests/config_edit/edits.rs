@@ -128,6 +128,34 @@ fn config_rejects_invalid_edits_without_changing_the_file() {
 }
 
 #[test]
+fn empty_stdin_leaves_a_saved_key_alone() {
+    use std::process::Stdio;
+    let workspace = Workspace::new();
+    let saved = workspace
+        .cli()
+        .args(["config", "set", "TEST_VALUE", "saved"])
+        .output()
+        .unwrap();
+    assert!(saved.status.success());
+    let empty = workspace
+        .cli()
+        .args(["config", "set", "TEST_VALUE", "--stdin"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(empty.status.code(), Some(2));
+    let value = workspace
+        .cli()
+        .args(["config", "get", "TEST_VALUE"])
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&value.stdout).starts_with("saved"),
+        "{value:?}"
+    );
+}
+
+#[test]
 fn config_stdin_creates_private_global_file() {
     use std::io::Write;
     use std::process::Stdio;

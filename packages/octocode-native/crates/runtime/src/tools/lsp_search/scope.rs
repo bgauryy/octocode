@@ -20,6 +20,10 @@
 //! `include` is the anchor language's family globs, from the engine grammar
 //! registry. A scanned file outside the anchor declaration's reach (see
 //! `reach`) is out of reach, not text-only.
+//!
+//! Which files a scan reads outlives the request while a real check proves it
+//! unchanged (`listing`, `ignored_index`), and so does what each file spells
+//! while its stamp does (`spelling_index`).
 
 use super::blocking_cancellable;
 use super::failure::LspFailure;
@@ -35,11 +39,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 mod ignored_index;
+mod listing;
 mod paths;
 #[cfg(test)]
 pub(super) mod probe;
 mod reach;
 mod scan;
+mod spelling_index;
 mod text;
 pub(super) use paths::{canonical, canonical_uri, widest_authorized_dir, with_canonical_memo};
 use paths::{explicit_root, family_include, search_root};
@@ -300,11 +306,9 @@ impl Scope {
 
     /// This request's scope fingerprint as of `observed`
     /// ([`WalkInputs::fingerprint`]) on a blocking worker that follows
-    /// `cancel`. A walk with no fingerprint (the request stopped it, or a
-    /// file could not be stamped or digested) is counted as failed in the
-    /// LSP trace (`lsp.trace`): the request's revision then covers the
-    /// anchor text alone and it sends no watched-file events, and that is
-    /// never silent.
+    /// `cancel`. After a walk with no fingerprint (the request stopped it, or
+    /// a file could not be stamped or digested) the request's revision covers
+    /// the anchor text alone and it sends no watched-file events.
     pub(super) async fn walk_fingerprint(
         &self,
         observed: SystemTime,
@@ -318,31 +322,16 @@ impl Scope {
             work.walks
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        let measured = octocode_engine::lsp::diagnostics::Phase::ScopeFingerprint
-            .measure(async {
-                match blocking_cancellable(cancel, move |stopped| {
-                    walked.fingerprint(observed, stopped)
-                })
-                .await
-                {
-                    Ok(Some(Some(found))) => Ok(found),
-                    Ok(_) => Err(None),
-                    Err(failure) => Err(Some(failure)),
-                }
-            })
-            .await;
-        match measured {
-            Ok(found) => {
-                #[cfg(test)]
-                if let Some(work) = &probe {
-                    work.stamped
-                        .fetch_add(found.1.len(), std::sync::atomic::Ordering::Relaxed);
-                }
-                Ok(Some(found))
-            }
-            Err(None) => Ok(None),
-            Err(Some(failure)) => Err(failure),
+        let found =
+            blocking_cancellable(cancel, move |stopped| walked.fingerprint(observed, stopped))
+                .await?
+                .flatten();
+        #[cfg(test)]
+        if let (Some(work), Some(found)) = (&probe, &found) {
+            work.stamped
+                .fetch_add(found.1.len(), std::sync::atomic::Ordering::Relaxed);
         }
+        Ok(found)
     }
 
     /// The owned inputs of the fingerprint walk, for a blocking worker.

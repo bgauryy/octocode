@@ -115,16 +115,7 @@ fn run_symbols(
         .map_err(|error| super::errors::io_error(q.path.as_str(), error))?;
     check_language_scope(q, &p.canonical, meta.is_file())?;
     if meta.is_file() {
-        let row_paths = super::RowPaths::new(paths, &p.canonical, true);
-        let display_path = row_paths.delivered(&p.canonical.to_string_lossy());
-        let scoped = crate::tools::test_code::Scoped::of(q.test_code, paths);
-        let outline = match outline_file(q, (&p.canonical, &display_path), scoped.as_ref(), cancel)?
-        {
-            Ok(outline) => outline,
-            Err(terminal) => return Ok(terminal),
-        };
-        let set = select(q, &p.canonical, outline, cancel)?;
-        return render_page(q, &set, row_paths, response_window, cancel);
+        return file_page(q, paths, &p.canonical, response_window, cancel);
     }
     let row_paths = super::RowPaths::new(paths, &p.canonical, false);
     let mapped = mapped_files(q, &p.canonical)?;
@@ -137,15 +128,47 @@ fn run_symbols(
         Some(set) => Arc::clone(set),
         None => {
             let outline = outline_walked(q, &p.canonical, (walk, scoped.as_ref()), cancel)?;
-            Arc::new(select(q, &p.canonical, outline, cancel)?)
+            Arc::new(select(q, &p.canonical, outline, row_paths, cancel)?)
         }
     };
     let mut page = render_page(q, &set, row_paths, response_window, cancel)?;
     if stored.is_none() && page["calls"]["nextPage"].is_object() {
-        continuation.remember(&set);
+        continuation.remember(q, &set);
     }
     note_skipped(q, &p.canonical, mapped.as_ref(), paths, cancel, &mut page);
     note_directory_parser(q, &mut page);
+    Ok(page)
+}
+
+/// One page of a single file's outline; the first page that has more stores
+/// the set the later ones page.
+fn file_page(
+    q: &AstSearchQuerySymbols,
+    paths: &PathPolicy,
+    file: &std::path::Path,
+    response_window: Option<usize>,
+    cancel: &dyn CancellationCheck,
+) -> Result<Value, ToolError> {
+    let row_paths = super::RowPaths::new(paths, file, true);
+    let scoped = crate::tools::test_code::Scoped::of(q.test_code, paths);
+    let started = octocode_engine::stamp::settle_clock();
+    let continuation = Continuation::of_file(q, paths, file, started);
+    let stored = continuation.stored(q);
+    let set = match &stored {
+        Some(set) => Arc::clone(set),
+        None => {
+            let display_path = row_paths.delivered(&file.to_string_lossy());
+            let outline = match outline_file(q, (file, &display_path), scoped.as_ref(), cancel)? {
+                Ok(outline) => outline,
+                Err(terminal) => return Ok(terminal),
+            };
+            Arc::new(select(q, file, outline, row_paths, cancel)?)
+        }
+    };
+    let page = render_page(q, &set, row_paths, response_window, cancel)?;
+    if stored.is_none() && page["calls"]["nextPage"].is_object() {
+        continuation.remember(q, &set);
+    }
     Ok(page)
 }
 

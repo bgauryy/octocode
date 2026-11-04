@@ -1,9 +1,9 @@
-//! Audit the embedded schema once, including branches input validation can skip.
+//! Audit the embedded schema, including branches input validation can skip.
+//! A test checks every embedded schema; no process audits it again.
 use super::super::{ContractValidationError, internal};
 use super::{compiled_pattern, known_type, relationships::strings};
 use serde_json::Value;
 
-#[cfg(test)]
 pub(in crate::contracts::validate) fn validate(
     root: &Value,
 ) -> Result<(), ContractValidationError> {

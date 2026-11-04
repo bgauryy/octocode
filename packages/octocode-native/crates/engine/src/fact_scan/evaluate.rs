@@ -187,7 +187,7 @@ impl<T> EntryEvaluator<'_, T> {
         if entry.size.unwrap_or_default() > i64::from(self.max_file_bytes) {
             return too_large();
         }
-        let source = match crate::text::read_source(path, u64::from(self.max_file_bytes)) {
+        let source = match crate::text::read_regular(path, u64::from(self.max_file_bytes)) {
             Ok(source) => source,
             Err(crate::text::ReadError::TooLarge(_)) => return too_large(),
             Err(_) => return outcome("graph.scan.readFailed", "file could not be opened"),

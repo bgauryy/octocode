@@ -41,11 +41,12 @@ impl ScopeGaps {
         q: MatchQuery<'_>,
         scope: &Scope,
         paths: &PathPolicy,
+        states_absence: bool,
         cancel: &dyn CancellationCheck,
     ) -> Self {
         Self {
             repair: other_language_repair(q, scope, paths, cancel),
-            skipped: skipped_walk(q, scope, paths, cancel),
+            skipped: skipped_walk(q, scope, paths, states_absence, cancel),
         }
     }
 
@@ -55,31 +56,38 @@ impl ScopeGaps {
         q: MatchQuery<'_>,
         scope: &Scope,
         paths: &PathPolicy,
+        states_absence: bool,
         cancel: &dyn CancellationCheck,
     ) -> Self {
         Self {
             repair: None,
-            skipped: skipped_walk(q, scope, paths, cancel),
+            skipped: skipped_walk(q, scope, paths, states_absence, cancel),
         }
     }
 }
 
 /// Asks which of the walks the request left off (ignore files, hidden
 /// entries, default-excluded directories) hold files of the requested
-/// grammar; the lead lifts exactly those.
+/// grammar; the lead lifts exactly those. The first page of a scan says so,
+/// and a later page only when it `states_absence`: absence needs the disclosure
+/// on the answer that claims it, and a page with rows repeats nothing.
 pub(super) fn skipped_walk(
     q: MatchQuery<'_>,
     scope: &Scope,
     paths: &PathPolicy,
+    states_absence: bool,
     cancel: &dyn CancellationCheck,
 ) -> Option<SkippedWalk> {
+    let later = q.page() > 1 || q.match_page() > 1 || q.scan_offset() > 0;
+    if later && !states_absence {
+        return None;
+    }
     let extensions = scope.extensions.as_ref()?;
     let walk = Walk {
         ignored: q.include_ignored().unwrap_or(false),
         hidden: q.include_hidden().unwrap_or(false),
         default_excludes: q.default_excludes(),
     };
-    let budget = usize::MAX;
     let (include, exclude) = (
         q.include().unwrap_or_default(),
         q.exclude().unwrap_or_default(),
@@ -90,7 +98,7 @@ pub(super) fn skipped_walk(
     let keep = |path: &std::path::Path| {
         has_extension_in(path, extensions) || scope.parsers.extension(path).is_some()
     };
-    let probe = FileProbe::new(&scope.canonical, budget, &permits, &keep)
+    let probe = FileProbe::new(&scope.canonical, &permits, &keep)
         .within(Globs {
             include: &include,
             exclude: &exclude,

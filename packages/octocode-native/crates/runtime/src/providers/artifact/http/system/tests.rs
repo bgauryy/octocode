@@ -25,6 +25,7 @@ async fn server_errors_retry_the_configured_number_of_times() {
             accept: "application/json",
             authorization: None,
             dns_pin: None,
+            validator: None,
         };
         let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
         let response = SystemArtifactHttp::shared()
@@ -62,6 +63,7 @@ async fn rate_limits_follow_retry_after() {
             accept: "application/json",
             authorization: None,
             dns_pin: None,
+            validator: None,
         };
         let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
         // Build the client first: its one-time TLS root load is setup,
@@ -149,6 +151,7 @@ async fn a_retry_reuses_the_connection_after_reading_the_error_body() {
         accept: "application/json",
         authorization: None,
         dns_pin: None,
+        validator: None,
     };
     let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
     let response = SystemArtifactHttp::shared()
@@ -187,6 +190,7 @@ async fn a_transport_failure_is_retried() {
             accept: "application/json",
             authorization: None,
             dns_pin: None,
+            validator: None,
         };
         let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
         let response = SystemArtifactHttp::shared()
@@ -230,6 +234,7 @@ async fn a_body_cut_short_is_retried() {
             accept: "application/json",
             authorization: None,
             dns_pin: None,
+            validator: None,
         };
         let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
         let response = SystemArtifactHttp::shared()
@@ -265,6 +270,7 @@ async fn pinned_reads_reuse_one_client_and_connection() {
             accept: "application/json",
             authorization: None,
             dns_pin: Some(pin.clone()),
+            validator: None,
         };
         let response = SystemArtifactHttp::shared()
             .expect("HTTP client")
@@ -293,6 +299,7 @@ async fn dns_pin_connects_to_the_validated_address() {
             host: "registry.invalid".to_owned(),
             addresses: vec![*server.address()],
         }),
+        validator: None,
     };
     // The full native suite runs several network/process fixtures in
     // parallel. This test proves address pinning, not latency, so keep its
@@ -304,4 +311,38 @@ async fn dns_pin_connects_to_the_validated_address() {
         .await
         .expect("pinned request reaches the validated address");
     assert_eq!(response.status, 200);
+}
+
+/// A 304 answers the validator a request asked with; asked without one it stays
+/// the redirect it is, which the registry client refuses.
+#[tokio::test]
+async fn a_304_is_an_answer_only_to_a_conditional_request() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(304).insert_header("etag", "\"e\""))
+        .mount(&server)
+        .await;
+    let http = SystemArtifactHttp::shared()
+        .expect("client")
+        .with_retries(0);
+    let budget = RequestBudget::with_timeout(Duration::from_secs(5), 1024);
+    let request = |validator| ArtifactHttpRequest {
+        url: Url::parse(&format!("{}/pkg", server.uri())).expect("test URL"),
+        accept: "application/json",
+        authorization: None,
+        dns_pin: None,
+        validator,
+    };
+    let confirmed = http
+        .get(
+            request(Some((reqwest::header::IF_NONE_MATCH, "\"e\"".to_owned()))),
+            &budget,
+        )
+        .await
+        .expect("a confirmation");
+    assert_eq!(confirmed.status, 304);
+    assert_eq!(confirmed.headers, [("etag".to_owned(), "\"e\"".to_owned())]);
+    let received = server.received_requests().await.expect("recorded");
+    assert_eq!(received[0].headers["if-none-match"], "\"e\"");
+    assert!(http.get(request(None), &budget).await.is_err());
 }

@@ -2,9 +2,8 @@
 //! a first page stored), bind the page cut to a snapshot, cut and render the
 //! page, and probe an empty listing. An operation contributes only its
 //! query: the walk it asks the engine for ([`Listing`]).
-use super::cut::page_ranges;
-use super::probe::{FilterProbe, broaden_empty, lead_to_skipped, probe_listing};
-use super::walked::{Walked, push_warnings};
+use super::probe::{FilterProbe, broaden_empty, deepen_empty, lead_to_skipped, probe_listing};
+use super::walked::{PageCut, Walked, push_warnings};
 use super::{Walking, listing_prefix, memo, restart_if_stale, rows, validated_root, walked};
 use crate::response::result::ToolError;
 use crate::tools::empty_walk::Walk;
@@ -269,12 +268,14 @@ pub(super) fn execute_listing<Q: Listing>(
     let deferred_detail = q.view() == StructureSearchView::Details
         && super::files::sort_key(&q.sort())
             != Some(octocode_contract_types::StructureSearchSortAnyOrderBy::LineCount);
-    let pages = page_ranges(
-        &rows::costs(&walk.rows, &prefix, q.view(), deferred_detail),
+    let pages = walk.pages(PageCut {
+        prefix: prefix.clone(),
+        view: q.view(),
+        deferred_detail,
         budget,
-        q.page_rows(),
-    );
-    if !stored && pages.len() > 1 {
+        limit: q.page_rows(),
+    });
+    if !stored && pages.len() > 1 && crate::tools::test_code::result_may_be_kept(q.test_code()) {
         memo::put(snapshot.clone(), policy, paths, root, &walk);
     }
     let mut out = listing_page(
@@ -290,6 +291,9 @@ pub(super) fn execute_listing<Q: Listing>(
         walk_listing(relaxed, root, paths, security, cancel, entries, walking)
     };
     probe_listing(&mut out, q, (root, paths), &walk.meta.uncovered, probe_walk)?;
+    deepen_empty(&mut out, q, root, |deeper, entries, walking| {
+        walk_listing(deeper, root, paths, security, cancel, entries, walking)
+    })?;
     broaden_empty(&mut out, &q.broadening(), root, probe_walk)?;
     Ok(out)
 }
@@ -316,10 +320,7 @@ fn listing_page<Q: Listing>(
         snapshot.clone(),
     );
     let shown = pages.get(page - 1).cloned().unwrap_or(total..total);
-    let shown_rows = walk.rows[shown.clone()]
-        .iter()
-        .map(|row| Ok((row.dir.clone(), row.page_entry(q.view(), detail, cancel)?)))
-        .collect::<Result<Vec<_>, ToolError>>()?;
+    let shown_rows = rows::page_entries(&walk.rows[shown.clone()], q.view(), detail, cancel)?;
     let files = rows::dir_groups(&shown_rows, prefix);
     let mut out = json!({
         "path": prefix,

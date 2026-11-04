@@ -11,7 +11,9 @@ use crate::types::{EntryType, FileKind};
 mod cursor;
 mod filters;
 mod metadata_bounds;
+mod no_stat;
 mod options;
+mod permissions;
 mod resume;
 mod walk_order;
 

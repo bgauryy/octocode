@@ -102,7 +102,6 @@ impl Workspace {
             ("HOME".into(), self.home.to_string_lossy().into_owned()),
             ("GITHUB_TOKEN".into(), self.token.clone()),
             ("GITHUB_API_URL".into(), UNMOCKED_GITHUB_API_URL.into()),
-            ("OCTOCODE_ENABLE_STATS".into(), "false".into()),
             // Fixture workspaces trust their own language-server definitions.
             (
                 octocode_native::config::field::LSP_TRUST_PROJECT_CONFIG

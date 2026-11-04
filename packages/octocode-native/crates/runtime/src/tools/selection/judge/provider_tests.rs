@@ -16,7 +16,6 @@ fn evaluator(key: &str, base_url: String) -> Evaluator {
         Duration::from_secs(10),
         0,
         4,
-        None,
     )
 }
 

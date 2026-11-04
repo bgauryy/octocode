@@ -10,8 +10,8 @@ async fn materialize_never_writes_a_provider_path_outside_its_root() {
         root: &root,
         home: base.path(),
         written: 0,
-        total_bytes: 0,
         cursor: 0,
+        stopped: None,
         skips: MaterializeSkips::default(),
         recorded: Vec::new(),
     };
@@ -53,12 +53,14 @@ async fn materialize_never_writes_a_provider_path_outside_its_root() {
 #[test]
 fn materialize_skips_name_each_path_once_and_warn_with_counts() {
     let skips = MaterializeSkips {
+        read_limit: 16 * 1024 * 1024,
         oversized: (0..30).map(|n| format!("big/{n}.bin")).collect(),
         unreadable: vec![
             ("a.dat".into(), "binary".into()),
             ("b.dat".into(), "binary".into()),
             ("c".into(), "unsupported entry".into()),
         ],
+        binary: Vec::new(),
     };
     let warnings = skips.warnings();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
@@ -80,10 +82,16 @@ fn materialize_skips_name_each_path_once_and_warn_with_counts() {
 
 #[test]
 fn materialization_page_boundary_and_pages_past_the_former_ceiling_continue() {
-    let query: GhStructureQueryTree = serde_json::from_value(json!({"operation":"tree",
-        "owner": "a", "repo": "b", "ref": "a".repeat(40),
-        "path": ""}))
-    .expect("query");
+    let tree = |materialize: bool| -> GhStructureQueryTree {
+        let mut row = json!({"operation":"tree",
+            "owner": "a", "repo": "b", "ref": "a".repeat(40), "path": ""});
+        if materialize {
+            row["materialize"] = json!(true);
+        }
+        serde_json::from_value(row).expect("query")
+    };
+    let scope_of = |query: &GhStructureQueryTree| Scope::of(query).expect("scope");
+    let query = tree(true);
     let mut value = json!({
         "files": [{"dir": ".", "files": ["a.rs"]}],
         "location": {"localPath": "/t"}
@@ -95,28 +103,43 @@ fn materialization_page_boundary_and_pages_past_the_former_ceiling_continue() {
         total_pages: current + 1,
         entries: &[],
     };
-    attach_continuations(&mut value, &query, &page(1), false, true, None).expect("continuation");
+    let resume = Some(MaterializeResume { offset: 7 });
+    attach_continuations(
+        &mut value,
+        &query,
+        &scope_of(&query),
+        &page(1),
+        false,
+        resume,
+    )
+    .expect("continuation");
     assert_eq!(value["location"], json!({"localPath": "/t"}));
     assert_eq!(value["isPartial"], true);
     assert_eq!(value["partialReasons"], json!(["materializeIncomplete"]));
-    assert_eq!(
-        value["calls"]["continueMaterialize"]["input"]["queries"][0]["page"],
-        2
-    );
-    assert_eq!(
-        value["calls"]["continueMaterialize"]["input"]["queries"][0]["materializeOffset"],
-        0
-    );
-    assert_eq!(
-        value["calls"]["continueMaterialize"]["input"]["queries"][0]["ref"],
-        "a".repeat(40)
-    );
-    for (materialize, lead) in [(false, "nextPage"), (true, "continueMaterialize")] {
+    let resumed = &value["calls"]["continueMaterialize"]["input"]["queries"][0];
+    assert!(resumed.get("page").is_none(), "{resumed}");
+    assert_eq!(resumed["materializeOffset"], 7);
+    assert_eq!(resumed["ref"], "a".repeat(40));
+    assert_eq!(value["calls"]["nextPage"]["input"]["queries"][0]["page"], 2);
+    for materialize in [false, true] {
+        let query = tree(materialize);
+        let scope = scope_of(&query);
         let mut value = json!({"files": [{"dir": ".", "files": ["last.rs"]}]});
-        attach_continuations(&mut value, &query, &page(1000), false, materialize, None)
+        attach_continuations(&mut value, &query, &scope, &page(1000), false, None)
             .expect("continuation");
         assert!(value.get("terminalLimit").is_none(), "{value}");
-        assert_eq!(value["calls"][lead]["input"]["queries"][0]["page"], 1001);
+        let next = &value["calls"]["nextPage"]["input"]["queries"][0];
+        assert_eq!(next["page"], 1001);
+        assert!(
+            next.get("materialize").is_none(),
+            "listing pages write nothing: {next}"
+        );
+        let read: GhStructureQueryTree = serde_json::from_value(next.clone()).expect("next page");
+        assert_eq!(
+            scope_of(&read).depth,
+            scope.depth,
+            "a page is cut from the same listing: {next}"
+        );
         assert_eq!(value["files"][0]["files"][0], "last.rs");
     }
 }

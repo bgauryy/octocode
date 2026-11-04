@@ -75,12 +75,17 @@ impl ToolRuntime {
             })?;
         let home = std::env::home_dir()
             .ok_or_else(|| RuntimeError::new(ErrorCode::Config, "Cannot resolve home directory"))?;
-        let input = config::acquire_config_input(
-            options.env.unwrap_or_else(octocode_io::env::vars_lossy),
-            cwd,
-            home,
-            options.surface,
-        );
+        let env = options.env.unwrap_or_else(octocode_io::env::vars_lossy);
+        let input = match options.loaded {
+            Some(loaded) => config::ConfigInput {
+                env,
+                cwd,
+                os_home: home,
+                runtime_surface: options.surface,
+                ..loaded
+            },
+            None => config::acquire_config_input(env, cwd, home, options.surface),
+        };
         let mut runtime = Self::build(input, RuntimeLimits::DEFAULT, lsp_pool)?;
         // Misconfiguration never fails startup; say what was ignored and
         // where.
@@ -163,23 +168,12 @@ impl ToolRuntime {
             RequestRuntime::new(RequestLimits::default()).map_err(runtime_execution_error)?;
         let persistent = config::is_persistent_storage_enabled(&config.resolved);
         let lsp_execution_config = Arc::new(crate::tools::lsp_search::LspExecutionConfig {
-            config_path: config.resolved.lsp.config_path.clone(),
             trust_project_config: config.resolved.lsp.trust_project_config,
-            trace: config.resolved.lsp.trace,
-            // A resolved setting the engine reads by name: `lsp.cacheDir` may
-            // come from `.octocoderc`, not only the environment, and the
-            // resolved value wins either way.
             env: config
                 .effective_env
                 .iter()
                 .filter(|(key, _)| key.starts_with("OCTOCODE_"))
                 .map(|(key, value)| (key.clone(), value.clone()))
-                .chain(
-                    config::field::LSP_CACHE_DIR
-                        .env_name()
-                        .zip(config.resolved.lsp.cache_dir.clone())
-                        .map(|(name, dir)| (name.to_owned(), dir)),
-                )
                 .collect(),
             octocode_home: Some(octocode_home),
             invocation_dir: Some(input.cwd.clone()),
@@ -213,6 +207,9 @@ impl ToolRuntime {
             persistent.then(|| crate::cache::Directory::GraphRows.path(&config.home)),
             page_replays.policy.clone(),
         ));
+        let provider_answers = Arc::new(crate::providers::saved_answers::KeptAnswers::new(
+            persistent.then(|| crate::cache::Directory::ProviderAnswers.path(&config.home)),
+        ));
         // Notices reach stderr and the warm-server reply outside any
         // envelope: they pass the same secret scrub as error text.
         octocode_io::notice::set_scrubber(crate::security::scrub_error_text);
@@ -229,6 +226,7 @@ impl ToolRuntime {
             paths: Arc::new(paths),
             security: Arc::new(security),
             github_services: Arc::new(std::sync::OnceLock::new()),
+            provider_answers,
             owns_lsp_pool: lsp_pool.is_none(),
             lsp_pool: lsp_pool.unwrap_or_default(),
             page_replays,
@@ -254,12 +252,11 @@ fn evaluator(
     crate::tools::judgment::Evaluator::new(
         crate::execution::availability::classification_key(config)
             .map(|value| SecretString::from(value.to_owned())),
-        config::field::CLASSIFICATION_API_HOST
-            .env_name()
-            .and_then(|env| config.env_value(env))
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
+        config
+            .resolved
+            .classification
+            .api_host
+            .clone()
             .unwrap_or_else(|| provider.defaults().host.to_owned()),
         config
             .resolved
@@ -272,7 +269,6 @@ fn evaluator(
         limits.network_timeout,
         u32::from(limits.max_retries),
         limits.classification_concurrency,
-        config::is_stats_enabled(&config.resolved).then(|| config.home.clone()),
     )
 }
 

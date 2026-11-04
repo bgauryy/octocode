@@ -117,14 +117,12 @@ impl Tagged {
 }
 
 /// A file probe for a tool without a text engine of its own: the files under
-/// `root` that `keep` admits, within `budget` walked files and
-/// [`probe_budget`], under a relaxed [`Walk`]. One walk with every cause lifted tags
+/// `root` that `keep` admits, within [`probe_budget`], under a relaxed [`Walk`]. One walk with every cause lifted tags
 /// each file with the causes that hide it; every relaxed walk is then
 /// answered from those tags. The walk is the discovery policy's (`permits`),
 /// `globs`, ignore rules and prune list the tool's scan honors.
 pub(crate) struct FileProbe<'a> {
     root: PathBuf,
-    budget: usize,
     deadline: std::time::Instant,
     globs: Globs<'a>,
     permits: &'a dyn Fn(&Path) -> bool,
@@ -139,13 +137,11 @@ pub(crate) struct FileProbe<'a> {
 impl<'a> FileProbe<'a> {
     pub(crate) fn new(
         root: &Path,
-        budget: usize,
         permits: &'a dyn Fn(&Path) -> bool,
         keep: &'a dyn Fn(&Path) -> bool,
     ) -> Self {
         Self {
             root: root.to_path_buf(),
-            budget,
             deadline: std::time::Instant::now() + probe_budget(),
             globs: Globs::default(),
             permits,
@@ -192,7 +188,7 @@ impl<'a> FileProbe<'a> {
         let prune = Prune::new(prune::walk_names(true, self.globs.include)).at(&self.root);
         // Tag bits of each directory on the way to the current entry, by depth.
         let mut inherited: Vec<u8> = vec![0];
-        let (mut files, mut walked) = (Vec::new(), 0_usize);
+        let mut files = Vec::new();
         for entry in builder.build() {
             let Ok(entry) = entry else { continue };
             let depth = entry.depth();
@@ -233,10 +229,6 @@ impl<'a> FileProbe<'a> {
             }
             if !entry.file_type().is_some_and(|kind| kind.is_file()) || !(self.permits)(path) {
                 continue;
-            }
-            walked += 1;
-            if walked > self.budget {
-                return Ok(Tagged { files, cut: true });
             }
             if (self.keep)(path) {
                 files.push((path.to_path_buf(), bits));

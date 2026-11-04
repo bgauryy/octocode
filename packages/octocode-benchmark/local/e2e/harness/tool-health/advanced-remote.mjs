@@ -56,9 +56,9 @@ async function repository(ctx) {
 
 async function code(ctx) {
   return checks(ctx, [
-    ['filters.intersection', { ...REPO, keywords: ['greet'], pathPrefix: 'src', nameContains: 'greeter', extensions: ['ts', 'md'] }, d => equal(paths(d.files), ['src/greeter.ts'])],
+    ['filters.intersection', { ...REPO, keywords: ['greet'], path: 'src', nameContains: 'greeter', extensions: ['ts', 'md'] }, d => equal(paths(d.files), ['src/greeter.ts'])],
     ['path.only', { ...REPO, keywords: ['greeter'], matchIn: ['path'] }, d => equal(paths(d.files), ['src/greeter.ts']) && d.files.every(file => !file.lines?.length)],
-    ['ref.reRead', { ...REPO, keywords: ['healthMarker'], pathPrefix: 'src', ref: ctx.mock.model.head.oid }, d => equal(paths(d.files), ['src/app.ts', 'src/greeter.ts', 'src/util.ts'])
+    ['ref.reRead', { ...REPO, keywords: ['healthMarker'], path: 'src', ref: ctx.mock.model.head.oid }, d => equal(paths(d.files), ['src/app.ts', 'src/greeter.ts', 'src/util.ts'])
       && d.files.every(file => file.owner === REPO.owner && file.repo === REPO.repo && file.commitSha === ctx.mock.model.head.oid)],
     ['scope.owner', { owner: 'octo', keywords: ['greeter'], extensions: ['md'] }, d => (d.files ?? []).some(file => file.path === 'README.md')],
   ]);
@@ -83,7 +83,8 @@ async function structure(ctx) {
     const repeated = await ctx.call(ctx.q(query), surface);
     const reads = ctx.mock.requestsFrom.slice(before).filter(entry => entry.token === tokenFor('ghStructure', surface)
       && decodeURIComponent(entry.request).includes('/contents/src/greeter.ts'));
-    out.push([`advanced.materialize.fresh.${surface}`, reads.length === 1 && !data(repeated).errorCode
+    // A file at a commit never changes: the repeat restores it from the kept answer.
+    out.push([`advanced.materialize.fresh.${surface}`, reads.length === 0 && !data(repeated).errorCode
       && data(repeated).location?.localPath === location?.localPath && !!target && fs.existsSync(target)
       && fs.readFileSync(target, 'utf8').includes('return { text: `hello ${name}` };'), JSON.stringify({ reads, data: data(repeated) })]);
   }
@@ -305,7 +306,7 @@ async function readerFlows(ctx) {
 
 async function history(ctx) {
   const out = await checks(ctx, [
-    ['commits.pathDate', { ...REPO, operation: 'commit', pathPrefix: 'src', filters: { committedAt: { from: '2025-01-03T00:00:00Z', to: '2025-01-03T23:59:59Z' } } }, d => equal((d.commits ?? []).map(c => c.commitSha), [ctx.mock.model.head.oid])],
+    ['commits.pathDate', { ...REPO, operation: 'commit', path: 'src', filters: { committedAt: { from: '2025-01-03T00:00:00Z', to: '2025-01-03T23:59:59Z' } } }, d => equal((d.commits ?? []).map(c => c.commitSha), [ctx.mock.model.head.oid])],
     ['commits.message', { ...REPO, operation: 'commit', keywords: ['src/greeter.ts'] }, d => equal((d.commits ?? []).map(c => c.commitSha), [ctx.mock.model.head.oid])],
     ['commits.ref', { ...REPO, operation: 'commit', ref: ctx.mock.model.commits[0].oid }, d => equal((d.commits ?? []).map(c => c.commitSha), [ctx.mock.model.commits[0].oid])],
     ['prs.open', { ...REPO, operation: 'pullRequest', filters: { state: 'open' } }, d => equal(numbers(d.pullRequests).toSorted((a, b) => a - b), [3, 4])],

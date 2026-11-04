@@ -16,11 +16,11 @@ use crate::text::LineIndex;
 mod compile;
 mod node_match;
 mod qualified;
-mod return_type;
+mod unsaid;
 
 use compile::effective_pattern_root;
 pub use qualified::QualifiedPattern;
-pub(super) use return_type::with_return_types;
+use unsaid::declares;
 
 /// Budget on `$$$` multi-metavar split attempts within a single top-level
 /// child-list match. Each `$$$` tries every split point (`for take in
@@ -52,7 +52,8 @@ pub struct PatternDeclaration {
 }
 
 /// Nodes a grammar names by a `name` field that refer to a declaration
-/// rather than declare one: a Java method call, a `::` path.
+/// rather than declare one: a Java method call, a `::` path. The rest of
+/// the name-only nodes (`struct $S;`) count as declarations for a near miss.
 const REFERENCE_KINDS: [&str; 4] = [
     "method_invocation",
     "scoped_identifier",
@@ -94,33 +95,34 @@ impl CompiledPattern {
         Some(node)
     }
 
-    #[cfg(test)]
-    pub(super) fn debug_root(&self) -> String {
-        self.root().map(|r| format!("{} {}", r.kind(), r.to_sexp())).unwrap_or_default()
-    }
-
     pub(super) fn language(&self) -> &Language {
         &self.language
     }
 
-    /// The declaration a pattern spells: its root's kind when the grammar
-    /// gives that node a `name` field, with the name node's kind and text
-    /// unless the name is a metavariable. A root with no name of its own that
-    /// holds a `declaration` wraps it, and the wrapped node is the declaration.
-    /// `None` for any other pattern, including the calls and paths a grammar
-    /// also names by `name`.
+    /// The declaration a pattern spells: its root when [`declares`] says it is
+    /// one or the grammar names it by a `name` field, with the name node's kind
+    /// and text unless the name is a metavariable. A root that holds a
+    /// `declaration` and is none itself wraps it, and the wrapped node is the
+    /// declaration. `None` for any other pattern, including the calls and paths
+    /// a grammar also names by `name`.
     pub(super) fn declaration(&self) -> Option<PatternDeclaration> {
-        let root = self
-            .root()
-            .filter(|root| !REFERENCE_KINDS.contains(&root.kind()))?;
+        let root = self.root()?;
+        let is_declaration = |node: Node<'_>| {
+            declares(node)
+                || (node.child_by_field_name("name").is_some()
+                    && !REFERENCE_KINDS.contains(&node.kind()))
+        };
         let wrapped = root
             .child_by_field_name("declaration")
-            .filter(|_| root.child_by_field_name("name").is_none());
+            .filter(|_| !is_declaration(root));
         let declared = wrapped.unwrap_or(root);
-        let name = declared.child_by_field_name("name")?;
-        let named = meta_from_node(name, &self.source, self.expando)
-            .is_none()
-            .then(|| {
+        if !is_declaration(declared) {
+            return None;
+        }
+        let named = declared
+            .child_by_field_name("name")
+            .filter(|name| meta_from_node(*name, &self.source, self.expando).is_none())
+            .map(|name| {
                 (
                     name.kind().to_owned(),
                     node_text(name, &self.source).to_owned(),
@@ -130,7 +132,11 @@ impl CompiledPattern {
             kind: declared.kind().to_owned(),
             name: named,
             inside: wrapped.map(|_| root.kind().to_owned()),
-            fuller_kinds: self.fuller_kinds(declared.kind()),
+            fuller_kinds: if declared.child_by_field_name("body").is_some() {
+                Vec::new()
+            } else {
+                self.fuller_kinds(declared.kind())
+            },
         })
     }
 
@@ -237,15 +243,11 @@ impl CompiledPattern {
             attempts: MAX_MULTI_CAPTURE_ATTEMPTS,
             deadline,
         };
-        self.match_node(
-            root,
-            &self.source,
-            candidate,
-            content,
-            captures,
-            0,
-            &mut budget,
-        )
+        let texts = node_match::Texts {
+            pattern: &self.source,
+            candidate: content,
+        };
+        self.match_node(root, candidate, texts, captures, 0, &mut budget)
     }
 }
 

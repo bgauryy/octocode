@@ -3,7 +3,6 @@
 #[derive(Debug, Clone, Default)]
 pub struct GraphFactsScanOptions {
     pub path: String,
-    pub exclude_dir: Option<Vec<String>>,
     /// See [`FileSystemQueryOptions::default_exclude_dir`](super::FileSystemQueryOptions::default_exclude_dir).
     pub default_exclude_dir: Option<Vec<String>>,
     /// The caller's path globs to skip (see [`FileSystemQueryOptions::exclude`](super::FileSystemQueryOptions::exclude)).

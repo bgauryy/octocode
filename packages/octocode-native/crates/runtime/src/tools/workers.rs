@@ -2,7 +2,7 @@
 //! rule every per-row fan-out sizes itself by, so concurrent rows and
 //! concurrent calls split the cores instead of each taking every core.
 
-use octocode_engine::search::cpu;
+use octocode_engine::cpu;
 
 /// Threads for `items` independent jobs of one query: its share of the
 /// process CPU budget ([`cpu::host`]; every running local row counts toward

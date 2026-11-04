@@ -179,7 +179,7 @@ fn a_scan_past_its_time_budget_resumes_exactly_once() {
         let result = files::search_files_with_budget(
             scan_options(&root, skip),
             StructuralDemand::Matches,
-            (&|_| true, None),
+            (&|_, _| true, None),
             &|_| "ts".to_owned(),
             &|| false,
             Some(std::time::Duration::ZERO),
@@ -217,7 +217,6 @@ fn only_an_explicit_max_files_caps_the_file_walk() {
         pattern: Some("fn $N() {}".to_owned()),
         rule: None,
         include: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
         ignore: crate::types::IgnorePolicy::default(),

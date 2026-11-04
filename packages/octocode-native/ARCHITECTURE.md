@@ -87,11 +87,19 @@ credential selection and generated tool contracts; `crates/cli` owns the native
 CLI and MCP server. All six crates inherit one workspace version and remain
 unpublished Cargo packages.
 
-Fresh tool calls acquire and compute their results afresh. There are no reusable
-GitHub response, registry response, judgment, prepared-source, sanitized-source,
-outline, parsed-facts or decoded-graph result stores. A request carries the commit
-it actually resolved through both success and recovery paths. GitHub materialization
-always reacquires bytes; returned files and capture paths remain inspectable outputs.
+Fresh tool calls compute their results afresh. There are no reusable judgment,
+prepared-source, sanitized-source, outline, parsed-facts or decoded-graph result
+stores. A request carries the commit it actually resolved through both success and
+recovery paths; returned files and capture paths remain inspectable outputs.
+
+Provider answers are the exception, because the origin can vouch for them.
+`providers::saved_answers` keeps GitHub and registry responses by origin and exact
+credential, and `SavedAnswer::reuse` applies the origin's rule: a SHA-named read
+needs no question, `max-age` holds until it lapses, a validator asks (GitHub's 304
+costs no rate limit), and only GitHub search, which offers neither, takes a chosen
+window (`SEARCH_REUSE_WINDOW`). Reuse without asking is disclosed on the row by the
+time it was observed. Answers the output gate would rewrite stay in process memory,
+so no credential a provider returned reaches a file.
 
 Continuation storage has one authoritative location. Persistent stores read disk
 on every access and hold no duplicate in-process copy; memory-only stores retain
@@ -261,7 +269,7 @@ Every local tool walks under one policy owned by `engine::search::walk` and one 
 
 Core's `toolContract/constraints.ts` and `constraints/` declare shared constraints once for Zod validation and the enforcement schema. Object sizes and array membership use JSON Schema keywords; conditional relationships, ordered bounds, totals, logical tree depth and URL component policies use generic annotations. Native interprets the supplied field names, bounds, diagnostics and paths. Core's guarded exporter rejects unrepresented custom checks instead of silently dropping refinements. Native audits every embedded schema once, including inactive branches, and propagates invalid-contract errors through predicate probes. AST request shape, scope and recursive rule constraints belong to core; the engine still decodes and compiles rules against its language grammars. Generated parity fixtures check admission, defaults and selected diagnostics against core.
 
-Tool wire types come from the same run: the `octocode-contract-types` crate (`crates/contract-types`) `include!`s `contract/tool_types.rs` (typify, from the bundled JSON Schema that also produces the TypeScript types), trimmed to the generated types native source names and what they reach, so native compiles only those. Naming a generated type the file lacks fails to compile until `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen`; `check:tool-contract` fails when the names native uses changed. Ordinary tools parse their validated rows directly into generated `<Tool>Query` types and build continuations from them. Tool modules add accessors for engine integer types as plain functions taking the query (Rust allows no `impl` block on another crate's type), but never a second serde wire type. `field-effect-coverage.json` is a review index of native field owners, not execution proof. Behavioral tests exercise matcher, filter, context, pagination, and security effects.
+Tool wire types come from the same run: the `octocode-contract-types` crate (`crates/contract-types`) `include!`s `contract/tool_types.rs` (typify, from the bundled JSON Schema that also produces the TypeScript types), trimmed to the generated types native source names and what they reach, so native compiles only those. Naming a generated type the file lacks fails to compile until `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen`; `check:tool-contract` fails when the names native uses changed. Ordinary tools parse their validated rows directly into generated `<Tool>Query` types and build continuations from them. Tool modules add accessors for engine integer types as plain functions taking the query (Rust allows no `impl` block on another crate's type), but never a second serde wire type. `field-effect-coverage.json` is a review index of native field owners, not execution proof: a field declares its effect classes, and a path with no entry inherits its nearest declared ancestor's. `tests/field_effect_coverage.rs` walks the generated contract and fails on a published query path that resolves to no effect or a key that names no schema path. Behavioral tests exercise matcher, filter, context, pagination, and security effects.
 
 Contract annotations native alone reads stay out of every agent-facing schema. One is `x-listing` (core `listing()`): what a listing query field does to the walk (`name`, `metadata`, `prune`, `scope`). `build.rs` renders it as `contracts::listing_roles`, and structureSearch derives its filter lists, its filtered-listing test and the walk identity a cursor continues from that table. A role native does not know fails the build. A field with a role that the walk does not apply fails `structure_search::tests::roles`.
 

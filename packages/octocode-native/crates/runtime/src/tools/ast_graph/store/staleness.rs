@@ -1,6 +1,7 @@
 //! Whether a snapshot still matches its sources: stamps, digests, inputs and
 //! the change list.
 use super::*;
+use octocode_engine::stamp::SourceStamp;
 
 /// Whether the file at `path` still holds the bytes `digest` names, `None`
 /// when it cannot be read. A stamp recorded at ingest that still equals the
@@ -10,7 +11,7 @@ use super::*;
 pub(crate) fn source_matches(
     path: &Path,
     digest: &str,
-    stamp: Option<&octocode_engine::stamp::SourceStamp>,
+    stamp: Option<&SourceStamp>,
 ) -> Option<bool> {
     // Ingest never reads a source beyond this bound. A different size cannot
     // have the recorded digest, and a file grown past the parser bound must
@@ -24,7 +25,7 @@ pub(crate) fn source_matches(
     {
         return Some(false);
     }
-    if stamp.is_some() && octocode_engine::stamp::SourceStamp::of(&meta).as_ref() == stamp {
+    if stamp.is_some() && SourceStamp::of(&meta).as_ref() == stamp {
         return Some(true);
     }
     let content = crate::tools::source::read_bounded(path, MAX_INGEST_SOURCE_BYTES).ok()?;
@@ -50,12 +51,138 @@ pub(super) fn snapshot_inputs(
     )
 }
 
-/// The source files a re-ingest of `root` would scan, root-relative: the
-/// ingest's exclusions and `.gitignore`, graph-fact extensions and the files
-/// its language globs name.
+/// A digest of the stamps behind a snapshot's config inputs: every directory
+/// a build lists for configs (`scope_dirs`, keyed as it keys them) and every
+/// config in `keys`. A later equal digest proves the same names and bytes
+/// without listing or hashing: a listing's added or removed entry moves its
+/// directory's stamp, an edit moves the config's, on the terms of
+/// [`source_matches`]. `None` when a stamp is refused or the path policy
+/// refuses a config.
+fn input_stamps<'a>(
+    paths: &PathPolicy,
+    root: &Path,
+    tables: &format::GraphTables,
+    keys: impl Iterator<Item = &'a str>,
+    stamp_of: impl Fn(&std::fs::Metadata) -> Option<SourceStamp>,
+) -> Option<String> {
+    let mut proof = octocode_engine::digest::HashWriter::default();
+    let mut stamped = |path: &Path, name: &[u8]| {
+        let stamp = stamp_of(&std::fs::metadata(path).ok()?)?;
+        proof.update(name);
+        proof.update([0]);
+        for part in [stamp.size, stamp.modified_ns, stamp.changed_ns, stamp.inode] {
+            proof.update(part.to_le_bytes());
+        }
+        Some(())
+    };
+    // `scope_dirs` of no files is the root and its ancestors inside the
+    // repository; the directories of the files, as `&str`, cost far less to
+    // collect than its paths, on every query.
+    for dir in super::super::freshness::scope_dirs(root, []) {
+        stamped(&dir, dir.as_os_str().as_encoded_bytes())?;
+    }
+    let mut dirs = BTreeSet::new();
+    for node in &tables.nodes {
+        if node.kind != format::NodeKind::File {
+            continue;
+        }
+        let mut rest = tables.str(node.key);
+        while let Some((dir, _)) = rest.rsplit_once('/') {
+            if !dirs.insert(dir) {
+                break;
+            }
+            rest = dir;
+        }
+    }
+    for dir in dirs {
+        stamped(&root.join(dir), dir.as_bytes())?;
+    }
+    for key in keys {
+        let (mut dir, mut name) = (root, key);
+        while let Some(rest) = name.strip_prefix("../") {
+            dir = dir.parent()?;
+            name = rest;
+        }
+        let valid = paths.validate_read(dir.join(name)).ok()?;
+        stamped(&valid.canonical, key.as_bytes())?;
+    }
+    Some(hex::encode(proof.finalize()))
+}
+
+/// Settled stamps of the inputs a build read, taken before it hashes them
+/// ([`snapshot_inputs`]), so a later write moves a stamp past what was hashed.
+/// Unix only: elsewhere a directory's stamp is its modification time alone,
+/// which not every filesystem moves when an entry is added.
+pub(super) fn settled_input_stamps(
+    paths: &PathPolicy,
+    root: &Path,
+    tables: &format::GraphTables,
+    keys: &BTreeMap<String, String>,
+) -> Option<String> {
+    if !cfg!(unix) {
+        return None;
+    }
+    let now = octocode_engine::stamp::settle_clock();
+    input_stamps(
+        paths,
+        root,
+        tables,
+        keys.keys().map(String::as_str),
+        |meta| SourceStamp::settled(meta, now),
+    )
+}
+
+/// Whether the scope's directories list configs other than `inputs`: one the
+/// path policy withheld is no input now and is one once admitted, with no
+/// stamp recorded to show it, so such a snapshot takes no proof.
+pub(super) fn withholds_configs(
+    root: &Path,
+    tables: &format::GraphTables,
+    inputs: &BTreeMap<String, String>,
+) -> bool {
+    let files = tables
+        .nodes
+        .iter()
+        .filter(|node| node.kind == format::NodeKind::File)
+        .map(|node| tables.str(node.key));
+    let listed = super::super::freshness::scope_dirs(root, files)
+        .iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flatten()
+        .flatten()
+        .filter(|entry| {
+            super::super::freshness::is_global_config(&entry.file_name().to_string_lossy())
+                && entry.file_type().is_ok_and(|kind| kind.is_file())
+        })
+        .count();
+    listed != inputs.len()
+}
+
+/// Whether the snapshot's recorded input proof still holds, so its configs
+/// need neither a listing nor a hash.
+fn inputs_proven(
+    paths: &PathPolicy,
+    root: &Path,
+    tables: &format::GraphTables,
+    manifest: &Value,
+) -> bool {
+    let Some(recorded) = manifest["inputProof"].as_str() else {
+        return false;
+    };
+    let keys = manifest["inputs"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(key, _)| key.as_str());
+    input_stamps(paths, root, tables, keys, SourceStamp::of).as_deref() == Some(recorded)
+}
+
+/// The source files a re-ingest of `root` would scan, root-relative: the one
+/// default prune, the caller's exclusions and `.gitignore`, graph-fact
+/// extensions and the files its language globs name.
 pub(super) fn scope_files(
     root: &Path,
-    exclude_dir: &[String],
+    exclude: &[String],
     language_globs: &BTreeMap<String, Vec<String>>,
     extensions: &[String],
 ) -> BTreeSet<String> {
@@ -72,16 +199,22 @@ pub(super) fn scope_files(
             .flatten()
         })
         .collect::<Vec<_>>();
-    let excluded = INGEST_EXCLUDES
-        .iter()
-        .map(|name| (*name).to_owned())
-        .chain(exclude_dir.iter().cloned());
+    let skipped =
+        octocode_engine::search::glob::set(root, exclude.iter().map(String::as_str), "exclude")
+            .ok()
+            .flatten();
     let mut current = BTreeSet::new();
-    for entry in crate::tools::pruned_walk(root, excluded).build().flatten() {
+    for entry in crate::tools::pruned_walk(root, []).build().flatten() {
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
         }
         let path = entry.path();
+        if skipped
+            .as_ref()
+            .is_some_and(|matcher| octocode_engine::search::glob::matches(matcher, path, false))
+        {
+            continue;
+        }
         let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
         if !ext.is_some_and(|ext| extensions.contains(&ext))
             && !globs
@@ -114,7 +247,7 @@ pub(crate) struct Freshness {
 /// Every way the tree under `root` differs from the snapshot `tables`
 /// (`manifest` its manifest): a source edited or removed (digests, a settled
 /// stamp skipping the hash), a source added (a rescan with the ingest's
-/// exclusions), and a linking config edited, removed or added. The one
+/// walk), and a linking config edited, removed or added. The one
 /// freshness check behind query freshness and `query stale`; `first_only`
 /// stops at the first difference.
 pub(crate) fn snapshot_changes(
@@ -152,6 +285,9 @@ pub(crate) fn snapshot_changes(
         if done(&changes) {
             return Freshness { changes };
         }
+    }
+    if inputs_proven(paths, root, tables, manifest) {
+        return Freshness { changes };
     }
     let recorded = manifest["inputs"]
         .as_object()
@@ -204,7 +340,7 @@ fn scope_changes(
     .unwrap_or_default();
     let current = scope_files(
         root,
-        &strings(&manifest["scan"]["excludeDir"]),
+        &strings(&manifest["scan"]["exclude"]),
         &globs,
         &strings(&manifest["registryExtensions"]),
     );

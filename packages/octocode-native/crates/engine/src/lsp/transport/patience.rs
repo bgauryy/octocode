@@ -94,6 +94,12 @@ impl WaitBudget {
         }
     }
 
+    /// Where a wait that takes the base and no extension ends: `base` from
+    /// when the budget started, or its ceiling if that comes first.
+    pub(crate) fn first_cut(&self) -> Instant {
+        (self.created + self.base).min(self.ceiling)
+    }
+
     /// `true` once no further attempt can be granted any time.
     pub(crate) fn is_spent(&self) -> bool {
         Instant::now() >= self.ceiling
@@ -164,7 +170,7 @@ impl ServerActivity {
         }
     }
 
-    fn cpu_time(&self) -> Option<Duration> {
+    pub(super) fn cpu_time(&self) -> Option<Duration> {
         self.cpu_clock.as_ref().and_then(|clock| clock())
     }
 }

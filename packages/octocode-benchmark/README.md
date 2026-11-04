@@ -126,6 +126,8 @@ v20 is timed two ways:
 | Local tools, tokio | 1,378 | 2,823 | **710** | **2.30× faster** | 2.0× slower |
 | Local tools, 19k-file TypeScript repo | 2,668 | 4,868 | **2,645** | **1.51× faster** | 1.9× slower |
 
+The two ratio columns are geometric means of the seven tasks' own ratios, so they differ from a ratio of the summed medians, which gives warm 1.40×, 1.94× and 1.01×. The gains are uneven. On GitHub, file outline (13×) and package lookup (8×) carry the mean through v20's response cache, while repo lookup (805 → 1,296 ms) and repo tree (515 → 870 ms) got slower even when warm. Raw per-task medians: `compare/github-questions_v20/timing/v18-vs-v20.json`.
+
 The chart shows v20's speed relative to v18 (1.0 = the same; higher is faster):
 
 ```mermaid
@@ -168,6 +170,47 @@ node compare/bin/version_timing.mjs \
 > [!IMPORTANT]
 > Run `node skills-dev/octocode-dev/scripts/dev.mjs build` (the release build) before timing. `build:dev` installs a **debug** binary, which is several times slower.
 
+## Local code vs a shell
+
+Octocode's local tools against a lean shell, on the same 30 questions over pinned repositories (2026-10-10, one pass, a pre-release v20 build, one fresh Sonnet 5.5 agent per question, gpt-5.5 blind judge). The shell arm could use `rg`, `grep`, `find`, `ls`, `cat`, `sed -n`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, read-only `git` and `ast-grep`.
+
+| | Octocode | Lean shell | Octocode 19.1.0 |
+|---|---:|---:|---:|
+| Correctness (of 10) | 10.0 | 9.60 | 9.63 |
+| More correct than Octocode on | — | 0 (Octocode on 8; p = 0.01) | 1 (Octocode on 7) |
+| Median characters per question | 3,839 | 3,339 | 9,261 |
+| Characters vs Octocode, geometric mean (95% CI) | 1× | 0.81× (0.68–0.96) | 2.32× (2.01–2.69) |
+| Median seconds per question | 7.0 | 7.3 | 10.4 |
+| Time vs Octocode (95% CI) | 1× | 1.01× (0.93–1.09) | 1.67× (1.50–1.89) |
+
+By question kind, the shell's characters against Octocode's: basic 0.70×, advanced 0.99×, edge cases 0.53×, workflow 1.04×. Correctness differs slightly by pair because each pair is a separate blind verdict; the table shows Octocode's score from the pair against the shell.
+
+## Package lookup
+
+`artifactSearch` against each registry's own interface, for one lookup of the latest version, repository and dependencies (2026-11-04, one run). Characters only, counted from stdout; answer quality was not judged, and time was not compared because a development build was used.
+
+| Package | `artifactSearch` | Registry's full JSON | `npm view` with named fields |
+|---|---:|---:|---:|
+| `zod` (npm) | 731 | 89,723 | 147 |
+| `typescript` (npm) | 1,637 | 318,171 | 1,198 |
+| `react` (npm) | 686 | 337,209 | 145 |
+| `requests` (PyPI) | 695 | 192,961 | not applicable |
+| `serde` (crates.io) | 732 | 440,993 | not applicable |
+
+```bash
+octocode artifactSearch '{"queries":[{"operation":"resolve","ecosystem":"npm","packageName":"zod"}]}' --json | wc -c
+npm view zod --json | wc -c
+npm view zod version repository.url gitHead dependencies --json | wc -c
+curl -sL https://pypi.org/pypi/requests/json | wc -c
+curl -sL -A octocode-benchmark https://crates.io/api/v1/crates/serde | wc -c
+```
+
+## Classification
+
+Main-agent token savings per task are owned by the [classification guide](../../docs/OCTOCODE_CLASIFY.md#benchmarks-main-agent-tokens-with-and-without-jev).
+
+Offering it is not the same as using it. In a paired run over 40 local and 30 GitHub questions (2026-10-13, `gpt-5.6-terra`), agents made no `clasify` or goal calls in the enabled arm, so no general saving appeared: enabled ÷ disabled character ratios were 1.009 (95% CI 0.885–1.137) locally and 1.041 (0.923–1.179) on GitHub.
+
 ## What we learned
 
 1. **The speed win comes from the warm server, not from process start.** The Rust port pays off when calls reuse a running session. Cold start needs work so that one-off calls benefit too.
@@ -179,7 +222,7 @@ node compare/bin/version_timing.mjs \
    - failed calls: 7.5%
 
    The next cuts are a leaner search default, smaller history pages, and a line view for reads.
-4. **16% of calls failed on guessed field names.** Examples: `path` (the field is `pathPrefix`), `sha` (it's `ref`) and `limit`.
+4. **16% of calls failed on guessed field names.** Examples: `path` (the field is `path`), `sha` (it's `ref`) and `limit`.
    - Every runner recovered from the error message, but the failures cost 35k characters.
    - Fix: accept those spellings, or teach them in the primer.
 5. **Benchmark hygiene:**

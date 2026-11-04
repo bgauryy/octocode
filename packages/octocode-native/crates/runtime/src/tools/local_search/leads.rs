@@ -151,8 +151,11 @@ impl Found<'_> {
             ));
             add("broadenSearch".into(), unfiltered_terms_lead(query)?);
         }
-        let unsearched =
-            self.empty && self.walk_complete && first_disclosure && !self.root.is_file();
+        let unsearched = self.empty
+            && self.walk_complete
+            && first_disclosure
+            && !self.root.is_file()
+            && !names_nothing(self.skipped);
         let tagged =
             unsearched.then(|| probe_unsearched(query, self.paths, search_options, cancel));
         let unsearched = match tagged {

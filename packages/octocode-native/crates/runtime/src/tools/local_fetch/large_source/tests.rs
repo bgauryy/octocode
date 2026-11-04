@@ -57,6 +57,7 @@ fn query(json: serde_json::Value) -> LocalFetchQuery {
 
 mod byte_pages;
 mod edges;
+mod kept_pass;
 mod reads;
 mod scans;
 

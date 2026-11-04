@@ -27,6 +27,8 @@ pub(super) struct Page<'a> {
     pub(super) skipped: &'a crate::policy::discovery::WalkSkips,
     /// The query's own walk, for probes over the same scope.
     pub(super) search_options: &'a TextSearchOptions,
+    /// The empty page's other readings of the request.
+    pub(super) alternates: &'a super::super::probes::Alternates<'a>,
     /// Files the scan collected, on every page.
     pub(super) total_files: u32,
     /// Some values were redacted because their source could not be re-read.
@@ -78,8 +80,13 @@ pub(super) fn settle_row(
     let mut hints = coverage.empty_hints(empty);
     if empty
         && stats.files_searched > 0
-        && let Some(hint) =
-            super::super::probes::case_hint(query, paths, page.search_options, cancel)
+        && let Some(hint) = page.alternates.case_hint(
+            query,
+            paths,
+            page.search_options,
+            status == SearchStatus::Empty,
+            cancel,
+        )
     {
         hints.push(hint);
     }

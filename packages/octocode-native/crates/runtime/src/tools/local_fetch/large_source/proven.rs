@@ -9,6 +9,7 @@ use super::held::{Want, WindowLines};
 use super::stream::{seek, streamed};
 use crate::execution::cancel::CancellationCheck;
 use crate::security::KeyBlockState;
+use octocode_engine::stamp::SourceStamp;
 use std::io::Read;
 
 /// Source bytes between checkpoints: what a window may re-read before its
@@ -27,12 +28,19 @@ struct Checkpoint {
     block: KeyBlockState,
 }
 
-/// The handle's length and modification time.
-type Stamp = (u64, Option<std::time::SystemTime>);
+/// A handle's length and modification time, and its [`SourceStamp`] when the
+/// file has one: what the platform can show of a write that restores the time
+/// (on non-Unix, the limit [`octocode_engine::stamp::cache_stamp`] documents).
+type Stamp = (u64, Option<std::time::SystemTime>, Option<SourceStamp>);
+
+fn stamp_of(meta: &std::fs::Metadata) -> Stamp {
+    (meta.len(), meta.modified().ok(), SourceStamp::of(meta))
+}
 
 fn stamp(file: &std::fs::File) -> Result<Stamp, String> {
-    let meta = file.metadata().map_err(|error| error.to_string())?;
-    Ok((meta.len(), meta.modified().ok()))
+    file.metadata()
+        .map(|meta| stamp_of(&meta))
+        .map_err(|error| error.to_string())
 }
 
 /// The whole-source facts of one pass, fed every byte in order.
@@ -40,18 +48,33 @@ pub(super) struct Proof {
     hasher: octocode_engine::digest::HashWriter,
     lines: WindowLines,
     line: usize,
+    /// Bytes seen on the current (unterminated) line.
+    pending: bool,
     offset: u64,
     next: u64,
     checkpoints: Vec<Checkpoint>,
     stamp: Stamp,
+    /// The settle clock before `stamp`: a write after it cannot be told from
+    /// the stamp unless the stamp is older than it by the settle window.
+    started: std::time::SystemTime,
+}
+
+/// What one whole pass over a source holds once it ended.
+pub(super) struct Pass {
+    pub(super) proven: Proven,
+    pub(super) lines: WindowLines,
+    pub(super) total_lines: usize,
 }
 
 impl Proof {
-    pub(super) fn new(file: &std::fs::File) -> Result<Self, String> {
+    /// A pass over `file` that also holds the windows of `wants`.
+    pub(super) fn new(file: &std::fs::File, wants: &[Want]) -> Result<Self, String> {
+        let started = octocode_engine::stamp::settle_clock();
         Ok(Self {
             hasher: octocode_engine::digest::HashWriter::default(),
-            lines: WindowLines::new(&[], KeyBlockState::default()),
+            lines: WindowLines::new(wants, KeyBlockState::default()),
             line: 1,
+            pending: false,
             offset: 0,
             next: CHECKPOINT_BYTES,
             checkpoints: vec![Checkpoint {
@@ -60,6 +83,7 @@ impl Proof {
                 block: KeyBlockState::default(),
             }],
             stamp: stamp(file)?,
+            started,
         })
     }
 
@@ -71,6 +95,7 @@ impl Proof {
             let (piece, newline) = split_line(rest);
             rest = &rest[piece.len()..];
             self.offset += piece.len() as u64;
+            self.pending = !newline;
             self.lines.push(piece, self.line);
             if newline {
                 self.lines.finish(self.line);
@@ -87,12 +112,24 @@ impl Proof {
         }
     }
 
-    /// The proof once the source ended.
-    pub(super) fn finish(self) -> Proven {
-        Proven {
-            digest: hex::encode(self.hasher.finalize()),
-            checkpoints: self.checkpoints,
-            stamp: self.stamp,
+    /// The pass once the source ended.
+    pub(super) fn finish(mut self) -> Pass {
+        if self.pending {
+            self.lines.finish(self.line);
+        }
+        Pass {
+            proven: Proven {
+                digest: hex::encode(self.hasher.finalize()),
+                checkpoints: self.checkpoints,
+                stamp: self.stamp,
+                started: self.started,
+            },
+            lines: self.lines,
+            total_lines: if self.pending {
+                self.line
+            } else {
+                self.line - 1
+            },
         }
     }
 }
@@ -111,9 +148,21 @@ pub(super) struct Proven {
     pub(super) digest: String,
     checkpoints: Vec<Checkpoint>,
     stamp: Stamp,
+    pub(super) started: std::time::SystemTime,
 }
 
 impl Proven {
+    /// Whether `file` still has the stamp this pass started from, and `meta`
+    /// saw that same state.
+    pub(super) fn unchanged(&self, file: &std::fs::File, meta: &std::fs::Metadata) -> bool {
+        stamp(file).is_ok_and(|now| now == self.stamp) && stamp_of(meta) == self.stamp
+    }
+
+    /// About how many bytes this proof holds.
+    pub(super) fn weight(&self) -> usize {
+        self.digest.len() + self.checkpoints.len() * std::mem::size_of::<Checkpoint>()
+    }
+
     /// The checkpoint to skip ahead to from `line` (a line start): the
     /// nearest before the next line a window still wants, when that is past
     /// `line`; `None` while `line` is wanted.
@@ -134,8 +183,8 @@ impl Proven {
 
     /// The windows of `wants` from the proved source `file` with
     /// `total_lines` lines: each run of wanted lines is read from the
-    /// checkpoint before it. The handle must still have the length and time
-    /// it had when proved, so the windows hold the bytes the digest proves.
+    /// checkpoint before it. The handle must still have the stamp it had when
+    /// proved, so the windows hold the bytes the digest proves.
     pub(super) fn windows(
         &self,
         file: &std::fs::File,

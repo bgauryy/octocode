@@ -82,6 +82,7 @@ flowchart TD
   D -- its lines --> DR[ranges]
   A -- lines around a term --> M["matchString + contextLines; wholeWord for common words"]
   A -- a term in minified code --> MIN["view:matchOnly, regex around the term"]
+  A -- one fact in a long unread source --> CL["clasify evaluate + source, when listed"]
   A -- an inferred type --> H[lspSearch hover]
   A -- who uses a symbol --> W["lspSearch references view:files; callers for calls only"]
   A -- one change --> CH["sections + include, then matchString"]
@@ -93,7 +94,7 @@ flowchart TD
 A smaller view answers only what it selects: `view:"files"` holds no lines, `symbols` no bodies, `matchOnly` no owner, `compact` no quotes. Widen when the claim needs more, and finish the pages that claim covers. Selectors choose evidence; they never replace it.
 
 - `block:true` wants a unique literal. It expands declaration heads; on a common term most hits keep their context windows and `next.continueBlock` holds the rest. Check the span closes the declaration, else use `astSearch` symbols `line`/`endLine`; never guess an end.
-- `compact` helps only comment-heavy files: one 219 KB file shrank fourfold, ordinary code 3–9%, Markdown, JSON and minified files effectively not at all. Quote or edit only from `content`.
+- `compact` shrinks code by removing comments and spare whitespace: median 26% over 57 source files of this repository (range 0–55%), most on comment-heavy files; Markdown, JSON and minified files effectively not at all. Quote or edit only from `content`.
 - `symbols` scales with declarations: past a few thousand lines of code, or on large JSON, a filtered search costs less. `lspSearch documentSymbols` costs more still; use it when the server's view matters. A missing outline entry is not absence.
 - A file over the parser limit: `symbols` serves `compact` (check `viewFallback`) and `astSearch` answers `fileTooLarge`; use `matchString`.
 - Minified: a regex window such as `.{0,30}term.{0,30}` returns the term with its neighbors; `symbols` and `compact` do not help.
@@ -132,6 +133,7 @@ flowchart TD
   LB -- no --> R[next.read or target lines, then cite]
 ```
 
+- When `clasify` or `classification` is listed, screen before reading whole: it replaces reading, not searching. Main-agent tokens saved, in single benchmark runs: a named fact in a 33 KB doc 98%, `classification` over too many hits 41–85%, `sections` over 30–100 files 73–84%. `view:"files"` beats them all when file names answer.
 - Narrow by path, glob or term first; the model is for meaning, not spelling. A directory is not one source: discover concrete paths first.
 - Ask one observable fact per question, standing alone: the provider has no conversation history or sibling answers. Say what does not count ("assigns a timeout, not one it forwards"). Vague questions are the main cause of confident wrong answers.
 - `classification` judges captured hits plus `contextLines`, not hidden whole files, so give a condition spanning lines enough context. Each page judges up to 64 units, one model call each; `responseChars` shapes output, not provider context. The receipt counts selected, related, excluded and unknown: unknown is never a no, and a partial list is not corpus absence.
@@ -168,8 +170,8 @@ Reuse a search's `matchString`, `regexEngine`, `caseMode` and `wholeWord` when r
 | Resolved `ref` | `ref` | `ghStructure`, then `ghGetFileContent` | Source of that exact release |
 | Two resolved versions | `baseRef`, `headRef` | `ghGetHistoryItem` compare | What changed between releases |
 | Commit SHA + paths | `ref`, `include`, `materialize:true` | `ghStructure` | `localPath` for local tools |
-| Local path + git remote | `owner`, `repo`, `pathPrefix` | `ghSearchHistory` commit | Commits that touched it, then their PRs |
-| A line in local code | `<start>,<end>:<path>`; else `pathPrefix` | `git log -L` when a shell is available; else `ghSearchHistory` commit, then `ghGetHistoryItem` patches with `include` | The commit, then its PR |
+| Local path + git remote | `owner`, `repo`, `path` | `ghSearchHistory` commit | Commits that touched it, then their PRs |
+| A line in local code | `<start>,<end>:<path>`; else `path` | `git log -L` when a shell is available; else `ghSearchHistory` commit, then `ghGetHistoryItem` patches with `include` | The commit, then its PR |
 | History `files` row | path + commit as `ref` | `ghGetFileContent` | The code at that revision |
 | Local or GitHub path | `source` | `clasify` | A screen of unread files, then `next.read` |
 

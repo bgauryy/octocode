@@ -2,6 +2,7 @@ use super::ast_search_query_symbols;
 use super::left_out::{KindsLeftOut, Suppressed};
 use super::names::{NameFilter, names_match, row_names};
 use super::outline::{Outline, OutlineFile};
+use super::rows::row_sizes;
 use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::response::result::ToolError;
@@ -16,6 +17,7 @@ pub(super) fn select(
     q: &AstSearchQuerySymbols,
     canonical: &std::path::Path,
     outline: Outline,
+    row_paths: crate::tools::ast_search::RowPaths<'_>,
     cancel: &dyn CancellationCheck,
 ) -> Result<SymbolSet, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
@@ -107,9 +109,6 @@ pub(super) fn select(
         })
         .flatten();
     let snapshot = crate::digest::json_sha256(&json!([
-        // Row shape version (every declaration an object, pages of
-        // top-level rows, 1-based `column`).
-        "rows-v5",
         canonical.to_string_lossy(),
         q.parser,
         ast_search_query_symbols::language_globs(q),
@@ -129,6 +128,8 @@ pub(super) fn select(
     let text_search = (recovered || skipped > 0 || truncated || declarations.is_empty())
         .then(|| text_search_lead(q, canonical))
         .flatten();
+    let spans = crate::response::symbol_outline::top_level_spans(&declarations);
+    let sizes = row_sizes(&declarations, &spans, per_row_path.then_some(row_paths));
     Ok(SymbolSet {
         references,
         read,
@@ -136,6 +137,8 @@ pub(super) fn select(
         path: canonical.to_string_lossy().into_owned(),
         snapshot,
         declarations,
+        spans,
+        sizes,
         source_descriptors,
         diagnostics,
         files_scanned: scanned,
@@ -285,48 +288,74 @@ fn read_lead(canonical: &std::path::Path, row: &Value) -> Option<Value> {
 }
 
 /// Every declaration of one symbols query, before paging.
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone)]
 pub(crate) struct SymbolSet {
     /// `next.findCallers` or `next.findReferences` for a single named declaration.
     pub(super) references: Option<Value>,
     /// `next.read` of a file outline's top declaration.
-    #[serde(default)]
     pub(super) read: Option<Value>,
     /// `next.findText` for the name when the outline may be incomplete.
-    #[serde(default)]
     pub(super) text_search: Option<Value>,
     pub(super) path: String,
     pub(super) snapshot: String,
     pub(super) declarations: Vec<Value>,
+    /// One range of `declarations` per top-level row, the unit of a page.
+    pub(super) spans: Vec<std::ops::Range<usize>>,
+    /// What each top-level row adds to its page ([`row_sizes`]): these depend
+    /// only on the rows and the query's path scope, so pages share them.
+    pub(super) sizes: Vec<usize>,
     pub(super) source_descriptors: octocode_engine::text::analysis::SourceDescriptors,
     pub(super) diagnostics: Vec<Value>,
     pub(super) files_scanned: usize,
     pub(super) skipped: u32,
     pub(super) truncated: bool,
     /// Where a scan cut by the time budget resumes (`scanOffset`).
-    #[serde(default)]
     pub(super) scan_resume: Option<u32>,
     /// A parser recovered from syntax errors: the declarations are a partial
     /// view of the source, not a complete inventory.
     pub(super) recovered: bool,
     /// What the walk skipped, with every path retained across pages.
-    #[serde(default)]
     pub(super) skipped_paths: Option<octocode_contract_types::SkippedPaths>,
     /// What an exact `symbolFilter.terms` match left out.
-    #[serde(default)]
     pub(super) suppressed: Option<Suppressed>,
     /// Exact `symbolFilter.terms` entries `symbolKinds` left without a declaration.
-    #[serde(default)]
     pub(super) kinds_left_out: Option<KindsLeftOut>,
     /// A directory outline: rows group under their files, and the outlined
     /// directory (the query's own path) is not restated.
-    #[serde(default)]
     pub(super) directory: bool,
     /// What a `testCode` scope left out.
-    #[serde(default)]
     pub(super) test_code_excluded: octocode_engine::types::TestCodeExcluded,
     /// Entries the walk could not read, and how many for want of
     /// permission: absence below them is unproven.
-    #[serde(default)]
     pub(super) walk_errors: (u32, u32),
+}
+
+#[cfg(test)]
+impl SymbolSet {
+    /// An empty directory outline whose scan the time budget cut at `resume`.
+    pub(in crate::tools::ast_search) fn cut_at(path: String, resume: u32) -> Self {
+        Self {
+            references: None,
+            read: None,
+            text_search: None,
+            path,
+            snapshot: "s".to_owned(),
+            declarations: Vec::new(),
+            spans: Vec::new(),
+            sizes: Vec::new(),
+            source_descriptors: Default::default(),
+            diagnostics: Vec::new(),
+            files_scanned: resume as usize,
+            skipped: 0,
+            truncated: true,
+            scan_resume: Some(resume),
+            recovered: false,
+            skipped_paths: None,
+            suppressed: None,
+            kinds_left_out: None,
+            directory: true,
+            test_code_excluded: Default::default(),
+            walk_errors: (0, 0),
+        }
+    }
 }

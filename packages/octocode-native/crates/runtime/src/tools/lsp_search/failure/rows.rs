@@ -47,6 +47,25 @@ pub(in super::super) fn empty(
     row
 }
 
+/// The row of a server whose load has not ended: no answer of its says what
+/// the project holds yet, so the row is partial and offers the same query
+/// again.
+pub(in super::super) fn still_indexing(query: &LspSearchQuery) -> Value {
+    let mut row = empty(
+        query,
+        "languageServerIndexing",
+        "The language server is still indexing the project; semantic results are not ready yet.",
+        true,
+    );
+    partial_with_related_rerun(
+        &mut row,
+        query,
+        crate::response::paging::PartialReason::LanguageServerIndexing,
+        &[],
+    );
+    row
+}
+
 /// The empty row of a language server that answered nothing about the
 /// query's file: `category` with `reason`, unless the file lies outside the
 /// project its server needs ([`without_project`]). The server then analyzes

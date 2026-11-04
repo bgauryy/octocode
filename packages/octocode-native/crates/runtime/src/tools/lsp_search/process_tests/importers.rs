@@ -143,7 +143,7 @@ fn importer_fixture_serving(
     )
     .expect("config");
     let execution = crate::tools::lsp_search::LspExecutionConfig {
-        config_path: Some(config.to_string_lossy().into_owned()),
+        octocode_home: Some(root.to_path_buf()),
         ..crate::tools::lsp_search::LspExecutionConfig::default()
     };
     (dir, root, execution)

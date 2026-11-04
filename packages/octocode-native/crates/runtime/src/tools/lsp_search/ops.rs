@@ -283,9 +283,6 @@ impl Operation<'_, '_> {
                         .get_document_symbols_settled(self.path.to_owned(), content),
                 )
                 .await??;
-                if readiness.is_some() {
-                    super::session::note_server(self.client, readiness.clone());
-                }
                 Ok(outline_row(
                     query,
                     std::sync::Arc::unwrap_or_clone(symbols),

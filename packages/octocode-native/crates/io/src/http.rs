@@ -223,4 +223,129 @@ mod tests {
         server.join().expect("server");
         assert_eq!(body, "ok");
     }
+
+    fn gzipped(plain: &[u8]) -> Vec<u8> {
+        use flate2::{Compression, write::GzEncoder};
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(plain).expect("encode");
+        encoder.finish().expect("finish")
+    }
+
+    async fn gzip_server(plain: &[u8]) -> (wiremock::MockServer, Vec<u8>) {
+        let server = wiremock::MockServer::start().await;
+        let wire = gzipped(plain);
+        wiremock::Mock::given(wiremock::matchers::any())
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .insert_header("content-encoding", "gzip")
+                    .set_body_bytes(wire.clone()),
+            )
+            .mount(&server)
+            .await;
+        (server, wire)
+    }
+
+    #[tokio::test]
+    async fn a_gzip_body_is_requested_and_decoded() {
+        let plain = "{\"ok\":true}".repeat(200);
+        let (server, wire) = gzip_server(plain.as_bytes()).await;
+        let client = client(&ClientPolicy::default()).expect("client");
+        let response = client.get(server.uri()).send().await.expect("send");
+        let budget = crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
+        let body = crate::retry::read_bounded(response, &budget, 1 << 20)
+            .await
+            .expect("body");
+        assert_eq!(body.as_ref(), plain.as_bytes());
+        assert!(wire.len() < plain.len());
+        let sent = server.received_requests().await.expect("requests");
+        let accept = sent[0]
+            .headers
+            .get("accept-encoding")
+            .expect("accept-encoding");
+        assert!(accept.to_str().expect("text").contains("gzip"));
+    }
+
+    #[tokio::test]
+    async fn a_gzip_body_over_the_limit_is_refused_by_its_decoded_size() {
+        let plain = vec![0_u8; 4 << 20];
+        let (server, wire) = gzip_server(&plain).await;
+        assert!(wire.len() < 64 << 10, "the bomb is small on the wire");
+        let client = client(&ClientPolicy::default()).expect("client");
+        let response = client.get(server.uri()).send().await.expect("send");
+        let budget = crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
+        let read = crate::retry::read_bounded(response, &budget, 1 << 20).await;
+        assert_eq!(read, Err(crate::retry::BodyError::TooLarge));
+    }
+
+    /// A body read under `gzip`, whose wire bytes `wire` are not what that
+    /// header promises.
+    async fn read_labelled_gzip(wire: Vec<u8>) -> Result<bytes::Bytes, crate::retry::BodyError> {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::any())
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .insert_header("content-encoding", "gzip")
+                    .set_body_bytes(wire),
+            )
+            .mount(&server)
+            .await;
+        let client = client(&ClientPolicy::default()).expect("client");
+        let response = client.get(server.uri()).send().await.expect("send");
+        let budget = crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
+        crate::retry::read_bounded(response, &budget, 1 << 20).await
+    }
+
+    /// The server answered in full and the bytes do not decode: no network
+    /// failure, and sending the request again gets the same bytes.
+    #[tokio::test]
+    async fn a_body_that_does_not_decode_as_labelled_is_a_decode_error() {
+        let plain = b"{\"plain\":\"not gzip at all\"}".to_vec();
+        let truncated = {
+            let mut wire = gzipped(&b"{\"ok\":true}".repeat(200));
+            wire.truncate(wire.len() / 2);
+            wire
+        };
+        for wire in [plain, truncated] {
+            assert_eq!(
+                read_labelled_gzip(wire).await,
+                Err(crate::retry::BodyError::Decode)
+            );
+        }
+    }
+
+    /// The connection dying inside a compressed body stays a network failure.
+    #[test]
+    fn a_connection_lost_inside_a_compressed_body_is_transport() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut request).expect("request");
+            let wire = gzipped(&b"{\"ok\":true}".repeat(200));
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-encoding: gzip\r\ncontent-length: {}\r\n\r\n",
+                wire.len()
+            );
+            stream.write_all(head.as_bytes()).expect("head");
+            stream.write_all(&wire[..wire.len() / 2]).expect("part");
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let read = runtime.block_on(async {
+            let client = client(&ClientPolicy::default()).expect("client");
+            let response = client
+                .get(format!("http://{address}/"))
+                .send()
+                .await
+                .expect("send");
+            let budget =
+                crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
+            crate::retry::read_bounded(response, &budget, 1 << 20).await
+        });
+        server.join().expect("server");
+        assert_eq!(read, Err(crate::retry::BodyError::Transport));
+    }
 }

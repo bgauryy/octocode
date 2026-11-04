@@ -28,8 +28,8 @@ async fn a_first_page_states_the_last_change_for_one_concurrent_request() {
         .and(path("/api/graphql"))
         .and(wiremock::matchers::body_string_contains("a.txt"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!(
-            {"data":{"repository":{"object":{"committedDate":"2026-01-03T00:00:00Z",
-                "p0":{"nodes":[{"committedDate":"2026-01-02T00:00:00Z",
+            {"data":{"repository":{"object":{
+                "history":{"nodes":[{"committedDate":"2026-01-02T00:00:00Z",
                     "author":{"name":"Ada","user":{"login":"ada-l"}}}]}}}}}
         )))
         // The stamped first page and the first page whose body then fails;
@@ -104,11 +104,9 @@ async fn the_timestamp_request_runs_beside_the_contents_read() {
         .and(path("/api/graphql"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(
-                    json!({"data":{"repository":{"object":{"committedDate":"2026-01-03T00:00:00Z",
-                    "p0":{"nodes":[{"committedDate":"2026-01-02T00:00:00Z",
-                        "author":{"name":"Ada","user":{"login":"ada-l"}}}]}}}}}),
-                )
+                .set_body_json(json!({"data":{"repository":{"object":{
+                    "history":{"nodes":[{"committedDate":"2026-01-02T00:00:00Z",
+                        "author":{"name":"Ada","user":{"login":"ada-l"}}}]}}}}}))
                 .set_delay(delay),
         )
         .mount(&server)

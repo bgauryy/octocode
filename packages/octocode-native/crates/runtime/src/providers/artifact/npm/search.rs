@@ -55,6 +55,7 @@ pub(super) async fn search(
     }
     let mut artifacts = Vec::with_capacity(objects.len().min(size));
     let terms = artifact_search_query::keyword_list(query);
+    let read = objects.len().min(size) as u64;
     let mut matched = Vec::with_capacity(objects.len().min(size));
     for entry in objects.iter().take(size) {
         matched.push(terms_matched(&terms, entry.get("package")));
@@ -93,16 +94,29 @@ pub(super) async fn search(
         artifacts.push(artifact);
     }
     rank_by_terms(&mut artifacts, &matched);
-    let has_more = offset.saturating_add(artifacts.len() as u64) < total_found;
-    let terminal_limit =
-        (has_more && artifacts.is_empty()).then(|| unreachable_rows(offset, total_found));
+    // Keywords are ANDed, as on every other search tool, and npm alone returns
+    // rows matching one term of several. Paging stays on npm's raw window, so a
+    // window with no row holding every term still leads to the next one, and
+    // its total, which counts one-term rows, is not the count of these.
+    let anded = terms.len() > 1;
+    if anded {
+        // Ranked most terms first, so the rows holding every term lead the page.
+        artifacts.truncate(
+            matched
+                .iter()
+                .filter(|count| **count == terms.len())
+                .count(),
+        );
+    }
+    let has_more = offset.saturating_add(read) < total_found;
+    let terminal_limit = (has_more && read == 0).then(|| unreachable_rows(offset, total_found));
     Ok(ArtifactProviderPage {
-        next_state: (has_more && !artifacts.is_empty()).then(|| ArtifactProviderState {
-            offset: Some(offset + artifacts.len() as u64),
+        next_state: (has_more && read > 0).then(|| ArtifactProviderState {
+            offset: Some(offset + read),
             ..Default::default()
         }),
         artifacts,
-        total: Some(total_found),
+        total: (!anded).then_some(total_found),
         terminal_limit,
         registry: Some(trim_registry(&registry.base)),
     })

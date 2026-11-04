@@ -224,9 +224,8 @@ async fn maven_exact_version_reads_that_release_and_its_tag() {
     let b = test_budget();
     let tags = KnownTags::new(vec!["google/guava@v33.0.0"]);
     let client = RegistryClient {
-        http: &http,
-        budget: &b,
         tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
     };
     let page = maven(
         &query("33.0.0-jre"),

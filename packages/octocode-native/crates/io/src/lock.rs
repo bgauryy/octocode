@@ -1,8 +1,12 @@
 //! Exclusive advisory file locks: the one owner of "poll until a deadline".
 //! The kernel releases the lock when its holder exits, so a crashed holder
 //! never leaves a stale lock behind.
+//!
+//! [`Turnstile`] is the in-process side: taken before a file lock, it leaves
+//! the file contended across processes only.
 
 use std::fs::{File, TryLockError};
+use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 /// A held exclusive lock; dropping it unlocks.
@@ -84,10 +88,139 @@ pub fn lock_within(
     }
 }
 
+/// One holder at a time within a process. A release wakes one waiter at once;
+/// `poll` bounds how long a waiter goes without checking whether to give up,
+/// and how long the next one sleeps when the woken one gives up instead.
+#[derive(Debug, Default)]
+pub struct Turnstile {
+    taken: Mutex<bool>,
+    freed: Condvar,
+}
+
+/// A held turn; dropping it wakes one waiter, also while a panic unwinds.
+#[derive(Debug)]
+pub struct Turn<'a>(&'a Turnstile);
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        *self.0.state() = false;
+        self.0.freed.notify_one();
+    }
+}
+
+impl Turnstile {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            taken: Mutex::new(false),
+            freed: Condvar::new(),
+        }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, bool> {
+        self.taken.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Wait for the turn. `check` runs before every attempt and ends the wait
+    /// with its error; it must fail once `deadline` has passed, which the wait
+    /// never sleeps beyond.
+    pub fn take<E>(
+        &self,
+        deadline: Instant,
+        poll: Duration,
+        check: impl Fn() -> Result<(), E>,
+    ) -> Result<Turn<'_>, E> {
+        let mut taken = self.state();
+        loop {
+            check()?;
+            if !*taken {
+                *taken = true;
+                return Ok(Turn(self));
+            }
+            let wait = poll.min(deadline.saturating_duration_since(Instant::now()));
+            taken = self
+                .freed
+                .wait_timeout(taken, wait)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    const UNBOUNDED: Duration = Duration::from_secs(600);
+
+    fn take(gate: &Turnstile, poll: Duration, wait: Duration) -> Result<Turn<'_>, ()> {
+        let deadline = Instant::now() + wait;
+        gate.take(deadline, poll, || {
+            if Instant::now() >= deadline {
+                Err(())
+            } else {
+                Ok(())
+            }
+        })
+    }
+
+    /// With a poll far longer than the test, only the release can wake it.
+    #[test]
+    fn a_release_wakes_the_waiter_without_waiting_for_the_poll() {
+        let gate = Turnstile::new();
+        let held = take(&gate, UNBOUNDED, UNBOUNDED).expect("free");
+        std::thread::scope(|scope| {
+            let waiter = scope.spawn(|| take(&gate, UNBOUNDED, UNBOUNDED).is_ok());
+            std::thread::sleep(Duration::from_millis(50));
+            drop(held);
+            assert!(waiter.join().expect("woken"));
+        });
+    }
+
+    #[test]
+    fn a_turn_held_past_the_deadline_cuts_the_wait() {
+        let gate = Turnstile::new();
+        let _held = take(&gate, UNBOUNDED, UNBOUNDED).expect("free");
+        let started = Instant::now();
+        assert!(take(&gate, UNBOUNDED, Duration::from_millis(30)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(60));
+    }
+
+    /// A turn's check is seen within the poll, for what no release signals.
+    #[test]
+    fn a_check_ends_the_wait_within_the_poll() {
+        let gate = Turnstile::new();
+        let _held = take(&gate, UNBOUNDED, UNBOUNDED).expect("free");
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            let waiter = scope.spawn(|| {
+                gate.take(Instant::now() + UNBOUNDED, Duration::from_millis(5), || {
+                    if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                        Err("cancelled")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .map(|_| ())
+            });
+            std::thread::sleep(Duration::from_millis(30));
+            cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+            assert_eq!(waiter.join().expect("ended"), Err("cancelled"));
+        });
+    }
+
+    /// A panicking holder frees its turn.
+    #[test]
+    fn a_holder_that_panics_frees_the_turn() {
+        let gate = Turnstile::new();
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _held = take(&gate, UNBOUNDED, UNBOUNDED).expect("free");
+            panic!("holder");
+        }));
+        assert!(unwound.is_err());
+        assert!(take(&gate, UNBOUNDED, Duration::from_millis(100)).is_ok());
+    }
 
     fn open(path: &std::path::Path) -> std::fs::File {
         open_lock_file(path).unwrap()

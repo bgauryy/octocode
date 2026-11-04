@@ -57,7 +57,14 @@ pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
             format!("release commit {reference} is not in {repository} (unpushed or rewritten)")
         }
         None if default_branch => "the registry names no release ref".to_owned(),
-        None => return None,
+        None => {
+            let release = artifact.tag_differs.as_ref()?;
+            let reference = artifact.source_ref.as_deref().unwrap_or_default();
+            format!(
+                "the registry names commit {reference}, but release tag {} is commit {}",
+                release.tag, release.commit
+            )
+        }
     };
     let package = match artifact.version.as_deref() {
         Some(version) => format!("{} {version}", artifact.package_name),

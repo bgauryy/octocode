@@ -115,6 +115,10 @@ impl Network<'_> {
                         "Select a smaller page or section, or supply the text as content.",
                     ),
                     BodyError::Transport => unreachable(host, "the body read failed"),
+                    BodyError::Decode => unreachable(
+                        host,
+                        "its body does not decode as its Content-Encoding says",
+                    ),
                 })?
                 .to_vec()
         } else {

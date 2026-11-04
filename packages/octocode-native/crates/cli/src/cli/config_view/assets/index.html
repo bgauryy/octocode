@@ -1,12 +1,33 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Octocode configuration</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
-<body><main>
-<header><div><span class="brand">OCTOCODE</span><h1>Configuration</h1><p>Settings, keys, and your agents in one place.</p></div><button id="close" class="quiet">End session</button></header>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Octocode configuration</title>
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="/style.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="bar">
+    <img src="/logo.png" alt="" width="30" height="30">
+    <h1>Octocode configuration</h1>
+    <label class="search"><span class="sr-only">Search keys and settings</span><input id="search" type="search" placeholder="Search keys and settings" autocomplete="off" spellcheck="false"></label>
+    <fieldset class="segmented" id="scope" aria-label="Save to">
+      <em>Save to</em>
+      <label title="Applies to every project"><input type="radio" name="scope" value="home" checked><span>Home</span></label>
+      <label title="Applies to this project only"><input type="radio" name="scope" value="workspace"><span>Workspace</span></label>
+    </fieldset>
+    <button id="close" type="button" >End session</button>
+  </div>
+</header>
+<main>
+  <p id="summary"></p>
+  <section id="warnings" aria-label="Configuration warnings"></section>
+  <div id="content"><p class="empty">Opening your configuration…</p></div>
+  <footer id="storage"></footer>
+</main>
 <div id="message" role="status" aria-live="polite"></div>
-<nav aria-label="Configuration views"><button data-tab="settings" aria-pressed="true">Settings</button><button data-tab="keys" aria-pressed="false">Keys</button><button data-tab="agents" aria-pressed="false">Agents</button></nav>
-<section id="controls"><label>Save to <select id="scope"><option value="home">Home</option><option value="workspace">Workspace</option></select></label><label class="search">Search <input id="search" type="search" placeholder="Find a setting, key, or agent"></label><button id="refresh" class="quiet">Refresh</button></section>
-<section id="warnings" aria-label="Configuration warnings"></section>
-<section id="content" aria-label="Configuration"><p>Opening your configuration…</p></section>
-<footer id="storage">Changes are saved on this computer. Agent changes may require restarting the agent.</footer>
-</main></body></html>
+</body>
+</html>

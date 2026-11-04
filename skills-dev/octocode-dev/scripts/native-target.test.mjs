@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { exceedsSize, nativeDebugDir } from './lib/native-target.mjs';
+import { cargoIsRunning, exceedsSize, nativeDebugDir } from './lib/native-target.mjs';
 
 function withTree(run) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'native-target-'));
@@ -41,4 +41,10 @@ test('a missing directory is empty', () => {
 test('the debug directory follows CARGO_TARGET_DIR', () => {
   assert.equal(nativeDebugDir({ CARGO_TARGET_DIR: '/scratch/lane' }), path.join('/scratch/lane', 'debug'));
   assert.ok(nativeDebugDir({}).endsWith(path.join('packages', 'octocode-native', 'target', 'debug')));
+});
+
+test('a running cargo is what pgrep finds, and a failed lookup reads as none', () => {
+  assert.equal(cargoIsRunning(() => ({ status: 0 })), true);
+  assert.equal(cargoIsRunning(() => ({ status: 1 })), false);
+  assert.equal(cargoIsRunning(() => ({ status: null, error: new Error('no pgrep') })), false);
 });

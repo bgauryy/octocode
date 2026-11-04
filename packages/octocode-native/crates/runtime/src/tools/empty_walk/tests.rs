@@ -44,7 +44,7 @@ fn typescript(root: &Path) -> impl FnMut(Walk) -> Result<Hits, String> + '_ {
 }
 
 fn typescript_probe(root: &Path) -> FileProbe<'_> {
-    FileProbe::new(root, 1_000, &|_| true, &|path| {
+    FileProbe::new(root, &|_| true, &|path| {
         path.extension().is_some_and(|ext| ext == "ts")
     })
 }

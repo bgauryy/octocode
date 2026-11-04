@@ -33,21 +33,21 @@ fn files_are_searched_across_chunk_boundaries() {
     let file = dir.path().join("big.ts");
     let pad = "x".repeat(MENTION_CHUNK_BYTES - 2);
     write(&file, &format!("{pad} target();\n"));
-    assert_eq!(file_spells(&file, b"target"), Some(true));
+    assert_eq!(file_spells(&file, b"target", None), Some(true));
     write(&file, &format!("{pad} targets();\n"));
-    assert_eq!(file_spells(&file, b"target"), Some(false));
+    assert_eq!(file_spells(&file, b"target", None), Some(false));
     // A word ending the first chunk is decided there, not again from the
     // carried tail that starts with it.
     let pad = "x".repeat(MENTION_CHUNK_BYTES - 8);
     write(&file, &format!("{pad}atarget;\n"));
-    assert_eq!(file_spells(&file, b"target"), Some(false));
+    assert_eq!(file_spells(&file, b"target", None), Some(false));
     // A file gone since it was listed spells nothing; an unreadable one is
     // undecided.
     assert_eq!(
-        file_spells(&dir.path().join("missing.ts"), b"target"),
+        file_spells(&dir.path().join("missing.ts"), b"target", None),
         Some(false)
     );
-    assert_eq!(file_spells(dir.path(), b"target"), None);
+    assert_eq!(file_spells(dir.path(), b"target", None), None);
 }
 
 /// The ignored-file scan (`file_spells`) and the tracked scan's pattern
@@ -74,10 +74,10 @@ fn ignored_and_tracked_scans_agree_on_whole_words() {
     ] {
         write(&file, text);
         assert_eq!(
-            file_spells(&file, b"foo"),
+            file_spells(&file, b"foo", None),
             Some(tracked.is_match(text)),
             "{text:?}"
         );
     }
-    assert_eq!(file_spells(&file, b"$foo"), Some(true));
+    assert_eq!(file_spells(&file, b"$foo", None), Some(true));
 }

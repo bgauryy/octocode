@@ -77,7 +77,7 @@ Regeneration needs `cargo install cargo-typify --version 0.8.0 --locked`. `tool_
 ### Adding a tool field
 
 1. Add it in core and regenerate as above.
-2. Declare and implement it in `crates/runtime/src/contracts/field-effect-coverage.json`.
+2. Implement it, then declare its effect in `crates/runtime/src/contracts/field-effect-coverage.json`, or confirm it inherits its nearest declared ancestor's effect (a path with no entry inherits). `cargo test -p octocode-native --test integration field_effect_coverage::` fails on an unresolved path or a stale key.
 3. A public limit change trips the `public_response_and_tree_limits_are_pinned` test by design. Update it deliberately.
 4. Check the result against [TOOL_QUALITY.md](TOOL_QUALITY.md), then update `<repo>/docs/OCTOCODE_TOOLS.md`.
 
@@ -112,7 +112,7 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 
 ### Tool health
 
-`$DEV test:tools` (`packages/octocode-benchmark/local/e2e/harness/tool-health.mjs`) is the quick end-to-end alarm for every tool in the contract. It first runs the driver's self-test (`harness/tool-health/driver.test.mjs`), then runs each tool through the built CLI (`--json`) and the MCP stdio server and checks:
+`$DEV test:tools` (`packages/octocode-benchmark/local/e2e/harness/tool-health.mjs`) is the quick end-to-end alarm for every tool in the contract. It first runs the `acceptance` (harness self-tests), `transport` and `classification-retry` suites, then runs each tool through the built CLI (`--json`) and the MCP stdio server and checks:
 
 - **happy**: the primary operation exits 0, returns rows with the key fields, and validates against the contract `outputSchema`;
 - **continuation**: walking the `next.*` page lead to its end gives non-empty pages, every row exactly once, and exactly the unpaged rows; `walks` cover a tool's other page channels (PR patch windows);
@@ -127,17 +127,18 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 
 It is hermetic: a temp `OCTOCODE_HOME`/`HOME`, no user token, fixtures in `packages/octocode-benchmark/local/e2e/fixtures/tool-health/` (or a per-tool temp copy with extra files), and a loopback mock (`harness/tool-health/mock-server.mjs`) for GitHub REST (`GITHUB_API_URL`), git smart HTTP, an npm registry (`registryUrl` with `OCTOCODE_ALLOW_PRIVATE_REGISTRY`) and the classification provider (`OCTOCODE_CLASSIFICATION_API_HOST`). Every proxy variable points at a dead loopback port, so a request that would leave the machine fails the run. Each tool and surface gets its own fake GitHub token and its own MCP server. The runtime paces GitHub searches per token, so all tools run in parallel. `--deep` adds seeds for more operations and allows more leads per seed. Each run reports its measured duration; the schema-derived matrices and scan-window fixture also run through the shared driver. A contract tool without a case fails the run. Cases live in `harness/tool-health/cases.mjs`.
 
-Run it after `build:dev`. CI runs it in the `e2e` job after its own `build:dev`. To run some tools only, pass their names: `$DEV test:tools ghSearchCode,localFetch` (add `--deep` for the wider exploration).
+Run it after `build:dev`. CI runs it in the `e2e` job after its own `build:dev`. `$DEV test:e2e` runs every hermetic suite, adding the slower `grammar` battery, which neither `test:tools` nor CI runs. `$DEV verify` runs no end-to-end suite. To run some tools only, pass their names: `$DEV test:tools ghSearchCode,localFetch` (add `--deep` for the wider exploration).
 
 Each tool prints one line, `PASS`/`FAIL`/`SKIP`, with its total and slowest-call time, call count and checks. A `FAIL` line names the first failing check, for example `FAIL ghSearchCode … — empty.hint.mcp: …`; every failing check is listed at the end. A check name is `<phase>.<what>[.<surface>]`, with phase happy, continuation, walk, explore, facts, empty, invalid, parity, latency or extra. A `SKIP` line states its reason, such as a missing TypeScript language server. Every check, its detail, the explored lead keys and per-call timings are in `packages/octocode-benchmark/local/e2e/results/tool-health.json`. The run exits non-zero on any `FAIL`.
 
 ### Cargo builds
 
 - `build:dev` (debug native + TypeScript, no clean or lint) is the default local build; use `build` only for release or performance artifacts. Check exit codes, not output paths.
+- Judge speed and memory only on native `build` or `--profile profiling`. `build:dev` keeps Octocode's own crates at opt-level 0, which overstated their instruction counts by 1.4–9× in the 2026-11-04 audit.
 - Rust integration tests are one binary per crate: `tests/main.rs` declares each `tests/*.rs` as a `mod`.
 - Don't commit local lld or sccache Cargo configuration.
 - One build lane uses the repo's warm `target/`. Parallel lanes share at most three Cargo target directories in total, each in a scratch directory (never `target/<name>`), built with `CARGO_INCREMENTAL=0` and deleted when done. A lane is rarely rebuilt, and dropping incremental data measured 31% smaller on `octocode-engine` (1596 MB to 1101 MB). Cargo's lock serializes builds in one directory, and the same `--features` keeps compiled units shared.
-- Reset a bloated `target/` with `dev.mjs clean:cache` (stale native copies) or `dev.mjs clean` (all build outputs). `dev.mjs build:dev` and `test:rust` run `clean:cache` first when native `target/debug` is over 50 GiB; plain `cargo` commands do not. Most of the bloat is `target/debug/deps`: Cargo keeps one copy of our crates per feature, package, and toolchain selection and never removes one (on 2026-11-01, 244 GB in `deps/` and 20 GB in `incremental/`, with 114 copies of `octocode_native`); `clean:cache` drops them and keeps dependencies warm.
+- Reset a bloated `target/` with `dev.mjs clean:cache` (stale native copies) or `dev.mjs clean` (all build outputs). `dev.mjs build:dev` runs `clean:cache` first when native `target/debug` is over 50 GiB and no other cargo is running, since a clean can delete a binary a running `cargo test` needs; plain `cargo` commands do not. Most of the bloat is `target/debug/deps`: Cargo keeps one copy of our crates per feature, package, and toolchain selection and never removes one (on 2026-11-01, 244 GB in `deps/` and 20 GB in `incremental/`, with 114 copies of `octocode_native`); `clean:cache` drops them and keeps dependencies warm.
 - Benchmark campaigns keep a `build/` snapshot so a resumed run uses the same build. Remove it only when the campaign is final; `fingerprint.txt` records which build ran.
 - After a `rust-toolchain.toml` bump, the old toolchain's dependency builds stay in `target/` (about 29 GiB on the 1.99.1 bump). `cargo sweep --toolchains <new-toolchain> .` (cargo-sweep) removes them, `target/platforms/` included, then `clean:cache` drops the stale incremental sessions.
 

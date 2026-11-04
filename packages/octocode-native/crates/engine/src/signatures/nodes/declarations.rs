@@ -85,16 +85,17 @@ fn declaration_given<'t>(
     parent: impl Fn() -> Option<Node<'t>>,
     content: &str,
 ) -> Option<(&'static str, Node<'t>)> {
+    let node_kind = node.kind();
     // A namespace keeps its whole qualified name. An unnamed C-family
     // namespace selects its keyword; its display label is structural, not a binder.
     if matches!(
-        node.kind(),
+        node_kind,
         "namespace_declaration" | "file_scoped_namespace_declaration" | "namespace_definition"
     ) {
         return node
             .child_by_field_name("name")
             .or_else(|| {
-                if node.kind() != "namespace_definition" {
+                if node_kind != "namespace_definition" {
                     return None;
                 }
                 let mut cursor = node.walk();
@@ -105,7 +106,7 @@ fn declaration_given<'t>(
     }
     // A Go `type` or `const` declaration only wraps its specs (`type X …`, a
     // grouped `type ( … )`, `const ( … )`); each spec is the declaration.
-    if matches!(node.kind(), "type_declaration" | "const_declaration") {
+    if matches!(node_kind, "type_declaration" | "const_declaration") {
         let mut cursor = node.walk();
         if node
             .named_children(&mut cursor)
@@ -114,7 +115,7 @@ fn declaration_given<'t>(
             return None;
         }
     }
-    if let Some(kind) = declaration_kind(node.kind()) {
+    if let Some(kind) = declaration_kind(node_kind) {
         // C/C++ definitions carry no `name` field: the name sits in the
         // declarator chain, and the `type` field (a named return type such as
         // `Tensor`, or an attribute macro such as `__init`) must not be taken.
@@ -126,7 +127,7 @@ fn declaration_given<'t>(
         }
         return name_node(node).map(|name| (kind, name));
     }
-    match node.kind() {
+    match node_kind {
         "object_definition" => node
             .child_by_field_name("name")
             .map(|name| ("module", name)),

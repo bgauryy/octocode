@@ -127,11 +127,7 @@ fn plan(paths: &PathPolicy, execution: &LspExecutionConfig, file: &Path) -> Opti
         .and_then(|root| paths.validate(&root).ok())
         .filter(|root| root.canonical.is_dir())
         .map(|root| root.canonical.to_string_lossy().into_owned())?;
-    let config_path = match execution.config_path.as_deref() {
-        Some(path) => Some(paths.validate_read(path).ok()?.canonical),
-        None => None,
-    };
-    let discovery = execution.discovery(config_path);
+    let discovery = execution.discovery();
     let config = default_server_for_file(&file, &workspace, &discovery)?;
     let key = canonical_lsp_key(&config).ok()?;
     Some(Planned { file, key, config })

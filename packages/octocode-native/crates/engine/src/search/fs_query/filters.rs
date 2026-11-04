@@ -9,7 +9,7 @@ use ignore::gitignore::Gitignore;
 use regex::Regex;
 
 use super::compiled::CompiledQuery;
-use super::walker::QueryState;
+use super::walker::{QueryState, entered_empty};
 use crate::error::{Error, ErrorKind};
 use crate::search::glob;
 use crate::text::extension_of;
@@ -28,6 +28,7 @@ fn lists(entry_type: EntryType, kind: EntryKind) -> bool {
 pub(super) struct EntryKind {
     pub(super) is_dir: bool,
     pub(super) is_file: bool,
+    pub(super) is_symlink: bool,
 }
 
 impl EntryKind {
@@ -35,6 +36,7 @@ impl EntryKind {
         Self {
             is_dir: file_type.is_dir(),
             is_file: file_type.is_file(),
+            is_symlink: file_type.is_symlink(),
         }
     }
 }
@@ -45,8 +47,18 @@ impl From<fs::FileType> for EntryKind {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Entry `lstat`s this thread's walks made.
+    pub(super) static ENTRY_STATS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Directories this thread's walks read only to tell they are empty.
+    pub(super) static EMPTINESS_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// `symlink_metadata`, counting a failure as a skipped entry.
 pub(super) fn lstat(path: &Path, state: &mut QueryState) -> Option<fs::Metadata> {
+    #[cfg(test)]
+    ENTRY_STATS.with(|stats| stats.set(stats.get() + 1));
     match fs::symlink_metadata(path) {
         Ok(metadata) => Some(metadata),
         Err(err) => {
@@ -57,8 +69,9 @@ pub(super) fn lstat(path: &Path, state: &mut QueryState) -> Option<fs::Metadata>
 }
 
 /// Count and record `path` when it matches. Name and type filters run
-/// first; the entry is stat'ed (into `metadata`) only when they pass. `Err`
-/// when that stat failed: the entry is skipped like an unreadable one.
+/// first; the entry is stat'ed (into `metadata`) only when they pass and
+/// something reads it ([`CompiledQuery::stats_entries`]). `Err` when that stat
+/// failed: the entry is skipped like an unreadable one.
 pub(super) fn visit_path(
     path: &Path,
     name: &str,
@@ -77,11 +90,13 @@ pub(super) fn visit_path(
     if !matches_names(path, name, kind, query) {
         return Ok(());
     }
-    let metadata = match metadata {
-        Some(metadata) => metadata,
-        None => metadata.insert(lstat(path, state).ok_or(())?),
-    };
-    if !matches_metadata(path, metadata, query) {
+    if query.stats_entries && metadata.is_none() {
+        *metadata = Some(lstat(path, state).ok_or(())?);
+    }
+    if metadata
+        .as_ref()
+        .is_some_and(|metadata| !matches_metadata(path, metadata, (depth, kind), query, state))
+    {
         return Ok(());
     }
     if query
@@ -100,9 +115,14 @@ pub(super) fn visit_path(
         return Ok(());
     }
 
-    state
-        .entries
-        .push(to_entry(path, state.position, metadata, query));
+    state.entries.push(to_entry(
+        path,
+        name,
+        state.position,
+        kind,
+        metadata.as_ref(),
+        query,
+    ));
     Ok(())
 }
 
@@ -177,14 +197,21 @@ impl NameFilter {
 }
 
 /// The filters that need the entry's metadata.
-fn matches_metadata(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
-    if query.empty && !is_empty(path, metadata) {
+fn matches_metadata(
+    path: &Path,
+    metadata: &fs::Metadata,
+    place: (u32, EntryKind),
+    query: &CompiledQuery,
+    state: &mut QueryState,
+) -> bool {
+    if query.empty && !is_empty(path, metadata, place, query, state) {
         return false;
     }
     // A size filter is about content: a directory's own length (its entry
-    // table) is none, so a directory never matches one.
+    // table) and a link's (its target's spelling) are none, so neither ever
+    // matches one.
     let sized = query.size_min.is_some() || query.size_max.is_some();
-    if sized && metadata.is_dir() {
+    if sized && (metadata.is_dir() || metadata.file_type().is_symlink()) {
         return false;
     }
     if let Some(min_size) = query.size_min
@@ -200,11 +227,7 @@ fn matches_metadata(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery)
     if !matches_time_filters(metadata, query) {
         return false;
     }
-    if !matches_permissions(metadata, query) {
-        return false;
-    }
-
-    true
+    matches_permissions(path, metadata, query)
 }
 
 /// Whether `name` ends in one of `extensions`, normalized as a query's are
@@ -238,33 +261,39 @@ fn within_time_bounds(
 }
 
 #[cfg(unix)]
-fn matches_permissions(metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
+fn matches_permissions(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
     use std::os::unix::fs::PermissionsExt;
 
-    let mode = metadata.permissions().mode() & 0o777;
     if let Some(expected) = query.permissions.as_ref() {
-        // Compare octal *values*, not strings. The old `trim_start_matches('0')`
-        // turned "000" into "" (so a real 000 file could never match) and also
-        // mishandled forms like "0644"/"0o644". Parse both and compare numbers.
+        // Compare octal *values*, not strings: "000" and "0644" are modes
+        // too. The special bits count, so "4755" finds a setuid file and
+        // "755" does not.
         let expected_mode = u32::from_str_radix(expected.trim().trim_start_matches("0o"), 8).ok();
-        if expected_mode != Some(mode) {
+        if expected_mode != Some(metadata.permissions().mode() & 0o7777) {
             return false;
         }
     }
-    if query.executable && mode & 0o111 == 0 {
+    (!query.executable || caller_can(path, libc::X_OK))
+        && (!query.readable || caller_can(path, libc::R_OK))
+        && (!query.writable || caller_can(path, libc::W_OK))
+}
+
+/// Whether the calling user may access `path` as `how` (`access(2)` with the
+/// effective ids, through a link to its target): what the owner, group and
+/// other bits grant this user, which no mode alone says.
+#[cfg(unix)]
+fn caller_can(path: &Path, how: libc::c_int) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
         return false;
-    }
-    if query.readable && mode & 0o444 == 0 {
-        return false;
-    }
-    if query.writable && mode & 0o222 == 0 {
-        return false;
-    }
-    true
+    };
+    // SAFETY: `path` is a valid NUL-terminated string for the whole call, and
+    // `faccessat` only reads it.
+    unsafe { libc::faccessat(libc::AT_FDCWD, path.as_ptr(), how, libc::AT_EACCESS) == 0 }
 }
 
 #[cfg(not(unix))]
-fn matches_permissions(metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
+fn matches_permissions(_path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
     if query.permissions.is_some() || query.executable || query.readable {
         return true;
     }
@@ -274,11 +303,26 @@ fn matches_permissions(metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
     true
 }
 
-fn is_empty(path: &Path, metadata: &fs::Metadata) -> bool {
+/// A file with no bytes, or a directory with no entries: the listing the walk
+/// enters it by, or a read of its own when the walk will not enter it.
+fn is_empty(
+    path: &Path,
+    metadata: &fs::Metadata,
+    (depth, kind): (u32, EntryKind),
+    query: &CompiledQuery,
+    state: &mut QueryState,
+) -> bool {
     if metadata.is_file() {
         return metadata.len() == 0;
     }
     if metadata.is_dir() {
+        if kind.is_dir
+            && let Some(empty) = entered_empty(path, depth, query, state)
+        {
+            return empty;
+        }
+        #[cfg(test)]
+        EMPTINESS_READS.with(|reads| reads.set(reads.get() + 1));
         return fs::read_dir(path)
             .map(|mut entries| entries.next().is_none())
             .unwrap_or(false);
@@ -288,8 +332,10 @@ fn is_empty(path: &Path, metadata: &fs::Metadata) -> bool {
 
 fn to_entry(
     path: &Path,
+    name: &str,
     walk_position: u32,
-    metadata: &fs::Metadata,
+    kind: EntryKind,
+    metadata: Option<&fs::Metadata>,
     query: &CompiledQuery,
 ) -> FileSystemEntry {
     let path_string = path.to_string_lossy().to_string();
@@ -298,13 +344,12 @@ fn to_entry(
         .ok()
         .map(crate::text::slash_path)
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| file_name(path));
-    let name = file_name(path);
-    let entry_type = if metadata.is_file() {
+        .unwrap_or_else(|| name.to_owned());
+    let entry_type = if kind.is_file {
         FileKind::File
-    } else if metadata.is_dir() {
+    } else if kind.is_dir {
         FileKind::Directory
-    } else if metadata.file_type().is_symlink() {
+    } else if kind.is_symlink {
         FileKind::Symlink
     } else {
         FileKind::Other
@@ -313,11 +358,12 @@ fn to_entry(
     FileSystemEntry {
         path: path_string,
         relative_path,
-        name,
+        name: name.to_owned(),
         entry_type,
-        size: Some(crate::num::saturating_i64(metadata.len())),
-        modified_time: metadata.modified().ok(),
+        size: metadata.map(|metadata| crate::num::saturating_i64(metadata.len())),
+        modified_time: metadata.and_then(|metadata| metadata.modified().ok()),
         walk_position,
+        stamp: metadata.and_then(crate::stamp::SourceStamp::of),
     }
 }
 

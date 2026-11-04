@@ -1,3 +1,4 @@
+use super::browser::IsolatedWindow;
 use super::{HEADER_TIMEOUT, State, Tokens, backend, handle, token};
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
@@ -16,6 +17,8 @@ use tokio_util::sync::CancellationToken;
 
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_CONNECTIONS: usize = 32;
+/// A window gone this soon never showed the page: its browser failed to start.
+const WINDOW_START_FAILURE: Duration = Duration::from_secs(5);
 
 pub(in crate::cli) async fn run(no_open: bool, idle_timeout: u64, json_out: bool) -> u8 {
     match serve(no_open, Duration::from_secs(idle_timeout), json_out).await {
@@ -76,15 +79,16 @@ async fn serve(no_open: bool, idle_timeout: Duration, json_out: bool) -> Result<
         }
     };
     tokio::pin!(signal);
-    if json_out {
-        crate::cli::write_json(&json!({"url":url,"idleTimeoutSeconds":idle_timeout.as_secs()}));
+    let mut window = if no_open {
+        None
     } else {
-        println!(
-            "Octocode config view: {url}\nPress Ctrl+C to close. This temporary URL grants access to your configuration."
-        );
-    }
+        IsolatedWindow::open(&url)
+    };
+    let isolated = window.is_some();
+    let opened_at = tokio::time::Instant::now();
+    announce(&url, idle_timeout, json_out, isolated, no_open);
     let opener = async {
-        if no_open {
+        if no_open || isolated {
             Ok(())
         } else {
             open_browser(&url).await
@@ -99,7 +103,17 @@ async fn serve(no_open: bool, idle_timeout: Duration, json_out: bool) -> Result<
         tokio::select! {
             _ = closing.cancelled() => break 0,
             code = &mut signal => break code,
-            _ = &mut idle => break 0,
+            status = window_exit(&mut window), if window.is_some() => {
+                let failed = !status.as_ref().is_ok_and(std::process::ExitStatus::success);
+                if !failed || opened_at.elapsed() >= WINDOW_START_FAILURE {
+                    break 0;
+                }
+                // Keep serving: the one way into this session is the link.
+                window = None;
+                println!("Could not open a private window. Open this link: {url}");
+            },
+            // A window ends its session by closing; only a link left open times out.
+            _ = &mut idle, if window.is_none() => break 0,
             result = &mut opener, if !opened => {
                 opened = true;
                 if result.is_err() { break 5; }
@@ -138,6 +152,9 @@ async fn serve(no_open: bool, idle_timeout: Duration, json_out: bool) -> Result<
     };
     drop(listener);
     closing.cancel();
+    if let Some(window) = window.take() {
+        window.close().await;
+    }
     {
         let mut tokens = state
             .tokens
@@ -155,6 +172,34 @@ async fn serve(no_open: bool, idle_timeout: Duration, json_out: bool) -> Result<
         connections.shutdown().await;
     }
     if code == 5 { Err(()) } else { Ok(code) }
+}
+
+fn announce(url: &str, idle_timeout: Duration, json_out: bool, isolated: bool, no_open: bool) {
+    if json_out {
+        crate::cli::write_json(
+            &json!({"url":url,"idleTimeoutSeconds":idle_timeout.as_secs(),"isolated":isolated}),
+        );
+    } else if isolated {
+        println!(
+            "Octocode configuration is open in a private window.\nUse End session there, or press Ctrl+C here to close it."
+        );
+    } else {
+        println!(
+            "Octocode config view: {url}\nPress Ctrl+C to close. This temporary URL grants access to your configuration."
+        );
+        if !no_open {
+            eprintln!(
+                "octocode: no Chrome, Edge, Brave or Chromium found, so this opens in your default browser, where installed extensions can read what you type. Consider `octocode config set KEY --stdin` for secrets."
+            );
+        }
+    }
+}
+
+async fn window_exit(window: &mut Option<IsolatedWindow>) -> io::Result<std::process::ExitStatus> {
+    match window {
+        Some(window) => window.wait().await,
+        None => std::future::pending().await,
+    }
 }
 
 async fn open_browser(url: &str) -> io::Result<()> {

@@ -143,16 +143,29 @@ async fn a_tag_exists_only_as_a_tag_ref() {
         .await;
     let transport = anonymous_transport(&mock_endpoint(&server));
     let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
-    assert!(
+    // An annotated tag's ref names the tag object; the tag names the commit.
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/api/v3/repos/a/b/git/tags/{}",
+            "1".repeat(40)
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "object": {"sha": "3".repeat(40), "type": "commit"}
+        })))
+        .mount(&server)
+        .await;
+    assert_eq!(
         transport
-            .tag_exists("a", "b", "pkg/v1.2.3", &context)
+            .tag_commit("a", "b", "pkg/v1.2.3", &context)
             .await
-            .expect("tag read")
+            .expect("tag read"),
+        Some("3".repeat(40))
     );
-    assert!(
-        !transport
-            .tag_exists("a", "b", "1.2.3", &context)
+    assert_eq!(
+        transport
+            .tag_commit("a", "b", "1.2.3", &context)
             .await
-            .expect("tag read")
+            .expect("tag read"),
+        None
     );
 }

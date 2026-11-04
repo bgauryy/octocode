@@ -123,16 +123,18 @@ pub fn is_command_available(command: &str) -> Result<bool, String> {
 
 /// Whether a discovered server config would launch: its program is an
 /// executable (a node-launched script must exist too). Never runs the server;
-/// a rustup proxy costs one bounded `rustup which` call.
+/// a rustup proxy costs one bounded `rustup which` call, kept until something
+/// rustup reads changes.
 pub fn server_command_resolves(config: &LspLanguageServerConfig) -> bool {
     let command = resolve_known_server_command(&config.command);
     if is_rejected_shell(&command) {
         return false;
     }
+    let view = super::invocation::rustup::RustupView::current();
     let program = if Path::new(&command).is_absolute() || has_path_separator(&command) {
         Some(PathBuf::from(&command))
     } else {
-        which::which(&command).ok()
+        which::which_in(&command, view.path_var.as_ref(), &config.workspace_root).ok()
     };
     let Some(program) = program.filter(|path| is_executable_path(path)) else {
         return false;
@@ -151,6 +153,7 @@ pub fn server_command_resolves(config: &LspLanguageServerConfig) -> bool {
         // selects has no such component; running it would install or fail.
         // rustup decides, not this code: available only when it names the binary.
         return super::invocation::rustup::selected_component(
+            &view,
             &program,
             Path::new(&config.workspace_root),
         )

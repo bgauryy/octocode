@@ -297,7 +297,7 @@ fn walked(
 ) -> Result<(std::sync::Arc<Walked>, bool), ToolError> {
     if page > 1
         && let Some(snapshot) = snapshot
-        && let Some(stored) = memo::get::<Walked>(snapshot, policy)
+        && let Some(stored) = memo::get(snapshot, policy)
     {
         return Ok((stored, true));
     }

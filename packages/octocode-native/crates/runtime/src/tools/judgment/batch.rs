@@ -1,8 +1,8 @@
 //! One evaluation's provider requests. Every question over the state goes in
-//! one request when each question alone and the whole group fit the
-//! serialized headroom; otherwise each question is its own request. Every
-//! answer is validated against its question before use, and an evaluation
-//! succeeds only when every question has a valid answer.
+//! one request unless the provider refuses it as too large; then each
+//! question is its own request. Every answer is validated against its
+//! question before use, and an evaluation succeeds only when every question
+//! has a valid answer.
 use super::{EvaluationInput, Judged, QuestionOutcomes};
 use crate::providers::classification::gate::GateLease;
 use crate::providers::classification::transport::{
@@ -17,10 +17,8 @@ use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use serde_json::Value;
 
-// Conservative serialized-byte headroom for shared-state requests. This is
-// not a token estimate or a guarantee that a provider accepts the request.
-const MAX_STATE_AND_QUESTION_BYTES: usize = 72 * 1024;
-const MAX_GROUP_BYTES: usize = 120 * 1024;
+// Serialized-body ceiling only; the provider's context window decides whether
+// a request's tokens fit.
 const MAX_TEXT_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 
 fn max_request_bytes(input: EvaluationInput<'_>) -> usize {
@@ -58,36 +56,14 @@ fn request_error(message: &str) -> ClassificationError {
     )
 }
 
-/// The questions as one grouped request body, when it fits the headroom.
-/// Sizes are measured over requests that hold `null` for the state, plus the
-/// state's own size: a request embeds the state once as given, so only the
-/// request actually sent copies it.
+/// The questions as one grouped request body, when it fits the body ceiling.
+/// Token fit is the provider's call: its refusal splits the group.
 fn grouped(
     input: EvaluationInput<'_>,
     model: &str,
     provider: &dyn ClassificationProvider,
 ) -> Option<(Value, bytes::Bytes)> {
-    const NULL_BYTES: usize = "null".len();
-    let state_bytes = octocode_engine::json_size::bytes(input.state)?;
-    let size = |questions: &[&Value]| {
-        octocode_engine::json_size::bytes(&provider.build(&Value::Null, questions, model, None))
-            .map_or(usize::MAX, |bytes| {
-                (bytes - NULL_BYTES).saturating_add(state_bytes)
-            })
-    };
     let questions: Vec<&Value> = input.questions.iter().collect();
-    let (each_limit, group_limit) = if input.long_context {
-        (MAX_TEXT_REQUEST_BYTES, MAX_TEXT_REQUEST_BYTES)
-    } else {
-        (MAX_STATE_AND_QUESTION_BYTES, MAX_GROUP_BYTES)
-    };
-    if questions
-        .iter()
-        .any(|question| size(std::slice::from_ref(question)) > each_limit)
-        || size(&questions) > group_limit
-    {
-        return None;
-    }
     let request = provider.build(input.state, &questions, model, input.assets);
     let body = serde_json::to_vec(&request).ok()?;
     (body.len() <= max_request_bytes(input)).then(|| (request, body.into()))
@@ -129,12 +105,10 @@ async fn answer_inner(
     {
         match send(body, input, connection, budget, gate).await {
             Ok((response, calls)) => return grouped_outcomes(&request, &response, calls, provider),
-            // Each image question re-reads its images, so the provider's
-            // window, not a byte count, decides whether a group fits: its
-            // refusal splits the group into the per-question requests below.
-            Err(error)
-                if input.images() && error.code == ErrorCode::ClassificationStateTooLarge =>
-            {
+            // The provider's window, not a byte count, decides whether a
+            // group fits: its refusal splits the group into the
+            // per-question requests below.
+            Err(error) if error.code == ErrorCode::ClassificationStateTooLarge => {
                 refused_calls = error.provider_calls;
             }
             Err(error) => return Err(error),

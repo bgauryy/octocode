@@ -18,7 +18,7 @@ impl Respond for DelayedAnswer {
 }
 
 #[tokio::test]
-async fn cancellation_keeps_completed_sibling_usage() {
+async fn cancellation_ends_a_call_with_completed_siblings() {
     let server = provider().await;
     Mock::given(method("POST"))
         .and(wiremock::matchers::body_partial_json(
@@ -29,11 +29,7 @@ async fn cancellation_keeps_completed_sibling_usage() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let runtime = std::sync::Arc::new(runtime(
-        &workspace,
-        &server,
-        &[("OCTOCODE_ENABLE_STATS", "true".into())],
-    ));
+    let runtime = std::sync::Arc::new(runtime(&workspace, &server, &[]));
     let fast = json!({"operation":"evaluate","content":"fast","questions":{"fact":{"type":"noul","instructions":"Is this supplied evidence?"}}});
     let mut slow = fast.clone();
     slow["content"] = json!("slow");
@@ -65,16 +61,6 @@ async fn cancellation_keeps_completed_sibling_usage() {
     );
     assert!(runtime.requests.cancel("cancelled"));
     let _ = task.await.unwrap();
-    let stats: Value =
-        serde_json::from_slice(&std::fs::read(workspace.home.join("stats.json")).unwrap()).unwrap();
-    assert_eq!(stats["stats"]["clasify"]["calls"], 3, "{stats}");
-    assert_eq!(stats["stats"]["clasify"]["known_usage_calls"], 2, "{stats}");
-    assert_eq!(
-        stats["stats"]["clasify"]["unknown_usage_calls"], 1,
-        "{stats}"
-    );
-    assert_eq!(stats["stats"]["clasify"]["input_tokens"], 200, "{stats}");
-    assert_eq!(stats["stats"]["clasify"]["output_tokens"], 20, "{stats}");
     runtime.close().await;
 }
 

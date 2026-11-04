@@ -1,4 +1,4 @@
-//! `materialize`: write a listing page's files under the Octocode home.
+//! `materialize`: write a listing's whole selection under the Octocode home.
 use super::*;
 use std::path::{Path, PathBuf};
 
@@ -9,14 +9,16 @@ mod tests;
 mod writer;
 pub(super) use writer::{Acquired, MaterializeSkips, MaterializeWriter, write_error};
 
-/// Write this page's files under `location.localPath` (the listed
-/// directory) and return where a continuation resumes, if anywhere.
+/// Write the selection's files under `location.localPath` (the listed
+/// directory) and return where a continuation resumes, if anywhere. The whole
+/// selection, not the listing page shown: only the call's own time stops it.
 pub(super) async fn materialize_page(
     provider: &GitHubProvider,
     query: &GhStructureQueryTree,
     scope: &Scope,
     commit_sha: &str,
     page: &ListingPage<'_>,
+    selection: &[TreeEntry],
     home: &Path,
     context: &RequestContext,
     value: &mut Value,
@@ -30,32 +32,18 @@ pub(super) async fn materialize_page(
         commit: commit_sha,
         root: home,
     };
-    let Some(outcome) = materialize_tree(
-        provider,
-        &snapshot,
-        page.entries,
-        offset,
-        &scope.path,
-        context,
-    )
-    .await?
+    let Some(outcome) =
+        materialize_tree(provider, &snapshot, selection, offset, &scope.path, context).await?
     else {
         return Ok(None);
     };
-    let resume = match outcome.next_offset {
-        Some(offset) => Some(MaterializeResume {
-            page: page.current,
-            offset,
-        }),
-        None => page.has_more().then_some(MaterializeResume {
-            page: page.current + 1,
-            offset: 0,
-        }),
-    };
+    let resume = outcome
+        .next_offset
+        .map(|offset| MaterializeResume { offset });
     let mut warnings = outcome.warnings;
     // Folders at the listing's depth are listed, not written: say so, so a
     // local search below them is not mistaken for absence.
-    let unwritten = unwritten_folders(page.entries, scope);
+    let unwritten = unwritten_folders(selection, scope);
     if let Some(first) = unwritten.first() {
         warnings.push(format!(
             "{} listed folder(s) at maxDepth {} were not written.",
@@ -76,17 +64,18 @@ pub(super) async fn materialize_page(
             .map_or_else(Vec::new, |paths| {
                 paths.iter().filter_map(Value::as_str).collect::<Vec<_>>()
             });
-        let end = outcome.next_offset.unwrap_or(page.entries.len());
-        let written = page.entries[..end]
+        let end = outcome.next_offset.unwrap_or(selection.len());
+        let written = selection[..end]
             .iter()
             .filter(|entry| !skipped.contains(&entry.path.as_str()));
         if let Some(read) = local_entry_read(query, written, scope, Path::new(local)) {
             value["calls"]["read"] = read;
         }
     }
-    // The checkout is complete only when this listing wrote everything it
-    // names: no later page or offset, no folder below the depth, no skip.
-    let finished = resume.is_none() && unwritten.is_empty() && !outcome.skipped;
+    // The checkout is complete when this listing wrote everything it can name
+    // as text: no offset left, no folder below the depth, and no file skipped
+    // but those that are not text (`location.skipped` still names them).
+    let finished = resume.is_none() && unwritten.is_empty() && !outcome.gap;
     location["coverage"] = json!({"state": if finished { "complete" } else { "partial" }});
     value["location"] = location;
     if !unwritten.is_empty() {
@@ -97,6 +86,9 @@ pub(super) async fn materialize_page(
         );
     }
     crate::response::paging::push_warnings(value, warnings);
+    if let Some(hint) = outcome.hint {
+        value["hints"] = json!([hint]);
+    }
     Ok(resume)
 }
 
@@ -142,9 +134,9 @@ pub(super) fn expand_depth(
     Ok(continuation(next))
 }
 
+/// Where in the selection a continuation resumes.
 #[derive(Clone, Copy)]
 pub(super) struct MaterializeResume {
-    pub(super) page: usize,
     pub(super) offset: usize,
 }
 
@@ -161,18 +153,14 @@ pub(super) fn mark_materialize_partial(value: &mut Value) {
     );
 }
 
-pub(super) const MATERIALIZE_FILE_CAP: usize = 50;
-
-pub(super) const MATERIALIZE_FILE_BYTES: usize = 300 * 1024;
-
-pub(super) const MATERIALIZE_TOTAL_BYTES: usize = 5 * 1024 * 1024;
-
 pub(super) struct MaterializeOutcome {
     pub(super) location: Value,
     pub(super) next_offset: Option<usize>,
     pub(super) warnings: Vec<String>,
-    /// Files the page could not write (`location.skipped`).
-    pub(super) skipped: bool,
+    /// A skip that leaves text unwritten (`location.skipped`): not a binary.
+    pub(super) gap: bool,
+    /// What a skip of only binaries says: complete, with their names.
+    pub(super) hint: Option<String>,
 }
 
 /// The commit a materialize writes, and the Octocode home it writes under.
@@ -196,10 +184,11 @@ pub(crate) fn materialize_root(home: &Path) -> PathBuf {
 }
 
 /// Write `entries[offset..]` under the locked, content-verified snapshot,
-/// reading up to [`READ_CONCURRENCY`] files ahead and writing them in
-/// listing order, so the write caps stop at the same entry as a serial
-/// walk. Every requested file is acquired from GitHub; returned files remain
-/// available for inspection. `location.localPath` is the listed directory.
+/// reading up to [`READ_CONCURRENCY`] files ahead and writing them in listing
+/// order. The call's own limits stop the walk, never a count of files or bytes:
+/// past three quarters of its time, or at a rate limit or deadline, it resumes
+/// from that entry with what it wrote kept, so the row still reaches its
+/// caller. `location.localPath` is the listed directory.
 pub(super) async fn materialize_tree(
     provider: &GitHubProvider,
     snapshot: &Snapshot<'_>,
@@ -213,13 +202,20 @@ pub(super) async fn materialize_tree(
     }
     let mut store = Store::open(snapshot, context).await?;
     let root = store.root.clone();
+    let now = std::time::Instant::now();
+    let time_left = context
+        .budget
+        .effective_deadline()
+        .saturating_duration_since(now);
+    let stop_at = now + time_left.mul_f64(0.75);
+    let read_limit = context.budget.max_body_bytes;
     let mut writer = MaterializeWriter {
         root: &root,
         home: snapshot.root,
         written: 0,
-        total_bytes: 0,
         cursor: offset,
-        skips: MaterializeSkips::default(),
+        stopped: None,
+        skips: MaterializeSkips::new(read_limit),
         recorded: Vec::new(),
     };
     {
@@ -231,10 +227,9 @@ pub(super) async fn materialize_tree(
                 if entry.kind != EntryKind::File {
                     return (entry, Acquired::NotAFile);
                 }
-                if entry
-                    .size
-                    .is_some_and(|size| size > MATERIALIZE_FILE_BYTES as u64)
-                {
+                // Past what this call may read, by its listed size: asking
+                // would spend a request on the same refusal.
+                if entry.size.is_some_and(|size| size > read_limit as u64) {
                     return (entry, Acquired::Oversized);
                 }
                 // Bytes, admitted by the one text rule: a file it refuses
@@ -258,7 +253,7 @@ pub(super) async fn materialize_tree(
             })
             .buffered(READ_CONCURRENCY);
         while let Some((entry, read)) = reads.next().await {
-            if !writer.write(entry, read).await? {
+            if std::time::Instant::now() >= stop_at || !writer.write(entry, read).await? {
                 break;
             }
         }
@@ -275,15 +270,16 @@ pub(super) async fn materialize_tree(
     let mut location = json!({
         "localPath": local.to_string_lossy(),
         "coverage": {"state": if has_more { "partial" } else { "complete" }}});
-    let warnings = writer.skips.warnings();
-    let skipped = !writer.skips.is_empty();
-    if skipped {
+    let mut warnings = writer.skips.warnings();
+    warnings.extend(writer.stopped.take());
+    if !writer.skips.is_empty() {
         location["skipped"] = json!(writer.skips.paths());
     }
     Ok(Some(MaterializeOutcome {
         location,
         next_offset: has_more.then_some(writer.cursor),
         warnings,
-        skipped,
+        gap: writer.skips.leaves_a_gap(),
+        hint: writer.skips.binary_hint(),
     }))
 }

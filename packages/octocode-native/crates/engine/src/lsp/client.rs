@@ -7,13 +7,14 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::{
     Arc, Mutex as StdMutex,
-    atomic::{AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
 };
 use tokio::process::Child;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 
+mod absence;
 mod lifecycle;
 mod open_documents;
 mod project_loads;
@@ -29,6 +30,7 @@ mod waits;
 mod watched;
 
 use open_documents::{MAX_OPEN_DOCUMENTS, OpenDocuments};
+pub use absence::{AskedAt, EmptyAnswer};
 pub use requests::LocationRequest;
 pub use snippets::{SNIPPET_CONTENT_WITHHELD, SnippetPathAuthorizer, SnippetReadPolicy};
 pub use waits::ServerWaits;
@@ -84,6 +86,12 @@ struct NativeLspClientInner {
     /// What callers waited on here: the start and the project loads.
     waits: StdMutex<waits::Waits>,
     progress: Arc<ProgressTracker>,
+    /// One more than the progress begun when the server was last shown idle
+    /// (`0`: never), see `absence.rs`.
+    idle_at_begin: AtomicU64,
+    /// A load outlasted the wait of an empty answer and has not been shown
+    /// over since.
+    load_outlasted: AtomicBool,
     /// Projects whose first open already waited (see `project_loads.rs`).
     project_loads: StdMutex<project_loads::ProjectLoads>,
     /// In-flight requests, document syncs, diagnostic waits, and caller
@@ -202,6 +210,8 @@ impl NativeLspClient {
                 readiness: StdMutex::new(None),
                 waits: StdMutex::default(),
                 progress: ProgressTracker::new(),
+                idle_at_begin: AtomicU64::new(0),
+                load_outlasted: AtomicBool::new(false),
                 project_loads: StdMutex::default(),
                 activity: Arc::new(AtomicUsize::new(0)),
                 sync_lock: Mutex::new(()),
@@ -252,6 +262,8 @@ impl NativeLspClient {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *readiness = None;
         }
+        self.inner.idle_at_begin.store(0, Ordering::Release);
+        self.inner.load_outlasted.store(false, Ordering::Release);
         self.inner
             .project_loads
             .lock()

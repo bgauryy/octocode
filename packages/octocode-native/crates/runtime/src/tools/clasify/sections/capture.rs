@@ -342,6 +342,29 @@ mod tests {
         assert!(SafeSource::from_redacted("a\nb", "a b").is_err());
     }
 
+    /// What a section is planned from, by the steps of [`SafeSource::new`]:
+    /// no part of an RFC 4716 key's body reaches any slice of it.
+    #[test]
+    fn an_rfc4716_key_body_reaches_no_section() {
+        use crate::security::scan::ContentScan;
+        let body = "UvImZaYMEtKJGF2VDuiBNgkWb2sRPReNbA/TkB/yOaGglfIPk5VlDPk4C47bIkpr";
+        let raw = format!(
+            "one\n---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----\nComment: \"fake\"\n{body}\n---- END SSH2 ENCRYPTED PRIVATE KEY ----\nlast\n"
+        );
+        let security = crate::security::ContentSecurity::new();
+        let (blocks, _) = security.redact_key_blocks(&raw);
+        let (safe, _) = security
+            .redact_source_lines(&blocks, std::path::Path::new("k.txt"))
+            .expect("sanitized");
+        let source = SafeSource::from_redacted(&raw, &safe).expect("stable line geometry");
+        let whole = source.slice(&(0..raw.len())).expect("whole source");
+        assert!(!whole.contains(body), "{whole}");
+        assert!(
+            whole.starts_with("one\n") && whole.ends_with("last\n"),
+            "{whole}"
+        );
+    }
+
     #[test]
     fn redaction_is_whole_line_or_explicitly_unavailable_never_a_partial_secret() {
         let raw = "🙂 safe\r\nsecret=original\nעברית\n";

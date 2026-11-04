@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{EntryKind, is_sensitive_path, sensitive_directory};
+use super::{EntryKind, folded, is_sensitive_path, sensitive_directory};
 
 /// What a walk's path policy withheld: each security-policy directory name
 /// with how many directories it matched, how many credential files, how
@@ -31,7 +31,8 @@ impl Withheld {
             return;
         }
         let aliases = octocode_engine::text::slash_path(path);
-        let own = aliases.rsplit('/').next().unwrap_or_default();
+        let own = folded(aliases.rsplit('/').next().unwrap_or_default());
+        let own = own.as_ref();
         match sensitive_directory(&aliases) {
             Some(".git") if !is_dir && own == ".git" => self.git_files += 1,
             Some(dir) if is_dir || own != dir => *self.dirs.entry(dir).or_default() += 1,

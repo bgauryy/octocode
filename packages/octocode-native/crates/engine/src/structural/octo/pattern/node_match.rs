@@ -2,15 +2,26 @@
 
 use tree_sitter::Node;
 
+use crate::structural::language::Expando;
 use crate::structural::octo::matching::{
     CaptureEnv, ExecutionError, children, node_text, raw_range,
 };
-use crate::structural::octo::metavars::{MetaVar, meta_from_node, minimum_candidate_nodes};
+use crate::structural::octo::metavars::{MetaVar, meta_from_node};
 
+use super::unsaid::{Declaration, ParameterSlot, Unsaid, is_longer_form, wrapped_capture};
 use super::{CompiledPattern, MatchBudget};
+
+mod multi;
 
 /// Native recursion guard for pattern matching; AST traversal is iterative.
 const MAX_STRUCTURAL_DEPTH: usize = 500;
+
+/// The source text of each side of a match.
+#[derive(Clone, Copy)]
+pub(super) struct Texts<'s> {
+    pub(super) pattern: &'s str,
+    pub(super) candidate: &'s str,
+}
 
 impl CompiledPattern {
     // `depth` guards native-stack growth against pathologically nested patterns
@@ -19,9 +30,8 @@ impl CompiledPattern {
     pub(super) fn match_node(
         &self,
         pattern: Node<'_>,
-        pattern_source: &str,
         candidate: Node<'_>,
-        candidate_source: &str,
+        texts: Texts<'_>,
         captures: &mut CaptureEnv,
         depth: usize,
         budget: &mut MatchBudget,
@@ -34,7 +44,7 @@ impl CompiledPattern {
                 "Structural pattern matching exceeded its recursion limit",
             ));
         }
-        if let Some(meta) = meta_from_node(pattern, pattern_source, self.expando) {
+        if let Some(meta) = meta_from_node(pattern, texts.pattern, self.expando) {
             // A MISSING node is tree-sitter's zero-width error-recovery
             // placeholder for a token the grammar expected but the source
             // never had. A bare metavar (`$X`/`$_`) would otherwise bind to
@@ -49,7 +59,7 @@ impl CompiledPattern {
             return Ok(match meta {
                 MetaVar::Single(name) => captures.capture_one(
                     name,
-                    node_text(candidate, candidate_source),
+                    node_text(candidate, texts.candidate),
                     raw_range(candidate),
                 ),
                 MetaVar::IgnoredSingle => true,
@@ -57,51 +67,75 @@ impl CompiledPattern {
             });
         }
 
-        if pattern.kind() != candidate.kind() {
+        if pattern.kind() != candidate.kind() && !is_longer_form(pattern, candidate.kind()) {
             return Ok(false);
         }
-
-        // Drop MISSING nodes from the PATTERN's own children before comparing
-        // shape. A MISSING node is tree-sitter's zero-width error-recovery
-        // stand-in for a token the grammar expected but never got — it can
-        // never represent user intent (nobody types a "missing token" into a
-        // pattern string). It shows up here specifically because some
-        // grammars parse a bare `$$$NAME`/`$X` expando identifier at
-        // statement position ambiguously (e.g. C/C++/C# treat an
-        // unrecognized identifier as the start of a declaration and then
-        // expect a trailing `;`) — the compiled pattern's root itself is not
-        // `is_error()` (so `CompiledPattern::new` accepts it), but the
-        // MISSING sibling it left behind can never match any real candidate
-        // child, which silently broke every `{ $$$BODY }`-shaped pattern for
-        // those grammars. The candidate side is deliberately left as-is: a
-        // MISSING token in the real document being searched is genuine
-        // evidence of broken source and must still fail to match.
-        let pattern_children: Vec<Node<'_>> = children(pattern)
-            .into_iter()
-            .filter(|node| !node.is_missing())
-            .collect();
-        let candidate_children = children(candidate);
+        let (pattern_children, candidate_children) =
+            child_lists(pattern, candidate, texts.pattern, self.expando);
         if pattern_children.is_empty() && candidate_children.is_empty() {
-            return Ok(node_text(pattern, pattern_source) == node_text(candidate, candidate_source));
+            return Ok(node_text(pattern, texts.pattern) == node_text(candidate, texts.candidate));
         }
-
+        let unsaid = Unsaid::of(pattern, candidate, texts.pattern, self.expando);
         self.match_child_list(
             &pattern_children,
-            pattern_source,
             &candidate_children,
-            candidate_source,
+            &unsaid,
+            texts,
             captures,
             depth,
             budget,
         )
     }
 
+    /// One pattern child against one candidate child of a declaration: a type's
+    /// body reads its members as held, a declarator the function under it, a
+    /// capture's wrapper the other form of its slot, anything else as itself.
+    fn match_declaration_part(
+        &self,
+        declaration: &Declaration,
+        part: Node<'_>,
+        candidate: Node<'_>,
+        texts: Texts<'_>,
+        captures: &mut CaptureEnv,
+        depth: usize,
+        budget: &mut MatchBudget,
+    ) -> Result<bool, ExecutionError> {
+        if declaration.is_member_body(part) {
+            if part.kind() != candidate.kind() {
+                return Ok(false);
+            }
+            let (pattern_children, candidate_children) =
+                child_lists(part, candidate, texts.pattern, self.expando);
+            return self.match_child_list(
+                &pattern_children,
+                &candidate_children,
+                &Unsaid::Members,
+                texts,
+                captures,
+                depth + 1,
+                budget,
+            );
+        }
+        let candidate = declaration
+            .under_declarator(part, candidate)
+            .unwrap_or(candidate);
+        if let Some((capture, wrapped)) = wrapped_capture(
+            part,
+            candidate,
+            (texts.pattern, texts.candidate),
+            self.expando,
+        ) {
+            return self.match_node(capture, wrapped, texts, captures, depth + 1, budget);
+        }
+        self.match_node(part, candidate, texts, captures, depth + 1, budget)
+    }
+
     fn match_child_list(
         &self,
         mut pattern_children: &[Node<'_>],
-        pattern_source: &str,
         mut candidate_children: &[Node<'_>],
-        candidate_source: &str,
+        unsaid: &Unsaid,
+        texts: Texts<'_>,
         captures: &mut CaptureEnv,
         depth: usize,
         budget: &mut MatchBudget,
@@ -126,7 +160,7 @@ impl CompiledPattern {
             let Some(first) = pattern_children.first().copied() else {
                 break true;
             };
-            let multi = match meta_from_node(first, pattern_source, self.expando) {
+            let multi = match meta_from_node(first, texts.pattern, self.expando) {
                 Some(MetaVar::Multi(name)) => Some(name),
                 Some(MetaVar::IgnoredMulti) => Some(None),
                 _ => None,
@@ -135,30 +169,80 @@ impl CompiledPattern {
                 break self.match_multi_capture(
                     name,
                     &pattern_children[1..],
-                    pattern_source,
                     candidate_children,
-                    candidate_source,
+                    unsaid,
+                    texts,
                     captures,
                     depth + 1,
                     budget,
                 )?;
             }
-            let Some(candidate_first) = candidate_children.first().copied() else {
+            let candidate_first = candidate_children.first().copied();
+            if let Unsaid::Declaration(declaration) = unsaid {
+                match declaration.parameter_slot(
+                    first,
+                    candidate_first,
+                    texts.pattern,
+                    self.expando,
+                ) {
+                    ParameterSlot::Usual => {}
+                    ParameterSlot::Absent(name) => {
+                        if !bind_parameters(name, &[], texts, captures) {
+                            break false;
+                        }
+                        pattern_children = &pattern_children[1..];
+                        continue;
+                    }
+                    ParameterSlot::Spelled(name) => {
+                        if !bind_parameters(name, &candidate_children[..1], texts, captures) {
+                            break false;
+                        }
+                        pattern_children = &pattern_children[1..];
+                        candidate_children = &candidate_children[1..];
+                        continue;
+                    }
+                }
+            }
+            let Some(candidate_first) = candidate_first else {
                 break false;
             };
-            if !self.match_node(
-                first,
-                pattern_source,
-                candidate_first,
-                candidate_source,
-                captures,
-                depth + 1,
-                budget,
-            )? {
+            let (part_matched, skips) = match unsaid {
+                Unsaid::Exact => (
+                    self.match_node(first, candidate_first, texts, captures, depth + 1, budget)?,
+                    is_skippable_candidate(candidate_first),
+                ),
+                Unsaid::Members => (
+                    self.match_node(first, candidate_first, texts, captures, depth + 1, budget)?,
+                    true,
+                ),
+                Unsaid::Declaration(declaration) => {
+                    let skips = is_skippable_candidate(candidate_first)
+                        || declaration.leaves_unsaid(candidate_first, pattern_children);
+                    // A part in a field reads only the candidate's child in
+                    // that field: a capture does not bind the modifier or
+                    // token before it.
+                    let other_slot = declaration.field_of_pattern(first).is_some_and(|field| {
+                        declaration.field_of_candidate(candidate_first) != Some(field)
+                    });
+                    let matched = !other_slot
+                        && self.match_declaration_part(
+                            declaration,
+                            first,
+                            candidate_first,
+                            texts,
+                            captures,
+                            depth,
+                            budget,
+                        )?;
+                    (matched, skips)
+                }
+            };
+            if !part_matched {
                 // Smart strictness again: every pattern node must match, but
-                // candidate trivia the pattern did not spell (punctuation,
-                // comments) is skipped rather than failing the match.
-                if is_skippable_candidate(candidate_first) {
+                // what the pattern did not spell (punctuation, comments, a
+                // declaration's unsaid parts) is skipped rather than failing
+                // the match.
+                if skips {
                     candidate_children = &candidate_children[1..];
                     continue;
                 }
@@ -172,129 +256,62 @@ impl CompiledPattern {
         }
         Ok(matched)
     }
+}
 
-    fn match_multi_capture(
-        &self,
-        name: Option<&str>,
-        remaining_pattern: &[Node<'_>],
-        pattern_source: &str,
-        candidate_children: &[Node<'_>],
-        candidate_source: &str,
-        captures: &mut CaptureEnv,
-        depth: usize,
-        budget: &mut MatchBudget,
-    ) -> Result<bool, ExecutionError> {
-        if self.match_multi_split(
+/// Each node's children to compare.
+///
+/// MISSING nodes drop from the PATTERN's own children. A MISSING node is
+/// tree-sitter's zero-width error-recovery stand-in for a token the grammar
+/// expected but never got, which never represents user intent (nobody types a
+/// "missing token" into a pattern string). It shows up because some grammars
+/// parse a bare `$$$NAME`/`$X` expando identifier at statement position
+/// ambiguously (C/C++/C# treat an unrecognized identifier as the start of a
+/// declaration and then expect a trailing `;`): the compiled pattern's root is
+/// not `is_error()`, but the MISSING sibling it left behind could never match
+/// a real candidate child. The candidate side is left as-is: a MISSING token
+/// in the searched document is genuine evidence of broken source and must
+/// still fail to match.
+///
+/// So does a lone `;` right after a `$$$`: the terminator a grammar needed to
+/// parse the capture (`CompiledPattern::new`), which the caller did not write.
+fn child_lists<'p, 'c>(
+    pattern: Node<'p>,
+    candidate: Node<'c>,
+    source: &str,
+    expando: Expando,
+) -> (Vec<Node<'p>>, Vec<Node<'c>>) {
+    let mut after_multi = false;
+    let pattern_children = children(pattern)
+        .into_iter()
+        .filter(|node| {
+            if node.is_missing() {
+                return false;
+            }
+            let terminator = after_multi && node_text(*node, source) == ";";
+            after_multi = matches!(
+                meta_from_node(*node, source, expando),
+                Some(MetaVar::Multi(_) | MetaVar::IgnoredMulti)
+            );
+            !terminator
+        })
+        .collect();
+    (pattern_children, children(candidate))
+}
+
+/// Fill an any-parameters list with the nodes the candidate holds there.
+fn bind_parameters(
+    name: Option<&str>,
+    nodes: &[Node<'_>],
+    texts: Texts<'_>,
+    captures: &mut CaptureEnv,
+) -> bool {
+    name.is_none_or(|name| {
+        captures.capture_many(
             name,
-            remaining_pattern,
-            pattern_source,
-            candidate_children,
-            candidate_source,
-            captures,
-            depth,
-            budget,
-            0,
-        )? {
-            return Ok(true);
-        }
-        // As in ast-grep, punctuation the pattern spells right after `$$$` is
-        // optional: `f($$$A, x)` matches `f(x)` and `f(1, $$$M, 3)` matches
-        // `f(1, 3)`. The skipped tokens never extend the capture.
-        let skipped = remaining_pattern
-            .iter()
-            .take_while(|node| !node.is_named())
-            .count();
-        if skipped == 0 {
-            return Ok(false);
-        }
-        self.match_multi_split(
-            name,
-            &remaining_pattern[skipped..],
-            pattern_source,
-            candidate_children,
-            candidate_source,
-            captures,
-            depth,
-            budget,
-            skipped,
+            nodes.iter().map(|node| node_text(*node, texts.candidate)),
+            || nodes.iter().map(|node| raw_range(*node)).collect(),
         )
-    }
-
-    /// Try every split of `candidate_children` between a `$$$` capture and
-    /// `remaining_pattern`, shortest capture first. A trailing `$$$` takes
-    /// every remaining candidate. Up to `trim` anonymous tokens at the end
-    /// of a taken run stay out of the capture.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the recursive matcher threads its state flat on purpose (see clippy.toml)"
-    )]
-    fn match_multi_split(
-        &self,
-        name: Option<&str>,
-        remaining_pattern: &[Node<'_>],
-        pattern_source: &str,
-        candidate_children: &[Node<'_>],
-        candidate_source: &str,
-        captures: &mut CaptureEnv,
-        depth: usize,
-        budget: &mut MatchBudget,
-        trim: usize,
-    ) -> Result<bool, ExecutionError> {
-        let min_remaining =
-            minimum_candidate_nodes(remaining_pattern, pattern_source, self.expando);
-        if candidate_children.len() < min_remaining {
-            return Ok(false);
-        }
-        let max_take = candidate_children.len() - min_remaining;
-        let min_take = if remaining_pattern.is_empty() {
-            max_take
-        } else {
-            0
-        };
-        for take in min_take..=max_take {
-            ExecutionError::check(budget.deadline)?;
-            // Each split point is one unit of the shared backtracking budget;
-            // exhausting it bails the whole match rather than continuing to
-            // explore a combinatorial split space.
-            if budget.attempts == 0 {
-                return Err(ExecutionError::limit(
-                    "structural.match.backtrackingLimit",
-                    "match",
-                    "Structural matching exhausted its split-attempt budget",
-                ));
-            }
-            budget.attempts -= 1;
-            let checkpoint = captures.checkpoint();
-            if let Some(name) = name {
-                let mut taken = &candidate_children[..take];
-                for _ in 0..trim {
-                    match taken.split_last() {
-                        Some((last, rest)) if !last.is_named() => taken = rest,
-                        _ => break,
-                    }
-                }
-                let texts = taken.iter().map(|node| node_text(*node, candidate_source));
-                if !captures.capture_many(name, texts, || {
-                    taken.iter().map(|node| raw_range(*node)).collect()
-                }) {
-                    continue;
-                }
-            }
-            if self.match_child_list(
-                remaining_pattern,
-                pattern_source,
-                &candidate_children[take..],
-                candidate_source,
-                captures,
-                depth,
-                budget,
-            )? {
-                return Ok(true);
-            }
-            captures.rollback(checkpoint);
-        }
-        Ok(false)
-    }
+    })
 }
 
 /// Candidate nodes a pattern need not spell: anonymous tokens and extras

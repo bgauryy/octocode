@@ -66,7 +66,6 @@ struct Session {
 
 pub(super) struct Outcome {
     pub output: Value,
-    pub usage: ClassificationUsage,
 }
 
 fn unavailable(message: &str) -> ClassificationError {
@@ -141,10 +140,7 @@ pub(super) fn run(
             output["usage"] = serde_json::to_value(ClassificationUsage::default().output())
                 .unwrap_or(Value::Null);
             output["replayed"] = json!(true);
-            return Ok(Outcome {
-                output,
-                usage: ClassificationUsage::default(),
-            });
+            return Ok(Outcome { output });
         }
         if ordinal != session.batches.len() {
             return Err(bad_token(
@@ -188,7 +184,7 @@ pub(super) fn run(
                 input,
                 dispatcher,
                 context,
-                crate::cache::MEMORY.limit(),
+                octocode_engine::memory::MEMORY.limit(),
                 &shared.captures,
             )?,
             0,

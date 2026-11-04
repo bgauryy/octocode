@@ -18,7 +18,6 @@ fn directory_scan_options(
 ) -> GraphFactsScanOptions {
     GraphFactsScanOptions {
         path: canonical.to_string_lossy().into_owned(),
-        exclude_dir: None,
         default_exclude_dir: Some(prune::walk_names(q.default_excludes.defaults(), &[])),
         exclude: ast_search_query_symbols::exclude(q),
         max_files: crate::tools::ast_search::scan_window::window_files(

@@ -6,7 +6,7 @@ Octocode exposes text, file structure, syntax, semantic locations, history, pack
 
 Core authors schemas, descriptions, defaults and limits. Config generates the embedded contract and types. Native validates and executes every tool; CLI and MCP launchers carry no tool logic. Tool names are stable across surfaces. [Tool reference](OCTOCODE_TOOLS.md).
 
-New calls contain `queries` and an optional `responseChars`; resumed calls contain only an emitted `cursor`. Shared concepts use the same types: matcher arrays, before/after context, inclusive line-range objects, typed filter bounds, and by/order sorting. Unknown fields and incompatible variants fail before execution. There is no alternate shorthand language or compatibility conversion.
+New calls contain `queries` and an optional `responseChars`; resumed calls contain only an emitted `cursor`. Shared concepts use the same types: matcher arrays, before/after context, inclusive line-range objects, typed filter bounds, and by/order sorting. Unknown fields and incompatible variants fail before execution; a shape or value with one lossless reading is repaired, and anything ambiguous is rejected.
 
 ## Research loop
 

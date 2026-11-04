@@ -117,24 +117,30 @@ fn grouped_partial_answers_preserve_siblings_and_count_the_post_once() {
 }
 
 #[test]
-fn questions_group_only_within_the_headroom() {
+fn multibyte_state_within_the_window_stays_one_grouped_request() {
+    // 28,000 CJK chars fit the 32,000-char short window but serialize to ~84 KB:
+    // the byte size must not split questions the window accepts.
+    let state = json!("漢".repeat(28_000));
+    let questions = vec![json!({"type":"noul","instructions":"q"}); 5];
+    let (request, _) = grouped(text_input(&state, &questions), "m", jev())
+        .expect("one request carries every question");
+    assert_eq!(request["questions"].as_object().unwrap().len(), 5);
+}
+
+#[test]
+fn questions_group_until_the_body_ceiling() {
     let questions = vec![json!({"type":"noul","instructions":"q"}); 3];
     assert!(grouped(text_input(&json!("small"), &questions), "m", jev()).is_some());
-    let large = json!("x".repeat(MAX_STATE_AND_QUESTION_BYTES));
-    assert!(grouped(text_input(&large, &questions), "m", jev()).is_none());
-    // Each request alone fits; the five long questions together do not.
-    let long = vec![json!({"type":"noul","instructions":"q".repeat(20 * 1024)}); 5];
-    assert!(
-        grouped(text_input(&json!("x".repeat(30 * 1024)), &long), "m", jev()).is_none(),
-        "each fits alone but the group does not"
-    );
+    let over = json!("x".repeat(MAX_TEXT_REQUEST_BYTES));
+    assert!(grouped(text_input(&over, &questions), "m", jev()).is_none());
 }
 
 #[test]
 fn images_share_one_request_without_counting_base64_as_text_context() {
     let state = json!("opaque");
     let questions = [json!({"type":"box"}), json!({"type":"noul"})];
-    let assets = json!({"opaque":{"type":"image","format":"png","data_base64":"A".repeat(MAX_GROUP_BYTES + 1)}});
+    let assets =
+        json!({"opaque":{"type":"image","format":"png","data_base64":"A".repeat(120 * 1024 + 1)}});
     let input = EvaluationInput {
         assets: Some(&assets),
         ..text_input(&state, &questions)
@@ -142,28 +148,9 @@ fn images_share_one_request_without_counting_base64_as_text_context() {
     let (request, body) =
         grouped(input, "vision", jev()).expect("one image shared by both questions");
     assert_eq!(request["assets"], assets);
-    assert!(body.len() > MAX_GROUP_BYTES);
+    assert!(body.len() > 120 * 1024);
     assert_eq!(request["questions"].as_object().unwrap().len(), 2);
     assert!(max_request_bytes(input) > MAX_TEXT_REQUEST_BYTES);
-}
-
-#[test]
-fn long_context_opt_in_keeps_questions_batched_over_large_text() {
-    let state = json!("x".repeat(MAX_STATE_AND_QUESTION_BYTES + 1));
-    let questions = [json!({"type":"noul"}), json!({"type":"noul"})];
-    let input = text_input(&state, &questions);
-    assert!(grouped(input, "m", jev()).is_none());
-    assert!(
-        grouped(
-            EvaluationInput {
-                long_context: true,
-                ..input
-            },
-            "m",
-            jev()
-        )
-        .is_some()
-    );
 }
 
 #[test]

@@ -20,7 +20,7 @@ use std::time::Instant;
 /// line can allocate unbounded. Files above [`DEFAULT_MAX_SEARCH_FILE_BYTES`](super::DEFAULT_MAX_SEARCH_FILE_BYTES)
 /// are already skipped, so this only bounds a within-ceiling pathological line;
 /// exceeding it fails that file (recorded as an error), never the whole search.
-const SEARCH_HEAP_LIMIT_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const SEARCH_HEAP_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Largest pre-NUL prefix re-searched when a file is quit as binary. The
 /// searcher drops the whole buffer that holds the first NUL, so matches before
@@ -107,22 +107,28 @@ pub(super) fn hashed_source(
     meta: &std::fs::Metadata,
 ) -> Option<SearchedSource> {
     use std::io::{Read, Seek, SeekFrom};
+    thread_local! {
+        /// One read buffer per search worker, not one per kept file.
+        static HASH_BUFFER: std::cell::RefCell<Vec<u8>> =
+            std::cell::RefCell::new(vec![0u8; 64 * 1024]);
+    }
     let mut hasher = Sha256::new();
     let mut len = 0u64;
-    let mut buf = vec![0u8; 64 * 1024];
     let mut handle = file;
     handle.seek(SeekFrom::Start(0)).ok()?;
-    loop {
-        match handle.read(&mut buf) {
-            Ok(0) => break,
-            Ok(read) => {
-                hasher.update(&buf[..read]);
-                len += read as u64;
+    HASH_BUFFER.with_borrow_mut(|buf| {
+        loop {
+            match handle.read(buf) {
+                Ok(0) => return Some(()),
+                Ok(read) => {
+                    hasher.update(&buf[..read]);
+                    len += read as u64;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => return None,
             }
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(_) => return None,
         }
-    }
+    })?;
     let after = file.metadata().ok()?;
     let modified = meta.modified().ok();
     (len == meta.len() && after.len() == len && after.modified().ok() == modified).then(|| {
@@ -332,6 +338,45 @@ impl<M: Matcher> FileSearcher<'_, M> {
             bytes,
             eof: tap.eof,
         });
+        Ok(outcome)
+    }
+
+    /// [`Self::search`] over a file's bytes read once for several matchers,
+    /// through the same line buffer, so a NUL ends it where it ends a read of
+    /// the file. Only for a search with no per-file scope ([`super::listable`]).
+    pub(super) fn search_held(&mut self, bytes: &[u8]) -> std::io::Result<FileOutcome> {
+        let mut sink = CollectSink::new(
+            self.matcher,
+            self.work,
+            self.deadline,
+            self.stop,
+            (self.words, self.terms),
+        );
+        self.searcher
+            .search_reader(self.matcher, bytes, &mut sink)?;
+        let offset = sink
+            .binary_offset
+            .filter(|offset| *offset != 0 && *offset <= MAX_BINARY_PREFIX_BYTES);
+        let Some(offset) = offset else {
+            return Ok(FileOutcome::from(sink));
+        };
+        let prefix =
+            &bytes[..usize::try_from(offset).map_or(bytes.len(), |at| at.min(bytes.len()))];
+        let (opts, context) = (self.opts, self.context);
+        let prefix_searcher = self
+            .prefix_searcher
+            .get_or_insert_with(|| build_searcher(opts, context, BinaryDetection::none()));
+        let mut prefix_sink = CollectSink::new(
+            self.matcher,
+            self.work,
+            self.deadline,
+            self.stop,
+            (self.words, self.terms),
+        );
+        prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
+        let mut outcome = FileOutcome::from(prefix_sink);
+        outcome.binary = true;
+        outcome.opaque = is_leading_binary(prefix, outcome.matched_lines > 0);
         Ok(outcome)
     }
 }

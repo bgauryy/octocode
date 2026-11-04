@@ -99,16 +99,11 @@ impl NativeLspClient {
                 .min(MAX_OPEN_READY_TIMEOUT_MS),
         );
         let waiting_since = tokio::time::Instant::now();
-        let readiness = crate::lsp::diagnostics::Phase::OpenReadiness
-            .measure(async {
-                Ok::<_, crate::error::Error>(
-                    self.inner
-                        .progress
-                        .wait_until_idle_after(observed, settle_ms, timeout_ms)
-                        .await,
-                )
-            })
-            .await?;
+        let readiness = self
+            .inner
+            .progress
+            .wait_until_idle_after(observed, settle_ms, timeout_ms)
+            .await;
         self.record_wait(super::waits::WaitKind::Indexing, waiting_since);
         if let Some(pending) = pending {
             pending.finish(readiness);
@@ -131,12 +126,6 @@ impl NativeLspClient {
     /// Sync `content` for `file_path`: nothing is sent when the server
     /// already holds it.
     async fn sync_document(&self, file_path: &str, content: &str) -> Result<()> {
-        crate::lsp::diagnostics::Phase::DocumentSync
-            .measure(self.sync_document_inner(file_path, content))
-            .await
-    }
-
-    async fn sync_document_inner(&self, file_path: &str, content: &str) -> Result<()> {
         let file_path = file_path.to_owned();
         let uri = path_to_uri(&file_path)?;
         let _activity = self.lease();

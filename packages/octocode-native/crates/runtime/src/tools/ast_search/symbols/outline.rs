@@ -1,9 +1,10 @@
 use super::ast_search_query_symbols;
 use super::names::{NameFilter, names_equal, names_match};
-use super::rows::{compact_declarations, error_text, name_impl_traits};
+use super::rows::{compact_declarations, error_text, implemented_traits};
 use crate::response::result::ToolError;
 use octocode_contract_types::AstSearchQuerySymbols;
 use octocode_contract_types::ErrorCode;
+use octocode_engine::graph::GraphFactDeclaration;
 use octocode_engine::graph::{GraphFactCode, GraphFactDiagnostic};
 use serde_json::{Value, json};
 
@@ -39,14 +40,13 @@ pub(super) type Reduced = (Vec<Value>, Vec<Value>, Vec<GraphFactDiagnostic>);
 fn reduce_file<'a>(
     q: &AstSearchQuerySymbols,
     filter: Option<&NameFilter>,
-    mut declarations: Vec<Value>,
-    edges: impl Iterator<Item = (&'a str, &'a str, &'a str)>,
+    declarations: &[&GraphFactDeclaration],
+    (edges, provenance): (impl Iterator<Item = (&'a str, &'a str, &'a str)>, bool),
     notes: &[GraphFactDiagnostic],
     spans: &[[u32; 2]],
     source: impl FnOnce() -> Option<String>,
 ) -> Reduced {
-    name_impl_traits(&mut declarations, edges);
-    let mut rows = compact_declarations(&declarations);
+    let mut rows = compact_declarations(declarations, &implemented_traits(edges), provenance);
     let mut off_kind = vec![];
     rows.retain_mut(|row| {
         if filter.is_some_and(|filter| !names_match(filter, row)) {
@@ -104,16 +104,6 @@ pub(super) fn declarations(
 pub(in crate::tools::ast_search) static PARSED_FILES: std::sync::Mutex<Vec<String>> =
     std::sync::Mutex::new(Vec::new());
 
-/// The per-symbol provenance keys `includeProvenance` adds to a row.
-const PROVENANCE_KEYS: [&str; 6] = [
-    "occurrenceId",
-    "sourceDigest",
-    "sourceRange",
-    "sourceOrigin",
-    "selectionByteRange",
-    "selectionOrigin",
-];
-
 /// [`reduce_file`] over one file's declarations facts.
 /// A `testCode` scope keeps only the declarations on its side of the
 /// file at `path`.
@@ -127,56 +117,36 @@ pub(super) fn reduce_document(
     source: impl FnOnce() -> Option<String>,
     evidence: &mut super::super::evidence::FileEvidence<'_, '_, '_>,
 ) -> Result<Reduced, ToolError> {
-    let Ok(Value::Array(mut declarations)) = serde_json::to_value(&facts.declarations) else {
-        return Err(ToolError::new(
-            ErrorCode::ExecutionFailed,
-            "Could not encode declarations.",
-        ));
-    };
-    if let Some((scoped, path)) = scoped {
-        declarations.retain(|row| {
-            scoped.keeps(
-                path,
-                octocode_engine::num::saturating_u32(row["line"].as_u64().unwrap_or(0)),
-            )
-        });
-    }
+    let provenance = q.include_provenance.unwrap_or(false);
+    let kept: Vec<&GraphFactDeclaration> = facts
+        .declarations
+        .iter()
+        .filter(|d| scoped.is_none_or(|(scoped, path)| scoped.keeps(path, d.line)))
+        .collect();
     let (mut rows, mut off_kind, notes) = reduce_file(
         q,
         filter,
-        declarations,
-        facts
-            .edges
-            .iter()
-            .map(|edge| (edge.from.as_str(), edge.relation.as_str(), edge.to.as_str())),
+        &kept,
+        (
+            facts
+                .edges
+                .iter()
+                .map(|edge| (edge.from.as_str(), edge.relation.as_str(), edge.to.as_str())),
+            provenance,
+        ),
         &facts.diagnostics,
         &facts.error_lines,
         source,
     );
+    if !provenance {
+        return Ok((rows, off_kind, notes));
+    }
     let declarations = facts
         .declarations
         .iter()
         .map(|row| (row.id.as_str(), row))
         .collect::<std::collections::HashMap<_, _>>();
-    let provenance = q.include_provenance.unwrap_or(false);
     for row in rows.iter_mut().chain(&mut off_kind) {
-        if !provenance {
-            // Per-symbol provenance only on request (`includeProvenance`):
-            // without it the outline names each declaration once.
-            if let Some(fields) = row.as_object_mut() {
-                for key in PROVENANCE_KEYS {
-                    fields.shift_remove(key);
-                }
-                // A clean parse qualifies nothing; any other status stays.
-                if fields
-                    .get("parseAssessment")
-                    .is_some_and(|assessment| assessment["status"] == "parsed")
-                {
-                    fields.shift_remove("parseAssessment");
-                }
-            }
-            continue;
-        }
         let id = row["occurrenceId"].as_str().unwrap_or("");
         let declaration = declarations.get(id).ok_or_else(|| {
             ToolError::new(

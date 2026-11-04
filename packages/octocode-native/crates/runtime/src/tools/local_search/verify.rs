@@ -11,6 +11,7 @@ use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::num::saturating_u32;
 use octocode_engine::signatures::MAX_PARSE_SIZE;
 
+mod decoded;
 mod guard;
 pub(super) mod lines;
 mod redaction;

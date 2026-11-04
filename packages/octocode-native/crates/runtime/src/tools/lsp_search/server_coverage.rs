@@ -88,6 +88,9 @@ pub(super) fn annotate(
         record_text_coverage(row, query, scope);
     }
     match language_id {
+        // A workspace symbol is a declaration the server found: no use of it
+        // is missing (`workspace_symbols` says what the protocol cannot prove).
+        Some("python") if lsp_search_query::op(query) == Op::WorkspaceSymbol => {}
         Some("python") => annotate_python(row, query, scope),
         Some("rust") => {
             // A workspace symbol is a declaration the server found: no use

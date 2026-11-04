@@ -135,7 +135,7 @@ impl LspClientPool {
 /// How long a first request waits for the server's project load, per
 /// language. Built-in servers and the languages a user's `lsp-servers.json`
 /// commonly adds (sourcekit-lsp for Swift, bash-language-server) are listed.
-fn readiness_timeout(language_id: Option<&str>) -> Option<u32> {
+pub(super) fn readiness_timeout(language_id: Option<&str>) -> Option<u32> {
     use super::family::{is_c_family, is_typescript_family};
     // tsserver/typescript-language-server and pyright/jedi build a project
     // model before they can answer navigation queries; clangd parses the

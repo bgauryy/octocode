@@ -132,3 +132,35 @@ fn a_file_written_while_page_one_runs_stales_its_continuation() {
         }
     });
 }
+
+/// Once the scope is settled, repeating a fresh answer walks nothing: the
+/// server's answer and the importer scan are all that is left of the request,
+/// and the rows are the same. A new importer written between the two reaches
+/// the third answer, by the stamp of its directory.
+#[test]
+fn a_repeated_fresh_answer_walks_nothing_and_a_new_importer_is_found() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, execution) = importer_fixture_of(&[("f", 3)]);
+    octocode_engine::stamp::settle_written_so_far();
+    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let pool = fake_server_pool();
+        let (first, work) = counted(&pool, &root, &execution, references(&root), None).await;
+        assert_eq!(Work::get(&work.text_scans), 1, "the first answer walks");
+        assert_eq!(Work::get(&work.ignored_walks), 1, "the first answer walks");
+        let (again, work) = counted(&pool, &root, &execution, references(&root), None).await;
+        assert_eq!(Work::get(&work.text_scans), 0, "{again}");
+        assert_eq!(Work::get(&work.ignored_walks), 0, "{again}");
+        assert_eq!(again, first);
+
+        std::fs::write(
+            root.join("f900.ts"),
+            "import { target } from './a';\ntarget();\n",
+        )
+        .expect("new importer");
+        let (grown, work) = counted(&pool, &root, &execution, references(&root), None).await;
+        assert_eq!(Work::get(&work.text_scans), 1, "its directory changed");
+        assert!(lists_path(&grown, "f900.ts"), "{grown}");
+    });
+}

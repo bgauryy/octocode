@@ -15,12 +15,14 @@
 use crate::tools::source_view::local_fetch_query;
 mod edges;
 mod held;
+mod kept;
 mod matches;
 mod page;
 mod proven;
 mod ranges;
 mod scan;
 mod stream;
+mod unjudged;
 mod window;
 
 use crate::execution::cancel::CancellationCheck;
@@ -42,7 +44,7 @@ pub(super) const WINDOW_BYTES: usize = 4 * 1024 * 1024;
 /// View bytes a byte page's window keeps behind the page: the page finds its
 /// line's start and its secret-scan margin there, as in an in-memory read.
 const BYTE_LOOKBEHIND: usize = 1024 * 1024;
-/// Line prefix kept for private-key marker detection outside the window.
+/// Line prefix kept to read a private-key block's named lines and armor headers.
 const MARKER_PREFIX_BYTES: usize = 256;
 
 #[cfg(test)]
@@ -118,12 +120,31 @@ pub(super) fn fetch_window(
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
 ) -> LocalFetchResult {
+    if octocode_engine::security::WholeSourcePatterns::for_path(&path.to_string_lossy()).is_some() {
+        let security = &unjudged::Unjudged(security);
+        return serve_source(q, path, source, meta, modified, share, security, cancel);
+    }
+    serve_source(q, path, source, meta, modified, share, security, cancel)
+}
+
+fn serve_source(
+    q: &LocalFetchQuery,
+    path: &Path,
+    source: &std::fs::File,
+    meta: &std::fs::Metadata,
+    modified: Option<String>,
+    share: Option<usize>,
+    security: &impl ContentScan,
+    cancel: &impl CancellationCheck,
+) -> LocalFetchResult {
     let len = meta.len();
+    let kept = kept::current(q, path, meta);
     let source = Opened {
         file: source,
         path,
         len,
-        proven: None,
+        meta,
+        proven: kept.as_deref().map(|kept| (&kept.proven, kept.total_lines)),
     };
     if local_fetch_query::view(q) == ReadView::Content
         && local_fetch_query::block(q)

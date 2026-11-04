@@ -108,8 +108,8 @@ pub(super) fn ingest_with_registry(
             octocode_engine::text::counted(built.facts.len(), "file", "files")
         )
     });
-    let inputs = match settled_inputs(&built, &projection.tables, paths, cancel) {
-        Ok(inputs) => inputs,
+    let (inputs, input_proof) = match settled_inputs(&built, &projection.tables, paths, cancel) {
+        Ok(settled) => settled,
         Err(output) => return output,
     };
     let argument_coverage = argument_coverage::coverage(&built, &projection.tables);
@@ -136,6 +136,7 @@ pub(super) fn ingest_with_registry(
             projection: &projection,
             argument_coverage: &argument_coverage,
             inputs: &inputs,
+            input_proof: input_proof.as_deref(),
             build_ms,
             registry,
             registry_identity: &registry_identity,
@@ -196,6 +197,14 @@ pub(super) fn project_graph(
     if let Err(error) = format::validate_counts(&projection.tables, limits) {
         return Err(GraphOutput::error(ErrorCode::ScopeTooBroad, error));
     }
+    // The tables now hold what the linked facts said. They are released here
+    // rather than at publication because the secret scan's regexes and their
+    // per-thread caches come on top.
+    built
+        .facts
+        .values_mut()
+        .for_each(super::super::types::FileFacts::release_projected);
+    built.nodes.clear();
     redact_secrets(&mut projection.tables, security);
     Ok(projection)
 }
@@ -230,11 +239,7 @@ pub(super) fn build_for_ingest(
             .flatten(),
         refresh: options.refresh,
         root: options.path.clone(),
-        exclude_dir: INGEST_EXCLUDES
-            .iter()
-            .map(|x| (*x).to_owned())
-            .chain(options.exclude_dir.iter().cloned())
-            .collect(),
+        exclude: options.exclude.clone(),
         limits: *ingest.limits,
         language_globs: options.language_globs.clone(),
         cargo: ingest.cargo.map(str::to_owned),

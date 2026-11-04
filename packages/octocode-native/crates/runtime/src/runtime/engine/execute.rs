@@ -239,6 +239,7 @@ impl ToolRuntime {
             paths: self.paths.clone(),
             security: self.security.clone(),
             github_services: self.github_services.clone(),
+            provider_answers: self.provider_answers.clone(),
             github_access: super::super::github::ResponseAccess::default(),
             config: self.config.clone(),
             limits: self.limits,

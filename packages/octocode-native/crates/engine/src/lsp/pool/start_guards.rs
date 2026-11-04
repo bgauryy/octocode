@@ -96,7 +96,6 @@ where
     // client publishes its child handle. Let startup finish in its supervisor;
     // a closed receiver then takes the normal full-client shutdown path.
     let (send, receive) = oneshot::channel();
-    let future = crate::lsp::diagnostics::Trace::carried(future);
     tokio::spawn(async move {
         let result = future.await;
         if send.send(result).is_err() {

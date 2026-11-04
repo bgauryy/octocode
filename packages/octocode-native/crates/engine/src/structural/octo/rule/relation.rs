@@ -3,6 +3,7 @@
 
 use tree_sitter::Node;
 
+use crate::structural::kinds::near_fields;
 use crate::structural::language::AgLanguage;
 
 use crate::structural::octo::error::CompileError;
@@ -52,7 +53,8 @@ impl Relation {
                 }
                 language.field_id_for_name(field).ok_or_else(|| {
                     CompileError::grammar(format!(
-                        "unknown field '{field}' for this language grammar"
+                        "unknown field '{field}' for this language grammar{}",
+                        near_fields(&language, field)
                     ))
                 })
             })

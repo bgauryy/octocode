@@ -14,7 +14,7 @@ The graph-facts scan (`engine/src/fact_scan/`) crosses the Rust package boundary
 ## Ingestion flow
 
 1. AST extraction produces typed declarations, imports, exports, calls, argument observations, modules, ranges, and source diagnostics (a code, a message and an optional line; facts schema v6) for every language in the [grammar registry](SUPPORTED_LANGUAGES_AND_FEATURES.md#language-matrix).
-2. `build_graph` (`ast_graph/graph.rs`) scans a `GraphScan` (root, pruned directories, file bound, language globs, Cargo linking) and links each file's imports, re-exports, calls and paths into a `BuiltGraph`.
+2. `build_graph` (`ast_graph/graph.rs`) scans a `GraphScan` (root, exclude globs, file bound, language globs, Cargo linking) under the one default prune every local tool walks by (`policy/prune.rs`), records each directory that prune left out as a `default-excluded` diagnostic, and links each file's imports, re-exports, calls and paths into a `BuiltGraph`.
 3. `tables::project` turns it into `GraphTables`, preserving occurrence witnesses before topology deduplication. After encoding, ingest checks recorded source identities and resolution inputs again before atomic publication. These checks detect observed mutations; they do not make a mutable working tree an atomic repository revision.
 
 The graph is syntax evidence: `astSearch`, `graphBuild` and `graphQuery` start no language server. Callers confirm identity with explicit `lspSearch` calls, which keeps syntax candidates distinct from semantic claims. Which of graph, LSP and AST answers which question: [choose the evidence you need](../../../../docs/OCTOCODE_TOOLS.md#text-ast-graph-and-lsp-choose-the-evidence-you-need).

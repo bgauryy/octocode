@@ -77,7 +77,7 @@ fn managed_install_resolves_ahead_of_path_and_behind_an_override() {
             .to_string(),
     )
     .expect("marker");
-    let mut options = LspDiscoveryOptions {
+    let options = LspDiscoveryOptions {
         octocode_home: Some(home.to_path_buf()),
         ..LspDiscoveryOptions::default()
     };
@@ -93,17 +93,6 @@ fn managed_install_resolves_ahead_of_path_and_behind_an_override() {
         managed.initialization_options.is_some(),
         "headless defaults"
     );
-
-    options.env = BTreeMap::from([(
-        "OCTOCODE_LSP_CACHE_DIR".to_owned(),
-        home.join("elsewhere").to_string_lossy().into_owned(),
-    )]);
-    let unmanaged = with_view(no_rustup(), || {
-        default_server_for_file("src/lib.rs", "/workspace", &options)
-    })
-    .expect("rust route");
-    assert_ne!(PathBuf::from(&unmanaged.command), bin);
-    assert_eq!(unmanaged.source, ServerSource::Path);
 }
 
 /// A rustup proxy on PATH whose selected toolchain (as `rustup which`
@@ -139,6 +128,7 @@ fn a_toolchain_matched_rustup_component_wins_over_the_managed_install() {
     };
     let view = RustupView {
         path_var: Some(rustup.bin().as_os_str().to_owned()),
+        ..RustupView::default()
     };
     let workspace = base.join("workspace");
     std::fs::create_dir_all(&workspace).expect("workspace");

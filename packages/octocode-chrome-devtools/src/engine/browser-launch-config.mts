@@ -96,6 +96,9 @@ function displayArgs(headless: boolean, os: string) {
   return [
     '--headless=new',
     '--disable-dev-shm-usage',
+    // A headless profile is throwaway and has nobody to answer a prompt: without a usable
+    // login keychain (a service, a sandboxed HOME) macOS Chrome holds its first request on it.
+    ...(os === 'darwin' ? ['--use-mock-keychain'] : []),
     ...(os === 'linux'
       ? ['--disable-gpu', '--no-sandbox', '--disable-setuid-sandbox']
       : []),

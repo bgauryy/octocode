@@ -1,55 +1,17 @@
 // Isolated browser sessions this package launches: one session file and one profile folder per
 // port under <workspace>/.octocode/octocode-chrome-devtools/tmp/browser-state/, and ownership
 // checks that never trust a listener or a pid file alone.
-import { readFileSync } from 'fs';
 import { join, resolve } from 'path';
-import { cdpHttp } from './engine-io.mjs';
+import {
+  STATE_SUBPATH,
+  checkRunning,
+  profileDirIn,
+  readSession,
+  sessionFileIn,
+  type ChromeVersion,
+  type TrackedSession,
+} from './session-registry.mjs';
 import { browserPid, getProcessCommand } from './browser-process.mjs';
-
-export const STATE_SUBPATH = [
-  '.octocode',
-  'octocode-chrome-devtools',
-  'tmp',
-  'browser-state',
-];
-export const sessionFileIn = (stateDir: string, port: string) =>
-  join(stateDir, `cdp-session-${port}.json`);
-export const profileDirIn = (stateDir: string, port: string) =>
-  join(stateDir, `cdp-chrome-profile-${port}`);
-
-/** The /json/version fields this package reads. */
-export type ChromeVersion = { Browser: string; webSocketDebuggerUrl: string };
-
-/** The session file open-browser writes for an isolated browser it launched. */
-export type TrackedSession = {
-  pid: number;
-  // open-browser writes the port as a string; readers compare String(port) all the same.
-  port: string | number;
-  profileDir?: string;
-  headless?: boolean;
-  isolated?: boolean;
-  startedAt?: number;
-  chromePath?: string;
-};
-
-/** Chrome's /json/version on port, or null when nothing answers within 2s. */
-export async function checkRunning(
-  port: string
-): Promise<ChromeVersion | null> {
-  try {
-    return await cdpHttp(port, '/json/version', { timeoutMs: 2000 });
-  } catch {
-    return null;
-  }
-}
-
-export function readSession(sessionFile: string): TrackedSession | null {
-  try {
-    return JSON.parse(readFileSync(sessionFile, 'utf8'));
-  } catch {
-    return null;
-  }
-}
 
 function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

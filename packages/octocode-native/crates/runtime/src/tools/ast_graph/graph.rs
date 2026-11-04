@@ -36,7 +36,7 @@ use resolve::*;
 pub(super) use rust::rust_module_child_dir;
 use rust::*;
 
-/// What a graph build scans: the root, the pruned directories, the file
+/// What a graph build scans: the root, the caller's exclusions, the file
 /// bound, parser overrides, and how Rust links.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct GraphScan {
@@ -45,8 +45,8 @@ pub(crate) struct GraphScan {
     pub refresh: bool,
     /// The scan root (validated under the path policy before the walk).
     pub root: PathBuf,
-    /// Directory names pruned on top of the default excluded directories.
-    pub exclude_dir: Vec<String>,
+    /// The caller's path globs to skip, relative to the root.
+    pub exclude: Vec<String>,
     /// The snapshot bounds the scan and linking refuse past.
     pub limits: super::limits::Limits,
     /// AST parsers by root-relative glob.
@@ -121,6 +121,14 @@ pub(crate) fn build_graph_with_registry(
             None,
             DiagnosticCode::PathPolicyWithheld,
             format!("{notice} Contents were not scanned; absence and unused-code conclusions are unproven for this scan."),
+        ));
+    }
+    for directory in &facts.pruned_dirs {
+        built.diagnostics.push(Diagnostic::new(
+            normalize(directory),
+            None,
+            DiagnosticCode::DefaultExcluded,
+            "Default-excluded directory: contents were not scanned; absence and unused-code conclusions are unproven under it.".into(),
         ));
     }
     built.resolution_inputs = super::freshness::config_inputs(

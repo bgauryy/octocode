@@ -23,25 +23,20 @@
 //! a repository marker (`.git`, `.jj`) above the scope keeps its presence.
 //!
 //! [`SETTLE`]: octocode_engine::stamp::SourceStamp::SETTLE
-use super::super::page_memo::{PageMemo, Proof, Watch};
-use crate::tools::source::Link;
+use super::super::page_memo::{PageMemo, Proven, Watch};
+use octocode_engine::stamp::Link;
 #[cfg(test)]
 use octocode_engine::stamp::SourceStamp;
 #[cfg(test)]
 use std::path::{Path, PathBuf};
 use std::{sync::Arc, time::SystemTime};
 
-struct Stored<T> {
-    proof: Proof,
-    scan: Arc<T>,
-}
-
 /// One store per scan type (the executor keeps one), weighed in estimated
-/// bytes against the one process budget ([`crate::cache::MEMORY`]). One scan
+/// bytes against the one process budget ([`octocode_engine::memory::MEMORY`]). One scan
 /// may use all of it, since a scan that is not stored costs a whole scan per
 /// page, which outweighs the entries it would displace.
 pub(super) struct ScanMemo<T> {
-    store: PageMemo<Stored<T>>,
+    store: PageMemo<Proven<T>>,
 }
 
 impl<T: Send + Sync + 'static> ScanMemo<T> {
@@ -54,12 +49,7 @@ impl<T: Send + Sync + 'static> ScanMemo<T> {
     /// The scan stored for `snapshot` under `key` while every stamped entry
     /// is unchanged; a changed one is evicted.
     pub(super) fn get(&self, snapshot: &str, key: &str) -> Option<Arc<T>> {
-        self.store.get_current(
-            snapshot,
-            key,
-            |stored| (Arc::clone(&stored.scan), stored.proof.clone()),
-            Some,
-        )
+        self.store.current(snapshot, key)
     }
 
     /// Keep `scan` for the pages after the first, stamped by what it
@@ -79,7 +69,7 @@ impl<T: Send + Sync + 'static> ScanMemo<T> {
         let Some(proof) = watch.capture(Link::Follow, Some(started)) else {
             return;
         };
-        self.store.put(snapshot, key, bytes, Stored { proof, scan });
+        self.store.put_proven(snapshot, key, bytes, proof, scan);
     }
 
     pub(super) fn evict(&self, snapshot: &str) {
@@ -230,7 +220,7 @@ mod tests {
                 + octocode_engine::stamp::SourceStamp::SETTLE
                 + std::time::Duration::from_secs(1),
             Arc::new(3),
-            crate::cache::MEMORY.limit() / 4,
+            octocode_engine::memory::MEMORY.limit() / 4,
         );
         assert!(memo.get("whole", "k").is_some());
     }
@@ -247,7 +237,7 @@ mod tests {
                 watch(root, sources),
                 started,
                 Arc::new(3),
-                crate::cache::MEMORY.limit() + 1,
+                octocode_engine::memory::MEMORY.limit() + 1,
             );
             self.get("big", "k").is_none()
         }

@@ -57,15 +57,14 @@ pub(in crate::tools::ast_graph::store) fn redact_secrets(
             .map(|index| strings[index].as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        if !security.sanitize_text(&text, None).has_secrets {
+        if security.sanitize_stored_leaf(&text, None).is_none() {
             return Vec::new();
         }
         scanned
             .filter_map(|index| {
-                let result = security.sanitize_text(&strings[index], None);
-                result
-                    .has_secrets
-                    .then(|| (index, result.content.into_owned()))
+                security
+                    .sanitize_stored_leaf(&strings[index], None)
+                    .map(|clean| (index, clean))
             })
             .collect()
     })
@@ -77,6 +76,9 @@ pub(in crate::tools::ast_graph::store) fn redact_secrets(
     }
     for (index, content) in redacted {
         tables.strings[index] = content;
+        if let Ok(index) = u32::try_from(index) {
+            tables.checked_arguments.remove(&index);
+        }
     }
     tables.index();
 }

@@ -74,7 +74,6 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
         pattern: Some("target($X)".to_owned()),
         rule: None,
         include: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
         ignore: crate::types::IgnorePolicy::default(),
@@ -218,7 +217,7 @@ fn every_demand_counts_the_same_matches_and_a_priced_file_rebuilds_them() {
         search_files(
             options(),
             demand,
-            &|_| true,
+            &|_, _| true,
             &|_| "rs".to_owned(),
             &|| false,
             None,
@@ -345,7 +344,7 @@ fn a_line_scope_keeps_admitted_matches_and_counts_the_rest() {
                 ..StructuralSearchFilesOptions::default()
             },
             demand,
-            &|_| true,
+            &|_, _| true,
             &|_| "rs".to_owned(),
             &|| false,
             Some(&keep),

@@ -29,7 +29,7 @@ resolves settings with. Generated files are never edited by hand.
 declaration/ (Zod schema.ts validates)
       ├── emit → config-contract.json + config-contract.schema.json
       ├── contract.generated.ts → field metadata, defaults, .env policy
-      ├── documentation generation → docs/generated/CONFIG_SETTINGS.md
+      ├── documentation generation → the settings table in docs/CONFIGURATION.md
       └── config-contract.json → Rust build → OUT_DIR/config_contract.rs → native resolver
 ```
 

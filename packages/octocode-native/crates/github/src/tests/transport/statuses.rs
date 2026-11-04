@@ -18,7 +18,11 @@ async fn distinguishes_permission_from_rate_limit_and_bounds_body() {
         .await
         .expect_err("permission");
     assert_eq!(error.kind, ProviderErrorKind::Permission);
-    assert_eq!(error.request_id.as_deref(), Some("R1"));
+    // The value is written into retained evidence, and nothing reads it there.
+    assert!(
+        !serde_json::to_string(&error).expect("json").contains("R1"),
+        "{error:?}"
+    );
 
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))

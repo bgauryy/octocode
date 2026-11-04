@@ -46,7 +46,7 @@ fn canonical_code_scope_is_validated_before_provider_work() {
     for fields in [
         json!({"ref":"dev"}),
         json!({"nameContains":"*.rs"}),
-        json!({"pathPrefix":"src/**"}),
+        json!({"path":"src/**"}),
     ] {
         let mut row = json!({"owner":"o","keywords":["needle"]});
         for (key, value) in fields.as_object().expect("fields") {
@@ -54,5 +54,9 @@ fn canonical_code_scope_is_validated_before_provider_work() {
         }
         assert!(crate::contracts::validate("ghSearchCode", json!({"queries":[row]})).is_err());
     }
-    crate::contracts::validate("ghSearchCode", json!({"queries":[{"owner":"o","repo":"r","ref":"dev","nameContains":".rs","pathPrefix":"src"}]})).expect("canonical bounded scope");
+    crate::contracts::validate(
+        "ghSearchCode",
+        json!({"queries":[{"owner":"o","repo":"r","ref":"dev","nameContains":".rs","path":"src"}]}),
+    )
+    .expect("canonical bounded scope");
 }

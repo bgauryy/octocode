@@ -11,7 +11,7 @@ const argv = process.argv.slice(2);
 const { getArg, hasFlag } = flagArgs(argv);
 
 if (hasFlag('--help') || hasFlag('-h')) {
-  console.error(
+  console.log(
     '[PRUNE] Usage: node prune-artifacts.mjs [--max-age-days 3] [--max-count 50] [--dry-run] [--base <dir>]'
   );
   process.exit(0);

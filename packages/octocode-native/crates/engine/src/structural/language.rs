@@ -15,6 +15,11 @@ pub(super) fn wrap_in_function_body(statement: &str) -> String {
     format!("void {WRAP_MARKER}(void) {{ {statement} }}")
 }
 
+/// `member` as the sole member of the synthetic class.
+pub(super) fn wrap_in_class_body(member: &str) -> String {
+    format!("class {WRAP_MARKER} {{ {member} }}")
+}
+
 /// Stand-in identifier character substituted for a `$`-sigil metavar so the
 /// selected Tree-sitter grammar accepts the pattern as valid source.
 #[derive(Clone, Copy)]
@@ -23,6 +28,18 @@ pub(super) struct Expando(char);
 impl Expando {
     pub(super) fn matches_leading(self, c: char) -> bool {
         c == self.0
+    }
+
+    /// The text before and after the first `$$$` of `text`, spelled with this
+    /// sigil.
+    pub(super) fn split_multi(self, text: &str) -> Option<(&str, &str)> {
+        let sigil = self.0.to_string().repeat(3);
+        text.split_once(&sigil)
+    }
+
+    /// Append a `$$$` spelled with this sigil.
+    pub(super) fn push_multi(self, out: &mut String) {
+        out.extend(std::iter::repeat_n(self.0, 3));
     }
 
     /// `text` with this sigil spelled `$` again, as the caller wrote it.
@@ -109,7 +126,7 @@ impl AgLanguage {
     /// in one (see `class_wrap`).
     fn wrap_class<'text>(&self, text: &'text str) -> Cow<'text, str> {
         if self.class_wrap {
-            Cow::Owned(format!("class {WRAP_MARKER} {{ {text} }}"))
+            Cow::Owned(wrap_in_class_body(text))
         } else {
             Cow::Borrowed(text)
         }

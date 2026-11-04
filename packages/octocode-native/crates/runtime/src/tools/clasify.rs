@@ -14,9 +14,7 @@
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::response::result::FailureKind;
 use crate::security::CheckedQuery;
-use crate::tools::judgment::{
-    ClassificationError, Evaluator, Judged, shared::Evaluations, stats::ClassificationUsage,
-};
+use crate::tools::judgment::{ClassificationError, Evaluator, Judged, shared::Evaluations};
 use crate::tools::source_capture::{Captured, SourceReader};
 use serde_json::{Value, json};
 
@@ -130,15 +128,6 @@ pub(crate) fn call(
             .map(|task| task.join().map_err(|_| ExecutionError::WorkerFailed))
             .collect::<Vec<_>>()
     });
-    let mut usage = ClassificationUsage::default();
-    for outcome in outcomes.iter().filter_map(|outcome| outcome.as_ref().ok()) {
-        if let RowOutcome::Judgment { judged, .. } = outcome {
-            usage.add(judged);
-        } else if let RowOutcome::Sections(Ok(result)) = outcome {
-            usage.merge(&result.usage);
-        }
-    }
-    evaluator.record(usage);
     context.check()?;
     let outcomes = outcomes.into_iter().collect::<Result<Vec<_>, _>>()?;
     let mut output = Vec::with_capacity(parsed.len());

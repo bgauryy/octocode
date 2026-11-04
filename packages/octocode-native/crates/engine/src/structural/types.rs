@@ -142,7 +142,6 @@ pub struct StructuralSearchFilesOptions {
     /// File-path globs to skip (gitignore-style, e.g. `"*.min.js"`, `"src/gen/**"`).
     /// Mirrors local-search `exclude`.
     pub exclude: Option<Vec<String>>,
-    pub exclude_dir: Option<Vec<String>>,
     /// Default-excluded directory names (see [`Prune::at`]): pruned outside a
     /// git work tree, and inside one only where git ignores them.
     ///

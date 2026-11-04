@@ -13,10 +13,9 @@ pub(super) fn cfg_requires_test(inner: &str) -> bool {
         .is_some_and(|args| matches!(args.as_slice(), [one] if requires_test(one)))
 }
 
-/// Whether `node` holds an inner `#![cfg(test)]` among its named children.
-pub(super) fn inner_cfg_requires_test(node: Node<'_>, content: &str) -> bool {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor).any(|child| {
+/// Whether the named `children` of a node include an inner `#![cfg(test)]`.
+pub(super) fn inner_cfg_requires_test_among(children: &[Node<'_>], content: &str) -> bool {
+    children.iter().any(|&child| {
         child.kind() == "inner_attribute_item"
             && node_text(child, content)
                 .and_then(|text| text.trim().strip_prefix("#!["))

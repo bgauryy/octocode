@@ -119,3 +119,76 @@ fn same_runtime_match_memo_rejects_restored_mtime_edits() {
         }
     }
 }
+
+const OPEN: &str = "pub mod sub;\n";
+const GATED: &str = "#[cfg(test)]\npub mod sub;\n";
+
+/// `src/sub`, a module of `src/lib.rs` (outside the scans' scope) that says
+/// `declares` it, with settled matches; the path of `lib.rs`.
+fn module_beside_its_parent(root: &Fixture, declares: &str) -> std::path::PathBuf {
+    let parent = root.write("src/lib.rs", declares);
+    root.write("src/sub/mod.rs", "pub mod a;\n");
+    root.write(
+        "src/sub/a.rs",
+        "fn f() {\n    a.unwrap();\n    b.unwrap();\n    c.unwrap();\n}\n",
+    );
+    octocode_engine::stamp::settle_written_so_far();
+    parent
+}
+
+/// A match under a `testCode` scope follows a parent module outside its
+/// scope: moving the module across the line leaves the pages stale, for a
+/// directory and for one file.
+#[test]
+fn a_test_scoped_match_follows_a_parent_outside_its_scope() {
+    for (test_code, before, after) in [("exclude", OPEN, GATED), ("only", GATED, OPEN)] {
+        for scope in ["src/sub", "src/sub/a.rs"] {
+            let root = Fixture::new();
+            let parent = module_beside_its_parent(&root, before);
+            let (paths, security) = simple_policy(&root.0);
+            let row = json!({"operation":"match","path":root.0.join(scope),"rule":{"pattern":"$E.unwrap()"},"testCode":test_code});
+            let first = run_row(&row, &paths, &security);
+            let snapshot = first["snapshot"].as_str().expect("snapshot");
+            let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+            let second = run_row(&next, &paths, &security);
+            assert!(
+                second.get("errorCode").is_none(),
+                "{test_code} {scope}: {second}"
+            );
+            std::fs::write(&parent, after).expect("edit");
+            let third = run_row(&next, &paths, &security);
+            assert_eq!(
+                third["errorCode"], "staleSnapshot",
+                "{test_code} {scope}: {third}"
+            );
+            assert!(!SCANS.holds(snapshot), "{test_code} {scope}: not proved");
+        }
+    }
+}
+
+/// Without a filtering scope nothing depends on a parent: the scan stays
+/// stored and serves its later pages, whatever a parent says.
+#[test]
+fn a_match_with_no_test_code_filter_keeps_its_scan() {
+    for test_code in [None, Some("include")] {
+        let root = Fixture::new();
+        let parent = module_beside_its_parent(&root, OPEN);
+        let (paths, security) = simple_policy(&root.0);
+        let mut row = json!({"operation":"match","path":root.0.join("src/sub"),"rule":{"pattern":"$E.unwrap()"}});
+        if let Some(test_code) = test_code {
+            row["testCode"] = json!(test_code);
+        }
+        let first = run_row(&row, &paths, &security);
+        let snapshot = first["snapshot"].as_str().expect("snapshot");
+        if cfg!(unix) {
+            assert!(SCANS.holds(snapshot), "{test_code:?}");
+        }
+        std::fs::write(&parent, GATED).expect("gate");
+        let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+        let second = run_row(&next, &paths, &security);
+        assert!(second.get("errorCode").is_none(), "{test_code:?}: {second}");
+        if cfg!(unix) {
+            assert!(SCANS.holds(snapshot), "{test_code:?}");
+        }
+    }
+}

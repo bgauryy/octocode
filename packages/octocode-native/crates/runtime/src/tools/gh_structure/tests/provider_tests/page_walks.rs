@@ -57,7 +57,6 @@ async fn a_listing_makes_no_date_lookup_and_honors_its_default_limit() {
     assert_eq!(entries(data), expected);
     assert!(data.get("pagination").is_none(), "{data}");
     assert!(data.get("warnings").is_none(), "{data}");
-    assert!(data.get("commitDate").is_none(), "{data}");
     crate::tools::test_support::assert_row_contract(ToolId::GhStructure, data);
 }
 
@@ -101,4 +100,78 @@ async fn a_walk_lists_every_entry_once_at_its_limit() {
         .collect::<Vec<_>>();
     assert_eq!(listed, expected);
     assert_eq!(requests_to(&server, "/api/graphql").await, 0);
+}
+
+/// A materialize names no depth and takes every level; the pages of its
+/// listing are that listing. Walked at any path, they hold every entry exactly
+/// once and write nothing more.
+#[tokio::test]
+async fn a_materialize_without_a_depth_pages_its_whole_listing_once() {
+    for root in ["", "crates/ignore"] {
+        let server = server().await;
+        let total_files = 23;
+        let tree = (0..total_files)
+            .map(
+                |n| json!({"path":format!("src/deep/f{n:02}.rs"),"type":"blob","size":8,"sha":"0"}),
+            )
+            .chain(["src", "src/deep"].map(|dir| json!({"path":dir,"type":"tree","sha":"0"})))
+            .collect::<Vec<_>>();
+        let (route, prefix) = if root.is_empty() {
+            (format!("/git/trees/{SHA}$"), String::new())
+        } else {
+            (
+                format!("/git/trees/{SHA}(:|%3A){}$", root.replace('/', "(/|%2F)")),
+                format!("{root}/"),
+            )
+        };
+        Mock::given(method("GET"))
+            .and(wiremock::matchers::path_regex(route))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"sha":SHA,"truncated":false,"tree":tree})),
+            )
+            .mount(&server)
+            .await;
+        for n in 0..total_files {
+            let file = format!("{prefix}src/deep/f{n:02}.rs");
+            crate::tools::gh_shared::test_support::backed::mount_content(
+                &server, &file, "fn u(){}",
+            )
+            .await;
+        }
+        let mut row = json!({"operation":"tree","owner":"a","repo":"b","ref":"main","path":root,
+            "materialize":true,"limit":10});
+        let mut listed = Vec::new();
+        let mut pages = 0;
+        loop {
+            let out = list(&server, row).await.expect("tree page");
+            pages += 1;
+            listed.extend(entries(&out.data));
+            let Some(next) = out.data.pointer("/next/nextPage/input/queries/0") else {
+                break;
+            };
+            assert_eq!(out.data["pagination"]["totalItems"], 25, "{}", out.data);
+            assert_eq!(out.data["pagination"]["totalPages"], 3, "{}", out.data);
+            assert_eq!(next["ref"], SHA);
+            assert!(next.get("materialize").is_none(), "{next}");
+            assert!(pages < 4, "nonterminating tree: {}", out.data);
+            row = next.clone();
+        }
+        assert_eq!(pages, 3, "{root}");
+        listed.sort();
+        let mut expected = (0..total_files)
+            .map(|n| format!("f{n:02}.rs (8)"))
+            .chain(["src/", "deep/"].map(str::to_owned))
+            .collect::<Vec<_>>();
+        expected.sort();
+        assert_eq!(listed, expected, "{root}");
+        let reads = server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|request| request.url.path().contains("/contents/"))
+            .count();
+        assert_eq!(reads, total_files, "only the first page writes: {root}");
+    }
 }

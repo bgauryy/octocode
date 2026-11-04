@@ -122,3 +122,82 @@ fn scoped_pages_list_each_kept_entry_once() {
     let listed = pages.iter().flat_map(names).collect::<Vec<_>>();
     assert_eq!(listed.len(), 8, "{pages:?}");
 }
+
+const OPEN: &str = "pub mod sub;\n";
+const GATED: &str = "#[cfg(test)]\npub mod sub;\n";
+
+/// `src/sub`, a module of `src/lib.rs` (outside the listing's root) that says
+/// `declares` it, with enough files for several pages.
+fn module_beside_its_parent(declares: &str) -> Fixture {
+    let root = Fixture::new();
+    root.write("src/lib.rs", declares);
+    let mut declared = String::new();
+    for module in 0..8 {
+        declared.push_str(&format!("pub mod m{module};\n"));
+        root.write(&format!("src/sub/m{module}.rs"), "pub fn f() {}\n");
+    }
+    root.write("src/sub/mod.rs", declared);
+    root
+}
+
+/// The files of the module, two to a page.
+fn scoped_files(root: &Fixture, test_code: Option<&str>, view: &str) -> Value {
+    let mut row = json!({"operation":"files","path":root.0.join("src/sub"),"entryType":"file","view":view,"limit":2});
+    if let Some(test_code) = test_code {
+        row["testCode"] = json!(test_code);
+    }
+    row
+}
+
+/// A listing under a `testCode` scope follows what its verdicts read: a
+/// parent module outside its root, and a file's own text. An edit to either
+/// that moves an entry across the line leaves the pages stale.
+#[test]
+fn a_scoped_listing_follows_what_its_verdicts_read() {
+    let own = ("src/sub/m7.rs", "#![cfg(test)]\npub fn f() {}\n");
+    for view in ["paths", "details"] {
+        for (test_code, declares, (edit, edited)) in [
+            ("exclude", OPEN, ("src/lib.rs", GATED)),
+            ("only", GATED, ("src/lib.rs", OPEN)),
+            ("exclude", OPEN, own),
+        ] {
+            let root = module_beside_its_parent(declares);
+            let first = run(&root.0, scoped_files(&root, Some(test_code), view)).expect("first");
+            let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+            let snapshot = next["snapshot"].as_str().expect("snapshot");
+            let (paths, _) = simple_policy(&root.0);
+            assert!(
+                super::super::memo::get(snapshot, &paths.identity()).is_none(),
+                "{view} {test_code}: the verdicts are not proved"
+            );
+            let second = run(&root.0, next.clone()).expect("second");
+            assert!(second.get("errorCode").is_none(), "{view}: {second}");
+            std::fs::write(root.0.join(edit), edited).expect("edit");
+            let third = run(&root.0, next).expect("third");
+            assert_eq!(
+                third["errorCode"], "staleSnapshot",
+                "{view} {test_code} {edit}: {third}"
+            );
+        }
+    }
+}
+
+/// Without a filtering scope nothing depends on a parent: the walk stays
+/// stored and serves its later pages, whatever a parent says.
+#[test]
+fn a_listing_with_no_test_code_filter_keeps_its_walk() {
+    for test_code in [None, Some("include")] {
+        let root = module_beside_its_parent(OPEN);
+        let first = run(&root.0, scoped_files(&root, test_code, "paths")).expect("first");
+        let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+        let snapshot = next["snapshot"].as_str().expect("snapshot");
+        std::fs::write(root.0.join("src/lib.rs"), GATED).expect("gate");
+        let (paths, _) = simple_policy(&root.0);
+        assert!(
+            super::super::memo::get(snapshot, &paths.identity()).is_some(),
+            "{test_code:?}"
+        );
+        let second = run(&root.0, next).expect("second");
+        assert!(second.get("errorCode").is_none(), "{test_code:?}: {second}");
+    }
+}

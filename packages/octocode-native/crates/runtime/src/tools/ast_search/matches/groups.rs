@@ -4,13 +4,11 @@ use super::super::RowPaths;
 use super::query::MatchQuery;
 use super::rows::{MatchRow, diag};
 use super::scan::parser_extension;
-use super::scope::Inapplicable;
 use super::types::{Group, Grouped, SKIP_CODES, ScannedFile, Scope};
 use super::{file_list, row_chars};
 use crate::execution::cancel::CancellationCheck;
 use crate::response::result::ToolError;
 use crate::tools::ast_rule::is_compile_failure;
-use octocode_contract_types::ErrorCode;
 use octocode_engine::num::saturating_u32;
 use octocode_engine::structural::{FileMatches, StructuralDiagnostic};
 use serde_json::json;
@@ -20,7 +18,6 @@ pub(super) fn group_files(
     files: &[ScannedFile],
     budget: usize,
     row_paths: RowPaths<'_>,
-    inapplicable: &Inapplicable,
     cancel: &dyn CancellationCheck,
 ) -> Result<Grouped, ToolError> {
     let mut grouped = Grouped::default();
@@ -28,18 +25,16 @@ pub(super) fn group_files(
     for (index, file) in files.iter().enumerate() {
         let ScannedFile {
             path,
-            parser,
             matches,
             diagnostics,
             status,
             recovered,
             ..
         } = file;
-        // A file of a grammar the query does not parse in is outside what it
-        // applies to (named once in the notice), not a compile failure.
-        let outside = status != "ok"
-            && diagnostics.iter().any(is_compile_failure)
-            && inapplicable.covers(parser);
+        // A file whose parser rejects the query cannot match it: it is outside
+        // what the query applies to (`Inapplicable` counts it), not unread. A
+        // query no candidate parses never reaches a scan (`resolve_scope`).
+        let outside = status != "ok" && diagnostics.iter().any(is_compile_failure);
         match status.as_str() {
             "ok" => {
                 grouped.parsed_files += 1;
@@ -51,12 +46,7 @@ pub(super) fn group_files(
             }
             _ if outside => {}
             _ => {
-                if let Some(diagnostic) = diagnostics.iter().find(|d| is_compile_failure(d)) {
-                    grouped.compile_failed_files += 1;
-                    grouped.compile_error.get_or_insert_with(|| {
-                        ToolError::new(ErrorCode::InvalidPattern, diagnostic.message.clone())
-                    });
-                } else if diagnostics
+                if diagnostics
                     .iter()
                     .any(|diagnostic| SKIP_CODES.contains(&diagnostic.code.as_str()))
                 {

@@ -222,6 +222,8 @@ pub(in super::super) const RECOVERED_ALIAS: &str = "recoveredAlias";
 pub(super) fn number_content(content: &str, start: u64) -> String {
     let mut out = String::with_capacity(content.len() + content.len() / 8);
     let mut line = start;
+    // A row's content has no final line ending, whichever page carries it.
+    let content = content.strip_suffix('\n').unwrap_or(content);
     for record in content.split_inclusive('\n') {
         if record.starts_with("… ") && record.contains(" more lines omitted") {
             out.push_str(record);
@@ -295,4 +297,17 @@ pub(super) fn normalize_display_range(value: &Value) -> Option<Value> {
         .or_else(|| value.get("end_line"))
         .and_then(Value::as_u64)?;
     Some(json!({ "startLine": start, "endLine": end }))
+}
+
+#[cfg(test)]
+mod numbered_content_tests {
+    use super::number_content;
+
+    /// `content` has one shape on every page: a walk rebuilds the whole answer.
+    #[test]
+    fn a_row_has_no_final_line_ending() {
+        assert_eq!(number_content("a\n", 3), "3\ta");
+        assert_eq!(number_content("a", 3), "3\ta");
+        assert_eq!(number_content("a\nb\n", 3), "3\ta\n4\tb");
+    }
 }

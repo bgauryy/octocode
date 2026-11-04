@@ -20,7 +20,11 @@ use ignore::WalkBuilder;
 
 mod ignore_rules;
 
-pub use ignore_rules::{IGNORE_FILES, IgnoreReason, IgnoreRules, external_ignore_inputs};
+#[cfg(test)]
+pub(crate) use ignore_rules::LEVELS_STATED;
+pub use ignore_rules::{
+    DirRules, IGNORE_FILES, IgnoreReason, IgnoreRules, ListedRules, external_ignore_inputs,
+};
 
 /// A walk's cancellation: polled between entries; `true` ends the walk.
 pub type Stop<'a> = dyn Fn() -> bool + Sync + 'a;
@@ -43,8 +47,8 @@ pub fn walk_builder(root: &Path, policy: IgnorePolicy, max_depth: Option<usize>)
         .max_depth(max_depth);
     // A parallel walk takes this call's share of the process CPU budget
     // while other calls compute; alone, the walker's own default.
-    let share = super::cpu::host().share();
-    if share < super::cpu::host().cores() {
+    let share = crate::cpu::host().share();
+    if share < crate::cpu::host().cores() {
         builder.threads(share);
     }
     builder
@@ -68,13 +72,6 @@ impl Prune {
     /// Whether a directory named `name` is pruned.
     pub fn names(&self, name: &OsStr) -> bool {
         self.0.contains(name)
-    }
-
-    /// Whether a walked entry is a pruned directory below the root.
-    pub fn prunes_entry(&self, entry: &ignore::DirEntry) -> bool {
-        entry.depth() > 0
-            && entry.file_type().is_some_and(|kind| kind.is_dir())
-            && self.names(entry.file_name())
     }
 
     /// This list as a default prune of a walk of `root` (one a caller's own

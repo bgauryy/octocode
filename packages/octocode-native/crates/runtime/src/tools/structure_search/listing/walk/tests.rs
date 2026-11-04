@@ -164,6 +164,7 @@ fn a_count_cut_ends_the_walk_before_the_first_uncounted_entry() {
         size: Some(1),
         modified_time: None,
         walk_position: position,
+        stamp: None,
     };
     let mut native = octocode_engine::types::FileSystemQueryResult {
         entries: vec![entry("a.rs", 3), entry("b.rs", 5), entry("c.rs", 9)],

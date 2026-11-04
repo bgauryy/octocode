@@ -123,9 +123,14 @@ pub(super) fn directory_as_workspace_root(
     if lsp_search_query::workspace_root(query).is_none() {
         // A source directory (`src`) is searched from its project root,
         // where the server finds tsconfig.json, Cargo.toml, and the like.
-        let root = octocode_engine::lsp::workspace::project_root_of_dir(Path::new(&directory))
-            .and_then(|root| paths.validate(&root).ok())
-            .filter(|valid| valid.canonical.is_dir())
+        let project = octocode_engine::lsp::workspace::project_root_of_dir(Path::new(&directory));
+        let root = project
+            .as_deref()
+            .and_then(rust_workspace_of)
+            .into_iter()
+            .chain(project.clone())
+            .filter_map(|root| paths.validate(&root).ok())
+            .find(|valid| valid.canonical.is_dir())
             .map_or_else(
                 || directory.clone(),
                 |valid| valid.canonical.to_string_lossy().into_owned(),
@@ -134,4 +139,19 @@ pub(super) fn directory_as_workspace_root(
     }
     set_path(query, directory.clone());
     Some(directory)
+}
+
+/// The Cargo workspace above `project`: one rust-analyzer analyzes every member,
+/// so a member crate names the root a Rust file in it does and shares that
+/// server. `None` outside a workspace, or when `project` or the workspace would
+/// select another language's server.
+fn rust_workspace_of(project: &Path) -> Option<std::path::PathBuf> {
+    let selects_rust = |root: &Path| {
+        octocode_engine::lsp::config::workspace_root_languages(&root.to_string_lossy()).first()
+            == Some(&".rs")
+    };
+    if !selects_rust(project) {
+        return None;
+    }
+    octocode_engine::lsp::workspace::cargo_workspace_root(project).filter(|root| selects_rust(root))
 }

@@ -8,7 +8,6 @@ use super::mode::ranks_by_relevance;
 use super::state::{CollectState, FileRec};
 use super::walk_rule::{EntryRule, Skipped, capture_sort_time};
 use crate::search::relevance;
-use crate::search::walk::Prune;
 use crate::types::TextSearchOptions;
 use aho_corasick::AhoCorasick;
 use grep_matcher::Matcher;
@@ -20,8 +19,6 @@ use std::time::Instant;
 /// Walk-wide settings and shared state every worker reads while visiting.
 pub(super) struct WalkScope<'a> {
     pub(super) opts: &'a TextSearchOptions,
-    /// Directories never walked (`exclude_dir`), recorded when skipped.
-    pub(super) prune: Prune,
     /// Ignored and dot entries left out, reported when skipped.
     pub(super) rule: Option<EntryRule>,
     pub(super) state: &'a CollectState,
@@ -187,7 +184,7 @@ impl WalkScope<'_> {
     }
 
     /// The entry when it is a file to search, or the walk state to return
-    /// for it (stop, cancellation, deadline, walk error, filter, prune).
+    /// for it (stop, cancellation, deadline, walk error, filter).
     fn admit(
         &self,
         dent: std::result::Result<ignore::DirEntry, ignore::Error>,
@@ -244,11 +241,6 @@ impl WalkScope<'_> {
         if !path_filter.allows_entry(dent.path(), dent.file_type()) {
             return Err(skip());
         }
-        if self.prune.prunes_entry(&dent) {
-            let relative = dent.path().strip_prefix(&opts.path).unwrap_or(dent.path());
-            state.record_pruned(crate::text::slash_path(relative));
-            return Err(WalkState::Skip);
-        }
         // A directory at the depth limit is yielded but never entered (the
         // walk counts root files as `max_depth` 0): one that holds entries
         // is a part of the tree left unsearched.
@@ -284,16 +276,6 @@ impl WalkScope<'_> {
         &self,
         dent: &ignore::DirEntry,
     ) -> Option<(std::fs::File, std::fs::Metadata)> {
-        // Skip files above the byte ceiling before opening them, so a
-        // pathological multi-GB file cannot force a giant buffer + lossy
-        // copy. Surfaced as `fileTooLarge`; not counted in `files_searched`.
-        if dent
-            .metadata()
-            .ok()
-            .is_some_and(|meta| self.over_ceiling(meta.len()))
-        {
-            return None;
-        }
         let path = dent.path();
         // Keep successful files, but report incomplete coverage when
         // opening or matching fails. A skipped file proves no absence.
@@ -305,6 +287,11 @@ impl WalkScope<'_> {
                 return None;
             }
         };
+        // Skip files above the byte ceiling before reading them, so a
+        // pathological multi-GB file cannot force a giant buffer + lossy
+        // copy: the open read nothing, and its `fstat` is the size of what
+        // would be read. Surfaced as `fileTooLarge`; not counted in
+        // `files_searched`.
         if self.over_ceiling(meta.len()) {
             return None;
         }

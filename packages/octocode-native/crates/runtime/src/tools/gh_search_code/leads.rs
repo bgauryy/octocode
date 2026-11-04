@@ -230,7 +230,7 @@ pub(super) fn unsearched_ref_read(query: &GhSearchCodeQuery) -> Option<Value> {
     let repo = query.repo.as_deref()?;
     let file = query.name_contains.as_deref()?;
     let path = match query
-        .path_prefix
+        .path
         .as_deref()
         .map(|path| path.as_str().trim_matches('/'))
     {
@@ -292,7 +292,7 @@ pub(super) fn broaden_search(query: &GhSearchCodeQuery, quota_room: usize) -> Op
             // Code search indexes only the default branch: a `ref` adds
             // nothing to a broader search.
             strip: &["fields", "ref"],
-            groups: &[&["pathPrefix"], &["nameContains"], &["extensions"]],
+            groups: &[&["path"], &["nameContains"], &["extensions"]],
             split_lone_keyword: false,
         },
         quota_room.min(BROADEN_VARIANTS),

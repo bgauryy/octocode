@@ -178,8 +178,9 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
         "{data}"
     );
 
-    for exists in [Some(true), None] {
-        let refs = KnownTags::always(exists);
+    let commit_only: &'static str =
+        Box::leak(format!("microsoft/TypeScript@{sha}").into_boxed_str());
+    for refs in [KnownTags::new(vec![commit_only]), KnownTags::always(None)] {
         let checked = ArtifactCall {
             tags: Some(&refs),
             ..call(deadline, true)
@@ -198,6 +199,37 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
         );
         assert!(data.get("warnings").is_none(), "{data}");
     }
+
+    // A release tag naming the recorded commit proves it; one naming another
+    // commit is said on the row, and the ref stays what the registry named.
+    let tied: &'static str =
+        Box::leak(format!("microsoft/TypeScript@v7.0.2={sha}").into_boxed_str());
+    let refs = KnownTags::new(vec![commit_only, tied]);
+    let checked = ArtifactCall {
+        tags: Some(&refs),
+        ..call(deadline, true)
+    };
+    let data = execute(query.clone(), checked).await.expect("lookup");
+    assert_eq!(data["artifacts"][0]["verification"], "tag", "{data}");
+    assert!(data.get("warnings").is_none(), "{data}");
+    let refs = KnownTags::new(vec![commit_only, "microsoft/TypeScript@v7.0.2=f00d"]);
+    let checked = ArtifactCall {
+        tags: Some(&refs),
+        ..call(deadline, true)
+    };
+    let data = execute(query.clone(), checked).await.expect("lookup");
+    assert_eq!(data["artifacts"][0]["ref"], sha, "{data}");
+    assert_eq!(
+        data["artifacts"][0]["verification"], "registryRef",
+        "{data}"
+    );
+    assert_eq!(
+        data["warnings"],
+        json!([format!(
+            "typescript 7.0.2: the registry names commit {sha}, but release tag v7.0.2 is commit f00d."
+        )]),
+        "{data}"
+    );
 }
 
 #[tokio::test]

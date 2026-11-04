@@ -3,7 +3,7 @@
 //! continuation state does ([`crate::cache::CONTINUATION_RETENTION`]): it
 //! expires [`CONTINUATION_IDLE`] after its last read. A hit is only a
 //! candidate: each owner re-validates what it reads before serving a page.
-use crate::tools::source::{Link, StampSet};
+use octocode_engine::stamp::{Link, Proof, exists};
 use octocode_io::memo::Memo;
 use std::{
     path::{Path, PathBuf},
@@ -19,12 +19,12 @@ pub(crate) struct PageMemo<V> {
 }
 
 impl<V: Send + Sync + 'static> PageMemo<V> {
-    /// A store drawing on the one process budget ([`crate::cache::MEMORY`]),
+    /// A store drawing on the one process budget ([`octocode_engine::memory::MEMORY`]),
     /// the least recently used of every store going first; each value
     /// expires [`CONTINUATION_IDLE`] after it was last read.
     pub(crate) const fn new() -> Self {
         Self {
-            memo: Memo::new(&crate::cache::MEMORY),
+            memo: Memo::new(&octocode_engine::memory::MEMORY),
         }
     }
 
@@ -86,6 +86,37 @@ impl<V: Send + Sync + 'static> PageMemo<V> {
     }
 }
 
+/// A stored value and what proves it current.
+pub(crate) struct Proven<T: ?Sized> {
+    proof: Proof,
+    value: Arc<T>,
+}
+
+impl<T: ?Sized + Send + Sync + 'static> PageMemo<Proven<T>> {
+    /// The value stored for `snapshot` under `policy` while its proof holds;
+    /// one whose proof fails is evicted.
+    pub(crate) fn current(&self, snapshot: &str, policy: &str) -> Option<Arc<T>> {
+        self.get_current(
+            snapshot,
+            policy,
+            |stored| (Arc::clone(&stored.value), stored.proof.clone()),
+            Some,
+        )
+    }
+
+    /// Store `value`, about `bytes` large, with what proves it current.
+    pub(crate) fn put_proven(
+        &self,
+        snapshot: String,
+        policy: String,
+        bytes: usize,
+        proof: Proof,
+        value: Arc<T>,
+    ) {
+        self.put(snapshot, policy, bytes, Proven { proof, value });
+    }
+}
+
 /// What a stored result's freshness depends on.
 pub(crate) struct Watch<'a> {
     /// The scope root: stamped, with every directory holding a source.
@@ -97,22 +128,6 @@ pub(crate) struct Watch<'a> {
     pub(crate) rules: &'a [PathBuf],
     /// Entries whose existence alone decides the rules (repository markers).
     pub(crate) markers: &'a [PathBuf],
-}
-
-/// What proves a stored result current: the stamps of what its [`Watch`]
-/// names, and whether each path named by existence alone still exists as
-/// it did.
-#[derive(Clone)]
-pub(crate) struct Proof {
-    stamps: StampSet,
-    presence: Arc<[(PathBuf, bool)]>,
-}
-
-impl Proof {
-    /// Nothing the proof names changed.
-    pub(crate) fn holds(&self) -> bool {
-        self.stamps.unchanged() && self.presence.iter().all(|(path, was)| exists(path) == *was)
-    }
 }
 
 impl Watch<'_> {
@@ -147,14 +162,14 @@ impl Watch<'_> {
                 presence.push((rule.clone(), false));
             }
         }
-        Some(Proof {
-            stamps: StampSet::capture(
+        Some(
+            Proof::capture(
                 paths.into_iter().map(Path::to_path_buf),
                 link,
                 settled_before,
-            )?,
-            presence: presence.into(),
-        })
+            )?
+            .with_presence(presence),
+        )
     }
 }
 
@@ -205,11 +220,6 @@ pub(crate) fn repository_markers(root: &Path) -> Vec<PathBuf> {
     root.ancestors()
         .flat_map(|dir| octocode_engine::search::repository::MARKERS.map(|marker| dir.join(marker)))
         .collect()
-}
-
-/// Whether `path` exists (a dangling link counts: its name is taken).
-fn exists(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok()
 }
 
 #[cfg(test)]
@@ -269,7 +279,12 @@ mod tests {
     fn a_value_over_the_whole_budget_is_not_kept() {
         let memo = PageMemo::new();
         memo.put("small".into(), "p".into(), 3, ());
-        memo.put("huge".into(), "p".into(), crate::cache::MEMORY.limit(), ());
+        memo.put(
+            "huge".into(),
+            "p".into(),
+            octocode_engine::memory::MEMORY.limit(),
+            (),
+        );
         assert_eq!(memo.contents(), (vec!["small".into()], 3 + 5 + 1));
     }
 

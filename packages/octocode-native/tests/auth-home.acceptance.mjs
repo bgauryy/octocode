@@ -136,7 +136,6 @@ const env = {
   PATH: `${dir}/bin:/usr/bin:/bin`,
   WORKSPACE_ROOT: dir,
   ALLOWED_PATHS: dir,
-  OCTOCODE_ENABLE_STATS: 'false',
   GITHUB_API_URL: `http://127.0.0.1:${server.address().port}/api/v3`,
   ...(process.env.OCTOCODE_NATIVE_BIN && {
     NODE_ENV: process.env.NODE_ENV,

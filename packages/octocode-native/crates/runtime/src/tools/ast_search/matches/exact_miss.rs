@@ -16,9 +16,9 @@ use octocode_engine::structural::StructuralDetailedMatch;
 use serde_json::{Value, json};
 
 /// A declaration pattern that matched nothing in a scope that holds
-/// declarations of its kind (named as the pattern names it): a pattern
-/// matches every part it spells, so an item that adds or leaves out a part
-/// (a modifier, a return type) is not a match. The rule that lists them.
+/// declarations of its kind (named as the pattern names it): a pattern leaves
+/// out what it does not spell, but each part it spells must agree, so an item
+/// that differs in one is not a match. The rule that lists them.
 pub(super) struct ExactMiss {
     pub(super) kind: String,
     pub(super) count: usize,
@@ -182,6 +182,51 @@ pub(super) fn kind_broaden(
         .then(|| crate::response::result::Continuation::related_query(query).build())
 }
 
+/// A declaration pattern over a scope with none of its kind: the pattern may
+/// read as another declaration than the one meant (in C#, a method without a
+/// return type is a constructor), so the row names its reading and leads to
+/// what the scope does declare.
+pub(super) fn attach_absent_kind(q: MatchQuery<'_>, scope: &Scope, out: &mut Value) {
+    let Some(declaration) = pattern_declaration(q, scope) else {
+        return;
+    };
+    let kind = declaration.kind;
+    push_diagnostic(
+        out,
+        json!({
+            "code": "structural.pattern.exact",
+            "severity": "info",
+            "stage": "match",
+            "message": format!("The pattern reads as a {kind} node, and the scope holds none."),
+            "recovery": "broadenSearch lists what the scope declares; syntaxTree shows how a declaration parses.",
+        }),
+    );
+    let row = q.to_value();
+    let mut symbols = json!({"operation": "symbols"});
+    for field in SYMBOLS_WALK {
+        if let Some(value) = row.get(field) {
+            symbols[field] = value.clone();
+        }
+    }
+    out["calls"]["broadenSearch"] = crate::response::result::Continuation::related_input(
+        ToolId::AstSearch,
+        json!({"queries": [symbols]}),
+    )
+    .build();
+}
+
+/// The fields of a match that a `symbols` row walks the same scope by.
+const SYMBOLS_WALK: [&str; 8] = [
+    "path",
+    "exclude",
+    "defaultExcludes",
+    "includeIgnored",
+    "includeHidden",
+    "testCode",
+    "parser",
+    "parserGlobs",
+];
+
 impl ExactMiss {
     /// The diagnostic that counts the declarations the pattern missed, and
     /// the rule query that lists them.
@@ -198,9 +243,9 @@ impl ExactMiss {
             "severity": "warning",
             "stage": "match",
             "message": format!(
-                "The pattern matches as written: {count} {kind} node(s) in {files} file(s) differ from it in a part it spells or leaves out (a modifier, a return type)."
+                "{count} {kind} node(s) in {files} file(s) differ from the pattern in a part it spells: its parameters, its body, a type or modifier it names."
             ),
-            "recovery": "Spell those parts in the pattern, or list every node of the kind with a rule.",
+            "recovery": "Replace a spelled part with $X or $$$, or list every node of the kind with broadenSearch.",
         });
         push_diagnostic(out, diagnostic);
         if let Some(tree) = tree {
@@ -208,33 +253,5 @@ impl ExactMiss {
         }
         out["calls"]["broadenSearch"] =
             crate::response::result::Continuation::related_query(query).build();
-    }
-
-    /// Beside a rewritten page's hits, which are nodes of this kind: the
-    /// count of those that neither spelling matched, and the rule listing
-    /// them all. Nothing when the hits are every node of the kind.
-    pub(super) fn attach_beside_hits(self, out: &mut Value) {
-        let hits = out["matchCount"].as_u64().unwrap_or(0);
-        let left = u64::try_from(self.count)
-            .unwrap_or(u64::MAX)
-            .saturating_sub(hits);
-        if left == 0 {
-            return;
-        }
-        push_diagnostic(
-            out,
-            json!({
-                "code": "structural.pattern.exact",
-                "severity": "warning",
-                "stage": "match",
-                "message": format!(
-                    "{left} more {} node(s) match neither pattern: they differ in another part (a modifier, type parameters, the form of the return type).",
-                    self.kind
-                ),
-                "recovery": "broadenSearch lists every node of the kind.",
-            }),
-        );
-        out["calls"]["broadenSearch"] =
-            crate::response::result::Continuation::related_query(self.query).build();
     }
 }

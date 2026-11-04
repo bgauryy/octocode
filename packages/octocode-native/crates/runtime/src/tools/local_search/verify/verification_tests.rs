@@ -129,6 +129,7 @@ fn a_late_hit_retains_only_its_neighborhood_with_exact_coordinates() {
         &mut open(&source),
         &[(hit_line - 1, hit_line + 1)],
         hit_line + 1,
+        None,
         &NeverCancel,
     )
     .unwrap_or_else(|_| panic!("readable"));
@@ -153,7 +154,7 @@ fn streamed_key_state_matches_the_whole_file_scan() {
         let dir = tempfile::tempdir().expect("fixture");
         let source = dir.path().join("key.txt");
         std::fs::write(&source, &content).expect("fixture");
-        let read = read_verification_lines(&mut open(&source), &[], usize::MAX, &NeverCancel)
+        let read = read_verification_lines(&mut open(&source), &[], usize::MAX, None, &NeverCancel)
             .unwrap_or_else(|_| panic!("readable"));
         assert!(read.retained.is_empty());
         assert!(!read.unclassified);

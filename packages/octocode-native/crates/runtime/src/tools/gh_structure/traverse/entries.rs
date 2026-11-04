@@ -17,7 +17,6 @@ pub(in crate::tools::gh_structure) fn missing_ref(
     )
     .with_reason(ProviderErrorReason::RefNotFound);
     missing.status = error.status;
-    missing.request_id = error.request_id;
     missing
 }
 

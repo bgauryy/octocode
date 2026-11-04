@@ -21,13 +21,23 @@ pub(super) fn walk(
     row: Value,
     rows: fn(&Value) -> Vec<String>,
 ) -> Vec<Value> {
+    walk_within(root, row, rows, WINDOW)
+}
+
+/// [`walk`] under a response window of `window` characters.
+pub(super) fn walk_within(
+    root: &std::path::Path,
+    row: Value,
+    rows: fn(&Value) -> Vec<String>,
+    window: usize,
+) -> Vec<Value> {
     let (paths, security) = simple_policy(root);
     let mut outputs = Vec::new();
     checks::walker::walk("astSearch", json!({"queries":[row]}), |call| {
         let input = opened_input(ToolId::AstSearch, call);
         let row = &input["queries"][0];
         let query: AstSearchQuery = serde_json::from_value(row.clone()).expect("typed row");
-        let out = execute_ast(&query, &paths, &security, &NeverCancel, Some(WINDOW))
+        let out = execute_ast(&query, &paths, &security, &NeverCancel, Some(window))
             .unwrap_or_else(|error| panic!("{row} failed: {error:?}"));
         // Every page states `pagination.hasMore`: the response layer and
         // clasify read the raw page before any shaping.

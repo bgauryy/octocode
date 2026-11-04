@@ -6,6 +6,7 @@ use crate::policy::discovery::WalkAdmission;
 use crate::policy::path::PathPolicy;
 use crate::tools::ast_rule::has_extension_in;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fs::FileType;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -68,9 +69,10 @@ impl<'a> WalkLog<'a> {
         }
     }
 
-    /// Whether the walk takes `path`, recording what a continuation page
-    /// re-checks and what the scope's coverage reports.
-    pub(super) fn admit(&self, path: &Path) -> bool {
+    /// Whether the walk takes `path`, a `file_type` entry when known, recording
+    /// what a continuation page re-checks and what the scope's coverage
+    /// reports.
+    pub(super) fn admit(&self, path: &Path, file_type: Option<FileType>) -> bool {
         let scope = self.scope;
         // Only a directory or a file of the scanned grammar could have
         // matched, so only those leave absence unproven when the policy
@@ -78,15 +80,19 @@ impl<'a> WalkLog<'a> {
         // A dot entry out of view (no `hidden`) is neither walked nor
         // disclosed, as structureSearch tree does.
         let in_view = self.include_hidden || !super::super::super::is_dot_entry(path);
-        if !self.admission.admit(path, None, |is_dir| {
+        if !self.admission.admit(path, file_type, |is_dir| {
             in_view && (is_dir || super::parses(scope, path))
         }) {
             return false;
         }
-        if path.is_dir() {
+        let (is_dir, is_file) = file_type.map_or_else(
+            || (path.is_dir(), path.is_file()),
+            |kind| (kind.is_dir(), kind.is_file()),
+        );
+        if is_dir {
             self.watch(path);
         }
-        let unparsed_file = !super::parses(scope, path) && path.is_file();
+        let unparsed_file = !super::parses(scope, path) && is_file;
         // A file no grammar parses is disclosed, not silently dropped, when
         // the scope is every grammar's files. Under `parser` the scope is
         // that language's files: a file of any other kind (a grammar's own
@@ -104,7 +110,7 @@ impl<'a> WalkLog<'a> {
                 );
         }
         let admitted = !unparsed_file;
-        if admitted && scope.language.is_none() && path.is_file() {
+        if admitted && is_file {
             self.count(path);
         }
         // Grammar filtering is not an explicit include override: ignored
@@ -145,10 +151,7 @@ impl<'a> WalkLog<'a> {
         {
             return;
         }
-        let extension = self.scope.parsers.extension(path).map_or_else(
-            || octocode_engine::text::extension_of(&path.to_string_lossy(), true, ""),
-            str::to_owned,
-        );
+        let extension = super::parser_extension(self.scope, path);
         *self
             .census
             .lock()

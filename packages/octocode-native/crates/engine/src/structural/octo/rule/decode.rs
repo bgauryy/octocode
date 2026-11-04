@@ -3,7 +3,7 @@
 
 use serde::Deserialize;
 
-use crate::structural::kinds::named_kind_id;
+use crate::structural::kinds::{named_kind_id, near_kinds};
 use crate::structural::language::AgLanguage;
 
 use crate::structural::octo::error::CompileError;
@@ -223,7 +223,8 @@ pub(super) fn check_kinds(
         && named_kind_id(language, kind).is_none()
     {
         return Err(CompileError::grammar(format!(
-            "unknown node kind '{kind}' for this language grammar"
+            "unknown node kind '{kind}' for this language grammar{}",
+            near_kinds(language, kind)
         )));
     }
     rule.children()

@@ -44,7 +44,7 @@ fn filters_files_by_extension_without_returning_traversal_directories() {
 }
 
 #[test]
-fn respects_depth_and_exclude_dir() {
+fn respects_depth_and_default_exclude_dir() {
     let root = TmpDir::new();
     fs::create_dir_all(root.join("src/nested")).expect("create src");
     fs::create_dir_all(root.join("node_modules/pkg")).expect("create node_modules");
@@ -54,7 +54,7 @@ fn respects_depth_and_exclude_dir() {
     let result = query_file_system_inner(FileSystemQueryOptions {
         path: root.to_string_lossy().to_string(),
         max_depth: Some(3),
-        exclude_dir: Some(vec!["node_modules".to_owned()]),
+        default_exclude_dir: Some(vec!["node_modules".to_owned()]),
         names: Some(vec!["*.ts".to_owned()]),
         ..Default::default()
     })

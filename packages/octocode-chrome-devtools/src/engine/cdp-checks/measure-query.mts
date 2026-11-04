@@ -37,7 +37,7 @@ const argv = process.argv.slice(2);
 const { getArg, hasFlag, getLowerArg } = flagArgs(argv);
 
 if (hasFlag('--help') || hasFlag('-h')) {
-  console.error(`Usage:
+  console.log(`Usage:
   measure-query.mjs --dir <cdp-run> [filters] [--view summary|findings|failures|slow|sample|resources|cookies|keys|all]
   measure-query.mjs --latest [--under <octocode-chrome-devtools/tmp>] [filters]
   measure-query.mjs --perf <file> --net <file> --storage <file> [filters]

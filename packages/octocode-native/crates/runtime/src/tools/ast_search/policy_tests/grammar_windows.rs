@@ -95,21 +95,26 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
         let error = run(&root.0, query).expect_err("invalid selector");
         assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     }
-    let query = json!({"operation":"match","path":root.0,"rule":{"pattern":"target("}});
+    // A pattern one grammar reads: its window is partial by the cut, and the
+    // later grammar it does not compile in is outside what it applies to.
+    let query = json!({"operation":"match","path":root.0,"rule":{"pattern":"def $F():\n    $$$"}});
     let first = run(&root.0, query).expect("bounded pattern coverage");
+    assert_eq!(first["matchCount"], 1, "{first}");
     assert_eq!(first["isPartial"], true, "{first}");
     let next = first["next"]["expandScan"]["input"]["queries"][0].clone();
     assert!(next.is_object(), "{first}");
-    let last = run(&root.0, next).expect("remaining incompatible grammar is partial coverage");
-    assert_eq!(last["isPartial"], true, "{last}");
-    assert!(
-        last["partialReasons"]
-            .as_array()
-            .expect("cuts")
-            .contains(&json!("compileFailed")),
-        "{last}"
-    );
+    let last = run(&root.0, next).expect("the later grammar is named, not a failure");
+    assert_eq!(last["matchCount"], 0, "{last}");
+    assert_eq!(last["skippedGrammars"], json!({"typescript":1}), "{last}");
     assert!(last["next"].get("expandScan").is_none(), "{last}");
+    // A pattern no grammar reads is an error in a capped window too: no later
+    // file can make it match.
+    let error = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"target("}}),
+    )
+    .expect_err("capped invalid pattern");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     drop(window);
     let error = run(
         &root.0,
@@ -292,4 +297,65 @@ fn directory_match_over_a_grammar_family_infers_the_family() {
     .expect("one family");
     assert_eq!(out["inferredLanguage"], "typescript", "{out}");
     assert_eq!(out["matchCount"], 2, "{out}");
+}
+
+/// `.ts` and `.tsx` share one grammar label, but a pattern can parse in only
+/// one of them. A `.ts` file then cannot match it: it is outside what the
+/// query applies to, whatever the file holds, with or without `parser`, and
+/// the result is whole. A scope with no file the query parses in is an error,
+/// again whatever the files hold.
+#[test]
+fn a_dialect_the_pattern_does_not_parse_in_is_outside_whatever_the_file_holds() {
+    let pattern = json!({"pattern":"<div>$$$</div>"});
+    for source in ["const a = \"<div>x</div>\";\n", "const a = 1;\n"] {
+        let root = Fixture::new();
+        root.write("a.ts", source);
+        root.write("b.tsx", "const v = <div>x</div>;\n");
+        for selector in [json!({}), json!({"parser":"typescript"})] {
+            let mut query = json!({"operation":"match","path":root.0,"rule":pattern});
+            query
+                .as_object_mut()
+                .expect("query")
+                .extend(selector.as_object().expect("selector").clone());
+            let out = run(&root.0, query).expect("the tsx file parses it");
+            assert_eq!(out["matchCount"], 1, "{out}");
+            for field in ["isPartial", "partialReasons", "terminalLimit"] {
+                assert!(out.get(field).is_none(), "{field}: {out}");
+            }
+            assert!(out["next"].get("narrowScope").is_none(), "{out}");
+            assert!(!out["diagnostics"].to_string().contains("a.ts"), "{out}");
+            assert_eq!(out["skippedGrammars"], json!({"typescript":1}), "{out}");
+        }
+        let only_ts = Fixture::new();
+        only_ts.write("a.ts", source);
+        for selector in [json!({}), json!({"parser":"typescript"})] {
+            let mut query = json!({"operation":"match","path":only_ts.0,"rule":pattern});
+            query
+                .as_object_mut()
+                .expect("query")
+                .extend(selector.as_object().expect("selector").clone());
+            let error = run(&only_ts.0, query).expect_err("no file of the scope parses it");
+            assert_eq!(error.code, ErrorCode::InvalidPattern, "{source}: {error:?}");
+        }
+    }
+}
+
+/// A window of files the query does not parse in, with a later window still
+/// to read, carries no compile failure: only its cut makes it partial.
+#[test]
+fn a_capped_window_of_another_grammar_is_partial_only_by_its_cut() {
+    let root = Fixture::new();
+    let _window = crate::tools::ast_search::scan_window::test_window(1);
+    root.write("a.py", "def a():\n    return 1\n");
+    root.write("b.py", "def b():\n    return 1\n");
+    root.write("c.py", "def c():\n    return 1\n");
+    root.write("z.rs", "fn z() {}\n");
+    let first = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"fn $F() {}"}}),
+    )
+    .expect("the walk has not reached the grammar that parses it");
+    assert_eq!(first["partialReasons"], json!(["scanBudget"]), "{first}");
+    assert!(first.get("terminalLimit").is_none(), "{first}");
+    assert!(first["next"].get("expandScan").is_some(), "{first}");
 }

@@ -1,5 +1,5 @@
 {
-  "purpose": "Reviewed implementation responsibilities and behavioral test entry points. This index is not execution coverage; run the cited suites. Private cursor state is excluded. Recursive rule fields are recorded once.",
+  "purpose": "Reviewed implementation responsibilities and behavioral test entry points. This index is not execution coverage; run the cited suites. Private cursor state (x-cursor) is excluded. Recursive rule fields are recorded once. A path with no entry inherits its nearest declared ancestor's effects (ranges[].startLine -> ranges[] -> ranges); a top-level path with none falls back to common, whose empty array means the field has no behavioral effect. tests/field_effect_coverage.rs gates both directions.",
   "effects": [
     "source",
     "filter",
@@ -30,6 +30,12 @@
       ]
     }
   },
+  "common": {
+    "fields": {
+      "mainGoal": [],
+      "reasoning": []
+    }
+  },
   "tools": {
     "clasify": {
       "evidence": [
@@ -56,30 +62,6 @@
         "assets": [
           "source"
         ],
-        "assets{}.source": [
-          "source"
-        ],
-        "assets{}.source.query": [
-          "source"
-        ],
-        "assets{}.source.query.owner": [
-          "source"
-        ],
-        "assets{}.source.query.path": [
-          "source"
-        ],
-        "assets{}.source.query.ref": [
-          "source"
-        ],
-        "assets{}.source.query.repo": [
-          "source"
-        ],
-        "assets{}.source.tool": [
-          "source"
-        ],
-        "assets{}.source.url": [
-          "source"
-        ],
         "content": [
           "selection"
         ],
@@ -98,85 +80,10 @@
         "questions": [
           "selection"
         ],
-        "questions{}.criteria": [
-          "selection"
-        ],
-        "questions{}.criteria.false": [
-          "selection"
-        ],
-        "questions{}.criteria.true": [
-          "selection"
-        ],
-        "questions{}.instructions": [
-          "selection"
-        ],
-        "questions{}.type": [
-          "selection"
-        ],
         "resources": [
           "source"
         ],
-        "resources{}.query": [
-          "source"
-        ],
-        "resources{}.query.owner": [
-          "source"
-        ],
-        "resources{}.query.path": [
-          "source"
-        ],
-        "resources{}.query.ranges": [
-          "source"
-        ],
-        "resources{}.query.ranges[].endLine": [
-          "source"
-        ],
-        "resources{}.query.ranges[].startLine": [
-          "source"
-        ],
-        "resources{}.query.ref": [
-          "source"
-        ],
-        "resources{}.query.repo": [
-          "source"
-        ],
-        "resources{}.tool": [
-          "source"
-        ],
-        "resources{}.url": [
-          "source"
-        ],
         "source": [
-          "source"
-        ],
-        "source.query": [
-          "source"
-        ],
-        "source.query.owner": [
-          "source"
-        ],
-        "source.query.path": [
-          "source"
-        ],
-        "source.query.ranges": [
-          "source"
-        ],
-        "source.query.ranges[].endLine": [
-          "source"
-        ],
-        "source.query.ranges[].startLine": [
-          "source"
-        ],
-        "source.query.ref": [
-          "source"
-        ],
-        "source.query.repo": [
-          "source"
-        ],
-        "source.tool": [
-          "source"
-        ],
-        "source.url": [
           "source"
         ]
       }
@@ -191,105 +98,6 @@
           "view"
         ],
         "filters": [
-          "filter"
-        ],
-        "filters.archive": [
-          "filter"
-        ],
-        "filters.createdAt": [
-          "filter"
-        ],
-        "filters.createdAt.from": [
-          "filter"
-        ],
-        "filters.createdAt.to": [
-          "filter"
-        ],
-        "filters.followerCount": [
-          "filter"
-        ],
-        "filters.followerCount.max": [
-          "filter"
-        ],
-        "filters.followerCount.min": [
-          "filter"
-        ],
-        "filters.forkCount": [
-          "filter"
-        ],
-        "filters.forkCount.max": [
-          "filter"
-        ],
-        "filters.forkCount.min": [
-          "filter"
-        ],
-        "filters.goodFirstIssueCount": [
-          "filter"
-        ],
-        "filters.goodFirstIssueCount.max": [
-          "filter"
-        ],
-        "filters.goodFirstIssueCount.min": [
-          "filter"
-        ],
-        "filters.helpWantedIssueCount": [
-          "filter"
-        ],
-        "filters.helpWantedIssueCount.max": [
-          "filter"
-        ],
-        "filters.helpWantedIssueCount.min": [
-          "filter"
-        ],
-        "filters.isSponsorable": [
-          "filter"
-        ],
-        "filters.language": [
-          "filter"
-        ],
-        "filters.license": [
-          "filter"
-        ],
-        "filters.pushedAt": [
-          "filter"
-        ],
-        "filters.pushedAt.from": [
-          "filter"
-        ],
-        "filters.pushedAt.to": [
-          "filter"
-        ],
-        "filters.sizeKiB": [
-          "filter"
-        ],
-        "filters.sizeKiB.max": [
-          "filter"
-        ],
-        "filters.sizeKiB.min": [
-          "filter"
-        ],
-        "filters.stars": [
-          "filter"
-        ],
-        "filters.stars.max": [
-          "filter"
-        ],
-        "filters.stars.min": [
-          "filter"
-        ],
-        "filters.topicCount": [
-          "filter"
-        ],
-        "filters.topicCount.max": [
-          "filter"
-        ],
-        "filters.topicCount.min": [
-          "filter"
-        ],
-        "filters.topics": [
-          "filter"
-        ],
-        "filters.visibility": [
           "filter"
         ],
         "keywords": [
@@ -310,11 +118,8 @@
         "sort": [
           "ordering"
         ],
-        "sort.by": [
-          "ordering"
-        ],
-        "sort.order": [
-          "ordering"
+        "limit": [
+          "view"
         ]
       }
     },
@@ -335,15 +140,6 @@
         "classification": [
           "selection"
         ],
-        "classification.context": [
-          "selection"
-        ],
-        "classification.longContext": [
-          "selection"
-        ],
-        "classification.predicates": [
-          "selection"
-        ],
         "extensions": [
           "filter"
         ],
@@ -362,7 +158,7 @@
         "owner": [
           "source"
         ],
-        "pathPrefix": [
+        "path": [
           "filter"
         ],
         "ref": [
@@ -370,6 +166,12 @@
         ],
         "repo": [
           "source"
+        ],
+        "contextLines": [
+          "view"
+        ],
+        "limit": [
+          "view"
         ]
       }
     },
@@ -407,6 +209,9 @@
         ],
         "repo": [
           "source"
+        ],
+        "limit": [
+          "view"
         ]
       }
     },
@@ -454,22 +259,7 @@
         "classification": [
           "selection"
         ],
-        "classification.context": [
-          "selection"
-        ],
-        "classification.longContext": [
-          "selection"
-        ],
-        "classification.predicates": [
-          "selection"
-        ],
         "contextLines": [
-          "view"
-        ],
-        "contextLines.after": [
-          "view"
-        ],
-        "contextLines.before": [
           "view"
         ],
         "matchString": [
@@ -482,12 +272,6 @@
           "source"
         ],
         "ranges": [
-          "view"
-        ],
-        "ranges[].endLine": [
-          "view"
-        ],
-        "ranges[].startLine": [
           "view"
         ],
         "ref": [
@@ -504,6 +288,9 @@
         ],
         "wholeWord": [
           "matcher"
+        ],
+        "readProgress": [
+          "view"
         ]
       }
     },
@@ -521,288 +308,6 @@
         "filters": [
           "filter"
         ],
-        "filters.archive": [
-          "filter"
-        ],
-        "filters.assignee": [
-          "filter"
-        ],
-        "filters.assignee.exclude": [
-          "filter"
-        ],
-        "filters.assignee.include": [
-          "filter"
-        ],
-        "filters.author": [
-          "filter"
-        ],
-        "filters.author.exclude": [
-          "filter"
-        ],
-        "filters.author.include": [
-          "filter"
-        ],
-        "filters.baseRef": [
-          "filter"
-        ],
-        "filters.baseRef.exclude": [
-          "filter"
-        ],
-        "filters.baseRef.include": [
-          "filter"
-        ],
-        "filters.checkStatus": [
-          "filter"
-        ],
-        "filters.checkStatus.exclude": [
-          "filter"
-        ],
-        "filters.checkStatus.include": [
-          "filter"
-        ],
-        "filters.closedAt": [
-          "filter"
-        ],
-        "filters.closedAt.exclude": [
-          "filter"
-        ],
-        "filters.closedAt.exclude[].from": [
-          "filter"
-        ],
-        "filters.closedAt.exclude[].to": [
-          "filter"
-        ],
-        "filters.closedAt.include": [
-          "filter"
-        ],
-        "filters.closedAt.include[].from": [
-          "filter"
-        ],
-        "filters.closedAt.include[].to": [
-          "filter"
-        ],
-        "filters.commentCount": [
-          "filter"
-        ],
-        "filters.commentCount.exclude": [
-          "filter"
-        ],
-        "filters.commentCount.exclude[].max": [
-          "filter"
-        ],
-        "filters.commentCount.exclude[].min": [
-          "filter"
-        ],
-        "filters.commentCount.include": [
-          "filter"
-        ],
-        "filters.commentCount.include[].max": [
-          "filter"
-        ],
-        "filters.commentCount.include[].min": [
-          "filter"
-        ],
-        "filters.commenter": [
-          "filter"
-        ],
-        "filters.commenter.exclude": [
-          "filter"
-        ],
-        "filters.commenter.include": [
-          "filter"
-        ],
-        "filters.committedAt": [
-          "filter"
-        ],
-        "filters.committedAt.exclude": [
-          "filter"
-        ],
-        "filters.committedAt.exclude[].from": [
-          "filter"
-        ],
-        "filters.committedAt.exclude[].to": [
-          "filter"
-        ],
-        "filters.committedAt.from": [
-          "filter"
-        ],
-        "filters.committedAt.include": [
-          "filter"
-        ],
-        "filters.committedAt.include[].from": [
-          "filter"
-        ],
-        "filters.committedAt.include[].to": [
-          "filter"
-        ],
-        "filters.committedAt.to": [
-          "filter"
-        ],
-        "filters.committer": [
-          "filter"
-        ],
-        "filters.committer.include": [
-          "filter"
-        ],
-        "filters.createdAt": [
-          "filter"
-        ],
-        "filters.createdAt.exclude": [
-          "filter"
-        ],
-        "filters.createdAt.exclude[].from": [
-          "filter"
-        ],
-        "filters.createdAt.exclude[].to": [
-          "filter"
-        ],
-        "filters.createdAt.include": [
-          "filter"
-        ],
-        "filters.createdAt.include[].from": [
-          "filter"
-        ],
-        "filters.createdAt.include[].to": [
-          "filter"
-        ],
-        "filters.headRef": [
-          "filter"
-        ],
-        "filters.headRef.exclude": [
-          "filter"
-        ],
-        "filters.headRef.include": [
-          "filter"
-        ],
-        "filters.isDraft": [
-          "filter"
-        ],
-        "filters.isMerged": [
-          "filter"
-        ],
-        "filters.labels": [
-          "filter"
-        ],
-        "filters.labels.exclude": [
-          "filter"
-        ],
-        "filters.labels.include": [
-          "filter"
-        ],
-        "filters.linked": [
-          "filter"
-        ],
-        "filters.linked.exclude": [
-          "filter"
-        ],
-        "filters.linked.include": [
-          "filter"
-        ],
-        "filters.matchIn": [
-          "filter"
-        ],
-        "filters.mentions": [
-          "filter"
-        ],
-        "filters.mentions.exclude": [
-          "filter"
-        ],
-        "filters.mentions.include": [
-          "filter"
-        ],
-        "filters.mergedAt": [
-          "filter"
-        ],
-        "filters.mergedAt.exclude": [
-          "filter"
-        ],
-        "filters.mergedAt.exclude[].from": [
-          "filter"
-        ],
-        "filters.mergedAt.exclude[].to": [
-          "filter"
-        ],
-        "filters.mergedAt.include": [
-          "filter"
-        ],
-        "filters.mergedAt.include[].from": [
-          "filter"
-        ],
-        "filters.mergedAt.include[].to": [
-          "filter"
-        ],
-        "filters.reactionCount": [
-          "filter"
-        ],
-        "filters.reactionCount.exclude": [
-          "filter"
-        ],
-        "filters.reactionCount.exclude[].max": [
-          "filter"
-        ],
-        "filters.reactionCount.exclude[].min": [
-          "filter"
-        ],
-        "filters.reactionCount.include": [
-          "filter"
-        ],
-        "filters.reactionCount.include[].max": [
-          "filter"
-        ],
-        "filters.reactionCount.include[].min": [
-          "filter"
-        ],
-        "filters.review": [
-          "filter"
-        ],
-        "filters.review.exclude": [
-          "filter"
-        ],
-        "filters.review.include": [
-          "filter"
-        ],
-        "filters.reviewRequested": [
-          "filter"
-        ],
-        "filters.reviewRequested.exclude": [
-          "filter"
-        ],
-        "filters.reviewRequested.include": [
-          "filter"
-        ],
-        "filters.reviewedBy": [
-          "filter"
-        ],
-        "filters.reviewedBy.exclude": [
-          "filter"
-        ],
-        "filters.reviewedBy.include": [
-          "filter"
-        ],
-        "filters.state": [
-          "filter"
-        ],
-        "filters.updatedAt": [
-          "filter"
-        ],
-        "filters.updatedAt.exclude": [
-          "filter"
-        ],
-        "filters.updatedAt.exclude[].from": [
-          "filter"
-        ],
-        "filters.updatedAt.exclude[].to": [
-          "filter"
-        ],
-        "filters.updatedAt.include": [
-          "filter"
-        ],
-        "filters.updatedAt.include[].from": [
-          "filter"
-        ],
-        "filters.updatedAt.include[].to": [
-          "filter"
-        ],
         "keywords": [
           "filter"
         ],
@@ -812,7 +317,7 @@
         "owner": [
           "source"
         ],
-        "pathPrefix": [
+        "path": [
           "filter"
         ],
         "ref": [
@@ -824,11 +329,8 @@
         "sort": [
           "ordering"
         ],
-        "sort.by": [
-          "ordering"
-        ],
-        "sort.order": [
-          "ordering"
+        "limit": [
+          "view"
         ]
       }
     },
@@ -846,12 +348,6 @@
           "matcher"
         ],
         "contextLines": [
-          "view"
-        ],
-        "contextLines.after": [
-          "view"
-        ],
-        "contextLines.before": [
           "view"
         ],
         "fileStatus": [
@@ -928,6 +424,9 @@
         ],
         "version": [
           "source"
+        ],
+        "limit": [
+          "view"
         ]
       }
     },
@@ -979,22 +478,7 @@
         "classification": [
           "selection"
         ],
-        "classification.context": [
-          "selection"
-        ],
-        "classification.longContext": [
-          "selection"
-        ],
-        "classification.predicates": [
-          "selection"
-        ],
         "contextLines": [
-          "view"
-        ],
-        "contextLines.after": [
-          "view"
-        ],
-        "contextLines.before": [
           "view"
         ],
         "defaultExcludes": [
@@ -1042,12 +526,6 @@
         "sort": [
           "ordering"
         ],
-        "sort.by": [
-          "ordering"
-        ],
-        "sort.order": [
-          "ordering"
-        ],
         "unique": [
           "view"
         ],
@@ -1056,6 +534,12 @@
         ],
         "wholeWord": [
           "matcher"
+        ],
+        "testCode": [
+          "filter"
+        ],
+        "limit": [
+          "view"
         ]
       }
     },
@@ -1087,12 +571,6 @@
         "accessedAt": [
           "filter"
         ],
-        "accessedAt.from": [
-          "filter"
-        ],
-        "accessedAt.to": [
-          "filter"
-        ],
         "defaultExcludes": [
           "filter"
         ],
@@ -1121,18 +599,12 @@
           "filter"
         ],
         "limit": [
-          "filter"
+          "view"
         ],
         "minDepth": [
           "filter"
         ],
         "modifiedAt": [
-          "filter"
-        ],
-        "modifiedAt.from": [
-          "filter"
-        ],
-        "modifiedAt.to": [
           "filter"
         ],
         "nameRegex": [
@@ -1150,23 +622,14 @@
         "sizeBytes": [
           "filter"
         ],
-        "sizeBytes.max": [
-          "filter"
-        ],
-        "sizeBytes.min": [
-          "filter"
-        ],
         "sort": [
-          "ordering"
-        ],
-        "sort.by": [
-          "ordering"
-        ],
-        "sort.order": [
           "ordering"
         ],
         "view": [
           "view"
+        ],
+        "testCode": [
+          "filter"
         ]
       }
     },
@@ -1233,130 +696,25 @@
         "rule": [
           "filter"
         ],
-        "rule.all": [
-          "filter"
-        ],
-        "rule.any": [
-          "filter"
-        ],
-        "rule.field": [
-          "filter"
-        ],
-        "rule.follows": [
-          "filter"
-        ],
-        "rule.has": [
-          "filter"
-        ],
-        "rule.inside": [
-          "filter"
-        ],
-        "rule.kind": [
-          "filter"
-        ],
-        "rule.not": [
-          "filter"
-        ],
-        "rule.nthChild": [
-          "filter"
-        ],
-        "rule.nthChild.ofRule": [
-          "filter"
-        ],
-        "rule.nthChild.position": [
-          "filter"
-        ],
-        "rule.nthChild.reverse": [
-          "filter"
-        ],
-        "rule.pattern": [
-          "filter"
-        ],
-        "rule.pattern.context": [
-          "filter"
-        ],
-        "rule.pattern.selector": [
-          "filter"
-        ],
-        "rule.precedes": [
-          "filter"
-        ],
-        "rule.range": [
-          "filter"
-        ],
-        "rule.range.end": [
-          "filter"
-        ],
-        "rule.range.end.column": [
-          "filter"
-        ],
-        "rule.range.end.line": [
-          "filter"
-        ],
-        "rule.range.start": [
-          "filter"
-        ],
-        "rule.range.start.column": [
-          "filter"
-        ],
-        "rule.range.start.line": [
-          "filter"
-        ],
-        "rule.regex": [
-          "filter"
-        ],
-        "rule.stopBy": [
-          "filter"
-        ],
         "scope": [
-          "filter"
-        ],
-        "scope.end": [
-          "filter"
-        ],
-        "scope.end.column": [
-          "filter"
-        ],
-        "scope.end.line": [
-          "filter"
-        ],
-        "scope.mode": [
-          "filter"
-        ],
-        "scope.start": [
-          "filter"
-        ],
-        "scope.start.column": [
-          "filter"
-        ],
-        "scope.start.line": [
           "filter"
         ],
         "sort": [
           "ordering"
         ],
-        "sort.by": [
-          "ordering"
-        ],
-        "sort.order": [
-          "ordering"
-        ],
         "symbolFilter": [
-          "filter"
-        ],
-        "symbolFilter.caseMode": [
-          "filter"
-        ],
-        "symbolFilter.mode": [
-          "filter"
-        ],
-        "symbolFilter.terms": [
           "filter"
         ],
         "symbolKinds": [
           "filter"
         ],
         "view": [
+          "view"
+        ],
+        "testCode": [
+          "filter"
+        ],
+        "limit": [
           "view"
         ]
       }
@@ -1410,22 +768,7 @@
         "classification": [
           "selection"
         ],
-        "classification.context": [
-          "selection"
-        ],
-        "classification.longContext": [
-          "selection"
-        ],
-        "classification.predicates": [
-          "selection"
-        ],
         "contextLines": [
-          "view"
-        ],
-        "contextLines.after": [
-          "view"
-        ],
-        "contextLines.before": [
           "view"
         ],
         "matchString": [
@@ -1437,12 +780,6 @@
         "ranges": [
           "view"
         ],
-        "ranges[].endLine": [
-          "view"
-        ],
-        "ranges[].startLine": [
-          "view"
-        ],
         "regexEngine": [
           "matcher"
         ],
@@ -1451,6 +788,12 @@
         ],
         "wholeWord": [
           "matcher"
+        ],
+        "readProgress": [
+          "view"
+        ],
+        "limit": [
+          "view"
         ]
       }
     },
@@ -1481,12 +824,6 @@
         "contextLines": [
           "view"
         ],
-        "contextLines.after": [
-          "view"
-        ],
-        "contextLines.before": [
-          "view"
-        ],
         "depth": [
           "view"
         ],
@@ -1508,24 +845,6 @@
         "rustContext": [
           "execution"
         ],
-        "rustContext.buildScripts": [
-          "execution"
-        ],
-        "rustContext.cfgs": [
-          "execution"
-        ],
-        "rustContext.features": [
-          "execution"
-        ],
-        "rustContext.noDefaultFeatures": [
-          "execution"
-        ],
-        "rustContext.procMacros": [
-          "execution"
-        ],
-        "rustContext.target": [
-          "execution"
-        ],
         "symbolName": [
           "navigation"
         ],
@@ -1540,6 +859,9 @@
         ],
         "workspaceRoot": [
           "source"
+        ],
+        "limit": [
+          "view"
         ]
       }
     },
@@ -1554,7 +876,7 @@
         "path": [
           "source"
         ],
-        "excludeDirs": [
+        "exclude": [
           "filter"
         ],
         "refresh": [
@@ -1618,9 +940,6 @@
         "limit": [
           "view"
         ],
-        "offset": [
-          "view"
-        ],
         "changed": [
           "source"
         ],
@@ -1632,6 +951,27 @@
         ],
         "includeProvenance": [
           "view"
+        ],
+        "view": [
+          "view"
+        ],
+        "name": [
+          "filter"
+        ],
+        "reasons": [
+          "filter"
+        ],
+        "detectors": [
+          "dispatch"
+        ],
+        "entries": [
+          "source"
+        ],
+        "minScore": [
+          "filter"
+        ],
+        "minTier": [
+          "filter"
         ]
       }
     }

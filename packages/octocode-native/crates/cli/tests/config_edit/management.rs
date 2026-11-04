@@ -45,7 +45,7 @@ fn json_auth_failures_use_the_error_envelope_and_class() {
     }
 }
 
-fn manage(
+pub(super) fn manage(
     workspace: &Workspace,
     mut request: serde_json::Value,
 ) -> (Option<i32>, serde_json::Value) {

@@ -181,6 +181,43 @@ pub(super) fn windows(
     Ok(windows)
 }
 
+/// Page windows when rows are plain node lines: no origin or descriptor to
+/// price. Sizes already priced on an earlier chunk are kept.
+pub(super) fn plain_windows(
+    result: &SyntaxTreeInspectResult,
+    prices: &mut Prices,
+    budget: usize,
+    cancel: &dyn CancellationCheck,
+) -> Result<Vec<Range<usize>>, ToolError> {
+    if result.nodes.is_empty() {
+        return Ok(Vec::new());
+    }
+    for node in &result.nodes[prices.sizes.len()..] {
+        cancel.check().map_err(ToolError::cancelled)?;
+        #[cfg(test)]
+        PRICED_NODES.with(|count| count.set(count.get() + 1));
+        let row = super::render::plain_node_row(node);
+        prices.sizes.push(
+            octocode_engine::json_size::utf16_units(&row)
+                .unwrap_or(usize::MAX)
+                .saturating_add(1),
+        );
+    }
+    let mut windows = Vec::new();
+    let mut used = 0usize;
+    let mut start = 0;
+    for (index, size) in prices.sizes.iter().copied().enumerate() {
+        if index > start && used.saturating_add(size) > budget {
+            windows.push(start..index);
+            start = index;
+            used = 0;
+        }
+        used = used.saturating_add(size);
+    }
+    windows.push(start..result.nodes.len());
+    Ok(windows)
+}
+
 struct DescriptorCosts<'a> {
     closures: BTreeMap<&'a str, Vec<(u8, &'a str, usize)>>,
 }

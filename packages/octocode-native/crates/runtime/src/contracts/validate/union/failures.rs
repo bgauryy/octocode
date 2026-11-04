@@ -249,7 +249,7 @@ pub(super) fn score(
     depth: usize,
     selectors: &[String],
     undeclared: usize,
-) -> [usize; 6] {
+) -> [usize; 7] {
     let at_field = |issue: &&ValidationIssue| issue.path.len() == depth + 1;
     [
         issues
@@ -271,6 +271,12 @@ pub(super) fn score(
             .filter(|issue| issue.rule_id == "schema.not")
             .count(),
         undeclared,
+        // A branch of another JSON type says only that: one of the value's own
+        // type says what is wrong with it.
+        issues
+            .iter()
+            .filter(|issue| issue.path.len() == depth && issue.rule_id == "schema.type")
+            .count(),
         grouped_issue_count(issues),
     ]
 }

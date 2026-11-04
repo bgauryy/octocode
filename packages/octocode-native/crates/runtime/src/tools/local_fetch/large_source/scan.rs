@@ -158,7 +158,7 @@ pub(super) fn scan_with(
         counted: 0,
         newlines: 0,
         last: None,
-        proof: super::proven::Proof::new(file).map_err(failed)?,
+        proof: super::proven::Proof::new(file, &[]).map_err(failed)?,
     };
     loop {
         let ended = scanner.fill(&mut reader)?;
@@ -379,7 +379,7 @@ impl<C: CancellationCheck> Scanner<'_, C> {
         for window in &mut self.found.windows {
             window.1 = window.1.min(lines);
         }
-        self.found.proven = Some(self.proof.finish());
+        self.found.proven = Some(self.proof.finish().proven);
         self.found
     }
 }

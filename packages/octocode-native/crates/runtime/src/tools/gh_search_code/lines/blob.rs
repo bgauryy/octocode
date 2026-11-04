@@ -50,6 +50,9 @@ pub(super) struct Anchor {
 pub(super) struct Blob<'a> {
     pub(super) raw: Vec<&'a str>,
     pub(super) lowered: Vec<String>,
+    /// Its lines sanitized whole, when a window of them could not show what
+    /// makes a value secret; every other blob sanitizes the line it lists.
+    pub(super) clean: Option<Vec<String>>,
     pub(super) key_blocks: Vec<(u32, u32)>,
     pub(super) declared: Vec<&'a GraphFactDeclaration>,
     pub(super) path: &'a str,
@@ -225,6 +228,8 @@ impl Blob<'_> {
         let number = saturating_u32(index + 1);
         let shown = if self.in_key_block(number) {
             crate::security::key_fragment_placeholder()
+        } else if let Some(clean) = self.clean.as_ref().and_then(|clean| clean.get(index)) {
+            clean.clone()
         } else {
             security
                 .sanitize(self.raw[index], Path::new(self.path))

@@ -8,7 +8,6 @@ fn files_options(root: &TmpDir) -> StructuralSearchFilesOptions {
         pattern: Some("target($X)".to_owned()),
         rule: None,
         include: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
         ignore: crate::types::IgnorePolicy::default(),
@@ -134,7 +133,6 @@ fn search_files_prefilter_read_feeds_the_parse_and_keeps_skip_reasons() {
         pattern: Some("target($X)".to_owned()),
         rule: None,
         include: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
         ignore: crate::types::IgnorePolicy::default(),
@@ -211,7 +209,6 @@ fn search_files_separates_unsupported_from_prefilter_skips() {
         pattern: Some("target($X)".to_owned()),
         rule: None,
         include: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
         ignore: crate::types::IgnorePolicy::default(),
@@ -251,4 +248,65 @@ fn search_files_separates_unsupported_from_prefilter_skips() {
         "unsupported files need their own warning line, not lumped into prefilter: {:?}",
         result.warnings
     );
+}
+
+/// The walk checks an entry and the read comes after: an entry swapped for a
+/// link in between is refused by the open, so what the link names (outside the
+/// walked root) is never parsed, whether the prefilter or the scan reads it.
+#[cfg(unix)]
+#[test]
+fn an_entry_swapped_for_a_link_after_its_check_is_never_followed() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    for pattern in ["target($X)", "$F($X)"] {
+        let (root, outside) = (TmpDir::new(), TmpDir::new());
+        let secret = outside.join("outside.ts");
+        fs::write(&secret, "target(outside_value);\n").expect("outside");
+        let entry = root.join("a.ts");
+        fs::write(&entry, "other();\n").expect("entry");
+        let swapped = AtomicBool::new(false);
+        let admit = |path: &std::path::Path, _: Option<std::fs::FileType>| {
+            if path == entry && !swapped.swap(true, Ordering::SeqCst) {
+                fs::remove_file(path).expect("remove");
+                std::os::unix::fs::symlink(&secret, path).expect("link");
+            }
+            true
+        };
+        let mut options = files_options(&root);
+        options.pattern = Some(pattern.to_owned());
+        let result = search_files(
+            options,
+            StructuralDemand::Matches,
+            &admit,
+            &|_| "ts".to_owned(),
+            &|| false,
+            None,
+        )
+        .expect("search files");
+        assert!(swapped.load(Ordering::SeqCst), "{pattern}: admit ran");
+        assert_eq!(result.total_matches, 0, "{pattern}");
+    }
+}
+
+/// A page's rebuild reads through the same refusal: the link's target hashing
+/// to the scan's digest does not make it the scanned entry.
+#[cfg(unix)]
+#[test]
+fn a_rebuild_refuses_an_entry_swapped_for_a_link() {
+    let (root, outside) = (TmpDir::new(), TmpDir::new());
+    let source = b"target(x);\n";
+    let target = outside.join("target.ts");
+    fs::write(&target, source).expect("target");
+    let link = root.join("a.ts");
+    std::os::unix::fs::symlink(&target, &link).expect("link");
+    let rebuilt = file_matches(
+        &link,
+        "ts",
+        Some("target($X)"),
+        None,
+        &crate::digest::sha256(source),
+        1 << 20,
+        &|| false,
+    )
+    .expect("rebuilt");
+    assert!(matches!(rebuilt, Rebuilt::Changed));
 }

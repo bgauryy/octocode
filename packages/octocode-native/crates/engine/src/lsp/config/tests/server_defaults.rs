@@ -26,7 +26,7 @@ fn builtin_rust_route_runs_rust_analyzer_headless_by_default() {
 fn user_rust_analyzer_options_win_over_headless_defaults() {
     let root = TmpDir::new();
     std::fs::create_dir_all(&root).expect("root");
-    let config_path = root.join("lsp.json");
+    let config_path = root.join("lsp-servers.json");
     std::fs::write(
         &config_path,
         r#"{"languageServers":{".rs":{"command":"rust-analyzer","languageId":"rust","initializationOptions":{"procMacro":{"enable":true},"cargo":{"features":"all"}}}}}"#,
@@ -36,7 +36,7 @@ fn user_rust_analyzer_options_win_over_headless_defaults() {
         "src/lib.rs",
         &root.to_string_lossy(),
         &LspDiscoveryOptions {
-            config_path: Some(config_path),
+            octocode_home: Some(root.to_path_buf()),
             ..LspDiscoveryOptions::default()
         },
     )

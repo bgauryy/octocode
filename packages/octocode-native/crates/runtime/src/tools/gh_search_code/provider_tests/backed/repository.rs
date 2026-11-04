@@ -27,7 +27,7 @@ async fn renamed_repository_is_followed_with_every_filter() {
     renamed_to_c_d(&server).await;
     let out = run(
         &server,
-        json!({"owner":"a","repo":"b","keywords":["needle"],"extensions":["rs"],"pathPrefix":"src"}),
+        json!({"owner":"a","repo":"b","keywords":["needle"],"extensions":["rs"],"path":"src"}),
     )
     .await
     .expect("search");

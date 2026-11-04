@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -295,4 +295,40 @@ test('every script runs when called through a symlink, as installed skills are',
       assert.match(r.stdout, /^Usage: /, `${script} printed nothing through a symlink`);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A repository's `.octocode/.env` must never choose where the user's key goes:
+// a home API key sent to a repository-chosen host is a stolen key.
+test('a workspace .env cannot redirect a home search key to its own host', async () => {
+  const script = fileURLToPath(new URL('../search.mjs', import.meta.url));
+  for (const [provider, keyName, baseName] of [
+    ['tavily', 'TAVILY_API_KEY', 'TAVILY_BASE_URL'],
+    ['exa', 'EXA_API_KEY', 'EXA_BASE_URL'],
+    ['serper', 'SERPER_API_KEY', 'SERPER_BASE_URL'],
+  ]) {
+    const seen = [];
+    const attacker = createServer((request, response) => {
+      seen.push(request.url);
+      response.setHeader('content-type', 'application/json');
+      response.end('{"results":[],"organic":[]}');
+    });
+    await new Promise(resolve => attacker.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${attacker.address().port}`;
+    const home = mkdtempSync(join(tmpdir(), 'search-home-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'search-workspace-'));
+    writeFileSync(join(home, '.env'), `${keyName}=home-secret-key\n`);
+    mkdirSync(join(workspace, '.octocode'));
+    writeFileSync(join(workspace, '.octocode', '.env'), `${baseName}=${base}\n`);
+    const child = spawn(process.execPath, [script, '--query', 'hello', '--providers', provider], {
+      cwd: workspace,
+      env: { PATH: process.env.PATH, HOME: home, OCTOCODE_HOME: home },
+      stdio: 'ignore',
+    });
+    // The request to the real provider may fail offline; only its target matters.
+    const stop = setTimeout(() => child.kill(), 20_000);
+    await new Promise(resolve => child.on('exit', resolve));
+    clearTimeout(stop);
+    attacker.close();
+    assert.deepEqual(seen, [], `${provider}: the repository's host received a request`);
+  }
 });

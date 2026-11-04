@@ -114,7 +114,7 @@ Files, comments, reviews, commits and patches can have independent continuations
 
 ### `ghCloneRepo`
 
-Execution requires persistent storage; MCP exposure has a separate [clone opt-in](CONFIGURATION.md#tool-availability-cli-and-mcp). A sparse checkout covers only its requested paths; retain that scope and the returned commit identity in local coverage claims. Checkouts live under `<OCTOCODE_HOME>/clones/`. The same commit, sparse selection and history depth replace a clean destination atomically; tracked edits, untracked or ignored files, local commits or Git refs (including branches, tags and stashes) prevent replacement. Clone has no cache lookup, TTL, eviction, cache metadata, or `refresh` field. Existing checkouts from older versions remain untouched. Storage and retained-work ownership: [configuration](CONFIGURATION.md#cache-storage-and-lifecycle).
+Execution requires persistent storage; MCP exposure has a separate [clone opt-in](CONFIGURATION.md#tool-availability-cli-and-mcp). A sparse checkout covers only its requested paths; retain that scope and the returned commit identity in local coverage claims. Checkouts live under `<OCTOCODE_HOME>/clones/`. The same commit, sparse selection and history depth replace a clean destination atomically; tracked edits, untracked or ignored files, local commits or Git refs (including branches, tags and stashes) prevent replacement. Clone has no cache lookup, TTL, eviction, cache metadata, or `refresh` field. Existing checkouts from older versions remain untouched. Storage and retained-work ownership: [configuration](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle).
 
 ```json
 {"queries":[{"owner":"bgauryy","repo":"octocode"}]}
@@ -150,7 +150,7 @@ A syntax match does not prove a runtime call or reference. A scan cut by its tim
 
 ### `structureSearch`
 
-`next.nextPage` continues through every page and internal scan window, so no walk ceiling ends a listing; `sort` orders each scan window before paging, so follow every continuation to finish the selected scope. A listing groups file entries by directory; read source separately.
+`next.nextPage` continues through every page and internal scan window, so no walk ceiling ends a listing; `sort` orders each scan window before paging, so follow every continuation to finish the selected scope. A listing groups file entries by directory; read source separately. `view:"paths"` shows names only and reads no entry's metadata (unless a filter or sort needs it), so its `summary` has no `bytes` and a directory with its own group is named by that group alone. Entries without the sort key (a directory or link for `sizeBytes`; a directory, binary or unreadable file for `lineCount`) rank last in both orders.
 
 ```json
 {"queries":[{"maxDepth":2,"operation":"tree","path":".","view":"paths"}]}
@@ -180,7 +180,7 @@ Fields: `octocode schema lspSearch --view query`. A missing or still-indexing se
 
 ### `clasify`
 
-Evaluate supplied `content` or an unread `source`, discover models, or assess sections of keyed `resources`. Text sources and image assets keep evidence provenance without returning their provider payloads. A score is a model judgment: ground it with a source search before reporting it. `next.read` is the read needed to cite an answer's lines. Routes, limits and recovery: [classification guide](OCTOCODE_CLASIFY.md).
+Evaluate supplied `content` or an unread `source`, discover models, or assess sections of keyed `resources`. Text sources and image assets keep evidence provenance without returning their provider payloads. `next.read` is the read needed to cite an answer's lines. Routes, limits and recovery: [classification guide](OCTOCODE_CLASIFY.md).
 
 ```json
 {"queries":[{"content":"Create a replacement credential, then restart the service.","operation":"evaluate","questions":{"restart":{"instructions":"Does rotating the credential require restarting the service?","type":"noul"}}}]}

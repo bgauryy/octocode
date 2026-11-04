@@ -162,5 +162,6 @@ mod content;
 mod graphql;
 mod limits;
 mod refs;
+mod saved_answers;
 mod search;
 mod transport;

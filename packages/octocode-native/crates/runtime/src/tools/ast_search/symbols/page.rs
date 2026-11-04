@@ -1,11 +1,11 @@
 use super::super::RowPaths;
 use super::ast_search_query_symbols;
 use super::left_out::Suppressed;
-use super::rows::{group_by_file, row_sizes};
+use super::rows::group_by_file;
 use super::select::SymbolSet;
 use crate::id::ToolId;
 use crate::response::result::{Continuation, insert_next};
-use crate::response::symbol_outline::{declaration_rows, top_level_spans};
+use crate::response::symbol_outline::declaration_rows;
 use crate::tools::leads::skipped;
 use octocode_contract_types::{AstSearchChannel, AstSearchQuerySymbols};
 use serde_json::{Value, json};
@@ -32,7 +32,7 @@ pub(crate) fn render_page(
     }
     let (skipped, truncated) = (set.skipped, set.truncated);
     let page = ast_search_query_symbols::page(q).max(1) as usize;
-    let cut = SymbolPage::of(q, set, row_paths, response_window);
+    let cut = SymbolPage::of(q, set, response_window);
     let unreadable = set.walk_errors.0 > 0;
     let incomplete = truncated || skipped > 0 || unreadable;
     let rows = &set.declarations[cut.range.clone()];
@@ -137,12 +137,7 @@ struct SymbolPage {
 impl SymbolPage {
     /// Top-level rows fitting the response budget, at most `limit`; a page
     /// past the end is empty.
-    fn of(
-        q: &AstSearchQuerySymbols,
-        set: &SymbolSet,
-        row_paths: RowPaths<'_>,
-        response_window: Option<usize>,
-    ) -> Self {
+    fn of(q: &AstSearchQuerySymbols, set: &SymbolSet, response_window: Option<usize>) -> Self {
         let declarations = &set.declarations;
         let page = ast_search_query_symbols::page(q).max(1) as usize;
         let budget = crate::response::page_windows::page_budget(response_window);
@@ -152,13 +147,11 @@ impl SymbolPage {
             budget,
         );
         // Pages count top-level rows; each carries its members.
-        let spans = top_level_spans(declarations);
-        let sizes = row_sizes(declarations, &spans, set.directory.then_some(row_paths));
-        let cut = crate::response::page_windows::select(paging, &sizes, page);
+        let cut = crate::response::page_windows::select(paging, &set.sizes, page);
         let range = if cut.range.is_empty() {
             declarations.len()..declarations.len()
         } else {
-            spans[cut.range.start].start..spans[cut.range.end - 1].end
+            set.spans[cut.range.start].start..set.spans[cut.range.end - 1].end
         };
         Self {
             range,

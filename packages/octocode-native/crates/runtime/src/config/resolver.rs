@@ -9,7 +9,7 @@ use fields::resolve_fields;
 #[cfg(test)]
 pub(crate) use fields::resolve_sections;
 pub(crate) use inspector::inspector_data;
-use layers::{EnvFiles, LayerState, config_source, load_layer};
+use layers::{EnvFiles, LayerState, load_layer};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -234,10 +234,6 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         input,
     };
     let mut env_origins = env_files.origins();
-    let has_env = CONFIG_SOURCE_ENV_KEYS
-        .iter()
-        .any(|key| effective.contains_key(*key));
-    let source = config_source([project_state, global_state], has_env);
     drop_invalid_credential_env(
         &env_files,
         &mut effective,
@@ -289,7 +285,6 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         dotenv,
         diagnostics,
         token,
-        source,
         config_path,
         project_config_path,
     }
@@ -299,9 +294,6 @@ pub(crate) fn get_config_value(resolved: &ResolvedConfig, path: &str) -> Option<
         return None;
     }
     get_path(&serde_json::to_value(resolved).ok()?, path).cloned()
-}
-pub(crate) fn is_stats_enabled(resolved: &ResolvedConfig) -> bool {
-    is_persistent_storage_enabled(resolved) && resolved.storage.stats
 }
 pub fn is_persistent_storage_enabled(resolved: &ResolvedConfig) -> bool {
     resolved.storage.mode == StorageMode::Persistent

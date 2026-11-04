@@ -16,11 +16,9 @@ pub(super) struct ServerSpec {
 
 #[derive(Clone, Debug, Default)]
 pub struct LspDiscoveryOptions {
-    pub config_path: Option<PathBuf>,
     pub trust_project_config: bool,
     /// The host's resolved settings (process env plus the trusted `.env`
-    /// layers, and `lsp.cacheDir` as `OCTOCODE_LSP_CACHE_DIR`), never the
-    /// process env directly.
+    /// layers), never the process env directly.
     pub env: BTreeMap<String, String>,
     /// The octocode home: the user `lsp-servers.json`, managed server
     /// installs, and jdtls workspaces.
@@ -33,19 +31,9 @@ pub struct LspDiscoveryOptions {
 }
 
 impl LspDiscoveryOptions {
-    fn setting(&self, key: &str) -> Option<&str> {
-        self.env
-            .get(key)
-            .map(String::as_str)
-            .filter(|value| !value.trim().is_empty())
-    }
-
-    /// Root of the managed server installs: `OCTOCODE_LSP_CACHE_DIR`, else
-    /// `<octocode home>/lsp`.
+    /// Root of the managed server installs: `<octocode home>/lsp`.
     pub fn managed_root(&self) -> Option<PathBuf> {
-        self.setting("OCTOCODE_LSP_CACHE_DIR")
-            .map(|dir| PathBuf::from(dir.trim()))
-            .or_else(|| self.octocode_home.as_ref().map(|home| home.join("lsp")))
+        self.octocode_home.as_ref().map(|home| home.join("lsp"))
     }
 
     /// The verified managed install of `command`, when one exists.

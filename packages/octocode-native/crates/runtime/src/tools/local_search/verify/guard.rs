@@ -78,13 +78,21 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
     let Some(last_line) = windows.iter().map(|&(_, hi)| hi).max() else {
         return Ok(Verification::Verified);
     };
+    let across =
+        octocode_engine::security::WholeSourcePatterns::for_path(&source.to_string_lossy());
     let read = open().map_err(VerifyReadError::from).and_then(|opened| {
         let mut reader = std::io::BufReader::new(HashingReader {
             inner: opened,
             hasher: matches!(expected, Expected::Stored(_))
                 .then(octocode_engine::digest::HashWriter::default),
         });
-        let read = read_verification_lines(&mut reader, &windows, last_line, cancel)?;
+        let read = match decoded::byte_order(&mut reader)? {
+            Some(order) => {
+                let mut text = std::io::BufReader::new(decoded::Utf16Text::new(&mut reader, order));
+                read_verification_lines(&mut text, &windows, last_line, across, cancel)?
+            }
+            None => read_verification_lines(&mut reader, &windows, last_line, across, cancel)?,
+        };
         let digest = drain_digest(reader, cancel)?;
         Ok((read, digest))
     });
@@ -101,6 +109,9 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         }
         Err(VerifyReadError::Cancelled(reason)) => return Err(reason),
     };
+    let whole = read
+        .source_wide
+        .then(|| whole_source_scan(&read, source, security));
     let mut verified = Verification::Verified;
     for (matched, &(lo, hi)) in shown.iter_mut().zip(&windows) {
         if !read.key_ranges.is_empty()
@@ -118,6 +129,11 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
                 .sanitize_text(&kept, Some(source))
                 .content
                 .into_owned();
+            if let Some(scan) = &whole
+                && !settle_with_whole_source(matched, scan, match_only)
+            {
+                verified = Verification::Unverified;
+            }
             continue;
         }
         let line = matched.line as usize;
@@ -128,6 +144,12 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
             // The source shrank or was replaced since the search.
             matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
             verified = Verification::Unverified;
+            continue;
+        }
+        if let Some(scan) = &whole {
+            if !settle_with_whole_source(matched, scan, match_only) {
+                verified = Verification::Unverified;
+            }
             continue;
         }
         let hi = hi.min(read.lines_read);
@@ -156,6 +178,64 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         }
     }
     Ok(verified)
+}
+
+/// The whole source's sanitized text, for a source whose secrets a window of it
+/// cannot show ([`VerificationLines::source_wide`]). `None` when it could not be
+/// scanned whole: its rows fail closed.
+fn whole_source_scan(
+    read: &super::lines::VerificationLines,
+    source: &std::path::Path,
+    security: &ContentSecurity,
+) -> Option<String> {
+    if !read.whole_retained {
+        return None;
+    }
+    let text = read
+        .retained
+        .values()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let scan = security.sanitize_text(&text, Some(source));
+    if scan
+        .secrets_detected
+        .iter()
+        .any(|name| name == "content-size-exceeded")
+    {
+        return None;
+    }
+    Some(scan.content.into_owned())
+}
+
+/// Check `matched` against the whole source's `scan`: a value that overlapped a
+/// redaction there becomes the lines it came from as the scan left them, or a
+/// bare placeholder for a span, or where a multi-line redaction emptied them.
+/// False when no scan could run, and the value is withheld.
+fn settle_with_whole_source(
+    matched: &mut octocode_engine::types::TextSearchMatch,
+    scan: &Option<String>,
+    match_only: bool,
+) -> bool {
+    let Some(clean) = scan else {
+        matched.value = OVERSIZED_PLACEHOLDER.to_owned();
+        return false;
+    };
+    if crate::security::cut::exposes(&matched.value, clean) {
+        let span = matched.value.lines().count().max(1);
+        let lines = clean
+            .split('\n')
+            .skip((matched.line as usize).saturating_sub(1))
+            .take(span)
+            .collect::<Vec<_>>()
+            .join("\n");
+        matched.value = if match_only || lines.trim().is_empty() {
+            "[REDACTED]".to_owned()
+        } else {
+            lines
+        };
+    }
+    true
 }
 
 /// Outcome of [`guard_source_secrets`] for one file's shown matches.

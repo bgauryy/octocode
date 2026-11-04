@@ -11,11 +11,14 @@ use super::*;
 async fn an_exact_only_ecosystem_refuses_a_version_range() {
     let http = RouteHttp::new();
     let budget = test_budget();
+    let reused = crate::providers::saved_answers::ReusedSince::default();
     let context = ArtifactProviderContext {
         http: &http,
         budget: &budget,
         npm_registry: None,
         allow_private_registry: false,
+        answers: None,
+        reused: &reused,
         tags: None,
     };
     for (ecosystem, name, range) in [

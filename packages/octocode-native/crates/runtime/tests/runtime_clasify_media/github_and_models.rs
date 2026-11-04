@@ -31,8 +31,8 @@ async fn github_image_resolves_the_commit_and_pins_its_capture() {
         .expect(1).mount(&github).await;
     Mock::given(method("GET")).and(path("/api/v3/repos/a/b/contents/image.png")).and(query_param("ref", sha))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","encoding":"base64","content":STANDARD.encode(png()),"size":png().len(),"sha":sha,"path":"image.png"})))
-        // Two clasify captures and the ranged read each fetch the pinned commit's bytes.
-        .expect(3).mount(&github).await;
+        // A commit's bytes never change: two clasify captures and the ranged read share one fetch.
+        .expect(1).mount(&github).await;
     let workspace = Workspace::new();
     let runtime = runtime(
         &workspace,

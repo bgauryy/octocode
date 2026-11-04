@@ -11,10 +11,10 @@ use octocode_native::security::scrub_error_text;
 use rmcp::ErrorData;
 use rmcp::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
-    JsonObject, ListResourcesResult, ListToolsResult, MetaObject, PaginatedRequestParams,
-    ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult,
-    ResultType, ServerCapabilities, ServerConfig, Tool,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, CustomRequest,
+    CustomResult, Implementation, JsonObject, ListResourcesResult, ListToolsResult, MetaObject,
+    PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse,
+    ReadResourceResult, ResultType, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use serde_json::Value;
@@ -165,6 +165,27 @@ impl ServerHandler for Handler {
             ));
         };
         Ok(ReadResourceResult::new(vec![contents]).into())
+    }
+
+    /// rmcp hands over any request its types could not read, a known method
+    /// with params of the wrong shape among them: `tools/call` is no unknown
+    /// method, so its error says what to send.
+    async fn on_custom_request(
+        &self,
+        request: CustomRequest,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<CustomResult, ErrorData> {
+        if request.method == "tools/call" {
+            return Err(ErrorData::invalid_params(
+                "tools/call takes a tool name and an arguments object: send \"arguments\":{\"queries\":[...]}",
+                None,
+            ));
+        }
+        Err(ErrorData::new(
+            rmcp::model::ErrorCode::METHOD_NOT_FOUND,
+            request.method,
+            None,
+        ))
     }
 
     async fn call_tool(

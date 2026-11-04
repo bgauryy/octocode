@@ -17,7 +17,7 @@ DISABLED_FEATURES = ('shell_tool','unified_exec','view_image','apps','plugins','
     'code_mode_host','unbounded_connection_retries','shell_snapshot')
 ENV_ALLOW = ('PATH','LANG','LC_ALL','TMPDIR','CODEX_HOME','OPENAI_API_KEY','GH_TOKEN','GITHUB_TOKEN',
     'OCTOCODE_CLASSIFICATION_API','OCTOCODE_CLASSIFICATION_MODEL','OCTOCODE_CLASSIFICATION_API_HOST',
-    'OCTOCODE_LSP_CONFIG','OCTOCODE_LSP_CACHE_DIR','SSL_CERT_FILE','SSL_CERT_DIR','NODE_EXTRA_CA_CERTS')
+    'SSL_CERT_FILE','SSL_CERT_DIR','NODE_EXTRA_CA_CERTS')
 
 
 def toml(value):
@@ -104,7 +104,7 @@ def main():
             (home/'tmp'/'ratelimit').symlink_to(rate,target_is_directory=True)
         sentinel=base/'evaluator-canary.txt'; sentinel.write_text('BENCHMARK_PRIVATE_CANARY_DO_NOT_READ')
         server['env']={**server.get('env',{}),'OCTOCODE_HOME':str(home),'ALLOWED_PATHS':'','OCTOCODE_ENABLE_LOCAL':'true',
-            'OCTOCODE_ENABLE_STATS':'true','OCTOCODE_STORAGE_MODE':'persistent',
+            'OCTOCODE_STORAGE_MODE':'persistent',
             'OCTOCODE_TRUST_PROJECT_LSP_CONFIG':'false','OCTOCODE_LSP_AUTO_INSTALL':'off','OCTOCODE_LSP_PREWARM':'off'}
         if trace_url: server['env']['OCTOCODE_CLASSIFICATION_API_HOST']=trace_url
         prompt, corpus = prepare_question(args.prompt.read_text(), os.environ.get('QUESTION_REPO_MAP'),

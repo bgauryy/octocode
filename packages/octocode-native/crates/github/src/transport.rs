@@ -11,7 +11,7 @@ use std::{
 };
 use url::Url;
 
-use octocode_io::{budget::RequestBudget, retry::Backoff};
+use octocode_io::retry::Backoff;
 
 use response::{sso_directive, sso_parameter};
 
@@ -63,6 +63,9 @@ pub struct RequestSpec {
     pub url: Url,
     pub body: Option<Value>,
     pub headers: HeaderMap,
+    /// The caller knows the answer cannot change (a query bound to a commit).
+    /// A REST read is classified from its URL instead ([`names_commit`]).
+    pinned: bool,
 }
 impl RequestSpec {
     pub fn get(url: Url) -> Self {
@@ -71,6 +74,7 @@ impl RequestSpec {
             url,
             body: None,
             headers: HeaderMap::new(),
+            pinned: false,
         }
     }
     pub(crate) fn graphql(url: Url, body: Value) -> Self {
@@ -79,111 +83,63 @@ impl RequestSpec {
             url,
             body: Some(body),
             headers: HeaderMap::new(),
-        }
-    }
-}
-
-/// One request's budget and the credential the host resolved for it. Every
-/// GitHub call made with this context carries that credential (or none).
-#[derive(Clone)]
-pub struct RequestContext {
-    pub budget: RequestBudget,
-    credential: Option<ResolvedCredential>,
-    /// What this request observed: what it saw, never a later one's.
-    journal: Arc<evidence::Journal>,
-}
-impl RequestContext {
-    pub fn new(budget: RequestBudget, credential: Option<ResolvedCredential>) -> Self {
-        Self {
-            budget,
-            credential,
-            journal: Arc::default(),
+            pinned: false,
         }
     }
 
-    /// This request resumes an issued continuation that owns `evidence`:
-    /// a request it recorded is answered from it, with nothing sent.
-    #[must_use]
-    pub fn resuming(mut self, evidence: Arc<ProviderEvidence>) -> Self {
-        self.journal = Arc::new(evidence::Journal::resuming(evidence));
+    /// This query is bound to a commit: its answer cannot change.
+    pub(crate) fn pinned_to_commit(mut self) -> Self {
+        self.pinned = true;
         self
     }
 
-    /// Whether the continuation this request resumes owns the answer to `spec`.
-    pub(crate) fn journal_answers(&self, spec: &RequestSpec) -> bool {
-        self.journal.answers(spec)
+    #[cfg(test)]
+    pub(crate) fn pins_for_test(&self) -> bool {
+        self.is_pinned()
     }
 
-    /// Every answer and fact this request observed so far, replayed ones
-    /// included: what a continuation it issues owns.
-    pub fn evidence(&self) -> ProviderEvidence {
-        self.journal.evidence()
+    /// Whether this request asks the origin to confirm a saved answer.
+    fn is_conditional(&self) -> bool {
+        self.headers.contains_key(reqwest::header::IF_NONE_MATCH)
+            || self
+                .headers
+                .contains_key(reqwest::header::IF_MODIFIED_SINCE)
     }
 
-    /// The `full_name` a `/repos/{owner}/{repo}` read of this request
-    /// returned: the repository's canonical name as this request saw it.
-    pub fn read_full_name(&self, owner: &str, repo: &str) -> Option<String> {
-        self.journal.note(&repository_note("fullName", owner, repo))
+    /// Whether the answer to this request can never change.
+    fn is_pinned(&self) -> bool {
+        self.pinned || (matches!(self.method, HttpMethod::Get) && names_commit(&self.url))
     }
+}
 
-    /// Remember the `full_name` a `/repos/{owner}/{repo}` read returned.
-    pub(crate) fn record_full_name(&self, owner: &str, repo: &str, full_name: &str) {
-        self.journal.set_note(
-            repository_note("fullName", owner, repo),
-            full_name.to_owned(),
-        );
-    }
-
-    /// The listing route this request found for `owner`'s repositories.
-    pub(crate) fn owner_route(&self, owner: &str) -> Option<String> {
-        self.journal
-            .note(&format!("ownerRoute:{}", owner.to_ascii_lowercase()))
-    }
-
-    pub(crate) fn record_owner_route(&self, owner: &str, route: &str) {
-        self.journal.set_note(
-            format!("ownerRoute:{}", owner.to_ascii_lowercase()),
-            route.to_owned(),
-        );
-    }
-
-    /// GitHub redirected a request under `/repos/{owner}/{repo}` to the
-    /// repository's id: the name is stale (renamed or transferred).
-    pub fn followed_rename(&self, owner: &str, repo: &str) -> bool {
-        self.journal
-            .note(&repository_note("renamed", owner, repo))
-            .is_some()
-    }
-
-    /// Remember the repository a followed `/repos/{owner}/{repo}/…` →
-    /// `/repositories/<id>/…` redirect names.
-    fn record_rename(&self, from: &Url, to: &Url) {
-        if !to.path().contains("/repositories/") {
-            return;
-        }
-        let Some(segments) = from.path_segments() else {
-            return;
-        };
-        let segments = segments.collect::<Vec<_>>();
-        let Some(at) = segments.iter().position(|segment| *segment == "repos") else {
-            return;
-        };
-        if let (Some(owner), Some(repo)) = (segments.get(at + 1), segments.get(at + 2)) {
-            self.journal
-                .set_note(repository_note("renamed", owner, repo), String::new());
-        }
-    }
-
-    /// An anonymous request with a fresh `timeout` budget.
-    pub fn with_timeout(timeout: Duration, max_body_bytes: usize) -> Self {
-        Self::new(RequestBudget::with_timeout(timeout, max_body_bytes), None)
-    }
-    pub fn resolved_credential(&self) -> Option<&ResolvedCredential> {
-        self.credential.as_ref()
-    }
-    /// The budget check as a provider error: cancellation first, then the deadline.
-    pub fn check(&self) -> Result<(), ProviderError> {
-        Ok(self.budget.check()?)
+/// Whether a REST `url` names one immutable git object or a comparison of two:
+/// file contents at a commit (`contents/…?ref=<sha>`), a tree (`git/trees/<sha>`
+/// or `<sha>:<path>`), a blob, a commit (`commits/<sha>`, not the mutable lists
+/// under it such as `commits/<sha>/pulls`) or `compare/<sha>...<sha>`.
+fn names_commit(url: &Url) -> bool {
+    let Some(segments) = url.path_segments() else {
+        return false;
+    };
+    let segments = segments.collect::<Vec<_>>();
+    let Some(at) = segments.iter().position(|segment| *segment == "repos") else {
+        return false;
+    };
+    let is_sha = |value: &str| crate::is_full_sha(value);
+    match segments.get(at + 3..).unwrap_or_default() {
+        ["contents", ..] => url
+            .query_pairs()
+            .any(|(key, value)| key == "ref" && is_sha(&value)),
+        // `<sha>:<path>`, its colon written or percent-encoded.
+        ["git", "trees", tree] => tree
+            .split(':')
+            .next()
+            .and_then(|tree| tree.split("%3A").next())
+            .is_some_and(is_sha),
+        ["git", "blobs", object] | ["commits", object] => is_sha(object),
+        ["compare", range] => range
+            .split_once("...")
+            .is_some_and(|(base, head)| is_sha(base) && is_sha(head)),
+        _ => false,
     }
 }
 
@@ -193,6 +149,8 @@ pub struct ResponsePage {
     pub headers: HeaderMap,
     pub body: Bytes,
     pub next: Option<Url>,
+    /// GitHub reached this answer through a redirect (a renamed repository).
+    pub redirected: bool,
 }
 
 impl ResponsePage {
@@ -280,7 +238,7 @@ pub struct GitHubTransport {
     retry: RetryPolicy,
     budget: Arc<GitHubBudget>,
     state_dir: Option<PathBuf>,
-    pub graphql_enabled: bool,
+    answers: Option<Arc<dyn SavedAnswers>>,
 }
 impl GitHubTransport {
     /// A transport admitting its requests through `budget`: production
@@ -302,8 +260,14 @@ impl GitHubTransport {
             retry,
             budget,
             state_dir: None,
-            graphql_enabled: true,
+            answers: None,
         })
+    }
+
+    /// Keep answers in `answers`, so a repeat costs one validated request at
+    /// most and an immutable or still-fresh answer costs none.
+    pub fn set_saved_answers(&mut self, answers: Option<Arc<dyn SavedAnswers>>) {
+        self.answers = answers;
     }
 
     /// Mirror blocking rate-limit facts under `dir` so separate processes
@@ -369,16 +333,16 @@ pub const HTTP_USER_AGENT: &str = "octocode-native";
 /// Upper bound for one 5xx/network backoff sleep.
 const MAX_BACKOFF: Duration = Duration::from_secs(8);
 
-/// The name of a request fact about `owner/repo`, in GitHub's
-/// case-insensitive spelling.
-fn repository_note(fact: &str, owner: &str, repo: &str) -> String {
-    format!("{fact}:{}", format!("{owner}/{repo}").to_ascii_lowercase())
-}
-
 mod attempts;
+mod context;
 mod evidence;
 mod execute;
+pub use context::RequestContext;
 pub use evidence::{ProviderAnswer, ProviderEvidence};
+#[cfg(test)]
+pub(crate) use execute::SEARCH_REUSE_WINDOW;
 mod response;
 #[cfg(test)]
 mod response_error_tests;
+mod saved;
+pub use saved::{Reuse, SavedAnswer, SavedAnswers, worth_keeping};

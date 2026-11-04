@@ -17,7 +17,7 @@ impl ToolRuntime {
     /// Clones, published graphs, credentials and installed servers are outputs.
     pub async fn clear_caches(&self) -> Result<CacheClearResult, RuntimeError> {
         self.close().await;
-        crate::cache::MEMORY.clear();
+        octocode_engine::memory::MEMORY.clear();
         let home = self.config.home.clone();
         let workspace = self.graph_workspace(None);
         let removed = tokio::task::spawn_blocking(move || clear_disk(&home, &workspace))

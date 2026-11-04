@@ -158,11 +158,12 @@ fn unterminated_key_body_stays_redacted_through_its_base64_run() {
     let file = format!(
         "ok\n-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,0123ABCD\n\n{body}\n{body}\nQUJD==\nfn main() {{}}\n"
     );
-    assert_eq!(private_key_block_line_ranges(&file), vec![(2, 8)]);
+    // Armor headers hold no key bytes: only the marker and the body are hidden.
+    assert_eq!(private_key_block_line_ranges(&file), vec![(2, 2), (6, 8)]);
     let (out, changed) = redact_private_key_blocks(&file);
     assert!(changed);
     assert!(!out.contains(body) && !out.contains("QUJD"), "{out}");
-    assert!(!out.contains("DEK-Info"), "{out}");
+    assert!(out.contains("DEK-Info"), "{out}");
     assert!(out.contains("fn main() {}"), "{out}");
     assert_eq!(out.lines().count(), file.lines().count());
 }

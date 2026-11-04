@@ -36,14 +36,16 @@ pub(super) enum Failed {
 
 /// Run `tool` through the workspace's server when one is reachable or can
 /// be started, and print it: the exit code. `None` means the caller runs it
-/// in process.
+/// in process, with `loaded` when no server was tried, so it reads the config
+/// files once.
 pub(in crate::cli) async fn call(
     tool: &str,
     input: &Value,
     mode: crate::cli::OutputMode,
+    loaded: &mut Option<octocode_native::config::ConfigInput>,
 ) -> Option<u8> {
     let json_out = mode.json;
-    let target = target()?;
+    let target = target(loaded)?;
     let mut stream = match connect(&target.socket).await {
         Some(stream) => stream,
         None => {
@@ -153,27 +155,34 @@ pub(super) struct Target {
 
 /// The server for this call, or `None` when it must not be used: memory
 /// storage (by choice, silent), or a location that is unsafe or too long
-/// for a socket (stated on stderr, then in process).
-pub(super) fn target() -> Option<Target> {
+/// for a socket (stated on stderr, then in process). `loaded` then holds the
+/// config files read for it, unless the working directory was reached through
+/// a symbolic link: the in-process runtime keys files by the directory as given.
+pub(super) fn target(loaded: &mut Option<octocode_native::config::ConfigInput>) -> Option<Target> {
     use octocode_native::config::{
         RuntimeSurface, acquire_config_input, is_persistent_storage_enabled, resolve_config,
     };
-    let cwd = same_dir_form(&std::env::current_dir().ok()?);
+    let given = std::env::current_dir().ok()?;
+    let cwd = same_dir_form(&given);
     let os_home = std::env::home_dir()?;
     let env = served_env(octocode_io::env::vars_lossy());
     let input = acquire_config_input(env.clone(), cwd.clone(), os_home, RuntimeSurface::Cli);
     let config = resolve_config(&input);
     if !is_persistent_storage_enabled(&config.resolved) {
+        *loaded = (given == cwd).then_some(input);
         return None;
     }
     let identity = call_identity(&config, &env);
     let workspace = workspace_of(&cwd);
     let key = server_key(&exe_identity()?, &workspace, &identity);
-    let socket = socket_in(&std::env::temp_dir(), &key)
-        .map_err(|reason| {
+    let socket = match socket_in(&std::env::temp_dir(), &key) {
+        Ok(socket) => socket,
+        Err(reason) => {
             eprintln!("octocode: warm server unavailable ({reason}); running in process.");
-        })
-        .ok()?;
+            *loaded = (given == cwd).then_some(input);
+            return None;
+        }
+    };
     Some(Target {
         socket,
         cwd,

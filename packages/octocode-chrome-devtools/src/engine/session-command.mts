@@ -15,6 +15,7 @@ import {
   releaseLease,
   updateSession,
 } from './session-store.mjs';
+import { resolvePort, stateDirFor } from './session-registry.mjs';
 
 const { errors } = chromeSessionStore;
 const ACTIONS = ['start', 'list', 'show', 'close'];
@@ -67,7 +68,7 @@ function parse(args: string[]) {
     );
   if (port !== undefined && action !== 'start')
     throw Error('--port applies only to start');
-  return { action, id: id ?? '', port: Number(port ?? '9222') };
+  return { action, id: id ?? '', port };
 }
 
 async function start(workspace: string, port: number) {
@@ -125,7 +126,10 @@ export async function sessionCommand(
   workspace = process.cwd()
 ): Promise<unknown> {
   const { action, id, port } = parse(args);
-  if (action === 'start') return start(workspace, port);
+  if (action === 'start') {
+    const resolved = await resolvePort(port, stateDirFor(workspace));
+    return start(workspace, Number(resolved.port));
+  }
   if (action === 'list') return list(workspace);
   if (action === 'close') return close(workspace, id);
   const manifest = known(workspace, id);

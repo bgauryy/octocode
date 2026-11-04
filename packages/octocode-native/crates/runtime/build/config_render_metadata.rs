@@ -75,11 +75,6 @@ pub(super) fn render_field_metadata(
             other => return Err(invalid(format!("unsupported field type {other}"))),
         };
         let default_json = serde_json::to_string(&own_default(field)?)?;
-        let enum_style = match field.definition.get("enumStyle").and_then(Value::as_str) {
-            Some("quotedOr") => "ConfigEnumStyle::QuotedOr",
-            Some("list") | None => "ConfigEnumStyle::List",
-            Some(other) => return Err(invalid(format!("unsupported enum style {other}"))),
-        };
         let credential = bool_value(
             field.definition.get("credential"),
             false,
@@ -87,13 +82,25 @@ pub(super) fn render_field_metadata(
         )?;
         writeln!(
             output,
-            "    ConfigFieldSpec {{ path: {:?}, section: {:?}, key: {:?}, kind: ConfigFieldKind::{kind_name}, file: {}, resolved: {}, credential: {credential}, env: FIELD_{index}_ENV, default_json: {:?}, values: FIELD_{index}_VALUES, enum_style: {enum_style}, item_path: {} }},",
+            "    ConfigFieldSpec {{ path: {:?}, section: {:?}, key: {:?}, kind: ConfigFieldKind::{kind_name}, resolved: {}, credential: {credential}, env: FIELD_{index}_ENV, default_json: {:?}, display_default: {:?}, description: {:?}, notes: {:?}, section_title: {:?}, group: {:?}, docs_url: {:?}, values: FIELD_{index}_VALUES, item_path: {} }},",
             field.path,
             field.section,
             field.key,
-            field.file,
             field.resolved,
             default_json,
+            field
+                .definition
+                .get("displayDefault")
+                .and_then(Value::as_str),
+            field
+                .definition
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            field.definition.get("notes").and_then(Value::as_str),
+            field.section_title,
+            field.definition.get("group").and_then(Value::as_str),
+            field.definition.get("docsUrl").and_then(Value::as_str),
             field.definition.get("itemFormat").and_then(Value::as_str) == Some("path")
         )?;
     }
@@ -128,8 +135,8 @@ pub(super) fn environment_arrays(
     )?;
     let mut protected = Vec::new();
     let mut home = Vec::new();
-    let mut sources = Vec::new();
     let mut tokens = Vec::new();
+    let mut bound = Vec::new();
     let mut credentials = BTreeSet::new();
     let mut narrow = Vec::new();
     for (name, definition_value) in environment {
@@ -146,9 +153,6 @@ pub(super) fn environment_arrays(
             }
             "all" => {}
             other => return Err(invalid(format!("unsupported dotenv policy {other}"))),
-        }
-        if definition.get("configSource").and_then(Value::as_bool) == Some(true) {
-            sources.push(name.clone());
         }
         if bool_value(
             definition.get("credential"),
@@ -206,7 +210,7 @@ pub(super) fn environment_arrays(
                 .to_owned(),
             ));
         }
-        sources.push(name);
+        bound.push(name);
     }
     tokens.sort_by_key(|(priority, _)| *priority);
     let unique = |values: Vec<String>| {
@@ -220,7 +224,7 @@ pub(super) fn environment_arrays(
         tokens.into_iter().map(|(_, name)| name).collect(),
         unique(protected),
         unique(home),
-        unique(sources),
+        unique(bound),
         credentials.into_iter().collect(),
         narrow,
     ))

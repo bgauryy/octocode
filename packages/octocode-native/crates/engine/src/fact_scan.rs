@@ -243,7 +243,6 @@ pub fn walk_graph_fact_files_with_registry(
             ignore: options.ignore,
             entry_type: Some(crate::types::EntryType::File),
             extensions: overrides.is_empty().then_some(extensions),
-            exclude_dir: options.exclude_dir.clone(),
             default_exclude_dir: options.default_exclude_dir.clone(),
             exclude: options.exclude.clone(),
             stop_at_limit: Some(true),
@@ -278,7 +277,6 @@ pub fn walk_script_markup_files(
                     .map(|extension| (*extension).to_owned())
                     .collect(),
             ),
-            exclude_dir: options.exclude_dir.clone(),
             default_exclude_dir: options.default_exclude_dir.clone(),
             exclude: options.exclude.clone(),
             stop_at_limit: Some(true),

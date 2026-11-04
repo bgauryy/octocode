@@ -4,7 +4,7 @@ use super::*;
 
 /// Read-only rows run one thread per query; classification stays ordered.
 /// How many cores each row's own work takes is the process budget's, not
-/// the batch's (`octocode_engine::search::cpu`).
+/// the batch's (`octocode_engine::cpu`).
 #[test]
 fn independent_batches_fan_out_one_thread_per_query_and_classification_stays_ordered() {
     for id in ToolId::ALL {

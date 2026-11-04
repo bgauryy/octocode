@@ -3,6 +3,9 @@
 // Usage: node tool-inventory.mjs [toolName ...] [--json] [--root <repo>]
 // Reads the generated native contract + field-effect coverage, then counts how often
 // each input field name (camelCase and snake_case) appears in that tool's evidence files.
+// A path with no coverage entry inherits its nearest declared ancestor's effects
+// (`ranges[].startLine` -> `ranges[]` -> `ranges`), else the `common` entry for its
+// top-level name. Paths are spelled as in tests/field_effect_coverage.rs, which gates them.
 // Zero-hit fields are CANDIDATES for unused/misaligned inputs — confirm by reading code.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -36,28 +39,43 @@ function rsFiles(path) {
   return readdirSync(path).flatMap(name => rsFiles(join(path, name)));
 }
 
-function leafFields(schema, prefix = '', out = new Map(), root = schema, seen = new Set()) {
-  if (!schema || schema['x-cursor']) return out;
-  if (schema.$ref) {
-    if (seen.has(schema.$ref)) return out;
-    const parts = schema.$ref.slice(2).split('/').map(key => key.replace(/~1/g, '/').replace(/~0/g, '~'));
-    const target = parts.reduce((value, key) => value?.[key], root)
-      ?? parts.reduce((value, key) => value?.[key], contract);
-    return leafFields(target, prefix, out, root, new Set([...seen, schema.$ref]));
-  }
+/** `schema` with its `$ref` chain followed through the contract's `$defs`. */
+function deref(schema, seen = new Set()) {
+  if (!schema?.$ref || seen.has(schema.$ref)) return schema;
+  const parts = schema.$ref.slice(2).split('/').map(key => key.replace(/~1/g, '/').replace(/~0/g, '~'));
+  return deref(parts.reduce((value, key) => value?.[key], contract), new Set([...seen, schema.$ref]));
+}
+
+/** Published property paths: `.name`, `[]` for array items, `{}` for additionalProperties; `x-cursor` state is private. */
+function leafFields(schema, prefix = '', out = new Map(), active = new Set()) {
+  schema = deref(schema);
+  if (!schema || active.has(schema)) return out;
+  active = new Set([...active, schema]);
   for (const [name, child] of Object.entries(schema.properties ?? {})) {
-    if (child['x-cursor']) continue;
+    if (deref(child)?.['x-cursor']) continue;
     const path = prefix ? `${prefix}.${name}` : name;
     const prev = out.get(path);
     if (!prev || (!prev.description && child.description)) out.set(path, { description: child.description ?? '' });
-    leafFields(child, path, out, root, seen);
-    if (child.items) leafFields(child.items, `${path}[]`, out, root, seen);
+    leafFields(child, path, out, active);
   }
+  if (schema.items) leafFields(schema.items, `${prefix}[]`, out, active);
   if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-    leafFields(schema.additionalProperties, `${prefix}{}`, out, root, seen);
+    leafFields(schema.additionalProperties, `${prefix}{}`, out, active);
   }
-  for (const branch of branchesOf(schema)) leafFields(branch, prefix, out, root, seen);
+  for (const branch of branchesOf(schema)) leafFields(branch, prefix, out, active);
   return out;
+}
+
+/** `path` without its last segment (`.name`, `[]` or `{}`); empty at the top. */
+const parentPath = path => {
+  const up = path.replace(/(\.[^.[\]{}]+|\[\]|\{\})$/, '');
+  return up === path ? '' : up;
+};
+
+/** Declared effects for `path`: its own entry, the nearest ancestor's, else `common`; undefined when none. */
+function effectsOf(fields, path) {
+  for (let at = path; at; at = parentPath(at)) if (at in fields) return fields[at];
+  return coverage.common?.fields?.[path.split(/[.[{]/)[0]];
 }
 
 /** A schema's anyOf/oneOf/allOf branches. */
@@ -75,12 +93,11 @@ for (const tool of contract.tools) {
     const pattern = new RegExp(`\\b(${leaf}|${snake(leaf)})\\b`, 'g');
     return {
       path,
-      classes: cov.fields[path] ?? [],
+      classes: effectsOf(cov.fields, path) ?? [],
       hits: (corpus.match(pattern) ?? []).length,
       descriptionChars: meta.description.length,
     };
   });
-  const declared = new Set(Object.keys(cov.fields));
   report.push({
     tool: tool.name,
     title: tool.title,
@@ -89,7 +106,7 @@ for (const tool of contract.tools) {
     evidenceFiles: files.map(f => relative(root, f)),
     fields,
     zeroHitFields: fields.filter(f => f.hits === 0).map(f => f.path),
-    unclassifiedFields: fields.filter(f => !declared.has(f.path)).map(f => f.path),
+    unclassifiedFields: fields.filter(f => effectsOf(cov.fields, f.path) === undefined).map(f => f.path),
     undescribedFields: fields.filter(f => f.descriptionChars === 0).map(f => f.path),
   });
 }

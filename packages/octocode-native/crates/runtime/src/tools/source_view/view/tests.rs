@@ -223,3 +223,5 @@ fn an_unanchored_read_uses_the_response_budget_and_small_files_finish() {
 
 mod fit;
 mod pages;
+mod scan_memo;
+mod scan_refusal;

@@ -30,7 +30,7 @@ function captureSource(output, actual) {
   }
 }
 const invalid = [
-  { tool: 'localSearch', input: { queries: [{ path: '.', matchString: 'line' }] } },
+  { tool: 'localSearch', input: { queries: [{ path: '.', matchString: ['line'], serchText: 'line' }] } },
   { tool: 'localFetch', input: { queries: [{ path: 'source.txt', ranges: ['1-3'] }] } },
   { tool: 'localFetch', input: { queries: [{ path: 'source.txt', fullContent: true }] } },
   { tool: 'astSearch', input: { queries: [{ path: '.', operation: 'match', pattern: 'run()' }] } },
@@ -42,6 +42,15 @@ try {
     const mcp = await client.raw(tool, input);
     check(`${tool} rejects removed or malformed inputs on both surfaces`, shell.code === 2 && mcp.isError, JSON.stringify({ shell: shell.output, mcp: mcp.sc }));
   }
+  // A string where a one-item list belongs has one lossless reading: the
+  // repaired call answers exactly as the canonical one does.
+  const repaired = { queries: [{ path: '.', matchString: 'line' }] };
+  const canonical = { queries: [{ path: '.', matchString: ['line'] }] };
+  const rows = output => JSON.stringify(output?.results);
+  const [shellRepaired, shellCanonical] = [await cli('localSearch', repaired), await cli('localSearch', canonical)];
+  check('cli repairs a string matchString to the one-item list', shellRepaired.code === 0 && shellCanonical.code === 0 && rows(shellRepaired.output) === rows(shellCanonical.output), shellRepaired.text);
+  const [mcpRepaired, mcpCanonical] = [await client.raw('localSearch', repaired), await client.raw('localSearch', canonical)];
+  check('mcp repairs a string matchString to the one-item list', !mcpRepaired.isError && !mcpCanonical.isError && rows(mcpRepaired.sc) === rows(mcpCanonical.sc), mcpRepaired.text);
   const initial = { queries: [{ path: 'source.txt' }], responseChars: 900 };
   for (const surface of ['cli', 'mcp']) {
     const execute = async input => {
@@ -74,11 +83,18 @@ try {
     const foreign = surface === 'cli' ? await client.raw('localFetch', { cursor }) : await cli('localFetch', { cursor });
     assert.ok(foreign.text.includes('responseSnapshotExpired'), foreign.text);
     check(`${surface} cursor is bound to its issuing surface`, true);
-    for (const input of [{ cursor, queries: [{ path: 'source.txt' }] }, { cursor, responseChars: 4000 }]) {
-      const shell = await cli('localFetch', input);
-      const mcp = await client.raw('localFetch', input);
-      check('resume rejects caller-supplied request mutations', shell.code === 2 && mcp.isError);
-    }
+    const mutation = { cursor, queries: [{ path: 'source.txt' }] };
+    const shell = await cli('localFetch', mutation);
+    const mcp = await client.raw('localFetch', mutation);
+    check('resume rejects caller-supplied request mutations', shell.code === 2 && mcp.isError);
+    // A cursor keeps the page size it was issued with: the caller cannot resize it.
+    const alone = await execute({ cursor });
+    const resized = await execute({ cursor, responseChars: 4000 });
+    check(
+      `${surface} resume ignores responseChars: the same page and next cursor as the cursor alone`,
+      JSON.stringify(resized.results) === JSON.stringify(alone.results) && JSON.stringify(nextHints(resized)) === JSON.stringify(nextHints(alone)),
+      JSON.stringify({ alone: alone.results, resized: resized.results }),
+    );
   }
 } finally {
   client?.close();

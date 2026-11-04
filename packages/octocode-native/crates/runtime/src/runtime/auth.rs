@@ -66,6 +66,8 @@ pub struct AuthStatus {
     pub source: String,
     pub verification: Verification,
     pub username: Option<String>,
+    /// What the token has left of each GitHub bucket; empty when unknown.
+    pub quota: Vec<login::Quota>,
 }
 
 impl ToolRuntime {
@@ -111,16 +113,16 @@ impl ToolRuntime {
     pub async fn auth_status(&self) -> AuthStatus {
         let host = self.github_credential_host();
         let selection = self.auth_selection(&host).await;
-        let check = match &selection {
-            Some(selected) => Some(
-                login::verify_token(
-                    &self.config().resolved.github.api_url,
-                    selected.token(),
-                    STATUS_WAIT,
-                )
-                .await,
-            ),
-            None => None,
+        let api_url = &self.config().resolved.github.api_url;
+        let (check, quota) = match &selection {
+            Some(selected) => {
+                let (check, quota) = tokio::join!(
+                    login::verify_token(api_url, selected.token(), STATUS_WAIT),
+                    login::quota(api_url, selected.token(), STATUS_WAIT),
+                );
+                (Some(check), quota)
+            }
+            None => (None, Vec::new()),
         };
         let (verification, verified_login) = match check {
             None => (Verification::None, None),
@@ -142,6 +144,7 @@ impl ToolRuntime {
                 .to_owned(),
             verification,
             username,
+            quota,
         }
     }
 

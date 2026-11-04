@@ -23,6 +23,7 @@ Every direct dependency of the native crates and the job it owns. A passing unus
 | `which` | Language-server executable discovery |
 | `libc` (Unix), `windows-sys` (Windows) | Language-server memory limits, process groups, and module paths |
 | `criterion`, `proptest`, `tempfile` (development) | Benchmarks, property tests, and filesystem fixtures |
+| `octocode-io` | The memory budget and memo the LSP discovery keeps its scans in, shared with every other in-process store (`memory`) |
 
 ## Runtime (`crates/runtime`)
 

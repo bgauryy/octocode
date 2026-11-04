@@ -12,8 +12,9 @@
 //! held directory, an edited rule, an expired or evicted cursor, or another
 //! process (nothing was kept) all fall back to the exact replay, which lists
 //! every entry once as it did before.
-use super::super::page_memo::{PageMemo, Proof};
+use super::super::page_memo::PageMemo;
 use super::memo::{self, Seen};
+use octocode_engine::stamp::Proof;
 use octocode_engine::types::WalkCursor;
 use serde_json::{Value, json};
 
@@ -23,7 +24,7 @@ struct Kept {
 }
 
 /// Kept cursors, weighed by the bytes they hold against the one process
-/// budget ([`crate::cache::MEMORY`]), the oldest dropped first.
+/// budget ([`octocode_engine::memory::MEMORY`]), the oldest dropped first.
 static STORE: PageMemo<Kept> = PageMemo::new();
 
 /// What the cursor belongs to: the walk (`identity`: the root and everything

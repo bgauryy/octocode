@@ -37,9 +37,10 @@ pub(super) fn collect_node_facts(
     rust: Option<RustNodeContext<'_>>,
     deadline: std::time::Instant,
 ) -> Option<(String, String)> {
+    let kind = node.kind();
     acc.test_context.observe(node, content);
     if acc.ext == "rs"
-        && node.kind() == "macro_invocation"
+        && kind == "macro_invocation"
         && let Some(rust) = rust.as_ref()
     {
         record_rust_macro(
@@ -86,29 +87,28 @@ pub(super) fn collect_node_facts(
         .or(active_name);
 
     if let Some(rust) = rust
-        && node.kind() == "use_declaration"
+        && kind == "use_declaration"
     {
         collect_rust_use(node, content, line_index, acc, rust, deadline);
     } else if let Some(rust) = rust
-        && node.kind() == "mod_item"
+        && kind == "mod_item"
     {
         collect_rust_module(node, content, line_index, acc, rust);
-    } else if rust.is_some() && node.kind() == "macro_invocation" {
+    } else if rust.is_some() && kind == "macro_invocation" {
         collect_rust_include(node, content, line_index, acc);
-    } else if acc.js_fallback && node.kind() == "import_statement" {
+    } else if acc.js_fallback && kind == "import_statement" {
         super::js_fallback::collect_import(node, content, line_index, acc);
-    } else if acc.js_fallback && node.kind() == "export_statement" {
+    } else if acc.js_fallback && kind == "export_statement" {
         super::js_fallback::collect_export(node, content, line_index, acc);
-    } else if acc.ext == "py" && matches!(node.kind(), "import_statement" | "import_from_statement")
-    {
+    } else if acc.ext == "py" && matches!(kind, "import_statement" | "import_from_statement") {
         collect_python_imports(node, ancestors, content, line_index, acc);
-    } else if acc.ext == "py" && node.kind() == "assignment" {
+    } else if acc.ext == "py" && kind == "assignment" {
         acc.typing.observe_assignment(node, ancestors, content);
-    } else if node.kind() == "preproc_include" {
+    } else if kind == "preproc_include" {
         collect_c_include(node, content, line_index, acc);
-    } else if acc.ext == "cs" && node.kind() == "using_directive" {
+    } else if acc.ext == "cs" && kind == "using_directive" {
         collect_csharp_using(node, content, line_index, acc);
-    } else if is_import_node(node.kind())
+    } else if is_import_node(kind)
         && !is_grouped_go_import(node)
         && let Some(specifier) = import_specifier(node, content)
     {
@@ -133,7 +133,7 @@ pub(super) fn collect_node_facts(
         });
     }
 
-    if node.kind() == "instance_expression" {
+    if kind == "instance_expression" {
         heritage::collect_scala_anonymous(
             node,
             ancestors.last().copied(),
@@ -143,7 +143,7 @@ pub(super) fn collect_node_facts(
             active_decl,
         );
     }
-    if acc.export_forwarding_node == Some(node.kind()) {
+    if acc.export_forwarding_node == Some(kind) {
         let mut diagnostic = super::note(crate::graph::GraphFactCode::UnsupportedExportForwarding);
         diagnostic.line = Some(line_index.range(node).start.line + 1);
         acc.diagnostics.push(diagnostic);

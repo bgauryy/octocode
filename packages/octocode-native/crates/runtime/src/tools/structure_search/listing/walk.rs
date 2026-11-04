@@ -65,17 +65,23 @@ pub(super) fn walk_listing<Q: Listing>(
     };
     let (resume, window_rows) = resumes.options(walking, q.walk_offset(), window_end);
     let test_code = TestCodeLeft::of(q.test_code(), paths);
+    // A probe only counts entries, and a paths view ranked by name shows
+    // nothing else: neither reads an entry's metadata. Sizes, times and line
+    // counts rank other sorts, and what ranks a page must be watched.
+    let names_only = bound.is_some()
+        || (q.view() == octocode_contract_types::StructureSearchView::Paths
+            && matches!(sort_key(&sort), None | Some(SortKey::Name | SortKey::Path)));
     let mut native = octocode_engine::search::fs_query::query_file_system(
         FileSystemQueryOptions {
             resume,
             window_rows,
             time_budget: walking.budget(),
             // The callback applies the default prune (`WalkLeft`).
-            exclude_dir: None,
             stop_at_limit: Some(true),
             skip_entries: Some(q.walk_offset()),
             limit: walk_limit,
             lists: test_code.as_ref().map(TestCodeLeft::rule),
+            names_only,
             ..q.engine_options(root)
         },
         &|path, file_type, visit| left.admit(&policy, path, file_type, visit),
@@ -120,12 +126,25 @@ pub(super) fn walk_listing<Q: Listing>(
     resumes.keep(&mut native, walking);
     // `end_window` keeps a walk-order prefix: the counts of its entries.
     lines.truncate(native.entries.len());
-    let mut rows = rows::rows_of(&native.entries, lines, root, security, true);
-    rows::sort_rows(&mut rows, &sort);
-    let mut walk = Walked::finish(native, rows, requested, q.scan_offset(), left, security);
+    let (rows, available) = rows::window_rows(
+        &native.entries,
+        &lines,
+        (root, security),
+        &sort,
+        q.scan_offset()..window_end,
+    );
+    let mut walk = Walked::finish(
+        native,
+        rows,
+        available,
+        q.scan_offset(),
+        left,
+        security,
+        names_only,
+    );
     walk.meta.time_window = window;
     walk.meta.test_code_excluded = test_code.map(|left| left.through(walk.meta.walk_position));
-    rows::group(&mut walk.rows, &sort);
+    rows::group(&mut walk.rows, &sort, q.view());
     Ok(walk)
 }
 

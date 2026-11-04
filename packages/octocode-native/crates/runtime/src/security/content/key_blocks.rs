@@ -1,9 +1,14 @@
-use super::{is_private_key_begin, is_private_key_end};
+use super::key_markers::{Markers, after_line_lead, is_decoration, is_lead_mark, line_markers};
 
 /// Key blocks one source may report separately. A source with more is
 /// treated as key material from the block that exceeds the cap to its end,
 /// so tracker state stays bounded however large the streamed source is.
 pub(crate) const MAX_KEY_BLOCK_RANGES: usize = 4096;
+
+/// A base64 run this long inside a block is key material whatever else its
+/// line holds (`k += b"MIIE…"`). Every format wraps its body longer than this.
+/// Only `/` or `=` is a ruled line, not a run.
+const BODY_RUN: usize = 40;
 
 /// What a line inside a private-key block looks like, after stripping the
 /// quoting and concatenation a key pasted into source carries.
@@ -11,11 +16,21 @@ pub(crate) const MAX_KEY_BLOCK_RANGES: usize = 4096;
 pub(crate) enum LineShape {
     /// Empty, or only quotes and punctuation.
     Blank,
-    /// Base64 (`A-Za-z0-9+/=`), optionally quoted and ended with an escaped
-    /// newline, `+`, `,` or `;`: `"MIIE…\n" +`.
+    /// Base64 (`A-Za-z0-9+/=`), optionally quoted, commented, and ended with
+    /// an escaped newline, `+`, `,` or `;`: `"MIIE…\n" +`.
     Body,
+    /// `Name: value` armor header (`Proc-Type: 4,ENCRYPTED`, `Version: …`).
+    Header,
     /// Anything else.
     Other,
+}
+
+/// One line as a block reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BlockLine {
+    shape: LineShape,
+    /// It holds a [`BODY_RUN`]: this is a key's text, not a line near a mention.
+    long: bool,
 }
 
 /// Incremental [`LineShape`] classifier: a line is leading decoration, a
@@ -25,7 +40,18 @@ pub(crate) enum LineShape {
 pub(crate) struct LineShapeScan {
     stage: ShapeStage,
     core: bool,
+    /// Bytes of the core so far, and whether all of them are `/`: `// ` is a
+    /// comment, not the start of a body.
+    core_len: usize,
+    core_slashes: bool,
+    /// The core is one `+` so far: before a blank it is a leading concatenation.
+    core_plus: bool,
+    /// A quote opened before the core: `b"` is a string prefix only before it.
+    quoted: bool,
     escape: bool,
+    run: usize,
+    run_has_text: bool,
+    long_run: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +67,14 @@ impl Default for LineShapeScan {
         Self {
             stage: ShapeStage::Lead,
             core: false,
+            core_len: 0,
+            core_slashes: true,
+            core_plus: false,
+            quoted: false,
             escape: false,
+            run: 0,
+            run_has_text: false,
+            long_run: false,
         }
     }
 }
@@ -49,8 +82,15 @@ impl Default for LineShapeScan {
 impl LineShapeScan {
     pub(crate) fn feed(&mut self, bytes: &[u8]) {
         for &byte in bytes {
+            let base64 = byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=');
+            self.run = if base64 { self.run + 1 } else { 0 };
+            self.run_has_text = base64 && (self.run_has_text || byte.is_ascii_alphanumeric());
+            self.long_run |= self.run >= BODY_RUN && self.run_has_text;
             if self.stage == ShapeStage::Bad {
-                return;
+                if self.long_run {
+                    return;
+                }
+                continue;
             }
             if self.escape {
                 // Only an escaped newline, return or tab is decoration.
@@ -60,12 +100,7 @@ impl LineShapeScan {
                 }
                 continue;
             }
-            let base64 = byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=');
-            let decoration = byte.is_ascii_whitespace()
-                || matches!(
-                    byte,
-                    b'"' | b'\'' | b'`' | b',' | b';' | b'.' | b'(' | b')' | b'[' | b']' | b'}'
-                );
+            let quote = matches!(byte, b'"' | b'\'' | b'`');
             self.stage = match (self.stage, byte) {
                 (stage, b'\\') => {
                     self.escape = true;
@@ -77,33 +112,67 @@ impl LineShapeScan {
                 }
                 (ShapeStage::Lead, _) if base64 => {
                     self.core = true;
+                    self.core_len = 1;
+                    self.core_slashes = byte == b'/';
+                    self.core_plus = byte == b'+';
                     ShapeStage::Core
                 }
-                (ShapeStage::Lead, _) if decoration => ShapeStage::Lead,
-                (ShapeStage::Core, _) if base64 => ShapeStage::Core,
-                (ShapeStage::Core | ShapeStage::Trail, _) if decoration => ShapeStage::Trail,
+                (ShapeStage::Lead, _) if is_decoration(byte) || is_lead_mark(byte) => {
+                    self.quoted |= quote;
+                    ShapeStage::Lead
+                }
+                (ShapeStage::Core, _) if base64 => {
+                    self.core_len += 1;
+                    self.core_slashes &= byte == b'/';
+                    self.core_plus = false;
+                    ShapeStage::Core
+                }
+                (ShapeStage::Core, _)
+                    if (self.core_slashes && (byte.is_ascii_whitespace() || byte == b'*'))
+                        || (self.core_plus && byte.is_ascii_whitespace()) =>
+                {
+                    self.core = false;
+                    ShapeStage::Lead
+                }
+                (ShapeStage::Core, _) if quote && !self.quoted && self.core_len <= 2 => {
+                    self.core = false;
+                    self.quoted = true;
+                    ShapeStage::Lead
+                }
+                (ShapeStage::Core | ShapeStage::Trail, _) if is_decoration(byte) => {
+                    ShapeStage::Trail
+                }
                 (ShapeStage::Trail, b'+') => ShapeStage::Trail,
                 _ => ShapeStage::Bad,
             };
         }
     }
 
-    pub(crate) fn finish(self) -> LineShape {
+    fn shape(self, head: &[u8]) -> LineShape {
         match self.stage {
+            ShapeStage::Bad if self.long_run => LineShape::Body,
+            ShapeStage::Bad if is_key_header_prefix(head) => LineShape::Header,
             ShapeStage::Bad => LineShape::Other,
             _ if self.core => LineShape::Body,
             _ => LineShape::Blank,
         }
     }
+
+    /// The fed line as a block reads it; `head` is its leading bytes.
+    pub(crate) fn finish(self, head: &[u8]) -> BlockLine {
+        BlockLine {
+            shape: self.shape(head),
+            long: self.long_run,
+        }
+    }
 }
 
-/// `Name: value` armor header (`Proc-Type: 4,ENCRYPTED`, `Version: …`),
-/// judged from a line's leading bytes.
-pub(crate) fn is_key_header_prefix(head: &[u8]) -> bool {
-    let head = head.trim_ascii_start();
+/// `Name: value` armor header, judged from a line's leading bytes.
+fn is_key_header_prefix(head: &[u8]) -> bool {
+    let head = after_line_lead(head);
     let name = head
         .iter()
-        .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'-')
+        .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(**byte, b'-' | b'_'))
         .count();
     name > 0 && head[0].is_ascii_alphabetic() && head.get(name) == Some(&b':')
 }
@@ -112,63 +181,59 @@ pub(crate) fn is_key_header_prefix(head: &[u8]) -> bool {
 enum BlockPhase {
     #[default]
     Outside,
-    /// After the BEGIN marker, before the first body line: armor headers and
-    /// blank lines are allowed.
-    Header,
-    Body,
+    /// After the BEGIN marker: a key-shaped line of any length is key material,
+    /// so a body's first line is never shown.
+    Opened,
+    /// A line that is no key text followed BEGIN, as code after a literal
+    /// marker does, or a comment above a body. Only a long body line counts.
+    Unproven,
+    /// A long body line has shown this is a key: until its END, every
+    /// key-shaped line is hidden and any other line is read past.
+    Keyed,
 }
 
 /// Per-line private-key block state shared by the whole-file redaction, the
-/// range tracker and the streamed read. A block opens at a BEGIN marker and
-/// ends at its END marker (inclusive) or, with no END, before the first line
-/// that is not part of a key: armor headers and blank lines straight after
-/// BEGIN, then base64 body lines. Everything inside is key material; a
-/// literal marker string in ordinary code therefore hides only its own line.
+/// range tracker and the streamed read. A BEGIN marker opens a block and its
+/// END marker (inclusive) closes it. Inside one only key text is hidden: armor
+/// headers, blank lines and prose hold no key bytes, and a key may go on after
+/// them. A literal marker string in ordinary code therefore hides its own line
+/// and at most the single-word lines right after it.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct KeyBlockState {
     phase: BlockPhase,
 }
 
-/// How a line reads once it is read inside an open block.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BlockLine {
-    Header,
-    Shape(LineShape),
-}
-
 impl KeyBlockState {
-    /// Advance over one line; true when it is inside a block (key material).
-    /// `inside` is only called while a block is open and the line is not an
-    /// END marker.
-    pub(crate) fn advance(
-        &mut self,
-        begins: bool,
-        ends: bool,
-        inside: impl FnOnce() -> BlockLine,
-    ) -> bool {
-        if self.phase != BlockPhase::Outside {
-            if ends {
-                self.phase = BlockPhase::Outside;
-                return true;
-            }
-            match (self.phase, inside()) {
-                (_, BlockLine::Shape(LineShape::Body)) => {
-                    self.phase = BlockPhase::Body;
-                    return true;
-                }
-                (BlockPhase::Header, BlockLine::Header | BlockLine::Shape(LineShape::Blank)) => {
-                    return true;
-                }
-                _ => self.phase = BlockPhase::Outside,
-            }
+    /// Advance over one line with these `markers`; true when it is key
+    /// material. `inside` is only called for a line of an open block that holds
+    /// no edge of it.
+    pub(crate) fn advance(&mut self, markers: Markers, inside: impl FnOnce() -> BlockLine) -> bool {
+        if markers.begins || (markers.ends && self.is_open()) {
+            // An END that closes no key text is a literal, as outside a block.
+            let hidden = markers.begins || self.phase != BlockPhase::Unproven;
+            self.phase = if markers.opens {
+                BlockPhase::Opened
+            } else {
+                BlockPhase::Outside
+            };
+            return hidden;
         }
-        if begins {
-            if !ends {
-                self.phase = BlockPhase::Header;
-            }
-            return true;
+        if !self.is_open() {
+            return false;
         }
-        false
+        let line = inside();
+        match (self.phase, line.shape) {
+            (_, LineShape::Body) if line.long => {
+                self.phase = BlockPhase::Keyed;
+                true
+            }
+            (BlockPhase::Opened | BlockPhase::Keyed, LineShape::Body) => true,
+            (BlockPhase::Opened, LineShape::Other) => {
+                self.phase = BlockPhase::Unproven;
+                false
+            }
+            _ => false,
+        }
     }
 
     /// True while a block is open: the next line may still be key material.
@@ -177,13 +242,12 @@ impl KeyBlockState {
     }
 
     pub(crate) fn push_line(&mut self, line: &str) -> bool {
-        self.advance(is_private_key_begin(line), is_private_key_end(line), || {
+        let line = line.as_bytes();
+        let markers = line_markers(line);
+        self.advance(markers, || {
             let mut scan = LineShapeScan::default();
-            scan.feed(line.as_bytes());
-            match scan.finish() {
-                LineShape::Other if is_key_header_prefix(line.as_bytes()) => BlockLine::Header,
-                shape => BlockLine::Shape(shape),
-            }
+            scan.feed(line);
+            scan.finish(line)
         })
     }
 }

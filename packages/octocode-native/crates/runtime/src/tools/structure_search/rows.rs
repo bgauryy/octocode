@@ -2,7 +2,6 @@
 //! entry becomes a row, how rows sort, group and cost on a page, their line
 //! counts, and the read a listing's first page leads to.
 use super::cut::RowCost;
-use super::memo;
 use crate::response::result::ToolError;
 use serde_json::{Value, json};
 
@@ -14,12 +13,13 @@ use octocode_engine::types::{FileKind, FileSystemEntry};
 
 mod line_counts;
 mod read_lead;
+mod window;
 
-use line_counts::line_count;
 #[cfg(test)]
 pub(super) use line_counts::line_count_reads;
 pub(super) use line_counts::{Lines, count_lines};
 pub(super) use read_lead::read_lead;
+pub(super) use window::window_rows;
 
 /// What a listed entry is: anything that is neither a directory nor a
 /// symlink lists as a file.
@@ -56,25 +56,14 @@ pub(super) struct Row {
     pub(super) name: String,
     pub(super) size: i64,
     pub(super) modified: f64,
-    /// Its line count, under `sort:lines` only.
-    pub(super) lines: Option<Lines>,
     /// The walked entry, for the continuation pages' change check.
     pub(super) source: std::path::PathBuf,
-    /// Its size and time as the walk read them (the stored walk's stamp).
-    pub(super) seen: (u64, Option<std::time::SystemTime>),
+    /// The stamp of the walk's `lstat`; `None` when it read none (a view that
+    /// shows only names).
+    pub(super) stamp: Option<octocode_engine::stamp::SourceStamp>,
 }
 
 impl Row {
-    /// The row's size and time as the walk read them, for the continuation
-    /// pages' change check.
-    pub(super) fn seen(&self) -> memo::Seen<'_> {
-        memo::Seen {
-            path: &self.source,
-            size: self.seen.0,
-            modified: self.seen.1,
-        }
-    }
-
     /// What of the row a snapshot binds: what its page shows and cuts by.
     pub(super) fn shown(&self) -> impl serde::Serialize + '_ {
         (&self.dir, &self.entry, &self.path)
@@ -87,18 +76,15 @@ impl Row {
             && (entry.relative_path.is_empty() || std::path::Path::new(&entry.path) == root)
     }
 
-    /// The row of a walked entry. Rows name paths relative to the walked
-    /// root: `""` is the root itself, which a file root lists by its name.
-    /// `modified_shown` adds the modified time to the entry text.
-    fn of(
+    /// The path a walked entry is listed under, as delivered: relative to the
+    /// walked root (`""` is the root itself, which a file root lists by its
+    /// name), redacted.
+    fn listed_path(
         e: &FileSystemEntry,
         root: &std::path::Path,
         security: &ContentSecurity,
-        modified_shown: bool,
-        lines: Option<Lines>,
-    ) -> Self {
+    ) -> String {
         let is_root = e.relative_path.is_empty() || std::path::Path::new(&e.path) == root;
-        let kind = EntryKind::from(e.entry_type);
         let relative = if is_root {
             root.file_name()
                 .unwrap_or_default()
@@ -107,17 +93,20 @@ impl Row {
         } else {
             e.relative_path.clone()
         };
-        let path = match security.sanitize_text(&relative, None).content {
+        match security.sanitize_text(&relative, None).content {
             std::borrow::Cow::Borrowed(_) => relative,
             std::borrow::Cow::Owned(text) => text,
-        };
+        }
+    }
+
+    /// The row of a walked entry listed under `path` ([`Self::listed_path`]).
+    fn of(e: &FileSystemEntry, path: String, lines: Option<Lines>) -> Self {
+        let kind = EntryKind::from(e.entry_type);
         let (dir, name) = path.rsplit_once('/').unwrap_or(("", path.as_str()));
         let dir = dir.to_owned();
         let modified_ms = e.modified_ms();
         let modified = modified_ms.unwrap_or(0.0);
-        // A directory's own length is its entry table, not content: it is
-        // neither shown nor ranked (`sort:size` puts directories last).
-        let size = e.size.filter(|_| kind != EntryKind::Directory);
+        let size = content_size(e);
         let entry = entry_text(
             name,
             kind,
@@ -126,9 +115,7 @@ impl Row {
             // is available to the details view without another read.
             lines,
             // Whole epoch milliseconds, shown as an ISO 8601 instant.
-            modified_ms
-                .filter(|_| modified_shown)
-                .map(|modified| crate::num::i64_of_f64(modified.round())),
+            modified_ms.map(|modified| crate::num::i64_of_f64(modified.round())),
         );
         Self {
             dir,
@@ -139,86 +126,69 @@ impl Row {
             name: e.name.clone(),
             size: size.unwrap_or(0),
             modified,
-            lines,
             source: std::path::PathBuf::from(&e.path),
-            seen: {
-                let seen = memo::Seen::walked(std::path::Path::new(&e.path), e);
-                (seen.size, seen.modified)
-            },
+            stamp: e.stamp,
         }
     }
 
     fn path_entry(&self) -> String {
         entry_text(&self.display_name, self.kind, None, None, None)
     }
-
-    /// The row as its requested view shows it: paths keeps names and kinds;
-    /// with `detail`, file line counts are read for this page only.
-    pub(super) fn page_entry(
-        &self,
-        view: StructureSearchView,
-        detail: Option<&PathPolicy>,
-        cancel: &dyn CancellationCheck,
-    ) -> Result<String, ToolError> {
-        if view == StructureSearchView::Paths {
-            return Ok(self.path_entry());
-        }
-        let Some(paths) = detail.filter(|_| self.kind != EntryKind::Directory) else {
-            return Ok(self.entry.clone());
-        };
-        let lines = line_count(&self.source, paths, cancel)?;
-        Ok(entry_text(
-            &self.display_name,
-            self.kind,
-            Some(self.size),
-            lines.and_then(Lines::shown_in_details),
-            Some(crate::num::i64_of_f64(self.modified.round())),
-        ))
-    }
 }
 
-/// The rows of a walk's entries, in walk order (the listed directory left
-/// out), each with its line count from `lines` (the walk's entries, in the
-/// same order). `modified_shown` adds the modified time to every entry.
-pub(super) fn rows_of(
-    entries: &[FileSystemEntry],
-    lines: Vec<Option<Lines>>,
-    root: &std::path::Path,
-    security: &ContentSecurity,
-    modified_shown: bool,
-) -> Vec<Row> {
-    entries
+/// A non-directory entry's size. A directory's own length is its entry table,
+/// not content: it is neither shown nor ranked (`sort:size` puts directories
+/// last).
+fn content_size(entry: &FileSystemEntry) -> Option<i64> {
+    entry
+        .size
+        .filter(|_| EntryKind::from(entry.entry_type) != EntryKind::Directory)
+}
+
+/// The rows of a page as its requested view shows them, each with its
+/// directory: paths keeps names and kinds; with `detail`, file line counts
+/// are read, for this page only.
+pub(super) fn page_entries(
+    rows: &[Row],
+    view: StructureSearchView,
+    detail: Option<&PathPolicy>,
+    cancel: &dyn CancellationCheck,
+) -> Result<Vec<(String, String)>, ToolError> {
+    if view == StructureSearchView::Paths {
+        return Ok(rows
+            .iter()
+            .map(|row| (row.dir.clone(), row.path_entry()))
+            .collect());
+    }
+    let Some(paths) = detail else {
+        return Ok(rows
+            .iter()
+            .map(|row| (row.dir.clone(), row.entry.clone()))
+            .collect());
+    };
+    let files = rows
+        .iter()
+        .map(|row| (row.kind != EntryKind::Directory).then_some(row.source.as_path()))
+        .collect::<Vec<_>>();
+    let (lines, _) = count_lines(&files, paths, cancel, None)?;
+    Ok(rows
         .iter()
         .zip(lines)
-        .filter(|(entry, _)| !Row::is_root_dir(entry, root))
-        .map(|(entry, lines)| Row::of(entry, root, security, modified_shown, lines))
-        .collect()
-}
-
-/// Rank rows by `sort`; path order is the walk order (the sort is stable).
-pub(super) fn sort_rows(rows: &mut [Row], sort: &StructureSearchSort) {
-    use octocode_contract_types::{SortOrder, StructureSearchSortAnyOrderBy as Key};
-    let StructureSearchSort::AnyOrder(octocode_contract_types::StructureSearchSortAnyOrder {
-        by,
-        order,
-    }) = sort
-    else {
-        return;
-    };
-    rows.sort_by(|a, b| {
-        let compared = match by {
-            Key::LineCount => Lines::rank(b.lines).cmp(&Lines::rank(a.lines)),
-            Key::SizeBytes => a.size.cmp(&b.size),
-            Key::Name => a.name.cmp(&b.name),
-            Key::Path => a.path.cmp(&b.path),
-            Key::ModifiedAt => a.modified.total_cmp(&b.modified),
-        };
-        if *order == SortOrder::Desc {
-            compared.reverse()
-        } else {
-            compared
-        }
-    });
+        .map(|(row, lines)| {
+            let entry = if row.kind == EntryKind::Directory {
+                row.entry.clone()
+            } else {
+                entry_text(
+                    &row.display_name,
+                    row.kind,
+                    Some(row.size),
+                    lines.and_then(Lines::shown_in_details),
+                    Some(crate::num::i64_of_f64(row.modified.round())),
+                )
+            };
+            (row.dir.clone(), entry)
+        })
+        .collect())
 }
 
 /// Group a window's rows (cut from `sort`ed rows) as the page lists them.
@@ -226,21 +196,25 @@ pub(super) fn sort_rows(rows: &mut [Row], sort: &StructureSearchSort) {
 /// then each directory once, in walk order (the sort is stable). Other sorts
 /// keep their global rank order exactly; each page groups only its runs of
 /// adjacent rows ([`dir_groups`]).
-pub(super) fn group(rows: &mut Vec<Row>, sort: &StructureSearchSort) {
+pub(super) fn group(rows: &mut Vec<Row>, sort: &StructureSearchSort, view: StructureSearchView) {
     if super::files::is_traversal(sort) {
         rows.sort_by(|a, b| std::path::Path::new(&a.dir).cmp(std::path::Path::new(&b.dir)));
     }
-    drop_grouped_dirs(rows);
+    drop_grouped_dirs(rows, view);
 }
 
 /// Names each directory once: by its own `{dir, files}` group when the
-/// group lists an entry, else by its bare `name/` row (a stub; one with
-/// fields, `modified`, is no stub and keeps them). A stub is dropped only
+/// group lists an entry, else by its bare `name/` row (a stub: every directory
+/// row of a view that shows no fields; one with fields, `modified`, is no stub
+/// and keeps them). A stub is dropped only
 /// when the directory's group survives, so a directory whose subdirectories
 /// all have groups of their own keeps its stub instead of vanishing from
 /// the listing, even when the two would land on different pages.
-fn drop_grouped_dirs(rows: &mut Vec<Row>) {
-    let stub = |row: &Row| row.entry.ends_with('/');
+fn drop_grouped_dirs(rows: &mut Vec<Row>, view: StructureSearchView) {
+    let stub = |row: &Row| {
+        row.kind == EntryKind::Directory
+            && (view == StructureSearchView::Paths || row.entry.ends_with('/'))
+    };
     let mut grouped = rows
         .iter()
         .filter(|row| !stub(row))

@@ -90,3 +90,28 @@ fn record_reference_into_evidence_dictionary_is_rejected() {
     assert!(decode(&bytes).is_err(), "a node may not name evidence text");
     assert!(decode_files(&bytes).is_err(), "nor in a files-only read");
 }
+
+/// Every blocked section (`STRE`, `NODE`, `DECL`, `SRCO`) spans more than one
+/// block here.
+#[test]
+fn blocked_sections_round_trip_across_block_boundaries() {
+    let mut t = evidence_fixture();
+    t.sources = super::evidence_tests::origins_fixture(&[[(0, 8), (0, 12), (2, 5)]; 200].concat());
+    let (symbol, declaration, site) = (t.nodes[1], t.declarations[0], t.unresolved[0]);
+    for id in 0..600_u32 {
+        let (key, reason) = (t.strings.len() as u32, t.strings.len() as u32 + 1);
+        t.strings.push(format!("a.py#s{id:04}"));
+        t.strings
+            .push(format!("reason-{id:04}-{}", "x".repeat(id as usize % 40)));
+        let node = t.nodes.len() as u32;
+        t.nodes.push(NodeRec { key, ..symbol });
+        t.declarations.push(DeclarationRec {
+            node,
+            ..declaration
+        });
+        t.unresolved.push(UnresolvedRec { reason, ..site });
+    }
+    t.index();
+    let (bytes, _) = encode(&t);
+    decode(&bytes).expect("the blocks decode");
+}

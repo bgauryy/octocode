@@ -89,7 +89,7 @@ fn run_match(
     let mut scope = scope;
     let grammars = compile_in_grammars(q, &scope, &scan);
     scope.inferred = infer_grammar(q, &scope, &scan, &grammars)?;
-    let inapplicable = Inapplicable::of(&grammars);
+    let inapplicable = Inapplicable::of(q, &scan);
     let snapshot = match_snapshot(q, &scope, &scan);
     // A page number without a snapshot asks for that page of a fresh scan;
     // only a snapshot that no longer matches is stale.
@@ -111,7 +111,7 @@ fn run_match(
     }
     let budget = crate::response::page_windows::page_budget(response_window);
     let row_paths = super::RowPaths::new(paths, &scope.canonical, scope.is_file);
-    let mut grouped = group_files(q, &scan.files, budget, row_paths, &inapplicable, cancel)?;
+    let mut grouped = group_files(q, &scan.files, budget, row_paths, cancel)?;
     grouped.skipped_grammars = inapplicable.counts();
     // Group paths are rooted at the scope's parent; the notice names them as
     // the response names rows.
@@ -151,54 +151,35 @@ fn run_match(
             ));
         }
     }
+    let shown = file_page(q, &grouped.groups, budget).window;
+    for group in &mut grouped.groups[shown] {
+        if let Some(shown) = group.row["path"].as_str().map(str::to_owned) {
+            key_rows::hide_key_block_rows(group, &row_paths.file(&shown), paths);
+        }
+    }
     if !scan.truncated
         && q.scan_offset() == 0
-        && !grammars.is_empty()
-        && grammars.iter().all(|grammar| grammar.outcome.is_err())
-        && let Some(Err(error)) = grammars.first().map(|grammar| grammar.outcome.clone())
+        && let Some(error) = inapplicable.rejection()
     {
-        // Every grammar the whole scope holds (even in files the literal
-        // prefilter left unparsed) rejects the query: only an initial
-        // whole-scope scan can reject it for the selected set.
-        return Err(ToolError::new(error.code, error.message));
+        // No file of the whole scope parses the query (even one the literal
+        // prefilter would leave unread): only an initial whole-scope scan can
+        // say so. A window cut short counts what it met and scans onward.
+        return Err(ToolError::new(error.code, error.message.clone()));
     }
-    if grouped.total_matches == 0
-        && grouped.parsed_files == 0
-        && grouped.compile_failed_files > 0
-        && !scan.truncated
-        && q.scan_offset() == 0
-        && let Some(error) = grouped.compile_error
-    {
-        // Only a whole-scope scan proves there is no compatible candidate.
-        // A capped incompatible window must retain coverage and scan onward.
-        return Err(error);
-    }
-    if grouped.total_matches == 0
-        && (grouped.parsed_files > 0 || scan.truncated)
-        && let Some(page) =
-            return_type::rewritten_page(q, &scope, &scan, paths, cancel, |retried| {
-                run_match(retried, paths, cancel, response_window)
-            })?
-    {
-        return Ok(page);
-    }
-    let mut gaps = if scope.is_file {
+    // A window with no rows and no continuation states absence, so it names the
+    // skipped walks though the scan's first page already did.
+    let states_absence = grouped.groups.is_empty() && !scan.truncated;
+    let gaps = if scope.is_file {
         ScopeGaps::default()
     } else if grouped.total_matches == 0 && grouped.parsed_files == 0 && q.language().is_some() {
-        ScopeGaps::of(q, &scope, paths, cancel)
+        ScopeGaps::of(q, &scope, paths, states_absence, cancel)
     } else {
         // Files of the grammar behind skipped paths are still a reason,
         // beside the pattern's shape or the matches found: whether or not
         // the scan parsed any, and whether one language or each file's own
         // grammar selected them.
-        ScopeGaps::beside_parsed(q, &scope, paths, cancel)
+        ScopeGaps::beside_parsed(q, &scope, paths, states_absence, cancel)
     };
-    // The skipped-path probe walks within the scan's own file bound: a scan
-    // cut at that bound cuts the probe too, and the scan's cut (with its
-    // continuation) already says the result is partial.
-    if scan.truncated {
-        gaps.skipped = gaps.skipped.filter(|skipped| !skipped.disclosure.unchecked);
-    }
     let qualified = qualified_miss(q, &scope, &scan, (paths, row_paths), cancel);
     let exact_miss_scope = qualified.is_none()
         && grouped.total_matches == 0
@@ -224,18 +205,19 @@ fn run_match(
     {
         crate::tools::leads::push_hint(&mut out, hint);
     }
-    if exact_miss_scope {
+    if exact_miss_scope && !relation_miss::attach_relation_miss(q, &scope, paths, cancel, &mut out)
+    {
         match exact_miss(q, &scope, paths, cancel) {
             Some(miss) => miss.attach(&mut out),
-            None => {
-                if let Some(lead) = kind_broaden(q, &scope, paths, cancel) {
-                    out["calls"]["broadenSearch"] = lead;
-                }
-            }
+            None => match kind_broaden(q, &scope, paths, cancel) {
+                Some(lead) => out["calls"]["broadenSearch"] = lead,
+                None => exact_miss::attach_absent_kind(q, &scope, &mut out),
+            },
         }
     }
     if fresh
         && !scan.untracked_ignore_dependencies
+        && crate::tools::test_code::result_may_be_kept(q.test_code())
         && out["calls"]
             .as_object()
             .is_some_and(|next| next.contains_key("nextPage"))
@@ -249,12 +231,13 @@ mod continuations;
 mod exact_miss;
 mod gaps;
 mod groups;
+mod key_rows;
 mod memo;
 mod qualified;
 mod query;
 mod reads;
+mod relation_miss;
 mod render;
-mod return_type;
 mod rows;
 mod scan;
 mod scope;
@@ -285,4 +268,4 @@ mod concurrent_scan_tests;
 mod demand_tests;
 
 #[cfg(test)]
-mod return_type_tests;
+mod unsaid_tests;

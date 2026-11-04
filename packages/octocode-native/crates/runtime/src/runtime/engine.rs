@@ -37,6 +37,10 @@ pub struct HostOptions {
     /// [`crate::execution::DEFAULT_TIMEOUT`], the budget of every surface).
     #[serde(default)]
     pub timeout_secs: Option<u64>,
+    /// The config files this process already read for this directory, so a
+    /// start does not read them again; `env`, `cwd` and `surface` still decide.
+    #[serde(skip)]
+    pub loaded: Option<config::ConfigInput>,
 }
 
 #[derive(Debug, Serialize)]
@@ -78,6 +82,8 @@ pub struct ToolRuntime {
     github_services: Arc<
         std::sync::OnceLock<Result<super::github::GitHubServices, octocode_github::ProviderError>>,
     >,
+    /// Provider answers kept across calls and, when persistent, processes.
+    provider_answers: Arc<crate::providers::saved_answers::KeptAnswers>,
     lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
     /// Whether this runtime created [`Self::lsp_pool`]: only its creator
     /// stops the servers on close; a runtime given a shared pool leaves them
@@ -197,15 +203,9 @@ impl ToolRuntime {
     }
 
     fn lsp_server_languages(&self) -> Vec<&'static str> {
-        let config_path = self
-            .lsp_execution_config
-            .config_path
-            .as_deref()
-            .and_then(|path| self.paths.validate_read(path).ok())
-            .map(|validated| validated.canonical);
         octocode_engine::lsp::config::available_server_languages(
             &self.lsp_root().to_string_lossy(),
-            &self.lsp_execution_config.discovery(config_path),
+            &self.lsp_execution_config.discovery(),
         )
     }
 

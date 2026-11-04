@@ -16,10 +16,9 @@ Public positions, input and output, are one-based, and servers communicate in UT
 
 The Rust engine owns command discovery and launch configuration. For a known extension it resolves, in priority order:
 
-1. an explicit `lsp.configPath` / `$OCTOCODE_LSP_CONFIG` entry;
-2. `<workspace>/.octocode/lsp-servers.json` only when `lsp.trustProjectConfig` (`OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`) is set;
-3. `<octocode home>/lsp-servers.json`;
-4. the built-in route: a native `tsgo` for TypeScript, an installed pyright-family server for Python, a rustup toolchain component (Rust: when `rust-analyzer` on `PATH` is a rustup proxy and `rustup which rust-analyzer`, run in the workspace root with `RUSTUP_AUTO_INSTALL=0`, names a binary, so rustup alone picks the toolchain; `config/invocation/rustup.rs`), a managed install, or the known command on `PATH` (for `typescript-language-server`, also a `node_modules` tree; see below). A rustup proxy whose selected toolchain lacks the component does not count as available.
+1. `<workspace>/.octocode/lsp-servers.json` only when `lsp.trustProjectConfig` (`OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`) is set;
+2. `<octocode home>/lsp-servers.json`;
+3. the built-in route: a native `tsgo` for TypeScript, an installed pyright-family server for Python, a rustup toolchain component (Rust: when `rust-analyzer` on `PATH` is a rustup proxy and `rustup which rust-analyzer`, run in the workspace root with `RUSTUP_AUTO_INSTALL=0`, names a binary, so rustup alone picks the toolchain; `config/invocation/rustup.rs`), a managed install, or the known command on `PATH` (for `typescript-language-server`, also a `node_modules` tree; see below). A rustup proxy whose selected toolchain lacks the component does not count as available.
 
 Project configuration is untrusted by default because it controls executable startup; a trusted project configuration can launch any executable it names. Generic interpreter eval forms such as `node -e` or `python -c` and shell wrappers are rejected as a guard against mistakes, not as a boundary. Absolute commands must exist and be regular executable files; a relative command with a path separator resolves against the workspace root when the process directory has none.
 
@@ -76,7 +75,7 @@ npx octocode lsp-server uninstall clangd
 npx octocode lsp-server clean --yes                     # without --yes: a dry run
 ```
 
-Installation is explicit: `lspSearch` never downloads an executable. `lsp.autoInstall` decides whether an install command may download without asking (`install --force` skips that policy for one run; an installed server is never re-downloaded: `uninstall` it first), and `lsp.cacheDir` moves the installs from `<octocode home>/lsp`.
+Installation is explicit: `lspSearch` never downloads an executable. `lsp.autoInstall` decides whether an install command may download without asking (`install --force` skips that policy for one run; an installed server is never re-downloaded: `uninstall` it first). Installs live in `<octocode home>/lsp`.
 
 Provisioning permits only allowed HTTPS hosts, follows the same restriction across redirects, supports bounded `gz` and `zip` extraction, uses per-target locks, and atomically publishes a completion-marked executable. Unsupported platforms fail with an installation hint. No digest is typed by hand: `engine/src/lsp/managed.lock.json` is generated (`dev.mjs lsp:lock`, `skills-dev/octocode-dev/scripts/lsp-lock.mjs`) from the `digest`, size and `immutable` flag GitHub reports for each asset `managed.rs` names. An install (`cli/src/cli/lsp_provision.rs`) checks three things that must agree: the lock, GitHub's live digest for the asset, and the size and SHA-256 of the downloaded bytes. A live digest that differs from the lock is refused as changed upstream. When the GitHub API cannot be reached, the install proceeds on the lock and the bytes alone and says so in its verification line. For a release the lock records as immutable, `gh release verify` must also list the asset's digest: a verified attestation that omits it refuses the install, while a `gh` that cannot verify (missing, too old, unauthenticated, offline, no attestation) is reported as not checked. The GitHub token authenticates only the API request, never a download.
 
@@ -141,22 +140,6 @@ Running the Linux tests (kernel `/proc`, address-space reservations past the cap
 `start` and `stop` take the client's locks in one order (`child` → `connection` → `stderr_task`) and hold `child` throughout, so a `stop` that overlaps a `start` waits for it and then shuts down the server it published.
 
 ## Readiness and diagnostics
-
-For a slow `lspSearch` call, enable `lsp.trace` (`OCTOCODE_LSP_TRACE=true`) through
-the normal [configuration flow](../../../../docs/CONFIGURATION.md). Each executed
-query row emits a diagnostic summary on stderr; CLI warm-server calls relay it,
-and MCP keeps it outside JSON-RPC results. Disable the setting when finished.
-Tracing does not change readiness gates, retry budgets, or semantic evidence.
-
-The summary separates pool acquisition, process spawn, initialization, startup
-readiness, document synchronization, first-open readiness, semantic requests, and
-write-queue admission. Durations are cumulative and inclusive: acquisition can
-contain initialization/readiness, and concurrent requests overlap, so **do not
-add them to calculate wall-clock latency**. Only phases that ran are listed.
-Completed/failed counts describe function returns, not index completeness; a
-readiness wait can complete with the existing `timeout` readiness value. Dropped
-futures count as cancelled. `active` identifies work still running when the
-summary is emitted, including supervised startup after caller cancellation.
 
 Traces contain phase labels, durations and counts only—not file paths, method
 arguments, source text, environment values, or credentials. The collector has a

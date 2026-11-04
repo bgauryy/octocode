@@ -73,3 +73,17 @@ fn run(fake: &Fake, address: &str, max_chars: usize) -> Result<Selection, Classi
     };
     select(fake, parse(address)?, &redaction, &|| Ok(()), max_chars)
 }
+
+/// A saved capture is judged whatever its URL calls the text: a Kubernetes
+/// Secret is one at any address, and plain text stays as it is.
+#[test]
+fn a_capture_holds_nothing_a_read_of_any_file_would_redact() {
+    let security = ContentSecurity::new();
+    let redaction = Redaction {
+        security: &security,
+        emails: false,
+    };
+    let manifest = "kind: Secret\ndata:\n  tls.crt: QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz\n";
+    assert!(!redaction.apply(manifest).contains("QUJDREVGR0hJ"));
+    assert_eq!(redaction.apply("plain words\n"), "plain words\n");
+}

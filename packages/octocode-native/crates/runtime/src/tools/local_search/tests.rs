@@ -65,7 +65,16 @@ fn stored_page_after(
         .expect("scan");
     assert!(scan.digests.is_some(), "the page took the stored scan");
     between();
-    super::executor::page_of(request, policy, security, &NeverCancel, scan, None)
+    let alternates = super::probes::Alternates::new(request, &scan);
+    super::executor::page_of(
+        request,
+        policy,
+        security,
+        &NeverCancel,
+        scan,
+        None,
+        &alternates,
+    )
 }
 
 fn values(result: &LocalSearchResult) -> String {

@@ -1,4 +1,6 @@
 // `schema [command] [recipe|operation]`: the commands, recipes and plan contract, without connecting.
+import { spawnSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
 import { checks, helpers, launchValues } from './cli-catalog.mjs';
 import {
   chromeCommands,
@@ -121,7 +123,15 @@ function commandOptions(name: string | undefined) {
 
 function helperSchema(name: string | undefined, cliPath: string) {
   if (name === undefined || !helpers[name]) return {};
+  // The helper's own usage text, options included.
+  const run = spawnSync(
+    process.execPath,
+    [join(dirname(cliPath), helpers[name][0]), '--help'],
+    { encoding: 'utf8', timeout: 10000 }
+  );
+  const usage = run.stdout.trim() || run.stderr.trim() || undefined;
   return {
+    usage,
     help: { command: process.execPath, args: [cliPath, name, '--help'] },
     component: helpers[name][0],
   };

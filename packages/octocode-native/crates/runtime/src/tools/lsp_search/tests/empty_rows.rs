@@ -248,24 +248,6 @@ fn an_outside_include_is_partial_without_a_build_script_rerun() {
         "{both}"
     );
 }
-/// A lead probes the configured server file only when the path policy
-/// authorizes reading it.
-#[test]
-fn lead_discovery_drops_an_unauthorized_server_file() {
-    let paths = PathPolicy::new(crate::policy::path::PathPolicyConfig::default()).expect("policy");
-    let execution = LspExecutionConfig {
-        env: std::collections::BTreeMap::from([("OCTOCODE_LEAD_PROBE".to_owned(), "x".to_owned())]),
-        config_path: Some("/nonexistent/octocode-lsp.json".to_owned()),
-        ..Default::default()
-    };
-    let discovery = execution.lead_discovery(&paths);
-    assert_eq!(discovery.config_path, None);
-    assert_eq!(
-        discovery.env.get("OCTOCODE_LEAD_PROBE").map(String::as_str),
-        Some("x")
-    );
-}
-
 /// rust-analyzer indexes no Rust file outside a Cargo package (or
 /// `rust-project.json`), whatever other marker (`.git`) sits above it: an
 /// empty answer there is `noProject`, partial, not an absence. Every empty

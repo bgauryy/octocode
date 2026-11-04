@@ -83,10 +83,10 @@ fn empty_searches_offer_a_broader_search() {
     let qualifiers = broadened(json!({"operation":"issue","owner":"o","repo":"r","filters":{"labels":{"include":["bug"]}}}))
     .expect("qualifiers dropped");
     assert!(qualifiers.get("filters").is_none(), "{qualifiers}");
-    let window = broadened(json!({"operation":"commit","owner":"o","repo":"r","pathPrefix":"src","filters":{"committedAt":{"from":"2026-09-24T00:00:00Z"}}}))
+    let window = broadened(json!({"operation":"commit","owner":"o","repo":"r","path":"src","filters":{"committedAt":{"from":"2026-09-24T00:00:00Z"}}}))
     .expect("window dropped");
     assert!(window.get("filters").is_none(), "{window}");
-    assert_eq!(window["pathPrefix"], "src", "{window}");
+    assert_eq!(window["path"], "src", "{window}");
     for operation in ["pullRequest", "issue"] {
         let window = broadened(json!({"operation":operation,"owner":"o","repo":"r",
             "filters":{"createdAt":{"include":[{"from":"2026-10-01T00:00:00Z","to":"2026-10-03T23:59:59Z"}]}}}))

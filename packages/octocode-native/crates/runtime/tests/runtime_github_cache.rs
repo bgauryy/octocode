@@ -7,12 +7,23 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 mod pinned_walks;
+mod session_repeats;
 
-/// A persistent runtime keeps no GitHub content across a restart: the next
-/// process reads the pinned file afresh, unconditionally (no ETag round
-/// trip), and answers the same evidence.
+/// Reads of file contents `server` received.
+async fn contents_reads(server: &MockServer) -> usize {
+    server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|request| request.url.path().contains("/contents/"))
+        .count()
+}
+
+/// A commit-pinned read cannot change: a restarted runtime answers it from
+/// what the last one saw, with nothing sent, and the same evidence.
 #[tokio::test]
-async fn a_restarted_persistent_runtime_reads_github_content_afresh() {
+async fn a_restarted_runtime_answers_a_pinned_file_with_nothing_sent() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/source.rs"))
@@ -24,7 +35,7 @@ async fn a_restarted_persistent_runtime_reads_github_content_afresh() {
                     "content":STANDARD.encode("source body\n")
                 })),
         )
-        .expect(2)
+        .expect(1)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -35,24 +46,169 @@ async fn a_restarted_persistent_runtime_reads_github_content_afresh() {
         .await
         .unwrap();
     assert_eq!(row_status(&outcome), "success");
+    let answered = row_data(&outcome).clone();
     first.close().await;
 
     let second = workspace.runtime(&settings);
     let outcome = call(&second, "ghGetFileContent", query).await.unwrap();
     assert_eq!(row_status(&outcome), "success");
-    assert_eq!(row_data(&outcome)["content"], "1\tsource body\n");
-    let requests = server.received_requests().await.unwrap();
-    let contents: Vec<_> = requests
-        .iter()
-        .filter(|request| request.url.path().contains("/contents/"))
-        .collect();
-    // Each process reads GitHub itself; neither read is conditional.
-    assert_eq!(contents.len(), 2);
-    assert!(
-        contents
-            .iter()
-            .all(|request| request.headers.get("if-none-match").is_none())
+    assert_eq!(row_data(&outcome), &answered);
+    assert_eq!(answered["content"], "1\tsource body\n");
+    second.close().await;
+    server.verify().await;
+}
+
+/// A mutable read is confirmed, not assumed: the restarted runtime asks with
+/// the validator it kept, and GitHub's 304 answers the whole row. A change
+/// reaches the next read.
+#[tokio::test]
+async fn a_restarted_runtime_confirms_a_mutable_read_and_sees_a_change() {
+    let server = MockServer::builder().start().await;
+    let version = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1));
+    let current = version.clone();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits"))
+        .respond_with(move |request: &Request| {
+            let version = current.load(std::sync::atomic::Ordering::SeqCst);
+            let etag = format!("\"v{version}\"");
+            if request
+                .headers
+                .get("if-none-match")
+                .is_some_and(|presented| presented == etag.as_str())
+            {
+                return ResponseTemplate::new(304).insert_header("etag", etag.as_str());
+            }
+            ResponseTemplate::new(200)
+                .insert_header("etag", etag.as_str())
+                .set_body_json(json!([{
+                    "sha": format!("{version}").repeat(40),
+                    "commit": {"message": format!("change {version}"),
+                        "author": {"name":"Ada","email":"a@x","date":"2024-01-01T00:00:00Z"}}
+                }]))
+        })
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let settings = [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))];
+    let query = json!({"operation":"commit", "owner":"a", "repo":"b", "limit":1});
+    let first = workspace.runtime(&settings);
+    let outcome = call(&first, "ghSearchHistory", query.clone())
+        .await
+        .unwrap();
+    let answered = row_data(&outcome).clone();
+    first.close().await;
+
+    let second = workspace.runtime(&settings);
+    let confirmed = call(&second, "ghSearchHistory", query.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        row_data(&confirmed),
+        &answered,
+        "a 304 answers the same row"
     );
+    second.close().await;
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].headers["if-none-match"], "\"v1\"");
+
+    version.store(2, std::sync::atomic::Ordering::SeqCst);
+    let third = workspace.runtime(&settings);
+    let changed = call(&third, "ghSearchHistory", query).await.unwrap();
+    assert!(
+        row_data(&changed).to_string().contains("change 2"),
+        "{}",
+        changed.structured_content
+    );
+    third.close().await;
+}
+
+/// GitHub search has no validator. A repeat spends no quota and says when its
+/// answer was observed: a row reused unasked is never presented as current.
+#[tokio::test]
+async fn a_repeated_search_spends_no_quota_and_discloses_when_it_was_observed() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/repositories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count": 1, "incomplete_results": false,
+            "items": [{"full_name": "a/ripgrep", "name": "ripgrep",
+                       "html_url": "https://github.com/a/ripgrep", "default_branch": "main",
+                       "created_at": null, "updated_at": null, "pushed_at": null,
+                       "language": "Rust", "homepage": null, "license": null}]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let settings = [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))];
+    let query = json!({"operation":"search","keywords": ["ripgrep"]});
+    let first = workspace.runtime(&settings);
+    let fresh = call(&first, "ghSearchRepo", query.clone()).await.unwrap();
+    assert!(
+        row_data(&fresh).get("hints").is_none(),
+        "{}",
+        fresh.structured_content
+    );
+    let observed_from = fresh.structured_content.clone();
+    first.close().await;
+
+    let second = workspace.runtime(&settings);
+    let reused = call(&second, "ghSearchRepo", query).await.unwrap();
+    assert_eq!(row_status(&reused), "success");
+    assert_eq!(
+        row_data(&reused)["repositories"],
+        row_data(&fresh)["repositories"],
+        "{observed_from}"
+    );
+    let hint = row_data(&reused)["hints"][0].as_str().unwrap_or_default();
+    assert!(hint.contains("observed"), "{}", reused.structured_content);
+    assert!(hint.contains("20"), "names the time: {hint}");
+    second.close().await;
+    server.verify().await;
+}
+
+/// A credential the gate would rewrite never reaches the persistent store.
+/// The answer still serves its own process; a restarted one reads again.
+#[tokio::test]
+async fn an_answer_holding_a_credential_never_reaches_disk() {
+    let secret = format!("token = \"ghp_{}\"\n", "a1B2c3D4e5F6".repeat(3));
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/secret.rs"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            secret.as_bytes(),
+            "application/vnd.github.raw; charset=utf-8",
+        ))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let settings = [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))];
+    let query = json!({"owner":"a", "repo":"b", "path":"secret.rs", "ref":"b".repeat(40)});
+    let first = workspace.runtime(&settings);
+    let outcome = call(&first, "ghGetFileContent", query.clone())
+        .await
+        .unwrap();
+    assert_eq!(row_status(&outcome), "success");
+    let again = call(&first, "ghGetFileContent", query.clone())
+        .await
+        .unwrap();
+    assert_eq!(row_data(&again)["content"], row_data(&outcome)["content"]);
+    assert_eq!(
+        contents_reads(&server).await,
+        1,
+        "the process that holds it answers from memory"
+    );
+    first.close().await;
+    assert!(
+        !pinned_walks::any_file_holds(&workspace.home, b"ghp_"),
+        "no file under the home holds the credential"
+    );
+
+    let second = workspace.runtime(&settings);
+    let outcome = call(&second, "ghGetFileContent", query).await.unwrap();
+    assert_eq!(row_status(&outcome), "success");
+    assert_eq!(contents_reads(&server).await, 2);
     second.close().await;
 }
 
@@ -132,160 +288,4 @@ async fn memory_storage_mode_does_not_persist_github_content_to_disk() {
         );
     }
     second.close().await;
-}
-
-/// An identical repository or history search repeated in one session asks
-/// GitHub every time and answers the same evidence; pacing follows the
-/// reported quota, so the repeats wait for no fixed search spacing.
-#[tokio::test]
-async fn repeated_repository_and_history_searches_reach_github_each_time() {
-    let server = MockServer::builder().start().await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/search/repositories"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 1, "incomplete_results": false,
-            "items": [{"full_name": "a/ripgrep", "name": "ripgrep",
-                       "html_url": "https://github.com/a/ripgrep", "default_branch": "main",
-                       "created_at": null, "updated_at": null, "pushed_at": null,
-                       "language": "Rust", "homepage": null, "license": null}]
-        })))
-        .expect(4)
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/search/issues"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 1, "incomplete_results": false,
-            "items": [{"number": 700, "title": "Merged change", "state": "closed",
-                       "user": {"login": "alice"}, "labels": [],
-                       "pull_request": {"merged_at": "2026-01-01T00:00:00Z"}}]
-        })))
-        .expect(4)
-        .mount(&server)
-        .await;
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let repo = json!({"operation":"search","keywords": ["ripgrep"]});
-    let history =
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "filters":{"isMerged":true}});
-    let mut first = Vec::new();
-    for (tool, query) in [("ghSearchRepo", &repo), ("ghSearchHistory", &history)] {
-        let outcome = call(&runtime, tool, query.clone()).await.unwrap();
-        assert_eq!(
-            row_status(&outcome),
-            "success",
-            "{}",
-            outcome.structured_content
-        );
-        first.push(row_data(&outcome).clone());
-    }
-    let started = std::time::Instant::now();
-    for _ in 0..3 {
-        for (index, (tool, query)) in [("ghSearchRepo", &repo), ("ghSearchHistory", &history)]
-            .into_iter()
-            .enumerate()
-        {
-            let outcome = call(&runtime, tool, query.clone()).await.unwrap();
-            assert_eq!(row_data(&outcome), &first[index], "{tool} repeat");
-        }
-    }
-    let elapsed = started.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(1),
-        "six repeats took {elapsed:?}"
-    );
-    server.verify().await;
-    runtime.close().await;
-}
-
-/// A branch resolves once per call: a file read and a later commit read of
-/// several file batches on the same branch each resolve it afresh (no
-/// session memo), and every batch of the commit read reads the one SHA its
-/// call pinned.
-#[tokio::test]
-async fn each_call_resolves_its_branch_once_and_batches_read_the_pinned_sha() {
-    const SHA: &str = "2222222222222222222222222222222222222222";
-    let server = MockServer::builder().start().await;
-    let base_url = server.uri();
-    Mock::given(method("GET"))
-        .and(wiremock::matchers::path_regex("^/api/v3/repos/a/b/commits/"))
-        .respond_with(move |request: &Request| {
-            if request
-                .headers
-                .get("accept")
-                .is_some_and(|accept| accept == "application/vnd.github.sha")
-            {
-                return ResponseTemplate::new(200).set_body_string(SHA);
-            }
-            let first = request.url.query_pairs().all(|(key, value)| key != "page" || value == "1");
-            let file = |name: String| {
-                json!({"filename":name,"status":"modified","additions":1,"deletions":1,
-                    "patch":"@@ -1 +1 @@\n-old\n+new"})
-            };
-            let files: Vec<_> = if first {
-                (0..100).map(|i| file(format!("f-{i:03}.rs"))).collect()
-            } else {
-                vec![file("last.rs".to_owned())]
-            };
-            let mut response = ResponseTemplate::new(200).set_body_json(json!({
-                "sha": SHA, "files": files,
-                "commit": {"message": "change",
-                    "author": {"name":"Ada","email":"a@x","date":"2024-01-01T00:00:00Z"}}
-            }));
-            if first {
-                response = response.insert_header(
-                    "Link",
-                    format!("<{base_url}/api/v3/repos/a/b/commits/{SHA}?page=2&per_page=100>; rel=\"next\""),
-                );
-            }
-            response
-        })
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/contents/source.rs"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "type":"file", "encoding":"base64", "content":STANDARD.encode("source body\n")
-        })))
-        .mount(&server)
-        .await;
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let file = json!({"owner":"a", "repo":"b", "path":"source.rs", "ref":"main"});
-    let outcome = call(&runtime, "ghGetFileContent", file).await.unwrap();
-    assert_eq!(
-        row_status(&outcome),
-        "success",
-        "{}",
-        outcome.structured_content
-    );
-    let commit = json!({"operation":"commit", "owner":"a", "repo":"b", "ref":"main",
-        "sections":["files"], "include":["last.rs"]});
-    let outcome = call(&runtime, "ghGetHistoryItem", commit).await.unwrap();
-    assert_eq!(
-        row_status(&outcome),
-        "success",
-        "{}",
-        outcome.structured_content
-    );
-    assert_eq!(row_data(&outcome)["commitSha"], SHA);
-    let requests = server.received_requests().await.unwrap();
-    let resolutions = requests
-        .iter()
-        .filter(|request| request.url.path() == "/api/v3/repos/a/b/commits/main")
-        .count();
-    assert_eq!(resolutions, 2, "one branch resolution per call");
-    let batches = requests
-        .iter()
-        .filter(|request| request.url.path().contains("/commits/"))
-        .filter(|request| request.url.path() != "/api/v3/repos/a/b/commits/main")
-        .collect::<Vec<_>>();
-    assert!(batches.len() > 1, "a multi-batch read");
-    assert!(
-        batches
-            .iter()
-            .all(|request| request.url.path().ends_with(SHA)),
-        "the commit batches read the pinned SHA"
-    );
-    runtime.close().await;
 }

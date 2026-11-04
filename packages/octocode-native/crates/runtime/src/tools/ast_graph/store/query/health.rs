@@ -72,11 +72,8 @@ pub(super) fn reingest_call(manifest: &Value) -> Option<Value> {
             },
         );
     let mut row = Map::from_iter([("path".to_owned(), json!(path))]);
-    if let Some(exclude) = scan["excludeDir"]
-        .as_array()
-        .filter(|dirs| !dirs.is_empty())
-    {
-        row.insert("excludeDirs".into(), json!(exclude));
+    if let Some(exclude) = scan["exclude"].as_array().filter(|globs| !globs.is_empty()) {
+        row.insert("exclude".into(), json!(exclude));
     }
     if let Some(globs) = scan["languageGlobs"]
         .as_object()

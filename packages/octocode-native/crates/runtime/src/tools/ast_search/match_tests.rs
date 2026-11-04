@@ -5,7 +5,9 @@ use crate::tools::test_support::Fixture;
 use octocode_contract_types::ErrorCode;
 use serde_json::json;
 
+mod absence;
 mod grammars;
+mod key_blocks;
 mod pages;
 mod rows;
 mod values;

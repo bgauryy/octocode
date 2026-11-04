@@ -37,7 +37,7 @@ async function repositoryResearch(ctx) {
     checks.push([`workflow.github.repository.pinned.${surface}`, ref === ctx.mock.model.head.oid, String(ref)]);
     if (!ref || files.length !== 1) continue;
     const selected = files[0].path;
-    const search = await walk('ghSearchCode', { queries: [{ ...scope, ref, keywords: ['greeter-1'], pathPrefix: path.posix.dirname(selected) }], responseChars: 300 }, 'search');
+    const search = await walk('ghSearchCode', { queries: [{ ...scope, ref, keywords: ['greeter-1'], path: path.posix.dirname(selected) }], responseChars: 300 }, 'search');
     equal(checks, `workflow.github.repository.hits.${surface}`, rows(search, 'ghSearchCode').flatMap(data => data.files ?? []).map(file => file.path), [selected]);
     const read = calls(ctx, search, 'ghGetFileContent').find(call => call.input.queries?.some(query => query.path === selected));
     checks.push([`workflow.github.repository.emittedRead.${surface}`, !!read, JSON.stringify(read)]);

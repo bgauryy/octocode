@@ -104,3 +104,40 @@ fn a_git_tracked_build_dir_is_scanned_as_every_tool_walks_it() {
         assert_eq!(own_walk(&root.0), expected, "git work tree: {git}");
     }
 }
+
+/// What the one prune leaves out is a named gap, one diagnostic per
+/// directory, and a directory only this graph used to skip is scanned.
+#[test]
+fn a_default_pruned_directory_is_disclosed_and_obj_is_scanned() {
+    let root = crate::tools::test_support::Fixture::new();
+    root.write("src/app.ts", "export const app = 1;\n");
+    root.write("obj/gen.ts", "export const gen = 1;\n");
+    root.write("src/node_modules/dep/index.ts", "export const dep = 1;\n");
+    root.write("dist/out.ts", "export const out = 1;\n");
+    let built = fixture_graph(&root.0, &[]);
+    assert_eq!(
+        built.facts.keys().cloned().collect::<BTreeSet<_>>(),
+        BTreeSet::from(["obj/gen.ts".to_owned(), "src/app.ts".to_owned()]),
+    );
+    let disclosed = built
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.as_str() == "default-excluded")
+        .map(|diagnostic| diagnostic.file.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        disclosed,
+        ["dist", "src/node_modules"],
+        "{:?}",
+        built.diagnostics
+    );
+    // A caller's own exclusion is no default prune.
+    let narrowed = fixture_graph(&root.0, &["obj"]);
+    assert!(!narrowed.facts.contains_key("obj/gen.ts"));
+    assert!(
+        !narrowed
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.file == "obj")
+    );
+}

@@ -44,13 +44,11 @@ impl LspLanguageServerConfig {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ServerSource {
-    /// A user `lsp-servers.json` entry (the octocode home's, or the file
-    /// `lsp.configPath` names).
+    /// A user `lsp-servers.json` entry in the octocode home.
     User,
     /// A trusted project's `.octocode/lsp-servers.json` entry.
     Project,
-    /// An octocode-managed install (`OCTOCODE_LSP_CACHE_DIR`, else
-    /// `<octocode home>/lsp`).
+    /// An octocode-managed install under `<octocode home>/lsp`.
     Managed,
     /// octocode's own install tree (the bundled tsgo, or its
     /// `typescript-language-server`).

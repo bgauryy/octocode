@@ -74,10 +74,23 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
         };
         return render(q, page, facts, source_path, security, cancel);
     }
-    let mut source = match prepare_source(q, bytes, sha256, facts, source_path, security, cancel) {
-        Ok(source) => source,
-        Err(result) => return *result,
+    // A range or match read of bytes already scanned at this path reuses that
+    // scan; a cancelled row still ends in `prepare_source`.
+    let scan =
+        super::retained::ScannedSource::of::<S>(q, &sha256, (source_path, provider_path), facts);
+    let scanned = scan.as_ref().and_then(|scan| scan.get(q));
+    let mut source = match scanned.as_deref() {
+        Some(scanned) if cancel.check().is_ok() => scanned.shared(),
+        _ => match prepare_source(q, bytes, sha256, facts, source_path, security, cancel) {
+            Ok(source) => source,
+            Err(result) => return *result,
+        },
     };
+    if scanned.is_none()
+        && let Some(scan) = scan
+    {
+        scan.keep(&source);
+    }
     // A whole-text read moves the source into its view instead of copying
     // it: nothing after the extraction reads the source text of such a read.
     let extracted = if super::extraction::selects_whole(q) {
@@ -86,10 +99,9 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
         ))
     } else {
         // A pattern or range read reuses the offsets its preparation built.
-        let offsets = source
-            .offsets
-            .take()
-            .unwrap_or_else(|| super::extraction::LineOffsets::new(&source.text));
+        let offsets = source.offsets.take().unwrap_or_else(|| {
+            std::sync::Arc::new(super::extraction::LineOffsets::new(&source.text))
+        });
         super::extraction::extract_indexed(q, &source.text, &offsets)
     };
     let mut ext = match extracted {

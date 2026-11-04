@@ -134,7 +134,6 @@ fn history_search_422_names_the_query() {
         kind: ProviderErrorKind::Validation,
         message: "Validation Failed".into(),
         status: Some(422),
-        request_id: None,
         rate_limit: None,
         retryable: false,
         reason: None,

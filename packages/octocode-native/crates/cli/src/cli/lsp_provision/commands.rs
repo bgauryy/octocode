@@ -6,13 +6,12 @@ use octocode_engine::lsp::config::{
 use octocode_engine::lsp::managed::{manifest, platform_id, resolve_cached_server};
 use octocode_native::config::LspAutoInstall;
 use octocode_native::runtime::ToolRuntime;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// The runtime's resolved language-server discovery settings, so status and
 /// installs see what `lspSearch` sees.
 pub(super) fn discovery(runtime: &ToolRuntime) -> LspDiscoveryOptions {
-    let execution = runtime.lsp_execution_config();
-    execution.discovery(execution.config_path.as_deref().map(PathBuf::from))
+    runtime.lsp_execution_config().discovery()
 }
 
 /// Resolve how `file_path`'s language server would launch, through the same

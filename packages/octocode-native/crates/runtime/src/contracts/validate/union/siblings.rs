@@ -31,7 +31,7 @@ pub(super) fn annotate_sibling_branch_fields(
         };
         let declaring = branches
             .iter()
-            .map(|branch| branch_object(root, branch))
+            .flat_map(|branch| super::branches::alternatives(root, branch))
             .filter(|branch| {
                 branch
                     .get("properties")

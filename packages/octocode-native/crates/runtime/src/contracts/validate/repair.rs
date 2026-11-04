@@ -47,17 +47,13 @@ pub(super) fn array(received: &Value, fits: bool, item_shape: Option<&str>) -> S
     }
 }
 
-/// The repaired `queries` value: an object is one row, a string may hold
-/// the array.
+/// The repaired `queries` value. A string holding the array and a lone
+/// object are repaired before validation (`normalize::shaped`).
 pub(crate) fn queries(received: &Value) -> String {
-    if holds_json(received, Value::is_array) {
-        return SEND_ITSELF.to_owned();
-    }
-    let value = shown(received);
-    match received {
-        Value::Object(_) => "send \"queries\":[{…}], not \"queries\":{…}".to_owned(),
-        _ => format!("send \"queries\":[{{…}}], not \"queries\":{value}"),
-    }
+    format!(
+        "send \"queries\":[{{…}}], not \"queries\":{}",
+        shown(received)
+    )
 }
 
 /// For a string field: one value per query row, or the scalar quoted.
@@ -121,8 +117,20 @@ fn required_properties(
     (!fields.is_empty()).then_some(fields)
 }
 
+/// A filter selection: `{include, exclude}` and nothing else. A row may declare
+/// an `include` of its own without being one.
+fn takes_selection(schema: &Value) -> bool {
+    schema["properties"].as_object().is_some_and(|fields| {
+        fields.contains_key("include")
+            && fields
+                .keys()
+                .all(|field| field == "include" || field == "exclude")
+    })
+}
+
 /// The value `received` means where `schema` takes another type, when it has
-/// one reading: a JSON string's own value, one item as a list, a scalar as
+/// one reading: a JSON string's own value, one item as a list, a selection's
+/// values as its `include`, a scalar as
 /// every required property of an object, a scalar's text, a one-item list's
 /// item. Validation of the result decides whether it fits.
 pub(crate) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> Option<Value> {
@@ -138,8 +146,13 @@ pub(crate) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> 
             if holds_json(received, Value::is_object) {
                 return serde_json::from_str(received.as_str()?).ok();
             }
-            if schema["properties"]["include"].is_object() && !received.is_object() {
-                return Some(serde_json::json!({"include": [received]}));
+            if takes_selection(schema) && !received.is_object() {
+                let values = if received.is_array() {
+                    received.clone()
+                } else {
+                    Value::Array(vec![received.clone()])
+                };
+                return Some(serde_json::json!({"include": values}));
             }
             required_properties(schema, defs, received).map(Value::Object)
         }

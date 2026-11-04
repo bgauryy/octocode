@@ -8,14 +8,16 @@ const argv = process.argv.slice(2);
 const { getArg, hasFlag, getLowerArg } = flagArgs(argv);
 
 if (!argv.length || hasFlag('--help') || hasFlag('-h')) {
-  console.error(
-    `Usage: node har-pager.mjs <file.har> [--page 1] [--page-size 25] [--filter all|failures|slow|domain:<host>] [--kind <type>] [--status <code>] [--url-regex <re>] [--min-ms 1000] [--format text|json]\n\nReads a HAR 1.2 file and prints one compact page for agent review.`
+  const help = hasFlag('--help') || hasFlag('-h');
+  (help ? console.log : console.error)(
+    `Usage: node har-pager.mjs <file.har> | --file <file.har> [--page 1] [--page-size 25] [--filter all|failures|slow|domain:<host>] [--kind <type>] [--status <code>] [--url-regex <re>] [--min-ms 1000] [--format text|json]\n\nReads a HAR 1.2 file and prints one compact page for agent review.`
   );
   process.exit(hasFlag('--help') || hasFlag('-h') ? 0 : 1);
 }
-const [harArg] = validateFlags(
+const [positionalHar] = validateFlags(
   argv,
   [
+    '--file',
     '--page',
     '--page-size',
     '--filter',
@@ -28,6 +30,10 @@ const [harArg] = validateFlags(
   ['--help', '-h'],
   1
 );
+const fileFlag = getArg('--file');
+if (positionalHar && fileFlag)
+  throw new Error('Pass the HAR file once: positional path or --file');
+const harArg = positionalHar ?? fileFlag;
 if (!harArg) throw new Error('A HAR file is required');
 
 const page = Math.max(1, Number.parseInt(getArg('--page', '1'), 10));

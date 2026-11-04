@@ -212,7 +212,7 @@ pub(super) fn assess_and_save(
             context,
         ));
     }
-    Ok(Outcome { output, usage })
+    Ok(Outcome { output })
 }
 
 /// The units this batch assesses, as `[resource, unit]`, in plan order

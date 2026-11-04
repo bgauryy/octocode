@@ -1,10 +1,14 @@
 //! One listing walk's rows and what the walk saw beside them.
-use super::cut::{Cut, TimeWindow};
+use super::cut::{Cut, TimeWindow, page_ranges};
 use super::memo;
 use super::probe::Uncovered;
-use super::rows::{EntryKind, Row};
+use super::rows::{self, EntryKind, Row};
 use super::walk_policy::WalkLeft;
+use octocode_contract_types::StructureSearchView;
 use serde_json::{Value, json};
+use std::borrow::Cow;
+use std::mem::size_of;
+use std::ops::Range;
 
 /// One listing walk: its rows in listing order (cut to `limit`) and
 /// what the walk saw beside them.
@@ -15,6 +19,22 @@ pub(super) struct Walked {
     /// stored walk's continuation pages reuse it instead of hashing every
     /// row again.
     pub(super) rows_digest: std::sync::OnceLock<String>,
+    /// The page cut its first page made, with what it was cut for.
+    page_cut: std::sync::OnceLock<(PageCut, Vec<Range<usize>>)>,
+}
+
+/// Everything beside its rows that a walk's page cut depends on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct PageCut {
+    /// The listed path as group headers spell it.
+    pub(super) prefix: String,
+    pub(super) view: StructureSearchView,
+    /// Each file's entry reserves the detail fields a page adds.
+    pub(super) deferred_detail: bool,
+    /// Serialized chars a page holds.
+    pub(super) budget: usize,
+    /// Rows a page holds, when capped.
+    pub(super) limit: Option<usize>,
 }
 
 /// What a listing walk saw beside its rows.
@@ -34,45 +54,125 @@ pub(super) struct WalkMeta {
     /// before directories with their own group fold into its header.
     pub(super) files: usize,
     pub(super) dirs: usize,
-    pub(super) bytes: u64,
+    /// `None` when the walk read no sizes (a view that shows only names).
+    pub(super) bytes: Option<u64>,
     pub(super) uncovered: Uncovered,
+    /// The directories the walk entered, which its stored rows depend on.
+    pub(super) walked_dirs: Vec<octocode_engine::types::WalkedDir>,
+    /// The walk read no row's metadata, so no row has a stamp to watch.
+    pub(super) names_only: bool,
     /// Entries a `testCode` scope left out of the window (`None` unscoped).
     pub(super) test_code_excluded: Option<octocode_engine::types::TestCodeExcluded>,
 }
 
-impl memo::Listed for Walked {
-    fn sources(&self) -> Vec<memo::Seen<'_>> {
-        self.rows.iter().map(Row::seen).collect()
+impl Walked {
+    /// What keeps this walk current. A row with no stamp in a walk that read
+    /// metadata cannot be watched.
+    pub(super) fn proof(
+        &self,
+        root: &std::path::Path,
+        paths: &crate::policy::path::PathPolicy,
+    ) -> Option<octocode_engine::stamp::Proof> {
+        let listed = if self.meta.names_only {
+            Vec::new()
+        } else {
+            self.rows
+                .iter()
+                .map(|row| Some((row.source.clone(), row.stamp?)))
+                .collect::<Option<Vec<_>>>()?
+        };
+        memo::walk_proof(root, paths, &self.meta.walked_dirs, listed)
+    }
+
+    /// The row ranges of each page under `cut`. The cut of a walk's first
+    /// page is kept for its later pages; any other is computed and not kept.
+    pub(super) fn pages(&self, cut: PageCut) -> Cow<'_, [Range<usize>]> {
+        let compute = |cut: &PageCut| {
+            #[cfg(test)]
+            COST_PASSES.with(|passes| passes.set(passes.get() + 1));
+            page_ranges(
+                &rows::costs(&self.rows, &cut.prefix, cut.view, cut.deferred_detail),
+                cut.budget,
+                cut.limit,
+            )
+        };
+        let (kept, pages) = self.page_cut.get_or_init(|| {
+            let pages = compute(&cut);
+            (cut.clone(), pages)
+        });
+        if *kept == cut {
+            Cow::Borrowed(pages)
+        } else {
+            Cow::Owned(compute(&cut))
+        }
+    }
+
+    /// The heap this walk holds: the capacity of its row table and of every
+    /// string in it, and what it keeps beside the rows.
+    pub(super) fn weight(&self) -> usize {
+        let meta = &self.meta;
+        let row = |row: &Row| {
+            row.dir.capacity()
+                + row.entry.capacity()
+                + row.display_name.capacity()
+                + row.path.capacity()
+                + row.name.capacity()
+                + row.source.capacity()
+        };
+        let dir = |dir: &octocode_engine::types::WalkedDir| {
+            dir.path.capacity()
+                + dir.ignore_files.capacity() * size_of::<(std::path::PathBuf, bool)>()
+                + dir
+                    .ignore_files
+                    .iter()
+                    .map(|(file, _)| file.capacity())
+                    .sum::<usize>()
+        };
+        let names = |names: &Vec<String>| {
+            names.capacity() * size_of::<String>()
+                + names.iter().map(String::capacity).sum::<usize>()
+        };
+        let cut = self.page_cut.get().map_or(0, |(cut, pages)| {
+            cut.prefix.capacity() + pages.capacity() * size_of::<Range<usize>>()
+        });
+        size_of::<Self>()
+            + self.rows.capacity() * size_of::<Row>()
+            + self.rows.iter().map(row).sum::<usize>()
+            + meta.walked_dirs.capacity() * size_of::<octocode_engine::types::WalkedDir>()
+            + meta.walked_dirs.iter().map(dir).sum::<usize>()
+            + names(&meta.uncovered.ignored)
+            + names(&meta.uncovered.hidden)
+            + names(&meta.uncovered.pruned)
+            + meta.time_cut.as_ref().map_or(0, String::capacity)
+            + self.rows_digest.get().map_or(0, String::capacity)
+            + cut
     }
 }
 
 impl Walked {
-    /// The walk's `rows` (listing order) past the `scan_offset` rows earlier
-    /// windows listed (listing order is stable, so those are the ones they
-    /// showed), cut to this window's `requested`, with what the walk left
-    /// out.
+    /// This window's `rows` of the `available` the walk ranked (listing order
+    /// is stable, so the `scan_offset` before them are the ones earlier
+    /// windows showed), with what the walk left out.
     pub(super) fn finish(
         native: octocode_engine::types::FileSystemQueryResult,
-        mut rows: Vec<Row>,
-        requested: usize,
+        rows: Vec<Row>,
+        available: usize,
         scan_offset: usize,
         left: WalkLeft<'_>,
         security: &crate::security::ContentSecurity,
+        names_only: bool,
     ) -> Self {
-        let available = rows.len();
-        rows.truncate(scan_offset.saturating_add(requested));
-        let offset = scan_offset.min(rows.len());
-        rows.drain(..offset);
+        let offset = scan_offset.min(available);
         // A non-directory row is a file; bytes are regular files' (a
         // symlink's own length is no content).
-        let (mut files, mut dirs, mut bytes) = (0, 0, 0);
+        let (mut files, mut dirs, mut bytes) = (0, 0, 0_u64);
         for row in &rows {
             match row.kind {
                 EntryKind::Directory => dirs += 1,
                 EntryKind::Symlink => files += 1,
                 EntryKind::File => {
                     files += 1;
-                    bytes += row.seen.0;
+                    bytes += u64::try_from(row.size).unwrap_or(0);
                 }
             }
         }
@@ -91,7 +191,9 @@ impl Walked {
             walk_position: native.walk_position as usize,
             files,
             dirs,
-            bytes,
+            bytes: (!names_only).then_some(bytes),
+            walked_dirs: native.walked_dirs,
+            names_only,
             uncovered: left.into_uncovered(
                 native.ignored,
                 native.walk_position,
@@ -103,6 +205,7 @@ impl Walked {
             rows,
             meta,
             rows_digest: std::sync::OnceLock::new(),
+            page_cut: std::sync::OnceLock::new(),
         }
     }
 
@@ -149,6 +252,17 @@ impl Walked {
             snapshot,
         }
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static COST_PASSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Times this thread priced a walk's rows.
+#[cfg(test)]
+pub(super) fn cost_passes() -> usize {
+    COST_PASSES.with(std::cell::Cell::get)
 }
 
 /// Set a page's warnings: `cut`'s own (`warnings`). The query's notes

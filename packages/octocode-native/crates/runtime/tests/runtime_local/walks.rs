@@ -232,6 +232,88 @@ async fn local_walks_share_one_default_prune_and_exclude_adds() {
     runtime.close().await;
 }
 
+/// `graphBuild` reads what `localSearch` and `astSearch` read: the one default
+/// prune and no list of its own, so `obj/` is in all three. What the prune
+/// leaves out is a disclosed gap, not a silent one.
+#[tokio::test]
+async fn graph_build_reads_what_the_other_walks_read_and_discloses_the_prune() {
+    let workspace = Workspace::new();
+    let source = "pub fn needle() {}\n";
+    for file in ["obj/a.rs", "src/b.rs", "node_modules/dep/c.rs"] {
+        workspace.write(file, source);
+    }
+    let runtime = workspace.runtime(&[]);
+    let root = workspace.workspace.clone();
+    let rendered = |outcome: &octocode_native::response::outcome::ToolOutcome| {
+        serde_json::to_string(&row_data(outcome)["files"]).expect("json")
+    };
+    let searched = call(
+        &runtime,
+        "localSearch",
+        json!({"path":root,"matchString":["needle"]}),
+    )
+    .await
+    .expect("localSearch");
+    let matched = call(
+        &runtime,
+        "astSearch",
+        json!({"operation":"match","path":root,"parser":"rust","rule":{"pattern":"pub fn needle() {}"}}),
+    )
+    .await
+    .expect("astSearch");
+    for files in [rendered(&searched), rendered(&matched)] {
+        assert!(files.contains("a.rs") && files.contains("b.rs"), "{files}");
+        assert!(!files.contains("c.rs"), "{files}");
+    }
+
+    let built = call(&runtime, "graphBuild", json!({"path":root}))
+        .await
+        .expect("graphBuild");
+    let receipt = row_data(&built);
+    assert_eq!(receipt["scan"]["filesScanned"], 2, "{receipt}");
+    assert_eq!(receipt["diagnostics"]["default-excluded"], 1, "{receipt}");
+
+    let nodes = call(
+        &runtime,
+        "graphQuery",
+        json!({"operation":"find","path":root,"target":"obj/a.rs"}),
+    )
+    .await
+    .expect("graphQuery find");
+    assert!(
+        serde_json::to_string(row_data(&nodes))
+            .expect("json")
+            .contains("obj/a.rs"),
+        "{:?}",
+        nodes.structured_content
+    );
+    let gaps = call(
+        &runtime,
+        "graphQuery",
+        json!({"operation":"diagnostics","path":root,"target":"default-excluded"}),
+    )
+    .await
+    .expect("graphQuery diagnostics");
+    let gaps = serde_json::to_string(row_data(&gaps)).expect("json");
+    assert!(gaps.contains("node_modules"), "{gaps}");
+
+    // The freshness scan walks what the build walked: nothing reads as added.
+    let stale = call(
+        &runtime,
+        "graphQuery",
+        json!({"operation":"stale","path":root}),
+    )
+    .await
+    .expect("graphQuery stale");
+    assert_eq!(
+        row_data(&stale)["fresh"],
+        true,
+        "{:?}",
+        stale.structured_content
+    );
+    runtime.close().await;
+}
+
 #[tokio::test]
 async fn default_excludes_false_walks_dependency_directories() {
     let workspace = Workspace::new();

@@ -69,19 +69,6 @@ fn read_graph_file(path: &Path) -> Result<Vec<u8>, String> {
 pub(crate) const MANIFEST_FILE: &str = "manifest.json";
 const LATEST_FILE: &str = "latest";
 const MANIFEST_KIND: &str = "octocode.graph";
-/// Environment and tool-output directories the ingest prunes on top of the
-/// shared syntax-visible policy and `.gitignore` (hidden directories are never
-/// scanned).
-const INGEST_EXCLUDES: &[&str] = &[
-    "venv",
-    "site-packages",
-    "Pods",
-    "storybook-static",
-    "bower_components",
-    "jspm_packages",
-    "obj",
-];
-
 /// A command result: the JSON printed to stdout and how the command ended.
 #[derive(Debug)]
 pub struct GraphOutput {
@@ -170,7 +157,7 @@ pub struct IngestOptions {
     /// Workspace that owns `.octocode/graph`. The runtime fills it when
     /// unset ([`default_workspace`] of its working directory).
     pub workspace: Option<PathBuf>,
-    pub exclude_dir: Vec<String>,
+    pub exclude: Vec<String>,
     /// Snapshots of the same root to retain, newest first.
     pub keep: usize,
     /// Rebuild even when the latest snapshot of this scope is current.
@@ -187,7 +174,7 @@ impl IngestOptions {
             memory_only: false,
             path,
             workspace: None,
-            exclude_dir: query.exclude_dirs.iter().map(ToString::to_string).collect(),
+            exclude: query.exclude.iter().map(ToString::to_string).collect(),
             keep: octocode_engine::num::saturating_usize(query.keep.get()),
             refresh: query.refresh,
             language_globs: query

@@ -271,6 +271,8 @@ const REPO_ROUTES = [
   [/^contents(?:\/(.*))?$/, contentsRoute],
   [/^git\/trees\/(.+)$/, treeRoute],
   [/^git\/matching-refs\/tags$/, matchingTags],
+  // The fixture repository has no release tag at a package's version.
+  [/^git\/ref\/tags\/.+$/, r => { r.send(404, { message: 'Not Found' }); return true; }],
   [/^(branches|tags)$/, refsRoute],
   [/^pulls$/, pullsRoute],
   [/^(pulls|issues)\/(\d+)(?:\/(\w+))?$/, itemRoute],

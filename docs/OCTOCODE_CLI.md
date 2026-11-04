@@ -32,8 +32,8 @@ octocode cache clear --json
 ```
 
 The command drains and stops warm CLI servers, then removes saved pages,
-continuations, section assessments, materialized files and URL captures under
-the configured home. It also removes retired GitHub, registry, outline and
+continuations, section assessments, provider answers, materialized files and URL
+captures under the configured home. It also removes retired GitHub, registry, outline and
 judgment result-cache directories. It also removes
 the current workspace's `.octocode/graph/.facts` extraction checkpoints. Repeat
 from each workspace whose graph checkpoints you want removed. The JSON receipt
@@ -107,7 +107,7 @@ A batch reports its most severe outcome; inspect every row. Exit zero does not p
 octocode ghCloneRepo '{"queries":[{"owner":"bgauryy","repo":"octocode"}]}'
 ```
 
-Use the returned path with local tools. Clone storage requires persistent mode; configuration owns [cache storage](CONFIGURATION.md#cache-storage-and-lifecycle).
+Use the returned path with local tools. Clone storage requires persistent mode; configuration owns [cache storage](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle).
 
 ## Code graph: `graphBuild` and `graphQuery`
 
@@ -186,27 +186,48 @@ GitHub Enterprise: [authentication](AUTHENTICATION.md).
 ## `config` — settings and keys
 
 ```bash
-octocode config --json                                # paths, key names, warnings
-octocode config home                                  # Octocode home directory
-octocode config get OCTOCODE_BETA                     # resolved value; exit 1 when unset
+octocode config list                                  # every setting: value, source, default
+octocode config list --json                           # the same, plus its variable and workspace policy
+octocode config get lsp.prewarm                       # the value that applies, wherever it comes from
+octocode config check OCTOCODE_CLASSIFICATION_API     # exit 0 set, 1 unset; never prints the value
 octocode config set OCTOCODE_BETA true                # or a setting path: config set local.beta true
 octocode config set OCTOCODE_CLASSIFICATION_API --stdin
-octocode config check OCTOCODE_CLASSIFICATION_API     # exit 0 set, 1 unset; never prints the value
 octocode config unset OCTOCODE_BETA
-octocode config view                                  # local settings page
+octocode config --json                                # paths, key names, warnings
+octocode config home                                  # Octocode home directory
+octocode config                                       # on a terminal: open the settings page
+octocode config view                                  # the same page, with --no-open and --idle-timeout
 ```
 
-- `set`, `unset` and `check` take an environment key or its setting path
-  (`classification.api`); `set` and `unset` edit the global `.env` only. They
-  keep unrelated lines, lock and replace the file atomically, and never print
-  values. Internal limits such as timeouts, retries and
-  page sizes are not settings.
-- `get` masks secrets as `[REDACTED-<KEY>]` and names where the value lives.
-  `check --json` on an unset GitHub token key adds `githubTokenSource`, the
-  credential GitHub calls use instead.
-- Process variables and a workspace `.octocode/.env` still override a global
-  value. Precedence, home-only keys, and every setting:
-  [configuration](CONFIGURATION.md).
+- `octocode config` opens the settings page on an interactive terminal with a display. Piped output, `--json`, SSH and display-less sessions print paths, key names and warnings instead, so scripts and agents see no change.
+- Every command takes an environment key or its setting path (`classification.api`).
+- `get` reports the value that applies from the environment, either `.env`, either `.octocoderc` or the default, and `--json` adds `setting`, `source`, `path` and `default`. It exits 1 only when nothing sets the key and its default has no literal value; stderr then names the default. It masks secrets as `[REDACTED-<KEY>]` and names where the value lives.
+- `check` exits 0 when any layer sets the key, 1 when the default applies. `check --json` on an unset GitHub token key adds `githubTokenSource`, the credential GitHub calls use instead.
+- `set` and `unset` edit the global `.env` only. They keep unrelated lines, lock and replace the file atomically, refuse a value the setting would reject, and never print values. A process variable or a workspace `.octocode/.env` still overrides what they write.
+- Where each value can live and what wins: [configuration](CONFIGURATION.md).
+
+### `config view`
+
+One local page with every key, setting, environment variable and agent entry, and a search box. **Save to** picks Home (`~/.octocode`, every project) or Workspace (`<project>/.octocode`, the directory where you ran the command). Keys go to `.env`, settings to `.octocoderc`; each save writes immediately. Save appears on a row once you change it, and **Reset** or **Remove** takes the value back out of that scope. Home-only values are locked in Workspace, and variables only the process may set are shown, not edited. A key shows as set and its value is never shown again.
+
+```bash
+octocode config view                    # private window, ends when you close it
+octocode config view --no-open          # print the link instead
+octocode config view --idle-timeout 300 # a printed link closes after this many idle seconds (default 900)
+```
+
+**The window:** Chrome, Edge, Brave or Chromium in full-screen kiosk mode on a throwaway profile, closed and deleted when the session ends. Extensions, sync and saved passwords are off, and it cannot resolve any host but this computer. The one-use link reaches the browser through a private file, not its command line. With no such browser it opens your default browser and warns that extensions there can read what you type.
+
+**The server:** `127.0.0.1` on a temporary port, with a one-use credential exchanged for a session token. It takes small JSON from its own page only: no `Access-Control-Allow-*` header, other origins and rebinding hosts refused, no file or form uploads, and a strict `Content-Security-Policy` with cross-origin isolation headers. Every asset is bundled; nothing loads from elsewhere.
+
+| Save error | Fix |
+|---|---|
+| *Configuration changed* / *Agent config changed* | Another process edited the file; the page reloaded it. Review and save again. |
+| *Invalid value for …* | Wrong type, or a URL with credentials, a query or a fragment. |
+| *may only be configured in home scope* / *cannot be loaded from this .env scope* | Select **Home**, or set the variable in the launching environment. |
+| *Values must be a single line* | Remove line breaks. |
+
+Keys in `.env` and the credential setting `classification.api` are not encrypted; on Unix, new config files are owner-only. Octocode's own files are replaced without backup, so a removed secret leaves no copy. An agent client file keeps one rolling hidden backup beside it (`~/.cursor/.mcp.json.bak`), and `octocode install --rollback <backup>` restores it. Agent discovery checks supported client paths and the current workspace and reports configuration status, not a live connection; unsupported or malformed files are read only.
 
 ---
 

@@ -8,13 +8,19 @@ use crate::tools::source_capture::SourceReader;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value, json};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 mod fit;
+mod frame;
+
+pub(crate) use frame::Frame;
 
 pub(crate) struct CapturedAssets {
     pub provider: Value,
     pub(crate) provenance: Value,
+    /// Where each fitted asset's original sits on its judged canvas.
+    pub(crate) frames: BTreeMap<String, Frame>,
 }
 
 pub(crate) fn capture(
@@ -37,6 +43,7 @@ pub(crate) fn capture(
     let store = url::Store::open(dispatcher)?;
     let mut provider = Map::new();
     let mut provenance = Map::new();
+    let mut frames = BTreeMap::new();
     let mut total = 0usize;
     for (key, asset) in assets {
         check(context)?;
@@ -47,6 +54,7 @@ pub(crate) fn capture(
             height,
             bytes,
             source,
+            frame,
         } = fit(bytes)?;
         total = total.saturating_add(bytes.len());
         if total > clasify_policy::MAX_TOTAL_IMAGE_BYTES {
@@ -72,11 +80,15 @@ pub(crate) fn capture(
             provenance_row["sourceHeight"] = json!(source_height);
         }
         provenance.insert(key.clone(), provenance_row);
+        if let Some(frame) = frame {
+            frames.insert(key.clone(), frame);
+        }
     }
     check(context)?;
     Ok(CapturedAssets {
         provider: Value::Object(provider),
         provenance: Value::Object(provenance),
+        frames,
     })
 }
 
@@ -222,6 +234,8 @@ struct Fitted {
     height: usize,
     bytes: Vec<u8>,
     source: Option<(usize, usize)>,
+    /// The original's rectangle on the canvas; present with `source`.
+    frame: Option<Frame>,
 }
 
 /// Admits an image already inside the provider window as-is; otherwise
@@ -242,9 +256,10 @@ fn fit(bytes: Vec<u8>) -> Result<Fitted, ClassificationError> {
             height,
             bytes,
             source: None,
+            frame: None,
         });
     }
-    let (fitted_width, fitted_height, fitted) = fit::fit(&bytes, format, width, height, min, max)?;
+    let (frame, fitted) = fit::fit(&bytes, format, width, height, min, max)?;
     if fitted.len() > clasify_policy::MAX_IMAGE_BYTES {
         return Err(too_large(
             "The fitted image exceeds the per-image byte limit.",
@@ -252,10 +267,11 @@ fn fit(bytes: Vec<u8>) -> Result<Fitted, ClassificationError> {
     }
     Ok(Fitted {
         format: "png",
-        width: fitted_width,
-        height: fitted_height,
+        width: frame.canvas_width,
+        height: frame.canvas_height,
         bytes: fitted,
         source: Some((width, height)),
+        frame: Some(frame),
     })
 }
 

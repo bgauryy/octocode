@@ -164,7 +164,7 @@ fn page_replay(tool: ToolId, query: &impl serde::Serialize, page: usize) -> Valu
 /// when one is set. `None` without `owner`, `repo` and a `path`.
 pub(crate) fn path_check(row: &Value) -> Option<Value> {
     let (owner, repo) = (row["owner"].as_str()?, row["repo"].as_str()?);
-    let path = row["pathPrefix"].as_str()?.trim_matches('/');
+    let path = row["path"].as_str()?.trim_matches('/');
     if path.is_empty() {
         return None;
     }

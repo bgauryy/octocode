@@ -18,6 +18,7 @@ doctest = false
 workspace = true
 
 [dependencies]
+octocode-io = { path = "../io" }
 aho-corasick = "1"
 grep-matcher = "0.1.9"
 grep-pcre2 = "0.1.10"

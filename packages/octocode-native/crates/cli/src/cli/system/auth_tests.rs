@@ -5,13 +5,10 @@ use std::{collections::BTreeMap, sync::Mutex};
 
 fn runtime_with(env: &[(&str, &str)]) -> (tempfile::TempDir, ToolRuntime) {
     let dir = tempfile::tempdir().expect("fixture home");
-    let mut vars = BTreeMap::from([
-        (
-            "OCTOCODE_HOME".to_owned(),
-            dir.path().to_string_lossy().into_owned(),
-        ),
-        ("OCTOCODE_ENABLE_STATS".to_owned(), "false".to_owned()),
-    ]);
+    let mut vars = BTreeMap::from([(
+        "OCTOCODE_HOME".to_owned(),
+        dir.path().to_string_lossy().into_owned(),
+    )]);
     vars.extend(env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
     let runtime = ToolRuntime::from_host(HostOptions {
         cwd: Some(dir.path().into()),
@@ -93,7 +90,6 @@ fn logout_targets_configured_host_preserves_environment_and_reports_delete_failu
                 ),
                 ("GITHUB_API_URL".into(), api.into()),
                 ("GH_TOKEN".into(), "synthetic-env-token".into()),
-                ("OCTOCODE_ENABLE_STATS".into(), "false".into()),
             ])),
             ..HostOptions::default()
         })

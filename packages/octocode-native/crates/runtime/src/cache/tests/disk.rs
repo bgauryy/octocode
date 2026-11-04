@@ -235,7 +235,7 @@ fn confirmed_retention_requires_capacity_and_every_configured_tier() {
             .put_confirmed(
                 key("oversize", "x"),
                 "large".into(),
-                crate::cache::MEMORY.limit() + 1,
+                octocode_engine::memory::MEMORY.limit() + 1,
                 volatile(120)
             )
             .1
@@ -303,4 +303,41 @@ fn idle_entries_on_disk_count_age_from_their_last_read() {
         entry_files(dir.path()).is_empty(),
         "the expired file is removed"
     );
+}
+
+/// A read just after the entry's last use writes nothing; one past a share of
+/// its lifetime records the use, so an entry in use stays alive.
+#[test]
+fn an_idle_entry_records_a_read_only_once_it_has_aged() {
+    use std::time::{Duration, SystemTime};
+    let dir = tempfile::tempdir().expect("dir");
+    let store: Store<String> = Store::new(CacheConfig::derived(), Some(dir.path().to_owned()));
+    let ttl = Duration::from_secs(64 * 60);
+    store.put_confirmed(key("walk", "x"), "page".into(), 4, CacheClass::Idle { ttl });
+    let file = std::fs::read_dir(dir.path())
+        .expect("entries")
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "entry"))
+        .expect("entry file");
+    let set_age = |age: Duration| {
+        let writer = std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .expect("open");
+        writer.set_modified(SystemTime::now() - age).expect("set");
+    };
+    let modified = || {
+        std::fs::metadata(&file)
+            .and_then(|meta| meta.modified())
+            .expect("mtime")
+    };
+    set_age(ttl / 128);
+    let before = modified();
+    assert!(store.get(&key("walk", "x")).is_some());
+    assert_eq!(modified(), before, "a hot read writes nothing");
+    set_age(ttl / 32);
+    let aged = modified();
+    assert!(store.get(&key("walk", "x")).is_some());
+    assert!(modified() > aged, "an aged read restarts the lifetime");
 }

@@ -120,8 +120,10 @@ flowchart LR
 ```
 
 - Core pipeline details: [contract pipeline](skills-dev/octocode-dev/docs/DEVELOPMENT.md#contract-pipeline).
-  Declare and implement each new field in
-  `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json`.
+  Declare each new field's effect in
+  `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json`, or confirm it
+  inherits its nearest declared ancestor's effect; `tests/field_effect_coverage.rs` fails on an
+  unresolved path or a key that names no schema path.
 - Don't hand-edit `packages/octocode-config/contract/`, and don't
   hand-write wire types (Zod/TypeScript copies or serde query/result structs).
 - The binary embeds the contract it serves, so a stale one means regenerate and rebuild native;
@@ -154,7 +156,7 @@ and [continuation contract](docs/TOOL_DATA_CONTRACT.md#executable-continuations)
 Dogfood the local CLI, MCP server and skills, and turn what you learn into improvements. Prefer
 them over shell reads: `localSearch` instead of `rg`/`grep`, `localFetch` instead of `cat`/`sed`,
 `structureSearch` instead of `ls`/`find`, and `astSearch`/`lspSearch` for symbols. Follow every
-`next.*` page or name what stays unread; `hints.*` are optional leads. Graph and AST edges are
+`next.*` page or name what stays unread; `related[]` calls are optional. Graph and AST edges are
 candidates: confirm callers with `lspSearch` before claiming code is unused. When a tool has a bad
 default, a misleading hint or a missing continuation, report it to the user in 5W2H instead of working around it silently; write "unknown" for any
 slot you have not verified.

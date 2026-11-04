@@ -55,8 +55,8 @@ const graph = (cwd, tool, query) => {
 const total = (data) => data?.pagination?.totalItems ?? data?.rows?.length;
 {
   const root = path.join(REPOS, 'rust');
-  const build = graph(root, 'graphBuild', { path: root, excludeDirs: ['target'] });
-  const rebuilt = graph(root, 'graphBuild', { path: root, excludeDirs: ['target'] });
+  const build = graph(root, 'graphBuild', { path: root, exclude: ['target'] });
+  const rebuilt = graph(root, 'graphBuild', { path: root, exclude: ['target'] });
   const id = build.data?.id;
   const dependents = graph(root, 'graphQuery', { operation: 'dependents', path: root, graph: id, target: 'tokio/src/sync/mpsc/bounded.rs', depth: 6 });
   const cycles = graph(root, 'graphQuery', { operation: 'cycles', path: root, graph: id });

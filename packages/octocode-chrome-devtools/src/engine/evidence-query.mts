@@ -24,7 +24,10 @@ import { errorMessage } from './error-message.mjs';
 import {
   matches,
   parse,
+  parseSelect,
+  parseWhere,
   pointer,
+  toPointer,
   validatePredicates,
   validateProjection,
   type Predicate,
@@ -60,7 +63,7 @@ async function sourceDigest(file: string) {
 }
 if (args.includes('--help') || args.includes('-h')) {
   console.log(
-    'Usage: evidence-query.mjs --file <JSON|JSONL> [--format json|jsonl] [--pointer /rows] [--where <JSON predicates>] [--select <JSON pointer array>] [--cursor 0] [--limit 50] [--sha256 <digest>]\nFilters before pagination; builds a reusable lossless offset index. Predicates: {path:"/status",op:"eq|contains|gte|lte|exists",value:...}. Select is opt-in projection with original source pointers. Oversized rows have executable full-value continuations.'
+    'Usage: evidence-query.mjs --file <JSON|JSONL> [--format json|jsonl] [--pointer /rows] [--where <conditions>] [--select <paths>] [--cursor 0] [--limit 50] [--sha256 <digest>]\nFilters before pagination; builds a reusable lossless offset index. Paths are JSON pointers (/response/status) or dotted (response.status). --where takes conditions joined by &&: path=value, path!=value, path>=n, path<=n, path~text, path (exists), !path (missing); example: response.status=0 && request.url~login. It also takes JSON predicates: [{path:"/status",op:"eq|ne|contains|gte|lte|exists",value:...}]. --select takes comma-separated paths or a JSON array, an opt-in projection keyed by pointer. Oversized rows have executable full-value continuations.'
   );
   process.exit(0);
 }
@@ -80,7 +83,7 @@ try {
   if (!fileArg) throw new Error('--file is required');
   const file = resolve(fileArg),
     format = get('--format', 'json'),
-    path = get('--pointer', '');
+    path = toPointer(get('--pointer', ''));
   const cursor = Number(get('--cursor', '0')),
     limit = Number(get('--limit', String(chromeOutputLimits.continuationRows)));
   if (
@@ -94,9 +97,9 @@ try {
     throw new Error('Invalid format, cursor or limit');
   if (format === 'jsonl' && path)
     throw new Error('JSONL rows are the root; omit --pointer');
-  const filters = parse(get('--where', '[]')),
+  const filters = parseWhere(get('--where', '[]')),
     selectArg = get('--select'),
-    select: unknown = selectArg ? JSON.parse(selectArg) : null;
+    select: unknown = selectArg ? parseSelect(selectArg) : null;
   validatePredicates(filters);
   const projection = validateProjection(select);
   const sha256 = await sourceDigest(file);

@@ -1,8 +1,10 @@
 mod key_blocks;
+mod key_markers;
 pub(crate) use key_blocks::{
-    BlockLine, KeyBlockState, KeyBlockTracker, LineShape, LineShapeScan, is_key_header_prefix,
-    match_window_intersects_key_block,
+    KeyBlockState, KeyBlockTracker, LineShapeScan, match_window_intersects_key_block,
 };
+pub(crate) use key_markers::MarkerScan;
+use key_markers::{line_markers, may_hold_key_marker};
 use std::path::Path;
 
 use crate::policy::{PolicyError, PolicyErrorCode};
@@ -11,22 +13,11 @@ use octocode_engine::security::types::SanitizationResult;
 /// Secret label recorded when the split-private-key window guard fires.
 const SPLIT_KEY_SECRET: &str = "privateKeyFragment";
 
-/// A PEM/OpenSSH/PGP *private-key* boundary line (BEGIN or END). Public
-/// certificates (`-----BEGIN CERTIFICATE-----`) are intentionally excluded —
-/// they are not secret.
+/// A private-key boundary line (BEGIN or END), in any format
+/// [`key_markers`] names. Public certificates (`-----BEGIN CERTIFICATE-----`)
+/// are intentionally excluded: they are not secret.
 fn is_private_key_boundary(line: &str) -> bool {
-    is_private_key_begin(line) || is_private_key_end(line)
-}
-
-/// `<prefix> … PRIVATE KEY-----` anywhere in the line: a marker inside a
-/// string literal (`` const key = `-----BEGIN RSA PRIVATE KEY-----` ``) opens
-/// a block as much as one that starts the line.
-fn has_private_key_marker(line: &str, prefix: &str) -> bool {
-    line.match_indices(prefix).any(|(start, _)| {
-        let rest = &line[start + prefix.len()..];
-        rest.find("-----")
-            .is_some_and(|end| rest[..end].contains("PRIVATE KEY"))
-    })
+    line_markers(line.as_bytes()).any()
 }
 
 /// A base64 body line as emitted inside PEM/OpenSSH/PGP key blocks (wrapped at
@@ -60,17 +51,7 @@ fn is_private_key_path(path: Option<&Path>) -> bool {
         )
 }
 
-/// PEM/OpenSSH/PGP *private-key* BEGIN marker (`-----BEGIN … PRIVATE KEY-----`).
-fn is_private_key_begin(line: &str) -> bool {
-    has_private_key_marker(line, "-----BEGIN")
-}
-
-/// PEM/OpenSSH/PGP *private-key* END marker (`-----END … PRIVATE KEY-----`).
-fn is_private_key_end(line: &str) -> bool {
-    has_private_key_marker(line, "-----END")
-}
-
-/// Full-file guard: redact every line of each PEM/OpenSSH/PGP *private-key* block
+/// Full-file guard: redact every line of each *private-key* block in any format
 /// (from its BEGIN marker through its END marker, inclusive), line-for-line.
 ///
 /// This runs on the **whole file** before any bounded read/search window is cut,
@@ -80,14 +61,13 @@ fn is_private_key_end(line: &str) -> bool {
 /// exactly the block's source lines so any later window of them is already safe.
 ///
 /// Line count and the trailing newline are preserved so the tool's reported
-/// source-line ranges stay accurate. Content with no `PRIVATE KEY` marker is
+/// source-line ranges stay accurate. Content with no private-key marker is
 /// returned byte-identical — ordinary base64 (config blobs, hashes, minified
-/// assets) and public `CERTIFICATE` blocks are never touched. A block ends at
-/// its END marker or, when it has none, at the first line that is not
-/// key-shaped (see [`KeyBlockState`]): code after a literal marker string stays
-/// readable.
+/// assets) and public `CERTIFICATE` blocks are never touched. Inside a block
+/// only key text is hidden (see [`KeyBlockState`]): code after a literal marker
+/// string stays readable.
 pub(crate) fn redact_private_key_blocks(content: &str) -> (std::borrow::Cow<'_, str>, bool) {
-    if !content.contains("PRIVATE KEY") {
+    if !may_hold_key_marker(content) {
         return (content.into(), false);
     }
     let placeholder = key_fragment_placeholder();
@@ -123,21 +103,22 @@ pub(crate) fn key_fragment_placeholder() -> String {
 
 /// Cheap trigger: does this search-match snippet contain any line shaped like a
 /// private-key boundary or base64 body? Used by localSearch to decide whether a
-/// file is worth a full-file scan. It has **no false negatives** for real key
-/// body lines (a base64 body line always satisfies [`is_key_body_line`]), so a
-/// match that could expose key material always triggers the scan; innocent
-/// base64 merely triggers a scan that finds no block and redacts nothing.
+/// file is worth a full-file scan; innocent base64 merely triggers a scan that
+/// finds no block and redacts nothing. A plain body line always satisfies
+/// [`is_key_body_line`]. A short, quoted or commented one may not: the source
+/// guard every shown row passes tracks blocks over the whole file regardless.
 pub(crate) fn snippet_may_hold_key_material(snippet: &str) -> bool {
     snippet
         .lines()
         .any(|line| is_private_key_boundary(line) || is_key_body_line(line))
 }
 
-/// 1-based inclusive line ranges of PEM/OpenSSH/PGP private-key blocks in
+/// 1-based inclusive line ranges of private-key blocks in
 /// `content`. Empty when none. Lets localSearch redact only the matches whose
-/// window intersects a real key block. An unterminated block runs to EOF.
+/// window intersects a real key block. A range holds hidden lines only, so a
+/// block with a line of prose in its body is two ranges.
 pub(crate) fn private_key_block_line_ranges(content: &str) -> Vec<(u32, u32)> {
-    if !content.contains("PRIVATE KEY") {
+    if !may_hold_key_marker(content) {
         return Vec::new();
     }
     let mut tracker = KeyBlockTracker::default();
@@ -240,6 +221,26 @@ impl ContentSecurity {
         redact_split_private_key(redacted.as_deref().unwrap_or(content), None).or(redacted)
     }
 
+    /// [`Self::sanitize_leaf`] of a leaf about to be kept: its text when any
+    /// read could redact it, whichever file that read names. `source_path` is
+    /// the file the leaf is best known to be about.
+    pub(crate) fn sanitize_stored_leaf(
+        &self,
+        content: &str,
+        source_path: Option<&str>,
+    ) -> Option<String> {
+        let redacted =
+            octocode_engine::security::sanitizer::sanitize_stored_leaf(content, source_path)
+                .unwrap_or_else(|_| {
+                    Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
+                });
+        redact_split_private_key(
+            redacted.as_deref().unwrap_or(content),
+            source_path.map(Path::new),
+        )
+        .or(redacted)
+    }
+
     fn guard_native<'a>(
         &self,
         native: octocode_engine::error::Result<SanitizationResult<'a>>,
@@ -307,4 +308,4 @@ impl ContentSecurity {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

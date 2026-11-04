@@ -1,4 +1,3 @@
-pub mod cpu;
 pub mod fs_query;
 pub mod glob;
 pub mod pattern_reach;

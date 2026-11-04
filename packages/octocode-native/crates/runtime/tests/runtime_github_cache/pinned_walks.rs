@@ -43,7 +43,7 @@ fn numbered_lines(content: &str) -> Vec<(usize, String)> {
 }
 
 /// Whether any file under `root` holds `needle`.
-fn any_file_holds(root: &std::path::Path, needle: &[u8]) -> bool {
+pub(super) fn any_file_holds(root: &std::path::Path, needle: &[u8]) -> bool {
     let Ok(entries) = std::fs::read_dir(root) else {
         return false;
     };
@@ -108,11 +108,11 @@ async fn a_walk_of_a_pinned_file_fetches_it_once() {
         .map(|(index, line)| (index + 1, line.to_owned()))
         .collect::<Vec<_>>();
     assert_eq!(lines, expected);
-    // Only a continuation owns what it observed: a fresh read asks GitHub.
+    // A commit-pinned file cannot change: a fresh read asks GitHub nothing.
     call(&runtime, "ghGetFileContent", query)
         .await
         .expect("fresh");
-    assert_eq!(content_reads(&server, "big.rs").await, 2);
+    assert_eq!(content_reads(&server, "big.rs").await, 1);
     runtime.close().await;
 }
 

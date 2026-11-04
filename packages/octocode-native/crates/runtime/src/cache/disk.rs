@@ -60,6 +60,10 @@ fn entry_is_invalid(error: &std::io::Error) -> bool {
     false
 }
 
+/// An idle entry's use is recorded once it has aged this fraction of its
+/// lifetime: a read can shorten what it keeps by at most this share.
+const TOUCH_FRACTION: u32 = 64;
+
 /// How much of an entry file [`expired`] reads: its header line.
 const HEADER_BYTES: usize = 512;
 
@@ -160,8 +164,15 @@ impl Disk {
             return None;
         }
         // A read counts as use for the oldest-first pruning and restarts an
-        // idle entry's lifetime.
-        touch_file(&file, &path);
+        // idle entry's lifetime; an entry used a moment ago keeps its time, so
+        // a hot read costs no write.
+        if header
+            .class
+            .idle()
+            .is_none_or(|ttl| age >= ttl / TOUCH_FRACTION)
+        {
+            touch_file(&file, &path);
+        }
         Some((value, header.class, age, bytes.len()))
     }
 

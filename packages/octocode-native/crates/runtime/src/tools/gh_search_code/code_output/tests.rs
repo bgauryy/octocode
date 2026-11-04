@@ -78,7 +78,7 @@ fn unsearched_ref_guidance_distinguishes_named_files_and_scopes() {
     assert!(unsearched_ref_read(&query).is_none());
     let mut named = query.clone();
     named.name_contains = Some("Cargo.toml".parse().expect("filename"));
-    named.path_prefix = Some("crates/x".parse().expect("path"));
+    named.path = Some("crates/x".parse().expect("path"));
     let read = unsearched_ref_read(&named).expect("read at the ref");
     assert_eq!(read["tool"], "ghGetFileContent", "{read}");
     assert_eq!(
@@ -94,7 +94,7 @@ fn unsearched_ref_guidance_distinguishes_named_files_and_scopes() {
     // A requested ref plus a path scope are two hints, never one composed
     // sentence.
     let mut both = query.clone();
-    both.path_prefix = Some("crates/x".parse().expect("path"));
+    both.path = Some("crates/x".parse().expect("path"));
     let hints = empty_hints(&both, None);
     assert_eq!(hints.len(), 2, "{hints:?}");
     assert!(
@@ -102,7 +102,7 @@ fn unsearched_ref_guidance_distinguishes_named_files_and_scopes() {
         "{hints:?}"
     );
     assert!(
-        hints[1].starts_with("`pathPrefix:\"crates/x\"` is a directory scope"),
+        hints[1].starts_with("`path:\"crates/x\"` is a directory scope"),
         "{hints:?}"
     );
 }

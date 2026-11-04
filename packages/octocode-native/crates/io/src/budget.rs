@@ -10,6 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// The most one provider response body may hold.
+pub const PROVIDER_BODY_BYTES: usize = 16 * 1024 * 1024;
+
 /// Why a [`RequestBudget`] stopped a request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BudgetStop {

@@ -20,6 +20,18 @@ pub struct Folded<'a> {
 impl<'a> Folded<'a> {
     #[must_use]
     pub fn of(source: &'a str) -> Self {
+        if source.is_ascii() {
+            // Every ASCII char lowercases to one ASCII byte: nothing to map.
+            return Self {
+                source,
+                text: source.to_ascii_lowercase(),
+                changes: Vec::new(),
+            };
+        }
+        Self::char_by_char(source)
+    }
+
+    fn char_by_char(source: &'a str) -> Self {
         let mut changes = Vec::new();
         let mut folded_start = 0;
         for (start, character) in source.char_indices() {
@@ -183,5 +195,50 @@ mod tests {
         assert_eq!(text(folded.ranges("straße")), ["Straße"]);
         assert_eq!(text(folded.ranges("THEN")), ["then"]);
         assert!(folded.ranges("").is_empty());
+    }
+
+    /// The ASCII path holds exactly what the per-char path computes, and every
+    /// offset and span maps back the same.
+    fn assert_same_as_char_by_char(source: &str) {
+        let (fast, full) = (Folded::of(source), Folded::char_by_char(source));
+        assert_eq!(fast.text, full.text, "{source:?}");
+        assert_eq!(fast.changes, full.changes, "{source:?}");
+        assert!(fast.changes.is_empty(), "{source:?}");
+        for at in 0..=source.len() + 1 {
+            assert_eq!(fast.origin(at), full.origin(at), "{source:?} at {at}");
+            for end in at..=source.len() + 1 {
+                assert_eq!(fast.span(at..end), full.span(at..end), "{source:?}");
+            }
+        }
+        for pattern in ["a", "A", "z\n", "\u{212a}", "\u{130}", "stra\u{df}e", ""] {
+            assert_eq!(fast.ranges(pattern), full.ranges(pattern), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn the_ascii_path_maps_every_ascii_char_as_the_char_path_does() {
+        let every: String = (0..=127u8).map(char::from).collect();
+        assert_same_as_char_by_char(&every);
+        assert_same_as_char_by_char("");
+        assert_same_as_char_by_char("MiXeD\r\nCASE\n\0");
+    }
+
+    /// One char past ASCII anywhere keeps the per-char map: lowercasing it
+    /// changes its width, and every offset after it shifts.
+    #[test]
+    fn one_non_ascii_char_keeps_the_per_char_map() {
+        for source in ["\u{130}ABC", "AB\u{130}C", "ABC\u{130}", "ABC\u{1e9e}D"] {
+            let folded = Folded::of(source);
+            assert_eq!(folded.text, source.to_lowercase(), "{source:?}");
+            assert_eq!(folded.changes.len(), 1, "{source:?}");
+            assert_eq!(folded.changes, Folded::char_by_char(source).changes);
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn any_ascii_text_folds_as_the_char_path_does(source in "[\\x00-\\x7f]{0,48}") {
+            assert_same_as_char_by_char(&source);
+        }
     }
 }

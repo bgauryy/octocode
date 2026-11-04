@@ -116,7 +116,7 @@ async fn empty_code_search_hints_are_cause_specific() {
     );
     let scoped = run(
         &server,
-        json!({"owner":"a","repo":"b","keywords":["needle"],"pathPrefix":"src/io"}),
+        json!({"owner":"a","repo":"b","keywords":["needle"],"path":"src/io"}),
     )
     .await
     .expect("search");
@@ -168,7 +168,7 @@ async fn empty_scoped_recovery_keeps_the_requested_branch() {
         let out = run(
             &server,
             json!({"owner":"a","repo":repo,
-                       "keywords":["needle"],"pathPrefix":"src","ref":"nondefault"}),
+                       "keywords":["needle"],"path":"src","ref":"nondefault"}),
         )
         .await
         .expect("search");
@@ -180,7 +180,7 @@ async fn empty_scoped_recovery_keeps_the_requested_branch() {
     }
     let default = run(
         &server,
-        json!({"owner":"a","repo":"b","keywords":["needle"],"pathPrefix":"src"}),
+        json!({"owner":"a","repo":"b","keywords":["needle"],"path":"src"}),
     )
     .await
     .expect("search");
@@ -212,7 +212,7 @@ async fn an_empty_scoped_search_leads_to_its_structure() {
     .await;
     let out = run(
         &server,
-        json!({"owner":"a","repo":"b","keywords":["absent"],"pathPrefix":"src"}),
+        json!({"owner":"a","repo":"b","keywords":["absent"],"path":"src"}),
     )
     .await
     .expect("search");

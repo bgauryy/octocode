@@ -19,7 +19,7 @@ fn fixture() -> (tempfile::TempDir, PathBuf, LspExecutionConfig) {
         .to_string(),
     );
     let execution = LspExecutionConfig {
-        config_path: Some(config.to_string_lossy().into_owned()),
+        octocode_home: Some(root.to_path_buf()),
         ..LspExecutionConfig::default()
     };
     (dir, root, execution)

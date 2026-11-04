@@ -38,9 +38,11 @@ impl IgnoredMentions {
 }
 
 /// Word-bounded files-only scan of `root` (family `include`, read policy,
-/// ignore rules honored), observing `cancel`. The scan walks the whole
-/// scope: only the request stops it (its cancellation or its deadline),
-/// and a stopped scan keeps nothing. `None` when the scan failed.
+/// ignore rules honored), observing `cancel`: over the kept listing of the
+/// scope while its proof holds ([`listing`]), else by a walk that keeps one.
+/// The scan covers the whole scope: only the request stops it (its
+/// cancellation or its deadline), and a stopped scan keeps nothing. `None`
+/// when the scan failed.
 pub(super) async fn scan_text(
     root: &str,
     include: &[String],
@@ -59,6 +61,21 @@ pub(super) async fn scan_text(
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     let base = canonical(root);
+    let (kept_base, kept_include, kept_policy) = (base.clone(), include.to_vec(), policy.clone());
+    let kept = blocking_cancellable(cancel, move |_| {
+        listing::current(&kept_base, &kept_include, &kept_policy)
+    })
+    .await?
+    .flatten();
+    if let Some(files) = kept {
+        let word = symbol.to_owned();
+        let clock = octocode_engine::stamp::settle_clock();
+        return Ok(blocking_cancellable(cancel, move |stopped| {
+            listing::spelling(&files, &word, clock, stopped)
+        })
+        .await?
+        .flatten());
+    }
     let options = TextSearchOptions {
         path: base.clone(),
         pattern: word_pattern(symbol),
@@ -66,14 +83,18 @@ pub(super) async fn scan_text(
         include: crate::tools::variant_field::non_empty(include),
         ..TextSearchOptions::default()
     };
-    let filter: Arc<dyn octocode_engine::search::text_search::TextSearchPathFilter> =
-        Arc::new(crate::policy::path::DiscoveryWalk::owned(policy.clone()));
+    let (walk_policy, walk_include) = (policy.clone(), include.to_vec());
+    // Before the walk's first read, on the request's own clock.
+    let started = octocode_engine::stamp::settle_clock();
     #[cfg(test)]
     if let Some(work) = super::probe::current() {
         work.text_scans
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     let scanned = blocking_cancellable(cancel, move |stopped| {
+        let recorder = Arc::new(listing::Recorder::new(&walk_policy, &base));
+        let filter: Arc<dyn octocode_engine::search::text_search::TextSearchPathFilter> =
+            recorder.clone();
         let parsed = search_cancellable(options, filter, stopped).ok()?;
         if parsed
             .stats
@@ -82,6 +103,7 @@ pub(super) async fn scan_text(
         {
             return None;
         }
+        recorder.keep(&walk_include, started);
         Some(
             parsed
                 .files
@@ -268,7 +290,7 @@ fn walk_lines(
             return None;
         }
         let meta = entry.metadata().ok()?;
-        let Some(stamp) = crate::tools::source::cache_stamp(&meta) else {
+        let Some(stamp) = octocode_engine::stamp::cache_stamp(&meta) else {
             abandoned.store(true, Ordering::Relaxed);
             return None;
         };

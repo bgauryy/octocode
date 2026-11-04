@@ -299,7 +299,6 @@ impl SelectionJudge for Evaluator {
             };
             decisions.push((ordinal, decision));
         }
-        self.record(usage.clone());
         *call.usage = usage;
         // A provider that failed every candidate gave no answer at all: its
         // typed error (credential, quota, transport) is the row's outcome,

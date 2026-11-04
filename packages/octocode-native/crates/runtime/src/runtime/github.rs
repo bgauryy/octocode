@@ -11,7 +11,7 @@ use crate::{
     tools::gh_clone_repo::SystemGit,
 };
 use octocode_github::*;
-use octocode_io::budget::RequestBudget;
+use octocode_io::budget::{PROVIDER_BODY_BYTES, RequestBudget};
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -81,6 +81,7 @@ impl GitHubServices {
         config: Arc<ConfigOutput>,
         limits: &crate::execution::RuntimeLimits,
         home: PathBuf,
+        answers: Arc<crate::providers::saved_answers::KeptAnswers>,
     ) -> Result<Self, ProviderError> {
         let endpoint =
             GitHubEndpoint::new(url::Url::parse(&config.resolved.github.api_url).map_err(
@@ -94,12 +95,12 @@ impl GitHubServices {
             },
             octocode_github::GitHubBudget::paced(limits.github_pacing),
         )?;
-        transport.graphql_enabled = config.resolved.github.graphql_enabled;
         // Cross-process rate-limit coordination follows the storage policy.
         transport.set_rate_limit_state_dir(
             crate::config::is_persistent_storage_enabled(&config.resolved)
                 .then(|| home.join("tmp").join("ratelimit")),
         );
+        transport.set_saved_answers(Some(answers));
         let git = SystemGit::with_env(&config.credential_env());
         let credentials = Authentication::new(config);
         Ok(Self {
@@ -143,6 +144,9 @@ impl GitHubServices {
         ))?;
         if let Ok(request) = &request_context {
             access.collect(request);
+            if let Some(observed) = request.reused_since() {
+                crate::providers::saved_answers::disclose_reuse(&mut result.data, observed);
+            }
         }
         if result.failure == Some(FailureKind::Authentication) {
             if context.github_credential.is_some() {
@@ -182,7 +186,7 @@ impl GitHubServices {
     }
 
     fn request_budget(&self, context: &ExecutionContext) -> RequestBudget {
-        let mut budget = RequestBudget::with_timeout(self.timeout, 16 * 1024 * 1024);
+        let mut budget = RequestBudget::with_timeout(self.timeout, PROVIDER_BODY_BYTES);
         budget.deadline = context.deadline.min(budget.deadline);
         budget.wait_until = context.deadline;
         budget.cancellation = context.cancellation.clone();

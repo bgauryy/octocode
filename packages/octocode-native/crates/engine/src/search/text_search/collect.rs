@@ -15,7 +15,6 @@ use super::{
 };
 use crate::error::Result;
 use crate::search::relevance;
-use crate::search::walk::Prune;
 use crate::types::{PatternSyntax, SearchContext, SourceValues, TextSearchOptions};
 use grep_matcher::Matcher;
 use grep_searcher::BinaryDetection;
@@ -79,6 +78,17 @@ pub(super) struct WalkControl<'a> {
     pub(super) eager: bool,
 }
 
+/// The largest file a search of `opts` opens.
+pub(super) fn byte_ceiling(opts: &TextSearchOptions) -> u64 {
+    opts.max_file_bytes
+        .map(u64::from)
+        .unwrap_or(if opts.multiline.unwrap_or(false) {
+            DEFAULT_MAX_SEARCH_FILE_BYTES
+        } else {
+            DEFAULT_MAX_LINE_SEARCH_FILE_BYTES
+        })
+}
+
 /// Run a parallel ignore walk + per-file search for a concrete matcher type,
 /// writing into `state`. The walk stops at the next entry once `cancelled()`
 /// returns true, `state.stop` is raised, or `deadline` passes.
@@ -101,27 +111,19 @@ pub(super) fn collect<M: Matcher + Sync>(
         SearchContext::default()
     };
 
-    let max_file_bytes =
-        opts.max_file_bytes
-            .map(u64::from)
-            .unwrap_or(if opts.multiline.unwrap_or(false) {
-                DEFAULT_MAX_SEARCH_FILE_BYTES
-            } else {
-                DEFAULT_MAX_LINE_SEARCH_FILE_BYTES
-            });
+    let max_file_bytes = byte_ceiling(opts);
 
     // Traversal ordering is only stable if a single worker drains the walk in a
     // fixed order; the default parallel walk merges worker buffers arbitrarily.
     let (mut walk_builder, rule) = build_walk_builder(opts)?;
     // Otherwise the walk takes this call's share of the process CPU budget
-    // (`walk_builder`, `search::cpu`).
+    // (`walk_builder`, `cpu`).
     if preserves_traversal_order(opts) {
         walk_builder.threads(1);
     }
 
     let scope = WalkScope {
         opts,
-        prune: Prune::new(opts.exclude_dir.iter().flatten()),
         rule,
         state,
         control,

@@ -177,6 +177,12 @@ async fn read_body(
                 throttle: None,
             };
         }
+        Err(octocode_io::retry::BodyError::Decode) => {
+            drop(permit);
+            return Attempt::Done(Err(ClassificationError::invalid_response(
+                "Classification provider response does not decode as its Content-Encoding says.",
+            )));
+        }
         Err(octocode_io::retry::BodyError::TooLarge) => {
             drop(permit);
             return Attempt::Done(Err(ClassificationError::new(

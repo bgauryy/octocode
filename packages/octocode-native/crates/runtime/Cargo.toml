@@ -54,6 +54,7 @@ octocode-contract-types = { path = "../contract-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
+memchr = { workspace = true }
 regex = { workspace = true }
 # Contract validation runs the schemas' ECMAScript patterns.
 regress = "0.12"

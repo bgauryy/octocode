@@ -4,8 +4,10 @@
 //! through the native config and MCP-management owners.  The fragment token is
 //! exchanged once for a distinct CSRF token, so it is never sent in a URL.
 mod backend;
+mod browser;
 mod lifecycle;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+pub(super) use browser::can_show_window;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -26,7 +28,9 @@ const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; conn
 
 const INDEX: &str = include_str!("config_view/assets/index.html");
 const APP: &str = include_str!("config_view/assets/app.js");
+const CORE: &str = include_str!("config_view/assets/core.js");
 const STYLE: &str = include_str!("config_view/assets/style.css");
+const LOGO: &[u8] = include_bytes!("config_view/assets/logo.png");
 
 #[derive(Clone)]
 struct State {
@@ -103,10 +107,21 @@ fn response(
         "cross-origin-resource-policy",
         HeaderValue::from_static("same-origin"),
     );
+    headers.insert(
+        "cross-origin-opener-policy",
+        HeaderValue::from_static("same-origin"),
+    );
+    headers.insert(
+        "cross-origin-embedder-policy",
+        HeaderValue::from_static("require-corp"),
+    );
+    headers.insert("origin-agent-cluster", HeaderValue::from_static("?1"));
     headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
     headers.insert(
         "permissions-policy",
-        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+        HeaderValue::from_static(
+            "camera=(), microphone=(), geolocation=(), usb=(), payment=(), display-capture=(), clipboard-read=(), clipboard-write=(self)",
+        ),
     );
     response
 }
@@ -262,9 +277,13 @@ async fn handle(request: Request<Incoming>, state: State) -> Response<Full<Bytes
         return failure_response(Failure::new(StatusCode::NOT_FOUND, "NOT_FOUND"));
     }
     if request.method() == Method::GET {
+        if path == "/logo.png" {
+            return response(StatusCode::OK, Bytes::from_static(LOGO), "image/png");
+        }
         let asset = match path.as_str() {
             "/" => Some((INDEX, "text/html; charset=utf-8")),
             "/app.js" => Some((APP, "text/javascript; charset=utf-8")),
+            "/core.js" => Some((CORE, "text/javascript; charset=utf-8")),
             "/style.css" => Some((STYLE, "text/css; charset=utf-8")),
             _ => None,
         };
@@ -274,7 +293,7 @@ async fn handle(request: Request<Incoming>, state: State) -> Response<Full<Bytes
     }
     if !matches!(
         path.as_str(),
-        "/api/session" | "/api/request" | "/api/close"
+        "/api/session" | "/api/request" | "/api/activity" | "/api/close"
     ) {
         return failure_response(Failure::new(StatusCode::NOT_FOUND, "NOT_FOUND"));
     }
@@ -344,6 +363,11 @@ async fn handle(request: Request<Incoming>, state: State) -> Response<Full<Bytes
             }
             Err(error) => return failure_response(error),
         }
+    }
+    if path == "/api/activity" {
+        drop(permit);
+        let _ = state.activity.send(());
+        return json_response(StatusCode::OK, json!({"active":true}));
     }
     if path == "/api/close" {
         drop(permit);

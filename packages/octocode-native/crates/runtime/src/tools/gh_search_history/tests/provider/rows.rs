@@ -65,7 +65,7 @@ async fn commit_listing_rows_are_typed_commits() {
     for scope in [json!("src/lib.rs"), json!("src/"), Value::Null] {
         let mut query = json!({"operation":"commit","owner":"o","repo":"r"});
         if !scope.is_null() {
-            query["pathPrefix"] = scope.clone();
+            query["path"] = scope.clone();
         }
         let query = serde_json::from_value(query).expect("query");
         let data = execute(&provider, &query, &default_context(), &Passthrough)
@@ -190,7 +190,7 @@ async fn commit_listing_leads_to_the_squash_pull_request() {
     .await;
     let provider = one_shot_provider(&server);
     let query = serde_json::from_value(
-        json!({"operation":"commit","owner":"o","repo":"r","pathPrefix":"src/lib.rs"}),
+        json!({"operation":"commit","owner":"o","repo":"r","path":"src/lib.rs"}),
     )
     .expect("query");
     let data = execute(&provider, &query, &default_context(), &Passthrough)

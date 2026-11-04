@@ -60,17 +60,7 @@ pub(super) fn discover_server(
             allowed
         }
     };
-    let config_path = execution_config
-        .config_path
-        .as_deref()
-        .map(|path| {
-            paths
-                .validate_read(path)
-                .map(|validated| validated.canonical)
-        })
-        .transpose()
-        .map_err(LspFailure::path_denied)?;
-    let discovery = execution_config.discovery(config_path);
+    let discovery = execution_config.discovery();
     let discovered = if root_only {
         default_server_for_workspace_root(&workspace, &discovery)
     } else {
@@ -90,7 +80,7 @@ pub(super) fn discover_server(
                 .map(|extension| format!(".{}", extension.to_string_lossy()))
                 .unwrap_or_else(|| "this".to_owned());
             format!(
-                "No language server configured for {extension} files. Add a server in lsp.configPath or ~/.octocode/lsp-servers.json; use localSearch or localFetch meanwhile."
+                "No language server configured for {extension} files. Add a server in ~/.octocode/lsp-servers.json; use localSearch or localFetch meanwhile."
             )
         };
         return Err(fail(ErrorCode::ServerUnavailable, &message));
@@ -151,9 +141,9 @@ pub(super) struct Session {
     /// The post-didOpen readiness (timeout when the project load was
     /// still running).
     pub(super) open_readiness: Option<String>,
-    /// What this call waited on at the server: its start, its project load.
-    /// Set by [`open_session`] once the session is open.
-    pub(super) waits: octocode_engine::lsp::client::ServerWaits,
+    /// When this call began waiting on the server: what it waited on since
+    /// is what it reports.
+    pub(super) began: tokio::time::Instant,
 }
 
 /// Lease a pooled client for the whole operation and synchronize the anchor
@@ -173,17 +163,9 @@ pub(super) async fn open_session(
     let leased = acquire_leased_client(query, target, pool, cancel).await?;
     let (client, config) = (leased.client.clone(), leased.config.clone());
     // Whatever ends the session, the call says what it waited on.
-    match open_leased(query, target, document, sources, cancel, leased).await {
-        Ok(mut session) => {
-            session.waits = client.waits_since(began);
-            Ok(session)
-        }
-        Err(exit) => Err(waits::disclose_exit(
-            exit,
-            &config,
-            client.waits_since(began),
-        )),
-    }
+    open_leased(query, target, document, sources, cancel, leased, began)
+        .await
+        .map_err(|exit| waits::disclose_exit(exit, &config, client.waits_since(began)))
 }
 
 /// [`open_session`] once the client is leased: the readiness and capability
@@ -195,6 +177,7 @@ async fn open_leased(
     sources: &mut SourceCache<'_>,
     cancel: &dyn CancellationCheck,
     leased: Leased,
+    began: tokio::time::Instant,
 ) -> Result<Session, Exit> {
     let Leased {
         client,
@@ -203,26 +186,13 @@ async fn open_leased(
         fell_back_from,
     } = leased;
     let advertises = |capability: &str| client.has_capability(capability.to_owned());
-    note_server(&client, client.readiness());
     // A readiness timeout means the live server announced progress and is
     // still indexing. Do not sync or query it yet: return the established
     // incomplete row, naming the server, with an optional same-query
     // reattempt instead.
     if client.readiness().as_deref() == Some("timeout") {
-        let mut row = empty(
-            query,
-            "languageServerIndexing",
-            "The language server is still indexing the project; semantic results are not ready yet.",
-            true,
-        );
-        partial_with_related_rerun(
-            &mut row,
-            query,
-            crate::response::paging::PartialReason::LanguageServerIndexing,
-            &[],
-        );
         return Err(receipt::naming(
-            Exit::Row(row),
+            Exit::Row(failure::still_indexing(query)),
             receipt::server_receipt(&config, false),
         ));
     }
@@ -244,34 +214,14 @@ async fn open_leased(
         ));
     }
     let open_readiness = sync_document(query, target, document, sources, &client, cancel).await?;
-    if open_readiness.is_some() {
-        note_server(&client, open_readiness.clone());
-    }
     Ok(Session {
         client,
         _lease: lease,
         config,
         fell_back_from,
         open_readiness,
-        waits: Default::default(),
+        began,
     })
-}
-
-/// Record the server a traced call used, with the `readiness` it last
-/// reported; the last note wins.
-pub(super) fn note_server(
-    client: &octocode_engine::lsp::client::NativeLspClient,
-    readiness: Option<String>,
-) {
-    octocode_engine::lsp::diagnostics::Trace::note_server(|| {
-        octocode_engine::lsp::diagnostics::ServerNote {
-            source: client.server_source().as_str(),
-            readiness,
-            operations: receipt::advertised_operations(&|capability| {
-                client.has_capability(capability.to_owned())
-            }),
-        }
-    });
 }
 
 /// A pooled client leased for one operation.

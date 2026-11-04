@@ -95,10 +95,12 @@ pub(crate) fn is_demoted_path(relative: &str) -> bool {
 /// Jujutsu checkout.
 pub(crate) struct GitAttributes {
     repo_root: std::path::PathBuf,
-    dirs: std::sync::Mutex<
-        std::collections::HashMap<std::path::PathBuf, std::sync::Arc<Vec<AttributeRule>>>,
-    >,
+    /// One cell per directory, filled by the first thread to need it; a
+    /// directory without a `.gitattributes` holds empty rules.
+    dirs: std::sync::RwLock<std::collections::HashMap<std::path::PathBuf, DirRules>>,
 }
+
+type DirRules = std::sync::Arc<std::sync::OnceLock<Vec<AttributeRule>>>;
 
 struct AttributeRule {
     pattern: ignore::gitignore::Gitignore,
@@ -113,7 +115,7 @@ impl GitAttributes {
         let repo_root = crate::search::repository::nearest(search_root)?.to_path_buf();
         Some(Self {
             repo_root,
-            dirs: std::sync::Mutex::default(),
+            dirs: std::sync::RwLock::default(),
         })
     }
 
@@ -123,7 +125,12 @@ impl GitAttributes {
             if !dir.starts_with(&self.repo_root) {
                 break;
             }
-            let rules = self.rules(dir);
+            let cell = self.cell(dir);
+            let rules = cell.get_or_init(|| {
+                std::fs::read_to_string(dir.join(".gitattributes"))
+                    .map(|text| parse_attributes(dir, &text))
+                    .unwrap_or_default()
+            });
             if let Some(rule) = rules
                 .iter()
                 .rev()
@@ -135,29 +142,22 @@ impl GitAttributes {
         false
     }
 
-    fn rules(&self, dir: &std::path::Path) -> std::sync::Arc<Vec<AttributeRule>> {
-        if let Some(rules) = self
+    /// The directory's cell. The map lock covers only finding or adding it,
+    /// never the file read: that runs once, inside the cell.
+    fn cell(&self, dir: &std::path::Path) -> DirRules {
+        if let Some(cell) = self
             .dirs
-            .lock()
+            .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(dir)
-            .cloned()
         {
-            return rules;
+            return std::sync::Arc::clone(cell);
         }
-        let rules = std::sync::Arc::new(
-            std::fs::read_to_string(dir.join(".gitattributes"))
-                .map(|text| parse_attributes(dir, &text))
-                .unwrap_or_default(),
-        );
-        {
-            let mut dirs = self
-                .dirs
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            dirs.insert(dir.to_path_buf(), std::sync::Arc::clone(&rules));
-        }
-        rules
+        let mut dirs = self
+            .dirs
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::sync::Arc::clone(dirs.entry(dir.to_path_buf()).or_default())
     }
 }
 

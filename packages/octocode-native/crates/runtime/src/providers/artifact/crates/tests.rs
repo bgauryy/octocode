@@ -35,9 +35,8 @@ async fn crates_exact_versions_carry_the_packaging_commit_or_release_tag() {
     let tags = KnownTags::new(vec!["serde-rs/serde@v1.0.228"]);
     let b = test_budget();
     let client = RegistryClient {
-        http: &http,
-        budget: &b,
         tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
     };
     let state = ArtifactProviderState::default();
     let pinned = crates(

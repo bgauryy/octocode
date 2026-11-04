@@ -85,7 +85,8 @@ mod test_code;
 mod text_search;
 
 pub use fs_query::{
-    EntryType, FileKind, FileSystemEntry, FileSystemQueryOptions, FileSystemQueryResult, ListsEntry,
+    EntryType, FileKind, FileSystemEntry, FileSystemQueryOptions, FileSystemQueryResult,
+    ListsEntry, WalkedDir,
 };
 pub use fs_resume::{WalkCursor, WalkTally};
 pub use graph_scan::{GraphFactsScanDiagnostic, GraphFactsScanOptions, GraphLanguageGlob};

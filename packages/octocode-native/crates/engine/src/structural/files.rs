@@ -36,7 +36,7 @@ pub(crate) fn search_files_detailed(
     search_files(
         options,
         StructuralDemand::Matches,
-        &|_| true,
+        &|_, _| true,
         &|path| extension_for_path(path).unwrap_or_default(),
         &|| false,
         None,
@@ -45,9 +45,11 @@ pub(crate) fn search_files_detailed(
 
 /// Detailed structural search with caller-owned descendant policy and a
 /// caller-selected parser for ambiguous paths. `admit` decides each walked
-/// entry before candidate accounting, literal prefilter reads, metadata
-/// reads, and source reads; it also sees every directory and every link the
-/// walk does not follow, whose verdict decides nothing. File paths remain
+/// entry, by its listing type, before candidate accounting; it also sees every
+/// directory and every link the walk does not follow, whose verdict decides
+/// nothing. Before a candidate's prefilter and source reads it decides again,
+/// by the type the entry has then (`None` for the root, or an entry that
+/// cannot be read). File paths remain
 /// unchanged in diagnostics and match IDs. `stop` cancels the walk and the scan
 /// ([`crate::error::ErrorKind::Cancelled`]). `demand` decides what each
 /// file keeps of its matches ([`StructuralDemand`]); counts and coverage
@@ -63,7 +65,7 @@ pub(crate) fn search_files_detailed(
 pub fn search_files(
     options: StructuralSearchFilesOptions,
     demand: StructuralDemand<'_>,
-    admit: &(dyn Fn(&Path) -> bool + Sync),
+    admit: &Admit<'_>,
     select_extension: &(dyn Fn(&Path) -> String + Sync),
     stop: &Stop<'_>,
     keep_line: Option<&KeepLine>,
@@ -85,8 +87,8 @@ pub fn search_files(
     })
 }
 
-/// Which walked entries a search reads.
-type Admit<'a> = dyn Fn(&Path) -> bool + Sync + 'a;
+/// Which walked entries a search reads, by path and entry type when known.
+type Admit<'a> = dyn Fn(&Path, Option<std::fs::FileType>) -> bool + Sync + 'a;
 
 /// [`search_files`] with its time budget (`None` evaluates every candidate).
 pub(crate) fn search_files_with_budget(
@@ -103,7 +105,6 @@ pub(crate) fn search_files_with_budget(
         rule,
         include,
         exclude,
-        exclude_dir,
         default_exclude_dir,
         ignore,
         max_depth,
@@ -119,7 +120,7 @@ pub(crate) fn search_files_with_budget(
     };
 
     let root = PathBuf::from(&path);
-    if !admit(&root) {
+    if !admit(&root, None) {
         return Err(Error::new(
             "Structural search root is denied by path policy",
         ));
@@ -142,7 +143,6 @@ pub(crate) fn search_files_with_budget(
         &root,
         &Walked {
             globs: &globs,
-            prune: Prune::new(exclude_dir.iter().flatten()),
             defaults: default_exclude_dir.map(|names| Prune::new(names).at(&root)),
             ignore,
             max_depth,

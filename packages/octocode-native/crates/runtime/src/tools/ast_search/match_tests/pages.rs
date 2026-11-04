@@ -290,3 +290,44 @@ fn a_cut_scan_with_no_resume_position_is_an_error_not_a_dead_end() {
     assert_eq!(error.code, ErrorCode::OutputContractViolation);
     assert!(error.message.contains("continuation"), "{error:?}");
 }
+
+/// The skipped walks are named once, beside the scan's first page: no later
+/// page or scan window repeats the hint or its lead, and every hit is still
+/// reached.
+#[test]
+fn only_the_first_page_of_a_scan_names_the_skipped_walks() {
+    let root = Fixture::new();
+    root.write("a.ts", "hit(1);\nhit(2);\n");
+    root.write("b.ts", "hit(3);\n");
+    root.write("dist/c.ts", "hit(4);\n");
+    let names_them = |out: &Value| {
+        let hinted = out["hints"].to_string().contains("skipped paths");
+        assert_eq!(hinted, skipped_call(out).is_some(), "{out}");
+        hinted
+    };
+    let hits = |out: &Value| out["files"].to_string().matches("\"line\"").count();
+    let row = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}});
+
+    let mut paged = row.clone();
+    paged["limit"] = json!(1);
+    let first = run(&root.0, paged).expect("page 1");
+    assert!(names_them(&first), "{first}");
+    let mut reached = hits(&first);
+    let mut next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+    assert!(next.is_object(), "{first}");
+    while next.is_object() {
+        let later = run(&root.0, next).expect("later page");
+        assert!(!names_them(&later), "{later}");
+        reached += hits(&later);
+        next = later["next"]["nextPage"]["input"]["queries"][0].clone();
+    }
+    assert_eq!(reached, 3, "every hit once");
+
+    let _window = crate::tools::ast_search::scan_window::test_window(1);
+    let first = run(&root.0, row).expect("first window");
+    assert!(names_them(&first), "{first}");
+    let expand = first["next"]["expandScan"]["input"]["queries"][0].clone();
+    assert!(expand.is_object(), "{first}");
+    let window = run(&root.0, expand).expect("next window");
+    assert!(!names_them(&window), "{window}");
+}

@@ -169,12 +169,17 @@ struct Redaction<'a> {
 }
 
 impl Redaction<'_> {
+    /// A capture is saved, and its URL need not name what the text is: it is
+    /// judged as any kept text is, whatever file a read would call it.
     fn apply(&self, text: &str) -> String {
-        let text = self.security.sanitize_text(text, None).content;
+        let text = self
+            .security
+            .sanitize_stored_leaf(text, None)
+            .unwrap_or_else(|| text.to_owned());
         if self.emails {
             self.security.redact_emails(&text)
         } else {
-            text.into_owned()
+            text
         }
     }
 }

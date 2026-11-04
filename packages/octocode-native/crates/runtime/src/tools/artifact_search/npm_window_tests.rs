@@ -211,3 +211,126 @@ async fn a_total_past_the_reach_states_the_reachable_window() {
     crate::tools::test_support::validate_sealed(ToolId::ArtifactSearch.as_str(), &placed)
         .expect("contract-valid capped page");
 }
+
+/// npm ranks rows that match one term of several, so 2+ `keywords` keep only
+/// rows holding every term in `name`, `description` or `keywords`. Windows
+/// stay npm's: `matching` holds the row positions that hold both terms, each
+/// through a different field.
+struct NpmTerms {
+    total: u64,
+    matching: &'static [u64],
+}
+
+impl wiremock::Respond for NpmTerms {
+    fn respond(&self, request: &wiremock::Request) -> wiremock::ResponseTemplate {
+        let param = |name: &str| {
+            request
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == name)
+                .and_then(|(_, value)| value.parse::<u64>().ok())
+        };
+        let from = param("from").unwrap_or(0);
+        let end = (from + param("size").unwrap_or(20)).min(self.total);
+        let objects: Vec<Value> = (from..end)
+            .map(|n| {
+                let package = if !self.matching.contains(&n) {
+                    json!({"name": format!("json-only-{n}"), "description": "just the one term", "version": "1.0.0"})
+                } else if n % 3 == 0 {
+                    json!({"name": format!("@acme/json-parser-{n}"), "version": "1.0.0"})
+                } else if n % 3 == 1 {
+                    json!({"name": format!("by-keywords-{n}"), "keywords": ["json", "parser"], "version": "1.0.0"})
+                } else {
+                    json!({"name": format!("by-text-{n}"), "description": "A JSON parser.", "version": "1.0.0"})
+                };
+                json!({"package": package})
+            })
+            .collect();
+        wiremock::ResponseTemplate::new(200)
+            .set_body_json(json!({"objects": objects, "total": self.total}))
+    }
+}
+
+async fn npm_terms_page(server: &wiremock::MockServer, page: u64) -> Value {
+    let query = typed(&json!({"operation":"search",
+        "ecosystem": "npm",
+        "keywords": ["json", "parser"],
+        "page": page,
+        "registryUrl": format!("http://127.0.0.1:{}", server.address().port())}));
+    let deadline = Instant::now() + std::time::Duration::from_secs(300);
+    execute(query, call(deadline, true))
+        .await
+        .expect("discovery succeeds")
+}
+
+async fn npm_terms(total: u64, matching: &'static [u64]) -> wiremock::MockServer {
+    let server = wiremock::MockServer::builder().start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(NpmTerms { total, matching })
+        .mount(&server)
+        .await;
+    server
+}
+
+/// A window holding no row with every term is not absence: it says more
+/// remains, and the walk reaches each match exactly once, whichever of
+/// `name`, `description` or `keywords` spells the terms.
+#[tokio::test]
+async fn npm_keywords_are_anded_and_a_window_without_a_match_is_not_absence() {
+    let server = npm_terms(60, &[21, 25, 45]).await;
+    let first = npm_terms_page(&server, 1).await;
+    assert_eq!(first["artifacts"], json!([]), "{first}");
+    assert!(first.get("status").is_none(), "{first}");
+    assert_eq!(first["pagination"]["hasMore"], true, "{first}");
+    assert!(first["next"]["nextPage"].is_object(), "{first}");
+    assert!(first["pagination"].get("totalItems").is_none(), "{first}");
+    let mut names = Vec::new();
+    for page in 1..=3 {
+        let data = npm_terms_page(&server, page).await;
+        for row in data["artifacts"].as_array().expect("rows") {
+            names.push(row["packageName"].as_str().expect("name").to_owned());
+        }
+        assert_eq!(data["next"]["nextPage"].is_object(), page < 3, "{data}");
+    }
+    // Position 21 % 3 == 0: scoped name; 25 % 3 == 1: keywords; 45 % 3 == 0: scoped name.
+    assert_eq!(
+        names,
+        [
+            "@acme/json-parser-21",
+            "by-keywords-25",
+            "@acme/json-parser-45"
+        ]
+    );
+}
+
+/// The walk's last window with no match ends it: that is what empty means.
+#[tokio::test]
+async fn npm_keywords_with_no_match_left_end_the_walk_as_empty() {
+    let server = npm_terms(10, &[]).await;
+    let data = npm_terms_page(&server, 1).await;
+    assert_eq!(data["artifacts"], json!([]), "{data}");
+    assert_eq!(data["status"], "empty", "{data}");
+    assert!(data["next"].get("nextPage").is_none(), "{data}");
+}
+
+/// A description holding both terms keeps its row, and one keyword is npm's
+/// own answer: a lone term filters nothing.
+#[tokio::test]
+async fn npm_description_matches_and_a_lone_keyword_filters_nothing() {
+    let server = npm_terms(3, &[2]).await;
+    let both = npm_terms_page(&server, 1).await;
+    assert_eq!(both["artifacts"][0]["packageName"], "by-text-2", "{both}");
+    let lone = typed(
+        &json!({"operation":"search", "ecosystem":"npm", "keywords":["json"],
+        "registryUrl": format!("http://127.0.0.1:{}", server.address().port())}),
+    );
+    let deadline = Instant::now() + std::time::Duration::from_secs(300);
+    let data = execute(lone, call(deadline, true))
+        .await
+        .expect("discovery");
+    assert_eq!(
+        data["artifacts"].as_array().expect("rows").len(),
+        3,
+        "{data}"
+    );
+}

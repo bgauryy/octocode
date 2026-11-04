@@ -44,7 +44,7 @@ impl AnchorFilter {
     /// bytes kept for the parse; a larger one is streamed only until the first
     /// anchor, never held in memory, since the parse skips it anyway.
     pub(super) fn check(&self, path: &Path, max_file_bytes: u64) -> Anchored {
-        let bytes = match crate::text::read_source(path, max_file_bytes) {
+        let bytes = match crate::text::read_regular(path, max_file_bytes) {
             Ok(source) => source.bytes,
             Err(crate::text::ReadError::TooLarge(len)) => {
                 let hit = match &self.automaton {

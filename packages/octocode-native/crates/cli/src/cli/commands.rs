@@ -170,7 +170,7 @@ pub(super) enum Command {
         #[arg(long, value_name = "FIELD=VALUE", requires = "tool")]
         select: Option<String>,
     },
-    /// Show configuration files and loaded keys, print the home path, or get and set .env keys.
+    /// Open the settings page on an interactive terminal; otherwise show configuration files and loaded keys. Subcommands list, get and set values.
     #[command(args_conflicts_with_subcommands = true, disable_help_subcommand = true)]
     Config {
         #[command(subcommand)]
@@ -230,6 +230,9 @@ const SCHEMA_HELP: &str =
 
 JSON: indented on a terminal, one line on a pipe.";
 
+/// How long an unused config view stays open.
+pub(super) const VIEW_IDLE_SECONDS: u64 = 900;
+
 #[derive(Subcommand, Debug)]
 pub(super) enum ConfigCommand {
     /// Open the local settings, API keys, and agent configuration view.
@@ -238,12 +241,14 @@ pub(super) enum ConfigCommand {
         #[arg(long)]
         no_open: bool,
         /// Close the local server after this many seconds without an authenticated request.
-        #[arg(long, default_value_t = 900, value_parser = clap::value_parser!(u64).range(30..=3600))]
+        #[arg(long, default_value_t = VIEW_IDLE_SECONDS, value_parser = clap::value_parser!(u64).range(30..=3600))]
         idle_timeout: u64,
     },
     /// Print the Octocode home directory (holds the global .env, .octocoderc, skills, and caches).
     Home,
-    /// Print a key's resolved value (environment, then workspace .env, then global .env); exit 1 when unset.
+    /// List every setting with its effective value, source and default; secrets are never printed.
+    List,
+    /// Print a key's effective value, from the environment, either .env, either .octocoderc or its default; exit 1 when nothing sets it and it has no default value.
     Get {
         /// Environment key or setting path, e.g. `OCTOCODE_CLASSIFICATION_API` or `classification.api`.
         key: String,
@@ -263,7 +268,7 @@ pub(super) enum ConfigCommand {
         /// Environment key or setting path to remove, e.g. `OCTOCODE_BETA`.
         key: String,
     },
-    /// Exit 0 when a key is set (from the environment or a .env file), 1 when unset; never prints the value.
+    /// Exit 0 when a key is set in the environment, a .env file or an .octocoderc, 1 when unset; never prints the value.
     Check {
         /// Environment key or setting path, e.g. `GITHUB_TOKEN`.
         key: String,

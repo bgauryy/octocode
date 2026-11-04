@@ -66,12 +66,12 @@ function renderInterfaces(contract: Contract): string {
   const root = sections[''];
   if (!root) throw new Error('The config contract has no root section.');
   const requiredInterfaces = Object.entries(sections)
-    .filter(([path, section]) => path !== '' && section.resolved)
+    .filter(([path]) => path !== '')
     .map(([sectionPath, section]) => {
       const members = Object.entries(section.fields)
         .filter(([, field]) => !field.credential)
         .map(([key, field]) => `  ${key}: ${resolvedFieldType(field)};`);
-      for (const child of directChildren(sectionPath, sections).filter(path => sections[path]?.resolved)) {
+      for (const child of directChildren(sectionPath, sections)) {
         const key = child.slice(sectionPath.length + 1);
         members.push(`  ${key}: ${sectionInterfaceName(child, sections)};`);
       }
@@ -84,7 +84,6 @@ function renderInterfaces(contract: Contract): string {
       .filter(([, field]) => !field.credential)
       .map(([key, field]) => `  ${key}: ${resolvedFieldType(field)};`),
     ...directChildren('', sections)
-      .filter(path => sections[path]?.resolved)
       .map(path => `  ${path}: ${sectionInterfaceName(path, sections)};`),
   ];
 
@@ -125,7 +124,6 @@ export function renderTypeScript(contract: Contract): string {
     section: field.section,
     key: field.key,
     type: field.type,
-    file: field.file,
     resolved: field.resolved,
     credential: field.credential ?? false,
     description: field.description,
@@ -133,7 +131,6 @@ export function renderTypeScript(contract: Contract): string {
     env: field.env,
     defaultValue: ownDefault(field),
     values: field.values,
-    enumStyle: field.enumStyle,
     itemFormat: field.itemFormat,
   }));
 
@@ -154,7 +151,6 @@ export interface ConfigFieldSpec {
   section: string;
   key: string;
   type: ConfigFieldKind;
-  file: boolean;
   resolved: boolean;
   credential: boolean;
   description: string;
@@ -163,7 +159,6 @@ export interface ConfigFieldSpec {
   env?: ConfigEnvBinding;
   defaultValue: unknown;
   values?: readonly string[];
-  enumStyle?: 'list' | 'quotedOr';
   itemFormat?: 'path';
 }
 

@@ -1935,7 +1935,7 @@
                 "operation": "commit",
                 "owner": "fastapi",
                 "repo": "fastapi",
-                "pathPrefix": "fastapi/routing.py",
+                "path": "fastapi/routing.py",
                 "filters": {
                   "committedAt": {
                     "to": "2026-09-01T00:00:00Z"

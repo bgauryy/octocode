@@ -128,10 +128,48 @@ fn resolve_position_before(
     if let Some(hit) = resolve_position_with_grammar(file_path, content, &lines, fuzzy, deadline)? {
         return Ok(hit);
     }
-    // A miss near the line names where the symbol occurs as code, when the
-    // grammar can tell: the agent's next `line`.
-    resolve_position_from_lines(&lines, fuzzy, deadline)
-        .map_err(|error| name_code_occurrences(error, file_path, content, &fuzzy.symbol_name))
+    resolve_position_from_lines(&lines, fuzzy, deadline).or_else(|error| {
+        // A miss near the line says where the symbol occurs: the agent's next
+        // `line`. As code when the grammar can tell; a file no grammar reads
+        // has only its text, where one site is the one meant.
+        match code_occurrence_lines(file_path, content, &fuzzy.symbol_name) {
+            Some(found) => Err(name_lines(error, "as code", &found)),
+            None if Instant::now() >= deadline => Err(error),
+            None => only_text_site(&lines, fuzzy)
+                .ok_or_else(|| found_in_text(&lines, fuzzy))
+                .map_err(|found| name_lines(error, "in the file's text", &found)),
+        }
+    })
+}
+
+/// Zero-based lines that spell the name outside a line comment.
+fn found_in_text(lines: &[&str], fuzzy: &LspFuzzyPosition) -> Vec<usize> {
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line_scan::find_symbol_in_line(line, &fuzzy.symbol_name, 0).is_some())
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// The hit of the only line of the file's text that spells the name, for a
+/// `line` too far from it; an explicit `occurrence` counts on the line it
+/// named, so it means nothing here.
+fn only_text_site(lines: &[&str], fuzzy: &LspFuzzyPosition) -> Option<LspResolvedSymbol> {
+    let hint = fuzzy.line_hint.filter(|hint| *hint > 0)?;
+    if fuzzy.order_hint.unwrap_or(0) > 0 {
+        return None;
+    }
+    let [only] = found_in_text(lines, fuzzy)[..] else {
+        return None;
+    };
+    let character = line_scan::find_symbol_in_line(lines[only], &fuzzy.symbol_name, 0)?;
+    Some(line_scan::hit_for(
+        lines[only],
+        only,
+        character,
+        line_delta(hinted_line(hint), only),
+    ))
 }
 
 fn resolve_position_from_lines(
@@ -210,28 +248,26 @@ fn resolve_position_with_grammar(
     Ok(result)
 }
 
-/// `error` (a miss at or near a line) naming the lines where the symbol
-/// occurs as code, when the grammar can tell: the agent's next `line`.
-fn name_code_occurrences(error: Error, file_path: &str, content: &str, symbol_name: &str) -> Error {
+/// `error` (a miss at or near a line) naming the zero-based lines the symbol
+/// occurs on, `place` saying how it was read: the agent's next `line`. No line, no addition.
+fn name_lines(error: Error, place: &str, lines: &[usize]) -> Error {
     const LISTED: usize = 8;
-    match code_occurrence_lines(file_path, content, symbol_name) {
-        Some(lines) if !lines.is_empty() => {
-            let listed = lines
-                .iter()
-                .take(LISTED)
-                .map(|line| (line + 1).to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            let more = match lines.len().saturating_sub(LISTED) {
-                0 => String::new(),
-                n => format!(" and {n} more"),
-            };
-            Error::new(format!(
-                "{error}; as code it occurs on line(s) {listed}{more}"
-            ))
-        }
-        _ => error,
+    if lines.is_empty() {
+        return error;
     }
+    let listed = lines
+        .iter()
+        .take(LISTED)
+        .map(|line| (line + 1).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = match lines.len().saturating_sub(LISTED) {
+        0 => String::new(),
+        n => format!(" and {n} more"),
+    };
+    Error::new(format!(
+        "{error}; {place} it occurs on line(s) {listed}{more}"
+    ))
 }
 
 /// An `occurrence` past the occurrences of `symbol_name` on `line_hint`.

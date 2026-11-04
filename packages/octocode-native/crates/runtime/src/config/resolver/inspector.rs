@@ -60,7 +60,6 @@ pub(crate) fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> Conf
             .count(),
         storage_mode: output.resolved.storage.mode.as_str().to_owned(),
         config_keys: top_level_keys(&input.config_file),
-        source: output.source.clone(),
         config_path: output.config_path.clone(),
         project_config_file: input.project_config_file.path().clone(),
         project_config_path: output.project_config_path.clone(),

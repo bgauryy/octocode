@@ -1,7 +1,7 @@
 //! Fitting an image into the provider window: a side above `max` scales the
 //! whole image down by area averaging (aspect kept, never cropped), then a
 //! side below `min` is centered on a transparent PNG canvas.
-use super::invalid;
+use super::{Frame, invalid};
 use crate::id::clasify_policy;
 use crate::tools::judgment::ClassificationError;
 use octocode_contract_types::ErrorCode;
@@ -11,7 +11,7 @@ use zune_jpeg::zune_core::{colorspace::ColorSpace, options::DecoderOptions};
 /// PNG IHDR color type for 8-bit RGBA.
 const RGBA: u8 = 6;
 
-/// Returns the fitted size and its PNG bytes: each side ends within
+/// Returns the source's frame on the fitted canvas and the canvas PNG bytes: each side ends within
 /// `min..=max`, except a side the aspect ratio shrinks below `min`, which
 /// padding then lifts.
 pub(super) fn fit(
@@ -21,7 +21,7 @@ pub(super) fn fit(
     height: usize,
     min: usize,
     max: usize,
-) -> Result<(usize, usize, Vec<u8>), ClassificationError> {
+) -> Result<(Frame, Vec<u8>), ClassificationError> {
     let mut rgba = match format {
         "png" => decode_png(bytes, width, height)?,
         _ => decode_jpeg(bytes, width, height)?,
@@ -36,10 +36,10 @@ pub(super) fn fit(
         (width, height) = (scaled_width, scaled_height);
     }
     let (canvas_width, canvas_height) = (width.max(min), height.max(min));
+    let (left, top) = ((canvas_width - width) / 2, (canvas_height - height) / 2);
     let canvas = if (canvas_width, canvas_height) == (width, height) {
         rgba
     } else {
-        let (left, top) = ((canvas_width - width) / 2, (canvas_height - height) / 2);
         let mut canvas = vec![0u8; canvas_width * canvas_height * 4];
         for (row, line) in rgba.chunks_exact(width * 4).enumerate() {
             let start = ((top + row) * canvas_width + left) * 4;
@@ -47,9 +47,16 @@ pub(super) fn fit(
         }
         canvas
     };
-    Ok((
+    let frame = Frame {
         canvas_width,
         canvas_height,
+        left,
+        top,
+        width,
+        height,
+    };
+    Ok((
+        frame,
         encode_png(&canvas, canvas_width, canvas_height, RGBA)?,
     ))
 }
@@ -294,6 +301,7 @@ mod tests {
                 height: 1568,
                 bytes: exact,
                 source: None,
+                frame: None,
             }
         );
     }

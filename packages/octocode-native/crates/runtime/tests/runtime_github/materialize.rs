@@ -66,23 +66,12 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
     );
     let data = row_data(&outcome);
     assert!(data["location"]["localPath"].as_str().is_some(), "{}", data);
-    assert_eq!(data["location"]["coverage"]["state"], "partial", "{data}");
+    assert_eq!(data["location"]["coverage"]["state"], "complete", "{data}");
+    assert!(
+        data.pointer("/next/continueMaterialize").is_none(),
+        "{data}"
+    );
     let local = std::path::PathBuf::from(data["location"]["localPath"].as_str().expect("checkout"));
-    let next = &data["next"]["continueMaterialize"];
-    assert_eq!(next["kind"], "continue", "{data}");
-    assert!(next["input"]["cursor"].is_string(), "{data}");
-    let last = call(&runtime, "ghStructure", next["input"].clone())
-        .await
-        .expect("issued materialization continuation");
-    let completed = row_data(&last);
-    assert_eq!(
-        completed["location"]["coverage"]["state"], "complete",
-        "{completed}"
-    );
-    assert_eq!(
-        completed["location"]["localPath"],
-        data["location"]["localPath"]
-    );
     for name in (0..60).map(|n| format!("f{n:02}.rs")) {
         assert_eq!(
             std::fs::read_to_string(local.join(name)).expect("materialized source"),
@@ -92,8 +81,8 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
     runtime.close().await;
 }
 
-/// A materialize that lists folders below its depth without writing
-/// them is not complete, and `next.expandDepth` writes them.
+/// A materialize the caller bounds with `maxDepth` lists folders below it
+/// without writing them: not complete, and `next.expandDepth` writes them.
 #[tokio::test]
 async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
     let server = MockServer::builder().start().await;
@@ -131,7 +120,7 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"operation":"tree","owner": "a", "repo": "b", "materialize": true}),
+        json!({"operation":"tree","owner": "a", "repo": "b", "materialize": true, "maxDepth": 1}),
     )
     .await
     .expect("tree materialize");

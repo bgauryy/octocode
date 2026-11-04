@@ -56,19 +56,194 @@ async fn materialize_skips_binary_files_with_a_warning() {
         .as_str()
         .expect("location");
     assert!(std::path::Path::new(local).join("ok.rs").exists());
-    // The warning carries the count; `location.skipped` names the file.
+    // `location.skipped` names the file; a skipped binary is not a gap in
+    // what local text tools can read, so the checkout is complete.
     assert_eq!(
         out.data["location"]["skipped"],
         json!(["img.png"]),
         "{}",
         out.data
     );
-    let warnings = out.data["warnings"].to_string();
-    assert!(
-        warnings.contains("Skipped 1 unreadable file(s)"),
+    assert_eq!(
+        out.data["location"]["coverage"]["state"], "complete",
         "{}",
         out.data
     );
+    assert!(out.data.get("isPartial").is_none(), "{}", out.data);
+    assert!(out.data.get("warnings").is_none(), "{}", out.data);
+    assert!(
+        out.data["hints"][0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("1 binary file")),
+        "{}",
+        out.data
+    );
+}
+
+/// One call writes the whole selection: every level, every listing page, past
+/// what the former per-page caps stopped at, and the listing's own pages stay
+/// reachable without writing anything again.
+#[tokio::test]
+async fn one_materialize_writes_the_whole_selection_and_reports_complete() {
+    let server = MockServer::builder().start().await;
+    let tree = (0..70)
+        .map(|n| json!({"path":format!("deep/er/f{n}.rs"),"type":"blob","size":8,"sha":"0"}))
+        .chain(std::iter::once(
+            json!({"path":"deep","type":"tree","sha":"0"}),
+        ))
+        .chain(std::iter::once(
+            json!({"path":"deep/er","type":"tree","sha":"0"}),
+        ))
+        .collect::<Vec<_>>();
+    mount_json(
+        &server,
+        format!("/api/v3/repos/a/b/git/trees/{SHA}"),
+        200,
+        json!({"sha":SHA,"truncated":false,"tree":tree}),
+    )
+    .await;
+    for n in 0..70 {
+        mount_content(&server, &format!("deep/er/f{n}.rs"), "fn u(){}").await;
+    }
+    let home = crate::tools::test_support::Fixture::new();
+    let out = run_at(
+        &server,
+        json!({"operation":"tree","owner":"a","repo":"b","ref":SHA,"materialize":true,"limit":10}),
+        &home.0,
+    )
+    .await
+    .expect("materialize");
+    assert_eq!(
+        out.data["location"]["coverage"]["state"], "complete",
+        "{}",
+        out.data
+    );
+    assert!(out.data.get("isPartial").is_none(), "{}", out.data);
+    assert!(
+        out.data.pointer("/next/continueMaterialize").is_none(),
+        "{}",
+        out.data
+    );
+    let local = std::path::Path::new(out.data["location"]["localPath"].as_str().expect("path"));
+    for n in 0..70 {
+        assert!(local.join(format!("deep/er/f{n}.rs")).exists(), "f{n}");
+    }
+    let next = &out.data["next"]["nextPage"]["input"]["queries"][0];
+    assert_eq!(next["page"], 2, "{}", out.data);
+    assert!(next.get("materialize").is_none(), "{next}");
+}
+
+/// A subtree the walk could not read leaves the checkout partial, whatever it
+/// wrote of the rest.
+#[tokio::test]
+async fn a_materialize_of_a_walk_with_a_failed_subtree_is_not_complete() {
+    let server = MockServer::builder().start().await;
+    mount_listing(
+        &server,
+        "",
+        json!([
+            {"name":"a.rs","path":"a.rs","type":"file","size":8},
+            {"name":"sub","path":"sub","type":"dir"}
+        ]),
+    )
+    .await;
+    mount_content(&server, "a.rs", "fn u(){}").await;
+    wiremock::Mock::given(wiremock::matchers::path("/api/v3/repos/a/b/contents/sub"))
+        .respond_with(wiremock::ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::path_regex("/git/trees/"))
+        .respond_with(wiremock::ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    let home = crate::tools::test_support::Fixture::new();
+    let out = run_at(
+        &server,
+        json!({"operation":"tree","owner":"a","repo":"b","ref":SHA,"materialize":true}),
+        &home.0,
+    )
+    .await
+    .expect("materialize");
+    assert_eq!(
+        out.data["location"]["coverage"]["state"], "partial",
+        "{}",
+        out.data
+    );
+    assert_eq!(out.data["isPartial"], true, "{}", out.data);
+}
+
+/// Out of time, a materialize keeps what it wrote and resumes from the entry
+/// it stopped at: no file twice, none lost, and no second listing of the tree.
+#[tokio::test]
+async fn a_materialize_out_of_time_resumes_without_gaps_or_a_second_tree() {
+    use crate::tools::gh_structure::materialize::{Snapshot, materialize_tree};
+    use crate::tools::gh_structure::{EntryKind, TreeEntry};
+    let server = MockServer::builder().start().await;
+    let entries = (0..24)
+        .map(|n| TreeEntry {
+            path: format!("f{n}.rs"),
+            kind: EntryKind::File,
+            size: Some(8),
+        })
+        .collect::<Vec<_>>();
+    for n in 0..24 {
+        wiremock::Mock::given(wiremock::matchers::path(format!(
+            "/api/v3/repos/a/b/contents/f{n}.rs"
+        )))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_raw(
+                    b"fn u(){}".to_vec(),
+                    "application/vnd.github.raw; charset=utf-8",
+                )
+                .set_delay(std::time::Duration::from_millis(150)),
+        )
+        .mount(&server)
+        .await;
+    }
+    let provider = crate::tools::gh_shared::test_support::one_shot_provider(&server);
+    let home = crate::tools::test_support::Fixture::new();
+    let snapshot = Snapshot {
+        owner: "a",
+        repo: "b",
+        commit: SHA,
+        root: &home.0,
+    };
+    let mut offset = 0;
+    let mut calls = 0;
+    let local = loop {
+        calls += 1;
+        let context = octocode_github::RequestContext::with_timeout(
+            std::time::Duration::from_millis(500),
+            1024 * 1024,
+        );
+        let outcome = materialize_tree(&provider, &snapshot, &entries, offset, "", &context)
+            .await
+            .expect("page")
+            .expect("entries left");
+        let local = outcome.location["localPath"]
+            .as_str()
+            .expect("path")
+            .to_owned();
+        match outcome.next_offset {
+            Some(next) => {
+                assert!(next > offset, "{next} after {offset}: the walk progresses");
+                offset = next;
+            }
+            None => break local,
+        }
+    };
+    assert!(calls > 1, "the deadline ended the first call");
+    for n in 0..24 {
+        assert!(
+            std::path::Path::new(&local)
+                .join(format!("f{n}.rs"))
+                .exists(),
+            "f{n}"
+        );
+    }
+    let reads = server.received_requests().await.unwrap().len();
+    assert!(reads >= 24, "{reads}");
 }
 
 /// A listing leads to the read a caller makes next: the package's
@@ -148,7 +323,8 @@ async fn materialize_leads_into_the_local_copy_of_the_listed_directory() {
 #[tokio::test]
 async fn materialize_lead_skips_files_it_did_not_write() {
     let server = MockServer::builder().start().await;
-    let big_size = crate::tools::gh_structure::materialize::MATERIALIZE_FILE_BYTES + 1;
+    // Past what the call may read, by its listed size.
+    let big_size = 1u64 << 40;
     mount_listing(
         &server,
         "src",

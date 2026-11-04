@@ -1,21 +1,20 @@
 //! Walked listings kept for continuation pages, keyed by snapshot and the
 //! path policy that produced them, so page 2 onward does not walk the tree
-//! again. A stored walk is served only while every listed entry and every
-//! directory holding one keeps its size and modification time (an entry
-//! created, removed or renamed there changes the directory's time); the
+//! again. A stored walk is served only while every directory it entered and
+//! every listed entry whose metadata its rows show keeps its stamp (an entry
+//! created, removed or renamed in a directory changes the directory's); the
 //! executor then recomputes the snapshot from the submitted query and the
-//! stored rows before serving a page. The ignore rules the walk applied are
-//! watched as astSearch's scan memo watches them ([`Watch`]): each
-//! `.gitignore`/`.ignore` of the root and of every directory holding a
-//! listed entry, the rule files outside the walk and the repository markers
-//! above it, so an edited rule drops the walk even when no listed entry
-//! changed. An entry created in a directory that held no listed entry is not
-//! seen until the walk expires.
+//! stored rows before serving a page. Those stamps are the ones the walk
+//! read, taken before what they prove, so keeping a walk stats none of them.
+//! The ignore rules the walk applied are watched as astSearch's scan memo
+//! watches them ([`Watch`]): each `.gitignore`/`.ignore` of a directory it
+//! entered, the rule files outside the walk and the repository markers above
+//! it, so an edited rule drops the walk even when no listed entry changed.
 use super::super::page_memo::{
-    PageMemo, Proof, Watch, directory_ignore_inputs, repository_markers,
+    PageMemo, Proven, Watch, directory_ignore_inputs, repository_markers,
 };
-use crate::tools::source::Link;
-use std::{any::Any, sync::Arc, time::SystemTime};
+use octocode_engine::stamp::{Link, Proof};
+use std::{sync::Arc, time::SystemTime};
 
 /// A listed entry's size and modification time as `symlink_metadata` reads
 /// them now (a directory's size is 0).
@@ -33,26 +32,6 @@ pub(super) struct Seen<'a> {
     pub path: &'a std::path::Path,
     pub size: u64,
     pub modified: Option<SystemTime>,
-}
-
-impl<'a> Seen<'a> {
-    /// A walked entry: its `symlink_metadata` size (0 for a directory) and
-    /// exact modification time.
-    pub(super) fn walked(
-        path: &'a std::path::Path,
-        entry: &octocode_engine::types::FileSystemEntry,
-    ) -> Self {
-        let directory = entry.entry_type == octocode_engine::types::FileKind::Directory;
-        Self {
-            path,
-            size: if directory {
-                0
-            } else {
-                u64::try_from(entry.size.unwrap_or(0)).unwrap_or(0)
-            },
-            modified: entry.modified_time,
-        }
-    }
 }
 
 /// The proof of `listed` entries, every directory holding one, the walked
@@ -105,54 +84,76 @@ pub(super) fn proof(
         .then_some(proof)
 }
 
-struct Walk {
-    proof: Proof,
-    walk: Arc<dyn Any + Send + Sync>,
+/// The proof of a walk of `root`: the stamps it read of the directories it
+/// `walked` and of its `listed` rows, the ignore files those directories'
+/// listings showed and the rule files outside the walk. `None` when an ignore
+/// file is one no stamp can watch: a link or other non-file, or one the
+/// policy withholds. A directory the walk took from a resume cursor has no
+/// stamp of this walk's and is stamped now, like a root that is a file.
+pub(super) fn walk_proof(
+    root: &std::path::Path,
+    paths: &crate::policy::path::PathPolicy,
+    walked: &[octocode_engine::types::WalkedDir],
+    listed: Vec<(std::path::PathBuf, octocode_engine::stamp::SourceStamp)>,
+) -> Option<Proof> {
+    let mut rules = octocode_engine::search::walk::external_ignore_inputs(root);
+    let mut unstamped = Vec::new();
+    let mut taken = listed;
+    if !walked.iter().any(|dir| dir.path == root) {
+        unstamped.push(root.to_path_buf());
+    }
+    for dir in walked {
+        match dir.stamp {
+            Some(stamp) => taken.push((dir.path.clone(), stamp)),
+            None => unstamped.push(dir.path.clone()),
+        }
+        for (file, regular) in &dir.ignore_files {
+            if !regular || paths.validate_read(file).is_err() {
+                return None;
+            }
+            rules.push(file.clone());
+        }
+        if dir.holds_git && dir.path != root {
+            rules.extend(octocode_engine::search::walk::external_ignore_inputs(
+                &dir.path,
+            ));
+        }
+    }
+    Some(
+        Watch {
+            root,
+            sources: &unstamped,
+            rules: &rules,
+            markers: &repository_markers(root),
+        }
+        .capture(Link::Itself, None)?
+        .with_taken(Link::Itself, taken),
+    )
 }
 
-/// Stored walks, weighed by the bytes of their listed rows against the one
-/// process budget: a walk too large for all of it is not kept.
-static STORE: PageMemo<Walk> = PageMemo::new();
+/// Stored walks, weighed by the heap they and their proofs hold against the
+/// one process budget: a walk too large for all of it is not kept.
+static STORE: PageMemo<Proven<super::walked::Walked>> = PageMemo::new();
 
 /// The stored walk for `snapshot` when its entries are unchanged; a changed
 /// one is evicted.
-pub(super) fn get<T: Any + Send + Sync>(snapshot: &str, policy: &str) -> Option<Arc<T>> {
-    STORE
-        .get_current(
-            snapshot,
-            policy,
-            |stored| (Arc::clone(&stored.walk), stored.proof.clone()),
-            Some,
-        )?
-        .downcast::<T>()
-        .ok()
+pub(super) fn get(snapshot: &str, policy: &str) -> Option<Arc<super::walked::Walked>> {
+    STORE.current(snapshot, policy)
 }
 
-/// A stored walk: the entries it listed, whose stamps keep it current.
-pub(super) trait Listed: Any + Send + Sync {
-    fn sources(&self) -> Vec<Seen<'_>>;
-}
-
-/// Keep `walk` of `root` for the pages after the first, stamped by its
-/// listed entries.
-pub(super) fn put<T: Listed>(
+/// Keep `walk` of `root` for the pages after the first.
+pub(super) fn put(
     snapshot: String,
     policy: String,
     paths: &crate::policy::path::PathPolicy,
     root: &std::path::Path,
-    walk: &Arc<T>,
+    walk: &Arc<super::walked::Walked>,
 ) {
-    let listed = walk.sources();
-    // Each listed row's path and its stamp, what the stored walk holds per row.
-    let bytes = listed
-        .iter()
-        .map(|seen| seen.path.as_os_str().len() + std::mem::size_of::<Seen<'_>>())
-        .sum::<usize>();
-    let Some(proof) = proof(root, paths, listed, &[]) else {
+    let Some(proof) = walk.proof(root, paths) else {
         return;
     };
-    let walk: Arc<dyn Any + Send + Sync> = Arc::clone(walk) as _;
-    STORE.put(snapshot, policy, bytes, Walk { proof, walk });
+    let bytes = walk.weight() + proof.weight();
+    STORE.put_proven(snapshot, policy, bytes, proof, Arc::clone(walk));
 }
 
 pub(super) fn evict(snapshot: &str) {
@@ -162,21 +163,28 @@ pub(super) fn evict(snapshot: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::source::StampSet;
     use std::path::PathBuf;
     use std::time::Duration;
 
-    /// A walk that listed one file.
-    struct One(PathBuf);
-    impl Listed for One {
-        fn sources(&self) -> Vec<Seen<'_>> {
-            let (size, modified) = observed(&self.0).expect("listed file");
-            vec![Seen {
-                path: self.0.as_path(),
-                size,
-                modified,
-            }]
-        }
+    /// Walks of one listed file, stored as `put` stores a walk.
+    static ONES: PageMemo<Proven<PathBuf>> = PageMemo::new();
+
+    fn put_one(snapshot: &str, policy: &str, root: &std::path::Path, file: &std::path::Path) {
+        let (size, modified) = observed(file).expect("listed file");
+        let listed = vec![Seen {
+            path: file,
+            size,
+            modified,
+        }];
+        let paths = crate::tools::test_support::workspace_policy(root);
+        let proof = proof(root, &paths, listed, &[]).expect("proof");
+        ONES.put_proven(
+            snapshot.to_owned(),
+            policy.to_owned(),
+            file.as_os_str().len(),
+            proof,
+            Arc::new(file.to_path_buf()),
+        );
     }
 
     #[test]
@@ -185,20 +193,14 @@ mod tests {
         let file = root.path().join("a.txt");
         std::fs::write(&file, "x").expect("file");
         let policy = "p".to_owned();
-        put(
-            "memo-test".into(),
-            policy.clone(),
-            &crate::tools::test_support::workspace_policy(root.path()),
-            root.path(),
-            &Arc::new(One(file.clone())),
-        );
-        let stored = get::<One>("memo-test", &policy);
-        assert_eq!(stored.as_deref().map(|one| &one.0), Some(&file));
-        assert!(get::<One>("memo-test", "other policy").is_none());
+        put_one("memo-test", &policy, root.path(), &file);
+        let stored = ONES.current("memo-test", &policy);
+        assert_eq!(stored.as_deref(), Some(&file));
+        assert!(ONES.current("memo-test", "other policy").is_none());
         // A sibling created after the walk changes the directory's time.
         std::thread::sleep(Duration::from_millis(20));
         std::fs::write(root.path().join("b.txt"), "y").expect("newcomer");
-        assert!(get::<One>("memo-test", &policy).is_none());
+        assert!(ONES.current("memo-test", &policy).is_none());
     }
 
     /// An in-place edit of an ignore file beside the listed entries (a
@@ -212,21 +214,15 @@ mod tests {
         let rules = root.path().join(".gitignore");
         std::fs::write(&rules, "b.txt\n").expect("rules");
         let policy = "p".to_owned();
-        put(
-            "memo-rules".into(),
-            policy.clone(),
-            &crate::tools::test_support::workspace_policy(root.path()),
-            root.path(),
-            &Arc::new(One(file.clone())),
-        );
-        assert!(get::<One>("memo-rules", &policy).is_some());
+        put_one("memo-rules", &policy, root.path(), &file);
+        assert!(ONES.current("memo-rules", &policy).is_some());
         std::thread::sleep(Duration::from_millis(20));
         std::fs::OpenOptions::new()
             .append(true)
             .open(&rules)
             .and_then(|mut rules| std::io::Write::write_all(&mut rules, b"c.txt\n"))
             .expect("edit rules in place");
-        assert!(get::<One>("memo-rules", &policy).is_none());
+        assert!(ONES.current("memo-rules", &policy).is_none());
     }
 
     #[test]
@@ -234,7 +230,7 @@ mod tests {
         let root = tempfile::tempdir().expect("root");
         let file = root.path().join("a.txt");
         std::fs::write(&file, "ab\n").expect("initial source");
-        let stamp = StampSet::capture([file.clone()], Link::Itself, None).expect("stamp");
+        let stamp = Proof::capture([file.clone()], Link::Itself, None).expect("stamp");
         let old_time = std::fs::metadata(&file)
             .expect("metadata")
             .modified()
@@ -244,10 +240,7 @@ mod tests {
             .expect("file")
             .set_times(std::fs::FileTimes::new().set_modified(old_time))
             .expect("restore mtime");
-        assert!(
-            !stamp.unchanged(),
-            "content changed with size and mtime intact"
-        );
+        assert!(!stamp.holds(), "content changed with size and mtime intact");
     }
 
     #[test]

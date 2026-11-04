@@ -11,6 +11,7 @@ pub(in super::super) struct Work {
     pub(in super::super) walks: AtomicUsize,
     pub(in super::super) stamped: AtomicUsize,
     pub(in super::super) text_scans: AtomicUsize,
+    pub(in super::super) ignored_walks: AtomicUsize,
     pub(in super::super) canonicalized: AtomicUsize,
 }
 

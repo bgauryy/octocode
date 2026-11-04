@@ -73,7 +73,7 @@ pub(super) fn evaluate_row(
         crate::tools::selection::serialized_chars(&state) > max_state_chars(false)
     });
     let state = super::rows::contextual_state(&state, row.context.as_deref());
-    let judged = dispatcher.handle().block_on(evaluator.evaluate_once(
+    let mut judged = dispatcher.handle().block_on(evaluator.evaluate_once(
         evaluations,
         EvaluationInput {
             state: &state,
@@ -85,6 +85,11 @@ pub(super) fn evaluate_row(
         budget,
         gate,
     ));
+    // Jev's boxes are fractions of the fitted canvas; callers also get them
+    // on the original image.
+    if let (Ok(judged), Some(assets)) = (&mut judged, &assets) {
+        assets.attach_source_boxes(&row.questions, &mut judged.answers);
+    }
     RowOutcome::Judgment {
         judged,
         captured,

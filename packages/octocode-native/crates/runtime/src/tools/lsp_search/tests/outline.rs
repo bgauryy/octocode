@@ -169,7 +169,7 @@ fn locations_are_compact_camel_case_and_one_based() {
         serde_json::json!({"startLine": 6, "startCharacter": 4, "endLine": 6})
     );
     assert!(public.get("contentStartLine").is_none());
-    assert_eq!(public["content"], "6\tpub fn greet() {}\n", "{public}");
+    assert_eq!(public["content"], "6\tpub fn greet() {}", "{public}");
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn widened_content_reports_its_first_line_and_single_file_pages_hoist_the_path()
     }));
     assert_eq!(widened["displayRange"]["startLine"], 6);
     // The gutter states where widened content begins.
-    assert_eq!(widened["content"], "5\ta\n6\tb\n7\tc\n", "{widened}");
+    assert_eq!(widened["content"], "5\ta\n6\tb\n7\tc", "{widened}");
     assert!(widened.get("contentStartLine").is_none(), "{widened}");
 }
 

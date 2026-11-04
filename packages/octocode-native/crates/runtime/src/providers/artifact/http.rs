@@ -27,6 +27,8 @@ pub struct ArtifactHttpRequest {
     pub accept: &'static str,
     pub authorization: Option<SecretString>,
     pub(crate) dns_pin: Option<DnsPin>,
+    /// Asks the registry to confirm a kept answer instead of sending it again.
+    pub(crate) validator: Option<(reqwest::header::HeaderName, String)>,
 }
 
 impl fmt::Debug for ArtifactHttpRequest {
@@ -56,7 +58,12 @@ pub(crate) struct DnsPin {
 pub struct ArtifactHttpResponse {
     pub status: u16,
     pub body: Vec<u8>,
+    /// What says how the answer may be reused ([`FRESHNESS_HEADERS`]).
+    pub headers: Vec<(String, String)>,
 }
+
+/// The response headers a kept registry answer needs.
+pub(crate) const FRESHNESS_HEADERS: [&str; 4] = ["cache-control", "age", "etag", "last-modified"];
 
 /// Takes one body chunk; `Break` ends the read before the body does.
 pub type BodySink<'a> = &'a mut (dyn FnMut(&[u8]) -> ControlFlow<()> + Send);

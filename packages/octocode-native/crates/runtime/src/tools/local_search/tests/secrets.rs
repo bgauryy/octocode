@@ -2,7 +2,9 @@ use super::*;
 use octocode_contract_types::ErrorCode;
 
 mod failures;
+mod key_formats;
 mod ranking;
+mod sources;
 
 /// A page's cost follows the rows it shows: redacting the scan reads no file
 /// again, so a hit the page never shows costs no second read. A secret in a

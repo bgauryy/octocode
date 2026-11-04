@@ -34,6 +34,7 @@ wiremock = { workspace = true, optional = true }
 test-support = ["dep:wiremock"]
 
 [dev-dependencies]
+flate2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "io-util"] }
 wiremock = { workspace = true }

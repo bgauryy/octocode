@@ -4,11 +4,11 @@ use std::error::Error;
 use std::fmt::Write as _;
 
 pub(super) struct Field<'a> {
+    pub(super) section_title: &'a str,
     pub(super) path: String,
     pub(super) section: &'a str,
     pub(super) key: &'a str,
     pub(super) definition: &'a Map<String, Value>,
-    pub(super) file: bool,
     pub(super) resolved: bool,
 }
 
@@ -22,8 +22,6 @@ pub(super) fn fields<'a>(contract: &'a Value) -> Result<Vec<Field<'a>>, Box<dyn 
     let mut output = Vec::new();
     for (section_path, section_value) in sections {
         let section = object(section_value, &format!("sections.{section_path}"))?;
-        let file = bool_value(section.get("file"), false, "section.file")?;
-        let section_resolved = bool_value(section.get("resolved"), false, "section.resolved")?;
         let definitions = object(
             section
                 .get("fields")
@@ -37,6 +35,10 @@ pub(super) fn fields<'a>(contract: &'a Value) -> Result<Vec<Field<'a>>, Box<dyn 
             )?;
             let credential = bool_value(definition.get("credential"), false, "field.credential")?;
             output.push(Field {
+                section_title: section
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
                 path: if section_path.is_empty() {
                     key.clone()
                 } else {
@@ -45,8 +47,7 @@ pub(super) fn fields<'a>(contract: &'a Value) -> Result<Vec<Field<'a>>, Box<dyn 
                 section: section_path,
                 key,
                 definition,
-                file,
-                resolved: section_resolved && !credential,
+                resolved: !credential,
             });
         }
     }
@@ -182,9 +183,7 @@ pub(super) fn rust_type_name(
     section_path: &str,
     section: &Map<String, Value>,
 ) -> Result<String, Box<dyn Error>> {
-    let base = if let Some(name) = section.get("rustTypeName") {
-        string(name, &format!("sections.{section_path}.rustTypeName"))?.to_owned()
-    } else if let Some(name) = section.get("typeName") {
+    let base = if let Some(name) = section.get("typeName") {
         string(name, &format!("sections.{section_path}.typeName"))?.to_owned()
     } else {
         to_pascal(section_path)

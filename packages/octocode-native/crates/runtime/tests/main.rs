@@ -18,6 +18,7 @@ mod support;
 
 mod auth_discovery;
 mod contract_field_effects;
+mod field_effect_coverage;
 mod lock_poison_policy;
 mod runtime_artifact_search;
 mod runtime_ast_page_walks;

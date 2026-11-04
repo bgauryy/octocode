@@ -2,7 +2,6 @@
   "$schema": "./config-contract.schema.json",
   "config": {
     "fileName": ".octocoderc",
-    "schemaVersion": 1,
     "runtimeSurfaces": [
       "mcp",
       "cli"
@@ -45,52 +44,145 @@
       "dotenv": "never",
       "description": "Python executable override"
     },
-    "GH_TOKEN": {
-      "dotenv": "all",
-      "tokenPriority": 0,
-      "description": "GitHub CLI token"
-    },
-    "GITHUB_TOKEN": {
-      "dotenv": "all",
-      "tokenPriority": 1,
-      "description": "GitHub Actions token"
-    },
     "TAVILY_API_KEY": {
       "dotenv": "all",
       "credential": true,
-      "documentation": true,
+      "type": "key",
+      "displayDefault": "unset",
+      "group": "Web search",
+      "docsUrl": "https://app.tavily.com/",
       "description": "Tavily search API credential used by the octocode-brainstorming skill."
     },
     "EXA_API_KEY": {
       "dotenv": "all",
       "credential": true,
-      "documentation": true,
+      "type": "key",
+      "displayDefault": "unset",
+      "group": "Web search",
+      "docsUrl": "https://dashboard.exa.ai/",
       "description": "Exa search API credential used by the octocode-brainstorming skill."
     },
     "SERPER_API_KEY": {
       "dotenv": "all",
       "credential": true,
-      "documentation": true,
+      "type": "key",
+      "displayDefault": "unset",
+      "group": "Web search",
+      "docsUrl": "https://serper.dev/",
       "description": "Serper search API credential used by the octocode-brainstorming skill."
+    },
+    "TAVILY_BASE_URL": {
+      "dotenv": "home",
+      "type": "url",
+      "displayDefault": "https://api.tavily.com",
+      "group": "Web search",
+      "description": "Tavily API root; receives TAVILY_API_KEY. Home-only, so a repository cannot redirect your key."
+    },
+    "EXA_BASE_URL": {
+      "dotenv": "home",
+      "type": "url",
+      "displayDefault": "https://api.exa.ai",
+      "group": "Web search",
+      "description": "Exa API root; receives EXA_API_KEY. Home-only, so a repository cannot redirect your key."
+    },
+    "SERPER_BASE_URL": {
+      "dotenv": "home",
+      "type": "url",
+      "displayDefault": "https://google.serper.dev",
+      "group": "Web search",
+      "description": "Serper API root; receives SERPER_API_KEY. Home-only, so a repository cannot redirect your key."
+    },
+    "GH_TOKEN": {
+      "dotenv": "all",
+      "tokenPriority": 0,
+      "credential": true,
+      "type": "key",
+      "displayDefault": "unset (octocode auth login also works)",
+      "group": "GitHub",
+      "description": "GitHub CLI token"
+    },
+    "GITHUB_TOKEN": {
+      "dotenv": "all",
+      "tokenPriority": 1,
+      "credential": true,
+      "type": "key",
+      "displayDefault": "unset (octocode auth login also works)",
+      "group": "GitHub",
+      "description": "GitHub Actions token"
     },
     "SCRAPING_ANT": {
       "dotenv": "all",
       "credential": true,
-      "documentation": true,
+      "type": "key",
+      "displayDefault": "unset",
+      "group": "Scraping",
+      "docsUrl": "https://app.scrapingant.com/",
       "description": "ScrapingAnt API credential used by the octocode-scraping skill."
+    },
+    "HTTPS_PROXY": {
+      "dotenv": "never",
+      "credential": true,
+      "type": "url",
+      "displayDefault": "unset",
+      "description": "Proxy for HTTPS requests and clone git. Shell, CI or MCP env block only."
+    },
+    "HTTP_PROXY": {
+      "dotenv": "never",
+      "credential": true,
+      "type": "url",
+      "displayDefault": "unset",
+      "description": "Proxy for HTTP requests and clone git. Shell, CI or MCP env block only."
+    },
+    "ALL_PROXY": {
+      "dotenv": "never",
+      "credential": true,
+      "type": "url",
+      "displayDefault": "unset",
+      "description": "Proxy for every protocol. Shell, CI or MCP env block only."
+    },
+    "NO_PROXY": {
+      "dotenv": "never",
+      "type": "string",
+      "displayDefault": "unset",
+      "description": "Hosts that skip the proxy. Shell, CI or MCP env block only."
+    },
+    "SSL_CERT_FILE": {
+      "dotenv": "never",
+      "type": "path",
+      "displayDefault": "the OS trust store",
+      "description": "Extra PEM certificates for native HTTP clients and clone git. Shell, CI or MCP env block only."
+    },
+    "SSL_CERT_DIR": {
+      "dotenv": "never",
+      "type": "path",
+      "displayDefault": "the OS trust store",
+      "description": "Directories of extra PEM certificates. Shell, CI or MCP env block only."
+    },
+    "GIT_SSL_CAINFO": {
+      "dotenv": "never",
+      "description": "CA bundle for clone git. Shell, CI or MCP env block only."
+    },
+    "GIT_SSL_CAPATH": {
+      "dotenv": "never",
+      "description": "CA directory for clone git. Shell, CI or MCP env block only."
+    },
+    "CURL_CA_BUNDLE": {
+      "dotenv": "never",
+      "description": "CA bundle for clone git. Shell, CI or MCP env block only."
     },
     "OCTOCODE_GITHUB_CLIENT_ID": {
       "dotenv": "home",
-      "configSource": true,
-      "description": "GitHub OAuth client override"
+      "type": "string",
+      "displayDefault": "the built-in GitHub app",
+      "description": "GitHub OAuth client override, for GitHub Enterprise."
     },
     "OCTOCODE_HOME": {
-      "documentation": true,
       "dotenv": "never",
+      "type": "path",
+      "displayDefault": "~/.octocode",
       "description": "Overrides the Octocode configuration directory (default: <os-home>/.octocode)"
     },
     "OCTOCODE_CARGO": {
-      "documentation": true,
       "dotenv": "home",
       "description": "Override the cargo executable used for Rust dependency-graph analysis."
     }
@@ -98,15 +190,11 @@
   "sections": {
     "": {
       "title": "Configuration",
-      "file": true,
-      "resolved": true,
       "fields": {}
     },
     "github": {
       "title": "GitHub API",
       "typeName": "GitHub",
-      "file": true,
-      "resolved": true,
       "fields": {
         "apiUrl": {
           "type": "url",
@@ -117,21 +205,11 @@
             "dotenv": "home",
             "normalize": "trim"
           }
-        },
-        "graphqlEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Use GitHub GraphQL where supported; false forces REST-only access.",
-          "env": {
-            "name": "OCTOCODE_GITHUB_GRAPHQL"
-          }
         }
       }
     },
     "local": {
       "title": "Local tools",
-      "file": true,
-      "resolved": true,
       "fields": {
         "enabled": {
           "type": "boolean",
@@ -166,7 +244,7 @@
         "workspaceRoot": {
           "type": "path",
           "default": null,
-          "displayDefault": "process.cwd()",
+          "displayDefault": "the working directory",
           "description": "Optional absolute or home-relative workspace root.",
           "env": {
             "name": "WORKSPACE_ROOT",
@@ -178,12 +256,11 @@
     },
     "tools": {
       "title": "Tool availability",
-      "file": true,
-      "resolved": true,
       "fields": {
         "enabled": {
           "type": "stringArray",
           "default": null,
+          "displayDefault": "unset (every tool)",
           "description": "Strict MCP tool allowlist; other MCP prerequisites still apply. CLI exposes every tool in the build.",
           "env": {
             "name": "TOOLS_TO_RUN"
@@ -192,6 +269,7 @@
         "disabled": {
           "type": "stringArray",
           "default": null,
+          "displayDefault": "unset (none)",
           "description": "Tools removed from MCP discovery and admission. CLI exposes every tool in the build.",
           "env": {
             "name": "DISABLE_TOOLS"
@@ -211,8 +289,6 @@
     },
     "network": {
       "title": "Network",
-      "file": true,
-      "resolved": true,
       "fields": {
         "allowPrivateRegistry": {
           "type": "boolean",
@@ -228,19 +304,7 @@
     },
     "lsp": {
       "title": "LSP",
-      "file": true,
-      "resolved": true,
       "fields": {
-        "configPath": {
-          "type": "path",
-          "default": null,
-          "description": "Optional path to a custom lsp-servers.json.",
-          "env": {
-            "name": "OCTOCODE_LSP_CONFIG",
-            "dotenv": "home",
-            "normalize": "trim"
-          }
-        },
         "autoInstall": {
           "type": "enum",
           "values": [
@@ -255,16 +319,6 @@
             "normalize": "lower"
           }
         },
-        "cacheDir": {
-          "type": "path",
-          "default": null,
-          "description": "Directory for managed language-server installs; default <octocode home>/lsp.",
-          "env": {
-            "name": "OCTOCODE_LSP_CACHE_DIR",
-            "dotenv": "home",
-            "normalize": "trim"
-          }
-        },
         "trustProjectConfig": {
           "type": "boolean",
           "default": false,
@@ -272,14 +326,6 @@
           "env": {
             "name": "OCTOCODE_TRUST_PROJECT_LSP_CONFIG",
             "dotenv": "home"
-          }
-        },
-        "trace": {
-          "type": "boolean",
-          "default": false,
-          "description": "Emit per-call LSP phase timings, completion counts, and the answering server's source, readiness, and advertised operations on stderr, outside tool results. Includes no source text, paths, or credentials.",
-          "env": {
-            "name": "OCTOCODE_LSP_TRACE"
           }
         },
         "prewarm": {
@@ -299,8 +345,6 @@
     },
     "output": {
       "title": "Output",
-      "file": true,
-      "resolved": true,
       "fields": {
         "redactEmails": {
           "type": "boolean",
@@ -316,39 +360,26 @@
     },
     "storage": {
       "title": "Runtime storage",
-      "file": true,
-      "resolved": true,
       "fields": {
         "mode": {
           "type": "enum",
           "typeName": "StorageMode",
-          "enumStyle": "quotedOr",
           "values": [
             "persistent",
             "memory"
           ],
-          "description": "Persistent saves continuation state to disk; memory retains it only in the current runtime. Fresh requests recompute results. Explicit graph snapshots are outputs; interrupted extraction checkpoints follow this setting.",
+          "description": "Persistent saves continuation state and provider answers to disk; memory retains them only in the current runtime. Fresh local requests recompute results; GitHub and registry answers repeat as their origin allows. Explicit graph snapshots are outputs; interrupted extraction checkpoints follow this setting.",
           "env": {
             "name": "OCTOCODE_STORAGE_MODE",
             "dotenv": "home",
             "normalize": "lower",
             "workspaceNarrowsTo": "memory"
           }
-        },
-        "stats": {
-          "type": "boolean",
-          "default": false,
-          "description": "Write stats.json on flush; stats remain in memory either way.",
-          "env": {
-            "name": "OCTOCODE_ENABLE_STATS"
-          }
         }
       }
     },
     "classification": {
       "title": "Classification provider",
-      "file": true,
-      "resolved": true,
       "fields": {
         "api": {
           "type": "string",
@@ -360,21 +391,23 @@
             "dotenv": "all",
             "normalize": "trim"
           },
-          "displayDefault": "unset",
+          "displayDefault": "unset (classification off)",
+          "group": "Classification",
+          "docsUrl": "https://docs.typesafe.ai/introduction",
           "notes": "Credential values are omitted from resolved configuration and diagnostics."
         },
         "apiHost": {
           "type": "url",
           "default": null,
-          "credential": true,
-          "description": "Optional override of the classification provider's default API root.",
+          "description": "Classification provider API root, for a proxy, gateway or compatible provider that serves the same API.",
           "env": {
             "name": "OCTOCODE_CLASSIFICATION_API_HOST",
             "dotenv": "home",
             "normalize": "trim"
           },
-          "displayDefault": "built-in provider default (https://api.typesafe.ai)",
-          "notes": "Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback."
+          "displayDefault": "https://api.typesafe.ai",
+          "group": "Classification",
+          "notes": "Calls require HTTPS except on loopback, and an API root with no path. Home-only, so a repository cannot redirect your key."
         },
         "model": {
           "type": "string",
@@ -385,7 +418,8 @@
             "dotenv": "all",
             "normalize": "trim"
           },
-          "displayDefault": "built-in provider default (jev-latest)",
+          "displayDefault": "jev-latest",
+          "group": "Classification",
           "notes": "Pin an exact model (for example jev-1.13.0) for reproducible results; an alias can change between fresh evaluations."
         }
       }

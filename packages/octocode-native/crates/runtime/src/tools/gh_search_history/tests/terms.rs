@@ -129,7 +129,7 @@ fn rest_commit_window_keeps_plain_inclusive_timestamp_bounds() {
     let filters =
         json!({"committedAt":{"from":"2024-01-01T00:00:00+02:00","to":"2024-02-01T00:00:00Z"}});
     let q = serde_json::from_value(
-        json!({"operation":"commit","owner":"o","repo":"r","pathPrefix":"src","filters":filters}),
+        json!({"operation":"commit","owner":"o","repo":"r","path":"src","filters":filters}),
     )
     .expect("query");
     assert_eq!(
@@ -157,7 +157,7 @@ fn legacy_aliases_and_cross_operation_filters_are_rejected() {
     }
     for row in [
         json!({"operation":"commit","keywords":["fix"]}),
-        json!({"operation":"commit","owner":"o","repo":"r","keywords":["fix"],"pathPrefix":"src"}),
+        json!({"operation":"commit","owner":"o","repo":"r","keywords":["fix"],"path":"src"}),
     ] {
         assert!(serde_json::from_value::<GhSearchHistoryQuery>(row).is_err());
     }

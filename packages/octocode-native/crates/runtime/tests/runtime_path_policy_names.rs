@@ -124,9 +124,9 @@ fn runtime(workspace: &Workspace) -> ToolRuntime {
     })
     .collect();
     // Outside the workspace, so the walks never list it.
-    let config = workspace.home.join("lsp.json");
+    let config = workspace.home.join("lsp-servers.json");
     std::fs::write(&config, json!({"languageServers": servers}).to_string()).expect("lsp config");
-    workspace.runtime(&[("OCTOCODE_LSP_CONFIG", config.to_string_lossy().into_owned())])
+    workspace.runtime(&[])
 }
 
 /// The one-file query each tool takes for `path`.

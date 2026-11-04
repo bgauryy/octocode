@@ -1,6 +1,5 @@
 //! A match page's continuations: its file, match and scan pages, the value
-//! expansions, the read of its top hits, and the terminal end of a query
-//! some grammar of the scope does not compile.
+//! expansions and the read of its top hits.
 use super::query::MatchQuery;
 use super::query::Move;
 use super::reads::read_top_hits;
@@ -13,29 +12,6 @@ use octocode_contract_types::{
     AstSearchChannel, AstSearchQuerySyntaxTree, AstSearchQuerySyntaxTreeOperation, ErrorCode,
 };
 use serde_json::{Value, json};
-
-/// Files whose grammar the query does not compile in are on no page of any
-/// call with this query: a terminal limit (their diagnostics name them and
-/// the repair). When one grammar of the scope compiles it, `narrowScope`
-/// is the same query over that grammar's files alone, a result with no such
-/// gap.
-pub(super) fn compile_failed_end(
-    q: MatchQuery<'_>,
-    scope: &Scope,
-    out: &mut Value,
-    _snapshot: &str,
-) {
-    crate::response::paging::terminal_limit(
-        out,
-        crate::response::paging::PartialReason::CompileFailed,
-        &[],
-    );
-    if let Some(language) = scope.inferred.as_deref().filter(|_| q.language().is_none()) {
-        let row = crate::response::result::with_changes(q.to_value(), &json!({"parser": language}));
-        out["calls"]["narrowScope"] =
-            crate::response::result::restart_query(ToolId::AstSearch, &row);
-    }
-}
 
 /// `next` pages and the scan expansion; the related capture expansion and
 /// read of the top file's hits.
@@ -138,6 +114,7 @@ pub(super) fn tree_lead(
     // One bounded page: the nodes at `line` (the statement that spells the
     // query's anchor), else the file's first nodes, with the rest a page on.
     let tree = AstSearchQuerySyntaxTree {
+        include_provenance: None,
         line: line.and_then(std::num::NonZeroU64::new),
         main_goal: None,
         named_only: true,

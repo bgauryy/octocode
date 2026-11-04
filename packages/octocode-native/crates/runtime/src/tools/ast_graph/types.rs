@@ -112,6 +112,31 @@ pub(crate) struct Heritage {
     pub target: String,
     pub line: u32,
 }
+/// A file's argument scan, counted before linking drops what nothing links.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ArgumentCounts {
+    pub sites: u64,
+    pub groups: u64,
+    pub slots: u64,
+    pub direct_references: u64,
+    pub non_reference_values: u64,
+    pub unsupported_slots: u64,
+    pub unsupported_groups: u64,
+}
+
+impl ArgumentCounts {
+    pub(crate) fn add(&mut self, other: Self) {
+        self.sites += other.sites;
+        self.groups += other.groups;
+        self.slots += other.slots;
+        self.direct_references += other.direct_references;
+        self.non_reference_values += other.non_reference_values;
+        self.unsupported_slots += other.unsupported_slots;
+        self.unsupported_groups += other.unsupported_groups;
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FileFacts {
     pub source: super::graph::capture::CapturedSource,
@@ -125,7 +150,10 @@ pub(crate) struct FileFacts {
     /// Line of each linked re-export statement (named or `*`), by target.
     pub reexport_lines: Vec<(String, u32)>,
     pub calls: Vec<Call>,
+    /// The sites projection reads: only reference and unsupported slots and
+    /// unsupported groups ([`Self::argument_counts`] has the whole scan).
     pub argument_sites: Vec<octocode_engine::graph::GraphFactArgumentSite>,
+    pub argument_counts: ArgumentCounts,
     pub argument_scan_complete: bool,
     /// Base-type relations of this file's declarations.
     pub heritage: Vec<Heritage>,
@@ -159,6 +187,18 @@ impl FileFacts {
         self.heritage.shrink_to_fit();
     }
 
+    /// Keeps what publication still reads once the tables are projected: the
+    /// source proof and the argument counts.
+    pub(crate) fn release_projected(&mut self) {
+        *self = Self {
+            digest: std::mem::take(&mut self.digest),
+            stamp: self.stamp,
+            argument_counts: self.argument_counts,
+            argument_scan_complete: self.argument_scan_complete,
+            ..Self::default()
+        };
+    }
+
     /// Whether `line` lies in code compiled only under test.
     pub(crate) fn test_scoped(&self, line: u32) -> bool {
         self.test_lines
@@ -171,6 +211,8 @@ impl FileFacts {
 /// codes, so diagnostics sort as their stored text does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum DiagnosticCode {
+    /// The one default prune left out this directory.
+    DefaultExcluded,
     ParseRecovery,
     /// oxc could not parse a JS/TS file; the tree-sitter lane read it.
     ParserFallback,
@@ -186,6 +228,7 @@ impl DiagnosticCode {
     /// The code a snapshot stores and graphQuery `diagnostics` returns.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::DefaultExcluded => "default-excluded",
             Self::ParseRecovery => "parse-recovery",
             Self::ParserFallback => "parser-fallback",
             Self::PathPolicyWithheld => "path-policy-withheld",

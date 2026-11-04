@@ -76,7 +76,7 @@ async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_cha
         } else {
             input
                 .env
-                .insert("OCTOCODE_ENABLE_STATS".into(), "true".into());
+                .insert("OCTOCODE_REDACT_EMAILS".into(), "true".into());
         }
         let other = ToolRuntime::new(input).expect("other runtime");
         let error = other

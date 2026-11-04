@@ -217,7 +217,12 @@ fn filler(count: usize) -> String {
     "// filler\n".repeat(count)
 }
 
-fn anchored(file_name: &str, source: &str, symbol_name: &str, line_hint: u32) -> crate::error::Result<u32> {
+fn anchored(
+    file_name: &str,
+    source: &str,
+    symbol_name: &str,
+    line_hint: u32,
+) -> crate::error::Result<u32> {
     resolve_position_in_file_content(file_name, source, &fuzzy(symbol_name, Some(line_hint)))
         .map(|hit| hit.found_at_line)
 }
@@ -268,7 +273,10 @@ fn a_far_line_never_chooses_between_occurrences() {
 #[test]
 fn a_far_line_in_a_file_without_a_grammar_resolves_or_names_its_sites() {
     let one = format!("{}target = 1\n", filler(40));
-    assert_eq!(anchored("notes.unknownext", &one, "target", 1).ok(), Some(41));
+    assert_eq!(
+        anchored("notes.unknownext", &one, "target", 1).ok(),
+        Some(41)
+    );
     let two = format!("{}target = 1\ntarget = 2\n", filler(40));
     let error = anchored("notes.unknownext", &two, "target", 1)
         .expect_err("ambiguous")
@@ -282,6 +290,9 @@ fn a_far_line_does_not_resolve_to_a_mention() {
     let comment = format!("{}// target\n", filler(40));
     let string = format!("{}const s = 'target';\n", filler(40));
     for source in [&comment, &string] {
-        assert!(anchored("demo.ts", source, "target", 1).is_err(), "{source}");
+        assert!(
+            anchored("demo.ts", source, "target", 1).is_err(),
+            "{source}"
+        );
     }
 }

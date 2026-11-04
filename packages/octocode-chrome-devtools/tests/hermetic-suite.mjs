@@ -19,6 +19,8 @@ const checks = [
   'unit/invocation.test.mjs',
   'unit/cli.test.mjs',
   'unit/cleanup.test.mjs',
+  'unit/active-port.test.mjs',
+  'unit/reader-inputs.test.mjs',
   'unit/real-profile.test.mjs',
   'unit/cookie-jar.test.mjs',
   'unit/helper-inputs.test.mjs',

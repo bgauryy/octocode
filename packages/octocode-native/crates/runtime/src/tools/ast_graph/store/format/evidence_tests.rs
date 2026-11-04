@@ -2,6 +2,11 @@ use super::*;
 use octocode_engine::text::analysis as source;
 
 pub(crate) fn source_fixture() -> sources::SourceTable {
+    origins_fixture(&[(0, 8), (0, 12), (2, 5)])
+}
+
+/// A source table of one 12-byte source holding an origin per range.
+pub(crate) fn origins_fixture(ranges: &[(u32, u32)]) -> sources::SourceTable {
     let descriptor = source::SourceDescriptors {
         snapshots: vec![source::SourceSnapshot {
             id: "source".into(),
@@ -26,9 +31,9 @@ pub(crate) fn source_fixture() -> sources::SourceTable {
             regions: vec![source::ByteRange::new(0, 12)],
         }],
     };
-    let origins = [(0, 8), (0, 12), (2, 5)]
-        .into_iter()
-        .map(|(start, end)| source::OriginProjection {
+    let origins = ranges
+        .iter()
+        .map(|&(start, end)| source::OriginProjection {
             analysis_unit_id: "unit".into(),
             segments: vec![source::OriginSegment {
                 source_range: source::ByteRange::new(start, end),

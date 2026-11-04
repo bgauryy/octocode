@@ -5,7 +5,6 @@ export type StorageMode = "persistent" | "memory";
 
 export interface RequiredGitHubConfig {
   apiUrl: string;
-  graphqlEnabled: boolean;
 }
 
 export interface RequiredLocalConfig {
@@ -26,11 +25,8 @@ export interface RequiredNetworkConfig {
 }
 
 export interface RequiredLspConfig {
-  configPath: string | undefined;
   autoInstall: "prompt" | "off" | "auto";
-  cacheDir: string | undefined;
   trustProjectConfig: boolean;
-  trace: boolean;
   prewarm: "targeted" | "all" | "off";
 }
 
@@ -40,10 +36,10 @@ export interface RequiredOutputConfig {
 
 export interface RequiredStorageConfig {
   mode: StorageMode;
-  stats: boolean;
 }
 
 export interface RequiredClassificationConfig {
+  apiHost: string | undefined;
   model: string | undefined;
 }
 
@@ -70,7 +66,6 @@ export interface ConfigFieldSpec {
   section: string;
   key: string;
   type: ConfigFieldKind;
-  file: boolean;
   resolved: boolean;
   credential: boolean;
   description: string;
@@ -79,7 +74,6 @@ export interface ConfigFieldSpec {
   env?: ConfigEnvBinding;
   defaultValue: unknown;
   values?: readonly string[];
-  enumStyle?: 'list' | 'quotedOr';
   itemFormat?: 'path';
 }
 
@@ -89,7 +83,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "github",
     "key": "apiUrl",
     "type": "url",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "GitHub REST API root. GitHub Enterprise commonly uses /api/v3.",
@@ -101,25 +94,10 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": "https://api.github.com"
   },
   {
-    "path": "github.graphqlEnabled",
-    "section": "github",
-    "key": "graphqlEnabled",
-    "type": "boolean",
-    "file": true,
-    "resolved": true,
-    "credential": false,
-    "description": "Use GitHub GraphQL where supported; false forces REST-only access.",
-    "env": {
-      "name": "OCTOCODE_GITHUB_GRAPHQL"
-    },
-    "defaultValue": true
-  },
-  {
     "path": "local.enabled",
     "section": "local",
     "key": "enabled",
     "type": "boolean",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces.",
@@ -135,7 +113,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "local",
     "key": "beta",
     "type": "boolean",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Expose graphBuild and graphQuery through MCP. CLI tools remain available without this opt-in. Restart MCP after changing this setting.",
@@ -150,7 +127,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "local",
     "key": "allowedPaths",
     "type": "stringArray",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME).",
@@ -167,7 +143,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "local",
     "key": "workspaceRoot",
     "type": "path",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Optional absolute or home-relative workspace root.",
@@ -183,7 +158,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "tools",
     "key": "enabled",
     "type": "stringArray",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Strict MCP tool allowlist; other MCP prerequisites still apply. CLI exposes every tool in the build.",
@@ -197,7 +171,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "tools",
     "key": "disabled",
     "type": "stringArray",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Tools removed from MCP discovery and admission. CLI exposes every tool in the build.",
@@ -211,7 +184,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "tools",
     "key": "enableClone",
     "type": "boolean",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.",
@@ -227,7 +199,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "network",
     "key": "allowPrivateRegistry",
     "type": "boolean",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Allow private, loopback, or link-local artifact registries.",
@@ -239,27 +210,10 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": false
   },
   {
-    "path": "lsp.configPath",
-    "section": "lsp",
-    "key": "configPath",
-    "type": "path",
-    "file": true,
-    "resolved": true,
-    "credential": false,
-    "description": "Optional path to a custom lsp-servers.json.",
-    "env": {
-      "name": "OCTOCODE_LSP_CONFIG",
-      "dotenv": "home",
-      "normalize": "trim"
-    },
-    "defaultValue": null
-  },
-  {
     "path": "lsp.autoInstall",
     "section": "lsp",
     "key": "autoInstall",
     "type": "enum",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto.",
@@ -276,27 +230,10 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     ]
   },
   {
-    "path": "lsp.cacheDir",
-    "section": "lsp",
-    "key": "cacheDir",
-    "type": "path",
-    "file": true,
-    "resolved": true,
-    "credential": false,
-    "description": "Directory for managed language-server installs; default <octocode home>/lsp.",
-    "env": {
-      "name": "OCTOCODE_LSP_CACHE_DIR",
-      "dotenv": "home",
-      "normalize": "trim"
-    },
-    "defaultValue": null
-  },
-  {
     "path": "lsp.trustProjectConfig",
     "section": "lsp",
     "key": "trustProjectConfig",
     "type": "boolean",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries.",
@@ -307,25 +244,10 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": false
   },
   {
-    "path": "lsp.trace",
-    "section": "lsp",
-    "key": "trace",
-    "type": "boolean",
-    "file": true,
-    "resolved": true,
-    "credential": false,
-    "description": "Emit per-call LSP phase timings, completion counts, and the answering server's source, readiness, and advertised operations on stderr, outside tool results. Includes no source text, paths, or credentials.",
-    "env": {
-      "name": "OCTOCODE_LSP_TRACE"
-    },
-    "defaultValue": false
-  },
-  {
     "path": "lsp.prewarm",
     "section": "lsp",
     "key": "prewarm",
     "type": "enum",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Language-server prewarm: targeted starts the server an offered lspSearch call names once the session has run an lspSearch; all warms it from the start, also warms the file a read or search names and, at MCP initialize, the workspace's top three languages; off disables it. Each start indexes a whole project, so a first lspSearch under targeted can take seconds in exchange for no server in a session that never calls one.",
@@ -345,7 +267,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "output",
     "key": "redactEmails",
     "type": "boolean",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Mask email addresses such as GitHub commit authors.",
@@ -361,10 +282,9 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "storage",
     "key": "mode",
     "type": "enum",
-    "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Persistent saves continuation state to disk; memory retains it only in the current runtime. Fresh requests recompute results. Explicit graph snapshots are outputs; interrupted extraction checkpoints follow this setting.",
+    "description": "Persistent saves continuation state and provider answers to disk; memory retains them only in the current runtime. Fresh local requests recompute results; GitHub and registry answers repeat as their origin allows. Explicit graph snapshots are outputs; interrupted extraction checkpoints follow this setting.",
     "env": {
       "name": "OCTOCODE_STORAGE_MODE",
       "dotenv": "home",
@@ -375,29 +295,13 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "values": [
       "persistent",
       "memory"
-    ],
-    "enumStyle": "quotedOr"
-  },
-  {
-    "path": "storage.stats",
-    "section": "storage",
-    "key": "stats",
-    "type": "boolean",
-    "file": true,
-    "resolved": true,
-    "credential": false,
-    "description": "Write stats.json on flush; stats remain in memory either way.",
-    "env": {
-      "name": "OCTOCODE_ENABLE_STATS"
-    },
-    "defaultValue": false
+    ]
   },
   {
     "path": "classification.api",
     "section": "classification",
     "key": "api",
     "type": "string",
-    "file": true,
     "resolved": false,
     "credential": true,
     "description": "Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP; CLI always exposes clasify and checks the key when invoked. Discovery makes no provider request.",
@@ -414,11 +318,10 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "classification",
     "key": "apiHost",
     "type": "url",
-    "file": true,
-    "resolved": false,
-    "credential": true,
-    "description": "Optional override of the classification provider's default API root.",
-    "notes": "Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback.",
+    "resolved": true,
+    "credential": false,
+    "description": "Classification provider API root, for a proxy, gateway or compatible provider that serves the same API.",
+    "notes": "Calls require HTTPS except on loopback, and an API root with no path. Home-only, so a repository cannot redirect your key.",
     "env": {
       "name": "OCTOCODE_CLASSIFICATION_API_HOST",
       "dotenv": "home",
@@ -431,7 +334,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "section": "classification",
     "key": "model",
     "type": "string",
-    "file": true,
     "resolved": true,
     "credential": false,
     "description": "Classification model for read-tool classifiers and clasify; a clasify row's model overrides it.",
@@ -447,9 +349,9 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
 export const RUNTIME_SURFACES = ["mcp","cli"] as const;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const ENV_TOKEN_VARS = ["GH_TOKEN","GITHUB_TOKEN"] as const;
-export const ENV_CREDENTIAL_VARS = ["EXA_API_KEY","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST","SCRAPING_ANT","SERPER_API_KEY","TAVILY_API_KEY"] as const;
-export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ENABLE_CLONE","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_LSP_CACHE_DIR","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_REDACT_EMAILS","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
-export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ENABLE_CLONE","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_LSP_CACHE_DIR","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_REDACT_EMAILS","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const ENV_CREDENTIAL_VARS = ["ALL_PROXY","EXA_API_KEY","GH_TOKEN","GITHUB_TOKEN","HTTPS_PROXY","HTTP_PROXY","OCTOCODE_CLASSIFICATION_API","SCRAPING_ANT","SERPER_API_KEY","TAVILY_API_KEY"] as const;
+export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY","NO_PROXY","SSL_CERT_FILE","SSL_CERT_DIR","GIT_SSL_CAINFO","GIT_SSL_CAPATH","CURL_CA_BUNDLE","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ENABLE_CLONE","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_REDACT_EMAILS","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ENABLE_CLONE","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_REDACT_EMAILS","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 /** Home-trusted switches a workspace may set only to this narrowing value. */
 export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_ENABLE_CLONE":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_STORAGE_MODE":"memory"};
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com", "graphqlEnabled": true }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined }, "tools": { "enabled": null, "disabled": null, "enableClone": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "configPath": undefined, "autoInstall": "prompt", "cacheDir": undefined, "trustProjectConfig": false, "trace": false, "prewarm": "targeted" }, "output": { "redactEmails": false }, "storage": { "mode": "persistent", "stats": false }, "classification": { "model": undefined } };
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined }, "tools": { "enabled": null, "disabled": null, "enableClone": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "prewarm": "targeted" }, "output": { "redactEmails": false }, "storage": { "mode": "persistent" }, "classification": { "apiHost": undefined, "model": undefined } };

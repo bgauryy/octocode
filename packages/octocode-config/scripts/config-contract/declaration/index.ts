@@ -7,7 +7,7 @@ import { sections } from './sections.ts';
 export function contractFromDeclaration(): Contract {
   const declaration: ContractInput & Contract = {
     $schema: './config-contract.schema.json',
-    config: { fileName: '.octocoderc', schemaVersion: 1, runtimeSurfaces: ['mcp', 'cli'] },
+    config: { fileName: '.octocoderc', runtimeSurfaces: ['mcp', 'cli'] },
     environment,
     sections,
   };

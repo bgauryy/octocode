@@ -19,7 +19,7 @@ mod types;
 
 /// Bump when persisted linking semantics change without a binary format
 /// change: snapshots and extraction checkpoints of another version rebuild.
-const ANALYSIS_VERSION: u32 = 21;
+const ANALYSIS_VERSION: u32 = 22;
 
 #[cfg(test)]
 mod link_tests;

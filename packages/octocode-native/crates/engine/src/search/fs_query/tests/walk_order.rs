@@ -167,6 +167,8 @@ fn a_listing_read_ahead_is_taken_once_or_dropped() {
     }
     let mut ahead = ReadAhead::start().expect("workers");
     ahead.queue([root.join("a"), root.join("b")].into_iter());
+    // A read no worker has begun is the walk's own: let one finish first.
+    ahead.wait_until_read(&root.join("a"));
     let read_ahead::Taken::Read(taken) = ahead.take(&root.join("a"), None) else {
         panic!("read ahead");
     };
@@ -194,5 +196,54 @@ fn a_listing_read_ahead_is_taken_once_or_dropped() {
             read_ahead::Taken::NotQueued
         ),
         "dropped"
+    );
+}
+
+/// Read-ahead reads what the walk will enter: a dot directory out of view or
+/// an ignored one (a build tree can hold hundreds of thousands of entries) is
+/// never read, by the walk or ahead of it.
+#[test]
+fn a_walk_never_reads_ahead_what_its_rules_leave_out() {
+    let root = TmpDir::new();
+    for index in 0..40 {
+        // `-` sorts before `.`, so these come before the dot directory.
+        fs::create_dir(root.join(format!("-d{index:02}"))).expect("dir");
+    }
+    fs::create_dir(root.join(".hidden")).expect("dot dir");
+    fs::create_dir(root.join("zignored")).expect("ignored dir");
+    fs::write(root.join(".ignore"), "zignored\n").expect("rules");
+    query_file_system_inner(FileSystemQueryOptions {
+        path: root.to_string_lossy().into_owned(),
+        ..Default::default()
+    })
+    .expect("query");
+    let queued = super::super::read_ahead::queued_under(&root);
+    assert!(!queued.is_empty(), "the walk queued what it will enter");
+    assert!(
+        queued
+            .iter()
+            .all(|dir| !dir.ends_with(".hidden") && !dir.ends_with("zignored")),
+        "{queued:?}"
+    );
+}
+
+/// A directory with subdirectories has them read ahead as soon as it is
+/// entered, its first one included, while no walk waits for a read not begun.
+#[test]
+fn a_walk_reads_ahead_the_first_child_of_a_directory_too() {
+    let root = TmpDir::new();
+    for index in 0..20 {
+        fs::create_dir_all(root.join(format!("d{index:02}/first/deep"))).expect("dirs");
+    }
+    let found = query_file_system_inner(FileSystemQueryOptions {
+        path: root.to_string_lossy().into_owned(),
+        ..Default::default()
+    })
+    .expect("query");
+    assert_eq!(found.entries.len(), 60, "every entry once");
+    let queued = super::super::read_ahead::queued_under(&root);
+    assert!(
+        queued.iter().any(|dir| dir.ends_with("first")),
+        "a first child was left to the walk: {queued:?}"
     );
 }

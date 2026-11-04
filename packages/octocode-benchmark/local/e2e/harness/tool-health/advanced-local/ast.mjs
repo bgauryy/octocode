@@ -43,7 +43,7 @@ async function symbolsAndTree(ctx, surface, checks) {
   const substring = await scenario(ctx, 'astSearch', surface, { label: 'ast.substring', query: { path: model, operation: 'symbols', symbolFilter: { terms: ['square'], mode: 'substring', caseMode: 'insensitive' }, symbolKinds: ['class'] }, checks });
   equal(checks, `ast.substring.${surface}`, substring.data.flatMap(data => declarations({ sc: { results: [{ data }] } })).filter(d => d.kind === 'class').map(d => d.name), ['Square', 'LargeSquare']);
   for (const namedOnly of [true, false]) {
-    const tree = await scenario(ctx, 'astSearch', surface, { label: `ast.syntax-tree.${namedOnly}`, query: { path: model, operation: 'syntaxTree', line: 14, namedOnly }, checks, responseChars: 500 });
+    const tree = await scenario(ctx, 'astSearch', surface, { label: `ast.syntax-tree.${namedOnly}`, query: { path: model, operation: 'syntaxTree', line: 14, namedOnly, includeProvenance: true }, checks, responseChars: 500 });
     const nodes = tree.data.flatMap(data => data.nodes ?? []);
     checks.push([`ast.tree-function.${namedOnly}.${surface}`, nodes.some(row => row.node?.includes('function_declaration 14:')) && nodes.every(row => !row.node?.includes('class_declaration')), JSON.stringify(nodes)]);
     checks.push([`ast.tree-punctuation.${namedOnly}.${surface}`, nodes.some(row => / "[(){}]" /.test(row.node)) === !namedOnly, JSON.stringify(nodes)]);
@@ -54,7 +54,7 @@ async function symbolsAndTree(ctx, surface, checks) {
 }
 
 async function treeFragments(ctx, surface, checks) {
-  const query = { path: model, operation: 'syntaxTree', namedOnly: false };
+  const query = { path: model, operation: 'syntaxTree', namedOnly: false, includeProvenance: true };
   const whole = await scenario(ctx, 'astSearch', surface, { label: 'ast.tree-whole', query, checks });
   const expected = whole.data.flatMap(data => data.nodes ?? []);
   const paged = await scenario(ctx, 'astSearch', surface, { label: 'ast.tree-fragments', query, checks, responseChars: 200, maxPages: expected.length + 1 });
@@ -75,9 +75,18 @@ async function treeSourceCoordinates(ctx, surface, checks) {
   fs.writeFileSync(file, source);
   try {
     const tree = await scenario(ctx, 'astSearch', surface, {
-      label: 'ast.tree-source-coordinates', query: { path: relativePath, operation: 'syntaxTree', namedOnly: false }, checks, responseChars: 200,
+      label: 'ast.tree-source-coordinates', query: { path: relativePath, operation: 'syntaxTree', namedOnly: false, includeProvenance: true }, checks, responseChars: 200,
     });
     const nodes = tree.data.flatMap(row => row.nodes ?? []);
+    const plain = await scenario(ctx, 'astSearch', surface, {
+      label: 'ast.tree-plain', query: { path: relativePath, operation: 'syntaxTree', namedOnly: false }, checks, responseChars: 200,
+    });
+    const plainNodes = plain.data.flatMap(row => row.nodes ?? []);
+    orderedEqual(checks, `ast.tree-plain.same-nodes.${surface}`, plainNodes.map(row => row.node), nodes.map(row => row.node));
+    checks.push([`ast.tree-plain.no-provenance.${surface}`, plainNodes.length > 0
+      && plainNodes.every(row => Object.keys(row).join() === 'node')
+      && plain.data.every(data => !Object.hasOwn(data, 'sourceEvidence')), JSON.stringify(plainNodes)]);
+    checks.push([`ast.tree-plain.no-source-token.${surface}`, !JSON.stringify(plain.responses).includes(token), 'Syntax rows expose grammar labels and coordinates only.']);
     const functions = nodes.filter(row => row.node?.split(' ')[1].split(':').at(-1) === 'function_declaration');
     const startByte = Buffer.byteLength(source.slice(0, source.indexOf(declaration)));
     equal(checks, `ast.tree-source-coordinates.function.${surface}`, functions.map(row => row.sourceRange), [{ startByte, endByte: startByte + Buffer.byteLength(declaration) }]);

@@ -1,10 +1,12 @@
 //! Retained continuation state. Each store has one authoritative location:
 //! disk for persistent sessions, or process memory for memory-only sessions.
-//! Fresh tool requests never use this store to reuse computed results.
+//! Fresh tool requests never use this store to reuse computed results; the only
+//! fresh-request reader is [`crate::providers::saved_answers`], whose provider
+//! answers are revalidated or reused as their origin states.
 mod disk;
 pub(crate) use disk::Disk;
 
-use octocode_io::memo::{Memo, MemoryBudget};
+use octocode_io::memo::Memo;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fs;
 use std::marker::PhantomData;
@@ -18,33 +20,6 @@ pub(crate) const CONTINUATION_RETENTION: CacheClass = CacheClass::Idle {
     ttl: CONTINUATION_IDLE,
 };
 
-/// The bytes every in-process store holds together: each tool's page memo
-/// ([`crate::tools::page_memo::PageMemo`]) and the memory tier of every
-/// [`Store`]. Past it the least recently used entries of all of them go
-/// first, and a value larger than all of it is not kept.
-pub(crate) static MEMORY: MemoryBudget = MemoryBudget::new(memory_budget);
-
-/// The budget's floor: what a host whose memory cannot be read, or a small
-/// one, still gets, so one large scan's continuation stays retained.
-pub(crate) const MIN_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
-/// The budget's ceiling: retained continuation state is a convenience, so a
-/// large host keeps most of its memory for language servers and its users.
-pub(crate) const MAX_MEMORY_BUDGET: usize = 2 * 1024 * 1024 * 1024;
-
-fn memory_budget() -> usize {
-    memory_budget_for(octocode_engine::host::memory_mb())
-}
-
-/// An eighth of `host_mb` MiB, within [`MIN_MEMORY_BUDGET`] and
-/// [`MAX_MEMORY_BUDGET`]; the floor when the host's memory is unknown.
-pub(crate) fn memory_budget_for(host_mb: Option<u64>) -> usize {
-    host_mb.map_or(MIN_MEMORY_BUDGET, |mb| {
-        usize::try_from(mb.saturating_mul(1024 * 1024) / 8)
-            .unwrap_or(usize::MAX)
-            .clamp(MIN_MEMORY_BUDGET, MAX_MEMORY_BUDGET)
-    })
-}
-
 /// Persistent store directories: construction and maintenance share this inventory.
 #[derive(Clone, Copy)]
 pub(crate) enum Directory {
@@ -53,23 +28,28 @@ pub(crate) enum Directory {
     SectionAssessments,
     LspAnswers,
     GraphRows,
+    ProviderAnswers,
 }
 impl Directory {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::ResponsePages,
         Self::Continuations,
         Self::SectionAssessments,
         Self::LspAnswers,
         Self::GraphRows,
+        Self::ProviderAnswers,
     ];
     pub(crate) fn path(self, home: &std::path::Path) -> PathBuf {
-        home.join("tmp").join(match self {
-            Self::ResponsePages => "response-pages",
-            Self::Continuations => "continuations",
-            Self::SectionAssessments => "section-assessments",
-            Self::LspAnswers => "lsp-answers",
-            Self::GraphRows => "graph-rows",
-        })
+        match self {
+            Self::ResponsePages => home.join("tmp/response-pages"),
+            Self::Continuations => home.join("tmp/continuations"),
+            Self::SectionAssessments => home.join("tmp/section-assessments"),
+            Self::LspAnswers => home.join("tmp/lsp-answers"),
+            Self::GraphRows => home.join("tmp/graph-rows"),
+            // Outlives its session, so not under `tmp`. The name carries the
+            // layout's version: a bump leaves one directory to delete.
+            Self::ProviderAnswers => home.join("cache/provider-answers-v1"),
+        }
     }
 }
 
@@ -123,7 +103,7 @@ impl CacheClass {
     }
 }
 
-/// A store's bounds. Memory counts against [`MEMORY`] alone, which refuses
+/// A store's bounds. Memory counts against [`octocode_engine::memory::MEMORY`] alone, which refuses
 /// an entry heavier than the whole budget; the disk tier has this one budget.
 #[derive(Clone, Debug)]
 pub struct CacheConfig {
@@ -134,10 +114,10 @@ pub struct CacheConfig {
 
 impl CacheConfig {
     /// The policy every retained-state store runs under: its disk budget is
-    /// the memory budget ([`MEMORY`]), so an entry that fits in memory also
+    /// the memory budget ([`octocode_engine::memory::MEMORY`]), so an entry that fits in memory also
     /// fits on disk and a larger host retains larger work.
     pub(crate) fn derived() -> Self {
-        Self::for_memory(MEMORY.limit())
+        Self::for_memory(octocode_engine::memory::MEMORY.limit())
     }
 
     fn for_memory(memory_bytes: usize) -> Self {
@@ -184,7 +164,9 @@ impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
     /// `disk: None` keeps the store in this process only.
     pub(crate) fn new(config: CacheConfig, disk: Option<PathBuf>) -> Self {
         Self {
-            memory: disk.is_none().then(|| Memo::new(&MEMORY)),
+            memory: disk
+                .is_none()
+                .then(|| Memo::new(&octocode_engine::memory::MEMORY)),
             disk: disk.map(Disk::new),
             config,
             codec: PhantomData,

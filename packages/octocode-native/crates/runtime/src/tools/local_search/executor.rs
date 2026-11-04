@@ -5,6 +5,7 @@ mod settle;
 use super::cursor::cursor;
 use super::layout::{Layout, NamePricing};
 use super::local_search_query;
+use super::probes::Alternates;
 use super::types::{LocalSearchResult, SearchStatus};
 use super::verify::{
     CutOutlines, Outlines, PageScope, Redacted, Redaction, outline_for_cut, redact_scan,
@@ -20,7 +21,7 @@ use projection::annotate_rows;
 pub(super) use projection::order_files;
 #[cfg(test)]
 pub(super) use scanned::scan;
-pub(super) use scanned::{Scanned, scan_query};
+pub(super) use scanned::{Scanned, scan_query, search_options};
 use serde_json::json;
 use settle::{Page, settle_row};
 use std::sync::Arc;
@@ -35,60 +36,44 @@ pub fn execute_local_search(
     response_window: Option<usize>,
     selection: Option<&crate::tools::selection::Runtime>,
 ) -> Result<LocalSearchResult, ToolError> {
-    let run = |query: &LocalSearchQuery| {
-        cancel.check().map_err(ToolError::cancelled)?;
-        let terms = local_search_query::term_patterns(query);
-        let query = &*local_search_query::normalized(query)?;
-        let scan = scan_query(query, paths, cancel, (response_window, terms))?;
-        page_of(query, paths, security, cancel, scan, selection)
-    };
-    let found = run(query)?;
-    if found.stats.files_matched != 0 {
-        return Ok(found);
-    }
-    let Some(regex) = regex_reading(query) else {
-        return Ok(found);
-    };
-    // Its pages continue the regex query. Only a reading with hits replaces
-    // the literal answer, which names what a miss left unsearched.
-    match run(&regex) {
-        Ok(mut read) if read.stats.files_matched != 0 => {
-            read.hints.insert(
-                0,
-                "No literal match, so this ran as a regex (regexEngine:\"rust\").".to_owned(),
-            );
-            Ok(read)
-        }
-        _ => Ok(found),
-    }
+    cancel.check().map_err(ToolError::cancelled)?;
+    check_each_term(query)?;
+    let terms = local_search_query::term_patterns(query);
+    let joined = &*local_search_query::normalized(query)?;
+    let scan = scan_query(joined, paths, cancel, (response_window, terms))?;
+    let alternates = Alternates::new(query, &scan);
+    let mut row = page_of(
+        joined,
+        paths,
+        security,
+        cancel,
+        scan,
+        selection,
+        &alternates,
+    )?;
+    alternates.offer_regex_reading(paths, &mut row, cancel);
+    Ok(row)
 }
 
-/// `query` read as a regex: a fresh literal search with a term only a regex
-/// would spell, which compiles. Alternation and `.*` have no likely literal
-/// reading once the literal text is absent; a lone `.` or `(` does, because code
-/// is full of them, so `foo.bar` never becomes a match for `fooxbar`.
-fn regex_reading(query: &LocalSearchQuery) -> Option<LocalSearchQuery> {
-    const REGEX_ONLY: [&str; 7] = ["|", ".*", ".+", "\\b", "\\w", "\\d", "\\s"];
+/// A bad term of a list fails naming that term: the list runs as one joined
+/// regex, whose error would name a pattern the caller never wrote.
+fn check_each_term(query: &LocalSearchQuery) -> Result<(), ToolError> {
     let terms = &local_search_query::patterns(query).0;
-    let reads_as_regex = terms.iter().any(|term| {
-        REGEX_ONLY
-            .iter()
-            .any(|syntax| term.as_str().contains(syntax))
-    }) && terms
-        .iter()
-        .all(|term| regex::Regex::new(term.as_str()).is_ok());
-    // A miss answers a files-without or inverted search; nothing to reread.
-    if local_search_query::regex_mode(query) != octocode_contract_types::RegexEngine::Literal
-        || local_search_query::snapshot(query).is_some()
-        || local_search_query::view(query) == local_search_query::View::FilesWithout
-        || local_search_query::invert_match(query) == Some(true)
-        || !reads_as_regex
+    if terms.len() < 2
+        || local_search_query::regex_mode(query) == octocode_contract_types::RegexEngine::Literal
     {
-        return None;
+        return Ok(());
     }
-    let mut row = serde_json::to_value(query).ok()?;
-    row["regexEngine"] = serde_json::json!("rust");
-    serde_json::from_value(row).ok()
+    for term in terms {
+        let Ok(mut row) = serde_json::to_value(query) else {
+            return Ok(());
+        };
+        row["matchString"] = serde_json::json!([term.as_str()]);
+        if let Ok(single) = serde_json::from_value::<LocalSearchQuery>(row) {
+            super::pattern::check_pattern(&single)?;
+        }
+    }
+    Ok(())
 }
 
 /// The page `query` asks for, cut from `scan` (fresh, or stored and proved
@@ -102,6 +87,7 @@ pub(super) fn page_of(
     cancel: &impl CancellationCheck,
     mut scan: Scanned,
     selection: Option<&crate::tools::selection::Runtime>,
+    alternates: &Alternates<'_>,
 ) -> Result<LocalSearchResult, ToolError> {
     // The bytes a stored scan's secret check must read, or `None` when the
     // scan is fresh; a stored file whose digest is missing reads as changed.
@@ -176,6 +162,7 @@ pub(super) fn page_of(
         scanned: &scan.parsed.stats,
         skipped: &scan.skipped,
         search_options: &scan.search_options,
+        alternates,
         total_files,
         unverified: shaped.unverified,
         leftover_matches,
@@ -279,7 +266,9 @@ pub(super) fn shape_page(
     let (mut redacted, withheld, redaction) = redact_scan(scope, parsed, stored_redaction)?;
     // Encoded before the page reorders and fills it; deflated only if the
     // page's cursor keeps it (see `manifest::put_checked`).
-    let packed = if stored_redaction.is_none() {
+    let packed = if stored_redaction.is_none()
+        && crate::tools::test_code::result_may_be_kept(local_search_query::test_code(query))
+    {
         super::manifest::encode_checked(parsed, &|| scope.cancel.check().is_err())
     } else {
         None

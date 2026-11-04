@@ -179,9 +179,9 @@ fn reingest_is_a_related_build_that_keeps_the_scan_options() {
     assert_eq!(
         input(
             "/w/app",
-            json!({"excludeDir": ["gen"], "languageGlobs": {"cpp": ["include/**/*.h"]}})
+            json!({"exclude": ["gen"], "languageGlobs": {"cpp": ["include/**/*.h"]}})
         ),
-        json!({"path": "app", "excludeDirs": ["gen"], "parserGlobs": {"cpp": ["include/**/*.h"]}})
+        json!({"path": "app", "exclude": ["gen"], "parserGlobs": {"cpp": ["include/**/*.h"]}})
     );
     // The workspace root is graphBuild's default path, which a related call omits.
     assert_eq!(input("/w", json!({})), json!({}));

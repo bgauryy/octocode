@@ -68,7 +68,7 @@ async fn closed_by_references(
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Option<Value> {
-    if !transport.graphql_enabled || !transport.graphql_available(context) {
+    if !transport.graphql_available(context) {
         return None;
     }
     let mut variables = json!({

@@ -19,7 +19,7 @@ counts are written under `results/`; `results/summary.json` identifies the suite
 | `classification-retry` | Shared requests, retry bounds, usage accounting, persistent versus memory caches, account isolation, and exact judgment identity across fresh CLI processes |
 | `tool-health` | Every generated contract tool (currently 16) on CLI and MCP: published input/output validation, transport status, malformed admission without provider work, batch behavior, advanced operations and field effects, exact cursor walks, typed related calls and transport parity. The isolated MCP configuration enables graph, clone and classification tools. |
 
-`node skills-dev/octocode-dev/scripts/dev.mjs test:tools` runs tool-health directly.
+`node skills-dev/octocode-dev/scripts/dev.mjs test:tools` runs every hermetic suite but `grammar`; `test:e2e` runs them all.
 Its optional `--deep` explores additional related calls. The loopback provider
 fixtures live in `harness/tool-health/`; no paid classification call is made by the
 hermetic suites. Reports include the contract fingerprint and native artifact SHA-256, and fail if that artifact changes during acceptance.

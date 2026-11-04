@@ -17,7 +17,19 @@ pub fn sanitize_leaf(
     content: &str,
     source_path: Option<&str>,
 ) -> crate::error::Result<Option<String>> {
-    let scope = source_path.map_or(Scope::Pathless, Scope::Leaf);
+    redact_leaf(content, source_path.map_or(Scope::Pathless, Scope::Leaf))
+}
+
+/// [`sanitize_leaf`] of a leaf about to be kept (see [`Scope::Stored`]): what no
+/// later read, of any file, would have to redact.
+pub fn sanitize_stored_leaf(
+    content: &str,
+    source_path: Option<&str>,
+) -> crate::error::Result<Option<String>> {
+    redact_leaf(content, Scope::Stored(source_path))
+}
+
+fn redact_leaf(content: &str, scope: Scope<'_>) -> crate::error::Result<Option<String>> {
     guarded(|| {
         if content.len() > MAX_CONTENT_SIZE {
             return Some(CONTENT_SIZE_LIMIT_PLACEHOLDER.to_owned());

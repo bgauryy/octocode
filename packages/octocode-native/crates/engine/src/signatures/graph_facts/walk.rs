@@ -2,7 +2,9 @@
 
 use super::collect::collect_node_facts;
 use super::positions::NodePositions;
-use super::rust::{RustContext, collect_rust_paths, rust_child_contexts, rust_inner_unsupported};
+use super::rust::{
+    RustContext, collect_rust_paths, rust_child_contexts, rust_inner_unsupported_among,
+};
 use super::{GraphAccumulator, NameToken, note, receiver};
 use tree_sitter::Node;
 
@@ -37,6 +39,25 @@ pub(super) fn push_macro_gap(acc: &mut GraphAccumulator) {
     {
         acc.diagnostics
             .push(note(GraphFactCode::RustMacroExpansion));
+    }
+}
+
+/// Keep `node` when it is a name leaf, or a Rust macro's format string.
+fn note_name_token(acc: &mut GraphAccumulator, node: Node<'_>, path: &[Node<'_>], rust: bool) {
+    let Some(tokens) = acc.name_tokens.as_mut() else {
+        return;
+    };
+    let format = rust
+        && node.kind() == "string_literal"
+        && path
+            .last()
+            .is_some_and(|parent| parent.kind() == "token_tree");
+    if format || is_name_leaf(node) {
+        tokens.push(NameToken {
+            start: node.start_byte(),
+            end: node.end_byte(),
+            format,
+        });
     }
 }
 
@@ -82,20 +103,7 @@ pub(super) fn visit_node(
         let (node, mut context) = match frame {
             Frame::Enter(node, context, depth) => {
                 path.truncate(depth);
-                if let Some(tokens) = acc.name_tokens.as_mut() {
-                    let format = rust
-                        && node.kind() == "string_literal"
-                        && path
-                            .last()
-                            .is_some_and(|parent| parent.kind() == "token_tree");
-                    if format || is_name_leaf(node) {
-                        tokens.push(NameToken {
-                            start: node.start_byte(),
-                            end: node.end_byte(),
-                            format,
-                        });
-                    }
-                }
+                note_name_token(acc, node, &path, rust);
                 (node, context)
             }
             Frame::ExitDeclaration => {
@@ -107,11 +115,19 @@ pub(super) fn visit_node(
                 continue;
             }
         };
+        let kind = node.kind();
+        // One child scan serves the inner-attribute checks and the frames
+        // below; a leaf has no children to read.
+        children.clear();
+        if node.named_child_count() > 0 {
+            cursor.reset(node);
+            children.extend(node.named_children(&mut cursor));
+        }
         if rust {
-            context.unsupported |= rust_inner_unsupported(node, content);
+            context.unsupported |= rust_inner_unsupported_among(&children, content);
             if !context.test
                 && (context.attributes.cfg_test
-                    || super::rust_cfg::inner_cfg_requires_test(node, content))
+                    || super::rust_cfg::inner_cfg_requires_test_among(&children, content))
             {
                 let range = line_index.range(node);
                 acc.test_lines
@@ -176,7 +192,7 @@ pub(super) fn visit_node(
             frames.push(Frame::ExitDeclaration);
         }
         if rust
-            && node.kind() == "mod_item"
+            && kind == "mod_item"
             && let Some(name) = declaration_name(node, content)
         {
             module_scope.push(name);
@@ -184,14 +200,10 @@ pub(super) fn visit_node(
         }
 
         // Preserve preorder and declaration lifetimes without using the call stack.
-        // A cursor enumerates wide sibling lists without repeated child indexing.
-        children.clear();
-        cursor.reset(node);
-        children.extend(node.named_children(&mut cursor));
         retain_graph_children(acc, node, content, &mut children);
         let children_start = frames.len();
         if rust {
-            let inherited = context.for_children(node);
+            let inherited = context.for_children(kind);
             let contexts = rust_child_contexts(&children, content, &inherited);
             frames.extend(
                 children

@@ -14,13 +14,19 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> V
         .filter(|issue| misplaced_request_field(tool_name, issue).is_some())
         .filter_map(|issue| issue.path.get(..2))
         .collect::<Vec<_>>();
-    let details = error
+    let mut issues = error
         .issues
         .iter()
         .filter(|issue| {
             misplaced_request_field(tool_name, issue).is_some()
                 || !misplaced.iter().any(|row| issue.path.starts_with(row))
         })
+        .collect::<Vec<_>>();
+    if let Some(at) = sent_value_lead(&issues) {
+        issues[..=at].rotate_right(1);
+    }
+    let details = issues
+        .into_iter()
         .map(|issue| {
             let path = issue.path.join(".");
             // One wording for an unknown field, alone or beside other issues.
@@ -39,6 +45,31 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> V
         })
         .collect::<Vec<_>>();
     issues_error(details)
+}
+
+/// The position of the issue that should lead when the first says only that
+/// a form selector (`operation`) is missing: the same row's first wrong value.
+/// That value is wrong under any form, and the fields a missing selector
+/// leaves unknown are guesses from a form that was scored, not chosen.
+fn sent_value_lead(issues: &[&ValidationIssue]) -> Option<usize> {
+    let first = issues.first()?;
+    let row = first.path.get(..first.path.len().checked_sub(1)?)?;
+    let selector_missing = first.rule_id == "schema.required"
+        && first
+            .schema
+            .as_ref()
+            .is_some_and(|schema| schema.get("const").is_some() || schema.get("enum").is_some());
+    selector_missing
+        .then(|| {
+            issues.iter().position(|issue| {
+                issue.path.starts_with(row)
+                    && !matches!(
+                        issue.rule_id.as_str(),
+                        "schema.required" | "schema.unknown-field"
+                    )
+            })
+        })
+        .flatten()
 }
 
 /// Whether the row holding `issue` lacks its form selector (`operation`):

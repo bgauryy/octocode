@@ -33,18 +33,24 @@ fn capture_name_from_token(token: &str) -> Option<&str> {
     is_capture_name(name).then_some(name)
 }
 
+/// The fewest candidate children `pattern_children` can match: a `$$$` takes
+/// none, and the punctuation spelled right after one is optional.
 pub(super) fn minimum_candidate_nodes(
     pattern_children: &[Node<'_>],
     source: &str,
     expando: Expando,
 ) -> usize {
+    let mut after_multi = false;
     pattern_children
         .iter()
         .filter(|node| {
-            !matches!(
+            let multi = matches!(
                 meta_from_node(**node, source, expando),
                 Some(MetaVar::Multi(_) | MetaVar::IgnoredMulti)
-            )
+            );
+            let optional = multi || (after_multi && !node.is_named());
+            after_multi = optional;
+            !optional
         })
         .count()
 }
@@ -117,7 +123,10 @@ pub(super) fn meta_from_node<'s>(
     source: &'s str,
     expando: Expando,
 ) -> Option<MetaVar<'s>> {
-    if node.kind() == "expression_statement" {
+    // A `$$$` the grammar parsed as a statement or field: the node wraps the
+    // capture, with its terminator when the pattern needed one to parse.
+    let text = node_text(node, source);
+    if node.kind() == "expression_statement" || text.ends_with(';') {
         let named = named_children(node);
         if let [capture] = named.as_slice() {
             let meta = meta_from_text(node_text(*capture, source), expando);
@@ -126,7 +135,34 @@ pub(super) fn meta_from_node<'s>(
             }
         }
     }
-    meta_from_text(node_text(node, source), expando)
+    meta_from_text(text, expando)
+}
+
+/// `source` with a `;` after each `$$$` capture at a member or statement
+/// position: at the end of a `{ }` block or before the next item. A capture in
+/// a list (before `)`, `,`, `]`) stays as it is.
+pub(super) fn terminate_block_captures(source: &str, expando: Expando) -> Option<String> {
+    let mut out = String::with_capacity(source.len() + 1);
+    let mut changed = false;
+    let mut rest = source;
+    while let Some((before, after)) = expando.split_multi(rest) {
+        out.push_str(before);
+        let name_len = after
+            .find(|ch: char| !(ch == '_' || ch.is_ascii_uppercase() || ch.is_ascii_digit()))
+            .unwrap_or(after.len());
+        let (name, tail) = after.split_at(name_len);
+        expando.push_multi(&mut out);
+        out.push_str(name);
+        if tail.trim_start().starts_with(|ch: char| {
+            ch == '}' || ch == '@' || ch.is_alphabetic() || expando.matches_leading(ch)
+        }) {
+            out.push(';');
+            changed = true;
+        }
+        rest = tail;
+    }
+    out.push_str(rest);
+    changed.then_some(out)
 }
 
 fn meta_from_text(text: &str, expando: Expando) -> Option<MetaVar<'_>> {

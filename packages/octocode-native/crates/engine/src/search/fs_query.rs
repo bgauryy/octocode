@@ -133,6 +133,7 @@ pub fn query_file_system(
         tally: state.tally,
         cursor: state.cursor,
         window_cursor: state.window_cursor,
+        walked_dirs: state.walked_dirs,
     })
 }
 

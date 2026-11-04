@@ -95,7 +95,9 @@ async fn split_media_requests_keep_only_assets_referenced_by_each_question() {
         .and(path("/v1/systemone"))
         .respond_with(|request: &Request| {
             let body = request.body_json::<Value>().unwrap();
-            assert_eq!(body["questions"].as_object().unwrap().len(), 1);
+            if body["questions"].as_object().unwrap().len() > 1 {
+                return window_exceeded();
+            }
             let question = &body["questions"]["answer"];
             let mut expected = serde_json::Map::new();
             if body["state"]["shared"] == "image-shared" {
@@ -132,7 +134,7 @@ async fn split_media_requests_keep_only_assets_referenced_by_each_question() {
             );
             response(request)
         })
-        .expect(6)
+        .expect(8)
         .mount(&server)
         .await;
     let evaluator = evaluator(&server);
@@ -170,7 +172,8 @@ async fn split_media_requests_keep_only_assets_referenced_by_each_question() {
             )
             .await
             .expect("split requests must not send assets used only by sibling questions");
-        assert_eq!(judged.provider_calls, 3);
+        // The refused group plus one request per question.
+        assert_eq!(judged.provider_calls, 4);
         assert_eq!(judged.answers.len(), 3);
         assert_eq!((judged.input_tokens, judged.output_tokens), (30, 6));
     }
@@ -225,7 +228,7 @@ async fn invalid_box_is_not_cached_and_retries_preserve_media_payload() {
     );
 }
 
-fn window_exceeded() -> ResponseTemplate {
+pub(super) fn window_exceeded() -> ResponseTemplate {
     ResponseTemplate::new(400).set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}))
 }
 

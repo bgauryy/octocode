@@ -43,7 +43,7 @@ fn read_top_match_is_offered_for_code_hits_only() {
 #[test]
 fn empty_search_broadens_by_dropping_one_narrowing() {
     let query: GhSearchCodeQuery = serde_json::from_value(
-        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"pathPrefix":"src"}),
+        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"path":"src"}),
     )
     .expect("query");
     let lead = broaden_search(&query, 10).expect("variants");
@@ -63,7 +63,7 @@ fn empty_search_broadens_by_dropping_one_narrowing() {
 #[test]
 fn broadened_rows_drop_the_requested_ref() {
     let query: GhSearchCodeQuery = serde_json::from_value(
-        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"ref":"v2","pathPrefix":"src"}),
+        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"ref":"v2","path":"src"}),
     )
     .expect("query");
     let lead = broaden_search(&query, 10).expect("variants");
@@ -77,7 +77,7 @@ fn broadened_rows_drop_the_requested_ref() {
 #[test]
 fn broadening_never_offers_more_searches_than_the_window_has_room_for() {
     let query: GhSearchCodeQuery = serde_json::from_value(
-        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"pathPrefix":"src"}),
+        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"path":"src"}),
     )
     .expect("query");
     let variants = |room| {

@@ -39,6 +39,7 @@ impl ArtifactHttp for SearchMock {
             Ok(ArtifactHttpResponse {
                 status: 200,
                 body: serde_json::to_vec(&body).unwrap(),
+                headers: Vec::new(),
             })
         })
     }

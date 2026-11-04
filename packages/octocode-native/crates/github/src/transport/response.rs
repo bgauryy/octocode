@@ -53,6 +53,10 @@ pub(super) async fn read_bounded(
                 ProviderErrorKind::Transport,
                 "failed reading GitHub response",
             ),
+            BodyError::Decode => ProviderError::new(
+                ProviderErrorKind::Decode,
+                "GitHub response body does not decode as its Content-Encoding says",
+            ),
         })
 }
 
@@ -177,10 +181,6 @@ pub(super) fn response_error(
         kind,
         message: message.into_boxed_str(),
         status: Some(status.as_u16()),
-        request_id: headers
-            .get("x-github-request-id")
-            .and_then(|v| v.to_str().ok())
-            .map(Into::into),
         rate_limit: None,
         retryable: classify_status(status.as_u16()).is_retryable(),
         reason: missing_ref.then_some(ProviderErrorReason::RefNotFound),

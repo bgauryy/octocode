@@ -29,6 +29,13 @@ pub(super) fn fetch_matches(
         Ok(found) => found,
         Err(error) => return prepare::extraction_error(q, error, 0),
     };
+    // Before any answer: a changed file with no hit past the cursor would
+    // otherwise read as the old read's empty last page.
+    if let (Some(expected), Some(proven)) = (local_fetch_query::snapshot(q), &found.proven)
+        && expected != proven.digest
+    {
+        return stale_snapshot(q);
+    }
     if found.binary {
         return super::super::acquire::refuse_binary(q, path);
     }

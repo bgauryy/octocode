@@ -22,7 +22,7 @@ pub use http::{ArtifactHttp, SystemArtifactHttp};
 pub(crate) use npm::registry::invalid_registry_url;
 pub(crate) use npmrc::npm_authorization;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
-pub use release_ref::{ReleaseTags, TagFuture};
+pub use release_ref::{ReleaseTag, ReleaseTags, TagCommitFuture, TagFuture};
 pub use types::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ResolvedNpmRegistry,
     TerminalLimit,
@@ -39,6 +39,10 @@ pub struct ArtifactProviderContext<'a> {
     pub npm_registry: Option<&'a ResolvedNpmRegistry>,
     /// Opt-in escape hatch for the npm registry SSRF guard (see NetworkConfig).
     pub allow_private_registry: bool,
+    /// Registry answers kept across calls; `None` keeps none.
+    pub answers: Option<&'a dyn octocode_github::SavedAnswers>,
+    /// When an answer this call reused unasked was observed.
+    pub reused: &'a crate::providers::saved_answers::ReusedSince,
     /// Upstream release-tag checks through the GitHub API; `None` reads no tags.
     pub tags: Option<&'a dyn ReleaseTags>,
 }
@@ -51,6 +55,8 @@ pub async fn execute_artifact(
         http: context.http,
         budget: context.budget,
         tags: context.tags,
+        answers: context.answers,
+        reused: context.reused,
     };
     let state = page_state(query);
     validate_cursor_state(

@@ -1,6 +1,7 @@
 import {
   readTargetSnapshot,
   recordTargetSnapshot,
+  writePageNodes,
 } from './snapshot-resource.mjs';
 import { writeFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -351,7 +352,7 @@ export async function run(cdp: CheckSession) {
     mode: 0o600,
   });
   console.log(`[ARTIFACT] PAGE_SNAPSHOT ${artifactPath}`);
-
+  writePageNodes(join(cdp.outputDir, 'page-nodes.txt'), useful);
   if (TEXT_CHARS > 0) {
     let text: string;
     try {

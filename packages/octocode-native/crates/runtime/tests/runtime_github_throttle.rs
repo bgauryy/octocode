@@ -234,7 +234,7 @@ async fn an_empty_code_search_reads_the_repository_once_and_offers_two_variants(
     let outcome = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"pathPrefix":"src"}),
+        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"path":"src"}),
     )
     .await
     .expect("empty search");

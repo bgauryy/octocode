@@ -35,9 +35,10 @@ pub(super) struct ManifestInput<'a> {
     pub(super) argument_coverage: &'a Value,
     pub(super) bytes: usize,
     pub(super) digest: &'a str,
-    pub(super) exclude_dir: &'a [String],
+    pub(super) exclude: &'a [String],
     pub(super) language_globs: &'a BTreeMap<String, Vec<String>>,
     pub(super) inputs: &'a BTreeMap<String, String>,
+    pub(super) input_proof: Option<&'a str>,
     pub(super) build_ms: u64,
     pub(super) registry: octocode_engine::signatures::languages::RegistryView<'a>,
     pub(super) registry_identity: &'a str,
@@ -93,7 +94,7 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         "scan": {
             "filesScanned": input.files_scanned,
             "filesSkipped": input.built.files_skipped,
-            "excludeDir": input.exclude_dir,
+            "exclude": input.exclude,
             "parserFallback": input.built.parser_fallback.iter().map(|(file, producer)| {
                 json!({"file": file, "producer": producer})
             }).collect::<Vec<_>>(),
@@ -135,6 +136,9 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         "inputs": input.inputs,
         "buildMs": input.build_ms,
     });
+    if let Some(proof) = input.input_proof {
+        manifest["inputProof"] = json!(proof);
+    }
     if !input.language_globs.is_empty() {
         manifest["scan"]["languageGlobs"] = json!(input.language_globs);
     }

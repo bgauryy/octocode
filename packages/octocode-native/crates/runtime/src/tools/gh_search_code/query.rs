@@ -10,7 +10,7 @@ pub(super) fn code(query: &GhSearchCodeQuery, extension: Option<&str>) -> String
         keywords,
         owner,
         repo,
-        path_prefix,
+        path,
         extensions,
         name_contains,
         match_in,
@@ -32,7 +32,7 @@ pub(super) fn code(query: &GhSearchCodeQuery, extension: Option<&str>) -> String
             }
         }
     }
-    if let Some(path) = path_prefix.as_deref() {
+    if let Some(path) = path.as_deref() {
         let path = if path.contains('/') || path.contains('@') {
             search_phrase(path)
         } else {
@@ -75,14 +75,14 @@ mod tests {
         let cases: [Case; 3] = [
             (
                 "dotted directory path stays a path prefix",
-                serde_json::json!({"keywords":["merge"],"pathPrefix":"types/lodash.merge"}),
+                serde_json::json!({"keywords":["merge"],"path":"types/lodash.merge"}),
                 &["path:\"types/lodash.merge\""],
                 &["filename:"],
                 "",
             ),
             (
                 "qualifier values with whitespace are quoted",
-                serde_json::json!({"keywords":["x"],"pathPrefix":"my dir/src","nameContains":"my file.txt"}),
+                serde_json::json!({"keywords":["x"],"path":"my dir/src","nameContains":"my file.txt"}),
                 &["path:\"my dir/src\"", "filename:\"my file.txt\""],
                 &[],
                 "",
@@ -142,7 +142,7 @@ mod tests {
         }
         for raw in [
             r#"{"owner":"o","keywords":["needle"]}"#,
-            r#"{"owner":"o","pathPrefix":"src"}"#,
+            r#"{"owner":"o","path":"src"}"#,
             r#"{"owner":"o","extensions":["rs"]}"#,
             r#"{"owner":"o","nameContains":"Cargo.toml"}"#,
         ] {

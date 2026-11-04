@@ -67,7 +67,7 @@ fn every_graph_evidence_fragment_preserves_capabilities_and_validates() {
     let descriptors = source_evidence();
     let data = json!({"operation":"unresolved","graph":{"id":"snapshot","root":"/scope","createdAt":"now"},
         "rows":results,"pagination":{"page":1,"totalItems":40,"hasMore":false},"argumentCoverage":expected,"edges":["calls","passes"],
-        "scan":{"excludeDir":["vendor","generated"]},"sourceEvidence":descriptors});
+        "scan":{"exclude":["vendor","generated"]},"sourceEvidence":descriptors});
     let mut seen = Vec::new();
     let mut described = Vec::new();
     for row in fragments(data, ToolId::GraphQuery, 1700) {
@@ -85,7 +85,7 @@ fn every_graph_evidence_fragment_preserves_capabilities_and_validates() {
         seen.extend(data["rows"].as_array().expect("results").iter().cloned());
     }
     assert_eq!(seen, results);
-    let scan = json!({"excludeDir":["vendor", "generated"]});
+    let scan = json!({"exclude":["vendor", "generated"]});
     assert_eq!(described, [json!([expected, ["calls", "passes"], scan])]);
 }
 

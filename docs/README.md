@@ -1,8 +1,8 @@
 # Octocode documentation
 
-Each topic has one owner doc; other docs link to it instead of repeating it. The root [README](../README.md) introduces the toolkit and its [quick start](../README.md#quick-start).
+Each topic has one owner doc; other docs link to it instead of repeating it. The root [README](../README.md) introduces the toolkit and its [install steps](../README.md#install).
 
-For setup, start with [Configuration](CONFIGURATION.md): it owns the CLI/MCP availability matrix, feature opt-ins, file precedence, and the link to every generated setting.
+For setup, start with [Configuration](CONFIGURATION.md): where to set a value, keys and hosts, what wins, CLI/MCP availability, and every setting with its default.
 
 | Doc | Owns |
 |---|---|
@@ -13,8 +13,8 @@ For setup, start with [Configuration](CONFIGURATION.md): it owns the CLI/MCP ava
 | [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md) | Research with Jev: `classification` on search and fetch and the `clasify` tool; the research loop, routes, how each works, state, examples, main-agent token benchmarks, recovery and limits |
 | [OCTOCODE_MCP.md](OCTOCODE_MCP.md) | The MCP server: client setup, registered tools, instructions, lifecycle |
 | [OCTOCODE_CLI.md](OCTOCODE_CLI.md) | The CLI: commands, flags, output, exit codes |
-| [CONFIGURATION.md](CONFIGURATION.md) | Setup entrypoint: CLI/MCP availability, feature opt-ins, config files and precedence, storage and caches, fixed internal limits, troubleshooting |
-| [generated/CONFIG_SETTINGS.md](generated/CONFIG_SETTINGS.md) | Generated table of every setting, env var, default, and range |
+| [CONFIGURATION.md](CONFIGURATION.md) | Setup entrypoint: keys and hosts, where to set a value, precedence, CLI/MCP availability, every setting and default, troubleshooting |
+| [STORAGE_AND_LIMITS.md](STORAGE_AND_LIMITS.md) | The Octocode home folder, retained work and cache lifecycle, fixed internal limits |
 | [AUTHENTICATION.md](AUTHENTICATION.md) | GitHub tokens, OAuth, `gh` passthrough, Enterprise, the `clasify` key, npm credentials |
 | [SECURITY.md](SECURITY.md) | Input validation, secret redaction, filesystem policy, credentials, egress |
 | [SUPPORTED_LANGUAGES_AND_FEATURES.md](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) | Languages, grammars, and what each feature supports |

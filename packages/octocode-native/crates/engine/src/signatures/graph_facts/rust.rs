@@ -34,11 +34,11 @@ pub(super) struct RustContext {
 
 impl RustContext {
     /// Context for the children of `node`, whose own context is `self`.
-    pub(super) fn for_children(&self, node: Node<'_>) -> Self {
+    pub(super) fn for_children(&self, kind: &str) -> Self {
         Self {
             attributes: RustAttributes::default(),
             block_local: self.block_local
-                || matches!(node.kind(), "block" | "function_item" | "impl_item"),
+                || matches!(kind, "block" | "function_item" | "impl_item"),
             unsupported: self.unsupported,
             test: self.test,
         }
@@ -143,8 +143,13 @@ pub(super) fn rust_child_contexts(
 
 pub(super) fn rust_inner_unsupported(node: Node<'_>, content: &str) -> bool {
     let mut cursor = node.walk();
+    let children: Vec<Node<'_>> = node.named_children(&mut cursor).collect();
+    rust_inner_unsupported_among(&children, content)
+}
 
-    node.named_children(&mut cursor).any(|child| {
+/// [`rust_inner_unsupported`] over a node's already-read named children.
+pub(super) fn rust_inner_unsupported_among(children: &[Node<'_>], content: &str) -> bool {
+    children.iter().any(|&child| {
         if child.kind() != "inner_attribute_item" {
             return false;
         }

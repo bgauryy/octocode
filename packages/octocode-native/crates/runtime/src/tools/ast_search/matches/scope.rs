@@ -6,10 +6,10 @@ use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use crate::tools::ast_rule::{
-    GlobParsers, GrammarChoice, RuleError, choose_grammar, compile_check, count_grammars,
+    GlobParsers, GrammarChoice, RuleError, choose_grammar, compile_check, rank_grammars,
 };
 use octocode_contract_types::ErrorCode;
-use octocode_engine::signatures::languages::family_extensions;
+use octocode_engine::signatures::languages::{self, family_extensions};
 use serde_json::{Value, json};
 
 /// The parser extension a scope's files are read with: a single file's own
@@ -38,15 +38,13 @@ pub(super) fn scope_extension(scope: &Scope) -> Option<String> {
 pub(super) struct GrammarCompile {
     pub(super) label: String,
     pub(super) extensions: std::collections::BTreeSet<String>,
-    /// The walk's files of this grammar.
-    pub(super) files: usize,
     /// Whether the query compiles in it, else why not.
     pub(super) outcome: Result<(), RuleError>,
 }
 
 /// The query compiled in each grammar the scan's own walk met (its census),
-/// once per call. Empty for a single file or an explicit `parser`, whose
-/// compile checks are the scope's own.
+/// once per call. Empty for a single file or an explicit `parser`, which
+/// name their grammar.
 pub(super) fn compile_in_grammars(
     q: MatchQuery<'_>,
     scope: &Scope,
@@ -56,56 +54,64 @@ pub(super) fn compile_in_grammars(
         return Vec::new();
     }
     let rule = q.rule();
-    count_grammars(scan.census.clone())
+    rank_grammars(scan.census.clone())
         .into_iter()
-        .map(|(label, extensions, files)| GrammarCompile {
+        .map(|(label, extensions)| GrammarCompile {
             outcome: compile_check(&extensions, None, rule.as_ref()),
             label,
             extensions,
-            files,
         })
         .collect()
 }
 
-/// The grammars of a scope that the query does not compile in, while it
-/// compiles in another grammar of the same scope. A query that does not
-/// parse as language X cannot match X code: those files are outside what the
-/// query applies to, not files left unread, so they make the result neither
-/// partial nor failed. They are still named, with the compiler's reason, in a
-/// warning. A query that compiles in no grammar of the scope is an error, not
-/// this.
+/// The files of a directory scan's walk whose parser rejects the query. A
+/// query that does not parse as a language cannot match that language's code,
+/// so those files are outside what it applies to, not files left unread: they
+/// make the result neither partial nor failed, whatever they hold. `.ts` and
+/// `.tsx` share a grammar label, so this asks each parser, not each grammar.
 #[derive(Default)]
 pub(super) struct Inapplicable {
-    /// Grammar label → its files in the walk.
-    pub(super) languages: std::collections::BTreeMap<String, usize>,
+    /// Grammar label → its files in the walk the query does not parse in.
+    languages: std::collections::BTreeMap<String, usize>,
+    /// Why the query does not parse, when no file of the walk does.
+    rejection: Option<RuleError>,
 }
 
 impl Inapplicable {
-    pub(super) fn of(grammars: &[GrammarCompile]) -> Self {
-        if !grammars.iter().any(|grammar| grammar.outcome.is_ok()) {
-            return Self::default();
+    /// One compile per parser in the census of a directory scan; a single
+    /// file has none, and its own read reports a compile failure.
+    pub(super) fn of(q: MatchQuery<'_>, scan: &Scan) -> Self {
+        let rule = q.rule();
+        let mut outside = Self::default();
+        let mut first_error = None;
+        let mut compiled = false;
+        for (extension, files) in &scan.census {
+            let parser = std::collections::BTreeSet::from([extension.clone()]);
+            match compile_check(&parser, None, rule.as_ref()) {
+                Ok(()) => compiled = true,
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                    if let Some(entry) = languages::find_entry(extension) {
+                        *outside
+                            .languages
+                            .entry(languages::label(entry))
+                            .or_default() += files;
+                    }
+                }
+            }
         }
-        Self {
-            languages: grammars
-                .iter()
-                .filter(|grammar| grammar.outcome.is_err())
-                .map(|grammar| (grammar.label.clone(), grammar.files))
-                .collect(),
-        }
+        outside.rejection = first_error.filter(|_| !compiled);
+        outside
     }
 
-    /// Whether a file read with `parser` is of a grammar the query does not
-    /// apply to.
-    pub(super) fn covers(&self, parser: &str) -> bool {
-        octocode_engine::signatures::languages::find_entry(parser).is_some_and(|entry| {
-            self.languages
-                .contains_key(&octocode_engine::signatures::languages::label(entry))
-        })
+    /// Why the query parses in no file the walk met.
+    pub(super) fn rejection(&self) -> Option<&RuleError> {
+        self.rejection.as_ref()
     }
 
     /// The files of each grammar the query does not compile in, by
     /// grammar: a quiet count, not a problem (a pattern is written in one
-    /// grammar); setting `parser` to one of them shows its compile error.
+    /// grammar); a query on one such file shows its compile error.
     pub(super) fn counts(&self) -> Option<Value> {
         (!self.languages.is_empty()).then(|| {
             self.languages

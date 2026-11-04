@@ -59,7 +59,7 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     assert_eq!(commits["tool"], "ghSearchHistory", "{data}");
     assert_eq!(
         commits["input"]["queries"][0],
-        serde_json::json!({"operation":"commit","owner":"a","repo":"b","pathPrefix":"a.txt","ref":sha}),
+        serde_json::json!({"operation":"commit","owner":"a","repo":"b","path":"a.txt","ref":sha}),
         "{data}"
     );
     let pulls =

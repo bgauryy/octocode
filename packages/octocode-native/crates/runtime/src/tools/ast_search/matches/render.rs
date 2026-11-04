@@ -1,8 +1,6 @@
 //! The match page a query renders: its file page, coverage diagnostics,
 //! warnings and partial reasons, and why an empty page is empty.
-use super::continuations::{
-    anchor_line, attach_match_continuations, compile_failed_end, tree_lead,
-};
+use super::continuations::{anchor_line, attach_match_continuations, tree_lead};
 use super::gaps::ScopeGaps;
 use super::query::MatchQuery;
 use super::reads::row_file;
@@ -131,10 +129,7 @@ pub(super) fn render_match_page(
     }
     // Every file and match is listed and the scan saw its whole scope: the
     // row's expansions and reads are drill-downs, not unread rest.
-    let unchecked = include_skipped
-        .as_ref()
-        .is_some_and(|skipped| skipped.disclosure.unchecked);
-    if !groups.is_empty() && !more && !incomplete && scan.withheld.total() == 0 && !unchecked {
+    if !groups.is_empty() && !more && !incomplete && scan.withheld.total() == 0 {
         out["coverage"] = json!({"state": "complete"});
     }
     attach_match_continuations(
@@ -149,9 +144,6 @@ pub(super) fn render_match_page(
         more,
         snapshot,
     )?;
-    if grouped.compile_failed_files > 0 {
-        compile_failed_end(q, scope, &mut out, snapshot);
-    }
     // After the page leads, which replace `next`.
     if let Some(skipped) = include_skipped {
         skipped.attach(&mut out);
@@ -182,19 +174,11 @@ fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped) -> bool {
         || grouped.skipped_files > 0
         || scan.walk_errors.skipped > 0;
     let recovered = grouped.recovered.count > 0;
-    let incomplete = scan.truncated
-        || skipped
-        || recovered
-        || grouped.compile_failed_files > 0
-        || grouped.unevaluated_files > 0;
+    let incomplete = scan.truncated || skipped || recovered || grouped.unevaluated_files > 0;
     for (cut, reason) in [
         (scan.truncated, super::super::scan_window::CUT_REASON),
         (skipped, PartialReason::FilesSkipped),
         (recovered, PartialReason::ParseRecovered),
-        (
-            grouped.compile_failed_files > 0,
-            PartialReason::CompileFailed,
-        ),
         (
             grouped.unevaluated_files > 0,
             PartialReason::FilesUnevaluated,
@@ -364,24 +348,23 @@ pub(super) fn explain_empty(
     facts: EmptyFacts,
     gaps: ScopeGaps,
 ) {
-    if facts.parsed == 0 && !facts.diagnosed {
+    // Earlier windows may have parsed what this one did not.
+    let unparsed = facts.parsed == 0 && !facts.diagnosed && q.scan_offset() == 0;
+    if unparsed {
         let language = q
             .language()
             .map_or_else(String::new, |language| format!(" {language}"));
         out["hints"] = json!([format!("No{language} file under this path was parsed.")]);
-        if let Some(skipped) = gaps.skipped {
-            skipped.attach(out);
-        }
-        // The grammars the scope does hold, each a query that runs.
-        if let Some(repair) = gaps.repair {
-            out["calls"]["repair"] = repair;
-        }
     } else if facts.scanned > 0 {
         // `matchCount: 0` and `filesScanned` state the coverage; a hint
         // only names what the scan skipped.
         out["filesScanned"] = json!(facts.scanned);
-        if let Some(skipped) = gaps.skipped {
-            skipped.attach(out);
-        }
+    }
+    if let Some(skipped) = gaps.skipped {
+        skipped.attach(out);
+    }
+    // The grammars the scope does hold, each a query that runs.
+    if unparsed && let Some(repair) = gaps.repair {
+        out["calls"]["repair"] = repair;
     }
 }

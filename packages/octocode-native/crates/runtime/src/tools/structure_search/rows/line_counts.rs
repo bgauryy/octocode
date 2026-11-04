@@ -31,14 +31,22 @@ impl Lines {
         (self != Self::Counted(0)).then_some(self)
     }
 
-    /// The line sort's key: counted files by count, most first, then the
-    /// files without a count, then directories.
-    pub(super) fn rank(lines: Option<Self>) -> (u8, std::cmp::Reverse<usize>) {
+    /// Where the line sort places an entry in either direction: counted
+    /// files, then the files without a count, then directories.
+    pub(super) fn class(lines: Option<Self>) -> u8 {
         match lines {
-            Some(Self::Counted(lines)) => (0, std::cmp::Reverse(lines)),
-            Some(Self::Binary) => (1, std::cmp::Reverse(0)),
-            Some(Self::Unreadable) => (2, std::cmp::Reverse(0)),
-            None => (3, std::cmp::Reverse(0)),
+            Some(Self::Counted(_)) => 0,
+            Some(Self::Binary) => 1,
+            Some(Self::Unreadable) => 2,
+            None => 3,
+        }
+    }
+
+    /// The line sort's key among counted files.
+    pub(super) fn count(lines: Option<Self>) -> usize {
+        match lines {
+            Some(Self::Counted(lines)) => lines,
+            _ => 0,
         }
     }
 }
@@ -103,7 +111,7 @@ pub(crate) fn count_lines(
 /// The lines of the file at `path`, revalidated against the path policy
 /// right before it is read. `None` for a listed link to a directory: like a
 /// directory it has no lines, and is no failed read.
-pub(super) fn line_count(
+fn line_count(
     path: &std::path::Path,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,

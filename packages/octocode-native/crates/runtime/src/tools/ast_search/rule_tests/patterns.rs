@@ -100,11 +100,11 @@ fn patterns_without_metavariables_offer_no_capture_expansion() {
     );
 }
 
-/// A pattern is the answer as written: one that omits a part (Rust
-/// visibility, a return type) matches only items spelled without it, with
-/// no silent broader rule, and equals its `rule: {pattern}` form.
+/// A declaration pattern means what it spells: one that leaves out a part
+/// (Rust visibility, a return type) also matches items that have it, one that
+/// spells a part requires it, and the bare form equals its `rule: {pattern}`.
 #[test]
-fn a_pattern_matches_exactly_as_written() {
+fn a_pattern_requires_what_it_spells_and_no_more() {
     let root = Fixture::new();
     let rust = root.0.join("items.rs");
     std::fs::write(
@@ -125,29 +125,22 @@ fn a_pattern_matches_exactly_as_written() {
         run(&root.0, query).expect("match")
     };
     for (path, pattern, count) in [
-        (&rust, "fn $N() { $$$B }", 1),
+        (&rust, "fn $N() { $$$B }", 3),
         (&rust, "pub fn $N() -> $R { $$$B }", 1),
-        (&typed, "export function $N($$$A) { $$$B }", 1),
+        (&rust, "fn $N() -> $R { $$$B }", 1),
+        (&typed, "export function $N($$$A) { $$$B }", 2),
+        (&typed, "export function $N($$$A): $R { $$$B }", 1),
     ] {
         let out = matched(path, json!({"rule":{"pattern":pattern}}));
         assert_eq!(out["matchCount"], count, "{pattern}: {out}");
-        assert!(
-            out["diagnostics"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .all(|d| d["code"] != "structural.pattern.relaxed"),
-            "{pattern}: {out}"
-        );
-        let rule = matched(path, json!({"rule":{"pattern": pattern}}));
-        assert_eq!(out["files"], rule["files"], "{pattern}: {out}");
     }
 }
 
-/// An exact declaration pattern that matches nothing while the scope holds
-/// declarations of its kind gets a diagnostic counting them and a rule lead
-/// that lists them (named as the pattern names it); an expression pattern,
-/// or a scope without the kind, gets neither.
+/// A declaration pattern that matches nothing while the scope holds
+/// declarations of its kind differs from them in a part it spells: a
+/// diagnostic counts them and a rule lead lists them (named as the pattern
+/// names it). An expression pattern gets neither, and a scope without the kind
+/// says how the pattern read and leads to what the scope declares.
 #[test]
 fn an_exact_declaration_miss_counts_the_kind_and_leads_to_its_rule() {
     let root = Fixture::new();
@@ -166,7 +159,7 @@ fn an_exact_declaration_miss_counts_the_kind_and_leads_to_its_rule() {
         )
         .expect("match")
     };
-    let miss = matched(&dir, "fn $NAME($$$ARGS) -> $R { $$$BODY }");
+    let miss = matched(&dir, "fn $NAME($$$ARGS) -> u16 { $$$BODY }");
     assert_eq!(miss["matchCount"], 0, "{miss}");
     let note = miss["diagnostics"]
         .as_array()
@@ -190,7 +183,7 @@ fn an_exact_declaration_miss_counts_the_kind_and_leads_to_its_rule() {
     let listed = run(&root.0, follow).expect("lead runs");
     assert_eq!(listed["matchCount"], 3, "{listed}");
     // A named pattern lists only its name.
-    let named = matched(&dir.join("more.rs"), "fn run() -> u8 { 3 }");
+    let named = matched(&dir.join("more.rs"), "fn run() -> u16 { 3 }");
     let lead = &crate::tools::test_support::checks::related_call(&named, "astSearch", |input| {
         input["queries"][0]["operation"] == "match"
     })["input"]["queries"][0];
@@ -202,9 +195,30 @@ fn an_exact_declaration_miss_counts_the_kind_and_leads_to_its_rule() {
     // An expression pattern is no declaration: no count, no lead.
     let call = matched(&dir, "$X.unwrap()");
     assert!(call["next"].get("broadenSearch").is_none(), "{call}");
-    // A kind the scope lacks: nothing to list.
+    // A kind the scope lacks: its reading, and what the scope declares.
     let none = matched(&dir, "trait $T { $$$B }");
-    assert!(none["next"].get("broadenSearch").is_none(), "{none}");
+    let note = none["diagnostics"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|d| d["code"] == "structural.pattern.exact")
+        .unwrap_or_else(|| panic!("reading diagnostic: {none}"));
+    assert!(
+        note["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("trait_item")),
+        "{note}"
+    );
+    let lead = &crate::tools::test_support::checks::related_call(&none, "astSearch", |input| {
+        input["queries"][0]["operation"] == "symbols"
+    })["input"]["queries"][0];
+    crate::contracts::validate_query("astSearch", lead.clone()).expect("a valid lead row");
+    let listed = run(&root.0, lead.clone()).expect("lead runs");
+    assert!(
+        listed["totalItems"].as_u64() > Some(0)
+            || listed["files"].as_array().is_some_and(|f| !f.is_empty()),
+        "{listed}"
+    );
 }
 
 /// A pattern the grammar cannot parse fails before any prefilter: a

@@ -143,3 +143,92 @@ fn include_and_unscoped_search_everything_and_disclose_nothing() {
         assert!(body.get("testCodeExcluded").is_none(), "{body}");
     }
 }
+
+const OPEN: &str = "pub mod sub;\n";
+const GATED: &str = "#[cfg(test)]\npub mod sub;\n";
+
+/// `src/sub`, a module of `src/lib.rs` (outside the search's root) that says
+/// `declares` it, with enough settled hits for several pages; the path of
+/// `lib.rs`.
+fn module_beside_its_parent(root: &std::path::Path, declares: &str) -> std::path::PathBuf {
+    let parent = root.join("src/lib.rs");
+    fs::create_dir_all(root.join("src/sub")).expect("fixture dir");
+    fs::write(&parent, declares).expect("parent");
+    fs::write(root.join("src/sub/mod.rs"), "pub mod a;\n").expect("module");
+    let hits = (0..400).fold(String::new(), |hits, line| {
+        hits + &format!("pub fn needle_{line}() {{}}\n")
+    });
+    fs::write(root.join("src/sub/a.rs"), hits).expect("hits");
+    settle();
+    parent
+}
+
+/// A search under a `testCode` scope follows a parent module outside its
+/// root: moving the module across the line leaves the pages stale, for a
+/// directory and for one file.
+#[test]
+fn a_scoped_search_follows_a_parent_outside_its_root() {
+    for (test_code, before, after) in [("exclude", OPEN, GATED), ("only", GATED, OPEN)] {
+        for scope in ["src/sub", "src/sub/a.rs"] {
+            let root = tempfile::tempdir().expect("fixture directory");
+            let parent = module_beside_its_parent(root.path(), before);
+            let (policy, security) = policy_for(root.path());
+            let request = ls_query(
+                serde_json::json!({"path": root.path().join(scope).to_string_lossy(), "matchString": ["needle"], "testCode": test_code}),
+                None,
+            );
+            let snapshot = search_in(&request, &policy, &security, Some(6_000))
+                .expect("page 1")
+                .source_snapshot
+                .expect("snapshot");
+            assert!(
+                manifest::get(&snapshot, &policy.identity()).is_none(),
+                "{test_code} {scope}: the verdicts are not proved"
+            );
+            let next = ls_query(
+                serde_json::json!({"snapshot": snapshot, "page": 2}),
+                Some(&request),
+            );
+            search_in(&next, &policy, &security, Some(6_000)).expect("page 2");
+            fs::write(&parent, after).expect("edit");
+            let failed = search_in(&next, &policy, &security, Some(6_000))
+                .expect_err("the module crossed the line");
+            assert_eq!(
+                failed.code,
+                octocode_contract_types::ErrorCode::StaleSnapshot,
+                "{}",
+                failed.message
+            );
+        }
+    }
+}
+
+/// Without a filtering scope nothing depends on a parent: the scan stays
+/// stored and serves its later pages, whatever a parent says.
+#[test]
+fn a_search_with_no_test_code_filter_keeps_its_scan() {
+    for test_code in [None, Some("include")] {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let parent = module_beside_its_parent(root.path(), OPEN);
+        let (policy, security) = policy_for(root.path());
+        let mut fields = serde_json::json!({"path": root.path().join("src/sub").to_string_lossy(), "matchString": ["needle"]});
+        if let Some(test_code) = test_code {
+            fields["testCode"] = serde_json::json!(test_code);
+        }
+        let request = ls_query(fields, None);
+        let snapshot = search_in(&request, &policy, &security, Some(6_000))
+            .expect("page 1")
+            .source_snapshot
+            .expect("snapshot");
+        fs::write(&parent, GATED).expect("gate");
+        assert!(
+            manifest::get(&snapshot, &policy.identity()).is_some(),
+            "{test_code:?}"
+        );
+        let next = ls_query(
+            serde_json::json!({"snapshot": snapshot, "page": 2}),
+            Some(&request),
+        );
+        search_in(&next, &policy, &security, Some(6_000)).expect("page 2");
+    }
+}

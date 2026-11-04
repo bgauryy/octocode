@@ -55,8 +55,17 @@ fn a_fresh_page_withholds_only_the_file_written_after_its_scan() {
         "const needle = 1;\n// appended while the call runs\n",
     )
     .expect("append");
-    let page = executor::page_of(&request, &policy, &security, &NeverCancel, scan, None)
-        .expect("one file changing under a fresh call does not fail the call");
+    let alternates = crate::tools::local_search::probes::Alternates::new(&request, &scan);
+    let page = executor::page_of(
+        &request,
+        &policy,
+        &security,
+        &NeverCancel,
+        scan,
+        None,
+        &alternates,
+    )
+    .expect("one file changing under a fresh call does not fail the call");
     assert_eq!(
         shown_values(&page),
         vec![

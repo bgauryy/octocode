@@ -165,7 +165,7 @@ pub(super) fn pick_candidate(
                 Some((*candidate).clone())
             } else {
                 candidates
-                    .into_iter()
+                    .iter()
                     .filter(|candidate| candidate.line_index.abs_diff(target) <= DEFAULT_RADIUS)
                     .min_by_key(|candidate| {
                         (
@@ -177,6 +177,8 @@ pub(super) fn pick_candidate(
                             candidate.character,
                         )
                     })
+                    .cloned()
+                    .or_else(|| only_candidate(&candidates, order_hint))
             }
         }
         _ => candidates.into_iter().min_by_key(|candidate| {
@@ -213,6 +215,29 @@ pub(super) fn pick_candidate(
         })
         .collect();
     Ok(Some(hit))
+}
+
+/// What a line too far from every occurrence can only mean: the file's one
+/// declaration of the name, or, with none, its one code occurrence. Any other
+/// file leaves the choice to the caller, and an explicit `occurrence` counts on
+/// the line it named, so it means nothing here.
+fn only_candidate(candidates: &[SymbolCandidate], order_hint: usize) -> Option<SymbolCandidate> {
+    if order_hint > 0 {
+        return None;
+    }
+    let code = || {
+        candidates
+            .iter()
+            .filter(|candidate| candidate.is_exact && !candidate.is_literal)
+    };
+    let declarations = code()
+        .filter(|candidate| candidate.is_declaration)
+        .collect::<Vec<_>>();
+    match (declarations.as_slice(), code().count()) {
+        ([only], _) => Some((*only).clone()),
+        ([], 1) => code().next().cloned(),
+        _ => None,
+    }
 }
 
 fn is_ignored_node(kind: &str) -> bool {

@@ -10,7 +10,7 @@ use super::filters::NameFilter;
 use super::{EntryFilter, Visit};
 use crate::error::{Error, ErrorKind};
 use crate::search::glob;
-use crate::search::walk::{IgnoreRules, Prune, RootedPrune};
+use crate::search::walk::{DirRules, IgnoreRules, Prune, RootedPrune};
 use crate::types::IgnorePolicy;
 use crate::types::{EntryType, FileSystemQueryOptions};
 
@@ -38,7 +38,6 @@ pub(super) struct CompiledQuery {
     pub(super) executable: bool,
     pub(super) readable: bool,
     pub(super) writable: bool,
-    pub(super) prune: Prune,
     /// The default excludes, pruned only where git ignores them.
     pub(super) defaults: Option<RootedPrune>,
     /// Caller exclusions (see [`glob`]): a matching directory is skipped with
@@ -56,6 +55,9 @@ pub(super) struct CompiledQuery {
     pub(super) window_rows: Option<u32>,
     /// The caller's listing rule ([`FileSystemQueryOptions::lists`]).
     pub(super) lists: Option<crate::types::ListsEntry>,
+    /// Something reads an entry's `lstat`: the caller
+    /// ([`FileSystemQueryOptions::names_only`] off) or a metadata filter.
+    pub(super) stats_entries: bool,
 }
 
 impl CompiledQuery {
@@ -99,7 +101,20 @@ impl CompiledQuery {
             include_ignored,
             include_hidden,
         } = options.ignore;
+        let stats_entries = !options.names_only
+            || options.empty.unwrap_or(false)
+            || options.modified_from.is_some()
+            || options.modified_to.is_some()
+            || options.accessed_from.is_some()
+            || options.accessed_to.is_some()
+            || options.size_min.is_some()
+            || options.size_max.is_some()
+            || options.permissions.is_some()
+            || options.executable.unwrap_or(false)
+            || options.readable.unwrap_or(false)
+            || options.writable.unwrap_or(false);
         Ok(Self {
+            stats_entries,
             ignore_rules: (!include_ignored).then(|| IgnoreRules::new(&root)),
             root,
             include_root: options.include_root.unwrap_or(false),
@@ -121,7 +136,6 @@ impl CompiledQuery {
             executable: options.executable.unwrap_or(false),
             readable: options.readable.unwrap_or(false),
             writable: options.writable.unwrap_or(false),
-            prune: Prune::new(options.exclude_dir.iter().flatten()),
             defaults,
             exclude,
             limit: options.limit.map_or(usize::MAX, |n| n as usize),
@@ -148,7 +162,7 @@ fn walk_shape(options: &FileSystemQueryOptions) -> u64 {
         options.ignore.include_ignored,
         options.ignore.include_hidden,
         &options.exclude,
-        &options.exclude_dir,
+        &options.default_exclude_dir,
     )
         .hash(&mut hasher);
     hasher.finish()
@@ -175,16 +189,15 @@ impl CompiledQuery {
         is_dir: bool,
         (file_type, visit): (Option<fs::FileType>, Visit),
         admit: &EntryFilter<'_>,
+        rules: Option<&DirRules>,
     ) -> Verdict {
-        let name = file_name.to_string_lossy();
-        if self
-            .ignore_rules
-            .as_ref()
-            .is_some_and(|rules| rules.is_ignored(path, is_dir))
+        let dot = file_name.as_encoded_bytes().starts_with(b".");
+        if let (Some(ignore), Some(rules)) = (self.ignore_rules.as_ref(), rules)
+            && ignore.is_ignored_in(rules, path, is_dir)
         {
             // A dot entry out of view is not counted as ignored.
             return Verdict::Ignored {
-                counted: self.show_hidden || !name.starts_with('.'),
+                counted: self.show_hidden || !dot,
             };
         }
         // A caller exclusion is a path match: it reads no metadata.
@@ -196,15 +209,14 @@ impl CompiledQuery {
         if !admit(path, file_type, visit) {
             return Verdict::Left;
         }
-        if !self.show_hidden && name.starts_with('.') {
+        if !self.show_hidden && dot {
             return Verdict::Left;
         }
         if is_dir
-            && (self.prune.names(file_name)
-                || self
-                    .defaults
-                    .as_ref()
-                    .is_some_and(|defaults| defaults.prunes(path, true)))
+            && self
+                .defaults
+                .as_ref()
+                .is_some_and(|defaults| defaults.prunes(path, true))
         {
             return Verdict::Pruned;
         }

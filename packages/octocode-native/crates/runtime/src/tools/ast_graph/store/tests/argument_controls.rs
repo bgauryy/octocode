@@ -111,3 +111,34 @@ fn nearest_ordinary_lexical_scope_wins_for_argument_candidates() {
         }
     }
 }
+
+/// A build checks an argument observation when it projects it, typed, so
+/// publication does not parse the string again; one a redaction rewrote, or
+/// one a reader was handed, is parsed.
+#[test]
+fn checked_arguments_are_not_parsed_again_unless_redacted() {
+    use super::super::format::sources::SourceTable;
+    use super::super::format::{EdgeKind, GraphTables, NONE, ProvenanceRec};
+    let provenance = ProvenanceRec {
+        source_digest: 0,
+        source_start: 0,
+        source_end: 1,
+        source_origin: NONE,
+        derivation_version: 0,
+    };
+    let mut tables = GraphTables {
+        sources: SourceTable::default(),
+        strings: vec!["not json".into(), "AKIAIOSFODNN7EXAMPLE".into()],
+        ..Default::default()
+    };
+    let check = |tables: &GraphTables, id| {
+        super::super::format::arguments::validate(tables, id, EdgeKind::Passes, provenance, None)
+    };
+    assert!(check(&tables, 0).is_err(), "unchecked strings are parsed");
+    tables.checked_arguments = [0, 1].into();
+    assert!(check(&tables, 0).is_ok() && check(&tables, 1).is_ok());
+    super::super::ingest::redact_secrets(&mut tables, &ContentSecurity::new());
+    assert_ne!(tables.strings[1], "AKIAIOSFODNN7EXAMPLE");
+    assert!(check(&tables, 0).is_ok());
+    assert!(check(&tables, 1).is_err(), "a rewritten string is parsed");
+}

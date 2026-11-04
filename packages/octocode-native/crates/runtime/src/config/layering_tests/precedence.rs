@@ -7,7 +7,6 @@ fn workspace_file_alone_applies() {
         ..NONE
     });
     assert_eq!(out.resolved.lsp.prewarm, LspPrewarm::Off);
-    assert_eq!(out.source, ConfigSource::File);
     assert_eq!(out.config_path, None);
     assert_eq!(out.project_config_path, Some(WORKSPACE_RC.into()));
     assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
@@ -86,7 +85,6 @@ fn every_environment_source_beats_both_files() {
             LspPrewarm::Off,
             "{label} must win"
         );
-        assert_eq!(out.source, ConfigSource::Mixed, "{label}");
     }
 }
 
@@ -109,10 +107,7 @@ fn workspace_null_falls_through_to_the_global_value() {
 /// default, never breaks resolution, and never touches another setting.
 #[test]
 fn null_falls_through_for_every_config_kind() {
-    for field in CONFIG_FIELDS
-        .iter()
-        .filter(|field| field.file && field.resolved)
-    {
+    for field in CONFIG_FIELDS.iter().filter(|field| field.resolved) {
         let mut doc = serde_json::json!({"lsp": {"prewarm": "off"}});
         insert_path(&mut doc, field.path, serde_json::Value::Null);
         let text = doc.to_string();

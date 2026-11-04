@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './workspaces.mjs';
@@ -9,6 +10,14 @@ export const NATIVE_DEBUG_LIMIT_BYTES = 50 * 1024 ** 3;
 /** The dev-profile output Cargo uses for the native workspace, honoring CARGO_TARGET_DIR as Cargo does. */
 export function nativeDebugDir(env = process.env) {
   return path.join(path.resolve(NATIVE_ROOT, env.CARGO_TARGET_DIR || 'target'), 'debug');
+}
+
+/**
+ * Whether another cargo process is running. `cargo clean` waits for a compile, but not for a test
+ * binary `cargo test` is running, so an automatic clean could delete the binary under it.
+ */
+export function cargoIsRunning(run = spawnSync) {
+  return run('pgrep', ['-x', 'cargo'], { stdio: 'ignore' }).status === 0;
 }
 
 /**

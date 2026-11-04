@@ -1,5 +1,5 @@
 //! Every retained store draws on the one process byte budget
-//! ([`crate::cache::MEMORY`]): no store keeps its own entry count or size
+//! ([`octocode_engine::memory::MEMORY`]): no store keeps its own entry count or size
 //! limit, and only the budget's owners build a raw memo or a budget.
 use std::path::{Path, PathBuf};
 
@@ -76,7 +76,7 @@ fn no_store_sets_its_own_limit_or_bypasses_the_one_budget() {
 /// and ceiling, and the floor where the host's memory cannot be read.
 #[test]
 fn the_budget_is_an_eighth_of_host_memory_within_its_bounds() {
-    use crate::cache::{MAX_MEMORY_BUDGET, MIN_MEMORY_BUDGET, memory_budget_for};
+    use octocode_engine::memory::{MAX_MEMORY_BUDGET, MIN_MEMORY_BUDGET, memory_budget_for};
     const MIB: u64 = 1024 * 1024;
     assert_eq!(memory_budget_for(None), MIN_MEMORY_BUDGET);
     assert_eq!(memory_budget_for(Some(1024)), MIN_MEMORY_BUDGET);
@@ -92,9 +92,9 @@ fn the_budget_is_an_eighth_of_host_memory_within_its_bounds() {
 fn a_tool_store_draws_on_the_process_budget() {
     let memo = super::PageMemo::<()>::new();
     let weight = 4096;
-    let before = crate::cache::MEMORY.used();
+    let before = octocode_engine::memory::MEMORY.used();
     memo.put("budget-s".into(), "p".into(), weight, ());
-    assert!(crate::cache::MEMORY.used() >= before + weight);
+    assert!(octocode_engine::memory::MEMORY.used() >= before + weight);
     let (_, held) = memo.contents();
     assert!(held >= weight, "the key bytes count too: {held}");
     memo.evict("budget-s");

@@ -20,14 +20,9 @@ fn punctuation_is_literal_until_the_caller_selects_a_regex_engine() {
         &files,
         ls_query(serde_json::json!({"matchString":["[absent]"]}), None),
     );
-    assert_eq!(empty["matchedLineCount"], 0);
-    assert!(
-        crate::tools::test_support::checks::leads(&empty)
-            .iter()
-            .all(|call| {
-                call.tool != "localSearch" || call.query["queries"][0]["regexEngine"] != "rust"
-            }),
-        "a miss must not infer a different pattern language: {empty}"
+    assert_eq!(
+        empty["matchedLineCount"], 0,
+        "a miss stays literal: {empty}"
     );
 }
 

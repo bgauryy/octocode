@@ -12,87 +12,9 @@ use serde_json::{Value, json};
 use crate::contracts::listing_roles::ListingRole;
 use octocode_contract_types::ErrorCode;
 
-/// What a walk left out of a listing, root-relative (a directory's with a
-/// trailing `/` where noted): `.gitignore`d entries (`/`), entries the path
-/// policy withheld, dot entries skipped without `hidden` (`/`), the
-/// directories the default prune skipped, and the entries it could not read
-/// (how many, and how many of them for want of permission).
-#[derive(Clone, Debug, Default)]
-pub(super) struct Uncovered {
-    pub(super) ignored: Vec<String>,
-    pub(super) withheld: crate::policy::discovery::Withheld,
-    pub(super) hidden: Vec<String>,
-    pub(super) pruned: Vec<String>,
-    pub(super) unreadable: (u32, u32),
-}
+mod uncovered;
 
-impl Uncovered {
-    /// The distinct names of the default-pruned directories, sorted.
-    pub(super) fn pruned_names(&self) -> Option<Vec<String>> {
-        if self.pruned.is_empty() {
-            return None;
-        }
-        let mut names = self
-            .pruned
-            .iter()
-            .map(|dir| dir.rsplit('/').next().unwrap_or(dir).to_owned())
-            .collect::<Vec<_>>();
-        names.sort_unstable();
-        names.dedup();
-        Some(names)
-    }
-
-    /// Whether the walk skipped anything a relaxed walk could list.
-    pub(super) fn saw_skips(&self) -> bool {
-        !self.ignored.is_empty() || !self.hidden.is_empty() || !self.pruned.is_empty()
-    }
-
-    /// The causes of `walk` this walk skipped entries by, in [`Cause`] order.
-    pub(super) fn skipped(&self, walk: Walk) -> Vec<Cause> {
-        walk.skipping()
-            .into_iter()
-            .filter(|cause| match cause {
-                Cause::Ignored => !self.ignored.is_empty(),
-                Cause::Hidden => !self.hidden.is_empty(),
-                Cause::DefaultExcluded => !self.pruned.is_empty(),
-            })
-            .collect()
-    }
-
-    /// The causes a lead must lift to reach what this walk skipped when no
-    /// probe says where entries sit: [`Self::skipped`], plus the default
-    /// prune when ignored or dot entries were skipped, since a pruned
-    /// directory behind them (a `.gitignore`d `target/`) is never seen as
-    /// pruned.
-    pub(super) fn unproven(&self, walk: Walk) -> Vec<Cause> {
-        let behind = !self.ignored.is_empty() || !self.hidden.is_empty();
-        walk.skipping()
-            .into_iter()
-            .filter(|cause| match cause {
-                Cause::Ignored => !self.ignored.is_empty(),
-                Cause::Hidden => !self.hidden.is_empty(),
-                Cause::DefaultExcluded => behind || !self.pruned.is_empty(),
-            })
-            .collect()
-    }
-
-    /// `causes` as a hint names them: the pruned directories by name, the
-    /// rest by label.
-    pub(super) fn named(&self, causes: &[Cause]) -> String {
-        causes
-            .iter()
-            .map(|cause| match (cause, self.pruned_names()) {
-                (Cause::DefaultExcluded, Some(names)) => names
-                    .iter()
-                    .map(|name| format!("{name}/"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                _ => cause.label().to_owned(),
-            })
-            .collect::<Vec<_>>()
-            .join("; ")
-    }
-}
+pub(super) use uncovered::Uncovered;
 
 /// Entries one probe lists before it stops: enough to name the skip
 /// reasons and to tell "some" from "none".
@@ -276,7 +198,10 @@ pub(super) fn broaden_empty<Q: Listing>(
     root: &std::path::Path,
     walk: impl FnOnce(&Q, usize, Walking<'_>) -> Result<Walked, ToolError>,
 ) -> Result<(), ToolError> {
-    if out["status"] != "empty" || out["calls"].get("includeSkipped").is_some() {
+    if out["status"] != "empty"
+        || out["calls"].get("includeSkipped").is_some()
+        || out["calls"].get("broadenSearch").is_some()
+    {
         return Ok(());
     }
     let row = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
@@ -324,6 +249,61 @@ pub(super) fn broaden_empty<Q: Listing>(
         if count == 1 { "it" } else { "them" },
     );
     out["calls"]["broadenSearch"] = lead;
+    crate::tools::leads::push_hint(out, hint);
+    Ok(())
+}
+
+/// An empty filtered listing a depth bound may have emptied (`tree` lists one
+/// level unless told otherwise): when the same filters find entries below the
+/// bound (`walk` of the `files` listing without it, within the probe budget),
+/// lead there (`next.broadenSearch`) and say so, since no name filter is at
+/// fault. An empty listing that skipped something worth lifting has its lead.
+pub(super) fn deepen_empty<Q: Listing>(
+    out: &mut Value,
+    query: &Q,
+    root: &std::path::Path,
+    walk: impl FnOnce(
+        &octocode_contract_types::StructureSearchQueryFiles,
+        usize,
+        Walking<'_>,
+    ) -> Result<Walked, ToolError>,
+) -> Result<(), ToolError> {
+    if out["status"] != "empty" || out["calls"].get("includeSkipped").is_some() || !query.filtered()
+    {
+        return Ok(());
+    }
+    let mut row = crate::response::result::query_row(
+        query,
+        &["maxDepth", "page", "snapshot", "scanOffset", "walkOffset"],
+    );
+    let bound = crate::response::result::query_value(query)["maxDepth"].clone();
+    if !bound.is_u64() {
+        return Ok(());
+    }
+    row["operation"] = json!("files");
+    row["page"] = json!(1);
+    let deeper: octocode_contract_types::StructureSearchQueryFiles = serde_json::from_value(row)
+        .map_err(|error| {
+            ToolError::new(
+                ErrorCode::ExecutionFailed,
+                format!("the deepened listing is no valid query: {error}"),
+            )
+        })?;
+    let probe = ProbeBound::new(crate::tools::empty_walk::probe_budget());
+    let found = walk(&deeper, PROBE_HITS, Walking::Probe(&probe))?;
+    let count = found.rows.iter().filter(|row| row.source != root).count();
+    if count == 0 {
+        return Ok(());
+    }
+    let cut = found.meta.was_capped || probe.cut();
+    let hint = format!(
+        "No entry matches within {bound} level(s) of path; {}{count} {} deeper: the related[] structureSearch request lists {}.",
+        if cut { "at least " } else { "" },
+        if count == 1 { "matches" } else { "match" },
+        if count == 1 { "it" } else { "them" },
+    );
+    let named: StructureSearchQuery = deeper.into();
+    out["calls"]["broadenSearch"] = Continuation::related_query(named).build();
     crate::tools::leads::push_hint(out, hint);
     Ok(())
 }

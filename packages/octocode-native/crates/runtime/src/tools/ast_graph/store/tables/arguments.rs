@@ -1,5 +1,5 @@
 //! Named argument references use an explicit lexical premise, never a callee premise.
-use super::super::format::arguments::{ArgumentEvidence, Observation, StoredSpan};
+use super::super::format::arguments::{ArgumentEvidence, Observation, StoredSpan, check};
 use super::*;
 use octocode_engine::graph::{
     GraphArgumentBinding, GraphArgumentGroupObservation, GraphArgumentObservation,
@@ -195,6 +195,15 @@ impl Projector<'_> {
             let argument = self.strings.id(&serde_json::json!(metadata).to_string());
             let occurrence = self.strings.id(&result.occurrence);
             let provenance = self.provenance(result.src, Some(&result.range));
+            let reason = result.targets.is_empty().then_some(result.detail);
+            match check(&self.sources.table, &metadata, provenance, reason) {
+                Ok(()) => {
+                    self.checked_arguments.insert(argument);
+                }
+                Err(error) => {
+                    self.invalid_argument.get_or_insert(error);
+                }
+            }
             if result.targets.is_empty() {
                 let target = match &metadata.observation {
                     Observation::Reference { target, .. } => target.as_str(),

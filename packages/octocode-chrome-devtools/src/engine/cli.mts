@@ -21,6 +21,7 @@ import {
   commonBooleans,
   commonValues,
   fail,
+  type CliOptions,
   isOwnKey,
   json,
   optionValue,
@@ -30,6 +31,7 @@ import {
 import { errorMessage } from './error-message.mjs';
 import { schemaOutput } from './cli-schema.mjs';
 import { chromeCommands } from './chrome-contract.mjs';
+import { resolvePort, stateDirFor } from './session-registry.mjs';
 
 const scripts = dirname(fileURLToPath(import.meta.url));
 const usage = `octocode-cdp <command> [options]\n${Object.entries(
@@ -109,6 +111,18 @@ function runPlanText(text: string | undefined, file: string | undefined) {
     return fail('run needs exactly one of --plan file|- and --json JSON');
   return readFileSync(file === '-' ? 0 : resolve(file), 'utf8');
 }
+/** Runner arguments; without --port, the newest live browser this workspace opened, else 9222. */
+async function connectionArgs(opts: CliOptions) {
+  const resolved = await resolvePort(
+    optionValue(opts, '--port'),
+    stateDirFor(process.cwd())
+  );
+  if (resolved.source === 'recorded')
+    console.error(
+      `[CDP_CLI] No port given: using port ${resolved.port}, the newest live browser opened by this workspace. Pass connection.port to choose another.`
+    );
+  return runnerArgs({ ...opts, '--port': resolved.port });
+}
 async function main(argv: string[]) {
   const [command, ...args] = argv;
   if (!command || ['--help', '-h', 'help'].includes(command)) {
@@ -174,7 +188,7 @@ async function main(argv: string[]) {
       fail(`${command} does not accept ${key}`);
   if (tail.length && !['check', 'script'].includes(command))
     fail(`${command} does not accept trailing recipe flags`);
-  const runner = runnerArgs(opts),
+  const runner = await connectionArgs(opts),
     dry = !!opts['--dry-run'];
   const maxPositionals = ['cdp', 'protocol', 'check', 'script'].includes(
     command

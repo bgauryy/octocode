@@ -18,29 +18,25 @@ impl NativeLspClient {
     /// one that never reported progress or is still busy. The returned string
     /// is one of `"progressIdle"`, `"settledWithoutProgress"`, or `"timeout"`.
     pub(crate) async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
-        crate::lsp::diagnostics::Phase::Readiness
-            .measure(async {
-                let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
-                let began = tokio::time::Instant::now();
-                let readiness = self
-                    .inner
-                    .progress
-                    .wait_until_idle(timeout_ms, self.settle_ms(self.startup_settle_ms()))
-                    .await
-                    .as_str()
-                    .to_owned();
-                self.record_wait(super::waits::WaitKind::Indexing, began);
-                {
-                    let mut slot = self
-                        .inner
-                        .readiness
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    *slot = Some(readiness.clone());
-                }
-                Ok(readiness)
-            })
+        let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
+        let began = tokio::time::Instant::now();
+        let readiness = self
+            .inner
+            .progress
+            .wait_until_idle(timeout_ms, self.settle_ms(self.startup_settle_ms()))
             .await
+            .as_str()
+            .to_owned();
+        self.record_wait(super::waits::WaitKind::Indexing, began);
+        {
+            let mut slot = self
+                .inner
+                .readiness
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *slot = Some(readiness.clone());
+        }
+        Ok(readiness)
     }
 
     /// `false` if the client was never started/already stopped, or if its
@@ -116,11 +112,6 @@ impl NativeLspClient {
             .readiness
             .lock()
             .is_ok_and(|slot| slot.as_deref() == Some(readiness.as_str()))
-    }
-
-    /// Where this client's server configuration came from.
-    pub fn server_source(&self) -> crate::lsp::types::ServerSource {
-        self.inner.config.source
     }
 
     pub(crate) fn language_id(&self) -> Option<&str> {

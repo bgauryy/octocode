@@ -180,10 +180,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-executor"
-version = "1.14.0"
+name = "async-compression"
+version = "0.4.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a"
+checksum = "3976abdc8fe7d1133d43d304afd42abdf5bc3e1319d263d223bde07b5efc4be8"
+dependencies = [
+ "compression-codecs",
+ "compression-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
+name = "async-executor"
+version = "1.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37"
 dependencies = [
  "async-task",
  "concurrent-queue",
@@ -640,6 +652,23 @@ dependencies = [
  "static_assertions",
  "zmij",
 ]
+
+[[package]]
+name = "compression-codecs"
+version = "0.4.38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce2548391e9c1929c21bf6aa2680af86fe4c1b33e6cea9ac1cfeec0bd11218cf"
+dependencies = [
+ "compression-core",
+ "flate2",
+ "memchr",
+]
+
+[[package]]
+name = "compression-core"
+version = "0.4.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
 
 [[package]]
 name = "concurrent-queue"
@@ -2046,6 +2075,7 @@ dependencies = [
  "hex",
  "ignore",
  "libc",
+ "octocode-io",
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
@@ -2086,6 +2116,7 @@ version = "20.2.0"
 dependencies = [
  "base64 0.23.1",
  "bytes",
+ "flate2",
  "futures-util",
  "hex",
  "octocode-contract-types",
@@ -2106,6 +2137,7 @@ name = "octocode-io"
 version = "20.2.0"
 dependencies = [
  "bytes",
+ "flate2",
  "futures-util",
  "getrandom 0.4.3",
  "hex",
@@ -2141,6 +2173,7 @@ dependencies = [
  "imagesize",
  "keyring-core",
  "libc",
+ "memchr",
  "octocode-contract-types",
  "octocode-engine",
  "octocode-github",
@@ -3696,12 +3729,17 @@ version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
 dependencies = [
+ "async-compression",
  "bitflags",
  "bytes",
+ "futures-core",
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "pin-project-lite",
+ "tokio",
+ "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",

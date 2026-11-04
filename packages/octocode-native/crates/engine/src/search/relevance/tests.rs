@@ -222,3 +222,32 @@ fn a_jj_checkout_applies_gitattributes() {
     assert!(marks.marks_generated(&checkout.join("src/vendor.ts")));
     assert!(!marks.marks_generated(&checkout.join("src/main.ts")));
 }
+
+/// The deepest `.gitattributes` decides, and the answer is the same whichever
+/// thread first reads a directory.
+#[test]
+fn gitattributes_deepest_file_wins_across_threads() {
+    let base = tempfile::tempdir().expect("tempdir");
+    let checkout = base.path().join("checkout");
+    std::fs::create_dir_all(checkout.join(".git")).expect("git marker");
+    std::fs::create_dir_all(checkout.join("src/inner/bare")).expect("dirs");
+    std::fs::write(checkout.join(".gitattributes"), "*.ts linguist-generated\n").expect("root");
+    std::fs::write(
+        checkout.join("src/inner/.gitattributes"),
+        "keep.ts -linguist-generated\n",
+    )
+    .expect("inner");
+    let marks = GitAttributes::new(&checkout).expect("a git checkout");
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            scope.spawn(|| {
+                for _ in 0..50 {
+                    assert!(marks.marks_generated(&checkout.join("src/a.ts")));
+                    assert!(marks.marks_generated(&checkout.join("src/inner/bare/b.ts")));
+                    assert!(!marks.marks_generated(&checkout.join("src/inner/keep.ts")));
+                    assert!(!marks.marks_generated(&checkout.join("src/inner/c.rs")));
+                }
+            });
+        }
+    });
+}

@@ -37,7 +37,7 @@ pub(super) fn terminal(session: &mut Session, reason: &str, usage: Classificatio
         }
     }
     let output = emit(session, &usage, Some(reason));
-    Outcome { output, usage }
+    Outcome { output }
 }
 
 pub(super) fn emit(

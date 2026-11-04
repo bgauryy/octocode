@@ -7,6 +7,12 @@ import { existsSync } from 'fs';
 import { pathToFileURL } from 'url';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { flagArgs } from './cli-flags.mjs';
+import {
+  liveSessions,
+  noChromeMessage,
+  probeFailure,
+  stateDirFor,
+} from './session-registry.mjs';
 import { octocodeOutputBase } from './engine-io.mjs';
 import { applyMandatoryStealth, stealthEnabled } from './mandatory-stealth.mjs';
 import { restrictNetworkToLocalhost } from './cdp-runner-guard.mjs';
@@ -85,7 +91,7 @@ if (hasFlag('--no-reload')) process.env.CDP_STEALTH_NO_RELOAD = '1';
 const USAGE =
   '[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--browser] [--keep-tab] [--stealth] [--no-reload] [--no-stealth]';
 if (hasFlag('--help') || hasFlag('-h')) {
-  console.error(USAGE);
+  console.log(USAGE);
   process.exit(0);
 }
 
@@ -132,16 +138,20 @@ async function shutdown(signal: string) {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-async function main() {
-  let version;
+async function probeChrome() {
   try {
-    version = await chrome.version();
-  } catch {
+    return await chrome.version();
+  } catch (error) {
+    const live = await liveSessions(stateDirFor(process.cwd()));
     console.error(
-      `[CDP_RUNNER] Chrome not responding on port ${PORT}. Run open-browser.mjs first.`
+      `[CDP_RUNNER] ${noChromeMessage(PORT, probeFailure(error), live)}`
     );
-    process.exit(1);
+    return process.exit(1);
   }
+}
+
+async function main() {
+  const version = await probeChrome();
   if (VERBOSE) console.error(`[CDP_RUNNER] Chrome: ${version.Browser}`);
   const sessionMetaDir = sessionMetaDirFor(
     OCTOCODE_OUTPUT_BASE,
@@ -173,6 +183,9 @@ async function main() {
     process.exit(1);
   }
   const { targetWsUrl, targetInfo } = selected;
+  console.error(
+    `[CDP_RUNNER] Using port ${PORT}, target ${[targetInfo.id, targetInfo.url].join(' ')}`
+  );
   const openedTabId = selected.openedTabId;
   const pendingNavigate = selected.pendingNavigate ?? null;
 

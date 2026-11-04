@@ -64,7 +64,7 @@ pub(crate) fn limit(query: &GhSearchHistoryQuery) -> usize {
 }
 pub(crate) fn path(query: &GhSearchHistoryQuery) -> Option<&str> {
     variant_field!(query, each [GhSearchHistoryQuery::Commit3]
-        row => row.path_prefix.as_deref().map(String::as_str), else => None)
+        row => row.path.as_deref().map(String::as_str), else => None)
 }
 pub(crate) fn reference(query: &GhSearchHistoryQuery) -> Option<&str> {
     variant_field!(query, each [GhSearchHistoryQuery::Commit3]

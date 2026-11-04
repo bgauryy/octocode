@@ -167,7 +167,7 @@ fn a_value_outside_its_format_names_the_format_not_its_pattern() {
     let shown = crate::contracts::validate::format_input_error("ghSearchHistory", &error);
     assert_eq!(
         shown["error"],
-        r#"queries.0.filters.createdAt.include.0.from: "not-a-date" is not a valid from: it must be a date-time (RFC 3339), e.g. 2026-10-01T00:00:00Z"#,
+        r#"queries.0.filters.createdAt.include.0.from: "not-a-date" is not a valid value for from: it must be a date-time (RFC 3339), e.g. 2026-10-01T00:00:00Z"#,
         "{shown}"
     );
     // A format the validator has no example for is still named.
@@ -176,7 +176,7 @@ fn a_value_outside_its_format_names_the_format_not_its_pattern() {
     let error = validate_input_schema_for_test(&schema, json!("ab"));
     assert_eq!(
         error.issues[0].message,
-        r#""ab" is not a valid path: it must be in the x-ticket format"#
+        r#""ab" is not a valid value for path: it must be in the x-ticket format"#
     );
 }
 
@@ -186,4 +186,96 @@ fn validate_input_schema_for_test(
 ) -> super::super::ContractValidationError {
     super::super::validate_input_schema(schema, schema, &mut value, &mut vec!["path".into()])
         .unwrap_err()
+}
+
+fn first_error(tool: &str, row: Value) -> String {
+    let error = crate::contracts::prepare_many_and_validate(tool, json!({"queries": [row]}))
+        .expect_err("invalid row");
+    crate::contracts::validate::format_input_error(tool, &error)["error"]
+        .as_str()
+        .expect("message")
+        .to_owned()
+}
+
+/// A repository path states its rule, on every field that takes one, whatever
+/// the field's own note says.
+#[test]
+fn a_repository_path_states_its_rule_on_every_field() {
+    const RULE: &str =
+        "it must be repository-relative, with forward slashes and no \".\" or \"..\" segments";
+    for (tool, field, row) in [
+        (
+            "ghSearchCode",
+            "queries.0.path",
+            json!({"owner":"o","keywords":["y"],"path":"../x"}),
+        ),
+        (
+            "ghSearchCode",
+            "queries.0.path",
+            json!({"owner":"o","keywords":["y"],"path":"/abs/x"}),
+        ),
+        (
+            "ghSearchHistory",
+            "queries.0.path",
+            json!({"operation":"commit","owner":"o","repo":"r","path":"a\\b"}),
+        ),
+        (
+            "ghCloneRepo",
+            "queries.0.paths.0",
+            json!({"owner":"o","repo":"r","paths":["../x"]}),
+        ),
+    ] {
+        let shown = first_error(tool, row.clone());
+        assert!(shown.starts_with(&format!("{field}: ")), "{row}: {shown}");
+        assert!(shown.contains(RULE), "{row}: {shown}");
+    }
+}
+
+/// The rule is read from what the pattern does, so only a pattern that behaves
+/// as a repository path says it.
+#[test]
+fn only_a_pattern_that_behaves_as_a_repository_path_states_that_rule() {
+    for (pattern, value) in [
+        (r"^\S+$", "a b"),
+        (r"^[^/\\]+$", "a/b"),
+        (r"^(?!\/).+$", "/a"),
+        (r"^[^\\]+$", "a\\b"),
+    ] {
+        let schema = json!({"type":"string","pattern":pattern});
+        let shown = validate_input_schema_for_test(&schema, json!(value));
+        assert!(
+            !format!("{shown:?}").contains("repository-relative"),
+            "{pattern}: {shown:?}"
+        );
+    }
+}
+
+/// A value with no rule of its own is named as a value of the field.
+#[test]
+fn a_pattern_error_reads_as_a_value_of_the_field() {
+    let row = json!({"operation":"pullRequest","owner":"o","repo":"r","filters":{"createdAt":{"include":[{"from":"yesterday"}]}}});
+    let shown = first_error("ghSearchHistory", row);
+    assert!(
+        shown.contains(r#""yesterday" is not a valid value for from: it must be"#),
+        "{shown}"
+    );
+}
+
+/// A union of an integer and a string form reports a string against the string
+/// form, which says what both forms take.
+#[test]
+fn a_string_is_judged_by_the_string_form_of_its_union() {
+    let row = json!({"operation":"match","path":".","rule":{"kind":"x","nthChild":"junk"}});
+    let shown = first_error("astSearch", row);
+    assert!(shown.contains("an integer or An+B"), "{shown}");
+    assert!(!shown.contains("Expected number"), "{shown}");
+}
+
+/// A field several operations take names them all, though one of them is a
+/// union of forms of its own.
+#[test]
+fn a_misplaced_field_names_every_operation_that_takes_it() {
+    let shown = first_error("clasify", json!({"operation":"models","context":"x"}));
+    assert!(shown.contains("\"evaluate\""), "{shown}");
+    assert!(shown.contains("\"sections\""), "{shown}");
 }

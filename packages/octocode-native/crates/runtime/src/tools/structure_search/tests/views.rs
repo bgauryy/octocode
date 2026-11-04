@@ -79,7 +79,12 @@ fn paths_pages_preserve_every_detailed_path_once_and_keep_the_view() {
     for operation in ["tree", "files"] {
         let mut query = json!({"operation": operation, "path": root.0, "maxDepth": 4});
         let detailed = run(&root.0, query.clone()).expect("details");
-        let mut expected = paths(&detailed);
+        // A directory with its own group is named by it in this view.
+        let mut expected = listed(&detailed)
+            .iter()
+            .filter(|entry| entry["type"] != "directory" || entry["path"] == json!("./b"))
+            .map(|entry| entry["path"].as_str().expect("path").to_owned())
+            .collect::<Vec<_>>();
         expected.sort();
         query["view"] = json!("paths");
         for budget in [1, 150] {

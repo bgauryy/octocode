@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 const SCRIPT: &str = r#"#!/bin/sh
 dir=$(dirname "$0")
 pwd -P > "$dir/ran-in"
+echo "$*" >> "$dir/runs"
 [ "$1" = which ] && [ "$2" = rust-analyzer ] || { echo "unexpected arguments: $*" >&2; exit 2; }
 [ "$RUSTUP_AUTO_INSTALL" = 0 ] || { echo "rustup would auto-install" >&2; exit 3; }
 [ -f "$dir/selected" ] || { echo "error: unknown binary 'rust-analyzer' in toolchain 'bare'" >&2; exit 1; }
@@ -51,6 +52,11 @@ impl FakeRustup {
     /// The selected toolchain lacks the component.
     pub(super) fn lacks_component(&self) {
         let _ = std::fs::remove_file(self.bin.join("selected"));
+    }
+
+    /// How many times the proxy or rustup was executed.
+    pub(super) fn runs(&self) -> usize {
+        std::fs::read_to_string(self.bin.join("runs")).map_or(0, |log| log.lines().count())
     }
 
     /// The directory the last `rustup which` ran in.

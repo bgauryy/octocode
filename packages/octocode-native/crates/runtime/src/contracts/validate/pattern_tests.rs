@@ -150,11 +150,12 @@ fn continuation_queries_reject_non_ecmascript_owners_without_mutating_output() {
     }
 }
 
-/// A short pattern is the expected form, named with its field: the field's
-/// description is usage prose and stays out of the error. A pattern too long
-/// to read gives the field's note of the accepted forms instead.
+/// No published schema shows a pattern, so an error states the rule in words:
+/// the value and field, then what the pattern's classes allow. A pattern too
+/// long to read gives the field's note of the accepted forms instead, and
+/// usage prose of a field with a readable rule stays out of the error.
 #[test]
-fn a_pattern_error_names_the_field_and_its_form_not_its_usage_prose() {
+fn a_pattern_error_states_the_rule_in_words_not_the_regex() {
     let message = |pattern: &str, note: &str| {
         let schema = json!({"type":"object","properties":{"owner":{
             "type":"string","pattern":pattern,"description":note}}});
@@ -165,11 +166,117 @@ fn a_pattern_error_names_the_field_and_its_form_not_its_usage_prose() {
     };
     assert_eq!(
         message(r"^[\w.][\w.-]*$", "User or org; alone: its public repos."),
-        r#""a b" is not a valid owner: it must match ^[\w.][\w.-]*$"#
+        r#""a b" is not a valid value for owner: it must start with letters, digits, '_', '.' and may only contain letters, digits, '_', '.', '-'"#
     );
     let long = format!("^(?:{})$", "[a-z]+|".repeat(10));
     assert_eq!(
         message(&long, r#"Forms: "10..50"."#),
         r#""a b" does not match the expected form: Forms: "10..50"."#
     );
+}
+
+/// What each kind of pattern of the embedded contract reads as.
+#[test]
+fn the_contract_patterns_read_as_plain_rules() {
+    let rule = |pattern: &str, value: &str| {
+        let schema =
+            json!({"type":"object","properties":{"field":{"type":"string","pattern":pattern}}});
+        let mut input = json!({"field": value});
+        let error = validate_input_schema(&schema, &schema, &mut input, &mut Vec::new())
+            .expect_err("pattern");
+        error.issues[0].message.clone()
+    };
+    for (pattern, value, expected) in [
+        (
+            r"^(?:\w[\w.-]*|\.[\w-][\w.-]*|\.\.[\w.-]+)$",
+            "bad owner!",
+            r#""bad owner!" is not a valid value for field: it must start with letters, digits, '_', '.' and may only contain letters, digits, '_', '.', '-'"#,
+        ),
+        (
+            r"^\S+$",
+            "a b",
+            r#""a b" is not a valid value for field: it must not contain whitespace"#,
+        ),
+        (
+            r#"^[^\s"()]+$"#,
+            "a b",
+            r#""a b" is not a valid value for field: it must not contain whitespace, '"', '(', ')'"#,
+        ),
+        (
+            r"^[^\r\n\0]+$",
+            "a\nb",
+            r#""a
+b" is not a valid value for field: it must not contain line breaks, NUL"#,
+        ),
+        (
+            r"^https:\/\/\S+$",
+            "http://x",
+            r#""http://x" is not a valid value for field: it must start with https:// and must not contain whitespace"#,
+        ),
+        (
+            r"^[0-7]{3,4}$",
+            "9",
+            r#""9" is not a valid value for field: it must be 3 to 4 characters from: 0-7"#,
+        ),
+        (
+            r"^[a-f0-9]{64}$",
+            "x",
+            r#""x" is not a valid value for field: it must be 64 characters from: a-f, digits"#,
+        ),
+        (
+            r"^(?:[a-f0-9]{16})+$",
+            "x",
+            r#""x" is not a valid value for field: it may only contain a-f, digits"#,
+        ),
+        // Words here would mislead: the field alone is named.
+        (
+            r"^(?:nextPage|retry(?:[2-9]|[1-9][0-9]+)?)$",
+            "x",
+            r#""x" is not a valid value for field"#,
+        ),
+        (
+            r"^[^:@=/\s]+:[^:@=/\s]+$",
+            "x",
+            r#""x" is not a valid value for field"#,
+        ),
+    ] {
+        assert_eq!(rule(pattern, value), expected, "{pattern}");
+    }
+}
+
+/// Every pattern of the embedded contract, wherever it sits, reads without
+/// regex syntax: no published schema shows one.
+#[test]
+fn no_contract_pattern_error_quotes_a_regex() {
+    fn patterns<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
+        match value {
+            Value::Object(fields) => {
+                if let Some(pattern) = fields.get("pattern").and_then(Value::as_str) {
+                    out.push(pattern);
+                }
+                fields.values().for_each(|field| patterns(field, out));
+            }
+            Value::Array(items) => items.iter().for_each(|item| patterns(item, out)),
+            _ => {}
+        }
+    }
+    let contract = crate::contracts::parsed_contract().expect("contract");
+    let mut found = Vec::new();
+    patterns(contract, &mut found);
+    found.sort_unstable();
+    found.dedup();
+    assert!(found.len() > 10, "{}", found.len());
+    for pattern in found {
+        let schema =
+            json!({"type":"object","properties":{"field":{"type":"string","pattern":pattern}}});
+        let mut input = json!({"field": "\u{1}"});
+        let Err(error) = validate_input_schema(&schema, &schema, &mut input, &mut Vec::new())
+        else {
+            continue;
+        };
+        let message = &error.issues[0].message;
+        for syntax in ["(?", "\\", "[^", "^[", "]+", "$"] {
+            assert!(!message.contains(syntax), "{pattern}: {message}");
+        }
+    }
 }

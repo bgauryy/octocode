@@ -54,6 +54,7 @@ pub(super) async fn execute_tree(
             &scope,
             &commit_sha,
             &page,
+            &traversal.entries,
             home,
             context,
             &mut value,
@@ -63,7 +64,15 @@ pub(super) async fn execute_tree(
         None
     };
     disclose_limits(&traversal, &page, &mut value, &mut output);
-    if traversal.contents_limit {
+    // A walk that missed entries wrote what it saw: never a complete checkout.
+    if (traversal.contents_limit || traversal.failed_subtrees > 0)
+        && let Some(state) = value.pointer_mut("/location/coverage/state")
+    {
+        *state = json!("partial");
+    }
+    // A selection one call cannot finish, or a listing GitHub capped, is what
+    // a clone is for.
+    if traversal.contents_limit || materialize_resume.is_some() {
         value["calls"]["cloneRepo"] = clone_lead(query, &scope, &commit_sha);
     }
     if let Some(warning) = renamed_warning {
@@ -81,18 +90,22 @@ pub(super) async fn execute_tree(
     attach_continuations(
         &mut value,
         &pinned,
+        &scope,
         &page,
         traversal.failed_subtrees > 0,
-        query.materialize == Some(true),
         materialize_resume,
     )?;
-    // A resumed materialize page (offset > 0) is anchored by `location`:
-    // its first call already listed these entries.
+    // A resumed materialize is anchored by `location`: its first call already
+    // listed these entries, and its `nextPage` reads the rest of the listing.
     let resumed = query.materialize == Some(true)
-        && query.materialize_offset.is_some_and(|offset| offset > 0)
+        && query.materialize_offset.is_some()
         && value.get("location").is_some();
     if resumed && let Some(map) = value.as_object_mut() {
         map.remove("files");
+        map.remove("pagination");
+        if let Some(calls) = map.get_mut("calls").and_then(Value::as_object_mut) {
+            calls.remove("nextPage");
+        }
     }
     if !resumed && structure_is_empty(&value) && value.get("isPartial").is_none() {
         output.status = Some("empty");

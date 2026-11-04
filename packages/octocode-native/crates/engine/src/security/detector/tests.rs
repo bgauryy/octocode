@@ -92,6 +92,11 @@ fn b64(text: &str) -> String {
 
 mod ascii_boundaries;
 mod credential_values;
+mod every_pattern;
+mod key_armors;
 mod large_input;
+mod one_long_line;
 mod prescan;
+mod regex_forms;
+mod sampling;
 mod scope;

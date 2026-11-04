@@ -10,6 +10,42 @@ The root entry uses Node builtins only. The `./schema` (research tools) and
 `./chrome` (Chrome DevTools) subpaths re-export `@octocodeai/octocode-core` for
 interfaces.
 
+## The one place configuration is known
+
+Everything Octocode can be configured with is declared once, in
+[`scripts/config-contract/declaration/`](scripts/config-contract/declaration/):
+[`sections.ts`](scripts/config-contract/declaration/sections.ts) for settings and
+[`environment.ts`](scripts/config-contract/declaration/environment.ts) for
+variables that are not settings, such as API keys, endpoints and proxies.
+[`schema.ts`](scripts/config-contract/schema.ts) defines what an entry can say.
+
+| To know | Read | On an entry |
+|---|---|---|
+| What it is | keys, strings, URLs, paths, booleans, lists, choices | `type`, `values` |
+| Its default | | `default`, `displayDefault` |
+| Whether it is sensitive | masked in every output, never resolved into configuration | `credential` |
+| Who may set it | any file, trusted home only, or the process only | `dotenv`, `workspaceNarrowsTo` |
+| Where it appears on the settings page | provider group, where to get a key | `group`, `docsUrl` |
+
+An API endpoint receives its key, so it must be `dotenv: 'home'`. Otherwise a
+repository's `.octocode/.env` could send your key to its own host.
+
+Everything else derives from this, and `generate:config-contract` regenerates it:
+
+| Consumer | How it derives |
+|---|---|
+| `config-contract.json`, its schema, `src/config/contract.generated.ts` | Generated |
+| Native resolver, `config get`, `config list`, the settings page | Rust build reads the JSON |
+| `.env` loading, including every skill's bundled `config-env.mjs` | Generated protected-key lists |
+| The table in `docs/CONFIGURATION.md` | Generated |
+
+[`tests/config-coverage.test.ts`](tests/config-coverage.test.ts) enforces this:
+the code may not read an `OCTOCODE_*`, `*_API_KEY` or `*_BASE_URL` name that is
+not declared, endpoints must be home-only, secrets must be marked, and the settings
+page may not keep its own list of keys or providers.
+
+To see the result on a machine: `npx octocode config list`.
+
 ## Public API
 
 - `getOctocodeHome(env?)` resolves `OCTOCODE_HOME` or the platform default.
@@ -34,7 +70,7 @@ propagateOctocodeEnv({
 
 The result lists key names and source files, never values. Precedence,
 home-only keys, and the blank-classification-key opt-out are in the
-[configuration reference](../../docs/CONFIGURATION.md#env--environment-fallback).
+[configuration reference](../../docs/CONFIGURATION.md#where-every-value-comes-from).
 
 ## Development
 
@@ -65,7 +101,7 @@ the core Zod schemas from `@octocodeai/config/schema`. Change the Zod schema in
 updates every consumer. See [ARCHITECTURE.md](./ARCHITECTURE.md#tool-types).
 
 See the repository [configuration reference](../../docs/CONFIGURATION.md),
-[generated settings reference](../../docs/generated/CONFIG_SETTINGS.md),
+[settings table](../../docs/CONFIGURATION.md#all-settings-and-defaults),
 [contributor guide](../../skills-dev/octocode-dev/docs/ADDING_CONFIG.md), and
 [security model](../../docs/SECURITY.md).
 

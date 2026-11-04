@@ -64,7 +64,7 @@ impl ProviderEvidence {
 
 /// The identity of a request: method, URL, the media type it asked for and
 /// its body (a GraphQL query and its variables).
-fn request_key(spec: &RequestSpec) -> String {
+pub(super) fn request_key(spec: &RequestSpec) -> String {
     let method = match spec.method {
         HttpMethod::Get => "GET",
         HttpMethod::Post => "POST",
@@ -80,6 +80,47 @@ fn request_key(spec: &RequestSpec) -> String {
         .map(ToString::to_string)
         .unwrap_or_default();
     format!("{method} {}\n{accept}\n{body}", spec.url)
+}
+
+/// A saved answer as the page it answers with.
+pub(super) fn page_of(answer: &ProviderAnswer) -> ResponsePage {
+    ResponsePage {
+        status: answer.status,
+        headers: answer
+            .headers
+            .iter()
+            .filter_map(|(name, value)| {
+                Some((
+                    HeaderName::from_bytes(name.as_bytes()).ok()?,
+                    HeaderValue::from_str(value).ok()?,
+                ))
+            })
+            .collect::<HeaderMap>(),
+        body: Bytes::from(answer.body.clone()),
+        next: answer
+            .next
+            .as_deref()
+            .and_then(|next| Url::parse(next).ok()),
+        redirected: false,
+    }
+}
+
+/// `page` as the text answer to `request`; `None` when it is not text (a
+/// body that is not UTF-8 is never retained). A cookie is never kept.
+pub(super) fn answer_of(request: &str, page: &ResponsePage) -> Option<ProviderAnswer> {
+    Some(ProviderAnswer {
+        request: request.to_owned(),
+        status: page.status,
+        headers: page
+            .headers
+            .iter()
+            .filter(|(name, _)| *name != SET_COOKIE)
+            .map(|(name, value)| Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned())))
+            .collect::<Option<Vec<_>>>()?,
+        body: String::from_utf8(page.body.to_vec()).ok()?,
+        next: page.next.as_ref().map(Url::to_string),
+        not_found: None,
+    })
 }
 
 struct Recorded {
@@ -129,26 +170,15 @@ impl Journal {
             self.push(request, Err(error.clone()));
             return Some(Err(error.clone()));
         }
-        let page = ResponsePage {
-            status: answer.status,
-            headers: answer
-                .headers
-                .iter()
-                .filter_map(|(name, value)| {
-                    Some((
-                        HeaderName::from_bytes(name.as_bytes()).ok()?,
-                        HeaderValue::from_str(value).ok()?,
-                    ))
-                })
-                .collect::<HeaderMap>(),
-            body: Bytes::from(answer.body.clone()),
-            next: answer
-                .next
-                .as_deref()
-                .and_then(|next| Url::parse(next).ok()),
-        };
+        let page = page_of(answer);
         self.push(request, Ok(page.clone()));
         Some(Ok(page))
+    }
+
+    /// Record `page` as the answer this request saw for `spec`: what a
+    /// continuation it issues owns, however the page was obtained.
+    pub(crate) fn record_page(&self, spec: &RequestSpec, page: &ResponsePage) {
+        self.push(request_key(spec), Ok(page.clone()));
     }
 
     /// Record GitHub's answer to `spec`: a page, or a definitive not-found
@@ -204,35 +234,16 @@ impl Journal {
         ProviderEvidence {
             answers: recorded
                 .iter()
-                .filter_map(|Recorded { request, answer }| {
-                    let page = match answer {
-                        Ok(page) => page,
-                        Err(error) => {
-                            return Some(ProviderAnswer {
-                                request: request.clone(),
-                                status: error.status.unwrap_or(404),
-                                headers: Vec::new(),
-                                body: String::new(),
-                                next: None,
-                                not_found: Some(error.clone()),
-                            });
-                        }
-                    };
-                    Some(ProviderAnswer {
+                .filter_map(|Recorded { request, answer }| match answer {
+                    Ok(page) => answer_of(request, page),
+                    Err(error) => Some(ProviderAnswer {
                         request: request.clone(),
-                        status: page.status,
-                        headers: page
-                            .headers
-                            .iter()
-                            .filter(|(name, _)| *name != SET_COOKIE)
-                            .map(|(name, value)| {
-                                Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned()))
-                            })
-                            .collect::<Option<Vec<_>>>()?,
-                        body: String::from_utf8(page.body.to_vec()).ok()?,
-                        next: page.next.as_ref().map(Url::to_string),
-                        not_found: None,
-                    })
+                        status: error.status.unwrap_or(404),
+                        headers: Vec::new(),
+                        body: String::new(),
+                        next: None,
+                        not_found: Some(error.clone()),
+                    }),
                 })
                 .collect(),
             notes: self

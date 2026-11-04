@@ -311,9 +311,7 @@ pub(crate) fn present_grammars(
 
 /// The grammars of a file census (`extension → files`), each with its full
 /// extension set and file count, most files first (ties by name).
-pub(crate) fn count_grammars(
-    seen: BTreeMap<String, usize>,
-) -> Vec<(String, BTreeSet<String>, usize)> {
+fn count_grammars(seen: BTreeMap<String, usize>) -> Vec<(String, BTreeSet<String>, usize)> {
     let mut grammars: BTreeMap<String, (BTreeSet<String>, usize)> = BTreeMap::new();
     for (extension, count) in seen {
         if let Some(entry) = languages::find_entry(&extension)

@@ -14,7 +14,18 @@ pub(super) fn render_tree_page(
     TreePage { r, more, facts }: &TreePage,
     snapshot: &str,
 ) -> serde_json::Value {
-    let nodes = r.nodes.iter().map(node_page_row).collect::<Vec<_>>();
+    let provenance = ast_search_query_syntax_tree::provenance(q);
+    let nodes = r
+        .nodes
+        .iter()
+        .map(|node| {
+            if provenance {
+                node_page_row(node)
+            } else {
+                plain_node_row(node)
+            }
+        })
+        .collect::<Vec<_>>();
     let codes = r
         .diagnostics
         .iter()
@@ -104,14 +115,23 @@ fn walk_cuts(codes: &[String]) -> Vec<crate::response::paging::PartialReason> {
         .collect()
 }
 
-pub(super) fn node_page_row(n: &octocode_engine::structural::SyntaxTreeNode) -> serde_json::Value {
-    let node = node_row(
+/// One node's line alone: what a row is unless provenance was asked for.
+pub(super) fn plain_node_row(n: &octocode_engine::structural::SyntaxTreeNode) -> serde_json::Value {
+    json!({"node": node_line(n)})
+}
+
+fn node_line(n: &octocode_engine::structural::SyntaxTreeNode) -> String {
+    node_row(
         n.id,
         (n.field.as_deref(), &n.kind),
         n.named,
         [n.start_line, n.start_column, n.end_line, n.end_column],
         n.parent_id,
-    );
+    )
+}
+
+pub(super) fn node_page_row(n: &octocode_engine::structural::SyntaxTreeNode) -> serde_json::Value {
+    let node = node_line(n);
     json!({"node": node, "sourceRange": {"startByte": n.source_span.start_byte, "endByte": n.source_span.end_byte}})
 }
 

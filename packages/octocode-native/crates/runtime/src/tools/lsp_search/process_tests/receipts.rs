@@ -6,7 +6,6 @@ use super::*;
 
 /// The fixture advertises only `hoverProvider`: `callers` fails as
 /// `capabilityUnavailable`, and the row lists the operations to retry with.
-/// The traced call's summary carries the same facts and no path.
 #[test]
 fn a_missing_capability_lists_the_operations_the_server_advertises() {
     if !require_node() {
@@ -23,8 +22,7 @@ fn a_missing_capability_lists_the_operations_the_server_advertises() {
     )
     .expect("config");
     let execution = crate::tools::lsp_search::LspExecutionConfig {
-        config_path: Some(config.to_string_lossy().into_owned()),
-        trace: true,
+        octocode_home: Some(root.to_path_buf()),
         ..crate::tools::lsp_search::LspExecutionConfig::default()
     };
     let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
@@ -34,10 +32,9 @@ fn a_missing_capability_lists_the_operations_the_server_advertises() {
     .expect("query");
     let pool = fake_server_pool();
     let paths = crate::tools::test_support::workspace_policy(&root);
-    let notices = octocode_io::notice::Scope::default();
     let runtime = tokio::runtime::Runtime::new().expect("rt");
     let row = runtime
-        .block_on(notices.run(crate::tools::lsp_search::execute(
+        .block_on(crate::tools::lsp_search::execute(
             query,
             &crate::execution::cancel::NeverCancel,
             &pool,
@@ -45,7 +42,7 @@ fn a_missing_capability_lists_the_operations_the_server_advertises() {
             &execution,
             None,
             crate::tools::lsp_search::test_answers(),
-        )))
+        ))
         .expect("capability row");
     assert_row_contract(ToolId::LspSearch, &row);
     assert_eq!(row["errorCode"], "capabilityUnavailable", "{row}");
@@ -57,20 +54,5 @@ fn a_missing_capability_lists_the_operations_the_server_advertises() {
         }}),
         "{row}"
     );
-    // The call's own trace: one server line. A process-wide notice another
-    // call raised outside every scope reaches every live scope by design
-    // (`octocode_io::notice::raise`), so only the server lines count here.
-    let lines = notices.notices();
-    let servers = lines
-        .iter()
-        .filter_map(|line| line.split_once("server: ").map(|(_, server)| server))
-        .collect::<Vec<_>>();
-    assert_eq!(servers.len(), 1, "{lines:?}");
-    let server = servers[0];
-    assert!(
-        server.contains("source=user") && server.contains("operations=[hover,diagnostic]"),
-        "{server}"
-    );
-    assert!(!server.contains('/'), "no path in the trace: {server}");
     runtime.block_on(pool.clear_all());
 }

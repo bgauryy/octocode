@@ -29,6 +29,7 @@ repository = "https://github.com/bgauryy/octocode.git"
 lru = "0.19.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+memchr = "2"
 regex = "1"
 url = "2"
 sha2 = "0.11"
@@ -39,7 +40,7 @@ windows-sys = { version = "0.61" }
 # http2 is intentionally omitted: it links the `h2` stack (HPACK tables, ~0.2 MB)
 # and no code path relies on HTTP/2 semantics — GitHub's REST/raw endpoints all
 # serve over HTTP/1.1. Re-add "http2" if a future endpoint requires h2.
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "query", "system-proxy"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "json", "stream", "query", "system-proxy"] }
 tokio-util = { version = "0.7", default-features = false }
 futures-util = "0.3"
 bytes = "1"

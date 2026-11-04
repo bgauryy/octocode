@@ -26,6 +26,7 @@ async fn partial_sso_results_name_the_withheld_organizations() {
         headers: reqwest::header::HeaderMap::new(),
         body: bytes::Bytes::new(),
         next: None,
+        redirected: false,
     };
     assert!(plain.sso_partial_organizations().is_empty());
 }

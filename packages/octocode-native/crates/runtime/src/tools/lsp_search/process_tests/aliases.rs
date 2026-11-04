@@ -102,7 +102,7 @@ fn references_under(mode: &str) -> (Vec<String>, Vec<Site>) {
     )
     .expect("config");
     let execution = crate::tools::lsp_search::LspExecutionConfig {
-        config_path: Some(config.to_string_lossy().into_owned()),
+        octocode_home: Some(root.to_path_buf()),
         ..crate::tools::lsp_search::LspExecutionConfig::default()
     };
     let query = serde_json::from_value(serde_json::json!({

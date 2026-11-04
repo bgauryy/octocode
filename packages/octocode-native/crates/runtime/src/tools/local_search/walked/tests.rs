@@ -56,7 +56,7 @@ fn a_walk_past_the_stored_weight_keeps_no_entries() {
 fn a_large_repository_walk_fits_what_a_stored_scan_may_keep() {
     let weight = Weight {
         bytes: AtomicUsize::new(0),
-        max: crate::cache::MEMORY.limit(),
+        max: octocode_engine::memory::MEMORY.limit(),
         oversize: AtomicBool::new(false),
     };
     let mut seen = Seen::default();
@@ -105,6 +105,31 @@ fn concurrent_walk_threads_share_one_record_and_one_weight() {
     assert!(dropped.entries.is_empty() && dropped.oversize);
 }
 
+/// The files admitted to search are told from what the walk only watches, and
+/// a record no stored scan could keep lists none.
+#[test]
+fn searched_files_are_told_from_watched_entries() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let nested = dir.path().join("nested");
+    std::fs::create_dir(&nested).expect("fixture");
+    std::fs::write(nested.join(".gitignore"), "*.log\n").expect("fixture");
+    let file = dir.path().join("a.txt");
+    std::fs::write(&file, "x").expect("fixture");
+    let walk = |max_weight| {
+        let recording = recorder(dir.path(), max_weight);
+        assert!(recording.allows(&nested, true));
+        assert!(recording.allows(&file, false));
+        recording.walked()
+    };
+    let walked = walk(usize::MAX);
+    assert_eq!(walked.searched_files(), Some(&[file.clone()][..]));
+    assert!(walked.entries.contains(&nested));
+    assert!(walked.entries.contains(&nested.join(".gitignore")));
+    assert!(walked.entries.contains(&file));
+    let oversize = walk(path_weight(&file) - 1);
+    assert!(oversize.oversize && oversize.searched_files().is_none());
+}
+
 /// A walked directory's ignore files are entries; a linked one is a
 /// dependency no stamp watches.
 #[cfg(unix)]
@@ -123,5 +148,6 @@ fn a_walked_directory_records_its_ignore_inputs() {
     assert!(walked.entries.contains(&nested.join(".gitignore")));
     assert!(!walked.untracked);
     std::os::unix::fs::symlink(nested.join(".gitignore"), nested.join(".ignore")).expect("link");
-    assert!(walk().untracked);
+    let linked = walk();
+    assert!(linked.untracked && linked.searched_files().is_none());
 }

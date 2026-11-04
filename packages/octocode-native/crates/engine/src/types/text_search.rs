@@ -101,9 +101,6 @@ pub struct TextSearchStats {
     /// `skipped_binary_count` per lowercased extension ("" for none), most
     /// files first.
     pub skipped_binary_extensions: Option<Vec<BinaryExtensionCount>>,
-    /// Root-relative paths of the directories `exclude_dir` pruned, sorted:
-    /// what the search did not cover.
-    pub pruned_dirs: Option<Vec<String>>,
     /// Files with a match that `file_contains_all` / `file_contains_none`
     /// removed: why a filtered search can come back empty.
     pub file_terms_dropped: Option<u32>,
@@ -227,8 +224,6 @@ pub struct TextSearchOptions {
     pub include: Option<Vec<String>>,
     /// Exclude globs (`-g !<glob>`).
     pub exclude: Option<Vec<String>>,
-    /// Exclude directories (`-g !<dir>/`).
-    pub exclude_dir: Option<Vec<String>>,
     /// Which ignore rules and dot entries the walk leaves out.
     pub ignore: crate::types::IgnorePolicy,
     /// Maximum directory descent below the search root. `0` searches files

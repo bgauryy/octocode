@@ -15,7 +15,7 @@ pub(super) fn directory_source_digest<'a>(
 
 #[cfg(unix)]
 pub(super) fn memo_source_unchanged(_: &Scope, _: &Scan) -> bool {
-    // StampSet already checked change time and inode as well as size and mtime.
+    // The proof already checked change time and inode as well as size and mtime.
     true
 }
 

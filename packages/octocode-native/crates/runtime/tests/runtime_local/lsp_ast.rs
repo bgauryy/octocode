@@ -49,15 +49,15 @@ process.stdin.on('data', chunk => {
   }
 });
 "#);
-    let config = workspace.write(
-        "config/lsp.json",
+    std::fs::write(
+        workspace.home.join("lsp-servers.json"),
         json!({"languageServers":{".ts":{
             "command":"node","args":[script],"languageId":"plaintext"
         }}})
         .to_string(),
-    );
-    let runtime =
-        workspace.runtime(&[("OCTOCODE_LSP_CONFIG", config.to_string_lossy().into_owned())]);
+    )
+    .expect("lsp config");
+    let runtime = workspace.runtime(&[]);
     let query =
         |operation: &str| json!({"path":path,"symbolName":"needle","line":1,"operation":operation});
     for view in ["content", "files"] {
@@ -145,17 +145,15 @@ process.stdin.on('data', chunk => {
 async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
     let workspace = Workspace::new();
     let path = workspace.write("notes.md", "# title\n");
-    // Inside the workspace: anchored operations read the server config
-    // through the path policy.
-    let config = workspace.write(
-        "config/lsp.json",
+    std::fs::write(
+        workspace.home.join("lsp-servers.json"),
         json!({"languageServers": {".md": {
             "command": "octocode-test-missing-lsp", "args": [], "languageId": "markdown"
         }}})
         .to_string(),
-    );
-    let runtime =
-        workspace.runtime(&[("OCTOCODE_LSP_CONFIG", config.to_string_lossy().into_owned())]);
+    )
+    .expect("lsp config");
+    let runtime = workspace.runtime(&[]);
     let outcome = call(
         &runtime,
         "lspSearch",
@@ -280,36 +278,6 @@ async fn unsupported_ast_batch_keeps_indices_hints_and_executable_document_recov
 }
 
 #[tokio::test]
-async fn resolved_lsp_config_path_reaches_engine_discovery() {
-    let workspace = Workspace::new();
-    let path = workspace.write("source.custom", "symbol\n");
-    let config_path = workspace.write(
-        ".octocode/lsp.json",
-        r#"{"languageServers":{".custom":{"command":"missing-custom-lsp","args":[],"languageId":"custom"}}}"#,
-    );
-    let runtime = workspace.runtime(&[(
-        "OCTOCODE_LSP_CONFIG",
-        config_path.to_string_lossy().into_owned(),
-    )]);
-    let outcome = call(
-        &runtime,
-        "lspSearch",
-        json!({
-            "operation": "documentSymbols",
-            "path": path
-        }),
-    )
-    .await
-    .expect("typed configured server failure");
-    let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
-    assert!(
-        !rendered.contains("No language server is configured"),
-        "resolved config was ignored: {rendered}"
-    );
-    runtime.close().await;
-}
-
-#[tokio::test]
 async fn ast_search_match_and_symbol_paths_are_executable() {
     let workspace = Workspace::new();
     let source = workspace.write("pkg/src/lib.rs", "pub fn needle() { helper(1); }\n");
@@ -354,14 +322,12 @@ async fn ast_search_match_and_symbol_paths_are_executable() {
 async fn workspace_root_symbol_queries_infer_the_server_from_project_markers() {
     let workspace = Workspace::new();
     workspace.write("Cargo.toml", "[package]\nname = \"demo\"\n");
-    let config_path = workspace.write(
-        ".octocode/lsp.json",
+    std::fs::write(
+        workspace.home.join("lsp-servers.json"),
         r#"{"languageServers":{".rs":{"command":"missing-rust-lsp-for-root-test","args":[],"languageId":"rust"}}}"#,
-    );
-    let runtime = workspace.runtime(&[(
-        "OCTOCODE_LSP_CONFIG",
-        config_path.to_string_lossy().into_owned(),
-    )]);
+    )
+    .expect("lsp config");
+    let runtime = workspace.runtime(&[]);
     let outcome = call(
         &runtime,
         "lspSearch",

@@ -370,3 +370,10 @@ fn a_substring_naming_one_roots_snapshots_picks_its_newest() {
         stats.value
     );
 }
+
+/// The format that wrote the manifest's excludes as `scan.excludeDir` is no
+/// longer read: its excludes would be lost, and report excluded files as added.
+#[test]
+fn the_format_that_wrote_exclude_dir_is_no_longer_current() {
+    assert_ne!(format::FORMAT_VERSION, 16);
+}

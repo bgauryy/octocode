@@ -104,20 +104,19 @@ fn no_source_keeps_its_own_list_of_script_bearing_markup() {
     );
 }
 
-/// The scan skips the graph's own environment and vendored directories, so a
-/// vendored copy that mentions every name corroborates nothing.
+/// The scan skips vendored directories, so a vendored copy that mentions every
+/// name corroborates nothing; a directory the graph builds from it reads.
 #[test]
-fn the_mention_scan_skips_the_graphs_environment_and_vendored_dirs() {
+fn the_mention_scan_skips_vendored_dirs_and_reads_what_the_graph_builds_from() {
     let dir = tempfile::tempdir().expect("dir");
-    let skipped = super::super::INGEST_EXCLUDES
-        .iter()
-        .chain(crate::tools::ast_graph::classify::VENDORED_DIRS);
-    for name in skipped {
+    for name in crate::tools::ast_graph::classify::VENDORED_DIRS {
         std::fs::create_dir_all(dir.path().join(name)).expect("dir");
         std::fs::write(dir.path().join(name).join("copy.ts"), "run();\n").expect("write");
     }
-    std::fs::create_dir(dir.path().join("src")).expect("src");
-    std::fs::write(dir.path().join("src/app.ts"), "run();\n").expect("write");
+    for name in ["src", "obj"] {
+        std::fs::create_dir(dir.path().join(name)).expect("dir");
+        std::fs::write(dir.path().join(name).join("app.ts"), "run();\n").expect("write");
+    }
     let (hits, _) = scan_mentions(
         dir.path(),
         &BTreeSet::new(),
@@ -125,7 +124,7 @@ fn the_mention_scan_skips_the_graphs_environment_and_vendored_dirs() {
     );
     assert_eq!(
         hits.references.get("run"),
-        Some(&vec!["src/app.ts:1".to_owned()])
+        Some(&vec!["obj/app.ts:1".to_owned(), "src/app.ts:1".to_owned()])
     );
 }
 
@@ -152,6 +151,5 @@ fn the_mention_scan_counts_the_files_it_did_not_read() {
         &BTreeSet::from(["run".to_owned()]),
     );
     assert_eq!(gaps.oversized, 1);
-    assert!(!gaps.truncated);
     assert_eq!(hits.references.get("run"), None);
 }

@@ -8,7 +8,7 @@ use super::*;
 /// files named like `greeter`; `match_in` `None` is the default, content.
 fn scoped(keywords: &[&str], match_in: Option<&str>) -> serde_json::Value {
     let mut row = json!({
-        "owner":"octo","repo":"demo","extensions":["ts"],"pathPrefix":"src",
+        "owner":"octo","repo":"demo","extensions":["ts"],"path":"src",
         "nameContains":"greeter","keywords":keywords
     });
     if let Some(match_in) = match_in {
@@ -106,7 +106,7 @@ async fn an_empty_or_search_leads_to_one_row_per_alternative() {
 /// and a ref that differs names the branch the index covers.
 #[tokio::test]
 async fn a_ref_hint_appears_only_off_the_default_branch() {
-    let row = |reference: &str| json!({"owner":"octo","repo":"demo","ref":reference,"keywords":["zzqq"],"pathPrefix":"src"});
+    let row = |reference: &str| json!({"owner":"octo","repo":"demo","ref":reference,"keywords":["zzqq"],"path":"src"});
     let hints = |out: &crate::response::result::ToolData| out.data["hints"].to_string();
     let out = run_empty(row("main")).await;
     assert!(!hints(&out).contains("indexes only"), "{}", out.data);

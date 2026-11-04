@@ -85,11 +85,7 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
         _ => {
             let hint = "No indexed match is unproven absence: list the repository with the related[] ghStructure request, then narrow to a path.";
             diagnostics.hint(hint);
-            let Some(scope) = query
-                .path_prefix
-                .as_deref()
-                .map(std::string::String::as_str)
-            else {
+            let Some(scope) = query.path.as_deref().map(std::string::String::as_str) else {
                 // A path search of code leads to the same search of file
                 // contents (`findCode`): that targeted lead keeps the slots.
                 if !path_mode_given_code(query) && !broadened {
@@ -97,7 +93,7 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
                 }
                 return Ok(default_branch);
             };
-            // `pathPrefix` is a directory prefix: list the directory, or for a
+            // `path` is a directory prefix: list the directory, or for a
             // file's path its parent, and read the file for the keywords.
             let listed = match file_scope(scope) {
                 Some(file) => {
@@ -182,7 +178,7 @@ pub(in crate::tools::gh_search_code) fn path_mode_given_code(query: &GhSearchCod
         })
 }
 
-/// A `pathPrefix` scope that names one file rather than a directory.
+/// A `path` scope that names one file rather than a directory.
 pub(in crate::tools::gh_search_code) struct FileScope<'a> {
     /// The scope without surrounding slashes.
     pub(in crate::tools::gh_search_code) path: &'a str,
@@ -190,7 +186,7 @@ pub(in crate::tools::gh_search_code) struct FileScope<'a> {
     pub(in crate::tools::gh_search_code) name: &'a str,
 }
 
-/// The index matches `pathPrefix` as a directory prefix, so a scope whose last
+/// The index matches `path` as a directory prefix, so a scope whose last
 /// segment looks like a file (an extension that holds a letter, or a known
 /// extensionless or dot file such as `Makefile` or `.gitignore`) matches
 /// nothing. A dotted directory such as `docs/v1.2` is not a file.
@@ -222,7 +218,7 @@ pub(in crate::tools::gh_search_code) fn unsearched_ref<'q>(
 
 /// What an empty code search says in its default hint: a requested ref the
 /// default-branch index did not cover ([`unsearched_ref`]), naming that
-/// branch when known, and for a `pathPrefix` scope why that proves nothing
+/// branch when known, and for a `path` scope why that proves nothing
 /// (a file's path matches no directory; a directory's index can lag). The
 /// leads carry the routes that verify it. Each note is its own hint, so no
 /// composed hint outgrows the guidance budget.
@@ -236,16 +232,16 @@ pub(in crate::tools::gh_search_code) fn empty_hints(
             "Code search indexes only the default branch{branch}; `{reference}` was not searched."
         )
     });
-    let scope = query.path_prefix.as_deref().map(std::string::String::as_str).and_then(|scope| {
+    let scope = query.path.as_deref().map(std::string::String::as_str).and_then(|scope| {
         match file_scope(scope) {
             Some(file) => {
                 let under = if file.parent.is_empty() {
                     String::new()
                 } else {
-                    format!(" with `pathPrefix:\"{}\"`", file.parent)
+                    format!(" with `path:\"{}\"`", file.parent)
                 };
                 Some(format!(
-                    "`pathPrefix` is a directory prefix and `{}` looks like a file: search it by `nameContains:\"{}\"`{under}, or read it with matchString.",
+                    "`path` is a directory prefix and `{}` looks like a file: search it by `nameContains:\"{}\"`{under}, or read it with matchString.",
                     file.path, file.name
                 ))
             }
@@ -253,7 +249,7 @@ pub(in crate::tools::gh_search_code) fn empty_hints(
             // search has no one directory to list.
             None => query.repo.as_ref().map(|_| {
                 format!(
-                    "`pathPrefix:\"{}\"` is a directory scope: to search one file there, set `nameContains` to its name and `pathPrefix` to its parent.",
+                    "`path:\"{}\"` is a directory scope: to search one file there, set `nameContains` to its name and `path` to its parent.",
                     scope.trim_matches('/')
                 )
             }),

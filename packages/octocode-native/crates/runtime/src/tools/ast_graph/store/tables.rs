@@ -33,22 +33,38 @@ use stats::*;
 
 /// Detail of a file → file `contains` edge: a Rust `mod` declaration.
 pub(super) const MODULE_DETAIL: &str = "module";
+/// Interned strings, each stored once: a lookup walks the ids that share the
+/// string's hash, newest first, and compares the stored text.
 #[derive(Default)]
 struct Interner {
-    ids: HashMap<String, u32>,
+    hasher: std::collections::hash_map::RandomState,
+    newest: HashMap<u64, u32>,
+    /// By id: the previous id with the same hash, else [`NONE`].
+    older: Vec<u32>,
     strings: Vec<String>,
 }
 
 impl Interner {
     fn id(&mut self, value: &str) -> u32 {
-        if let Some(id) = self.ids.get(value) {
-            return *id;
+        use std::hash::BuildHasher;
+        self.id_hashed(self.hasher.hash_one(value), value)
+    }
+
+    fn id_hashed(&mut self, hash: u64, value: &str) -> u32 {
+        let newest = self.newest.get(&hash).copied().unwrap_or(NONE);
+        let mut at = newest;
+        while at != NONE {
+            if self.strings[at as usize] == value {
+                return at;
+            }
+            at = self.older[at as usize];
         }
         // Ids are `u32` columns: a table past its `u32` ids saturates here and the publication preflight
         // (`validate_counts`) refuses it, so no wrapped id is ever published.
         let id = octocode_engine::num::saturating_u32(self.strings.len());
         self.strings.push(value.to_owned());
-        self.ids.insert(value.to_owned(), id);
+        self.older.push(newest);
+        self.newest.insert(hash, id);
         id
     }
 }
@@ -92,6 +108,12 @@ pub(crate) fn project(
     };
     projector.use_edges(&resolver);
     let calls = projector.call_edges(&resolver, &symbols);
+    if let Some(error) = projector.invalid_argument.take() {
+        return Err(crate::response::result::ToolError::new(
+            octocode_contract_types::ErrorCode::ExecutionFailed,
+            error,
+        ));
+    }
     for (src, dst, line) in unparsed_links {
         projector.push(
             src,
@@ -175,6 +197,10 @@ struct Projector<'a> {
     witnesses: Vec<WitnessRec>,
     unresolved: Vec<UnresolvedRec>,
     declarations: Vec<DeclarationRec>,
+    /// See [`GraphTables::checked_arguments`].
+    checked_arguments: HashSet<u32>,
+    /// The first argument observation the source table refused.
+    invalid_argument: Option<String>,
     file_nodes: BTreeMap<&'a str, u32>,
     roles: HashMap<&'a str, u8>,
     languages: HashMap<&'a str, String>,

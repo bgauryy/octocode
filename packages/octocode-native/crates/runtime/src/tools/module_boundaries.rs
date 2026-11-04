@@ -52,9 +52,11 @@ const LAYERS: &[&[&str]] = &[
 /// structural matching, redaction and fact scans that compose them.
 const ENGINE_LAYERS: &[&[&str]] = &[
     &[
+        "cpu",
         "deep_stack",
         "host",
         "json_size",
+        "memory",
         "num",
         "process_env",
         "scan_budget",

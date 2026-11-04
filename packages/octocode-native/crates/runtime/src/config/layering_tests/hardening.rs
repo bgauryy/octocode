@@ -128,8 +128,8 @@ fn an_invalid_classification_api_host_env_value_is_reported_and_skipped() {
         "classification.apiHost"
     ));
     assert_eq!(
-        out.env_value("OCTOCODE_CLASSIFICATION_API_HOST"),
-        Some("https://jev.example")
+        value_of(&out, "classification.apiHost"),
+        serde_json::json!("https://jev.example")
     );
     for d in &out.diagnostics {
         assert!(!d.to_string().contains("not-a-url"), "{d}");

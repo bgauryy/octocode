@@ -53,6 +53,29 @@ fn replays_preserve_the_first_census_and_reject_a_missing_numbered_window() {
 }
 
 #[test]
+fn plain_windows_cover_every_node_once_and_price_each_only_once() {
+    let result = inspected(&"let item = 1;\n".repeat(50), NODE_CHUNK);
+    let total = result.nodes.len();
+    let mut prices = pricing::Prices::default();
+    let before = pricing::priced_nodes();
+    let windows = pricing::plain_windows(&result, &mut prices, 400, &NeverCancel).expect("windows");
+    assert!(windows.len() > 1, "{windows:?}");
+    assert_eq!(windows[0].start, 0);
+    assert_eq!(windows[windows.len() - 1].end, total);
+    assert!(windows.windows(2).all(|pair| pair[0].end == pair[1].start));
+    assert_eq!(pricing::priced_nodes() - before, total);
+    assert_eq!(
+        pricing::plain_windows(&result, &mut prices, 400, &NeverCancel).expect("repeat"),
+        windows
+    );
+    assert_eq!(
+        pricing::priced_nodes() - before,
+        total,
+        "a later chunk reprices nothing"
+    );
+}
+
+#[test]
 fn tiny_windows_price_a_large_chunk_without_allocating_each_closure_again() {
     let text = "let item = 1;\n".repeat(25_100);
     let result = inspected(&text, NODE_CHUNK);
@@ -102,7 +125,7 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
     let before = pricing::priced_nodes();
     loop {
         let query: AstSearchQuerySyntaxTree = serde_json::from_value(json!({
-            "operation":"syntaxTree", "path":path, "page":page,
+            "operation":"syntaxTree", "path":path, "page":page, "includeProvenance":true,
         }))
         .expect("query");
         let mut maps =
@@ -143,7 +166,7 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
             let expected_windows = walked.windows.clone();
             let total = walked.r.total_nodes;
             let late: AstSearchQuerySyntaxTree = serde_json::from_value(json!({
-                "operation":"syntaxTree", "path":path, "page":expected_windows.len(),
+                "operation":"syntaxTree", "path":path, "page":expected_windows.len(), "includeProvenance":true,
             }))
             .expect("late query");
             WALKS.evict(&snapshot);

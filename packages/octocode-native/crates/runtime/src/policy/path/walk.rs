@@ -26,7 +26,7 @@ impl PathPolicy {
     pub(crate) fn discovery_walk(&self) -> DiscoveryWalk<'_> {
         DiscoveryWalk {
             policy: std::borrow::Cow::Borrowed(self),
-            parents: std::sync::RwLock::new(std::collections::HashMap::new()),
+            parents: std::sync::RwLock::default(),
         }
     }
 }
@@ -40,13 +40,65 @@ impl PathPolicy {
 /// entry under a parent no admitted directory seeded (a direct call, a
 /// path reached another way) canonicalizes that parent once. The decision
 /// then applies the same root and sensitive-path checks to the same lexical
-/// and real paths.
+/// and real paths; under a directory this walk admitted, that directory's own
+/// checks already hold for its entries, so only the entry's name is checked.
 pub(crate) struct DiscoveryWalk<'a> {
     policy: std::borrow::Cow<'a, PathPolicy>,
     /// Each walked parent's real path. Read-mostly and shared by a parallel
     /// walk's threads: a known parent takes only the read lock, and a new
     /// one is canonicalized outside any lock.
-    parents: std::sync::RwLock<std::collections::HashMap<PathBuf, Real>>,
+    parents: std::sync::RwLock<Parents>,
+}
+
+/// Each directory by the bytes of its spelling: only the spelling a decision
+/// was taken on finds it. Another spelling of that directory misses and takes
+/// the whole-path decision, as an unseen directory does.
+type Parents =
+    std::collections::HashMap<Box<[u8]>, Parent, std::hash::BuildHasherDefault<PathBytesHasher>>;
+
+fn parent_key(directory: &Path) -> &[u8] {
+    directory.as_os_str().as_encoded_bytes()
+}
+
+/// A multiply-rotate hash of whole words, for the one lookup a walk makes per
+/// entry. A collision changes no decision: the map compares the whole key.
+#[derive(Default)]
+struct PathBytesHasher(u64);
+
+impl PathBytesHasher {
+    fn add(&mut self, word: u64) {
+        self.0 = self
+            .0
+            .wrapping_add(word)
+            .wrapping_mul(0xf135_7aea_2e62_a9c5);
+    }
+}
+
+impl std::hash::Hasher for PathBytesHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        let (words, rest) = bytes.as_chunks::<8>();
+        for word in words {
+            self.add(u64::from_le_bytes(*word));
+        }
+        if !rest.is_empty() {
+            let mut tail = [0; 8];
+            tail[..rest.len()].copy_from_slice(rest);
+            self.add(u64::from_le_bytes(tail));
+        }
+    }
+
+    fn finish(&self) -> u64 {
+        self.0.rotate_left(26)
+    }
+}
+
+/// A directory entries were decided under.
+#[derive(Clone, Debug)]
+struct Parent {
+    real: Real,
+    /// This walk admitted it: inside the roots, and no part of its lexical
+    /// or real path is withheld.
+    admitted: bool,
 }
 
 /// A directory's real path, as [`DiscoveryWalk`] keeps it.
@@ -88,7 +140,7 @@ impl DiscoveryWalk<'static> {
     pub(crate) fn owned(policy: PathPolicy) -> Self {
         Self {
             policy: std::borrow::Cow::Owned(policy),
-            parents: std::sync::RwLock::new(std::collections::HashMap::new()),
+            parents: std::sync::RwLock::default(),
         }
     }
 }
@@ -134,6 +186,9 @@ impl DiscoveryWalk<'_> {
         path: &Path,
         file_type: Option<std::fs::FileType>,
     ) -> Option<(bool, std::fs::FileType)> {
+        if let Some(decided) = self.under_admitted(path, file_type) {
+            return Some(decided);
+        }
         let lexical: Cow<'_, Path> = if already_resolved(path) {
             Cow::Borrowed(path)
         } else {
@@ -154,18 +209,22 @@ impl DiscoveryWalk<'_> {
             .parents
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(parent)
+            .get(parent_key(parent))
             .cloned();
         let parent_real = known.unwrap_or_else(|| {
             #[cfg(test)]
             CANONICALIZED.with(|count| count.set(count.get() + 1));
-            let resolved = Real::of(parent, std::fs::canonicalize(parent).ok());
+            let resolved = Parent {
+                real: Real::of(parent, std::fs::canonicalize(parent).ok()),
+                admitted: false,
+            };
             self.parents
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .insert(parent.to_path_buf(), resolved.clone());
+                .insert(parent_key(parent).into(), resolved.clone());
             resolved
         });
+        let parent_real = parent_real.real;
         let real = parent_real.child(lexical, name)?;
         // Under a parent with no symlink the real path is the lexical one:
         // check it once.
@@ -182,25 +241,65 @@ impl DiscoveryWalk<'_> {
             && (!moved || !is_sensitive_path(&real, entry));
         // An admitted directory that is no link seeds its entries' real
         // path: its parent's plus its own name.
-        if permitted
-            && kind.is_dir()
-            && !self
-                .parents
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .contains_key(lexical)
-        {
-            let seeded = match &real {
-                Cow::Borrowed(_) => Real::Same,
-                Cow::Owned(real) => Real::At(real.clone()),
-            };
-            self.parents
-                .write()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .entry(lexical.to_path_buf())
-                .or_insert(seeded);
+        if permitted && kind.is_dir() {
+            self.admit_directory(
+                lexical,
+                match &real {
+                    Cow::Borrowed(_) => Real::Same,
+                    Cow::Owned(real) => Real::At(real.clone()),
+                },
+            );
         }
         Some((permitted, kind))
+    }
+
+    /// The decision on an entry of a directory this walk admitted, by its
+    /// listing type: no link, so its real path is the directory's plus its
+    /// name, inside the roots with it, and nothing above it is withheld.
+    /// `None` when the whole path must decide.
+    fn under_admitted(
+        &self,
+        path: &Path,
+        file_type: Option<std::fs::FileType>,
+    ) -> Option<(bool, std::fs::FileType)> {
+        let kind = file_type.filter(|kind| !kind.is_symlink())?;
+        let (parent, name) = (path.parent()?, path.file_name()?);
+        let real = self
+            .parents
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(parent_key(parent))
+            .filter(|parent| parent.admitted)?
+            .real
+            .clone();
+        let entry = if kind.is_dir() {
+            EntryKind::Dir
+        } else {
+            EntryKind::File
+        };
+        let permitted = !crate::policy::discovery::is_sensitive_under_cleared(name, entry)?;
+        if permitted && kind.is_dir() {
+            let child = match real.child(path, name)? {
+                Cow::Borrowed(_) => Real::Same,
+                Cow::Owned(real) => Real::At(real),
+            };
+            self.admit_directory(path, child);
+        }
+        Some((permitted, kind))
+    }
+
+    /// Keep `directory` as admitted, with its real path unless one is known.
+    /// Keyed as its entries' `parent()` spells it: no trailing separator.
+    fn admit_directory(&self, directory: &Path, real: Real) {
+        self.parents
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(parent_key(directory.components().as_path()).into())
+            .and_modify(|known| known.admitted = true)
+            .or_insert(Parent {
+                real,
+                admitted: true,
+            });
     }
 }
 

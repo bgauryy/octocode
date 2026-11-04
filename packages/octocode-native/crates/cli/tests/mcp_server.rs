@@ -290,5 +290,20 @@ fn a_rejected_call_leaves_the_server_serving() {
     assert_eq!(empty["result"]["isError"], true, "{empty}");
     assert_eq!(server.request("ping", json!({}))["result"], json!({}));
 
+    // `tools/call` arguments that are no object are a call we know, not an
+    // unknown method: the error says what to send.
+    let listed = server.request(
+        "tools/call",
+        json!({"name": "localSearch", "arguments": [{"matchString": ["x"], "path": "."}]}),
+    );
+    assert_eq!(listed["error"]["code"], -32602, "{listed}");
+    let message = listed["error"]["message"].as_str().expect("message");
+    assert!(message.contains("{\"queries\":[...]}"), "{listed}");
+    assert_eq!(
+        server.request("no/such/method", json!({}))["error"]["code"],
+        -32601,
+    );
+    assert_eq!(server.request("ping", json!({}))["result"], json!({}));
+
     assert!(server.finish().success());
 }

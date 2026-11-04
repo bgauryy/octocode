@@ -108,9 +108,6 @@ fn user_config_paths(
     options: &LspDiscoveryOptions,
 ) -> Vec<(PathBuf, ServerSource)> {
     let mut paths = Vec::new();
-    if let Some(path) = options.config_path.as_ref() {
-        paths.push((path.clone(), ServerSource::User));
-    }
     if options.trusts_project() {
         paths.push((
             Path::new(workspace_root).join(".octocode/lsp-servers.json"),

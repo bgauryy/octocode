@@ -183,3 +183,70 @@ fn keymap_sources_are_not_source_maps() {
         Some("*.min.css")
     );
 }
+
+/// A case-insensitive filesystem opens `.SSH` for `.ssh`, and APFS folds `ſ` to
+/// `s` and `K` (Kelvin) to `k` as well. The policy cannot tell what a volume
+/// folds without asking it for every path, so it withholds every spelling, on
+/// every filesystem.
+#[test]
+fn withheld_names_match_in_any_case() {
+    for withheld in [
+        "/tmp/work/.SSH/config",
+        "/tmp/work/.Ssh/known",
+        "/tmp/work/.ſsh/config",
+        "/tmp/work/sub/.AWS/credentials",
+        "/tmp/work/.GIT/config",
+        "/tmp/work/sub/key.PEM",
+        "/tmp/work/.ENV",
+        "/tmp/work/.Env.local",
+        "/tmp/work/sub/Credentials.JSON",
+        "/tmp/work/sub/ID_RSA.BAK",
+        "/tmp/work/id_rsa.OLD",
+        "/tmp/work/ID_RSA",
+        "/tmp/work/a/.CONFIG/gh/hosts.yml",
+        "/tmp/work/a/.config/GH/hosts.yml",
+        "/tmp/work/library/keychains/k.db",
+        "/tmp/work/googleservice-info.PLIST",
+        "/tmp/work/app.\u{212A}EY",
+        "/tmp/work/key\u{FB01}le",
+        "/tmp/work/.pgpa\u{DF}",
+    ] {
+        assert!(is_sensitive_path(Path::new(withheld)), "{withheld}");
+    }
+    for visible in [
+        "/tmp/work/SRC/LIB.RS",
+        "/tmp/work/ENV.RS",
+        "/tmp/work/Auth.ts",
+    ] {
+        assert!(!is_sensitive_path(Path::new(visible)), "{visible}");
+    }
+}
+
+/// The walk's shortcut under a cleared directory says what the whole path says.
+#[test]
+fn a_walk_withholds_names_in_any_case() {
+    use std::ffi::OsStr;
+    let under = |name: &str, kind| is_sensitive_under_cleared(OsStr::new(name), kind);
+    assert_eq!(under(".SSH", EntryKind::Dir), Some(true));
+    assert_eq!(under(".Git", EntryKind::Dir), Some(true));
+    assert_eq!(under(".ſsh", EntryKind::Dir), Some(true));
+    assert_eq!(under(".ENV", EntryKind::File), Some(true));
+    assert_eq!(under("KEY.PEM", EntryKind::File), Some(true));
+    assert_eq!(under("ID_RSA.BAK", EntryKind::File), Some(true));
+    assert_eq!(under("LIB.RS", EntryKind::File), Some(false));
+    assert_eq!(under("GH", EntryKind::Dir), None, "completes .config/gh");
+    assert_eq!(under("Keychains", EntryKind::Dir), None);
+}
+
+/// The notice and the refusal count a spelled-otherwise entry as the entry it is.
+#[cfg(unix)]
+#[test]
+fn withheld_notice_labels_any_case_of_a_git_file() {
+    let root = tempfile::tempdir().expect("root");
+    let pointer = root.path().join(".GIT");
+    std::fs::write(&pointer, "gitdir: ../.git/modules/sub\n").expect("gitfile");
+    let mut withheld = Withheld::default();
+    withheld.record(&pointer);
+    assert_eq!(withheld.git_files, 1);
+    assert!(withheld_message(".GIT", &pointer).contains("a `.git` file"));
+}

@@ -74,15 +74,20 @@ impl<'a> RowPaths<'a> {
         }
     }
 
+    /// The file a row names as `shown`.
+    pub(super) fn file(&self, shown: &str) -> std::path::PathBuf {
+        if self.is_file {
+            self.scope.to_path_buf()
+        } else {
+            self.scope.parent().unwrap_or(self.scope).join(shown)
+        }
+    }
+
     /// `shown` as the response prints it. Warning text is not rewritten by
     /// the response stage, so a path it names is spelled here, the same way,
     /// to be passed on verbatim.
     pub(super) fn delivered(&self, shown: &str) -> String {
-        let file = if self.is_file {
-            self.scope.to_path_buf()
-        } else {
-            self.scope.parent().unwrap_or(self.scope).join(shown)
-        };
+        let file = self.file(shown);
         self.paths
             .workspace_relative(&file)
             .unwrap_or_else(|| file.to_string_lossy().into_owned())

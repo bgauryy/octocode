@@ -17,11 +17,11 @@ There are two ways in:
 | Entry point | What it does | Use it when |
 |---|---|---|
 | `classification` on `localSearch`, `localFetch`, `ghSearchCode` or `ghGetFileContent` | Filters the hits or lines a search or read found, before the agent sees them | A search returns too many hits and no term or path splits them |
-| The `clasify` tool | Answers typed questions about content, an unread source, images, or every section of up to 25 files | You need a named fact from a large unread source, or which parts of many files answer your questions |
+| The `clasify` tool | Answers typed questions about content, an unread source, images, or every section of many files | You need a named fact from a large unread source, or which parts of many files answer your questions |
 
 ## Quick start
 
-1. Configure the classification key: [Authentication](AUTHENTICATION.md#classification-key-clasify).
+1. Configure the classification key, and optionally [another host](CONFIGURATION.md#change-the-classification-host): [Authentication](AUTHENTICATION.md#classification-key-clasify).
 2. Ask one exact question about a file you have not read:
 
    ```bash
@@ -73,9 +73,11 @@ flowchart TD
 | Route | You send | You get back |
 |---|---|---|
 | `classification` | A normal search or read plus `predicates` | Only the hits Jev selected, and a receipt counting the rest |
-| `clasify evaluate` | One `source` (or literal `content`) and up to 25 questions | One typed answer per question and a `next.read` handle |
-| `clasify sections` | Up to 25 named `resources` and up to 25 questions | Per file: each section's lines and answers, plus coverage |
-| `clasify evaluate` with `assets` | Up to 8 PNG or JPEG images and questions | Typed answers; `box` gives a region of the image |
+| `clasify evaluate` | One `source` (or literal `content`) and questions | One typed answer per question and a `next.read` handle |
+| `clasify sections` | Named `resources` and questions | Per file: each section's lines and answers, plus coverage |
+| `clasify evaluate` with `assets` | PNG or JPEG images, `content` and questions | Typed answers; `box` gives a region of the image |
+
+Counts and sizes for each route are under [Limits](#limits).
 
 ## How it works
 
@@ -110,19 +112,20 @@ sequenceDiagram
 - **No answer cache across requests.** Each fresh request is judged and billed again, so an
   edited file never gets an old answer. Saved result pages and `sections` continuations replay
   with no new inference. Identical evaluations inside one request are sent once.
+- **Questions over one source share one provider request when they fit it;** otherwise each
+  question is its own request carrying the whole source, and each is billed.
 - **Provider failures keep the evidence.** When capture succeeded, the read handle still works.
 
 ### Questions
 
-Questions are keyed under `questions`, up to 25 per query. Every question is asked of every
-unit Jev judges.
+Questions are keyed under `questions`. Every question is asked of every unit Jev judges.
 
 | Type | Ask | Answer |
 |---|---|---|
 | `noul` | A yes/no fact | `noul`: P(yes), 0 to 1 |
-| `choice` | Pick one of up to 255 keyed options in `criteria` | `choice`, `probabilities`, `confidence` |
-| `score` | A level on a scale of up to 11 levels in `criteria`, level 0 first | `score` (the expected level, may be fractional), `probabilities`, `legend` |
-| `box` | Where something is in an image (needs `assets`) | `box` edges as 0–1 fractions of the image |
+| `choice` | Pick one of the keyed options in `criteria` | `choice`, `probabilities`, `confidence` |
+| `score` | A level on the scale listed in `criteria`, level 0 first | `score` (the expected level, may be fractional), `probabilities`, `legend` |
+| `box` | Where something is in an image (needs `assets`) | `box` edges as 0–1 fractions of the judged image; `sourceBox` on the original when it was fitted |
 
 `confidence` measures how concentrated an answer is, not whether it is correct.
 
@@ -186,8 +189,8 @@ and `next.read`, which reads exactly the judged selection at its pinned snapshot
 
 ### clasify sections: map questions across many files
 
-`sections` takes up to 25 named resources and your questions, and tells you which regions of
-which files answer each question.
+`sections` takes named resources and your questions, and tells you which regions of which files
+answer each question.
 
 ```mermaid
 flowchart TD
@@ -384,12 +387,20 @@ Line 55 confirms it: the option name is built from `isPreview ? 'preview' : 'ser
 
 ### Ask about an image
 
-An image asset is a source reference, not binary data from the host. Reference its key from
-`content` or the questions. Jev receives the admitted PNG or JPEG bytes; the result carries
-dimensions, format, a snapshot and an inspection path for the captured bytes. Large images are
-scaled down, never cropped, so crop first when fine text matters. Local path policy, size bounds
-and HTTPS network policy apply before inference, and retained image evidence needs persistent
-storage. Check for flaws one image per query.
+An image asset is a source reference, not binary data from the host: put it under `assets`, never
+in `source`. The `assets` field description in `octocode schema clasify` owns the admission
+rules (formats, sizes, citing each key, one image per flaw check). Jev receives the admitted PNG
+or JPEG bytes; the result carries dimensions, format, a snapshot and an inspection path for the
+captured bytes. Local path policy and HTTPS network policy apply before inference, and retained
+image evidence needs persistent storage.
+
+Images outside the model's window are fitted before judging: a side above 1568 scales the whole
+image down, then a side below 280 is centered on a transparent canvas. `box` edges are fractions
+of that judged image (`assets.<key>.path`). When the image was fitted (`sourceWidth` is present)
+and the question's image is identifiable, the box answer also has `sourceBox`: the same box as
+fractions of the original `sourceWidth` x `sourceHeight`, clamped to 0–1. The image is the row's
+only asset, else the one asset key the question cites; a question citing none or several gets no
+`sourceBox`.
 
 ## Benchmarks: main-agent tokens with and without Jev
 
@@ -442,14 +453,15 @@ Main-agent tokens; the smallest per corpus is in bold.
   `astSearch` or `lspSearch`.
 - **You already know the candidate files.** `clasify sections` returns more than a targeted
   search (15.6k against 4.7k on Vite). Use it to replace reading, not searching.
+- **You need to prove absence.** An answer or an unassessed cell is not a "no"; use exact tools
+  or `next.unfiltered`.
+- **The fact is a relation between passages.** Event order and contradictions between documents
+  are often missed with confidence (recall 16/30 for doc contradictions and 5/18 for log order in
+  the 2026-11-04 benchmark, with no false positives), so a low P(yes) clears nothing.
 
 In agent research runs (5 tasks, 4 runs), agents found every answer with exact search and called
 Jev once. Extra classifier guidance raised their context by 40% with no gain in accuracy, so
 reach for Jev when exact search cannot split the evidence, not by default.
-
-To measure your own runs, turn on `storage.stats` (`OCTOCODE_ENABLE_STATS=1`) with persistent
-storage; Octocode then records clasify calls and tokens in `stats.json`
-([configuration](CONFIGURATION.md)).
 
 ## Recovery
 
@@ -466,8 +478,7 @@ errors and partial receipts tell source, admission, provider and assessment fail
 | An answer between 0.3 and 0.7 | Unsure: read the lines before relying on it |
 
 A Jev answer is a judgment, not proof. It does not establish symbol identity, and an uncertain
-answer does not show that a source lacks something. Ground a score with a source search before
-reporting it.
+answer does not show that a source lacks something.
 
 ## Availability
 
@@ -488,13 +499,13 @@ request fields.
 | Questions per query | 25 |
 | `sections` resources per query | 25 |
 | `choice` options | 255 |
-| `score` levels | 11 |
+| `score` levels | 10 (the provider refuses more) |
 | Images per query | 8, at most 8 MB each and 16 MB together |
 | `classification` units judged per page | 64 |
 
 The generated contract and native constants own these values; the runtime also bounds source
 bytes, inference time and retained state. Every limit discloses unassessed work, a continuation
-or a terminal reason. See [fixed internal limits](CONFIGURATION.md#fixed-internal-limits) and the
+or a terminal reason. See [fixed internal limits](STORAGE_AND_LIMITS.md#fixed-internal-limits) and the
 [data contract](TOOL_DATA_CONTRACT.md#evidence-boundaries).
 
 ## Accuracy scorecard
@@ -508,7 +519,7 @@ not better.
 | Image classification | 9 | 73/77 correct. Every miss came with low confidence (0.51 or less) |
 | Text classification | 8.5 | 83/90 correct. Its few confident wrong answers came from vague or broad questions |
 | Scanning many files (sections) | 8 | 100/100 correct per file (25 files × 4 questions). Single sections next to a real hit can be false hits |
-| Scouting (cutting what the agent reads) | 9.5 | 84–86% less output, with no relevant hits lost in the tests |
+| Scouting (cutting what the agent reads) | 7 | 84–86% less output; `sections` found 25 of 26 matching Java files, but `classification` kept only 14 of 26 and missed 2 of 4 file-deny files in Vite ([evidence](#what-you-get-for-the-jev-tokens)) |
 | Large sources | 9.5 | A 200k-character log came back as about 1 KB of answers, 5/5 correct |
 | Confidence you can trust | 8 | Reliable for images; for text, only when the question names a specific thing |
 | Freshness | not scored | Every file edit was judged again (whole-file, ranged, sections, and a same-size edit with its modification time restored). There is no answer cache, so a repeated request is judged and billed again |
@@ -518,4 +529,6 @@ not better.
 matter; screenshots, charts and error popups; obvious design flaws; triaging incidents from logs.
 
 **Weak at:** counting, totals and maxima (use a script); pixel-level layout (use DOM
-measurements); broad questions like "any bug?" (ask one exact, named fact per question).
+measurements); broad questions like "any bug?" (ask one exact, named fact per question);
+relations such as event order or contradictions between passages; `box` on an absent target (it
+still returns a box: ask a `noul` about presence first).

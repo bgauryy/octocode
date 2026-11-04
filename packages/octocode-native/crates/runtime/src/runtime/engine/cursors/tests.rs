@@ -85,7 +85,7 @@ fn a_busy_store_honors_cancellation_and_deadline_without_publishing() {
 #[test]
 fn memory_publication_stops_while_another_writer_still_holds_the_lock() {
     let registry = registry("policy");
-    let held = registry.mutation.lock().unwrap();
+    let held = registry.mutation_lock(&context()).unwrap();
     let mut pending = Pending::new([4; 32], None);
     let token = insert_page(&mut pending, 1);
     let mut context = context();
@@ -328,3 +328,4 @@ fn extending_saved_response_pages_retains_earlier_source_work() {
 }
 
 mod handles;
+mod turns;

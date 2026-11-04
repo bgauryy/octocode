@@ -1,7 +1,5 @@
 // Hermetic fresh classification, retry, accounting and selection-plan checks on built hosts.
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 import { checks, startServer, writeResults } from './mcp-client.mjs';
 import { collect } from './responses.mjs';
 import { answer, setup } from './classification-fixture.mjs';
@@ -21,18 +19,7 @@ const ctx = await setup({ label: 'fresh-retry', classificationResponder: async r
   }
   return { body };
 } });
-// Session stats (persistent storage only) are the accounting surface for
-// provider requests: a row carries the provider's usage, not request counts.
-const env = { ...ctx.env, OCTOCODE_STORAGE_MODE: 'persistent', OCTOCODE_ENABLE_STATS: 'true' };
-const statsFile = path.join(env.OCTOCODE_HOME, 'stats.json');
-const usageTotals = () => {
-  try { return JSON.parse(fs.readFileSync(statsFile, 'utf8')).stats?.clasify ?? {}; } catch { return {}; }
-};
-const usageSince = before => {
-  const now = usageTotals();
-  return Object.fromEntries(['calls', 'known_usage_calls', 'unknown_usage_calls', 'input_tokens', 'output_tokens']
-    .map(key => [key, (now[key] ?? 0) - (before[key] ?? 0)]));
-};
+const env = { ...ctx.env, OCTOCODE_STORAGE_MODE: 'persistent' };
 let client;
 const traces = [];
 const query = (state, instructions = 'Does the evidence contain an explicit null field?') => ({
@@ -42,7 +29,7 @@ const query = (state, instructions = 'Does the evidence contain an explicit null
 const verdicts = result => collect(result.json ?? result.sc, value => value.type === 'noul' && typeof value.noul === 'number').map(value => value.noul);
 const row = result => (result.json ?? result.sc)?.results?.[0]?.data;
 const errors = result => collect(result.json ?? result.sc, value => typeof value.errorCode === 'string').map(value => value.errorCode);
-const account = key => ({ OCTOCODE_CLASSIFICATION_API: key, OCTOCODE_STORAGE_MODE: 'persistent', OCTOCODE_ENABLE_STATS: 'true' });
+const account = key => ({ OCTOCODE_CLASSIFICATION_API: key, OCTOCODE_STORAGE_MODE: 'persistent' });
 const call = async (input, label) => {
   const before = ctx.calls();
   const result = await client.call('clasify', input, {}, label);
@@ -74,35 +61,24 @@ try {
 
   mode = 'slow';
   const beforeWave = ctx.calls();
-  const waveUsage = usageTotals();
   const wave = await Promise.all(Array.from({ length: 4 }, () => client.call('clasify', query({ wave: 'success' }))));
   check('concurrent identical callers each make a provider request', ctx.calls() - beforeWave === wave.length && wave.every(result => verdicts(result).includes(0.1)));
-  const fresh = wave.filter(result => row(result)?.replayed !== true).length;
-  const waveCharged = usageSince(waveUsage);
-  check('concurrent usage counts every successful request', fresh === wave.length && waveCharged.calls === wave.length && waveCharged.input_tokens === wave.length * 10, JSON.stringify({ fresh, waveCharged }));
 
   mode = 'unauthorized-slow';
   const beforeFailedWave = ctx.calls();
-  const failedUsage = usageTotals();
   const failedWave = await Promise.all(Array.from({ length: 4 }, () => client.call('clasify', query({ wave: 'failed' }))));
   check('concurrent identical callers each receive a provider failure', ctx.calls() - beforeFailedWave === failedWave.length && failedWave.every(result => errors(result).includes('classificationProviderError')));
-  const failedCharged = usageSince(failedUsage);
-  check('failed concurrent usage counts every attempted request', failedCharged.calls === failedWave.length, JSON.stringify(failedCharged));
 
   mode = 'throttle';
   remainingFailures = 1;
   const retryStart = ctx.calls();
-  const retryUsage = usageTotals();
   const retried = await call(query({ retry: 'throttle' }), '429 then success');
   const packets = ctx.mock.classificationRequests.slice(retryStart);
   check('transient failure retries once with identical provider input', retried.calls === 2 && packets.length === 2 && canon(packets[0]) === canon(packets[1]) && verdicts(retried.result).includes(0.1));
-  // The row shows the provider's reported usage; the throttled attempt
-  // reported none, so it is counted as an attempt with unknown usage.
-  const retryCharged = usageSince(retryUsage);
-  check('retry usage counts both attempts without inventing missing tokens',
-    canon(row(retried.result)?.usage) === canon({ input_tokens: 10, output_tokens: 2 })
-      && retryCharged.calls === 2 && retryCharged.known_usage_calls === 1 && retryCharged.unknown_usage_calls === 1 && retryCharged.input_tokens === 10,
-    JSON.stringify({ usage: row(retried.result)?.usage, retryCharged }));
+  // The row shows the provider's reported usage; the throttled attempt reported none.
+  check('retry usage reports the successful attempt without inventing tokens',
+    canon(row(retried.result)?.usage) === canon({ input_tokens: 10, output_tokens: 2 }),
+    JSON.stringify(row(retried.result)?.usage));
   // Retries are a runtime constant (3); a varied budget is covered by
   // transport::tests::the_retry_budget_bounds_attempts_exactly.
   remainingFailures = 10;
@@ -125,20 +101,17 @@ try {
   check('invalid provider response is not cached', corrected.calls === 1 && verdicts(corrected.result).includes(0.1));
 
   const persistentBefore = ctx.calls();
-  const persistentUsage = usageTotals();
-  const persistentFirst = await ctx.cli('clasify', query({ cli: 'persistent' }), { OCTOCODE_STORAGE_MODE: 'persistent', OCTOCODE_ENABLE_STATS: 'true' });
+  const persistentFirst = await ctx.cli('clasify', query({ cli: 'persistent' }), { OCTOCODE_STORAGE_MODE: 'persistent' });
   const persistentColdCalls = ctx.calls() - persistentBefore;
-  const persistentSecond = await ctx.cli('clasify', query({ cli: 'persistent' }), { OCTOCODE_STORAGE_MODE: 'persistent', OCTOCODE_ENABLE_STATS: 'true' });
+  const persistentSecond = await ctx.cli('clasify', query({ cli: 'persistent' }), { OCTOCODE_STORAGE_MODE: 'persistent' });
   const persistentWarmCalls = ctx.calls() - persistentBefore - persistentColdCalls;
   check('persistent storage still evaluates every fresh CLI call', persistentColdCalls === 1 && persistentWarmCalls === 1
     && verdicts(persistentFirst).includes(0.1) && verdicts(persistentSecond).includes(0.1)
     && row(persistentFirst)?.replayed !== true && row(persistentSecond)?.replayed !== true,
   JSON.stringify({ persistentColdCalls, persistentWarmCalls }));
-  const persistentCharged = usageSince(persistentUsage);
   check('persistent CLI calls each charge their provider usage',
-    canon(row(persistentSecond)?.usage) === canon(row(persistentFirst)?.usage)
-      && canon(persistentCharged) === canon({ calls: 2, known_usage_calls: 2, unknown_usage_calls: 0, input_tokens: 20, output_tokens: 4 }),
-  JSON.stringify(persistentCharged));
+    canon(row(persistentSecond)?.usage) === canon(row(persistentFirst)?.usage),
+    JSON.stringify(row(persistentSecond)?.usage));
 
   const memoryCalls = [];
   const memoryResults = [];

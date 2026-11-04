@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::Path;
 
 mod admission;
@@ -30,7 +31,7 @@ pub(crate) const SENSITIVE_DIRECTORY_NAMES: &[&str] = &[
 /// Credential-shaped file names no local tool reads, lists or searches,
 /// whatever its flags: the one list behind [`is_sensitive_path`] (read and
 /// tree) and the text search's path filter. `.env` and `.env.*` are matched
-/// by prefix beside it.
+/// by prefix beside it. Lowercase, as every name is compared [`folded`].
 pub(crate) const CREDENTIAL_FILE_NAMES: &[&str] = &[
     ".npmrc",
     ".pypirc",
@@ -84,7 +85,7 @@ pub(crate) const CREDENTIAL_FILE_NAMES: &[&str] = &[
     "gcloud-service-key.json",
     "firebase-adminsdk.json",
     "google-services.json",
-    "GoogleService-Info.plist",
+    "googleservice-info.plist",
 ];
 
 /// Credential-shaped file extensions, shared like [`CREDENTIAL_FILE_NAMES`].
@@ -145,14 +146,44 @@ pub(crate) fn generated_file_pattern(name: &str) -> Option<String> {
 }
 
 /// Credential-store locations matched by a path fragment rather than one
-/// directory name.
+/// directory name: the [`folded`] fragment, and how a notice names it.
 const SENSITIVE_FRAGMENTS: &[(&str, &str)] = &[
     ("/.config/gcloud/", ".config/gcloud/"),
     ("/.config/gh/", ".config/gh/"),
     ("/.config/hub/", ".config/hub/"),
     ("/.mozilla/firefox/", ".mozilla/firefox/"),
-    ("/Library/Keychains/", "Library/Keychains/"),
+    ("/library/keychains/", "Library/Keychains/"),
 ];
+
+/// `text` as a case-insensitive filesystem compares it. APFS and NTFS open
+/// `.SSH` for `.ssh`, so that spelling is the withheld directory; APFS also
+/// folds these non-ASCII letters to ASCII (each one measured on APFS). A volume
+/// is not asked which it does for every path walked, so the safe side holds
+/// everywhere: on a case-sensitive filesystem `.SSH` or `KEY.PEM` is withheld too.
+fn folded(text: &str) -> Cow<'_, str> {
+    if !text
+        .bytes()
+        .any(|byte| byte.is_ascii_uppercase() || !byte.is_ascii())
+    {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    for letter in text.chars() {
+        match letter {
+            'ß' | 'ẞ' => out.push_str("ss"),
+            'ſ' => out.push('s'),
+            '\u{212A}' => out.push('k'),
+            'ﬀ' => out.push_str("ff"),
+            'ﬁ' => out.push_str("fi"),
+            'ﬂ' => out.push_str("fl"),
+            'ﬃ' => out.push_str("ffi"),
+            'ﬄ' => out.push_str("ffl"),
+            'ﬅ' | 'ﬆ' => out.push_str("st"),
+            other => out.push(other.to_ascii_lowercase()),
+        }
+    }
+    Cow::Owned(out)
+}
 
 /// What a path is, as its caller knows it, for [`is_sensitive_path`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,19 +205,51 @@ impl EntryKind {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    static FULL_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Whole paths this thread checked ([`is_sensitive_path`]).
+#[cfg(test)]
+pub(crate) fn full_checks() -> usize {
+    FULL_CHECKS.with(std::cell::Cell::get)
+}
+
 /// Whether the policy withholds `path`, a `kind` entry. Only a known
 /// directory bypasses file-name rules (a `credentials/` folder is source);
 /// unknown paths and prospective output files stay withheld, and a sensitive
 /// ancestor always wins.
 pub(crate) fn is_sensitive_path(path: &Path, kind: EntryKind) -> bool {
+    #[cfg(test)]
+    FULL_CHECKS.with(|checks| checks.set(checks.get() + 1));
     let aliases = octocode_engine::text::slash_path(path);
     sensitive_directory(&aliases).is_some()
         || (kind != EntryKind::Dir && is_sensitive_file(&aliases))
 }
 
+/// [`is_sensitive_path`] of an entry named `name` under a directory the check
+/// already cleared: only the name can add a reason. `None` when the whole path
+/// must tell: a name that can complete a credential location
+/// ([`SENSITIVE_FRAGMENTS`]), or one that is not text.
+pub(crate) fn is_sensitive_under_cleared(name: &std::ffi::OsStr, kind: EntryKind) -> Option<bool> {
+    let name = folded(name.to_str()?);
+    let completes = SENSITIVE_FRAGMENTS.iter().any(|(fragment, _)| {
+        fragment.trim_end_matches('/').rsplit('/').next() == Some(name.as_ref())
+    });
+    if completes {
+        return None;
+    }
+    Some(
+        SENSITIVE_DIRECTORY_NAMES.contains(&name.as_ref())
+            || (kind != EntryKind::Dir && is_sensitive_file(&name)),
+    )
+}
+
 /// The policy directory a path lies in or is (`.ssh`, `.aws`,
 /// `.config/gh/`), for disclosure without the path itself.
 fn sensitive_directory(aliases: &str) -> Option<&'static str> {
+    let aliases = folded(aliases);
     aliases
         .split('/')
         .find_map(|part| SENSITIVE_DIRECTORY_NAMES.iter().find(|name| **name == part))
@@ -223,11 +286,12 @@ pub(crate) fn withheld_message(display: &str, path: &Path) -> String {
 /// A `.git` entry that is a file (a submodule's or linked worktree's
 /// `gitdir:` pointer), not the repository directory.
 fn is_git_file(path: &Path, aliases: &str) -> bool {
-    aliases.rsplit('/').next() == Some(".git") && path.is_file()
+    aliases.rsplit('/').next().map(folded).as_deref() == Some(".git") && path.is_file()
 }
 
 fn is_sensitive_file(path: &str) -> bool {
-    let name = path.rsplit('/').next().unwrap_or_default();
+    let name = folded(path.rsplit('/').next().unwrap_or_default());
+    let name = name.as_ref();
     is_credential_name(name)
         || BACKUP_SUFFIXES.iter().any(|suffix| {
             name.strip_suffix(suffix)

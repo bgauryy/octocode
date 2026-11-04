@@ -29,7 +29,8 @@ pub(super) fn empty_match_leads(
     let (owner, repo) = (access::owner(query), access::repo(query));
     let reference = access::reference(query);
     let code = json!({"owner": owner, "repo": repo, "keywords": [first]});
-    let mut commits = json!({"operation": "commit", "owner": owner, "repo": repo, "pathPrefix": access::path(query)});
+    let mut commits =
+        json!({"operation": "commit", "owner": owner, "repo": repo, "path": access::path(query)});
     // Code search explores the default-branch index; only history honors this ref.
     if let Some(reference) = reference {
         commits["ref"] = json!(reference);

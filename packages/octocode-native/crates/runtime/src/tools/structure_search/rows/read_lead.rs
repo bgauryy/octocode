@@ -14,30 +14,44 @@ use serde_json::Value;
 /// files of at most [`READ_LEAD_FALLBACK_MAX_BYTES`]. Source and docs are
 /// outlined (`view:"symbols"`).
 pub(crate) fn read_lead(rows: &[Row], root: &std::path::Path) -> Option<Value> {
-    let best = |preferred: bool| {
-        rows.iter()
-            .enumerate()
-            .filter(|(_, row)| {
-                row.kind == EntryKind::File
-                    && if preferred {
-                        row.size <= READ_LEAD_MAX_BYTES && !generated_or_fixture(&row.path)
-                    } else {
-                        row.size <= READ_LEAD_FALLBACK_MAX_BYTES
-                    }
+    let mut ranked = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.kind == EntryKind::File)
+        .filter_map(|(index, row)| {
+            let depth = row.path.matches('/').count();
+            let rank = crate::tools::root_read::read_rank(&row.path, depth, &[]).or_else(|| {
+                crate::tools::outlines(&row.path).then_some(crate::tools::root_read::RANK_ANY)
+            })?;
+            Some(((rank, depth, index), row))
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_unstable_by_key(|(key, _)| *key);
+    // A size only a lead needs is read for the files it would lead to, best
+    // first, and at most once each.
+    let sizes = std::cell::RefCell::new(std::collections::HashMap::new());
+    let size = |row: &Row| {
+        if row.stamp.is_some() {
+            return row.size;
+        }
+        *sizes
+            .borrow_mut()
+            .entry(row.source.clone())
+            .or_insert_with(|| {
+                std::fs::symlink_metadata(&row.source).map_or(i64::MAX, |meta| {
+                    octocode_engine::num::saturating_i64(meta.len())
+                })
             })
-            .filter_map(|(index, row)| {
-                let depth = row.path.matches('/').count();
-                let rank =
-                    crate::tools::root_read::read_rank(&row.path, depth, &[]).or_else(|| {
-                        crate::tools::outlines(&row.path)
-                            .then_some(crate::tools::root_read::RANK_ANY)
-                    })?;
-                Some(((rank, depth, index), row))
-            })
-            .min_by_key(|(key, _)| *key)
-            .map(|(_, row)| row)
     };
-    let row = best(true).or_else(|| best(false))?;
+    let row = ranked
+        .iter()
+        .find(|(_, row)| !generated_or_fixture(&row.path) && size(row) <= READ_LEAD_MAX_BYTES)
+        .or_else(|| {
+            ranked
+                .iter()
+                .find(|(_, row)| size(row) <= READ_LEAD_FALLBACK_MAX_BYTES)
+        })
+        .map(|(_, row)| *row)?;
     let path = if row.path.is_empty() || root.is_file() {
         root.to_path_buf()
     } else {

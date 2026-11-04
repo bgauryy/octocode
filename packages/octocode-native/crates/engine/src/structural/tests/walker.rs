@@ -18,7 +18,6 @@ fn search_files_supports_recursive_glob_includes() {
         pattern: Some("target($X)".to_owned()),
         rule: None,
         include: Some(vec!["src/**/*.ts".to_owned()]),
-        exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
         ignore: crate::types::IgnorePolicy::default(),
@@ -54,7 +53,6 @@ fn search_files_honors_dot_ignore_files() {
         pattern: Some("target($X)".to_owned()),
         rule: None,
         include: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
         ignore: crate::types::IgnorePolicy::default(),
@@ -84,7 +82,6 @@ fn search_files_prefilters_rule_by_inner_pattern() {
         pattern: None,
         rule: Some(json!({"pattern":"await $C"})),
         include: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
         ignore: crate::types::IgnorePolicy::default(),
@@ -112,7 +109,6 @@ fn search_files_operator_only_pattern_parses_every_candidate() {
         pattern: Some("$A && $A()".to_owned()),
         rule: None,
         include: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
         ignore: crate::types::IgnorePolicy::default(),
@@ -140,7 +136,6 @@ fn operator_spacing_does_not_split_directory_and_file_results() {
             pattern: Some(pattern.to_owned()),
             rule: None,
             include: None,
-            exclude_dir: None,
             default_exclude_dir: None,
             exclude: None,
             ignore: crate::types::IgnorePolicy::default(),
@@ -236,7 +231,6 @@ fn structural_files_honor_scope_options() {
             pattern: None,
             include: None,
             exclude: None,
-            exclude_dir: None,
             default_exclude_dir: None,
             ignore: crate::types::IgnorePolicy::default(),
             max_depth: None,
@@ -273,7 +267,6 @@ fn structural_anchor_prefilter_prunes_beyond_max_depth_before_search() {
         pattern: Some("target($X)".to_owned()),
         rule: None,
         include: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         exclude: None,
         ignore: crate::types::IgnorePolicy::default(),
@@ -290,4 +283,88 @@ fn structural_anchor_prefilter_prunes_beyond_max_depth_before_search() {
         result.skipped_by_pre_filter, 0,
         "the anchor prefilter must not scan the nested file before depth filtering"
     );
+}
+
+/// The walk hands `admit` each entry's listing type, and the read-time check
+/// the type the entry has then: a candidate swapped for a link after the walk
+/// is refused before any read follows it.
+#[cfg(unix)]
+#[test]
+fn admit_sees_listing_types_and_a_candidate_swapped_for_a_link_is_not_read() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let root = TmpDir::new();
+    let outside = TmpDir::new();
+    let secret = outside.join("secret.ts");
+    fs::write(&secret, "target(secret);\n").expect("secret");
+    let swapped_path = root.join("a.ts");
+    let kept_path = root.join("b.ts");
+    fs::write(&swapped_path, "target(a);\n").expect("a");
+    fs::write(&kept_path, "target(b);\n").expect("b");
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum Seen {
+        Unknown,
+        Dir,
+        File,
+        Link,
+    }
+    let seen = Mutex::new(Vec::new());
+    let swapped = AtomicBool::new(false);
+    let result = search_files(
+        StructuralSearchFilesOptions {
+            path: root.to_string_lossy().to_string(),
+            pattern: Some("target($X)".to_owned()),
+            rule: None,
+            include: None,
+            default_exclude_dir: None,
+            exclude: None,
+            ignore: crate::types::IgnorePolicy::default(),
+            max_depth: None,
+            max_files: Some(10),
+            skip_files: None,
+            max_file_bytes: None,
+        },
+        StructuralDemand::Matches,
+        &|path, kind| {
+            let is_link = kind.is_some_and(|kind| kind.is_symlink());
+            let shown = match kind {
+                None => Seen::Unknown,
+                Some(_) if is_link => Seen::Link,
+                Some(kind) if kind.is_dir() => Seen::Dir,
+                Some(_) => Seen::File,
+            };
+            seen.lock().unwrap().push((path.to_path_buf(), shown));
+            !is_link
+        },
+        // Each candidate's parser is selected after the walk, before any read.
+        &|_| {
+            if !swapped.swap(true, Ordering::SeqCst) {
+                fs::remove_file(&swapped_path).expect("remove");
+                std::os::unix::fs::symlink(&secret, &swapped_path).expect("link");
+            }
+            "ts".to_owned()
+        },
+        &|| false,
+        None,
+    )
+    .expect("scan");
+
+    assert!(swapped.load(Ordering::SeqCst));
+    assert_eq!(
+        matched_paths(&result),
+        vec![kept_path.to_string_lossy()],
+        "the swapped candidate is refused"
+    );
+    let seen = seen.into_inner().unwrap();
+    let of = |path: &std::path::Path| {
+        seen.iter()
+            .filter(|(entry, _)| entry == path)
+            .map(|(_, kind)| kind)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(of(&swapped_path), [&Seen::File, &Seen::Link]);
+    assert_eq!(of(&kept_path), [&Seen::File, &Seen::File]);
+    assert_eq!(of(&root), [&Seen::Unknown, &Seen::Dir]);
 }

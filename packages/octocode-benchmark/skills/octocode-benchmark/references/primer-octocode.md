@@ -16,7 +16,7 @@ is **not** counted; use it instead of paying for schema discovery.
 | `ghGetFileContent` | Read a **known** path at `ref` (branch, tag, SHA; pass a hit's `commitSha`). Not for discovery. If a search hit already answers, **STOP — don't re-read the file.** |
 | `ghStructure` | `operation:"tree"` lists a tree at any `ref` (`include` takes repo-relative globs such as `**/http*`; cheaper than browsing); `"refs"` lists branches/tags with SHAs; `"languages"`. |
 | `ghSearchRepo` | Discover candidate repos (`operation:"search"`); `"get"` one known repo; `"list"` an owner's repos. Skip when owner/repo is known. |
-| `ghSearchHistory` | Find PRs / issues / commits: `operation` = `pullRequest` · `issue` · `commit` (`pathPrefix` scopes commits to a directory). |
+| `ghSearchHistory` | Find PRs / issues / commits: `operation` = `pullRequest` · `issue` · `commit` (`path` scopes commits to a directory). |
 | `ghGetHistoryItem` | Read one known PR / issue / commit / comparison: `operation` = `pullRequest` · `issue` · `commit` · `compare`. `matchString` narrows patches to matching hunks. |
 | `artifactSearch` | Package versions, dependencies, release source repo: `operation:"resolve"` + `ecosystem` (npm, pypi, maven, go, rubygems, crates) + `packageName`. |
 | `ghCloneRepo` | Fetch a fresh shallow checkout **only** for repeated local reads, AST matching, or LSP. |

@@ -4,7 +4,7 @@
 use super::held::Want;
 use super::page::{continue_window, map_to_file, past_end_row, served_span};
 use super::proven::Proven;
-use super::stream::stream;
+use super::stream::{Streaming, stream_pass, streamed};
 use super::{BYTE_LOOKBEHIND, Streamed, WINDOW_LINES};
 use crate::execution::cancel::CancellationCheck;
 use crate::security::scan::ContentScan;
@@ -93,12 +93,14 @@ pub(super) fn window_span(q: &LocalFetchQuery) -> WindowSpan {
 }
 
 /// The streamed source a read opened: its handle, canonical path, settled
-/// length. Every request hashes the open handle while selecting its windows.
+/// length. A request hashes the open handle while selecting its windows, unless
+/// the pass of an earlier page still holds ([`super::kept`]).
 #[derive(Clone, Copy)]
 pub(super) struct Opened<'a> {
     pub(super) file: &'a std::fs::File,
     pub(super) path: &'a Path,
     pub(super) len: u64,
+    pub(super) meta: &'a std::fs::Metadata,
     /// The request's earlier pass over the whole source, with its line
     /// count: windows are read from its checkpoints, not streamed again.
     pub(super) proven: Option<(&'a Proven, usize)>,
@@ -112,7 +114,14 @@ impl Opened<'_> {
     ) -> Result<Vec<Streamed>, String> {
         match self.proven {
             Some((proven, total_lines)) => proven.windows(self.file, wants, total_lines, cancel),
-            None => stream(self.file, wants, cancel),
+            None => {
+                let Streaming { pass, binary } = stream_pass(self.file, wants, cancel)?;
+                let windows = streamed(pass.lines, &pass.proven.digest, pass.total_lines, binary);
+                if !binary {
+                    super::kept::keep(self, pass.proven, pass.total_lines);
+                }
+                Ok(windows)
+            }
         }
     }
 }

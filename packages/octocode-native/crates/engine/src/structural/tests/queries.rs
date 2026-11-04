@@ -153,7 +153,6 @@ fn structural_review_rule_prefilter_preserves_directory_recall() {
             rule: Some(rule.clone()),
             include: None,
             exclude: None,
-            exclude_dir: None,
             default_exclude_dir: None,
             ignore: crate::types::IgnorePolicy::default(),
             max_depth: None,
@@ -205,5 +204,28 @@ fn unterminated_patterns_are_invalid_not_empty() {
             search("x", ext, Some(pattern), None).is_ok(),
             "{ext} {pattern}"
         );
+    }
+}
+
+/// A parser that rejects the query decides the file whatever it holds: the
+/// file is not read, so the literal anchor cannot give it another outcome.
+#[test]
+fn a_parser_that_rejects_the_query_decides_a_file_before_its_anchor() {
+    for source in ["const a = \"<div>x</div>\";\n", "const a = 1;\n"] {
+        let root = TmpDir::new();
+        fs::write(root.join("a.ts"), source).unwrap();
+        fs::write(root.join("b.tsx"), "const v = <div>x</div>;\n").unwrap();
+        let mut options = scan_options(&root, 0);
+        options.pattern = Some("<div>$$$</div>".to_owned());
+        options.rule = None;
+        let result = search_files_detailed(options).expect("scan");
+        let file = result
+            .files
+            .iter()
+            .find(|file| file.path.ends_with("a.ts"))
+            .expect("a.ts");
+        assert_eq!(file.status, "parserFailed", "{source}");
+        assert!(file.source_sha256.is_none(), "{source}: not read");
+        assert_eq!(result.skipped_by_pre_filter, 0, "{source}");
     }
 }

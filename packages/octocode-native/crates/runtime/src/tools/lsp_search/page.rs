@@ -1,6 +1,7 @@
 //! One page of an operation: the target it runs on, pinned and unpinned
 //! pages, and the per-target run.
 use super::*;
+use octocode_engine::lsp::client::EmptyAnswer;
 
 /// The request as the server sees it: the canonical file (or root), its
 /// URI, and the discovered server configuration.
@@ -180,24 +181,44 @@ pub(super) async fn run_target(
     // One request reads each snippet file once, however many responses
     // name it.
     let snippet_policy = snippet_policy(paths).shared_reads();
-    let mut result = ops::Operation {
-        client: &session.client,
-        query,
-        sources: &mut sources,
-        snippet_policy: &snippet_policy,
-        cancel,
-        path: &target.path,
-        scope: &scope,
-        root_only: target.root_only,
-        line: anchor.line,
-        character: anchor.character,
-        language_id,
-        budget: crate::response::page_windows::page_budget(response_window),
-        response_window,
-    }
-    .run()
-    .await
-    .map_err(|failure| crashed(query, &target.uri, &session.config, failure))?;
+    let load_deadline = session.client.load_deadline();
+    // Absence needs evidence: an empty answer stands only once the server
+    // shows it has finished loading. A later page reads the first page's
+    // answers, which were judged when they were asked.
+    let mut result = loop {
+        let asked = session.client.asked_at();
+        let row = ops::Operation {
+            client: &session.client,
+            query,
+            sources: &mut sources,
+            snippet_policy: &snippet_policy,
+            cancel,
+            path: &target.path,
+            scope: &scope,
+            root_only: target.root_only,
+            line: anchor.line,
+            character: anchor.character,
+            language_id,
+            budget: crate::response::page_windows::page_budget(response_window),
+            response_window,
+        }
+        .run()
+        .await
+        .map_err(|failure| crashed(query, &target.uri, &session.config, failure))?;
+        if lsp_search_query::snapshot(query).is_some() || !claims_absence(&row) {
+            break row;
+        }
+        match cancellable(
+            cancel,
+            session.client.judge_empty_answer(asked, load_deadline),
+        )
+        .await?
+        {
+            EmptyAnswer::Stands => break row,
+            EmptyAnswer::AskAgain => {}
+            EmptyAnswer::StillLoading => break failure::still_indexing(query),
+        }
+    };
     if needs_text_scan(query, language_id, &result)
         && let Some(name) = lsp_search_query::symbol_name(query)
     {
@@ -224,6 +245,13 @@ pub(super) async fn run_target(
         seal_scope_revision(query, &scope, document.as_deref(), started, cancel).await?;
     }
     Ok(row)
+}
+
+/// Whether `row` reads as a settled answer that nothing was found: empty, and
+/// not already flagged incomplete.
+fn claims_absence(row: &Value) -> bool {
+    row.get("status").and_then(Value::as_str) == Some("empty")
+        && row.get("isPartial").and_then(Value::as_bool) != Some(true)
 }
 
 /// A server stopped for its memory cannot answer this scope again: its

@@ -73,7 +73,7 @@ async fn a_non_default_ref_discloses_the_index_commit_and_leads_to_the_ref() {
     mount_content(&server, "src/routing.py", "await wrap_app(app)\n").await;
     let out = run(
         &server,
-        json!({"owner":"a","repo":"b","keywords":["wrap_app"],"ref":"dev","pathPrefix":"src"}),
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"],"ref":"dev","path":"src"}),
     )
     .await
     .expect("search");

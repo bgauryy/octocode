@@ -1,7 +1,7 @@
 //! The requested line windows a streamed source keeps as it passes once.
 
 use super::{MARKER_PREFIX_BYTES, WINDOW_BYTES};
-use crate::security::{BlockLine, KeyBlockState, LineShape, LineShapeScan, is_key_header_prefix};
+use crate::security::{KeyBlockState, LineShapeScan, MarkerScan};
 
 /// The lines one streamed window asks for.
 #[derive(Clone, Copy)]
@@ -27,12 +27,6 @@ impl Want {
     pub(super) fn bytes(first: usize, last: usize, from: usize) -> Self {
         Self { first, last, from }
     }
-}
-
-fn is_marker(head: &[u8], edge: &str) -> bool {
-    let text = String::from_utf8_lossy(head);
-    let text = text.trim_start();
-    text.contains(edge) && text.contains("PRIVATE KEY")
 }
 
 /// Where a window that holds bytes starts.
@@ -200,8 +194,11 @@ impl Held {
 /// window a block's markers fall on.
 pub(super) struct WindowLines {
     pub(super) held: Vec<Held>,
-    /// The current line's leading bytes, for private-key marker detection.
+    /// The current line's leading bytes, where a key's named lines and armor
+    /// headers are read.
     head: Vec<u8>,
+    /// The private-key markers of the current line, over all of it.
+    markers: MarkerScan,
     /// Private-key block state over the lines closed so far.
     pub(super) block: KeyBlockState,
     /// The current line's shape, scanned only while a block is open.
@@ -215,6 +212,7 @@ impl WindowLines {
         Self {
             held: wants.iter().map(|&want| Held::new(want)).collect(),
             head: Vec::new(),
+            markers: MarkerScan::default(),
             block,
             shape: LineShapeScan::default(),
         }
@@ -224,6 +222,7 @@ impl WindowLines {
     pub(super) fn restart(&mut self, block: KeyBlockState) {
         self.block = block;
         self.head.clear();
+        self.markers = MarkerScan::default();
         self.shape = LineShapeScan::default();
     }
 
@@ -233,6 +232,7 @@ impl WindowLines {
             let take = (MARKER_PREFIX_BYTES - self.head.len()).min(piece.len());
             self.head.extend_from_slice(&piece[..take]);
         }
+        self.markers.feed(piece);
         if self.block.is_open() {
             self.shape.feed(piece);
         }
@@ -244,17 +244,17 @@ impl WindowLines {
     /// Close `line`: track the private-key block's markers, and replace the
     /// line in every window it sits in when it is inside a block.
     pub(super) fn finish(&mut self, line: usize) {
-        let begins = is_marker(&self.head, "-----BEGIN ");
-        let ends = is_marker(&self.head, "-----END ");
+        let markers = self.markers.finish(&self.head);
         let (head, shape) = (&self.head, self.shape);
-        let inside = self.block.advance(begins, ends, || match shape.finish() {
-            LineShape::Other if is_key_header_prefix(head) => BlockLine::Header,
-            shape => BlockLine::Shape(shape),
-        });
+        let inside = self.block.advance(markers, || shape.finish(head));
         for held in &mut self.held {
             held.finish(line, inside);
         }
         self.head.clear();
+        self.markers = MarkerScan::default();
         self.shape = LineShapeScan::default();
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -12,12 +12,12 @@ pub(crate) struct ReleaseTagCheck<'a> {
 }
 
 impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
-    fn tag_exists<'a>(
+    fn tag_commit<'a>(
         &'a self,
         owner: &'a str,
         repo: &'a str,
         tag: &'a str,
-    ) -> crate::providers::artifact::TagFuture<'a> {
+    ) -> crate::providers::artifact::TagCommitFuture<'a> {
         Box::pin(async move {
             let request = self
                 .services
@@ -29,7 +29,7 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
             self.services
                 .provider
                 .transport
-                .tag_exists(owner, repo, tag, &request)
+                .tag_commit(owner, repo, tag, &request)
                 .await
                 .ok()
         })

@@ -4,6 +4,7 @@
 //! `$ref`/`not`/`oneOf`/`anyOf` resolution, `const`/`enum`, and the
 //! object/array/string/number/size checks. Union-branch selection lives in `super::union`.
 
+#[cfg(test)]
 pub(super) mod audit;
 mod checks;
 mod object;

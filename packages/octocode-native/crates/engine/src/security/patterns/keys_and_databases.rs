@@ -20,17 +20,25 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "dockerComposeSecrets",
         file_context: Some("docker-compose\\.ya?ml$"),
-        regex: r###"(?i)\b(?:MYSQL_ROOT_PASSWORD|POSTGRES_PASSWORD|REDIS_PASSWORD|MONGODB_PASSWORD)['"]?\s*[:=]\s*['"](?P<secret>[^'"\r\n]{4,})['"]"###,
+        // Compose spells values bare too (`- POSTGRES_PASSWORD=value`); a bare
+        // `${NAME}` only names one.
+        regex: r###"(?i)\b(?:MYSQL_ROOT_PASSWORD|POSTGRES_PASSWORD|REDIS_PASSWORD|MONGODB_PASSWORD)['"]?\s*[:=]\s*(?:['"](?P<secret>[^'"\r\n]{4,})['"]|(?P<secret_bare>[^'"\s$][^'"\s]{3,}))"###,
     },
     SecretPattern {
         name: "springBootSecrets",
         file_context: Some("(?:application|bootstrap)(?:-\\w+)?\\.(?:properties|ya?ml)$"),
-        regex: r###"(?i)\b(?:spring\.datasource\.password|spring\.security\.oauth2\.client\.registration\..*\.client-secret)\s*[:=]\s*['"](?P<secret>[^'"\r\n]{4,})['"]"###,
+        // A `.properties` value is bare; a bare `${NAME}` only names one.
+        regex: r###"(?i)\b(?:spring\.datasource\.password|spring\.security\.oauth2\.client\.registration\..*\.client-secret)\s*[:=]\s*(?:['"](?P<secret>[^'"\r\n]{4,})['"]|(?P<secret_bare>[^'"\s$][^'"\s]{3,}))"###,
     },
     SecretPattern {
         name: "dotnetConnectionStrings",
-        file_context: Some("(?:appsettings|web\\.config).*\\.(?:json|config)$"),
-        regex: r###"(?i)\b(?:ConnectionStrings?|connectionString)\s*[:=]\s*['"][^'"]*(?:password|pwd)\s*=\s*(?P<secret>[^;'"\r\n]{4,})[^'"]*['"]"###,
+        // ASP.NET names them `Web.config`, `Web.Release.config`, `App.config`
+        // and `appsettings.Production.json`. A connection string sits under
+        // any key (`"Default": "…"`), so its own `Password=` is what marks it.
+        file_context: Some(
+            "(?i)(?:appsettings[^/\\\\]*\\.json|(?:web|app)(?:\\.[^/\\\\]*)?\\.config)$",
+        ),
+        regex: r###"(?i)['"][^'"\r\n]*\b(?:password|pwd)\s*=\s*(?P<secret>[^;'"\r\n]{4,})"###,
     },
     SecretPattern {
         name: "base64EncodedSecrets",
@@ -44,7 +52,8 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // Helm values, JSON): the armor rules never see the decoded markers.
         // Each alternative spells only whole 3-byte groups of the header, so
         // the encoded prefix is fixed; a line-wrapped body continues the match.
-        regex: r###"LS0tLS1CRUdJTiB(?:QUklWQVRFIEtFWS|SU0EgUFJJVkFURSBLRVkt|FQyBQUklWQVRFIEtFWS|EU0EgUFJJVkFURSBLRVkt|PUEVOU1NIIFBSSVZBVEUgS0VZ|FTkNSWVBURUQgUFJJVkFURSBLRVkt|QR1AgUFJJVkFURSBLRVkgQkxPQ0st|TU0gyIEVOQ1JZUFRFRCBQUklWQVRFIEtFWS)[A-Za-z0-9+/]*={0,2}(?:\r?\n[ \t]*[A-Za-z0-9+/]{16,}={0,2})*"###,
+        // RFC 4716 spells its own dashes (`---- BEGIN SSH2 …`).
+        regex: r###"(?:LS0tLS1CRUdJTiB(?:QUklWQVRFIEtFWS|SU0EgUFJJVkFURSBLRVkt|FQyBQUklWQVRFIEtFWS|EU0EgUFJJVkFURSBLRVkt|PUEVOU1NIIFBSSVZBVEUgS0VZ|FTkNSWVBURUQgUFJJVkFURSBLRVkt|QR1AgUFJJVkFURSBLRVkgQkxPQ0st|TU0gyIEVOQ1JZUFRFRCBQUklWQVRFIEtFWS|TU0gyIFBSSVZBVEUgS0VZ)|LS0tLSBCRUdJTiBTU0gyI(?:EVOQ1JZUFRFRCBQUklWQVRFIEtF|FBSSVZBVEUgS0VZ))[A-Za-z0-9+/]*={0,2}(?:\r?\n[ \t]*[A-Za-z0-9+/]{16,}={0,2})*"###,
     },
     SecretPattern {
         name: "rsaPrivateKey",
@@ -57,14 +66,17 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: r###"-----BEGIN\s+OPENSSH\s+PRIVATE\s+KEY-----[\s\S]*?-----END\s+OPENSSH\s+PRIVATE\s+KEY-----"###,
     },
     SecretPattern {
-        name: "sshPrivateKeyEncrypted",
+        name: "ssh2PrivateKey",
         file_context: None,
-        regex: r###"-----BEGIN SSH2 ENCRYPTED PRIVATE KEY-----[\s\S]*?-----END SSH2 ENCRYPTED PRIVATE KEY-----"###,
+        // RFC 4716 armor: four dashes and a space, where PEM has five. A run
+        // of more dashes still ends in one of these prefixes, which gate the
+        // pattern: `-{4,}` alone would make every Markdown rule a candidate.
+        regex: r###"-----?[ \t]?BEGIN[ \t]+SSH2(?:[ \t]+ENCRYPTED)?[ \t]+PRIVATE[ \t]+KEY[ \t]*-----?[\s\S]*?-----?[ \t]?END[ \t]+SSH2(?:[ \t]+ENCRYPTED)?[ \t]+PRIVATE[ \t]+KEY[ \t]*-----?"###,
     },
     SecretPattern {
         name: "puttyPrivateKey",
         file_context: None,
-        regex: r###"\bPuTTY-User-Key-File-[23]:\s*[\s\S]*?Private-MAC:\b"###,
+        regex: r###"\bPuTTY-User-Key-File-[23]:[\s\S]*?Private-MAC:[ \t]*[0-9A-Fa-f]*"###,
     },
     SecretPattern {
         name: "firebaseServiceAccountPrivateKey",
@@ -74,12 +86,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "openvpnClientPrivateKey",
         file_context: None,
-        regex: r###"\b<key>\s*-----BEGIN[^<]*-----END[^<]*<\/key>\b"###,
-    },
-    SecretPattern {
-        name: "dhParameters",
-        file_context: None,
-        regex: r###"\b-----BEGIN DH PARAMETERS-----\s*[\s\S]*?-----END DH PARAMETERS-----\b"###,
+        regex: r###"<key>\s*-----BEGIN[^<]*-----END[^<]*<\/key>"###,
     },
     SecretPattern {
         name: "ageSecretKey",

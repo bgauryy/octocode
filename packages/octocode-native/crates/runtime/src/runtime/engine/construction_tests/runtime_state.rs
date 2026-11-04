@@ -46,7 +46,7 @@ fn the_graph_workspace_and_lsp_invocation_dir_follow_the_runtime_cwd() {
     assert_ne!(Some(cwd.clone()), std::env::current_dir().ok());
     assert_eq!(runtime.graph_workspace(None), repo);
     assert_eq!(runtime.graph_workspace(Some(&cwd)), cwd);
-    let discovery = runtime.lsp_execution_config().discovery(None);
+    let discovery = runtime.lsp_execution_config().discovery();
     assert_eq!(discovery.invocation_dir, Some(cwd));
 }
 
@@ -166,41 +166,6 @@ async fn hidden_public_clasify_without_goal_surface_has_no_semantic_route() {
     assert!(!runtime.dispatcher().selection_available);
 }
 
-/// A file-sourced language-server setting reaches the engine exactly as
-/// its environment spelling does (`lsp.cacheDir`).
-#[test]
-fn file_sourced_lsp_settings_reach_the_engine() {
-    let home = tempfile::tempdir().expect("home");
-    let mut vars = BTreeMap::new();
-    vars.insert(
-        "OCTOCODE_HOME".to_owned(),
-        home.path().to_string_lossy().into_owned(),
-    );
-    let runtime = ToolRuntime::new(crate::config::ConfigInput {
-        env: vars,
-        cwd: home.path().to_path_buf(),
-        os_home: home.path().to_path_buf(),
-        global_env: FileInput::Missing {
-            path: home.path().join(".env"),
-        },
-        project_env: FileInput::Missing {
-            path: home.path().join(".octocode/.env"),
-        },
-        config_file: FileInput::Read {
-            path: home.path().join(".octocoderc"),
-            text: r#"{"lsp":{"cacheDir":"/tmp/lsp-cache"}}"#.into(),
-        },
-        project_config_file: FileInput::Missing {
-            path: home.path().join(".octocode/.octocoderc"),
-        },
-        runtime_surface: RuntimeSurface::Mcp,
-    })
-    .expect("runtime");
-    let env = &runtime.lsp_execution_config().env;
-    let name = config::field::LSP_CACHE_DIR.env_name().expect("bound");
-    assert_eq!(env.get(name).map(String::as_str), Some("/tmp/lsp-cache"));
-}
-
 /// Local tools reach only the GitHub checkouts (clones, materialized
 /// trees) and URL captures under the cache home, never the rest of it:
 /// credentials and logs stay outside every root.
@@ -257,4 +222,45 @@ fn cache_home_exposes_only_checkout_trees() {
             allowed.display()
         );
     }
+}
+
+/// A start given the config files its process already read does not read them
+/// again: what they said stands even after the disk changes. The environment
+/// is still the start's own.
+#[test]
+fn a_host_with_loaded_config_files_reads_none() {
+    let home = tempfile::tempdir().expect("home");
+    let dotenv = home.path().join(".env");
+    std::fs::write(&dotenv, "OCTOCODE_FROM_FILE=loaded\n").expect("write");
+    let env = |own: &str| {
+        BTreeMap::from([
+            (
+                "OCTOCODE_HOME".to_owned(),
+                home.path().to_string_lossy().into_owned(),
+            ),
+            ("OCTOCODE_OWN".to_owned(), own.to_owned()),
+        ])
+    };
+    let loaded = config::acquire_config_input(
+        env("read"),
+        home.path().to_path_buf(),
+        std::env::home_dir().expect("home dir"),
+        RuntimeSurface::Cli,
+    );
+    std::fs::write(&dotenv, "OCTOCODE_FROM_FILE=rewritten\n").expect("write");
+    let host = |loaded| HostOptions {
+        cwd: Some(home.path().to_path_buf()),
+        env: Some(env("start")),
+        loaded,
+        ..HostOptions::default()
+    };
+    let runtime = ToolRuntime::from_host(host(Some(loaded))).expect("runtime");
+    let effective = &runtime.config().effective_env;
+    assert_eq!(effective["OCTOCODE_FROM_FILE"], "loaded");
+    assert_eq!(effective["OCTOCODE_OWN"], "start");
+    let fresh = ToolRuntime::from_host(host(None)).expect("runtime");
+    assert_eq!(
+        fresh.config().effective_env["OCTOCODE_FROM_FILE"],
+        "rewritten"
+    );
 }

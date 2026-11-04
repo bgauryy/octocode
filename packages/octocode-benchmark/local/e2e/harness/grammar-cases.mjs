@@ -40,7 +40,7 @@ export async function runGrammarCase(entry, surface, walk, check) {
     check(`${label}.match.UTF16-after-emoji`, captureMatchesFixture(f, sourceLine, capture), { capture, expectedText: f.argument, expectedColumn });
     outcomes.matches = matches.map(({ path: _path, ...row }) => row);
   }
-  const tree = await query('astSearch', { path: file, operation: 'syntaxTree', namedOnly: true }, 'syntaxTree');
+  const tree = await query('astSearch', { path: file, operation: 'syntaxTree', namedOnly: true, includeProvenance: true }, 'syntaxTree');
   check(`${label}.syntaxTree.source-extent`, collect(data(tree), row => row.sourceRange?.startByte === 0 && row.sourceRange?.endByte === Buffer.byteLength(f.src)).length > 0, data(tree));
 
   const raw = await query('localFetch', { path: file, view: 'content' }, 'fetch.content');

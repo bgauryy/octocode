@@ -343,7 +343,7 @@ async fn an_empty_path_scoped_listing_broadens_past_the_path_and_checks_it() {
                 .expect("listing")
         }
     };
-    let data = run(json!({"operation":"commit","owner":"o","repo":"r","ref":"v2","pathPrefix":"crates/nonexistent","filters":{"committedAt":{"from":"2024-01-01T00:00:00Z"}}}))
+    let data = run(json!({"operation":"commit","owner":"o","repo":"r","ref":"v2","path":"crates/nonexistent","filters":{"committedAt":{"from":"2024-01-01T00:00:00Z"}}}))
     .await;
     assert_eq!(data["status"], "empty", "{data}");
     let rows = crate::tools::test_support::checks::related_call(&data, "ghSearchHistory", |_| true)
@@ -353,12 +353,12 @@ async fn an_empty_path_scoped_listing_broadens_past_the_path_and_checks_it() {
         .unwrap_or_default();
     assert!(
         rows.iter()
-            .any(|row| row.get("filters").is_none() && row["pathPrefix"] == "crates/nonexistent"),
+            .any(|row| row.get("filters").is_none() && row["path"] == "crates/nonexistent"),
         "{data}"
     );
     assert!(
         rows.iter()
-            .any(|row| row.get("pathPrefix").is_none() && row["filters"]["committedAt"].is_object()),
+            .any(|row| row.get("path").is_none() && row["filters"]["committedAt"].is_object()),
         "{data}"
     );
     assert_eq!(

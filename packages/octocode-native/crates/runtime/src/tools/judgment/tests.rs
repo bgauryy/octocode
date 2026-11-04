@@ -17,7 +17,6 @@ fn evaluator(server: &MockServer) -> Evaluator {
         Duration::from_secs(10),
         1,
         4,
-        None,
     )
 }
 
@@ -63,9 +62,7 @@ async fn models_use_authenticated_get_retry_and_validate_the_catalog() {
         .expect(2)
         .mount(&server)
         .await;
-    let home = tempfile::tempdir().unwrap();
-    let mut evaluator = evaluator(&server);
-    evaluator.stats_home = Some(home.path().to_owned());
+    let evaluator = evaluator(&server);
     assert_eq!(
         evaluator
             .models(&evaluation_budget(&evaluator), &evaluator.gate())
@@ -73,11 +70,6 @@ async fn models_use_authenticated_get_retry_and_validate_the_catalog() {
             .unwrap(),
         catalog
     );
-    let recorded: Value =
-        serde_json::from_slice(&std::fs::read(home.path().join("stats.json")).unwrap()).unwrap();
-    assert_eq!(recorded["stats"]["clasify"]["discovery_calls"], 2);
-    assert_eq!(recorded["stats"]["clasify"]["calls"], 0);
-    assert_eq!(recorded["stats"]["clasify"]["unknown_usage_calls"], 0);
     for request in server.received_requests().await.unwrap() {
         assert!(request.body.is_empty());
         assert_eq!(request.headers["authorization"], "Bearer test-key");

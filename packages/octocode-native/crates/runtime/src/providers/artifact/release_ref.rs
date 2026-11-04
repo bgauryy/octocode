@@ -5,15 +5,18 @@ use super::{ArtifactItem, http::RegistryClient};
 
 /// A pending release-tag check.
 pub type TagFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Option<bool>> + 'a>>;
+/// A pending look-up of the commit a release tag names.
+pub type TagCommitFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Option<Option<String>>> + 'a>>;
 
 /// Checks that a release tag or a recorded commit exists in a GitHub
 /// repository, through the configured GitHub API (its URL, the caller's
-/// credential and request budget). Each answers `Some(true)` when it
-/// exists, `Some(false)` when the repository has none, `None` when the
-/// check failed.
+/// credential and request budget). `None` means the check failed.
 pub trait ReleaseTags: Send + Sync {
-    /// `tag` is a tag of `owner/repo` (a branch of that name is not).
-    fn tag_exists<'a>(&'a self, owner: &'a str, repo: &'a str, tag: &'a str) -> TagFuture<'a>;
+    /// The commit `tag` of `owner/repo` names (a branch of that name is not
+    /// a tag), `Some(None)` when the repository has no such tag.
+    fn tag_commit<'a>(&'a self, owner: &'a str, repo: &'a str, tag: &'a str)
+    -> TagCommitFuture<'a>;
     /// `commit` (a SHA a registry recorded) is a commit of `owner/repo`.
     fn commit_exists<'a>(&'a self, owner: &'a str, repo: &'a str, commit: &'a str)
     -> TagFuture<'a>;
@@ -41,8 +44,49 @@ pub(crate) async fn pin_release_tag(
         .clone()
         .or_else(|| github_repo_dir(repository));
     artifact.source_ref =
-        github_release_tag(repository, directory.as_deref(), package, version, client).await;
+        github_release_tag(repository, directory.as_deref(), package, version, client)
+            .await
+            .map(|release| release.tag);
     artifact.source_tag = artifact.source_ref.is_some();
+}
+
+/// Ties a registry's unchecked release commit to the upstream release tag of
+/// `version`, when one exists: the check a reader would otherwise make by
+/// hand. The tag naming that commit proves it (`verification: tag`); a tag
+/// naming another commit is said on the row, since a package published from
+/// a commit other than its tag may differ from it. No tag, or a failed check,
+/// leaves the commit as the registry's claim.
+pub(crate) async fn check_commit_against_tag(
+    artifact: &mut ArtifactItem,
+    package: &str,
+    version: &str,
+    commit: &str,
+    client: &RegistryClient<'_>,
+) {
+    let Some(repository) = artifact.repository.as_deref() else {
+        return;
+    };
+    let directory = artifact
+        .repository_directory
+        .clone()
+        .or_else(|| github_repo_dir(repository));
+    let Some(release) =
+        github_release_tag(repository, directory.as_deref(), package, version, client).await
+    else {
+        return;
+    };
+    if release.commit.eq_ignore_ascii_case(commit) {
+        artifact.source_tag = true;
+    } else {
+        artifact.tag_differs = Some(release);
+    }
+}
+
+/// An upstream release tag and the commit it names.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReleaseTag {
+    pub tag: String,
+    pub commit: String,
 }
 
 /// The release tag of `version` in a GitHub repository, when one exists
@@ -56,7 +100,7 @@ async fn github_release_tag(
     package: &str,
     version: &str,
     client: &RegistryClient<'_>,
-) -> Option<String> {
+) -> Option<ReleaseTag> {
     let tags = client.tags?;
     let (owner, repo) = github_slug(repository)?;
     let candidates = tag_candidates(&repo, package, directory, version);
@@ -65,13 +109,16 @@ async fn github_release_tag(
     let (plain, own) = candidates.split_at(candidates.len().min(2));
     for round in [plain, own] {
         let answers = futures_util::future::join_all(
-            round.iter().map(|tag| tags.tag_exists(&owner, &repo, tag)),
+            round.iter().map(|tag| tags.tag_commit(&owner, &repo, tag)),
         )
         .await;
-        for (tag, exists) in round.iter().zip(answers) {
+        for (tag, commit) in round.iter().zip(answers) {
             // A failed check is no answer: nothing is remembered.
-            if exists? {
-                return Some(tag.clone());
+            if let Some(commit) = commit? {
+                return Some(ReleaseTag {
+                    tag: tag.clone(),
+                    commit,
+                });
             }
         }
     }
@@ -189,9 +236,8 @@ mod tests {
         tags: &'a super::super::test_http::KnownTags,
     ) -> RegistryClient<'a> {
         RegistryClient {
-            http,
-            budget,
             tags: Some(tags),
+            ..RegistryClient::new(http, budget)
         }
     }
 
@@ -248,6 +294,7 @@ mod tests {
                 &client
             )
             .await
+            .map(|release| release.tag)
             .as_deref(),
             Some("v1.0.0")
         );
@@ -266,6 +313,7 @@ mod tests {
                 &client
             )
             .await
+            .map(|release| release.tag)
             .as_deref(),
             Some("core-v1.0.0")
         );

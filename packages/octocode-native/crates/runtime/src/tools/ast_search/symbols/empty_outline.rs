@@ -29,7 +29,6 @@ pub(super) fn note_skipped(
     }
     let outlined = octocode_engine::signatures::graph_facts::graph_fact_extensions();
     let filter = ast_search_query_symbols::name_filter(q);
-    let budget = usize::MAX;
     let exclude = ast_search_query_symbols::exclude(q).unwrap_or_default();
     let discovery = paths.discovery_walk();
     let permits = |path: &std::path::Path| discovery.permits(path);
@@ -60,7 +59,7 @@ pub(super) fn note_skipped(
                     .as_ref()
                     .is_none_or(|rules| !rules.is_ignored(path, path.is_dir()))
         };
-        FileProbe::new(at, budget, &permitted, &keep)
+        FileProbe::new(at, &permitted, &keep)
             .stopping(&stop)
             .within(Globs {
                 include: &[],
@@ -74,7 +73,7 @@ pub(super) fn note_skipped(
         hidden: q.include_hidden.unwrap_or(false),
         default_excludes: q.default_excludes.defaults(),
     };
-    let scanned = FileProbe::new(root, budget, &permits, &keep)
+    let scanned = FileProbe::new(root, &permits, &keep)
         .stopping(&stop)
         .within(Globs {
             include: &[],

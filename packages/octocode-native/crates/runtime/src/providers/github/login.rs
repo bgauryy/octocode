@@ -101,43 +101,82 @@ pub enum TokenCheck {
     Unverified,
 }
 
-/// `GET /user` through the shared executor (throttling, rate-limit
-/// bookkeeping, bounded retries): whether GitHub accepts `token`.
-pub async fn verify_token(api_url: &str, token: &str, timeout: Duration) -> TokenCheck {
-    let Some((endpoint, transport)) = url::Url::parse(api_url)
-        .ok()
-        .and_then(|url| octocode_github::GitHubEndpoint::new(url).ok())
-        .and_then(|endpoint| {
-            let transport = octocode_github::GitHubTransport::new(
-                endpoint.clone(),
-                octocode_github::RetryPolicy {
-                    max_attempts: 2,
-                    ..Default::default()
-                },
-                octocode_github::GitHubBudget::global(),
+/// One authenticated read through the shared executor (throttling, rate-limit
+/// bookkeeping, bounded retries).
+async fn authenticated_read(
+    api_url: &str,
+    route: &str,
+    token: &str,
+    timeout: Duration,
+) -> Option<Result<octocode_github::ResponsePage, octocode_github::ProviderError>> {
+    let endpoint = octocode_github::GitHubEndpoint::new(url::Url::parse(api_url).ok()?).ok()?;
+    let transport = octocode_github::GitHubTransport::new(
+        endpoint.clone(),
+        octocode_github::RetryPolicy {
+            max_attempts: 2,
+            ..Default::default()
+        },
+        octocode_github::GitHubBudget::global(),
+    )
+    .ok()?;
+    let url = endpoint.rest(&[route]).ok()?;
+    Some(
+        transport
+            .execute(
+                octocode_github::RequestSpec::get(url),
+                &octocode_github::RequestContext::new(
+                    octocode_io::budget::RequestBudget::with_timeout(timeout, 1024 * 1024),
+                    Some(octocode_github::ResolvedCredential::new(
+                        token.to_owned(),
+                        octocode_github::CredentialSource::Override,
+                    )),
+                ),
             )
-            .ok()?;
-            Some((endpoint, transport))
+            .await,
+    )
+}
+
+/// One GitHub quota bucket: what the token has left of it, and when it resets.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Quota {
+    pub resource: String,
+    pub remaining: u64,
+    pub limit: u64,
+    pub reset_at: String,
+}
+
+/// The token's quota buckets the tools draw on (`GET /rate_limit`, which GitHub
+/// does not charge); empty when GitHub could not be asked or has no limits
+/// (a GitHub Enterprise server with rate limiting off).
+pub async fn quota(api_url: &str, token: &str, timeout: Duration) -> Vec<Quota> {
+    let Some(Ok(page)) = authenticated_read(api_url, "rate_limit", token, timeout).await else {
+        return Vec::new();
+    };
+    let Ok(answer) = serde_json::from_slice::<serde_json::Value>(&page.body) else {
+        return Vec::new();
+    };
+    ["core", "search", "code_search", "graphql"]
+        .into_iter()
+        .filter_map(|resource| {
+            let bucket = answer.pointer(&format!("/resources/{resource}"))?;
+            let reset = i64::try_from(bucket.get("reset")?.as_u64()?).ok()?;
+            Some(Quota {
+                resource: resource.to_owned(),
+                remaining: bucket.get("remaining")?.as_u64()?,
+                limit: bucket.get("limit")?.as_u64()?,
+                reset_at: crate::civil_date::iso8601_secs(reset),
+            })
         })
-    else {
+        .collect()
+}
+
+/// `GET /user` through the shared executor: whether GitHub accepts `token`.
+pub async fn verify_token(api_url: &str, token: &str, timeout: Duration) -> TokenCheck {
+    let Some(read) = authenticated_read(api_url, "user", token, timeout).await else {
         return TokenCheck::Unverified;
     };
-    let Ok(url) = endpoint.rest(&["user"]) else {
-        return TokenCheck::Unverified;
-    };
-    match transport
-        .execute(
-            octocode_github::RequestSpec::get(url),
-            &octocode_github::RequestContext::new(
-                octocode_io::budget::RequestBudget::with_timeout(timeout, 1024 * 1024),
-                Some(octocode_github::ResolvedCredential::new(
-                    token.to_owned(),
-                    octocode_github::CredentialSource::Override,
-                )),
-            ),
-        )
-        .await
-    {
+    match read {
         Ok(page) => TokenCheck::Valid(
             serde_json::from_slice::<serde_json::Value>(&page.body)
                 .ok()
@@ -216,3 +255,40 @@ fn mask_token_text(message: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod quota_tests {
+    use super::quota;
+    use std::time::Duration;
+    use wiremock::matchers::{header, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn quota_names_each_bucket_the_tools_draw_on() {
+        let server = MockServer::builder().start().await;
+        Mock::given(path("/api/v3/rate_limit"))
+            .and(header("authorization", "Bearer t"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "resources": {
+                    "core": {"limit": 5000, "remaining": 4321, "reset": 86400},
+                    "search": {"limit": 30, "remaining": 29, "reset": 86400},
+                    "code_search": {"limit": 10, "remaining": 9, "reset": 86400},
+                    "graphql": {"limit": 5000, "remaining": 5000, "reset": 86400},
+                    "dependency_snapshots": {"limit": 100, "remaining": 100, "reset": 86400}
+                }
+            })))
+            .mount(&server)
+            .await;
+        let api = format!("{}/api/v3", server.uri());
+        let buckets = quota(&api, "t", Duration::from_secs(5)).await;
+        let names: Vec<_> = buckets.iter().map(|q| q.resource.as_str()).collect();
+        assert_eq!(names, ["core", "search", "code_search", "graphql"]);
+        assert_eq!((buckets[0].remaining, buckets[0].limit), (4321, 5000));
+        assert_eq!(buckets[0].reset_at, "1970-01-02T00:00:00Z");
+        assert!(
+            quota(&api, "wrong", Duration::from_secs(5))
+                .await
+                .is_empty()
+        );
+    }
+}

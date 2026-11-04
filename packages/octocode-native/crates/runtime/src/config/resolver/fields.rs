@@ -162,7 +162,7 @@ pub(super) fn resolve_fields(
             }
         }
 
-        if selected.is_none() && field.file {
+        if selected.is_none() {
             selected = files.iter().enumerate().find_map(|(index, config)| {
                 get_path(config, field.path)
                     .and_then(|raw| parse_candidate(field, raw, false, None))

@@ -353,3 +353,48 @@ fn a_sibling_hint_names_every_form_that_accepts_the_value() {
         "{error:?}"
     );
 }
+
+/// A wrong value leads over a missing form selector: the value is wrong under
+/// any form. Nothing is dropped: the selector follows in `details`.
+#[test]
+fn a_wrong_value_leads_over_a_missing_operation() {
+    let error = prepare_many_and_validate(
+        "astSearch",
+        json!({"queries":[{"path":".","rule":{"kind":"x","nthChild":"y"}}]}),
+    )
+    .expect_err("no operation, bad nthChild");
+    let rendered = crate::contracts::format_input_error("astSearch", &error);
+    assert_eq!(
+        rendered["error"],
+        r#"queries.0.rule.nthChild: "y" is not a valid value for nthChild: invalid nthChild position: expected an integer or An+B formula"#,
+        "{rendered}"
+    );
+    let details = rendered["details"].as_array().expect("details");
+    assert_eq!(details.len(), error.issues.len() - 1, "{rendered}");
+    assert!(
+        details.iter().any(|detail| detail
+            .as_str()
+            .unwrap()
+            .contains("Missing required field: operation")),
+        "{rendered}"
+    );
+}
+
+/// A missing selector alone still leads, and so it does beside fields it
+/// leaves unknown: only a wrong value outranks it.
+#[test]
+fn a_missing_operation_leads_when_no_value_is_wrong() {
+    let error = prepare_many_and_validate(
+        "astSearch",
+        json!({"queries":[{"path":".","rule":{"kind":"x"}}]}),
+    )
+    .expect_err("no operation");
+    let rendered = crate::contracts::format_input_error("astSearch", &error);
+    assert!(
+        rendered["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("queries.0.operation: Missing required field: operation"),
+        "{rendered}"
+    );
+}

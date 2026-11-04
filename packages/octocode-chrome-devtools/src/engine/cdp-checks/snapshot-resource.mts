@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { flat } from '../ax-snapshot.mjs';
 import type { Payload } from '../cdp-connection.mjs';
 
 /** What snapshot resources need from a connection: its target and, under the runner, the resource map. */
@@ -25,6 +26,19 @@ export function readTargetSnapshot(cdp: SnapshotSession) {
   } catch {
     return null;
   }
+}
+
+/** One node per line (ref, role, name, frame), so a grep tool finds a ref by its text. */
+export function writePageNodes(
+  path: string,
+  nodes: { role: string; fullName?: string; frame?: string }[]
+) {
+  const lines = nodes.map((n, i) =>
+    [`e${i + 1}`, n.role, flat(n.fullName), flat(n.frame)].join('\t')
+  );
+  writeFileSync(path, `${lines.join('\n')}\n`, { mode: 0o600 });
+  // oxlint-disable-next-line eslint/no-console -- stdout is the check's artifact protocol
+  console.log(`[ARTIFACT] PAGE_NODES ${path}`);
 }
 
 export function recordTargetSnapshot(

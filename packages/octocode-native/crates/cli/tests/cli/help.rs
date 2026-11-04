@@ -27,7 +27,7 @@ fn root_help_lists_all_tools_independent_of_mcp_gates_and_filters() {
     }
     // A CLI agent chooses from this list: it never reads the MCP instructions.
     assert!(
-        text.contains("Use when you know a word or pattern"),
+        text.contains("Use to find where a word or pattern occurs"),
         "{text}"
     );
     assert!(text.contains("references/tool-flow.md"), "{text}");

@@ -334,3 +334,6 @@ fn multi_module_projects_root_at_their_top() {
         resolve_workspace_root_for_file(py_file.to_string_lossy().into_owned()).expect("resolve");
     assert_eq!(PathBuf::from(resolved), python.0);
 }
+
+#[cfg(unix)]
+mod includes_memo;

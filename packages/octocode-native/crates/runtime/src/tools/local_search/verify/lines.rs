@@ -26,16 +26,24 @@ pub(in crate::tools::local_search) struct VerificationLines {
     /// A line too long to buffer mentions `PRIVATE KEY`, so key-block state
     /// is unknown and nothing read from this source can be trusted.
     pub(in crate::tools::local_search) unclassified: bool,
+    /// A line holds what a pattern needing the whole source starts from, so
+    /// only all of it can say whether a shown value is a secret.
+    pub(in crate::tools::local_search) source_wide: bool,
+    /// `retained` holds every line of the source.
+    pub(in crate::tools::local_search) whole_retained: bool,
 }
 
 /// Stream up to `limit` lines of `reader`, tracking private-key blocks over
 /// all of them and keeping only lines inside `windows` (1-based inclusive),
 /// within [`MAX_VERIFY_RETAINED_BYTES`]. Any read failure is an error (a
-/// short source just yields fewer lines).
+/// short source just yields fewer lines). With `across`, the whole source is
+/// read, and kept while the budget lasts: nothing short of it can settle a
+/// value once a line names one of those patterns.
 pub(in crate::tools::local_search) fn read_verification_lines(
     reader: &mut impl std::io::BufRead,
     windows: &[(usize, usize)],
     limit: usize,
+    across: Option<octocode_engine::security::WholeSourcePatterns>,
     cancel: &impl CancellationCheck,
 ) -> Result<VerificationLines, VerifyReadError> {
     let mut tracker = crate::security::KeyBlockTracker::default();
@@ -45,14 +53,18 @@ pub(in crate::tools::local_search) fn read_verification_lines(
         retained_bytes: 0,
         lines_read: 0,
         unclassified: false,
+        source_wide: false,
+        whole_retained: across.is_some(),
     };
+    let limit = if across.is_some() { usize::MAX } else { limit };
+    let in_window = |number: usize| windows.iter().any(|&(lo, hi)| lo <= number && number <= hi);
     let mut buf = Vec::new();
     while read.lines_read < limit {
         let number = read.lines_read + 1;
         if number.is_multiple_of(VERIFY_CANCEL_EVERY) {
             cancel.check().map_err(VerifyReadError::Cancelled)?;
         }
-        let wanted = windows.iter().any(|&(lo, hi)| lo <= number && number <= hi);
+        let wanted = read.whole_retained || in_window(number);
         let cap = if wanted {
             MAX_VERIFY_RETAINED_BYTES.saturating_sub(read.retained_bytes)
         } else {
@@ -68,6 +80,7 @@ pub(in crate::tools::local_search) fn read_verification_lines(
                 let text = String::from_utf8_lossy(&buf);
                 let text = text.trim_end_matches(['\n', '\r']);
                 tracker.push(text);
+                read.source_wide |= across.is_some_and(|patterns| patterns.named_by(text));
                 if wanted {
                     read.retained_bytes += text.len();
                     read.retained.insert(number, text.to_owned());
@@ -78,6 +91,10 @@ pub(in crate::tools::local_search) fn read_verification_lines(
                 // without it is an ordinary line for the block state.
                 read.unclassified |= mentions_key;
                 tracker.push("");
+                if std::mem::take(&mut read.whole_retained) {
+                    read.retained.retain(|number, _| in_window(*number));
+                    read.retained_bytes = read.retained.values().map(String::len).sum();
+                }
             }
         }
     }
@@ -103,6 +120,7 @@ pub(in crate::tools::local_search) fn read_bounded_line(
     const NEEDLE: &[u8] = b"PRIVATE KEY";
     let mut overflow = false;
     let mut mentions_key = false;
+    let mut markers = crate::security::MarkerScan::default();
     let mut consumed = 0usize;
     let mut since_check = 0usize;
     loop {
@@ -115,13 +133,16 @@ pub(in crate::tools::local_search) fn read_bounded_line(
             None => (chunk.len(), false),
         };
         let part = &chunk[..take];
+        let was_overflow = overflow;
         if !overflow && buf.len() + take > cap {
             overflow = true;
         }
         if overflow {
             // Keep a needle-length tail so a mention split across chunks
             // is still seen.
+            let seen = if was_overflow { buf.len() } else { 0 };
             buf.extend_from_slice(part);
+            markers.feed(&buf[seen..]);
             mentions_key |= buf.windows(NEEDLE.len()).any(|w| w == NEEDLE);
             let keep = buf.len().min(NEEDLE.len() - 1);
             buf.drain(..buf.len() - keep);
@@ -144,7 +165,9 @@ pub(in crate::tools::local_search) fn read_bounded_line(
     }
     Ok(Some(if overflow {
         buf.clear();
-        BoundedLine::Overflow { mentions_key }
+        BoundedLine::Overflow {
+            mentions_key: mentions_key || markers.finish(&[]).any(),
+        }
     } else {
         BoundedLine::Whole
     }))

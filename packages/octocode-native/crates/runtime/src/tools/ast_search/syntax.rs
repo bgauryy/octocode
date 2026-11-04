@@ -23,6 +23,10 @@ pub(crate) mod ast_search_query_syntax_tree {
     pub(crate) fn snapshot(query: &AstSearchQuerySyntaxTree) -> Option<&str> {
         query.snapshot.as_deref().map(String::as_str)
     }
+    /// Whether rows carry byte spans and origins (`includeProvenance`).
+    pub(crate) fn provenance(query: &AstSearchQuerySyntaxTree) -> bool {
+        query.include_provenance == Some(true)
+    }
     /// The 1-based line whose covering node roots the tree (`line`).
     pub(crate) fn line(query: &AstSearchQuerySyntaxTree) -> Option<u32> {
         query.line.map(|line| saturating_u32(line.get()))
@@ -71,7 +75,9 @@ fn run_syntax(
         q.parser,
         octocode_engine::digest::sha256(&bytes),
         q.named_only,
-        ast_search_query_syntax_tree::line(q)
+        ast_search_query_syntax_tree::line(q),
+        // Rows with and without provenance price and cut pages differently.
+        ast_search_query_syntax_tree::provenance(q)
     ]));
     if let Some(line) = ast_search_query_syntax_tree::line(q) {
         check_line(q, line, content)?;
@@ -103,7 +109,10 @@ fn run_syntax(
         ));
     }
     let mut out = render_tree_page(q, &display_path, &page, &snapshot);
-    if page.r.status != "error" && !page.r.nodes.is_empty() {
+    if ast_search_query_syntax_tree::provenance(q)
+        && page.r.status != "error"
+        && !page.r.nodes.is_empty()
+    {
         let bound = page
             .r
             .source_templates
@@ -273,15 +282,14 @@ fn read_page(
                     pricing::Prices::default(),
                 ),
             };
-            let mut windows =
-                pricing::windows(&r, &mut prices, source.admitted, maps, budget, cancel)?;
+            let mut windows = priced_windows(q, &r, &mut prices, source, maps, budget, cancel)?;
             while let Some(next) = r.next_offset.filter(|_| windows.len() <= page) {
                 cancel.check().map_err(ToolError::cancelled)?;
                 let remaining = r.total_nodes.saturating_sub(next);
                 let expected = remaining.min(NODE_CHUNK);
                 let rest = source.inspect(q, next, expected)?;
                 append_observed_window(&mut r, rest, next, expected)?;
-                windows = pricing::windows(&r, &mut prices, source.admitted, maps, budget, cancel)?;
+                windows = priced_windows(q, &r, &mut prices, source, maps, budget, cancel)?;
             }
             let walked = std::sync::Arc::new(Walked { r, windows, prices });
             if walked.r.status != "error" {
@@ -318,6 +326,24 @@ fn read_page(
         diagnostics: walked.r.diagnostics.clone(),
     };
     Ok(TreePage { r, more, facts })
+}
+
+/// The page windows of a walk: a provenance row also pays for its origin and
+/// the page's source descriptors; a plain row is its own line.
+fn priced_windows(
+    q: &AstSearchQuerySyntaxTree,
+    result: &octocode_engine::structural::SyntaxTreeInspectResult,
+    prices: &mut pricing::Prices,
+    source: &Source<'_>,
+    maps: &mut octocode_engine::text::analysis::MapBudget<'_>,
+    budget: usize,
+    cancel: &dyn CancellationCheck,
+) -> Result<Vec<std::ops::Range<usize>>, ToolError> {
+    if ast_search_query_syntax_tree::provenance(q) {
+        pricing::windows(result, prices, source.admitted, maps, budget, cancel)
+    } else {
+        pricing::plain_windows(result, prices, budget, cancel)
+    }
 }
 
 /// Replays stay within the first walk's observed census and coverage facts.

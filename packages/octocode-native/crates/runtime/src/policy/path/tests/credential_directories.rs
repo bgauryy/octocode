@@ -141,3 +141,39 @@ fn credential_directory_symlinks_still_check_targets_and_sensitive_ancestors() {
         PolicyErrorCode::IgnoredPath
     );
 }
+
+/// Both the read and the walk go by a name in any spelling on disk.
+#[test]
+fn withheld_names_on_disk_are_refused_in_any_case() {
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path().canonicalize().unwrap();
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+    let entries = [
+        ".ENV",
+        "KEY.PEM",
+        ".SSH/config",
+        ".Aws/credentials",
+        "Credentials.JSON",
+    ];
+    for entry in entries {
+        let path = root.join(entry);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "ordinary content").unwrap();
+        assert_eq!(
+            policy.validate_read(&path).unwrap_err().code,
+            PolicyErrorCode::IgnoredPath,
+            "{entry}"
+        );
+    }
+    let walk = crate::policy::path::DiscoveryWalk::owned(policy);
+    let kind = |path: &std::path::Path| Some(std::fs::symlink_metadata(path).unwrap().file_type());
+    assert!(walk.permits_entry(&root, kind(&root)));
+    for entry in [".ENV", "KEY.PEM", ".SSH", ".Aws", "Credentials.JSON"] {
+        let path = root.join(entry);
+        assert!(!walk.permits_entry(&path, kind(&path)), "{entry}");
+    }
+}

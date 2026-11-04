@@ -177,17 +177,34 @@ impl GitHubTransport {
 
     /// Whether `tag` names a tag of `owner/repo`: its tag ref exists (a
     /// branch of the same name does not count).
-    pub async fn tag_exists(
+    pub async fn tag_commit(
         &self,
         owner: &str,
         repo: &str,
         tag: &str,
         context: &RequestContext,
-    ) -> Result<bool, ProviderError> {
-        Ok(self
-            .named_ref_sha(owner, repo, "tags", tag, context)
+    ) -> Result<Option<String>, ProviderError> {
+        let Some((object, kind)) = self
+            .named_ref_object(owner, repo, "tags", tag, context)
             .await?
-            .is_some())
+        else {
+            return Ok(None);
+        };
+        if kind != "tag" {
+            return Ok(Some(object));
+        }
+        // An annotated tag's ref names the tag object; its target is the commit.
+        let url = self
+            .endpoint()
+            .rest(&["repos", owner, repo, "git", "tags", &object])?;
+        let page = self.execute(RequestSpec::get(url), context).await?;
+        let value: serde_json::Value = serde_json::from_slice(&page.body).map_err(|_| {
+            ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub tag response")
+        })?;
+        Ok(value
+            .pointer("/object/sha")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned))
     }
 
     /// The object SHA of `refs/{namespace}/{name}`; `None` when it does not
@@ -200,6 +217,23 @@ impl GitHubTransport {
         name: &str,
         context: &RequestContext,
     ) -> Result<Option<String>, ProviderError> {
+        Ok(self
+            .named_ref_object(owner, repo, namespace, name, context)
+            .await?
+            .map(|(sha, _)| sha))
+    }
+
+    /// The object `refs/{namespace}/{name}` points at, as its SHA and type;
+    /// `None` when it does not exist (a ref name keeps its `/`, one path
+    /// segment each).
+    async fn named_ref_object(
+        &self,
+        owner: &str,
+        repo: &str,
+        namespace: &str,
+        name: &str,
+        context: &RequestContext,
+    ) -> Result<Option<(String, String)>, ProviderError> {
         let mut segments = vec!["repos", owner, repo, "git", "ref", namespace];
         segments.extend(name.split('/'));
         let url = self.endpoint().rest(&segments)?;
@@ -209,10 +243,13 @@ impl GitHubTransport {
                     serde_json::from_slice(&response.body).map_err(|_| {
                         ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub ref response")
                     })?;
-                Ok(value
-                    .pointer("/object/sha")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned))
+                let field = |name: &str| {
+                    value
+                        .pointer(&format!("/object/{name}"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                };
+                Ok(field("sha").map(|sha| (sha, field("type").unwrap_or_default())))
             }
             Err(error) if error.status == Some(404) => Ok(None),
             Err(error) => Err(error),

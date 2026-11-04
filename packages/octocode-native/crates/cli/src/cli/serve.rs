@@ -81,6 +81,7 @@ pub(super) async fn call(
     _tool: &str,
     _input: &serde_json::Value,
     _mode: super::OutputMode,
+    _loaded: &mut Option<octocode_native::config::ConfigInput>,
 ) -> Option<u8> {
     None
 }

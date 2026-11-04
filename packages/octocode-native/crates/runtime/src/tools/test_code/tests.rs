@@ -1,5 +1,8 @@
 use super::*;
 use crate::tools::test_support::{Fixture, workspace_policy};
+use octocode_engine::types::TestCodeExcluded;
+
+mod mounts;
 
 fn index(root: &Fixture) -> TestCodeIndex {
     TestCodeIndex::new(&workspace_policy(&root.0))
@@ -98,4 +101,34 @@ fn a_listing_keeps_whole_entries_on_its_side() {
         TestCodeExcluded::default(),
         "a listing counts itself"
     );
+}
+
+/// The text check before a parent's parse starts on the line a gate can first
+/// touch, and is safe on any text.
+#[test]
+fn the_text_check_starts_where_a_gate_can_first_reach() {
+    let from = |content: &str| super::first_gated_byte(content);
+    assert_eq!(from("mod a;\nmod b;\n"), None);
+    assert_eq!(from("#[cfg(unix)]\nmod a;\n"), None);
+    assert_eq!(from("#[cfg_attr(test, allow(unused))]\nmod a;\n"), None);
+    assert_eq!(from("#[test]\nfn t() {}\n#[cfg(unix)]\nmod a;\n"), None);
+    assert_eq!(from("mod a;\n#[cfg(test)]\nmod b;\n"), Some(7));
+    assert_eq!(from("mod a; #[cfg(test)]\nmod b;\n"), Some(0));
+    assert_eq!(from("mod a;\n#[cfg(\ntest)]\nmod b;\n"), Some(14));
+    assert_eq!(from("#[cfg(unix)]\nmod a;\n#[cfg(test)]\n"), Some(20));
+    assert_eq!(from("mod a;\n#![cfg(test)]\n"), Some(0));
+    assert_eq!(from("mod a;\n#![ cfg (not(test))]\n"), Some(0));
+    for broken in [
+        "\"unterminated",
+        "/* open",
+        "'",
+        "'\\",
+        "r#\"open",
+        "é",
+        "écfg é test é",
+        "#![",
+        "#![é",
+    ] {
+        let _ = from(broken);
+    }
 }

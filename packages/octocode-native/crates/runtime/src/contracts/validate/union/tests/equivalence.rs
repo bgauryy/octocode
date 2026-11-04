@@ -274,7 +274,7 @@ fn fast_union_acceptance_matches_the_reference_on_current_output_envelopes() {
         rejected
     };
     let rejected: usize = std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..octocode_engine::search::cpu::host_cores())
+        let handles: Vec<_> = (0..octocode_engine::cpu::host_cores())
             .map(|_| scope.spawn(work))
             .collect();
         handles

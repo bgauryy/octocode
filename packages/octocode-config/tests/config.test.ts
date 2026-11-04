@@ -39,7 +39,6 @@ const CANONICAL = [
   // Home-only: a workspace .env must not redirect credentials, widen the
   // sandbox, or pick or download executables.
   'OCTOCODE_LSP_AUTO_INSTALL',
-  'OCTOCODE_LSP_CACHE_DIR',
   'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
   // Storage mode decides what persists on disk: home-trusted only.
   'OCTOCODE_STORAGE_MODE',
@@ -50,10 +49,23 @@ const CANONICAL = [
   'ALLOWED_PATHS',
   'WORKSPACE_ROOT',
   'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
-  'OCTOCODE_LSP_CONFIG',
   'OCTOCODE_CLASSIFICATION_API_HOST',
   // The OAuth app a login or refresh uses: a repository must not choose it.
   'OCTOCODE_GITHUB_CLIENT_ID',
+  // An API endpoint receives its key: a repository must not choose it.
+  'TAVILY_BASE_URL',
+  'EXA_BASE_URL',
+  'SERPER_BASE_URL',
+  // Each can read or redirect every request: process environment only.
+  'HTTPS_PROXY',
+  'HTTP_PROXY',
+  'ALL_PROXY',
+  'NO_PROXY',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'GIT_SSL_CAINFO',
+  'GIT_SSL_CAPATH',
+  'CURL_CA_BUNDLE',
   // A workspace may narrow, never widen: local tools off, redaction on.
   'OCTOCODE_ENABLE_LOCAL',
   'OCTOCODE_REDACT_EMAILS',
@@ -310,8 +322,8 @@ describe('DEFAULT_CONFIG', () => {
   });
 
   it('an optional path setting defaults to unset', () => {
-    expect(DEFAULT_CONFIG.lsp.cacheDir).toBeUndefined();
-    const field = CONFIG_FIELDS.find(field => field.path === 'lsp.cacheDir');
+    expect(DEFAULT_CONFIG.local.workspaceRoot).toBeUndefined();
+    const field = CONFIG_FIELDS.find(field => field.path === 'local.workspaceRoot');
     expect(field).toEqual(
       expect.objectContaining({ type: 'path', defaultValue: null })
     );

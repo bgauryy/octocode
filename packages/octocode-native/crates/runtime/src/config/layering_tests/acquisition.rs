@@ -84,15 +84,11 @@ fn acquisition_never_reads_the_global_file_twice_when_cwd_is_home() {
 fn home_relative_paths_expand_at_resolution() {
     use serde_json::json;
     let env = resolve(Layers {
-        global_env: Some(
-            "ALLOWED_PATHS=~/allowed,~\nWORKSPACE_ROOT=~/work\nOCTOCODE_LSP_CACHE_DIR=~/lsp\nOCTOCODE_LSP_CONFIG=~/servers.json",
-        ),
+        global_env: Some("ALLOWED_PATHS=~/allowed,~\nWORKSPACE_ROOT=~/work"),
         ..NONE
     });
     let file = resolve(Layers {
-        global_rc: Some(
-            r#"{"local":{"allowedPaths":["~/allowed","~"],"workspaceRoot":"~/work"},"lsp":{"cacheDir":"~/lsp","configPath":"~/servers.json"}}"#,
-        ),
+        global_rc: Some(r#"{"local":{"allowedPaths":["~/allowed","~"],"workspaceRoot":"~/work"}}"#),
         ..NONE
     });
     for out in [&env, &file] {
@@ -104,31 +100,40 @@ fn home_relative_paths_expand_at_resolution() {
             value_of(out, "local.workspaceRoot"),
             json!("/synthetic/work")
         );
-        assert_eq!(value_of(out, "lsp.cacheDir"), json!("/synthetic/lsp"));
-        assert_eq!(
-            value_of(out, "lsp.configPath"),
-            json!("/synthetic/servers.json")
-        );
         assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
     }
 }
 
-/// `lsp.configPath` follows the path rules: a relative value is reported and
+/// `local.workspaceRoot` follows the path rules: a relative value is reported and
 /// ignored instead of resolving against whatever the process cwd is.
 #[test]
-fn a_relative_lsp_config_path_is_rejected_with_a_diagnostic() {
+fn a_relative_path_setting_is_rejected_with_a_diagnostic() {
     let env = resolve(Layers {
-        global_env: Some("OCTOCODE_LSP_CONFIG=servers.json"),
+        global_env: Some("WORKSPACE_ROOT=servers"),
         ..NONE
     });
-    assert_eq!(value_of(&env, "lsp.configPath"), serde_json::Value::Null);
-    assert!(has_diagnostic(&env, "invalid_env_value", "lsp.configPath"));
+    assert_eq!(
+        value_of(&env, "local.workspaceRoot"),
+        serde_json::Value::Null
+    );
+    assert!(has_diagnostic(
+        &env,
+        "invalid_env_value",
+        "local.workspaceRoot"
+    ));
     let file = resolve(Layers {
-        global_rc: Some(r#"{"lsp":{"configPath":"servers.json"}}"#),
+        global_rc: Some(r#"{"local":{"workspaceRoot":"servers"}}"#),
         ..NONE
     });
-    assert_eq!(value_of(&file, "lsp.configPath"), serde_json::Value::Null);
-    assert!(has_diagnostic(&file, "invalid_config", "lsp.configPath"));
+    assert_eq!(
+        value_of(&file, "local.workspaceRoot"),
+        serde_json::Value::Null
+    );
+    assert!(has_diagnostic(
+        &file,
+        "invalid_config",
+        "local.workspaceRoot"
+    ));
 }
 
 /// When cwd is the OS home, `<cwd>/.octocode` is the Octocode home: its
@@ -140,7 +145,7 @@ fn acquisition_never_reads_the_home_dotenv_as_a_workspace_layer() {
     fs::create_dir_all(os_home.join(".octocode")).expect("home");
     fs::write(
         os_home.join(".octocode/.env"),
-        "GH_TOKEN=synthetic-home-token\nOCTOCODE_LSP_CACHE_DIR=/home-lsp\n",
+        "GH_TOKEN=synthetic-home-token\nOCTOCODE_LSP_PREWARM=off\n",
     )
     .expect("env");
     let i = acquire(&[], os_home.clone(), os_home);
@@ -150,7 +155,7 @@ fn acquisition_never_reads_the_home_dotenv_as_a_workspace_layer() {
         out.dotenv.sources.get("GH_TOKEN").map(String::as_str),
         Some("global")
     );
-    assert_eq!(out.env_value("OCTOCODE_LSP_CACHE_DIR"), Some("/home-lsp"));
+    assert_eq!(out.env_value("OCTOCODE_LSP_PREWARM"), Some("off"));
     assert!(out.credential_env().contains_key("GH_TOKEN"));
     assert!(!inspector_data(&i, &out).project_env_exists);
 }

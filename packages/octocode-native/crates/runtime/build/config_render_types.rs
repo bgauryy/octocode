@@ -1,4 +1,4 @@
-use super::super::{bool_value, invalid, object, rust_enum_variant, rust_ident};
+use super::super::{invalid, object, rust_enum_variant, rust_ident};
 use super::{
     Field, default_literal, direct_children, enum_type_name, enum_values, field_type,
     rust_field_type, rust_type_name,
@@ -96,9 +96,6 @@ pub(super) fn render_structs(
     let mut rendered = BTreeMap::<String, Vec<Member>>::new();
     for (section_path, section_value) in sections {
         let section = object(section_value, &format!("sections.{section_path}"))?;
-        if !bool_value(section.get("resolved"), false, "section.resolved")? {
-            continue;
-        }
         let type_name = if section_path.is_empty() {
             "ResolvedConfig".to_owned()
         } else {
@@ -122,18 +119,16 @@ pub(super) fn render_structs(
                     .ok_or_else(|| invalid(format!("missing section {child_path}")))?,
                 &format!("sections.{child_path}"),
             )?;
-            if bool_value(child.get("resolved"), false, "section.resolved")? {
-                let key = child_path
-                    .rsplit('.')
-                    .next()
-                    .ok_or_else(|| invalid(format!("invalid child section {child_path}")))?;
-                let child_type = rust_type_name(&child_path, child)?;
-                members.push((
-                    rust_ident(key),
-                    child_type.clone(),
-                    format!("{child_type}::default()"),
-                ));
-            }
+            let key = child_path
+                .rsplit('.')
+                .next()
+                .ok_or_else(|| invalid(format!("invalid child section {child_path}")))?;
+            let child_type = rust_type_name(&child_path, child)?;
+            members.push((
+                rust_ident(key),
+                child_type.clone(),
+                format!("{child_type}::default()"),
+            ));
         }
         if let Some(existing) = rendered.get(&type_name) {
             if existing != &members {

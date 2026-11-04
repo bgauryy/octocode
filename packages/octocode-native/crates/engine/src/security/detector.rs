@@ -9,48 +9,16 @@ mod credential_values;
 use credential_values::is_identifier_name;
 use credential_values::{KEEPS_NON_CREDENTIAL_VALUES, assigns_a_credential};
 
-/// Lazily-compiled per-pattern Regex instances (compile on first use per index).
-/// Sized from `PATTERNS.len()` — never a hardcoded count — so the cell table
-/// can never be shorter than the pattern set it indexes.
-static PATTERN_REGEX_CELLS: LazyLock<Vec<OnceLock<Regex>>> =
-    LazyLock::new(|| (0..PATTERNS.len()).map(|_| OnceLock::new()).collect());
+mod regex_forms;
 
-/// Rewrite Unicode `\b` to ASCII `(?-u:\b)`. A Unicode word boundary makes the
-/// regex crate abandon its fast DFA on any non-ASCII haystack (12–20× slower on
-/// multi-MB files). The ASCII boundary also fires next to non-ASCII letters, so
-/// it only widens redaction around the ASCII token shapes these patterns match.
-fn ascii_word_boundaries(pattern: &str) -> String {
-    let mut out = String::with_capacity(pattern.len() + 16);
-    let mut chars = pattern.chars();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
-            continue;
-        }
-        match chars.next() {
-            Some('b') => out.push_str("(?-u:\\b)"),
-            Some(escaped) => {
-                out.push('\\');
-                out.push(escaped);
-            }
-            None => out.push('\\'),
-        }
-    }
-    out
-}
+mod file_context;
 
-/// Get (compiling at most once) the Regex for pattern `idx`.
-fn pattern_regex(idx: usize) -> &'static Regex {
-    // Built-in pattern strings are constants validated by the pattern tests; a
-    // compile failure is a build-time bug, not a runtime condition.
-    #[expect(
-        clippy::expect_used,
-        reason = "built-in patterns are valid by construction"
-    )]
-    PATTERN_REGEX_CELLS[idx].get_or_init(|| {
-        Regex::new(&ascii_word_boundaries(PATTERNS[idx].regex)).expect(PATTERNS[idx].name)
-    })
-}
+use file_context::BARE_SHAPE;
+pub use file_context::WholeSourcePatterns;
+
+use regex_forms::pattern_regex_for;
+#[cfg(test)]
+use regex_forms::{ascii_word_boundaries, pattern_regex};
 
 /// Hard cap on content handed to the detector. Content above this is redacted
 /// wholesale rather than scanned, bounding worst-case memory/time.
@@ -171,6 +139,10 @@ impl PatternSet {
         self.0.iter().all(|word| *word == 0)
     }
 
+    fn intersects(self, other: Self) -> bool {
+        self.0.iter().zip(other.0).any(|(a, b)| a & b != 0)
+    }
+
     /// The members, in canonical pattern order.
     fn iter(self) -> impl Iterator<Item = usize> {
         self.0.into_iter().enumerate().flat_map(|(at, word)| {
@@ -221,7 +193,8 @@ fn applicable_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
 }
 
 fn matching_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
-    applicable_patterns(content, scope).filter(|idx| pattern_regex(idx).is_match(content))
+    applicable_patterns(content, scope)
+        .filter(|idx| pattern_regex_for(idx, content).is_match(content))
 }
 
 /// A redacted multiline match still occupies its source lines. File reads
@@ -248,6 +221,10 @@ fn replace_secrets(
                 .map(|_| index)
         })
         .collect();
+    // Matches come in order, so only the text since the last one can hold a
+    // later line start: searching back to the start of the text from each
+    // match costs quadratic time on one long line.
+    let (mut line_start, mut searched_to) = (0, 0);
     regex
         .replace_all(content, |captures: &regex::Captures<'_>| {
             let Some(whole) = captures.get(0) else {
@@ -257,7 +234,10 @@ fn replace_secrets(
                 .iter()
                 .find_map(|&index| captures.get(index))
                 .unwrap_or(whole);
-            let line_start = content[..whole.start()].rfind('\n').map_or(0, |at| at + 1);
+            if let Some(at) = content[searched_to..whole.start()].rfind('\n') {
+                line_start = searched_to + at + 1;
+            }
+            searched_to = whole.start();
             if !redacts(&content[line_start..secret.start()], secret.as_str()) {
                 return whole.as_str().to_owned();
             }
@@ -287,6 +267,7 @@ const SECRET_GROUP: &str = "secret";
 ///   `file_path`                            → never apply.
 /// - No `file_context` on the pattern       → always apply.
 /// - Has `file_context`, `file_path` given  → apply only when the path matches.
+/// - Has `file_context`, stored text        → see [`Scope::Stored`].
 /// - Has `file_context`, no `file_path`     → the global output net (tool
 ///   results, error/metadata strings) has no path, so fall back to matching the
 ///   file-context anchor against the CONTENT itself. This re-enables
@@ -296,7 +277,10 @@ const SECRET_GROUP: &str = "secret";
 ///   that keyword context is present — a bare UUID/SHA never triggers them, so
 ///   the global net does not reintroduce mass false positives. Strict
 ///   filename-glob anchors (e.g. `\.ya?ml$`, `docker-compose\.ya?ml$`) do not
-///   match arbitrary content, so those remain effectively path-gated.
+///   match arbitrary content, so those remain effectively path-gated. A leaf
+///   about a file also applies what that file's path gates, as its read does,
+///   except a bare shape ([`BARE_SHAPE`]): a leaf may be a field beside the
+///   file's text rather than the text.
 fn should_apply(idx: usize, scope: Scope<'_>, content: &str) -> bool {
     if SKIPS_SOURCE_CODE[idx] && scope.source_path().is_some_and(is_source_code_path) {
         return false;
@@ -305,7 +289,13 @@ fn should_apply(idx: usize, scope: Scope<'_>, content: &str) -> bool {
         None => true,
         Some(re) => match scope {
             Scope::File(path) => re.is_match(path),
-            Scope::Pathless | Scope::Leaf(_) => re.is_match(content),
+            Scope::Pathless => re.is_match(content),
+            Scope::Leaf(path) => re.is_match(content) || (!BARE_SHAPE[idx] && re.is_match(path)),
+            Scope::Stored(path) => {
+                !BARE_SHAPE[idx]
+                    || re.is_match(content)
+                    || path.is_some_and(|path| re.is_match(path))
+            }
         },
     }
 }
@@ -323,6 +313,11 @@ pub(crate) enum Scope<'a> {
     /// the text is in; file-context patterns stay content-gated exactly as
     /// in the pathless net, so the net is never weaker than without a path.
     Leaf(&'a str),
+    /// The text is about to be kept, and the read that will show it may name
+    /// any file (`path`, when known, is only the best guess): every file-context
+    /// pattern applies, so nothing a read would redact is kept. A bare shape
+    /// still needs its context named here, or every commit SHA would count.
+    Stored(Option<&'a str>),
 }
 
 impl<'a> Scope<'a> {
@@ -330,6 +325,7 @@ impl<'a> Scope<'a> {
         match self {
             Scope::Pathless => None,
             Scope::File(path) | Scope::Leaf(path) => Some(path),
+            Scope::Stored(path) => path,
         }
     }
 }
@@ -360,7 +356,7 @@ pub(crate) fn redact(content: &str, scope: Scope<'_>) -> Option<DetectResult> {
         let current = sanitized.as_deref().unwrap_or(content);
         let keeps_values = KEEPS_NON_CREDENTIAL_VALUES[idx];
         let result = replace_secrets(
-            pattern_regex(idx),
+            pattern_regex_for(idx, current),
             current,
             replacement_for(idx),
             |key, secret| !keeps_values || assigns_a_credential(key, secret),

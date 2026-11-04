@@ -1,7 +1,13 @@
-//! File freshness proof: a source's size and change times, and the settle
-//! window after which they can stand in for its bytes.
+//! File freshness proof: a source's size and change times, the settle
+//! window after which they can stand in for its bytes, and the one [`Proof`]
+//! that what a kept result read has not changed.
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+mod proof;
+#[cfg(any(test, feature = "test-hooks"))]
+pub use proof::stamp_stats;
+pub use proof::{Link, Proof, cache_stamp, exists};
 
 /// A source file's size and change times when its content was hashed. A
 /// later read compares these before hashing again; equal stamps prove the

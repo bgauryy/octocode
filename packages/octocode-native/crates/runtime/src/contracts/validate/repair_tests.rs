@@ -45,24 +45,14 @@ fn every_misuse_shape_gets_a_one_line_repair() {
             "queries.0.matchString: Expected a JSON array; send the JSON value itself, not a string holding it",
         ),
         (
-            "localSearch",
-            json!({"path":".","matchString":["x"]}),
-            r#"matchString, path are query fields: send {"queries":[{…}]}, one object per query."#,
-        ),
-        (
             "localFetch",
             json!({"query":{"path":"README.md"}}),
             r#"Unknown request field 'query': fresh calls send {"queries":[...]}; continuations send {"cursor":"..."} alone."#,
         ),
         (
             "localFetch",
-            json!({"queries":{"path":"README.md"}}),
-            r#"queries: queries must be an array of query objects; send "queries":[{…}], not "queries":{…}"#,
-        ),
-        (
-            "localFetch",
-            json!({"queries":"[{\"path\":\"README.md\"}]"}),
-            "queries: queries must be an array of query objects; send the JSON value itself, not a string holding it",
+            json!({"queries":5}),
+            r#"queries: queries must be an array of query objects; send "queries":[{…}], not "queries":5"#,
         ),
         (
             "localSearch",

@@ -39,6 +39,7 @@ mod cycles;
 mod dead_code;
 mod deps;
 mod hubs;
+mod mention_tokens;
 mod mentions;
 mod primitives;
 mod reach;
@@ -50,6 +51,7 @@ use cycles::*;
 use dead_code::*;
 use deps::*;
 use hubs::*;
+use mention_tokens::*;
 use mentions::*;
 pub(super) use primitives::tarjan;
 use primitives::*;
@@ -264,5 +266,7 @@ pub(crate) fn run(
     })
 }
 
+#[cfg(test)]
+mod mention_tests;
 #[cfg(test)]
 mod tests;

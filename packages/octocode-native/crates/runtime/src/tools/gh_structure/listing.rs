@@ -288,28 +288,32 @@ pub(super) fn relative(path: &str, root: &str) -> String {
 pub(super) fn attach_continuations(
     value: &mut Value,
     query: &GhStructureQueryTree,
+    scope: &Scope,
     page: &ListingPage<'_>,
     retry_tree: bool,
-    materialize: bool,
     materialize_resume: Option<MaterializeResume>,
 ) -> Result<(), ProviderError> {
     let (current, has_more) = (page.current, page.has_more());
-    let materialize_resume = materialize_resume.or_else(|| {
-        (has_more && materialize).then_some(MaterializeResume {
-            page: current + 1,
-            offset: 0,
-        })
-    });
     if let Some(resume) = materialize_resume {
-        let mut next_query = query_row(query, &[]);
-        next_query["page"] = json!(resume.page);
+        let mut next_query = query_row(query, &["page"]);
         next_query["materialize"] = json!(true);
         next_query["materializeOffset"] = json!(resume.offset);
         value["calls"]["continueMaterialize"] = continuation(next_query);
         mark_materialize_partial(value);
-    } else if has_more && !materialize {
+    }
+    // The rest of the listing itself: reading it writes nothing more.
+    if has_more {
         let mut next_query = query_row(query, &[]);
         next_query["page"] = json!(current + 1);
+        if query.materialize == Some(true)
+            && let Some(row) = next_query.as_object_mut()
+        {
+            row.remove("materialize");
+            row.remove("materializeOffset");
+            // `materialize` chose this listing's depth when no `maxDepth` did:
+            // without it, the next page would cut a shallower listing.
+            row.insert("maxDepth".to_owned(), json!(scope.depth));
+        }
         value["calls"]["nextPage"] = continuation(next_query);
     }
     if retry_tree {

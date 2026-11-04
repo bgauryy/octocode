@@ -63,12 +63,11 @@ mod server_coverage;
 mod session;
 mod source;
 mod test_scope;
-mod trace;
 mod walk;
 mod words;
 
 pub use failure::LspFailure;
-use failure::{empty, failure, partial_with_related_rerun, with_next};
+use failure::{failure, partial_with_related_rerun, with_next};
 pub(crate) use output::Output;
 use page::*;
 use paths::*;
@@ -141,10 +140,7 @@ pub(crate) mod lsp_search_query;
 
 #[derive(Clone, Debug, Default)]
 pub struct LspExecutionConfig {
-    pub config_path: Option<String>,
     pub trust_project_config: bool,
-    /// Opt-in diagnostic timings, never part of a tool result.
-    pub trace: bool,
     /// Resolved `OCTOCODE_*` settings (process env and trusted `.env` layers).
     pub env: std::collections::BTreeMap<String, String>,
     pub octocode_home: Option<std::path::PathBuf>,
@@ -155,29 +151,15 @@ pub struct LspExecutionConfig {
 }
 
 impl LspExecutionConfig {
-    /// Engine discovery options for these settings; `config_path` is the
-    /// caller-authorized form of [`Self::config_path`].
+    /// Engine discovery options for these settings.
     #[must_use]
-    pub fn discovery(&self, config_path: Option<std::path::PathBuf>) -> LspDiscoveryOptions {
+    pub fn discovery(&self) -> LspDiscoveryOptions {
         LspDiscoveryOptions {
-            config_path,
             trust_project_config: self.trust_project_config,
             env: self.env.clone(),
             octocode_home: self.octocode_home.clone(),
             invocation_dir: self.invocation_dir.clone(),
         }
-    }
-
-    /// Discovery for the `lspSearch` leads other tools offer: the configured
-    /// server file counts only when the path policy authorizes reading it.
-    #[must_use]
-    pub fn lead_discovery(&self, paths: &PathPolicy) -> LspDiscoveryOptions {
-        let config_path = self
-            .config_path
-            .as_deref()
-            .and_then(|path| paths.validate_read(path).ok())
-            .map(|validated| validated.canonical);
-        self.discovery(config_path)
     }
 }
 
@@ -268,7 +250,7 @@ pub(crate) async fn execute(
             Ok(row)
         }),
     );
-    trace::run(execution_config.trace, Box::pin(work)).await
+    Box::pin(work).await
 }
 
 #[cfg(all(test, unix))]

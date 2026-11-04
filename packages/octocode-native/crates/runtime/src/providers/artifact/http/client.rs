@@ -3,8 +3,11 @@ use super::super::util::invalid;
 use super::super::{ArtifactError, ReleaseTags};
 use super::{ArtifactHttp, ArtifactHttpRequest, ArtifactHttpResponse, BodySink, DnsPin};
 use crate::providers::artifact::query::artifact_type;
+use crate::providers::saved_answers::ReusedSince;
 use octocode_contract_types::ArtifactType;
-use octocode_github::ProviderErrorKind;
+use octocode_github::{
+    Partition, ProviderAnswer, ProviderErrorKind, Reuse, SavedAnswer, SavedAnswers, worth_keeping,
+};
 use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use url::Url;
@@ -13,7 +16,13 @@ pub(crate) struct RegistryClient<'a> {
     pub http: &'a dyn ArtifactHttp,
     pub budget: &'a RequestBudget,
     pub tags: Option<&'a dyn ReleaseTags>,
+    /// Answers kept across calls, under the registry and exact credential.
+    pub answers: Option<&'a dyn SavedAnswers>,
+    pub reused: &'a ReusedSince,
 }
+
+#[cfg(test)]
+static NOT_REUSED: ReusedSince = ReusedSince::new();
 
 #[cfg(test)]
 impl<'a> RegistryClient<'a> {
@@ -22,6 +31,8 @@ impl<'a> RegistryClient<'a> {
             http,
             budget,
             tags: None,
+            answers: None,
+            reused: &NOT_REUSED,
         }
     }
 }
@@ -43,6 +54,7 @@ impl RegistryClient<'_> {
             accept,
             authorization,
             dns_pin,
+            validator: None,
         };
         self.read(artifact_type, request, not_found_is_empty, |bytes| {
             serde_json::from_slice(bytes).ok()
@@ -67,6 +79,7 @@ impl RegistryClient<'_> {
             accept,
             authorization,
             dns_pin,
+            validator: None,
         };
         self.read(artifact_type, request, not_found_is_empty, view)
             .await
@@ -83,6 +96,7 @@ impl RegistryClient<'_> {
             accept: "application/xml",
             authorization: None,
             dns_pin: None,
+            validator: None,
         };
         self.read(artifact_type, request, not_found_is_empty, |bytes| {
             std::str::from_utf8(bytes).ok().map(str::to_owned)
@@ -97,13 +111,101 @@ impl RegistryClient<'_> {
         not_found_is_empty: bool,
         decode: impl FnOnce(&[u8]) -> Option<T>,
     ) -> Result<Option<T>, ArtifactError> {
+        let kept = self.kept(&request);
+        let mut request = request;
+        if let Some(kept) = &kept {
+            match kept.reuse(false, None, now_millis()) {
+                Reuse::Pinned | Reuse::Fresh => {
+                    self.reused.record(kept.observed_ms);
+                    return decode(kept.answer.body.as_bytes())
+                        .map(Some)
+                        .ok_or_else(|| invalid(artifact_type));
+                }
+                Reuse::Ask(name, value) => request.validator = Some((name, value)),
+                Reuse::Spent => {}
+            }
+        }
+        let scope = request_scope(&request);
+        let identity = request_identity(&request);
         let response = self.http.get(request, self.budget).await?;
+        let status = response.status;
+        if status == 304
+            && let Some(mut kept) = kept
+        {
+            kept.confirm(&response.headers, now_millis());
+            let decoded = decode(kept.answer.body.as_bytes());
+            if let Some(store) = self.answers {
+                store.save(&scope, &identity, kept);
+            }
+            return decoded.map(Some).ok_or_else(|| invalid(artifact_type));
+        }
+        // Rate-limited: the last answer, disclosed, beats no answer.
+        if status == 429
+            && let Some(kept) = &kept
+        {
+            self.reused.record(kept.observed_ms);
+            return decode(kept.answer.body.as_bytes())
+                .map(Some)
+                .ok_or_else(|| invalid(artifact_type));
+        }
+        if matches!(status, 401 | 403 | 404 | 410 | 451)
+            && let Some(store) = self.answers
+        {
+            store.forget(&scope, &identity);
+        }
+        let headers = response.headers.clone();
         let Some(bytes) = response_body(artifact_type, response, not_found_is_empty)? else {
             return Ok(None);
         };
-        decode(&bytes)
-            .map(Some)
-            .ok_or_else(|| invalid(artifact_type))
+        let decoded = decode(&bytes).ok_or_else(|| invalid(artifact_type))?;
+        self.keep(status, &scope, identity, headers, bytes);
+        Ok(Some(decoded))
+    }
+
+    /// The answer kept for `request`, when a keeper is connected and its
+    /// body fits this call.
+    fn kept(&self, request: &ArtifactHttpRequest) -> Option<SavedAnswer> {
+        let saved = self
+            .answers?
+            .load(&request_scope(request), &request_identity(request))?;
+        (saved.answer.body.len() <= self.budget.max_body_bytes).then_some(saved)
+    }
+
+    /// Keep a decoded 200 when something can later vouch for it. A body that
+    /// is not text is never kept.
+    fn keep(
+        &self,
+        status: u16,
+        scope: &str,
+        identity: String,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    ) {
+        let Some(store) = self.answers else {
+            return;
+        };
+        if status != 200 || !worth_keeping(&headers, false, None) {
+            return;
+        }
+        let Ok(body) = String::from_utf8(body) else {
+            return;
+        };
+        store.save(
+            scope,
+            &identity,
+            SavedAnswer {
+                answer: ProviderAnswer {
+                    request: identity.clone(),
+                    status,
+                    headers,
+                    body,
+                    next: None,
+                    not_found: None,
+                },
+                observed_ms: now_millis(),
+                redirected: false,
+            },
+        );
     }
 
     /// Stream an archive until the selected entry is reached or the body ends.
@@ -118,14 +220,35 @@ impl RegistryClient<'_> {
             accept: "application/octet-stream",
             authorization: None,
             dns_pin: None,
+            validator: None,
         };
         let status = self.http.stream(request, self.budget, sink).await?;
         let response = ArtifactHttpResponse {
             status,
             body: Vec::new(),
+            headers: Vec::new(),
         };
         Ok(response_body(artifact_type, response, true)?.map(|_| ()))
     }
+}
+
+/// Answers of one registry origin and exact credential: never another's.
+fn request_scope(request: &ArtifactHttpRequest) -> String {
+    Partition::new(
+        request.url.origin().ascii_serialization(),
+        request.authorization.as_ref(),
+    )
+    .identity()
+    .to_owned()
+}
+
+/// The identity of a registry read: the URL and the media type asked for.
+fn request_identity(request: &ArtifactHttpRequest) -> String {
+    format!("GET {}\n{}", request.url, request.accept)
+}
+
+fn now_millis() -> u64 {
+    u64::try_from(crate::civil_date::unix_millis()).unwrap_or(0)
 }
 
 /// A registry response's body: `None` for a 404 when `not_found_is_empty`,

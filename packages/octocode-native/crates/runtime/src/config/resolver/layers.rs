@@ -194,21 +194,3 @@ impl EnvFiles<'_> {
             .collect()
     }
 }
-
-/// The overall source: an invalid file, else files and/or environment, else
-/// the generated defaults.
-pub(super) fn config_source(states: [LayerState; 2], has_env: bool) -> ConfigSource {
-    if states.contains(&LayerState::Invalid) {
-        ConfigSource::Invalid
-    } else if states.contains(&LayerState::Valid) {
-        if has_env {
-            ConfigSource::Mixed
-        } else {
-            ConfigSource::File
-        }
-    } else if has_env {
-        ConfigSource::Env
-    } else {
-        ConfigSource::Defaults
-    }
-}

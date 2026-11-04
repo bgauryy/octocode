@@ -20,6 +20,7 @@ use std::sync::Arc;
 mod collect;
 mod file_search;
 mod file_terms;
+mod listed;
 mod mode;
 mod pcre2;
 mod result;
@@ -28,6 +29,7 @@ mod state;
 mod visit;
 mod walk_rule;
 
+pub use listed::{count_listed, listable};
 pub(crate) use pcre2::{
     ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, PCRE2_DEADLINE_GRACE, PCRE2_SEARCH_DEADLINE,
     Pcre2WorkerSlot, pcre2_builder, release_worker_slot, try_acquire_worker_slot,
@@ -68,7 +70,7 @@ pub(crate) const DEFAULT_MAX_SEARCH_FILE_BYTES: u64 = 20 * 1024 * 1024;
 /// `file_search::SEARCH_HEAP_LIMIT_BYTES`, so large logs, dumps, and generated files stay
 /// searchable; only multiline search, which buffers the whole file, keeps the
 /// tighter [`DEFAULT_MAX_SEARCH_FILE_BYTES`].
-pub(crate) const DEFAULT_MAX_LINE_SEARCH_FILE_BYTES: u64 = 512 * 1024 * 1024;
+pub const DEFAULT_MAX_LINE_SEARCH_FILE_BYTES: u64 = 512 * 1024 * 1024;
 
 fn to_engine_err<E: std::fmt::Display>(e: E) -> Error {
     Error::new(e.to_string())
@@ -115,34 +117,8 @@ fn search_with_limits(
     }
 
     // ── Default Rust-regex path ─────────────────────────────────────────────────
-    let mut b = RegexMatcherBuilder::new();
-    b.case_insensitive(case_insensitive)
-        .case_smart(smart_case)
-        .word(whole_word)
-        // `^`/`$` always anchor at line boundaries; spanning lines is the
-        // searcher's choice (multiline mode).
-        .multi_line(true)
-        .dot_matches_new_line(dotall);
-    // Fast path: in line-oriented (non-multiline) search the
-    // searcher feeds one terminator-stripped line at a time. Declaring the line
-    // terminator lets grep-regex extract inner literals and cheaply skip lines
-    // that cannot match (its primary perf lever) and forbids a pattern from
-    // matching across `\n` (which the line-oriented sink could never surface
-    // anyway). Multiline matchers span lines and must NOT set it.
-    if !multiline {
-        // `$` also matches before `\r\n`, as on the PCRE2
-        // path: a Windows-edited file answers an end-anchored pattern. Set
-        // before the `\n` terminator, which the searcher feeds lines by.
-        b.crlf(true);
-        b.line_terminator(Some(b'\n'));
-    }
-    let spelled = |pattern: &str| {
-        if opts.syntax == PatternSyntax::Literal {
-            regex::escape(pattern)
-        } else {
-            pattern.to_owned()
-        }
-    };
+    let b = rust_matcher_builder(&opts);
+    let spelled = |pattern: &str| rust_spelling(&opts, pattern);
     let matcher = b.build(&spelled(&opts.pattern)).map_err(to_engine_err)?;
     let terms = mode::term_matchers(&opts, mode, |term| {
         b.build(&spelled(term)).map_err(to_engine_err)
@@ -163,6 +139,42 @@ fn search_with_limits(
         },
     )?;
     Ok(build_result(&opts, mode, state.snapshot()))
+}
+
+/// The builder of every Rust-regex matcher a search of `opts` runs.
+fn rust_matcher_builder(opts: &TextSearchOptions) -> RegexMatcherBuilder {
+    let multiline = opts.multiline.unwrap_or(false);
+    let mut b = RegexMatcherBuilder::new();
+    b.case_insensitive(opts.case == CaseRule::Insensitive)
+        .case_smart(opts.case == CaseRule::Smart)
+        .word(opts.whole_word.unwrap_or(false))
+        // `^`/`$` always anchor at line boundaries; spanning lines is the
+        // searcher's choice (multiline mode).
+        .multi_line(true)
+        .dot_matches_new_line(multiline && opts.multiline_dotall.unwrap_or(false));
+    // Fast path: in line-oriented (non-multiline) search the
+    // searcher feeds one terminator-stripped line at a time. Declaring the line
+    // terminator lets grep-regex extract inner literals and cheaply skip lines
+    // that cannot match (its primary perf lever) and forbids a pattern from
+    // matching across `\n` (which the line-oriented sink could never surface
+    // anyway). Multiline matchers span lines and must NOT set it.
+    if !multiline {
+        // `$` also matches before `\r\n`, as on the PCRE2
+        // path: a Windows-edited file answers an end-anchored pattern. Set
+        // before the `\n` terminator, which the searcher feeds lines by.
+        b.crlf(true);
+        b.line_terminator(Some(b'\n'));
+    }
+    b
+}
+
+/// `pattern` as the Rust regex engine reads it: a literal is escaped.
+fn rust_spelling(opts: &TextSearchOptions, pattern: &str) -> String {
+    if opts.syntax == PatternSyntax::Literal {
+        regex::escape(pattern)
+    } else {
+        pattern.to_owned()
+    }
 }
 
 #[cfg(test)]

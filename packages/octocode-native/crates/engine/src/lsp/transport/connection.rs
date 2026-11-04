@@ -126,6 +126,11 @@ impl JsonRpcConnection {
         }
     }
 
+    /// Cumulative CPU time of the server's process tree; `None` when unreadable.
+    pub(crate) fn server_cpu_time(&self) -> Option<tokio::time::Duration> {
+        self.shared.activity.cpu_time()
+    }
+
     /// `false` once the connection has failed (server exited, framing fault,
     /// broken write, or consecutive request timeouts retired it).
     pub(crate) fn is_alive(&self) -> bool {

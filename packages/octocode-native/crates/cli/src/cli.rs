@@ -109,6 +109,14 @@ fn stdout_is_terminal() -> bool {
     io::stdout().is_terminal()
 }
 
+/// Whether a person is at this terminal and can see a window opened from it.
+fn interactive_session() -> bool {
+    use std::io::IsTerminal;
+    stdout_is_terminal()
+        && io::stdin().is_terminal()
+        && config_view::can_show_window(|name| std::env::var_os(name))
+}
+
 pub async fn run(args: Args) -> u8 {
     let Args { command, json } = args;
     let mode = command.output_mode(json);
@@ -123,6 +131,13 @@ pub async fn run(args: Args) -> u8 {
             ..
         } => {
             return config_view::run(no_open, idle_timeout, json_out).await;
+        }
+        Command::Config {
+            command: None,
+            manage: false,
+            ..
+        } if !json_out && interactive_session() => {
+            return config_view::run(false, commands::VIEW_IDLE_SECONDS, false).await;
         }
         Command::Serve { socket } => return serve::run(&socket).await,
         Command::Mcp => mcp_server::run().await,
@@ -202,18 +217,15 @@ async fn dispatch(command: Command, runtime: &ToolRuntime, mode: OutputMode) -> 
             }
             match command {
                 Some(ConfigCommand::Home) => config::home(runtime, json_out),
-                Some(ConfigCommand::Get { key }) => {
-                    config::get(runtime, config::env_key(&key), json_out)
-                }
+                Some(ConfigCommand::List) => config::list(runtime, json_out),
+                Some(ConfigCommand::Get { key }) => config::get(runtime, &key, json_out),
                 Some(ConfigCommand::Set { key, value, stdin }) => {
                     config::set(runtime, config::env_key(&key), value, stdin, json_out)
                 }
                 Some(ConfigCommand::Unset { key }) => {
                     config::unset(runtime, config::env_key(&key), json_out)
                 }
-                Some(ConfigCommand::Check { key }) => {
-                    config::check(runtime, config::env_key(&key), json_out).await
-                }
+                Some(ConfigCommand::Check { key }) => config::check(runtime, &key, json_out).await,
                 // `config view` returns from `run` before the runtime starts.
                 Some(ConfigCommand::View { .. }) | None => config::show(runtime, json_out),
             }
@@ -277,15 +289,20 @@ async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u8 {
             return 2;
         }
     };
+    let mut loaded = None;
     if ToolId::from_name(tool.name).is_some_and(serve::runs_on_server)
-        && let Some(code) = serve::call(tool.name, &input, mode).await
+        && let Some(code) = serve::call(tool.name, &input, mode, &mut loaded).await
     {
         return code;
     }
     // Progress (a build's stages, a rate-limit wait) goes to stderr; stdout
     // keeps only the result.
     octocode_io::notice::report_progress_to(|line| eprintln!("{line}"));
-    let runtime = match ToolRuntime::from_host(cli_host()) {
+    let host = HostOptions {
+        loaded,
+        ..cli_host()
+    };
+    let runtime = match ToolRuntime::from_host(host) {
         Ok(runtime) => runtime,
         Err(error) => return start_failed(&error, mode),
     };

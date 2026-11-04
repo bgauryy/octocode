@@ -18,10 +18,10 @@ pub fn manage(
         .parent()
         .ok_or("Workspace configuration directory is unavailable.")?;
     if operation == "inspect" {
-        return Ok(enrich_settings(inspect_management(
+        return Ok(enrich_settings(
+            inspect_management(runtime.config(), workspace),
             runtime.config(),
-            workspace,
-        )));
+        ));
     }
     let scope = request
         .get("scope")
@@ -83,8 +83,63 @@ pub fn manage(
 
 /// The generated native contract is the one metadata source for the browser
 /// editor.  This replaces the former Node-side join with `CONFIG_FIELDS`.
-pub(super) fn enrich_settings(mut view: serde_json::Value) -> serde_json::Value {
-    use octocode_native::config::{CONFIG_FIELDS, ConfigFieldKind};
+pub(super) fn enrich_settings(
+    mut view: serde_json::Value,
+    config: &octocode_native::config::ConfigOutput,
+) -> serde_json::Value {
+    use octocode_native::config::{
+        CONFIG_FIELDS, ConfigFieldKind, HOME_TRUSTED_ENV_KEYS, KNOWN_ENV, PROTECTED_KEYS,
+        known_env_report, setting_report,
+    };
+    // Only what the page offers: entries that belong to a provider group.
+    // Every key and environment variable, with where its value comes from now:
+    // a value set in the shell is not in any file the page reads.
+    let policy = |name: &str| {
+        if !PROTECTED_KEYS.contains(&name) {
+            "any"
+        } else if HOME_TRUSTED_ENV_KEYS.contains(&name) {
+            "home"
+        } else {
+            "process"
+        }
+    };
+    let credential_settings = CONFIG_FIELDS
+        .iter()
+        .filter(|field| field.credential && field.group.is_some())
+        .filter_map(|field| {
+            let name = field.env_name()?;
+            let report = setting_report(config, field);
+            Some(json!({
+                "key": name,
+                "kind": "key",
+                "description": field.description,
+                "default": field.default_value(),
+                "group": field.group,
+                "docsUrl": field.docs_url,
+                "credential": true,
+                "writableFrom": policy(name),
+                "set": report.set,
+                "source": report.source,
+                "value": report.value,
+            }))
+        });
+    let environment_entries = KNOWN_ENV.iter().map(|known| {
+        let report = known_env_report(config, known);
+        json!({
+            "key": known.name,
+            "kind": known.kind,
+            "description": known.description,
+            "default": known.default,
+            "group": known.group,
+            "docsUrl": known.docs_url,
+            "credential": known.credential,
+            "writableFrom": policy(known.name),
+            "set": report.set,
+            "source": report.source,
+            "value": report.value,
+        })
+    });
+    view["knownKeys"] = environment_entries.chain(credential_settings).collect();
     let Some(settings) = view
         .get_mut("settings")
         .and_then(serde_json::Value::as_array_mut)
@@ -108,6 +163,13 @@ pub(super) fn enrich_settings(mut view: serde_json::Value) -> serde_json::Value 
         };
         setting["type"] = json!(kind);
         setting["credential"] = json!(field.credential);
+        setting["displayDefault"] = field.default_value();
+        setting["description"] = json!(field.description);
+        setting["notes"] = json!(field.notes);
+        setting["sectionTitle"] = json!(field.section_title);
+        setting["group"] = json!(field.group);
+        setting["docsUrl"] = json!(field.docs_url);
+        setting["env"] = json!(field.env_name());
         if let Ok(default) = serde_json::from_str(field.default_json) {
             setting["defaultValue"] = default;
         }

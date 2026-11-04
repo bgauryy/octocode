@@ -98,31 +98,6 @@ fn exclude_globs_drop_files_with_or_without_a_leading_bang() {
 }
 
 #[test]
-fn exclude_dir_prunes_directory() {
-    let t = TmpDir::new();
-    t.write("keep/a.txt", "target\n");
-    t.write("skip/b.txt", "target\n");
-    let mut o = opts(t.path(), "target");
-    o.exclude_dir = Some(vec!["skip".to_owned()]);
-    let r = search(o).expect("ok");
-    assert_eq!(r.files.len(), 1);
-    assert!(r.files[0].path.contains("keep"));
-    // A pruned directory is disclosed, root-relative: absence there is unproven.
-    assert_eq!(r.stats.pruned_dirs, Some(vec!["skip".to_owned()]));
-}
-
-#[test]
-fn the_search_root_itself_is_never_pruned() {
-    let t = TmpDir::new();
-    t.write("build/a.txt", "target\n");
-    let mut o = opts(format!("{}/build", t.path()), "target");
-    o.exclude_dir = Some(vec!["build".to_owned()]);
-    let r = search(o).expect("ok");
-    assert_eq!(r.files.len(), 1);
-    assert_eq!(r.stats.pruned_dirs, None);
-}
-
-#[test]
 fn respects_gitignore_by_default_and_no_ignore_overrides() {
     let t = TmpDir::new();
     // The `ignore` crate only applies .gitignore inside a git repo

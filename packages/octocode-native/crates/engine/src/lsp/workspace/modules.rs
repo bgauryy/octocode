@@ -16,6 +16,25 @@ struct Source {
 pub(super) struct ModuleSources(Vec<Source>);
 
 impl ModuleSources {
+    /// About how many bytes these sources hold.
+    pub(super) fn weight(&self) -> usize {
+        let path = |path: &Path| path.as_os_str().len() + std::mem::size_of::<PathBuf>();
+        self.0
+            .iter()
+            .map(|source| {
+                path(&source.path)
+                    + source
+                        .declarations
+                        .iter()
+                        .map(|declaration| match declaration {
+                            Declaration::Named(name) => name.len() + std::mem::size_of::<String>(),
+                            Declaration::Path(declared) => path(declared),
+                        })
+                        .sum::<usize>()
+            })
+            .sum()
+    }
+
     pub(super) fn push(&mut self, path: &Path, text: &str) {
         let mut declarations = Vec::new();
         let mut attribute_path = None;

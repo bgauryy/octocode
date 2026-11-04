@@ -61,9 +61,8 @@ async fn crate_vcs_info_is_read_for_each_lookup() {
     )])]);
     let budget = crate::providers::artifact::test_http::test_budget();
     let client = RegistryClient {
-        http: &http,
-        budget: &budget,
         tags: None,
+        ..RegistryClient::new(&http, &budget)
     };
     let expected = Some((
         "b6a77c4413f902523646be0d7f5520631df53ff6".to_owned(),

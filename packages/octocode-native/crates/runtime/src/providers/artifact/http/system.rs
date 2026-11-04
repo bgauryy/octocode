@@ -2,7 +2,7 @@
 use super::super::ArtifactError;
 use super::{
     ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse, BodySink, DnsPin,
-    StatusFuture,
+    FRESHNESS_HEADERS, StatusFuture,
 };
 use crate::providers::RuntimeClients;
 use octocode_contract_types::ErrorCode;
@@ -117,6 +117,9 @@ impl SystemArtifactHttp {
                     })?;
                 builder = builder.header(AUTHORIZATION, header);
             }
+            if let Some((name, value)) = request.validator.as_ref() {
+                builder = builder.header(name, value);
+            }
             let response = match budget.wait(builder.send()).await.map_err(budget_error)? {
                 Ok(response) => response,
                 Err(error) => {
@@ -140,7 +143,10 @@ impl SystemArtifactHttp {
                 pause(delay, budget).await?;
                 continue;
             }
-            if class == StatusClass::Redirect {
+            // A 304 answers the validator this request asked with.
+            let confirmed =
+                status == reqwest::StatusCode::NOT_MODIFIED && request.validator.is_some();
+            if class == StatusClass::Redirect && !confirmed {
                 return Err(ArtifactError::new(
                     ErrorCode::ProviderError,
                     "Artifact registry redirects are not followed.",
@@ -168,6 +174,13 @@ impl ArtifactHttp for SystemArtifactHttp {
             loop {
                 let (response, attempt) = self.send(&client, &request, budget, first).await?;
                 let status = response.status().as_u16();
+                let headers = FRESHNESS_HEADERS
+                    .into_iter()
+                    .filter_map(|name| {
+                        let value = response.headers().get(name)?.to_str().ok()?;
+                        Some((name.to_owned(), value.to_owned()))
+                    })
+                    .collect();
                 match octocode_io::retry::read_bounded(response, budget, budget.max_body_bytes)
                     .await
                 {
@@ -175,10 +188,12 @@ impl ArtifactHttp for SystemArtifactHttp {
                         return Ok(ArtifactHttpResponse {
                             status,
                             body: body.into(),
+                            headers,
                         });
                     }
                     Err(BodyError::Stopped(stop)) => return Err(budget_error(stop)),
                     Err(BodyError::TooLarge) => return Err(body_too_large()),
+                    Err(BodyError::Decode) => return Err(body_undecodable()),
                     // A registry read is an idempotent GET: a body that
                     // breaks off is retried like a failed connection.
                     Err(BodyError::Transport) => {
@@ -240,6 +255,13 @@ fn body_too_large() -> ArtifactError {
     )
 }
 
+fn body_undecodable() -> ArtifactError {
+    ArtifactError::new(
+        ErrorCode::ProviderError,
+        "Artifact registry response body does not decode as its Content-Encoding says.",
+    )
+}
+
 /// The most of an error body read before a retry. Reading a short body to
 /// its end hands the connection back to the pool; a longer one is dropped
 /// with its connection.
@@ -249,7 +271,7 @@ pub(super) const MAX_DRAIN_BYTES: usize = 64 * 1024;
 async fn drain(response: reqwest::Response, budget: &RequestBudget) -> Result<(), ArtifactError> {
     match octocode_io::retry::read_bounded(response, budget, MAX_DRAIN_BYTES).await {
         Err(BodyError::Stopped(stop)) => Err(budget_error(stop)),
-        Ok(_) | Err(BodyError::TooLarge | BodyError::Transport) => Ok(()),
+        Ok(_) | Err(BodyError::TooLarge | BodyError::Transport | BodyError::Decode) => Ok(()),
     }
 }
 

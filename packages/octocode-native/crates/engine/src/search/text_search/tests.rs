@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 mod coverage;
 mod digests;
 mod limits;
+mod listed;
 mod matching;
 mod multiline;
 mod ordering;

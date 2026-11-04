@@ -1,18 +1,28 @@
 //! Compiling pattern text into the node a pattern matches, per grammar.
 
-use tree_sitter::Node;
+use tree_sitter::{Language, Tree};
 
-use crate::structural::kinds::named_kind_id;
-use crate::structural::language::{AgLanguage, Expando, WRAP_MARKER, wrap_in_function_body};
-use crate::structural::octo::error::CompileError;
-use crate::structural::octo::matching::{
-    CandidatePlan, children, named_children, node_text, parse_tree,
+use crate::structural::kinds::{named_kind_id, near_kinds};
+use crate::structural::language::{
+    AgLanguage, WRAP_MARKER, wrap_in_class_body, wrap_in_function_body,
 };
+use crate::structural::octo::error::CompileError;
+use crate::structural::octo::matching::{CandidatePlan, children, node_text, parse_tree};
 use crate::structural::octo::metavars::{
     ambiguous_function_body_captures, key_value_pair_capture, meta_from_node, tag_name_capture,
+    terminate_block_captures,
 };
 
+use super::unsaid::declares;
 use super::{CompiledPattern, JSX_TAG_KINDS, SpecialPattern};
+
+mod root;
+
+pub(super) use root::effective_pattern_root;
+use root::{
+    errors_beyond_captures, is_pattern_wrapper, is_wrap_marker_function, longer_forms,
+    parse_errors, stray_error, top_level_nodes, unparsed_pattern_message,
+};
 
 /// Pattern text with metavariables substituted for the selected grammar.
 #[derive(Clone)]
@@ -58,42 +68,10 @@ impl CompiledPattern {
         lang: &AgLanguage,
         pattern: &str,
     ) -> Result<Self, CompileError> {
-        // Special shapes are gated on the grammar actually having the target
-        // node kinds; elsewhere the text compiles as an ordinary pattern.
+        if let Some(special) = Self::special(lang, pattern) {
+            return Ok(special);
+        }
         let language = lang.tree_sitter_language();
-        if let Some(capture) = tag_name_capture(pattern)
-            && named_kind_id(&language, "jsx_opening_element").is_some()
-        {
-            return Ok(Self {
-                language,
-                expando: lang.expando(),
-                source: pattern.to_owned(),
-                tree: None,
-                selected_node: None,
-                special: Some(SpecialPattern::JsxTagName {
-                    capture: capture.to_owned(),
-                }),
-                candidate_plan: CandidatePlan::from_kinds(JSX_TAG_KINDS.map(str::to_owned)),
-            });
-        }
-
-        if let Some((key_capture, value_capture)) = key_value_pair_capture(pattern)
-            && named_kind_id(&language, "pair").is_some()
-        {
-            return Ok(Self {
-                language,
-                expando: lang.expando(),
-                source: pattern.to_owned(),
-                tree: None,
-                selected_node: None,
-                special: Some(SpecialPattern::KeyValuePair {
-                    key_capture: key_capture.to_owned(),
-                    value_capture: value_capture.to_owned(),
-                }),
-                candidate_plan: CandidatePlan::from_kind("pair"),
-            });
-        }
-
         if pattern.len() > 64_000 {
             return Err(CompileError::grammar(
                 "structural pattern exceeds 64000 byte limit",
@@ -101,33 +79,8 @@ impl CompiledPattern {
         }
         let mut text = PatternText::new(lang, pattern);
         let mut tree = parse_tree(&language, &text.source)?;
-        // The C# class wrap gives member patterns (methods, properties) real
-        // body context, but an expression or statement (`Helper($A)`,
-        // `Log($A);`) is not a class member and fails there. Fall back to the
-        // plain snippet, whose top-level `global_statement` wrapper
-        // `effective_pattern_root` unwraps.
         if lang.class_wraps() {
-            let mut plain = PatternText::plain(lang, pattern);
-            let mut plain_tree = parse_tree(&language, &plain.source)?;
-            if !plain.is_terminated() {
-                // A bare call needs a terminator to be a statement.
-                let terminated = plain.terminated();
-                let terminated_tree = parse_tree(&language, &terminated.source)?;
-                if !effective_pattern_root(terminated_tree.root_node(), &terminated.source)
-                    .has_error()
-                {
-                    plain = terminated;
-                    plain_tree = terminated_tree;
-                }
-            }
-            let plain_root = effective_pattern_root(plain_tree.root_node(), &plain.source);
-            // `local_function_statement` is the top-level artifact of a
-            // member-shaped snippet (`public int $NAME(...) { ... }`): keep
-            // the class context for it and whenever the plain parse fails.
-            if !plain_root.has_error() && plain_root.kind() != "local_function_statement" {
-                text = plain;
-                tree = plain_tree;
-            }
+            (text, tree) = prefer_plain_parse(lang, &language, pattern, text, tree)?;
         }
         // Parse fragments once, at compilation, for both direct patterns and
         // every pattern nested in a rule. A grammar-checked terminator supplies
@@ -172,6 +125,7 @@ impl CompiledPattern {
                 }
             }
         }
+        (text, tree) = retry_in_context(lang, &language, text, tree)?;
         let ambiguous_bodies = ambiguous_function_body_captures(
             effective_pattern_root(tree.root_node(), &text.source),
             &text.source,
@@ -207,13 +161,21 @@ impl CompiledPattern {
                 lang.expando(),
             )));
         }
+        // A recovered parse with text the grammar could not place matches
+        // nothing in real source: an error, never an empty answer. A capture in
+        // an error is the pattern's own (`$$$` where the grammar wants a node),
+        // and the matcher reads it.
+        if let Some(stray) = stray_error(root, &source, lang.expando()) {
+            return Err(CompileError::grammar(unparsed_pattern_message(
+                stray,
+                &source,
+                lang.expando(),
+            )));
+        }
         // Several top-level nodes (`a(); b()`) have no single node to match;
         // compiled as a whole file they would silently match only a file
         // starting with that sequence.
-        let top_level = named_children(root)
-            .into_iter()
-            .filter(|node| !node.is_extra())
-            .count();
+        let top_level = top_level_nodes(root);
         if is_pattern_wrapper(root.kind()) && top_level > 1 {
             return Err(CompileError::grammar(format!(
                 "invalid structural pattern: it has {top_level} top-level nodes, but a pattern matches one node. Search for one statement, or use a rule with `has`/`inside` to relate them."
@@ -223,7 +185,9 @@ impl CompiledPattern {
         let candidate_plan = if is_meta {
             CandidatePlan::Any
         } else {
-            CandidatePlan::from_kind(root.kind())
+            CandidatePlan::from_kinds(
+                std::iter::once(root.kind().to_owned()).chain(longer_forms(root)),
+            )
         };
         Ok(Self {
             language,
@@ -234,6 +198,45 @@ impl CompiledPattern {
             special: None,
             candidate_plan,
         })
+    }
+
+    /// A pattern of a special shape, gated on the grammar actually having the
+    /// target node kinds; elsewhere the text compiles as an ordinary pattern.
+    fn special(lang: &AgLanguage, pattern: &str) -> Option<Self> {
+        let language = lang.tree_sitter_language();
+        if let Some(capture) = tag_name_capture(pattern)
+            && named_kind_id(&language, "jsx_opening_element").is_some()
+        {
+            return Some(Self {
+                language,
+                expando: lang.expando(),
+                source: pattern.to_owned(),
+                tree: None,
+                selected_node: None,
+                special: Some(SpecialPattern::JsxTagName {
+                    capture: capture.to_owned(),
+                }),
+                candidate_plan: CandidatePlan::from_kinds(JSX_TAG_KINDS.map(str::to_owned)),
+            });
+        }
+
+        if let Some((key_capture, value_capture)) = key_value_pair_capture(pattern)
+            && named_kind_id(&language, "pair").is_some()
+        {
+            return Some(Self {
+                language,
+                expando: lang.expando(),
+                source: pattern.to_owned(),
+                tree: None,
+                selected_node: None,
+                special: Some(SpecialPattern::KeyValuePair {
+                    key_capture: key_capture.to_owned(),
+                    value_capture: value_capture.to_owned(),
+                }),
+                candidate_plan: CandidatePlan::from_kind("pair"),
+            });
+        }
+        None
     }
 
     pub(in crate::structural::octo) fn contextual(
@@ -249,7 +252,8 @@ impl CompiledPattern {
         let language = lang.tree_sitter_language();
         let kind = named_kind_id(&language, selector).ok_or_else(|| {
             CompileError::grammar(format!(
-                "unknown selector kind '{selector}' for this language grammar"
+                "unknown selector kind '{selector}' for this language grammar{}",
+                near_kinds(&language, selector)
             ))
         })?;
         let source = lang.preprocess_metavariables(context).into_owned();
@@ -283,91 +287,101 @@ impl CompiledPattern {
     }
 }
 
-/// Whether `node` is the synthetic C-family function a statement pattern is
-/// parsed inside (see `AgLanguage::c_family`), named [`WRAP_MARKER`].
-fn is_wrap_marker_function(node: Node<'_>, source: &str) -> bool {
-    node.kind() == "function_definition"
-        && node
-            .child_by_field_name("declarator")
-            .and_then(|declarator| declarator.child_by_field_name("declarator"))
-            .is_some_and(|name| node_text(name, source) == WRAP_MARKER)
+/// The plain parse of `pattern` over its class-wrapped `text` and `tree`, when
+/// the plain one reads it.
+///
+/// The C# class wrap gives member patterns (methods, properties) real
+/// body context, but an expression or statement (`Helper($A)`,
+/// `Log($A);`) is not a class member and fails there. Fall back to the
+/// plain snippet, whose top-level `global_statement` wrapper
+/// `effective_pattern_root` unwraps.
+fn prefer_plain_parse(
+    lang: &AgLanguage,
+    language: &Language,
+    pattern: &str,
+    mut text: PatternText,
+    mut tree: Tree,
+) -> Result<(PatternText, Tree), CompileError> {
+    let mut plain = PatternText::plain(lang, pattern);
+    let mut plain_tree = parse_tree(language, &plain.source)?;
+    if !plain.is_terminated() {
+        // A bare call needs a terminator to be a statement.
+        let terminated = plain.terminated();
+        let terminated_tree = parse_tree(language, &terminated.source)?;
+        if !effective_pattern_root(terminated_tree.root_node(), &terminated.source).has_error() {
+            plain = terminated;
+            plain_tree = terminated_tree;
+        }
+    }
+    // A `$$$` block is no block to this grammar until it is terminated.
+    if errors_beyond_captures(
+        effective_pattern_root(plain_tree.root_node(), &plain.source),
+        &plain.source,
+        lang.expando(),
+    ) && let Some(source) = terminate_block_captures(&plain.source, lang.expando())
+    {
+        plain = PatternText { source };
+        plain_tree = parse_tree(language, &plain.source)?;
+    }
+    let plain_root = effective_pattern_root(plain_tree.root_node(), &plain.source);
+    // `local_function_statement` is the top-level artifact of a
+    // member-shaped snippet (`public int $NAME(...) { ... }`): keep
+    // the class context for it and whenever the plain parse fails. A
+    // lone `$$$` in a block is no statement to the grammar, and the
+    // matcher reads it as a capture, so its error is no failure.
+    if !errors_beyond_captures(plain_root, &plain.source, lang.expando())
+        && !is_pattern_wrapper(plain_root.kind())
+        && plain_root.kind() != "local_function_statement"
+    {
+        text = plain;
+        tree = plain_tree;
+    }
+    Ok((text, tree))
 }
 
-/// The node a pattern matches: its parse with every synthetic or
-/// single-child wrapper removed. Wrappers we add are recognised by
-/// [`WRAP_MARKER`] (rather than by kind, like the grammar's own wrappers), so
-/// a real `class $NAME { ... }` or function pattern keeps its outer node.
-pub(super) fn effective_pattern_root<'a>(mut node: Node<'a>, source: &str) -> Node<'a> {
-    loop {
-        let named = named_children(node);
-        if named.len() == 1 && is_pattern_wrapper(node.kind()) {
-            node = named[0];
-            continue;
-        }
-        // C-family synthetic function: unwrap `void __OctoWrap(void) {
-        // <statement> }` down to its single statement.
-        if is_wrap_marker_function(node, source)
-            && let Some(body) = node.child_by_field_name("body")
-        {
-            let body_named = named_children(body);
-            if body_named.len() == 1 {
-                node = body_named[0];
-                continue;
-            }
-        }
-        // C#'s synthetic wrapper class: unwrap `class __OctoWrap { <member> }`
-        // down to the single real member, giving it real class-body context
-        // (a bare `public int Foo(...) { ... }` parsed standalone isn't valid
-        // C# at all — no top-level member/method syntax exists outside a
-        // type body).
-        if node.kind() == "class_declaration" {
-            let is_wrapper = node
+/// `text` in the context that reads it, when it does not parse alone.
+fn retry_in_context(
+    lang: &AgLanguage,
+    language: &Language,
+    mut text: PatternText,
+    mut tree: Tree,
+) -> Result<(PatternText, Tree), CompileError> {
+    // A class member alone (`$M($$$) { $$$ }`) has no parse at the top level:
+    // the grammar leaves an error beside what it recovered, or two nodes.
+    // Where the same text is one clean declaration in a class body, that is
+    // what it spells.
+    let plain_root = effective_pattern_root(tree.root_node(), &text.source);
+    if plain_root.has_error()
+        || (is_pattern_wrapper(plain_root.kind()) && top_level_nodes(plain_root) > 1)
+    {
+        let member = text.map(wrap_in_class_body);
+        let member_tree = parse_tree(language, &member.source)?;
+        let member_root = effective_pattern_root(member_tree.root_node(), &member.source);
+        if !member_root.has_error()
+            && declares(member_root)
+            && member_root
                 .child_by_field_name("name")
-                .is_some_and(|n| node_text(n, source) == WRAP_MARKER);
-            if is_wrapper && let Some(body) = node.child_by_field_name("body") {
-                let body_named = named_children(body);
-                if body_named.len() == 1 {
-                    node = body_named[0];
-                    continue;
-                }
-            }
+                .is_none_or(|name| node_text(name, &member.source) != WRAP_MARKER)
+        {
+            text = member;
+            tree = member_tree;
         }
-        break node;
     }
-}
-
-fn is_pattern_wrapper(kind: &str) -> bool {
-    matches!(
-        kind,
-        "program"
-            | "source_file"
-            | "module"
-            | "compilation_unit"
-            | "translation_unit"
-            | "stylesheet"
-            | "fragment"
-            | "document"
-            | "expression_statement"
-            // C# wraps every top-level statement of a snippet in one.
-            | "global_statement"
-            | "config_file"
-            | "body"
-    )
-}
-
-/// The rejection for a pattern whose root did not parse. It names the last
-/// token the parser could not place (`$$$BODY` in `fn $N() $$$BODY`, where a
-/// function needs its body), so the caller sees what to complete.
-fn unparsed_pattern_message(root: Node<'_>, source: &str, expando: Expando) -> String {
-    const BASE: &str = "invalid structural pattern: pattern parsed with syntax errors";
-    let near = children(root)
-        .into_iter()
-        .rev()
-        .find(|node| !node.is_extra())
-        .map(|node| expando.restore(node_text(node, source).trim()))
-        .filter(|text| !text.is_empty());
-    match near {
-        Some(text) => format!("{BASE} near `{text}`"),
-        None => BASE.to_owned(),
+    // A `$$$` at a member or statement position parses in some grammars only
+    // when terminated: before another member, or at the end of a C or C++
+    // type's body. The terminated text counts when it leaves fewer errors.
+    let plain_root = effective_pattern_root(tree.root_node(), &text.source);
+    if plain_root.has_error()
+        && let Some(source) = terminate_block_captures(&text.source, lang.expando())
+    {
+        let terminated = PatternText { source };
+        let terminated_tree = parse_tree(language, &terminated.source)?;
+        let terminated_root =
+            effective_pattern_root(terminated_tree.root_node(), &terminated.source);
+        if !terminated_root.is_error() && parse_errors(terminated_root) < parse_errors(plain_root) {
+            text = terminated;
+            tree = terminated_tree;
+        }
     }
+    Ok((text, tree))
 }

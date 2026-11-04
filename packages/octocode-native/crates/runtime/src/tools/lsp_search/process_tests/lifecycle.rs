@@ -19,7 +19,7 @@ pub(super) fn execution_config(
     )
     .expect("config");
     crate::tools::lsp_search::LspExecutionConfig {
-        config_path: Some(config.to_string_lossy().into_owned()),
+        octocode_home: Some(root.to_path_buf()),
         ..crate::tools::lsp_search::LspExecutionConfig::default()
     }
 }

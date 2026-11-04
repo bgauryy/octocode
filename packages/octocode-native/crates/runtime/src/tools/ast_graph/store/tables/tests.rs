@@ -1,6 +1,19 @@
 use super::*;
 
 #[test]
+fn interned_strings_that_share_a_hash_keep_their_own_ids() {
+    let mut interner = Interner::default();
+    let (first, second) = (interner.id_hashed(7, "a"), interner.id_hashed(7, "b"));
+    assert_eq!((first, second), (0, 1));
+    assert_eq!(interner.id_hashed(7, "a"), first);
+    assert_eq!(interner.id_hashed(7, "b"), second);
+    assert_eq!(interner.id_hashed(9, "c"), 2);
+    assert_eq!(interner.id("d"), 3);
+    assert_eq!(interner.id("d"), 3);
+    assert_eq!(interner.strings, ["a", "b", "c", "d"]);
+}
+
+#[test]
 fn package_names_follow_ecosystem_rules() {
     assert_eq!(
         package_name("@scope/pkg/sub", "typescript").as_deref(),

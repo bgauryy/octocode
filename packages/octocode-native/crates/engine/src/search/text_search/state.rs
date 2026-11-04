@@ -69,8 +69,6 @@ pub(super) struct CollectResult {
     pub(super) depth_cut_dirs: u32,
     /// Skipped binary files per lowercased extension, most files first.
     pub(super) skipped_binary_extensions: Vec<BinaryExtensionCount>,
-    /// Root-relative directories the prune list skipped, sorted.
-    pub(super) pruned_dirs: Vec<String>,
     /// The caller cancelled the search before the walk finished (`cancelled`).
     pub(super) cancelled: bool,
     pub(super) error_count: u32,
@@ -100,7 +98,6 @@ pub(super) struct CollectState {
     pub(super) file_terms_dropped: AtomicU32,
     pub(super) depth_cut_dirs: AtomicU32,
     pub(super) skipped_binary_extensions: Mutex<HashMap<String, (u32, BTreeSet<String>)>>,
-    pub(super) pruned_dirs: Mutex<Vec<String>>,
     pub(super) cancelled: AtomicBool,
     /// Set when the walk must end now (deadline, cancellation, driver timeout).
     pub(super) stop: AtomicBool,
@@ -134,7 +131,6 @@ impl CollectState {
             file_terms_dropped: AtomicU32::new(0),
             depth_cut_dirs: AtomicU32::new(0),
             skipped_binary_extensions: Mutex::new(HashMap::new()),
-            pruned_dirs: Mutex::new(Vec::new()),
             cancelled: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             error_count: AtomicU64::new(0),
@@ -181,17 +177,6 @@ impl CollectState {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             files.push(path.to_string_lossy().into_owned());
-        }
-    }
-
-    /// Remember a directory the prune list skipped, root-relative.
-    pub(super) fn record_pruned(&self, relative: String) {
-        {
-            let mut dirs = self
-                .pruned_dirs
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            dirs.push(relative);
         }
     }
 
@@ -260,15 +245,6 @@ impl CollectState {
             skipped_binary_count: self.skipped_binary_count.load(Ordering::Relaxed),
             file_terms_dropped: self.file_terms_dropped.load(Ordering::Relaxed),
             depth_cut_dirs: self.depth_cut_dirs.load(Ordering::Relaxed),
-            pruned_dirs: {
-                let mut dirs = self
-                    .pruned_dirs
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .clone();
-                dirs.sort();
-                dirs
-            },
             skipped_binary_extensions: {
                 let groups = self
                     .skipped_binary_extensions

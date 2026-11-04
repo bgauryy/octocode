@@ -66,12 +66,18 @@ pub(super) fn tier_dead_code(
     if stems.is_empty() && names.is_empty() {
         return;
     }
-    let (hits, gaps) = scan_mentions(root, &stems, &names);
-    if gaps.truncated {
-        notes.push(json!({"detector": "unreachable-file", "skipped": "mention scan stopped at 512 MB of text; later files unchecked"}));
-    }
+    let scanned = memoized_mentions(root, &stems, &names);
+    let (hits, gaps) = &*scanned;
     if gaps.oversized > 0 {
-        notes.push(json!({"detector": "unreachable-file", "skipped": format!("mention scan skipped {} over 2 MiB; a mention there is not seen", octocode_engine::text::counted(gaps.oversized, "file", "files"))}));
+        let skipped = format!(
+            "mention scan skipped {} over 2 MiB; a mention there is not seen",
+            octocode_engine::text::counted(gaps.oversized, "file", "files")
+        );
+        for (detector, read) in [("unreachable-file", &stems), ("unused-export", &names)] {
+            if !read.is_empty() {
+                notes.push(json!({"detector": detector, "skipped": skipped}));
+            }
+        }
     }
     for finding in findings.iter_mut() {
         match finding.detector {

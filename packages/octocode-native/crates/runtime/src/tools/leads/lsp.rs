@@ -1,6 +1,6 @@
 //! The `lspSearch` lead other tools offer for a declaration they found.
 use octocode_engine::lsp::config::{
-    LspDiscoveryOptions, default_server_for_file, is_command_available,
+    LspDiscoveryOptions, default_server_for_file, server_command_resolves,
 };
 use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde_json::{Value, json};
@@ -58,8 +58,11 @@ pub fn verify_query(path: &str, symbol: &str, line: u64, verify: Verify) -> Opti
     })
 }
 
-/// Whether the server discovered for this lead resolves to an executable.
-/// Installation and removal are observed immediately.
+/// Whether the server discovered for this lead would launch: never by running
+/// it. A lead hangs on a search hit, so the check costs file stats, and a rustup
+/// proxy's one question is kept while what rustup reads is unchanged
+/// ([`server_command_resolves`]). Installation and removal are observed
+/// immediately.
 fn server_available(path: &str) -> bool {
     let workspace = resolve_workspace_root_for_file(path.to_owned()).unwrap_or_else(|_| {
         Path::new(path)
@@ -69,7 +72,7 @@ fn server_available(path: &str) -> bool {
     });
     let discovery = discovery();
     default_server_for_file(path, &workspace, &discovery)
-        .is_some_and(|config| is_command_available(&config.command).unwrap_or(false))
+        .is_some_and(|config| server_command_resolves(&config))
 }
 
 thread_local! {
@@ -80,9 +83,7 @@ thread_local! {
 }
 
 /// Run `run` (one local tool row, on the calling thread) with the runtime's
-/// resolved LSP settings, `options`, as the discovery every lead in it probes,
-/// with no cross-request availability reuse. The caller authorizes
-/// `options.config_path` against the path policy, as `lspSearch` itself does.
+/// resolved LSP settings, `options`, as the discovery every lead in it probes.
 pub fn with_lead_discovery<R>(options: LspDiscoveryOptions, run: impl FnOnce() -> R) -> R {
     struct Restore(Option<LspDiscoveryOptions>);
     impl Drop for Restore {
@@ -115,12 +116,12 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().expect("directory");
         let command = dir.path().join("fixture-lsp");
-        let config = dir.path().join("lsp.json");
+        let config = dir.path().join("lsp-servers.json");
         std::fs::write(&config, serde_json::json!({"languageServers":{".fixture":{"command":command,"args":[],"languageId":"fixture"}}}).to_string()).expect("config");
         let file = dir.path().join("source.fixture");
         std::fs::write(&file, "target").expect("source");
         let options = LspDiscoveryOptions {
-            config_path: Some(config),
+            octocode_home: Some(dir.path().to_path_buf()),
             ..Default::default()
         };
         with_lead_discovery(options, || {
@@ -153,7 +154,42 @@ mod tests {
         );
         let after = discovery();
         assert!(after.env.is_empty(), "{after:?}");
-        assert!(after.config_path.is_none() && after.octocode_home.is_none());
+        assert!(after.octocode_home.is_none());
+    }
+
+    /// A lead hangs on a search hit: deciding it runs no server, whatever the
+    /// server is. The script logs every execution; rust-analyzer was once asked
+    /// `--version` for each hit.
+    #[cfg(unix)]
+    #[test]
+    fn a_lead_never_runs_the_server() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("directory");
+        let ran = dir.path().join("ran");
+        let command = dir.path().join("rust-analyzer");
+        std::fs::write(
+            &command,
+            format!("#!/bin/sh\necho \"$*\" >> '{}'\nexit 0\n", ran.display()),
+        )
+        .expect("server");
+        std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+        let config = dir.path().join("lsp-servers.json");
+        std::fs::write(&config, serde_json::json!({"languageServers":{".rs":{"command":command,"args":[],"languageId":"rust"}}}).to_string()).expect("config");
+        let file = dir.path().join("a.rs");
+        std::fs::write(&file, "fn a() {}\n").expect("source");
+        let options = LspDiscoveryOptions {
+            octocode_home: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        with_lead_discovery(options, || {
+            for _ in 0..3 {
+                assert!(server_available(file.to_str().expect("path")));
+            }
+            std::fs::remove_file(&command).expect("removed");
+            assert!(!server_available(file.to_str().expect("path")));
+        });
+        assert!(!ran.exists(), "{:?}", std::fs::read_to_string(&ran));
     }
 
     /// A declaration lead runs `callers` for a callable and `references`
@@ -170,10 +206,10 @@ mod tests {
         std::fs::write(&command, "#!/bin/sh\nexit 0\n").expect("server");
         std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755))
             .expect("executable");
-        let config = dir.path().join("lsp.json");
+        let config = dir.path().join("lsp-servers.json");
         std::fs::write(&config, serde_json::json!({"languageServers":{".fixture":{"command":command,"args":[],"languageId":"fixture"}}}).to_string()).expect("config");
         let options = LspDiscoveryOptions {
-            config_path: Some(config),
+            octocode_home: Some(dir.path().to_path_buf()),
             ..Default::default()
         };
         let file = dir.path().join("a.fixture");

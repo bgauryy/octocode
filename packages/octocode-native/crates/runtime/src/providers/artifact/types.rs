@@ -86,6 +86,10 @@ pub struct ArtifactItem {
     /// or rewritten commit): no lead pins it; the response warns with it.
     #[serde(skip)]
     pub missing_ref: Option<String>,
+    /// The upstream release tag of this version, when it names a commit other
+    /// than the registry's `ref`: the response warns with it.
+    #[serde(skip)]
+    pub tag_differs: Option<super::ReleaseTag>,
     /// `${…}` properties the declared dependencies name that the release's
     /// own metadata does not define (a Maven parent POM's): the response
     /// states them.
@@ -121,6 +125,7 @@ impl ArtifactItem {
             verification: None,
             source_attested: false,
             source_tag: false,
+            tag_differs: None,
             missing_ref: None,
             unresolved_properties: Vec::new(),
         }

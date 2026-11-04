@@ -201,7 +201,6 @@ pub(crate) fn search_options(
         exclude: Some(local_search_query::exclude(query).to_vec()),
         // The default-excluded directories are pruned by the walk's path
         // filter too (`WalkAdmission`), which keeps the ones git tracks.
-        exclude_dir: None,
         // Each flag lifts its own cause, as in every local walk; the dot
         // entries left out are recorded by the walk's path filter.
         ignore: octocode_engine::types::IgnorePolicy::new(
@@ -297,7 +296,7 @@ pub(crate) fn scan(
             paths.clone(),
             std::path::PathBuf::from(&options.path),
             local_search_query::include_ignored(query) != Some(true),
-            crate::cache::MEMORY.limit(),
+            octocode_engine::memory::MEMORY.limit(),
         ));
         let parsed = search_cancellable(options, recorder.clone(), &|| cancel.check().is_err())
             .map_err(|error| {

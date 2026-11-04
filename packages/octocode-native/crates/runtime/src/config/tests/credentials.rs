@@ -83,8 +83,6 @@ fn local_switch_has_one_env_name() {
         &BTreeMap::from([("ENABLE_LOCAL".into(), "false".into())]),
     );
     assert!(retired.unwrap_or_default().local.enabled);
-    let env = BTreeMap::from([("OCTOCODE_ENABLE_LOCAL".into(), "true".into())]);
-    assert_eq!(resolve_config(&input(env, None)).source, ConfigSource::Env);
 }
 #[test]
 fn classification_key_falls_back_to_config_file_without_leaking() {
@@ -95,7 +93,7 @@ fn classification_key_falls_back_to_config_file_without_leaking() {
         Some("jev-secret-from-file")
     );
     assert_eq!(
-        out.env_value("OCTOCODE_CLASSIFICATION_API_HOST"),
+        out.resolved.classification.api_host.as_deref(),
         Some("https://jev.example.com")
     );
     // Never lands in ResolvedConfig, so `config get classification.api` can't echo it back.
@@ -337,7 +335,6 @@ fn unreadable_config_is_invalid_with_a_stable_diagnostic() {
         kind: "permission denied".into(),
     };
     let out = resolve_config(&i);
-    assert_eq!(out.source, ConfigSource::Invalid);
     assert_eq!(out.config_path, Some("/synthetic/home/.octocoderc".into()));
     assert_eq!(out.diagnostics[0].code, "config_load_error");
     assert!(out.diagnostics[0].message.contains("permission denied"));

@@ -203,7 +203,7 @@ fn config_shows_files_and_keys_but_never_values() {
     assert!(text.contains("\nconfig\n  global "), "{text}");
     assert!(text.contains("\n.env\n  global "), "{text}");
     assert!(
-        text.contains("Values are not shown here; `octocode config get KEY` prints one."),
+        text.contains("Values are not shown here; `octocode config get KEY` prints one, `octocode config list` every setting."),
         "missing no-values note: {text}"
     );
 }

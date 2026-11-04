@@ -1,5 +1,6 @@
 //! The literal prescan gate and candidate selection.
 
+use super::sampling::{Lcg, sample};
 use super::*;
 
 /// The prescan gate is necessary: every text a pattern matches selects that
@@ -9,69 +10,6 @@ use super::*;
 /// real matches, `(?i)` patterns included.
 #[test]
 fn every_text_a_pattern_matches_passes_its_prescan_gate() {
-    use regex_syntax::hir::{Class, Hir, HirKind};
-    struct Lcg(u64);
-    impl Lcg {
-        fn below(&mut self, bound: usize) -> usize {
-            self.0 = self
-                .0
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            ((self.0 >> 33) as usize) % bound.max(1)
-        }
-    }
-    fn sample(hir: &Hir, rng: &mut Lcg, out: &mut String) {
-        match hir.kind() {
-            HirKind::Literal(literal) => out.push_str(&String::from_utf8_lossy(&literal.0)),
-            HirKind::Class(Class::Unicode(class)) => {
-                let ranges = class.ranges();
-                let size: u32 = ranges
-                    .iter()
-                    .map(|range| range.end() as u32 - range.start() as u32 + 1)
-                    .sum();
-                let ascii: Vec<_> = ranges
-                    .iter()
-                    .filter(|range| range.start().is_ascii())
-                    .collect();
-                // A small class mixing ASCII and other characters is a case
-                // fold (`[Kk\u{212A}]`, `[Ssſ]`): any member, so Unicode case
-                // variants are sampled. A large class: ASCII members when it
-                // has any, so samples stay readable.
-                let fold = size <= 8 && !ascii.is_empty() && ascii.len() < ranges.len();
-                let range = if fold || ascii.is_empty() {
-                    ranges[rng.below(ranges.len())]
-                } else {
-                    *ascii[rng.below(ascii.len())]
-                };
-                let end = if range.start().is_ascii() && !fold {
-                    range.end().min('\x7f')
-                } else {
-                    range.end()
-                };
-                let span = end as usize - range.start() as usize + 1;
-                let pick = range.start() as u32 + rng.below(span.min(64)) as u32;
-                out.push(char::from_u32(pick).unwrap_or(range.start()));
-            }
-            HirKind::Class(Class::Bytes(class)) => {
-                let range = class.ranges()[rng.below(class.ranges().len())];
-                out.push(char::from(range.start()));
-            }
-            HirKind::Repetition(repetition) => {
-                let spread = repetition
-                    .max
-                    .map_or(3, |max| (max - repetition.min).min(3));
-                for _ in 0..repetition.min as usize + rng.below(spread as usize + 1) {
-                    sample(&repetition.sub, rng, out);
-                }
-            }
-            HirKind::Capture(capture) => sample(&capture.sub, rng, out),
-            HirKind::Concat(parts) => parts.iter().for_each(|part| sample(part, rng, out)),
-            HirKind::Alternation(branches) => {
-                sample(&branches[rng.below(branches.len())], rng, out);
-            }
-            HirKind::Empty | HirKind::Look(_) => {}
-        }
-    }
     let mut rng = Lcg(0x5eed);
     let mut checked = vec![0usize; PATTERNS.len()];
     for (idx, pattern) in PATTERNS.iter().enumerate() {
@@ -203,4 +141,47 @@ fn context_gated_detectors_are_selected_only_where_they_apply() {
     assert!(!applicable_candidates(manifest, Scope::File("k8s/secret.txt")).contains(&kubernetes));
     let detected = detect(manifest, Some("k8s/secret.yaml"));
     assert_eq!(detected.secrets_detected, ["kubernetesSecrets"]);
+}
+
+/// A leaf about a file applies what that file's path gates; text about to be
+/// kept applies it whatever the path. Only a bare shape still needs its context
+/// named, or every commit SHA would read as a key.
+#[test]
+fn file_context_follows_what_the_text_is_about() {
+    let index = |name: &str| {
+        PATTERNS
+            .iter()
+            .position(|pattern| pattern.name == name)
+            .expect(name)
+    };
+    let (kubernetes, wandb) = (index("kubernetesSecrets"), index("wandbApiKey"));
+    let manifest = "kind: Secret\ndata:\n  password: c2VjcmV0\n";
+    let sha = "9b5e0d8c2f7a41e6b3c58d9f0a1e2b7c4d6f8a03";
+    let applies = |text, scope, pattern| applicable_candidates(text, scope).contains(&pattern);
+    assert!(applies(manifest, Scope::Leaf("k8s/a.yaml"), kubernetes));
+    assert!(!applies(manifest, Scope::Leaf("k8s/a.txt"), kubernetes));
+    assert!(!applies(manifest, Scope::Pathless, kubernetes));
+    for path in [None, Some("k8s/a.txt"), Some("k8s/a.yaml")] {
+        assert!(applies(manifest, Scope::Stored(path), kubernetes));
+    }
+    assert!(!applies(sha, Scope::Leaf("wandb/a.py"), wandb));
+    assert!(applies(sha, Scope::File("wandb/a.py"), wandb));
+    assert!(!applies(sha, Scope::Stored(None), wandb));
+    assert!(!applies(sha, Scope::Stored(Some("src/a.py")), wandb));
+    assert!(applies(sha, Scope::Stored(Some("wandb/a.py")), wandb));
+    assert!(applies(&format!("wandb {sha}"), Scope::Stored(None), wandb));
+}
+
+/// Only a path a multi-line file-context pattern applies to needs its whole
+/// file judged, and only when a line holds what that pattern requires.
+#[test]
+fn a_whole_source_scan_is_asked_only_where_a_window_cannot_decide() {
+    use super::WholeSourcePatterns;
+    assert!(WholeSourcePatterns::for_path("src/a.rs").is_none());
+    assert!(WholeSourcePatterns::for_path("docker-compose.txt").is_none());
+    let patterns = WholeSourcePatterns::for_path("k8s/a.yaml").expect("applies");
+    assert!(patterns.named_by("kind: Secret"));
+    assert!(patterns.named_by("data:"));
+    assert!(!patterns.named_by("  name: x"));
+    assert!(!patterns.named_by("ordinary line"));
 }

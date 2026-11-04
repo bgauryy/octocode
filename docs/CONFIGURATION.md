@@ -1,285 +1,183 @@
 # Octocode configuration
 
-Start here to configure Octocode for the CLI or an MCP client. This page owns tool availability, feature opt-ins, file precedence, storage and retained work. The [generated settings reference](generated/CONFIG_SETTINGS.md) is the complete list of setting names, environment variables, defaults, types and ranges. Internal limits are [fixed](#fixed-internal-limits).
-
-Related guides own [credentials and login](AUTHENTICATION.md), [tool inputs and workflows](OCTOCODE_TOOLS.md), [MCP client setup and lifecycle](OCTOCODE_MCP.md), [CLI commands](OCTOCODE_CLI.md), and [security boundaries](SECURITY.md).
-
-## Quick setup
+All Octocode configuration comes from two things: **environment variables** and **`.octocoderc` files**. The CLI, MCP server, VS Code extension and skills read them the same way. Everything has a default, and local tools need nothing set.
 
 ```bash
-npx octocode auth login            # GitHub OAuth device flow; encrypted token in ~/.octocode
-npx -y octocode config view        # settings, keys, and agent MCP entries
-npx octocode auth status --json    # verify
+npx octocode config        # settings page: keys, settings, agents
+npx octocode config list   # the same in the terminal: value, source, default
 ```
 
-To skip the browser login, set `GITHUB_TOKEN`; a token env var always beats a stored login. Token order, login, refresh, Enterprise, the `clasify` key, and npm registry credentials: [AUTHENTICATION.md](AUTHENTICATION.md).
+## Where every value comes from
 
-## Tool availability: CLI and MCP
+For each value separately, the first valid source wins:
 
-The CLI always lists and enables all 16 tool commands. With default settings and no classification key, MCP starts with 12 tools and exposes optional tools through the controls below. These controls choose the MCP catalog; they do not remove CLI commands or relax filesystem, credential, network or storage protections. A missing provider or language server fails the call that needs it.
+```mermaid
+flowchart LR
+  P["Process environment"] --> WE["workspace .env"] --> HE["home .env"] --> WR["workspace .octocoderc"] --> HR["home .octocoderc"] --> D["Default"]
+```
 
-| Tools | CLI catalog | MCP exposure | Requirements when called |
-|---|---|---|---|
-| Six GitHub search/read tools and `artifactSearch` | Always available | On by default | Provider access; credentials where the endpoint requires them |
-| `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch` | Always available | On by default; `local.enabled` / `OCTOCODE_ENABLE_LOCAL` can disable them | Authorized paths; `lspSearch` also needs an appropriate language server |
-| `graphBuild`, `graphQuery` | Always available | `local.beta: true` / `OCTOCODE_BETA=true`, with local tools enabled | Authorized scope and the graph operation's snapshot requirements |
-| `clasify` | Always available | A configured, nonblank `OCTOCODE_CLASSIFICATION_API`, with `classification.api` as file fallback | A usable classification credential and provider |
-| `ghCloneRepo` | Always available | `tools.enableClone: true` / `OCTOCODE_ENABLE_CLONE=true`; default `false` | Git, repository access and persistent storage |
+| Source | Where | Reach | Use it for |
+|---|---|---:|---|
+| Process environment | Your shell, CI, or an MCP client's `env` block | One process | One-off overrides, CI, one client |
+| Workspace `.env` | `<project>/.octocode/.env` | One project | Project keys |
+| Home `.env` | `~/.octocode/.env` | Every project | **Your keys** |
+| Workspace `.octocoderc` | `<project>/.octocode/.octocoderc` | One project | Project settings to share |
+| Home `.octocoderc` | `~/.octocode/.octocoderc` | Every project | **Your settings** |
 
-`OCTOCODE_BETA` controls the graph tools only. It is not a classification alias. `clasify` visibility uses the configured key, with no startup network health check; a rejected key or provider outage is reported when a call runs. A present-but-blank `OCTOCODE_CLASSIFICATION_API` blocks fallback and disables classification requests. The CLI command remains listed. The same credential authorizes inline `classification` on supported search/read tools; [the classification guide](OCTOCODE_CLASIFY.md) explains the two routes.
+- **`.env` files fill in the process environment.** They never replace a variable the process already has, so an MCP `env` block beats every file.
+- **Any environment value beats both `.octocoderc` files.** A setting has two spellings, such as `local.beta` in `.octocoderc` and `OCTOCODE_BETA` in the environment. Keys and proxies exist only as variables.
+- **Blank, `null` and invalid values fall through** to the next source. One exception: a blank `OCTOCODE_CLASSIFICATION_API` turns classification off.
+- **A workspace cannot set a home-only value**, so a checked-out repository gains no power over your machine. The value is skipped and reported. [The table](#all-settings-and-defaults) marks each one.
+- **Only the process environment can set** `PATH`, `HOME`, `TMPDIR`, `NODE_OPTIONS`, `PYTHON`, `OCTOCODE_HOME`, and the proxy and certificate variables.
+- **`<project>` is the working directory**, with no search of parent folders. `OCTOCODE_HOME` moves the home.
+- **When it reloads:** the CLI reads everything on every call. The MCP server reads at start, so restart it after a change.
 
-MCP applies these additional restrictions:
+## Set a value
 
-- `tools.enabled` / `TOOLS_TO_RUN` is a strict allowlist; `tools.disabled` / `DISABLE_TOOLS` removes names even when allowlisted. Neither bypasses an opt-in above.
-- `local.enabled` / `OCTOCODE_ENABLE_LOCAL` controls local tool exposure. CLI commands ignore this catalog switch and both tool lists while retaining their execution policies.
-- `tools.enableClone` and `local.beta` are home-only opt-ins. A workspace may set `tools.enableClone: false` or `OCTOCODE_ENABLE_CLONE=false` to disable MCP cloning, but cannot enable it. Storage mode is independent: an enabled clone tool remains visible in `memory` mode and reports the persistent-storage requirement when invoked.
+```bash
+npx octocode config set TAVILY_API_KEY --stdin    # paste, then Ctrl-D; never printed back
+npx octocode config set local.beta true           # a setting path or its variable
+npx octocode config get local.beta --json         # value, source, path and default
+npx octocode config check TAVILY_API_KEY          # exit 0 set, 1 unset
+npx octocode config unset local.beta              # back to the next source
+```
 
-### Enable optional MCP tools
+`config set` always writes the home `.env`, readable only by you. Edit the other files by hand or on the settings page.
 
-Set home-scope options in `~/.octocode/.octocoderc`:
+**`.octocoderc`** is JSON with comments and trailing commas. Set only what you change. A workspace value replaces only that field, and arrays replace rather than concatenate. Paths must be absolute or start with `~`.
 
 ```jsonc
+// ~/.octocode/.octocoderc
 {
-  "local": { "beta": true },
+  "local": { "beta": true, "allowedPaths": ["~/other-repo"] },
   "tools": { "enableClone": true }
 }
 ```
 
-For classification, obtain a [provider key](AUTHENTICATION.md#classification-key-clasify) and store it without putting it in shell history:
-
-```bash
-npx -y octocode config set OCTOCODE_CLASSIFICATION_API --stdin
-npx -y octocode config check OCTOCODE_CLASSIFICATION_API
-```
-
-Restart MCP after changing configuration. Use the client's `tools/list` to confirm exposure; `npx -y octocode schema` always describes the full CLI catalog. [MCP client environment examples](#mcp-client-env-block) apply the same settings to one client instead.
-
-## Where everything lives
-
-The **Octocode home** is one folder shared by the CLI, the MCP server, the VS Code extension, and installed skills: `~/.octocode` on macOS and Linux, `%USERPROFILE%\.octocode` on Windows. `XDG_CONFIG_HOME` and `APPDATA` are not used. To move it, set `OCTOCODE_HOME=/custom/path` for every product. Use [cache clearing](OCTOCODE_CLI.md#clear-tool-caches) to remove retained work while preserving checkouts. Current clone outputs live in `clones/`; older versions stored them under `tmp/clone/`. Deleting `credentials.json` and `.key` signs you out.
-
-| Path in the home | Owner | What it holds |
-|---|---|---|
-| `.octocoderc` | you | Global Octocode settings. See [`.octocoderc`](#octocoderc--octocode-settings). |
-| `.env` | you | Trusted environment fallbacks: tokens, the classification key, third-party keys. Only this file may set [home-only keys](#env--environment-fallback). |
-| `credentials.json`, `.key` | Octocode | The encrypted GitHub login and its key. `auth logout` removes both. |
-| `.credentials.lock` | Octocode | Serializes credential writes between processes. |
-| `skills/` | Octocode | Skills installed with `npx octocode skill install`; hosts such as Claude, Cursor, or Codex link to these copies. |
-| `stats.json` | Octocode | Clasify calls and tokens. Written only when `storage.stats` (`OCTOCODE_ENABLE_STATS=1`) is on and storage is persistent. |
-| `clones/` | output | `ghCloneRepo` checkouts, keyed by owner, repo, commit, sparse selection, history depth, and GitHub host. A clean checkout at the resolved commit is reused; one with local edits is refused and kept. |
-| `tmp/response-pages/`, `tmp/continuations/`, `tmp/section-assessments/`, `tmp/lsp-answers/`, `tmp/graph-rows/` | retained work | Saved pages, issued continuations, section assessments, the LSP provider evidence selected by a continuation, and the complete ordered rows of a graphQuery `issues`, `impact` or `drift` answer, so its later pages slice them instead of computing them again. Clearing them invalidates their handles; a graph page whose rows are gone computes them again. |
-| `tmp/capture/url/` | output | Freshly captured URL text and images exposed through inspection paths, retained for 24 hours. Fresh URL requests fetch again. |
-| `tmp/materialize/v3/` | output | Files materialized at an immutable commit SHA for local inspection. Fresh materialization reacquires bytes; its manifest records published files. |
-| `tmp/ratelimit/` | coordination | Last-known GitHub rate-limit state, shared across processes. |
-| `tmp/clone-locks/`, `tmp/clone-tmp/`, `tmp/git-home/` | working state | Per-repository clone locks, staging, and an isolated git home. |
-
-One home holds one user's retained work and outputs. Every clone call checks the caller's GitHub access and resolves the ref to a commit; it fetches that commit unless a checkout of it is already verified (HEAD is the commit, no local changes), which it reuses; local tools can read checkouts under `clones/`. On a host that serves several users or tokens, give each tenant its own `OCTOCODE_HOME`.
-
-Clone git runs without your git config. It keeps `PATH`, the proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, either case), and CA bundles (`SSL_CERT_FILE`, `SSL_CERT_DIR`, `GIT_SSL_CAINFO`, `GIT_SSL_CAPATH`, `CURL_CA_BUNDLE`) from the runtime environment; a project `.env` cannot set them.
-
-Native HTTP clients also honor `SSL_CERT_FILE` and `SSL_CERT_DIR` from the process environment. PEM certificates supplement the operating system trust store; unreadable, empty or malformed configured stores fail client construction. Certificate verification stays enabled. `SSL_CERT_DIR` uses the platform path-list separator.
-
-A skill without a project writes reports and state to a named home folder, for example `research/` or `agents-communication/`. Inside a project, skills use `<project>/.octocode/`, which also holds the workspace `.octocoderc` and `.env` and `graph/` (the stored code graph).
-
-### Cache storage and lifecycle
-
-Fresh tool requests do not reuse cached results. GitHub and registry calls fetch again; classification evaluates again; local reads, AST and LSP requests recompute their answers. CLI and MCP retain the exact evidence and progress behind issued continuations under `OCTOCODE_HOME`; there is no database or editor-local storage.
-
-`storage.mode: "persistent"` is the default. Set `storage.mode: "memory"` in `<OCTOCODE_HOME>/.octocoderc` (all workspaces) or `<workspace>/.octocode/.octocoderc` (one workspace), or set `OCTOCODE_STORAGE_MODE=memory`, to keep continuation state in RAM only. Each runtime uses its own resolved policy and home. Persistent state is read from disk without a duplicate memory copy; memory state lasts only within its runtime.
-
-Memory mode disables clone, directory and exact-file materialization, persisted continuation reads and writes, automatic maintenance, rate-limit mirrors and stats writes. File reads still return content without a materialized `localPath`. Explicit graph builds still publish their requested snapshots under the workspace's `.octocode/graph/`, but keep extraction intermediates in memory and never save `.facts` checkpoints. The setting does not delete existing files or credentials; managed language-server installations, compiled programs, HTTP connections and live language-server protocol state are separate operational resources.
-
-| Concern | Behavior |
-|---|---|
-| Cleanup | At most one sweep per 24 hours (`tmp/.last-cache-maintenance`). Aged materialized snapshots are removed under their own locks; old tree staging, rate-limit mirrors and URL captures are swept by age. Entry stores enforce their own TTL and byte budgets. Clone outputs are never expired or evicted. |
-| When | Synchronously at native runtime start: once per CLI process and at MCP server start. No background timer. Skipped in `memory` mode or when `tmp/` does not exist. |
-| Failure | Best-effort; an unavailable or read-only state home never blocks the CLI or MCP startup. |
-| Ownership | Only Octocode-owned directories; other `tmp/` content stays. |
-| Manual | Stop separate MCP processes, then run `npx octocode cache clear` from the workspace. It drains warm CLI servers and clears the configured home's retained work plus this workspace's graph extraction checkpoints. See [cache clearing](OCTOCODE_CLI.md#clear-tool-caches). |
-
-Published graph snapshots, materialized files and captures are inspectable outputs. Graph extraction checkpoints support interrupted jobs and are discarded after successful publication. Response pages and section assessments keep settled evidence so pagination does not repeat upstream requests or inference; issuing a new request performs fresh work. Credential selection also reloads its source on every request.
-
-Retained-work limits are derived from one budget, not fixed numbers: memory state shares the process memory budget (an eighth of the memory available to the process, within 512 MiB to 2 GiB; a container's cgroup limit counts), and each store directory's disk budget equals that same value, which is also the largest single entry. They are per store, not a process-memory limit. Disk admission serializes writers and reserves space before publication. Entry headers and bodies count toward the budget; filesystem allocation, bookkeeping and one temporary atomic-write copy do not. Failed writes are reported to the continuation owner, which must return complete evidence or an explicit refusal instead of issuing an unreachable handle. Existing retired result-cache directories can be removed with `cache clear`.
-
-### `.env` — environment fallback
-
-A plain `KEY=VALUE` file: `~/.octocode/.env` (global) and `<project>/.octocode/.env` (workspace, overrides global).
+**`.env`** is plain `KEY=VALUE` lines, stored as plain text. Keep it out of version control.
 
 ```bash
 # ~/.octocode/.env
 GH_TOKEN=ghp_example
 OCTOCODE_CLASSIFICATION_API=classification_key_example
-TAVILY_API_KEY=tvly-...   # curated research search — https://app.tavily.com/
-SERPER_API_KEY=...        # Google SERP results — https://serper.dev/
-EXA_API_KEY=...           # neural/category search — https://dashboard.exa.ai/
+TAVILY_API_KEY=tvly-example
 ```
 
-- A non-empty key in the shell or MCP client environment wins over both files. The workspace file wins over the global file; missing or blank workspace values fall back to global.
-- CLI and MCP load both files.
-- **Home-only keys** are skipped in a workspace `.env` and listed under `skippedProtected` in `npx octocode config --json`, including when the home `.env` sets the same key. The list is generated from the contract: [home-only environment variables](generated/CONFIG_SETTINGS.md#home-only-environment-variables). GitHub tokens and the classification key are accepted in either file.
-- A workspace may **narrow** some home-only switches, never widen them: `OCTOCODE_STORAGE_MODE=memory` (opt the project out of persistence), `OCTOCODE_ENABLE_LOCAL=false`, `OCTOCODE_ENABLE_CLONE=false`, and `OCTOCODE_REDACT_EMAILS=true` apply from a workspace `.env` or `.octocoderc`; the widening value is skipped there (`skippedProtected` for `.env`, a `workspace_config_protected` warning for `.octocoderc`). The local/clone switches affect [MCP exposure](#tool-availability-cli-and-mcp).
-- Internal limits (timeouts, retries, waits, page size, retained work, concurrency, selection budgets) are not settings: no `.env` or `.octocoderc` can change them. See [fixed internal limits](#fixed-internal-limits).
-- Empty values normally allow fallback. A present-but-blank `OCTOCODE_CLASSIFICATION_API` disables classification and blocks file fallback.
-- Both files always block these OS and runtime keys; set them in the shell, CI, or the MCP `env` block: `PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `PWD`, `TMPDIR`, `NODE_OPTIONS`, `PYTHON`, `OCTOCODE_HOME`.
-- Credential aliases resolve by source first, then by [alias priority](AUTHENTICATION.md#token-environment-variables). Metadata shows names and source files, never values. Keep credential files out of version control.
-- `npx octocode config get KEY` prints one value. A secret (a GitHub token, a credential setting's variable, or a name with a credential word such as `KEY`, `TOKEN`, `SECRET`, or `PASSWORD`) is masked as `[REDACTED-KEY]`, followed by where it lives: `(home: ~/.octocode/.env)`, `(workspace: …)`, or `(process environment)`. `--json` reports `value`, `source` (`env`, `home`, or `workspace`), and `path`.
-
-Web-search behavior belongs to each skill. The brainstorming search script queries configured Tavily, Exa and Serper providers and merges their results; it fails with `missingKey` when no provider key is set. Do not assume a keyless fallback.
-
-### `.octocoderc` — Octocode settings
-
-A JSONC file for Octocode's own behavior: `~/.octocode/.octocoderc` (or `$OCTOCODE_HOME/.octocoderc`) and `<project>/.octocode/.octocoderc`, where `<project>` is the process working directory. **Restart the MCP server or start a new agent session after editing.**
-
-```jsonc
-// <project>/.octocode/.octocoderc — only what this repo changes
-{
-  "tools": { "disabled": ["ghSearchRepo"] }
-}
-```
-
-- Layering is per field: a workspace value replaces only that field. Arrays replace, never concatenate. `null` means "use the next source or the generated default" for every setting, lists included; it never resets a lower layer and never affects another setting.
-- Path settings (`local.allowedPaths`, `local.workspaceRoot`, `lsp.configPath`, `lsp.cacheDir`) must be absolute or start with `~`; `~` expands to your OS home once, when settings resolve. A relative path is rejected with a warning.
-- Both files rank below every environment source, including the global `.env`. Every setting has an env var; see [generated settings](generated/CONFIG_SETTINGS.md).
-- The workspace file loads without a trust flag, like the workspace `.env`. A field bound to a home-only key (for example `local.allowedPaths`, `local.beta`, `github.apiUrl`) is ignored there, with a warning.
-- When the working directory is your OS home, `<project>/.octocode` is the Octocode home: its `.octocoderc` and `.env` are read once, as the home layer.
-- An unknown key warns with its full path, so a typo like `local.enableLocl` is visible.
-- Tool lists restrict [MCP exposure](#tool-availability-cli-and-mcp). A name no tool has (in these lists or `mcp.deferred`) is ignored with an `unknown_tool_name` warning that suggests the nearest tool name.
-
-### How settings override each other
-
-```
-Shell env vars / MCP client env block       ← highest
-<workspace>/.octocode/.env
-~/.octocode/.env
-<workspace>/.octocode/.octocoderc
-~/.octocode/.octocoderc
-Built-in defaults                           ← lowest
-```
-
-Precedence is per field: the first source with a valid value wins. Env vars always beat file config. At each tier, workspace beats home, except that a workspace cannot set a home-only key (it may narrow the switches listed above). Missing, blank, `null`, or invalid values normally fall back to the next source; a present-but-blank classification key is the explicit exception described [above](#tool-availability-cli-and-mcp). GitHub and classification credentials use this order; token discovery and OAuth refresh stay in native.
-
-For example, resolve `github.graphqlEnabled` (environment key `OCTOCODE_GITHUB_GRAPHQL`) as follows. Each row lists all sources set in that example:
-
-| Values set | Effective value | Winning source |
-|---|---|---|
-| Home `.env`: `false`; workspace `.octocoderc`: `true` | `false` | Home `.env`: every environment layer outranks settings files |
-| Home `.env`: `false`; workspace `.env`: `true`; workspace `.octocoderc`: `false` | `true` | Workspace `.env` |
-| Process env: `false`; workspace `.env`: `true`; home `.env`: `true` | `false` | Process env / MCP client environment |
-
-`config set KEY --stdin` edits the home `.env`, regardless of the current directory; it does not remove a winning workspace or process override. Use `config view` to inspect the effective source or edit an authorized workspace value. Workspace lookup uses the process working directory itself; `WORKSPACE_ROOT` changes tool scope, not where `.octocode/.env` is loaded.
-
-### Invalid settings fall back with warnings
-
-A bad value is skipped and reported once per process on **stderr** (stdout carries CLI results and MCP JSON-RPC), with the file or variable and the reason:
-
-```
-octocode: config warning: /repo/.octocode/.octocoderc: lsp.prewarm: Must be one of: targeted, all, off; value ignored [invalid_config]
-octocode: config warning: /repo/.octocode/.octocoderc: Failed to parse config file: …; the whole file is ignored [config_load_error]
-octocode: config warning: ~/.octocode/.env: OCTOCODE_GITHUB_GRAPHQL is not a valid boolean (true/false/1/0) for github.graphqlEnabled; value ignored [invalid_env_value]
-```
-
-| Problem | Effect |
-|---|---|
-| Unreadable file, invalid JSON, or non-object root | That file is ignored; other layers apply. |
-| Invalid field (type, relative path, non-http URL, unknown enum) | That field falls back to the next layer or the default. |
-| A section that is not an object (`"network": 5`) | That section is dropped. |
-| Unknown key | Reported through the ordinary unknown-key diagnostic; no alias or retired-setting registry applies. |
-| Invalid nonblank env value (including `OCTOCODE_CLASSIFICATION_API_HOST`) | Skipped, without printing the value; the next layer applies. |
-| Unknown tool name in a tool list | Warning (`unknown_tool_name`), with the nearest tool name. |
-
-A valid configuration can still disable every MCP tool. MCP then fails startup with `No native tools are available`; inspect the [availability controls](#tool-availability-cli-and-mcp). The CLI catalog remains available.
-
-Warnings print on tool calls and `npx octocode config`, not on `npx octocode schema`. `npx octocode config` lists both `.octocoderc` files and their top-level keys; `--json` adds the `diagnostics` array.
-
-## Local configuration view
-
-`npx -y octocode config view` opens a temporary loopback page that edits home or workspace settings, keys, and the Octocode entries in agent configs. `--no-open` prints the session link instead. `--idle-timeout <seconds>` (default 900, 30–3600) closes the server after inactivity. Ctrl+C or **End session** stops it.
-
-**Save to** picks the scope. **Home** writes `~/.octocode/.octocoderc` and `.env` for every project. **Workspace** writes `<project>/.octocode/.octocoderc` and `.env`, where `<project>` is the directory where you ran the command; it overrides home. Each save writes immediately and reloads the page data.
-
-- **Settings:** search by key (`lsp.prewarm`). Booleans are checkboxes, choices are lists, lists are JSON string arrays (`["localSearch","localFetch"]`, or `null` to inherit), text and paths are plain text. **Save** writes the scope; **Use inherited value** removes it from that scope only. **Effective value** and **Effective source** show what applies and from which file. If a home save does not change the effective value, look for a workspace or env override. Home-only settings (`local.allowedPaths`, `local.beta`, `github.apiUrl`, `lsp.configPath`) are disabled in Workspace scope, and `storage.mode` accepts only `memory` there.
-- **Keys:** enter a **Key name** (letters, digits, `_`; not starting with a digit) and a one-line **New value**, then **Save key**. The key shows as **Set**; the value is never shown again. **Replace** and **Remove** edit it. Workspace scope refuses home-only keys (`ALLOWED_PATHS`, `WORKSPACE_ROOT`, `GITHUB_API_URL`, `OCTOCODE_BETA`, `OCTOCODE_LSP_CONFIG`, …) but accepts GitHub tokens and `OCTOCODE_CLASSIFICATION_API`. A credential stored in `.octocoderc` (`classification.api`) shows **Stored setting**.
-- **Agents:** one card per MCP client file, for example Cursor `~/.cursor/mcp.json` or Claude Code `~/.claude.json`, with scope `home`, `workspace`, or `local`. **Install** (with **Launch with** `npx`, `bunx`, or `pnpm`) adds the entry; **Save agent key** / **Remove key** edit its env; clearing **Enabled** and **Save / update** turns it off; **Remove Octocode** deletes only the Octocode entry. Restart the agent after an edit; client env values can override the shared Octocode files.
-
-Agent discovery checks supported client paths and the current workspace, not other projects or enterprise policies, and reports configuration status, not a live connection. Edits keep other MCP entries. Unsupported or ambiguous layouts, Continue main configuration arrays, symbolic links, and unreadable or malformed files are read only, with configuration warnings; imported Continue blocks report unknown coverage.
-
-| Save error | Fix |
-|---|---|
-| *Configuration changed* / *Agent config changed* | Another process edited the file; the page reloads it. Review and save again. |
-| *Invalid value for …* | Wrong type or not an allowed choice. |
-| *may only be configured in home scope* / *cannot be loaded from this .env scope* | Select **Home**, or set the variable in the launching environment. |
-| *Values must be a single line* | Remove line breaks. |
-
-Octocode's `.env` and `.octocoderc` are replaced without backup, so a removed secret leaves no copy. An agent client file keeps one rolling hidden backup beside it (`~/.cursor/.mcp.json.bak`); `npx octocode install --rollback <backup>` restores it.
-
-The page uses bundled assets and an authenticated server on `127.0.0.1` at a temporary port. It checks request host and origin and grants no cross-origin access. The printed link holds a one-use session credential; keep it private. A browser extension that can read the page can read the values you enter. Keys in `.env` and credential settings (`classification.api`, `classification.apiHost`) in `.octocoderc` are not encrypted; on Unix, new config files and backups are owner-only. The view does not touch the GitHub login storage. Keep workspace key files out of version control. For terminal entry without shell history, use `npx octocode config set KEY --stdin`.
-
-## MCP client `env` block
-
-Use a client `env` block to set options for that MCP server process. This example enables graph and clone tools; GitHub login and the classification key can come from the shared Octocode home:
+**MCP `env` block** applies to that one server process:
 
 ```json
-{"mcpServers":{"octocode":{"command":"npx","args":["-y","octocode-mcp@latest"],"env":{"OCTOCODE_BETA":"true","OCTOCODE_ENABLE_CLONE":"true","OCTOCODE_LSP_PREWARM":"off"}}}}
+{"mcpServers":{"octocode":{"command":"npx","args":["-y","octocode-mcp@latest"],"env":{"OCTOCODE_BETA":"true"}}}}
 ```
 
-`npx octocode install --ide cursor` writes a basic server entry; add the optional `env` settings above or use `config view` to edit them. `install --list` shows every client id with its entry status and config path ([CLI `install`](OCTOCODE_CLI.md#install--mcp-client-setup)).
+**Language servers** are set in `~/.octocode/lsp-servers.json`, which maps an extension to a server: `{"languageServers":{".ts":{"command":"tsgo","args":["--lsp","-stdio"],"languageId":"typescript"}}}`.
 
-## All settings reference
+### Change the classification host
 
-Defaults, ranges, enums, and env mappings: [generated settings](generated/CONFIG_SETTINGS.md). Notes that the table does not carry:
+Octocode uses Jev at `https://api.typesafe.ai`. To route through a gateway:
 
-- **Storage:** `storage.stats` and disk materialization (including `ghCloneRepo`) are disabled by `storage.mode: "memory"`.
-- **Language servers:** `~/.octocode/lsp-servers.json` (or the `lsp.configPath` / `OCTOCODE_LSP_CONFIG` file) maps an extension to a server, replacing the built-in one: `{"languageServers":{".ts":{"command":"tsgo","args":["--lsp","-stdio"],"languageId":"typescript"}}}`. Assembly servers come only from this file. `lsp.trustProjectConfig` also trusts a project `.octocode/lsp-servers.json`; `lsp.autoInstall` governs `npx octocode lsp-server install`; `lsp.cacheDir` moves managed installs; a per-server `maxMemoryMb` in `lsp-servers.json` overrides the host-derived memory cap (`0` disables it); `lsp.prewarm` controls background starts. See [LSP server lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md).
-- **Classification:** [availability and key setup](#tool-availability-cli-and-mcp) live here; [questions, fields and recovery](OCTOCODE_CLASIFY.md) live in the classification guide.
+```bash
+npx octocode config set classification.apiHost https://gateway.example.com
+```
 
-### Fixed internal limits
+The host receives your key and the [evidence sent for classification](SECURITY.md#classification-egress), so use one you trust. It must serve the same API from an HTTPS root with no path (HTTP only on loopback). It is home-only, so a repository cannot redirect your key.
 
-These are code constants, not settings (one owner: `RuntimeLimits` in `packages/octocode-native/crates/runtime/src/execution/limits.rs`). They have no environment or settings-file overrides.
+## GitHub token resolution
 
-| Limit | Value |
-|---|---|
-| Network request timeout | 30 s |
-| Retries after a failed request | 3 |
-| Automatic response page | 20,000 characters (`responseChars` per call, up to 50,000) |
-| URL captures | 24 h retention |
-| Classification requests in flight per endpoint | 10 |
-| Context selection per operation | 64 candidates, 131,072 characters, 10 s |
-| Language-server memory | 25% of host RAM, between 4096 and 8192 MiB (per-server `maxMemoryMb` overrides) |
+Each GitHub request uses the first credential found for its host:
 
-Saved-page sizes and the tool-call budget (300 s, one for every surface: CLI, warm server and MCP; an embedder may set its own) are fixed too.
+| # | Source | `tokenSource` in `auth status` |
+|---:|---|---|
+| 1 | A token variable, found in the process environment, then workspace `.env`, then home `.env` | `env` |
+| 2 | `npx octocode auth login`: encrypted `~/.octocode/credentials.json` | `octocode-storage` |
+| 3 | An older login in the OS credential store (Keychain, Secret Service, Credential Manager) | `platform` |
+| 4 | `gh auth token --hostname <host>` | `gh-cli` |
+| — | None: public requests run unauthenticated at GitHub's lower rate limit | none |
 
-- **GitHub rate limits:** a call waits out a primary or secondary limit or search pacing, and fails at once with `rateLimited` and `retryAfter` (plus `next.retry`) only when the reset or `retry-after` falls after the tool call's own deadline; no fixed wait cap or client-side window decides. `retry-after` wins over the reset header. Waiting does not spend the request timeout. While a wait of a second or more lasts, the call reports it (the limit, seconds left, and why: quota reset or `retry-after`, secondary cooldown, or search pacing) when it starts and every 10 s after: an MCP client that sent `_meta.progressToken` receives each line as `notifications/progress` before the result, so a host that resets its timeout on progress keeps the call alive; a CLI call prints the same lines on stderr (through a warm server, with the call's other notices once it ends). Search and code-search pacing follow the quota GitHub reports for each resource (`x-ratelimit-resource`, `-remaining`, `-reset`): planned searches the remaining quota covers go back-to-back, and only searches beyond it are spread over the time until reset. Until a response reports the `code_search` quota, planning assumes GitHub's documented default for authenticated code search, 10 a minute ([search rate limit](https://docs.github.com/en/rest/search/search#rate-limit)); this is an assumption, not a cap, and the first response replaces it (so does any quota window that has ended). Processes sharing a token share the last quota GitHub reported and the start of each paced search through one file lock on `tmp/ratelimit/` (keyed by host and a token hash, never the token); a start stamp dated more than two minutes ahead is ignored, so a crashed process never wedges it. If the file or its directory cannot be read, written or locked, the call goes ahead under this process's own pacing and one warning goes to stderr.
-- **Classification gate:** one process-wide gate per provider endpoint allows 10 requests in flight; one tool call may use up to three quarters. Throttling (429/503/529) halves the gate, `Retry-After` pauses every caller, and the gate recovers gradually.
-- **Context selection:** units the budget leaves unassessed stay unknown and never spill into the default evidence body; recovery: [context selection](OCTOCODE_TOOLS.md#context-selection).
+- **Source beats name.** Any process variable beats every `.env` file, and a workspace token beats a home token. Within one source, `GH_TOKEN` beats `GITHUB_TOKEN`.
+- **The token goes only to your configured host.** `GITHUB_API_URL` is home-only, so a repository's `.env` cannot send a token elsewhere.
+- **`.octocoderc` never holds a token.** Logins are never per workspace; for another account in one project, put a token in that project's `.octocode/.env`.
+- **A variable blocks a new login.** `auth login` warns when a token variable is set, because that variable keeps winning until you unset it.
+- **Expired or rejected tokens move on.** A stored token that expires within 5 minutes is refreshed first. If refresh fails, or GitHub rejects a stored or `gh` token, the next source applies.
+- **Changes apply within 60 seconds.** The chosen credential is remembered per host for that long.
 
-## GitHub Enterprise
+Check it with `npx octocode auth status --json`. Login, refresh and GitHub Enterprise: [authentication](AUTHENTICATION.md).
 
-Set `GITHUB_API_URL` (or `github.apiUrl` in the home `.octocoderc`) to the enterprise API root, for example `https://github.mycompany.com/api/v3`. A workspace file cannot set it. Tokens and device login: [AUTHENTICATION.md](AUTHENTICATION.md#github-enterprise).
+## Tool availability: CLI and MCP
+
+The CLI always has all 16 tools. MCP starts with 12 and adds the rest when you opt in. These choices never relax file, credential or network protections.
+
+| Tools | In MCP | Needs when called |
+|---|---|---|
+| Six GitHub search and read tools, `artifactSearch` | On | GitHub access where the endpoint requires it |
+| `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch` | On; `local.enabled: false` hides them | Authorized paths; `lspSearch` also needs a language server |
+| `graphBuild`, `graphQuery` | `local.beta: true` | Authorized paths |
+| `clasify` | A classification key | A working key |
+| `ghCloneRepo` | `tools.enableClone: true` | Git, repository access, persistent storage |
+
+`tools.enabled` is a strict allowlist and `tools.disabled` removes names from it. Neither bypasses an opt-in above.
+
+## All settings and defaults
+
+**Sensitive** values are masked in all output. A value a **workspace** may not set is home-only. Limits such as timeouts and page sizes are [fixed](STORAGE_AND_LIMITS.md#fixed-internal-limits), not settings.
+
+<!-- settings-table:start (generated from the config contract; do not edit) -->
+
+| `.octocoderc` setting | Environment variable | Type | Default | Sensitive | Workspace may set | What it does |
+|---|---|---|---|---|---|---|
+| `github.apiUrl` | `GITHUB_API_URL` | url | `https://api.github.com` | no | no | GitHub REST API root. GitHub Enterprise commonly uses /api/v3. |
+| `local.enabled` | `OCTOCODE_ENABLE_LOCAL` | boolean | `true` | no | only `false` | Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces. |
+| `local.beta` | `OCTOCODE_BETA` | boolean | `false` | no | no | Expose graphBuild and graphQuery through MCP. CLI tools remain available without this opt-in. Restart MCP after changing this setting. |
+| `local.allowedPaths` | `ALLOWED_PATHS` | list | `[]` | no | no | Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). The environment value is a comma-separated list. |
+| `local.workspaceRoot` | `WORKSPACE_ROOT` | path | `the working directory` | no | no | Optional absolute or home-relative workspace root. |
+| `tools.enabled` | `TOOLS_TO_RUN` | list | `unset (every tool)` | no | yes | Strict MCP tool allowlist; other MCP prerequisites still apply. CLI exposes every tool in the build. |
+| `tools.disabled` | `DISABLE_TOOLS` | list | `unset (none)` | no | yes | Tools removed from MCP discovery and admission. CLI exposes every tool in the build. |
+| `tools.enableClone` | `OCTOCODE_ENABLE_CLONE` | boolean | `false` | no | only `false` | Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting. |
+| `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | boolean | `false` | no | no | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. |
+| `lsp.autoInstall` | `OCTOCODE_LSP_AUTO_INSTALL` | prompt \| off \| auto | `prompt` | no | no | Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto. |
+| `lsp.trustProjectConfig` | `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` | boolean | `false` | no | no | Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries. |
+| `lsp.prewarm` | `OCTOCODE_LSP_PREWARM` | targeted \| all \| off | `targeted` | no | yes | Language-server prewarm: targeted starts the server an offered lspSearch call names once the session has run an lspSearch; all warms it from the start, also warms the file a read or search names and, at MCP initialize, the workspace's top three languages; off disables it. Each start indexes a whole project, so a first lspSearch under targeted can take seconds in exchange for no server in a session that never calls one. |
+| `output.redactEmails` | `OCTOCODE_REDACT_EMAILS` | boolean | `false` | no | only `true` | Mask email addresses such as GitHub commit authors. |
+| `storage.mode` | `OCTOCODE_STORAGE_MODE` | persistent \| memory | `persistent` | no | only `memory` | Persistent saves continuation state and provider answers to disk; memory retains them only in the current runtime. Fresh local requests recompute results; GitHub and registry answers repeat as their origin allows. Explicit graph snapshots are outputs; interrupted extraction checkpoints follow this setting. |
+| `classification.api` | `OCTOCODE_CLASSIFICATION_API` | key | `unset (classification off)`; [get a key](https://docs.typesafe.ai/introduction) | yes | yes | Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP; CLI always exposes clasify and checks the key when invoked. Discovery makes no provider request. Credential values are omitted from resolved configuration and diagnostics. |
+| `classification.apiHost` | `OCTOCODE_CLASSIFICATION_API_HOST` | url | `https://api.typesafe.ai` | no | no | Classification provider API root, for a proxy, gateway or compatible provider that serves the same API. Calls require HTTPS except on loopback, and an API root with no path. Home-only, so a repository cannot redirect your key. |
+| `classification.model` | `OCTOCODE_CLASSIFICATION_MODEL` | string | `jev-latest` | no | yes | Classification model for read-tool classifiers and clasify; a clasify row's model overrides it. Pin an exact model (for example jev-1.13.0) for reproducible results; an alias can change between fresh evaluations. |
+| — | `TAVILY_API_KEY` | key | `unset`; [get a key](https://app.tavily.com/) | yes | yes | Tavily search API credential used by the octocode-brainstorming skill. |
+| — | `EXA_API_KEY` | key | `unset`; [get a key](https://dashboard.exa.ai/) | yes | yes | Exa search API credential used by the octocode-brainstorming skill. |
+| — | `SERPER_API_KEY` | key | `unset`; [get a key](https://serper.dev/) | yes | yes | Serper search API credential used by the octocode-brainstorming skill. |
+| — | `TAVILY_BASE_URL` | url | `https://api.tavily.com` | no | no | Tavily API root; receives TAVILY_API_KEY. Home-only, so a repository cannot redirect your key. |
+| — | `EXA_BASE_URL` | url | `https://api.exa.ai` | no | no | Exa API root; receives EXA_API_KEY. Home-only, so a repository cannot redirect your key. |
+| — | `SERPER_BASE_URL` | url | `https://google.serper.dev` | no | no | Serper API root; receives SERPER_API_KEY. Home-only, so a repository cannot redirect your key. |
+| — | `GH_TOKEN` | key | `unset (octocode auth login also works)` | yes | yes | GitHub CLI token |
+| — | `GITHUB_TOKEN` | key | `unset (octocode auth login also works)` | yes | yes | GitHub Actions token |
+| — | `SCRAPING_ANT` | key | `unset`; [get a key](https://app.scrapingant.com/) | yes | yes | ScrapingAnt API credential used by the octocode-scraping skill. |
+| — | `HTTPS_PROXY` | url | `unset` | yes | no | Proxy for HTTPS requests and clone git. Shell, CI or MCP env block only. |
+| — | `HTTP_PROXY` | url | `unset` | yes | no | Proxy for HTTP requests and clone git. Shell, CI or MCP env block only. |
+| — | `ALL_PROXY` | url | `unset` | yes | no | Proxy for every protocol. Shell, CI or MCP env block only. |
+| — | `NO_PROXY` | string | `unset` | no | no | Hosts that skip the proxy. Shell, CI or MCP env block only. |
+| — | `SSL_CERT_FILE` | path | `the OS trust store` | no | no | Extra PEM certificates for native HTTP clients and clone git. Shell, CI or MCP env block only. |
+| — | `SSL_CERT_DIR` | path | `the OS trust store` | no | no | Directories of extra PEM certificates. Shell, CI or MCP env block only. |
+| — | `OCTOCODE_GITHUB_CLIENT_ID` | string | `the built-in GitHub app` | no | no | GitHub OAuth client override, for GitHub Enterprise. |
+| — | `OCTOCODE_HOME` | path | `~/.octocode` | no | no | Overrides the Octocode configuration directory (default: <os-home>/.octocode) |
+
+<!-- settings-table:end -->
+
+## Proxies and certificates
+
+Set these in the process environment; a `.env` file cannot. Octocode's HTTP clients honor `SSL_CERT_FILE` and `SSL_CERT_DIR`, which add to the OS trust store with verification left on. `ghCloneRepo` runs git without your git config, keeping `PATH`, the proxy variables in either case, and CA bundles, including `GIT_SSL_CAINFO`, `GIT_SSL_CAPATH` and `CURL_CA_BUNDLE`.
 
 ## Troubleshooting
 
-Start with `npx octocode auth status --json` (token source, identity), `npx octocode config` (paths, set keys), and the MCP client's `tools/list` for MCP availability. `npx octocode schema` lists every CLI tool; `schema <name> --view query` shows its input contract.
+Start with `npx octocode config list` and `npx octocode config --json`, which lists files, skipped keys and warnings. A bad value is skipped and reported on stderr, never with the value itself.
 
-| Symptom | Fix |
+| Problem | Fix |
 |---|---|
-| Token, login, Enterprise, or `clasify` key problem | [AUTHENTICATION.md troubleshooting](AUTHENTICATION.md#troubleshooting) |
-| `ghCloneRepo` missing from MCP | Enable the [clone opt-in](#tool-availability-cli-and-mcp), check MCP tool lists, then restart the server. |
-| Clone invocation rejects storage | Use `OCTOCODE_STORAGE_MODE=persistent`; the visibility opt-in does not override storage policy. |
-| Local tools missing from MCP | Check `OCTOCODE_ENABLE_LOCAL` / `local.enabled` and the MCP tool lists. |
-| Another tool is missing from MCP | Check the [availability matrix](#tool-availability-cli-and-mcp), `TOOLS_TO_RUN` / `tools.enabled`, and `DISABLE_TOOLS` / `tools.disabled`. |
-| Slow or timeouts | The 30 s request timeout is fixed; narrow the query with a path, `include` or ranges, or check the network or GitHub Enterprise host. |
-| `rateLimited` on GitHub tools | Wait for `retryAfter`, then rerun the call. |
-| `clasify` returns `classificationQuotaExhausted` | The provider account has no credit (HTTP 402); add credit and rerun. |
-| `clasify` returns `classificationRateLimited` | Wait for the reported retry time; agents sharing a key share its rate limit. |
-| A skill's web search is unavailable | Follow that skill's provider instructions; the catalog has no general web-search tool. |
-| `stats.json` never written | Set `storage.stats: true` or `OCTOCODE_ENABLE_STATS=1`. |
-| `.env` key ignored | A home-only key in a workspace `.env`, or the shell or MCP `env` already sets it; see `npx octocode config --json` → `skippedProtected`. |
-| `.env` key not loading | Check the process working directory, then restart. |
-| Settings not applied | Restart the MCP server or agent session; check stderr or `config --json` → `diagnostics` confirm the working directory is the workspace you edited. |
-
-## See also
-
-- [Adding config](../skills-dev/octocode-dev/docs/ADDING_CONFIG.md) — contributor guide for settings and credentials
-- [Octocode CLI guide](OCTOCODE_CLI.md)
-- [Octocode MCP guide](OCTOCODE_MCP.md)
-- [Documentation hub](README.md)
+| A setting has no effect | Restart the MCP server, then check `config get <setting> --json` to see which source won |
+| A `.env` key is ignored | It's home-only in a workspace file, or the process already sets it: `config --json` → `skippedProtected` |
+| A file is ignored | It's unreadable or invalid JSON; the other sources still apply |
+| A tool is missing from MCP | Check [availability](#tool-availability-cli-and-mcp), `tools.enabled` and `tools.disabled`, then restart |
+| `No native tools are available` at MCP start | Your settings disabled every tool |
+| Token or login problems | [Authentication troubleshooting](AUTHENTICATION.md#troubleshooting) |
+| `clasify` returns `invalidClassificationConfiguration` | The host isn't an HTTPS API root: remove any path |
+| `clasify` returns `classificationQuotaExhausted` | The provider account has no credit; add credit and rerun |
+| `clasify` returns `classificationRateLimited` | Wait for the reported time; agents sharing a key share its limit |
+| A skill's web search is unavailable | Set a web-search key; there is no keyless fallback |

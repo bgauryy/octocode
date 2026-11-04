@@ -40,13 +40,13 @@ async fn commit_listing_page_two_is_the_providers_next_page() {
             .await;
     }
     let provider = one_shot_provider(&server);
-    let first: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"commit","owner":"o","repo":"r","pathPrefix":"src","filters":{"committedAt":{"from":"2026-01-01T00:00:00Z"}}}))
+    let first: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"commit","owner":"o","repo":"r","path":"src","filters":{"committedAt":{"from":"2026-01-01T00:00:00Z"}}}))
     .expect("query");
     let one = execute(&provider, &first, &default_context(), &Passthrough)
         .await
         .expect("page 1");
     let next = one["next"]["nextPage"]["input"]["queries"][0].clone();
-    for key in ["owner", "repo", "pathPrefix", "filters"] {
+    for key in ["owner", "repo", "path", "filters"] {
         assert_eq!(
             next[key],
             serde_json::to_value(&first).expect("wire")[key],

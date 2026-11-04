@@ -195,7 +195,10 @@ pub(super) fn annotate(
             )],
         );
     }
-    crate::response::paging::push_warnings(result, disclose_waits(&session.config, session.waits));
+    crate::response::paging::push_warnings(
+        result,
+        disclose_waits(&session.config, session.client.waits_since(session.began)),
+    );
     let language_id = target.config.language_id.as_deref();
     inferred_project::annotate(result, query, language_id, &target.path, scope);
     inferred_project::compile_database::annotate_compile_database(

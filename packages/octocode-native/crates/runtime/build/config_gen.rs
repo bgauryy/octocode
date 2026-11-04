@@ -52,7 +52,7 @@ fn render(contract: &Value) -> Result<String, Box<dyn Error>> {
         .first()
         .ok_or_else(|| invalid("config.runtimeSurfaces must not be empty"))?;
     let all_fields = fields(contract)?;
-    let (tokens, protected, home, sources, credentials, narrow) =
+    let (tokens, protected, home, bound, credentials, narrow) =
         environment_arrays(contract, &all_fields)?;
 
     let mut output = String::from(
@@ -90,11 +90,37 @@ fn render(contract: &Value) -> Result<String, Box<dyn Error>> {
         writeln!(output, "    pub const {name}: &str = {name:?};")?;
     }
     writeln!(output, "}}\n")?;
+    writeln!(
+        output,
+        "/// Environment entries a reader can look up, apart from settings: keys, endpoints, proxies.\npub const KNOWN_ENV: &[KnownEnv] = &["
+    )?;
+    for (name, definition) in object(
+        root.get("environment")
+            .ok_or_else(|| invalid("contract.environment is required"))?,
+        "contract.environment",
+    )? {
+        let text = |key: &str| definition.get(key).and_then(serde_json::Value::as_str);
+        if text("type").is_some() {
+            writeln!(
+                output,
+                "    KnownEnv {{ name: {name:?}, kind: {:?}, description: {:?}, default: {:?}, group: {:?}, docs_url: {:?}, credential: {} }},",
+                text("type").unwrap_or_default(),
+                text("description").unwrap_or_default(),
+                text("displayDefault").unwrap_or_default(),
+                text("group"),
+                text("docsUrl"),
+                definition
+                    .get("credential")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true),
+            )?;
+        }
+    }
+    writeln!(output, "];\n")?;
     write_string_slice(&mut output, "ENV_TOKEN_VARS", &tokens)?;
     write_string_slice(&mut output, "ENV_CREDENTIAL_VARS", &credentials)?;
     write_string_slice(&mut output, "PROTECTED_KEYS", &protected)?;
     write_string_slice(&mut output, "HOME_TRUSTED_ENV_KEYS", &home)?;
-    write_string_slice(&mut output, "CONFIG_SOURCE_ENV_KEYS", &sources)?;
     let declared: Vec<String> = object(
         root.get("environment")
             .ok_or_else(|| invalid("contract.environment is required"))?,
@@ -102,7 +128,7 @@ fn render(contract: &Value) -> Result<String, Box<dyn Error>> {
     )?
     .keys()
     .cloned()
-    .chain(sources.iter().cloned())
+    .chain(bound.iter().cloned())
     .collect::<BTreeSet<_>>()
     .into_iter()
     .collect();

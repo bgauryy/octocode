@@ -1,14 +1,16 @@
 //! The inputs a build read must be unchanged when it publishes.
 use super::*;
 
-/// The snapshot's resolution inputs, refused when a config or source the
-/// build read changed while it ran.
+/// The snapshot's resolution inputs and their stamp proof, if one can be
+/// recorded; refused when a config or source the build read changed while it
+/// ran.
 pub(super) fn settled_inputs(
     built: &super::super::super::types::BuiltGraph,
     tables: &format::GraphTables,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> Result<BTreeMap<String, String>, GraphOutput> {
+) -> Result<(BTreeMap<String, String>, Option<String>), GraphOutput> {
+    let proof = settled_input_stamps(paths, &built.root, tables, &built.resolution_inputs);
     let inputs = snapshot_inputs(paths, &built.root, tables);
     if inputs != built.resolution_inputs {
         return Err(GraphOutput::error(
@@ -38,5 +40,6 @@ pub(super) fn settled_inputs(
             ));
         }
     }
-    Ok(inputs)
+    let proof = proof.filter(|_| !withholds_configs(&built.root, tables, &inputs));
+    Ok((inputs, proof))
 }

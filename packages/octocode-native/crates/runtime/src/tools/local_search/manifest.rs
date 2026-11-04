@@ -12,13 +12,14 @@
 //! secret checks to those bytes) and restarts on any difference, and it
 //! proves the submitted query still derives the stored snapshot before
 //! serving it.
-use super::super::page_memo::{PageMemo, Proof};
+use super::super::page_memo::PageMemo;
 use super::layout::FilePrice;
 use super::packed::{Encoded, Packed};
 use super::sources::Digest;
 use super::verify::Redaction;
 use super::walked::Walked;
 use crate::policy::discovery::WalkSkips;
+use octocode_engine::stamp::Proof;
 use octocode_engine::types::{TextSearchMatch, TextSearchResult};
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
@@ -132,7 +133,7 @@ pub struct Stored {
 }
 
 /// Stored scans, weighed by their kept bytes against the one process budget
-/// ([`crate::cache::MEMORY`]): their packed matches, their sources' paths,
+/// ([`octocode_engine::memory::MEMORY`]): their packed matches, their sources' paths,
 /// their redactions and what their walks recorded. One scan may use all of
 /// it, since a scan that is not stored costs a whole walk per page, which
 /// outweighs the entries it would displace; unpacked, a page reads back at
@@ -153,7 +154,7 @@ pub fn get(snapshot: &str, policy: &str) -> Option<Stored> {
 /// `value` encoded as a page found it, for a cursor that may keep it; it is
 /// deflated only by [`put_checked`].
 pub fn encode_checked(value: &TextSearchResult, cancelled: &dyn Fn() -> bool) -> Option<Encoded> {
-    Encoded::encode_checked(value, crate::cache::MEMORY.limit(), cancelled)
+    Encoded::encode_checked(value, octocode_engine::memory::MEMORY.limit(), cancelled)
 }
 
 pub fn get_checked(snapshot: &str, policy: &str, cancelled: &dyn Fn() -> bool) -> Option<Stored> {
@@ -218,7 +219,7 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
     };
     // One file at a time, each at most what the budget could keep; the
     // request's cancellation bounds the whole pass.
-    let max_file = u64::try_from(crate::cache::MEMORY.limit()).unwrap_or(u64::MAX);
+    let max_file = u64::try_from(octocode_engine::memory::MEMORY.limit()).unwrap_or(u64::MAX);
     let mut sources = Vec::with_capacity(scan.files.len());
     for file in scan.files {
         if cancelled() {
@@ -268,7 +269,7 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
         return;
     };
     // Deflated last: the only step whose cost grows with the scan's rows.
-    let budget = crate::cache::MEMORY.limit();
+    let budget = octocode_engine::memory::MEMORY.limit();
     let Some(value) = value.deflate_checked(budget.saturating_sub(derived), cancelled) else {
         return;
     };

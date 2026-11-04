@@ -23,6 +23,8 @@ pub struct Walked {
     pub(super) root: PathBuf,
     /// Searched files, walked directories, and their ignore files.
     pub(super) entries: Vec<PathBuf>,
+    /// How many of `entries`, from the first, are the searched files.
+    searched: usize,
     /// Ignore inputs outside the walk.
     pub(super) rules: Vec<PathBuf>,
     /// Repository markers whose presence decides the rules.
@@ -56,6 +58,7 @@ impl Walked {
         Self {
             root,
             entries,
+            searched: 0,
             rules: Vec::new(),
             markers: Vec::new(),
             untracked: false,
@@ -66,16 +69,22 @@ impl Walked {
         }
     }
 
+    /// The files the walk admitted to search, when it kept a record fit to
+    /// store; otherwise another search of them walks again.
+    pub(super) fn searched_files(&self) -> Option<&[PathBuf]> {
+        (!self.oversize && !self.untracked).then(|| &self.entries[..self.searched])
+    }
+
     /// The proof a stored scan of this walk keeps; `None` when an entry is
     /// gone or was written within the settle window before the walk.
-    pub(super) fn proof(&self) -> Option<crate::tools::page_memo::Proof> {
+    pub(super) fn proof(&self) -> Option<octocode_engine::stamp::Proof> {
         crate::tools::page_memo::Watch {
             root: &self.root,
             sources: &self.entries,
             rules: &self.rules,
             markers: &self.markers,
         }
-        .capture(crate::tools::source::Link::Follow, Some(self.started))
+        .capture(octocode_engine::stamp::Link::Follow, Some(self.started))
     }
 }
 
@@ -111,6 +120,8 @@ struct Weight {
 
 #[derive(Default)]
 struct Seen {
+    /// Files the walk admitted to search, apart from what it only watches.
+    searched: Vec<PathBuf>,
     entries: Vec<PathBuf>,
     rules: BTreeSet<PathBuf>,
     untracked: bool,
@@ -129,20 +140,45 @@ impl Seen {
     /// Record `path`, or drop every entry once all shards' entries
     /// outweigh the maximum.
     fn record(&mut self, path: PathBuf, weight: &Weight) {
-        if !weight.oversize.load(Ordering::Relaxed) {
-            let added = path_weight(&path);
-            if weight
-                .bytes
-                .fetch_add(added, Ordering::Relaxed)
-                .saturating_add(added)
-                <= weight.max
-            {
-                self.entries.push(path);
-                return;
-            }
-            weight.oversize.store(true, Ordering::Relaxed);
+        if weight.keeps(&path) {
+            self.entries.push(path);
+        } else {
+            self.drop_entries();
         }
+    }
+
+    /// [`Self::record`] of a file the walk admitted to search.
+    fn record_searched(&mut self, path: PathBuf, weight: &Weight) {
+        if weight.keeps(&path) {
+            self.searched.push(path);
+        } else {
+            self.drop_entries();
+        }
+    }
+
+    fn drop_entries(&mut self) {
         self.entries = Vec::new();
+        self.searched = Vec::new();
+    }
+}
+
+impl Weight {
+    /// Whether `path` fits beside what all shards keep; the first that does
+    /// not marks the walk oversize.
+    fn keeps(&self, path: &Path) -> bool {
+        if self.oversize.load(Ordering::Relaxed) {
+            return false;
+        }
+        let added = path_weight(path);
+        let kept = self
+            .bytes
+            .fetch_add(added, Ordering::Relaxed)
+            .saturating_add(added)
+            <= self.max;
+        if !kept {
+            self.oversize.store(true, Ordering::Relaxed);
+        }
+        kept
     }
 }
 
@@ -195,11 +231,15 @@ impl Recorder {
         for shard in &self.shards {
             let shard = std::mem::take(&mut *lock(shard));
             if !oversize {
+                seen.searched.extend(shard.searched);
                 seen.entries.extend(shard.entries);
             }
             seen.rules.extend(shard.rules);
             seen.untracked |= shard.untracked;
         }
+        let searched = seen.searched.len();
+        let mut entries = seen.searched;
+        entries.append(&mut seen.entries);
         Walked {
             markers: if self.ignore_rules {
                 crate::tools::page_memo::repository_markers(&self.root)
@@ -207,7 +247,8 @@ impl Recorder {
                 Vec::new()
             },
             root: self.root.clone(),
-            entries: seen.entries,
+            entries,
+            searched,
             rules: seen.rules.into_iter().collect(),
             untracked: seen.untracked,
             oversize,
@@ -233,16 +274,21 @@ impl Recorder {
         })
     }
 
-    /// Record `path` when the walk admitted it. A directory's ignore inputs
-    /// are read before the lock is taken, so no walk thread waits on another
-    /// thread's file-system calls.
-    fn admitted(&self, path: &Path, is_dir: bool, allowed: bool) -> bool {
+    /// Record `path` when the walk admitted it, as a file it goes on to
+    /// search when `file`. A directory's ignore inputs are read before the
+    /// lock is taken, so no walk thread waits on another thread's file-system
+    /// calls.
+    fn admitted(&self, path: &Path, is_dir: bool, file: bool, allowed: bool) -> bool {
         if allowed {
             let inputs = (is_dir && self.ignore_rules && path != self.root)
                 .then(|| self.directory_inputs(path));
             let entry = path.to_path_buf();
             let mut seen = self.shard();
-            seen.record(entry, &self.weight);
+            if file {
+                seen.record_searched(entry, &self.weight);
+            } else {
+                seen.record(entry, &self.weight);
+            }
             if let Some(inputs) = inputs {
                 seen.observe(inputs, &self.weight);
             }
@@ -260,12 +306,13 @@ fn lock(shard: &Mutex<Seen>) -> MutexGuard<'_, Seen> {
 
 impl TextSearchPathFilter for Recorder {
     fn allows(&self, path: &Path, is_dir: bool) -> bool {
-        self.admitted(path, is_dir, self.walk.allows(path, is_dir))
+        self.admitted(path, is_dir, !is_dir, self.walk.allows(path, is_dir))
     }
 
     fn allows_entry(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {
         let is_dir = file_type.is_some_and(|kind| kind.is_dir());
-        self.admitted(path, is_dir, self.walk.allows_entry(path, file_type))
+        let file = file_type.is_some_and(|kind| kind.is_file());
+        self.admitted(path, is_dir, file, self.walk.allows_entry(path, file_type))
     }
 
     fn skipped_hidden(&self, path: &Path, is_dir: bool) {

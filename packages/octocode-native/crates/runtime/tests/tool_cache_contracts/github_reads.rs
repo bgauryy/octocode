@@ -1,14 +1,14 @@
-//! GitHub reads keep no reusable result: a repeated ghGetFileContent,
-//! ghStructure or ghGetHistoryItem call reaches GitHub again, unconditionally,
-//! and answers the same evidence with no public cache telemetry.
+//! GitHub reads repeat at the least cost that stays correct: a commit-pinned
+//! ghGetFileContent or ghStructure call sends nothing, a mutable ghGetHistoryItem
+//! asks with its validator, and each answers the same evidence with no public
+//! cache telemetry.
 use super::*;
 
-/// Each read of pinned content asks GitHub for the body, beside the
-/// contract's first-page last-change request, and answers identical
-/// evidence without public cache telemetry. (The removed `refresh` field
-/// has nothing left to bypass: every read is this fresh read.)
+/// A commit-pinned body is read once and answers identical evidence without
+/// public cache telemetry. The contract's first-page last-change request has
+/// no answer here, so nothing vouches for it and each page asks again.
 #[tokio::test]
-async fn ghgetfilecontent_reads_github_on_every_call_without_public_telemetry() {
+async fn pinned_ghgetfilecontent_reads_its_body_once_without_public_telemetry() {
     let server = MockServer::builder().start().await;
     let sha = sha('a');
     Mock::given(method("GET"))
@@ -16,7 +16,7 @@ async fn ghgetfilecontent_reads_github_on_every_call_without_public_telemetry() 
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "type":"file", "encoding":"base64", "content":STANDARD.encode("hello cache\n")
         })))
-        .expect(2)
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -48,10 +48,10 @@ async fn ghgetfilecontent_reads_github_on_every_call_without_public_telemetry() 
     runtime.close().await;
 }
 
-/// A repeated `ghStructure` traversal with `maxDepth >= 2` reads the git
-/// tree again and lists the same entries.
+/// A repeated `ghStructure` traversal at a commit reads its git tree once and
+/// lists the same entries.
 #[tokio::test]
-async fn ghstructure_tree_reads_the_tree_on_every_call() {
+async fn pinned_ghstructure_tree_reads_the_tree_once() {
     let server = MockServer::builder().start().await;
     let sha = sha('c');
 
@@ -66,7 +66,7 @@ async fn ghstructure_tree_reads_the_tree_on_every_call() {
                 {"path":"src/lib.rs","type":"blob","mode":"100644","sha":"bbb"},
             ]
         })))
-        .expect(2)
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -93,11 +93,10 @@ async fn ghstructure_tree_reads_the_tree_on_every_call() {
     runtime.close().await;
 }
 
-/// `ghGetHistoryItem` reads a mutable item afresh every time: the second
-/// read of the same PR is a plain (unconditional) read, never an ETag
-/// revalidation, and answers the same item.
+/// `ghGetHistoryItem` asks about a mutable item every time: the second read of
+/// the same PR presents its ETag, and answers the same item.
 #[tokio::test]
-async fn ghgethistoryitem_reads_the_item_afresh_without_a_conditional_read() {
+async fn ghgethistoryitem_confirms_a_mutable_item_with_its_validator() {
     let server = MockServer::builder().start().await;
     // Disable GraphQL so the tool falls back to the REST PR endpoint.
     let pr_body = json!({
@@ -134,10 +133,7 @@ async fn ghgethistoryitem_reads_the_item_afresh_without_a_conditional_read() {
         .await;
 
     let workspace = Workspace::new();
-    let settings = [
-        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
-        ("OCTOCODE_GITHUB_GRAPHQL", "false".into()),
-    ];
+    let settings = [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))];
     let runtime = workspace.runtime(&settings);
 
     let query = json!({"operation":"pullRequest","owner":"o","repo":"r","number":1});
@@ -157,7 +153,7 @@ async fn ghgethistoryitem_reads_the_item_afresh_without_a_conditional_read() {
         .iter()
         .filter(|request| request.headers.contains_key("if-none-match"))
         .count();
-    assert_eq!(conditional, 0, "no read is conditional");
+    assert_eq!(conditional, 1, "the repeat asks with the validator");
     server.verify().await;
     runtime.close().await;
 }

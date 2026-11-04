@@ -97,7 +97,7 @@ impl<'a> Job<'a> {
         let identity = serde_json::to_vec(&(
             JOB_VERSION,
             cache::namespace(scan, root, registry)?,
-            &scan.exclude_dir,
+            &scan.exclude,
             &scan.cargo,
             super::super::super::ANALYSIS_VERSION,
         ))

@@ -7,13 +7,13 @@ mod module_context;
 mod prune;
 mod resolution;
 
-/// The graph of `root`, pruning `exclude_dir` too.
-fn fixture_graph(root: &std::path::Path, exclude_dir: &[&str]) -> super::BuiltGraph {
+/// The graph of `root`, skipping the `exclude` globs too.
+fn fixture_graph(root: &std::path::Path, exclude: &[&str]) -> super::BuiltGraph {
     let paths = crate::tools::test_support::workspace_policy(root);
     super::build_graph(
         &super::GraphScan {
             root: root.to_path_buf(),
-            exclude_dir: exclude_dir.iter().map(|dir| (*dir).to_owned()).collect(),
+            exclude: exclude.iter().map(|glob| (*glob).to_owned()).collect(),
             ..Default::default()
         },
         &paths,
@@ -94,4 +94,39 @@ fn a_file_past_the_per_file_source_budget_is_a_named_scan_gap() {
         "{:?}",
         built.diagnostics
     );
+}
+
+/// Linking keeps the argument slots projection reads and counts the rest.
+#[test]
+fn linking_keeps_only_the_argument_slots_projection_links() {
+    use octocode_engine::graph::{GraphArgumentGroupObservation, GraphArgumentObservation};
+    let dir = crate::tools::test_support::Fixture::new();
+    dir.write(
+        "a.js",
+        "function handler(){}\nfunction run(){ none(); literal(1); both(handler, 2); }\n",
+    );
+    let built = fixture_graph(&dir.0, &[]);
+    let facts = &built.facts["a.js"];
+    let counts = facts.argument_counts;
+    assert_eq!(
+        (counts.sites, counts.groups, counts.slots),
+        (3, 3, 3),
+        "{counts:?}"
+    );
+    assert_eq!(
+        (counts.direct_references, counts.non_reference_values),
+        (1, 2),
+        "{counts:?}"
+    );
+    assert_eq!(facts.argument_sites.len(), 1, "only `both` has a reference");
+    let GraphArgumentGroupObservation::Slots { slots } =
+        &facts.argument_sites[0].groups[0].observation
+    else {
+        panic!("slots");
+    };
+    assert_eq!(slots.len(), 1);
+    assert!(matches!(
+        slots[0].observation,
+        GraphArgumentObservation::Reference { .. }
+    ));
 }

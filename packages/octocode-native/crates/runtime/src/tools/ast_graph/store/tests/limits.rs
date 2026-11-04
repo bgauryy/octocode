@@ -266,3 +266,28 @@ fn the_build_tally_is_a_lower_bound_of_the_projection() {
         assert!(built.tally.edges <= tables.edges.len(), "{:?}", built.tally);
     }
 }
+
+/// Redaction's caches come on top of what is live: the linked facts are gone
+/// by then, but for what publication still reads of them.
+#[test]
+fn projection_releases_the_linked_facts_before_redaction() {
+    let dir = git_app(&[(
+        "a.ts",
+        "export function run() { return helper(); }\nfunction helper() { return 1; }\n",
+    )]);
+    let dir = dir.0.as_path();
+    let (paths, security) = (workspace_policy(dir), ContentSecurity::new());
+    let mut built = build(dir, &paths, &security);
+    assert!(!built.facts["a.ts"].calls.is_empty());
+    let Ok(projection) = project_graph(&mut built, &paths, &security, &NeverCancel, &LIMITS) else {
+        panic!("projection");
+    };
+    let facts = &built.facts["a.ts"];
+    assert!(facts.calls.is_empty() && facts.declarations.is_empty());
+    assert!(built.nodes.is_empty());
+    assert!(
+        !facts.digest.is_empty(),
+        "the settle check reads the digest"
+    );
+    assert!(!projection.tables.nodes.is_empty());
+}

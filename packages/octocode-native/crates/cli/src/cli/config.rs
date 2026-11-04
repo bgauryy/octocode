@@ -1,8 +1,10 @@
 mod manage;
+mod read;
 use super::{emit_error, write_json};
 pub use manage::manage;
 use octocode_contract_types::ErrorCode;
 use octocode_native::runtime::ToolRuntime;
+pub use read::{check, get, list};
 use serde_json::json;
 use std::io;
 
@@ -157,7 +159,9 @@ pub fn show(runtime: &ToolRuntime, json_out: bool) -> u8 {
     for diagnostic in &view.diagnostics {
         println!("{diagnostic}");
     }
-    println!("Values are not shown here; `octocode config get KEY` prints one.");
+    println!(
+        "Values are not shown here; `octocode config get KEY` prints one, `octocode config list` every setting."
+    );
     0
 }
 
@@ -179,77 +183,6 @@ pub fn env_key(key: &str) -> &str {
         .find(|field| field.path == key)
         .and_then(octocode_native::config::ConfigFieldSpec::env_name)
         .unwrap_or(key)
-}
-
-/// `config get KEY`: the resolved value on stdout (nothing else, so
-/// `$(octocode config get KEY)` captures it); exit 1 when unset. A secret is
-/// masked, with the layer and file that hold it, so a person or agent can
-/// read it there.
-pub fn get(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
-    let config = runtime.config();
-    let value = config.env_value(key).filter(|value| !value.is_empty());
-    let origin = value.and(config.env_origins.get(key));
-    let source = value.map(|_| origin.map_or("env", |origin| origin.scope.as_str()));
-    let path = origin.map(|origin| &origin.path);
-    let masked = octocode_native::config::is_secret_key(key);
-    let shown = value.map(|value| {
-        if masked {
-            octocode_engine::security::redaction_placeholder(key)
-        } else {
-            value.to_owned()
-        }
-    });
-    if json_out {
-        let code = write_json(
-            &json!({"key": key, "set": value.is_some(), "value": shown, "source": source, "path": path}),
-        );
-        if code != 0 {
-            return code;
-        }
-    } else if let Some(shown) = shown {
-        match (masked, path) {
-            (false, _) => println!("{shown}"),
-            (true, Some(path)) => {
-                println!("{shown} ({}: {})", source.unwrap_or("env"), path.display());
-            }
-            (true, None) => println!("{shown} (process environment)"),
-        }
-    } else {
-        eprintln!("{key}: unset");
-    }
-    if value.is_some() { 0 } else { 1 }
-}
-
-/// `config check KEY`: exit 0 when set, 1 when unset. A GitHub token key that
-/// is unset names the credential GitHub calls use instead.
-pub async fn check(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
-    let set = runtime
-        .config()
-        .env_value(key)
-        .is_some_and(|value| !value.is_empty());
-    let github_auth = if !set && octocode_native::config::ENV_TOKEN_VARS.contains(&key) {
-        runtime.active_token_source().await
-    } else {
-        None
-    };
-    if json_out {
-        let mut value = json!({"key": key, "set": set});
-        if let Some(source) = &github_auth {
-            value["githubTokenSource"] = json!(source);
-        }
-        let code = write_json(&value);
-        if code != 0 {
-            return code;
-        }
-    } else {
-        match &github_auth {
-            Some(source) => {
-                println!("{key}: unset (GitHub calls use the token from {source})");
-            }
-            None => println!("{key}: {}", if set { "set" } else { "unset" }),
-        }
-    }
-    if set { 0 } else { 1 }
 }
 
 /// `config set KEY VALUE` / `config set KEY --stdin`.
@@ -289,6 +222,10 @@ fn read_stdin_value() -> Result<String, &'static str> {
         if value.ends_with('\r') {
             value.pop();
         }
+    }
+    // An empty pipe or an early Ctrl-D must not overwrite a saved key; `unset` removes one.
+    if value.is_empty() {
+        return Err("No value on stdin; nothing was changed.");
     }
     Ok(value)
 }

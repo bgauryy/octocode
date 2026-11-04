@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { nextHints } from '../responses.mjs';
 
-const sourceScope = { owner: 'octo', repo: 'demo', extensions: ['ts'], pathPrefix: 'src', nameContains: 'greeter' };
+const sourceScope = { owner: 'octo', repo: 'demo', extensions: ['ts'], path: 'src', nameContains: 'greeter' };
 
 function relatedSearch(result, variants) {
   return nextHints(result.json).find(call => call.kind === 'related' && call.tool === 'ghSearchCode'

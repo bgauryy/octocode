@@ -8,6 +8,8 @@ pub(crate) mod patterns;
 pub mod sanitizer;
 pub mod types;
 
+pub use detector::WholeSourcePatterns;
+
 /// Prefix of detector placeholders (`[REDACTED-<NAME>]`).
 pub const REDACTION_PREFIX: &str = "[REDACTED";
 

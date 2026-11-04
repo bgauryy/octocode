@@ -174,7 +174,6 @@ pub(super) fn scan_directory(
             rule: q.rule(),
             include: q.include(),
             exclude: q.exclude(),
-            exclude_dir: None,
             default_exclude_dir: Some(prune::walk_names(q.default_excludes(), &include)),
             ignore: octocode_engine::types::IgnorePolicy::new(
                 q.include_ignored(),
@@ -186,11 +185,11 @@ pub(super) fn scan_directory(
             max_file_bytes: u32::try_from(super::super::source::MAX_PARSE_SOURCE_BYTES).ok(),
         },
         demand(q, &price),
-        &|path| {
+        &|path, file_type| {
             // Only a file the scan parses is one the scope leaves unread.
-            log.admit(path)
+            log.admit(path, file_type)
                 && scoped.as_ref().is_none_or(|scoped| {
-                    let is_dir = path.is_dir();
+                    let is_dir = file_type.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
                     (!is_dir && !parses(scope, path)) || scoped.reads(path, is_dir)
                 })
         },

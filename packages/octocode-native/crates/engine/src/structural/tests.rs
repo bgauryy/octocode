@@ -34,7 +34,6 @@ fn review_file_options(
         rule: Some(rule),
         include: None,
         exclude: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         ignore: crate::types::IgnorePolicy::default(),
         max_depth: Some(1),
@@ -51,7 +50,6 @@ fn scan_options(root: &std::path::Path, skip: u32) -> StructuralSearchFilesOptio
         rule: None,
         include: None,
         exclude: None,
-        exclude_dir: None,
         default_exclude_dir: None,
         ignore: crate::types::IgnorePolicy::default(),
         max_depth: None,
@@ -67,7 +65,6 @@ mod limits;
 mod patterns;
 mod qualified;
 mod queries;
-mod return_types;
 mod search_files;
 mod unsaid;
 mod walker;

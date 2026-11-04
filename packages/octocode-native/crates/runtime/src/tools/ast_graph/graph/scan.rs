@@ -132,9 +132,8 @@ pub(super) fn extract<'a>(
     // local tool walks it); the credential stores are the path policy's.
     let options = GraphFactsScanOptions {
         path: root.to_string_lossy().into_owned(),
-        exclude_dir: Some(scan.exclude_dir.clone()),
         default_exclude_dir: Some(crate::policy::prune::walk_names(true, &[])),
-        exclude: None,
+        exclude: (!scan.exclude.is_empty()).then(|| scan.exclude.clone()),
         // No file cap (the snapshot bounds refuse a build that cannot
         // publish); a set `max_files` keeps the scan off the time budget.
         max_files: Some(u32::MAX),

@@ -1,48 +1,29 @@
 //! The input's shape before any row is validated: an envelope of object
 //! rows or a saved-response read. A shape the contract does not take is rejected
-//! with an issue whose rule the repair reads (`validate/repair.rs`), never
-//! reshaped here: a nested envelope's fields would be lost silently.
+//! and reported, never reshaped here: a nested envelope's fields would be lost
+//! silently.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::ValidationIssue;
 
 /// The rejection for input with neither fresh queries nor a saved-response token.
 const ENVELOPE_REQUIRED: &str = "Fresh calls require {\"queries\":[...]}; continuations require {\"cursor\":\"...\"} without queries.";
 
-/// Rule of a bare array of rows: the repair wraps it as `queries`.
-pub(crate) const ENVELOPE_ARRAY: &str = "envelope.array";
-/// Rule of a row that is itself an envelope: the repair lifts its rows.
-pub(crate) const ENVELOPE_NESTED: &str = "envelope.nested";
-/// Rule of any other shape the envelope does not take (no repair).
+/// Rule of a shape the envelope does not take.
 const ENVELOPE_SHAPE: &str = "envelope.shape";
 
-/// The repair for an object that is neither envelope: its row fields name a
-/// bare query row to wrap; any other field is not a request field.
+/// The message for an object that is neither envelope: a field no row
+/// declares is not a request field. A bare row is wrapped before validation
+/// (`normalize::shaped`).
 fn shape_repair(tool_name: &str, object: &serde_json::Map<String, Value>) -> Option<String> {
     let tool = crate::id::ToolId::from_name(tool_name)?;
-    let (rows, others): (Vec<&str>, Vec<&str>) = object
+    let field = object
         .keys()
-        .map(String::as_str)
-        .partition(|field| super::query_declares(tool, field));
-    if let Some(field) = others.first() {
-        return Some(format!(
-            "Unknown request field '{field}': fresh calls send {{\"queries\":[...]}}; continuations send {{\"cursor\":\"...\"}} alone."
-        ));
-    }
-    let mut rows = rows;
-    rows.sort_unstable();
-    let verb = if rows.len() == 1 {
-        "is a query field"
-    } else {
-        "are query fields"
-    };
-    (!rows.is_empty()).then(|| {
-        format!(
-            "{} {verb}: send {{\"queries\":[{{…}}]}}, one object per query.",
-            rows.join(", ")
-        )
-    })
+        .find(|field| !super::query_declares(tool, field))?;
+    Some(format!(
+        "Unknown request field '{field}': fresh calls send {{\"queries\":[...]}}; continuations send {{\"cursor\":\"...\"}} alone."
+    ))
 }
 
 /// A batch over the tool's `queries` limit: the rest go in another call.
@@ -68,14 +49,13 @@ fn oversized_batch(tool_name: &str, rows: usize) -> Option<ValidationIssue> {
 /// The shape issues of `input` for `tool_name`; empty when it is the
 /// envelope of object rows or a saved-response read for canonical validation.
 pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationIssue> {
-    let issue =
-        |rule: &str, path: Vec<String>, message: String, schema: Option<Value>| ValidationIssue {
-            rule_id: rule.to_owned(),
-            path,
-            message,
-            schema,
-            received: None,
-        };
+    let issue = |path: Vec<String>, message: String| ValidationIssue {
+        rule_id: ENVELOPE_SHAPE.to_owned(),
+        path,
+        message,
+        schema: None,
+        received: None,
+    };
     let Some(rows) = input.as_object().and_then(|object| object.get("queries")) else {
         if input
             .as_object()
@@ -83,16 +63,11 @@ pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationI
         {
             return Vec::new();
         }
-        let rule = if input.as_array().is_some_and(|rows| !rows.is_empty()) {
-            ENVELOPE_ARRAY
-        } else {
-            ENVELOPE_SHAPE
-        };
         let message = input
             .as_object()
             .and_then(|object| shape_repair(tool_name, object))
             .unwrap_or_else(|| ENVELOPE_REQUIRED.to_owned());
-        return vec![issue(rule, Vec::new(), message, None)];
+        return vec![issue(Vec::new(), message)];
     };
     let Some(rows) = rows.as_array() else {
         return vec![ValidationIssue {
@@ -122,20 +97,6 @@ pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationI
     if let Some(issue) = oversized_batch(tool_name, rows.len()) {
         return vec![issue];
     }
-    let envelope_fields = || {
-        let fields = super::tool_contract_named(tool_name)
-            .and_then(Result::ok)
-            .map(|tool| {
-                let input = &tool["inputSchema"];
-                super::schema_facts::property_names(input, &input["$defs"])
-                    .into_iter()
-                    .filter(|key| *key != "queries")
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        json!({ "envelopeFields": fields })
-    };
     rows.iter()
         .enumerate()
         .filter_map(|(index, row)| {
@@ -150,18 +111,11 @@ pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationI
                 let mut path = path;
                 path.push("queries".into());
                 issue(
-                    ENVELOPE_NESTED,
                     path,
                     "A row holds its own queries: put those rows directly in queries[] and its other fields (responseChars) beside queries. Nothing ran.".to_owned(),
-                    Some(envelope_fields()),
                 )
             } else {
-                issue(
-                    ENVELOPE_SHAPE,
-                    path,
-                    format!("queries[{index}] must be a query object."),
-                    None,
-                )
+                issue(path, format!("queries[{index}] must be a query object."))
             })
         })
         .collect()

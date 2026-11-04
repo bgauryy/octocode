@@ -31,6 +31,7 @@ pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
         source,
         verification,
         username,
+        quota,
     } = &status;
     // Not authenticated is the documented auth exit (4), whatever the mode.
     let unauthenticated = super::exit_code(ExitClass::Failed(FailureKind::Authentication));
@@ -41,6 +42,7 @@ pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
             "username": username,
             "hostname": host,
             "tokenSource": source,
+            "quota": quota,
         }));
         return match written {
             0 if verification.authenticated() => 0,
@@ -58,6 +60,12 @@ pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
             match username {
                 Some(user) => println!("authenticated as {user} (source: {source}{note})"),
                 None => println!("authenticated (source: {source}{note})"),
+            }
+            for bucket in quota {
+                println!(
+                    "quota {}: {}/{} left, resets {}",
+                    bucket.resource, bucket.remaining, bucket.limit, bucket.reset_at
+                );
             }
             0
         }

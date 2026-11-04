@@ -18,6 +18,7 @@
     )
 )]
 
+pub mod cpu;
 pub(crate) mod deep_stack;
 pub mod digest;
 pub mod error;
@@ -26,6 +27,7 @@ pub mod graph;
 pub mod host;
 pub mod json_size;
 pub mod lsp;
+pub mod memory;
 pub mod minify;
 pub mod num;
 pub mod process;

@@ -29,6 +29,8 @@ mod probe;
 mod resolution;
 #[cfg(unix)]
 mod rustup_fixture;
+#[cfg(unix)]
+mod rustup_memo;
 mod server_defaults;
 mod tsgo;
 mod workspace_root;

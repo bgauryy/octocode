@@ -113,7 +113,8 @@ export async function githubImageChecks(ctx, surface, provider) {
     checks.push(['remoteImage.originalFresh', capturedImage(replay, PNG, ref) && replay.replayed !== true
       && same(replay.answers, first.answers) && replay.assets.screen.snapshot === first.assets.screen.snapshot
       && changed.assets.screen.snapshot !== first.assets.screen.snapshot && sameBytes.assets.screen.snapshot === first.assets.screen.snapshot
-      && fs.readFileSync(first.assets.screen.path).equals(PNG) && fixture.requests.length === 4 && provider.sent.length === before + 4,
+      // A commit's bytes never change: the repeat is judged again from the kept answer.
+      && fs.readFileSync(first.assets.screen.path).equals(PNG) && fixture.requests.length === 3 && provider.sent.length === before + 4,
     { snapshots: saved.map(item => item.assets.screen.snapshot), acquisitions: fixture.requests.length, inference: provider.sent.length - before }]);
   } finally { fixture.close(); }
   return checks;

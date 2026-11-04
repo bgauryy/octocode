@@ -4,7 +4,6 @@ use super::probe::{FilterProbe, ProbeBound, Uncovered};
 use super::reports_withheld;
 use super::walked::WalkMeta;
 use crate::response::result::ToolError;
-use crate::tools::display_name;
 use octocode_engine::types::TestCodeExcluded;
 use serde_json::{Value, json};
 
@@ -112,7 +111,9 @@ impl<'a> WalkLeft<'a> {
         {
             return false;
         }
-        let dot = display_name(path).starts_with('.');
+        let dot = path
+            .file_name()
+            .is_some_and(|name| name.as_encoded_bytes().starts_with(b"."));
         let allowed = self.admission.permits(path, file_type);
         let fresh = visit.fresh_at();
         let unseen = if allowed {
@@ -197,7 +198,7 @@ impl<'a> WalkLeft<'a> {
         let behind_ignore = ignored
             .iter()
             .filter_map(|entry| entry.strip_suffix('/'))
-            .filter(|dir| self.excludes(&self.root.join(dir), None))
+            .filter(|dir| self.admission.excludes(&self.root.join(dir), true))
             .map(str::to_owned)
             .collect::<Vec<_>>();
         let mut withheld = crate::policy::discovery::Withheld::default();
@@ -260,7 +261,10 @@ impl WalkMeta {
     ) -> Result<(), ToolError> {
         use crate::tools::leads::skipped::{self, under};
         use octocode_contract_types::SkippedPathCause::{DefaultExcluded, Hidden, Ignored};
-        out["summary"] = json!({"files": self.files, "dirs": self.dirs, "bytes": self.bytes});
+        out["summary"] = json!({"files": self.files, "dirs": self.dirs});
+        if let Some(bytes) = self.bytes {
+            out["summary"]["bytes"] = json!(bytes);
+        }
         if let Some(excluded) = self.test_code_excluded.and_then(TestCodeExcluded::stated) {
             out["testCodeExcluded"] = serde_json::to_value(excluded).unwrap_or_default();
         }

@@ -177,3 +177,32 @@ fn a_name_filter_miss_leads_to_the_listing_without_its_name_filters() {
     .expect("empty listing");
     assert!(related(&out, "structureSearch").is_null(), "{out}");
 }
+
+/// An empty listing a depth bound emptied (a tree lists one level unless told
+/// otherwise) is no name miss: the lead keeps the filters and lifts the bound,
+/// and the hint says the matches sit deeper.
+#[test]
+fn an_empty_listing_a_depth_bound_emptied_leads_below_it() {
+    let root = Fixture::new();
+    root.write("src/deep/x.rs", "x\n");
+    root.write("readme.txt", "x\n");
+    for query in [
+        json!({"path":root.0,"extensions":["rs"]}),
+        json!({"operation":"files","path":root.0,"extensions":["rs"],"maxDepth":1}),
+    ] {
+        let out = run(&root.0, query).expect("listing");
+        assert_eq!(out["status"], "empty", "{out}");
+        let hint = out["hints"][0].as_str().expect("hint");
+        assert!(hint.contains("deeper"), "{out}");
+        let lead = &related(&out, "structureSearch")["input"]["queries"][0];
+        assert_eq!(lead["operation"], "files", "{out}");
+        assert_eq!(lead["extensions"], json!(["rs"]), "{out}");
+        assert!(lead.get("maxDepth").is_none(), "{out}");
+        let found = run(&root.0, lead.clone()).expect("lead");
+        assert_ne!(found["status"], "empty", "{found}");
+    }
+    // Nothing below it either: the miss is the name's.
+    let out = run(&root.0, json!({"path":root.0,"extensions":["zzz"]})).expect("listing");
+    let hint = out["hints"][0].as_str().expect("hint");
+    assert!(hint.starts_with("No entry matches extensions"), "{out}");
+}

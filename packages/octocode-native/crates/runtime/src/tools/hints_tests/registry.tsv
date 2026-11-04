@@ -31,6 +31,7 @@ shared	providers/classification/transport/errors.rs	Retry later or reduce concur
 shared	providers/classification/transport/errors.rs	Retry unresolved evidence in a smaller request.
 shared	providers/classification/transport/request.rs	Reduce the supplied state or question count.
 shared	providers/github/auth/resolver.rs	[octocode] warning: no GitHub credential for {host} and the secure credential store is unavailable; GitHub tools run unauthenticated (60 requests/hour). Set GITHUB_TOKEN or run octocode auth login for a higher limit.
+shared	providers/saved_answers.rs	Answer observed {}: its origin was not asked again, so later changes are not shown.
 shared	response/output.rs	Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.
 shared	response/output.rs	Path did not open as a file: list it with structureSearch operation:"files", then retry with one exact listed file.
 shared	response/output.rs	Path not found: list its parent directory with structureSearch, then retry with the exact listed path.
@@ -137,13 +138,13 @@ ghCloneRepo	tools/gh_clone_repo/checkout.rs	Verify the path with ghStructure, or
 ghSearchCode	tools/gh_search_code.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
 ghSearchCode	tools/gh_search_code.rs	keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 `{branch}`
-ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 with `pathPrefix:"{}"`
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 with `path:"{}"`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Code search indexes only the default branch{branch}; `{reference}` was not searched.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match across the owner is unproven absence: the index may not cover every repository; list them with the related[] ghSearchRepo request, then search or read one.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match is unproven absence: list the repository with the related[] ghStructure request, then narrow to a path.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Repository is archived, so its code-search index may lag: list its files with the related[] ghStructure request.
-ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`pathPrefix:"{}"` is a directory scope: to search one file there, set `nameContains` to its name and `pathPrefix` to its parent.
-ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`pathPrefix` is a directory prefix and `{}` looks like a file: search it by `nameContains:"{}"`{under}, or read it with matchString.
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`path:"{}"` is a directory scope: to search one file there, set `nameContains` to its name and `path` to its parent.
+ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`path` is a directory prefix and `{}` looks like a file: search it by `nameContains:"{}"`{under}, or read it with matchString.
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	 at {}
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	; `lines` read at {reference}
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	Files from the default-branch index{index}, not {reference}{lines}.
@@ -162,6 +163,7 @@ shared	tools/gh_shared/failure.rs	The related[] ghSearchRepo calls list reposito
 ghStructure	tools/gh_structure/failures.rs	Only the path's case differs.
 ghStructure	tools/gh_structure/failures.rs	The path names a file (its case differs).
 ghStructure	tools/gh_structure/listing.rs	One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.
+ghStructure	tools/gh_structure/materialize/writer.rs	{} binary file(s) are in location.skipped: not text, so not written.
 ghStructure	tools/gh_structure/traverse/entries.rs	{path} ({label})
 shared	tools/judgment.rs	Set OCTOCODE_CLASSIFICATION_API.
 shared	tools/judgment/batch.rs	Inspect the current clasify query schema.
@@ -182,7 +184,6 @@ localSearch	tools/local_search/coverage.rs	{} unreadable
 localSearch	tools/local_search/leads.rs	{total} matches: run the related[] view:"countMatches" request to rank files before paging.
 localSearch	tools/local_search/output.rs	Check read access to the path; a broader search reads the same files.
 localSearch	tools/local_search/output.rs	Correct the regex named in the error. If the intended match is literal text, set regexEngine to literal and keep matchString unchanged.
-localSearch	tools/local_search/probes.rs	No case-sensitive match, but {} file(s) match with case ignored; caseMode:"insensitive" finds them.
 localSearch	tools/local_search/probes.rs	Skipped paths ({counts}) hold no {what} either; the check searched them.
 localSearch	tools/local_search/probes.rs	Skipped paths ({counts}) hold no {what} outside what their check withheld (warnings).
 localSearch	tools/local_search/probes.rs	Skipped paths: {notice}
@@ -190,6 +191,8 @@ localSearch	tools/local_search/probes.rs	file that lacks a match
 localSearch	tools/local_search/probes.rs	file that matches
 localSearch	tools/local_search/probes.rs	files that lack a match
 localSearch	tools/local_search/probes.rs	files that match
+localSearch	tools/local_search/probes/alternates.rs	No case-sensitive match, but {found} file(s) match with case ignored; caseMode:"insensitive" finds them.
+localSearch	tools/local_search/probes/alternates.rs	No literal match, but {found} file(s) match this read as a regex; the related[] call sets regexEngine:"rust".
 lspSearch	tools/lsp_search/failure/leads.rs	coverage.outOfReachFiles counts files that spell `{name}` outside its reach ({}): they cannot reference it, so they are neither missed sites nor leads.
 lspSearch	tools/lsp_search/failure/paging.rs	{stage}: {total} server {requests} failed ({} distinct errors; most frequent, {count}×: {message}); the locations they would add are missing.
 lspSearch	tools/lsp_search/failure/paging.rs	{stage}: {total} server {requests} failed: {message}; the locations they would add are missing.
@@ -283,6 +286,7 @@ shared	tools/source_view/no_match.rs	matchString ran on redacted text: text behi
 shared	tools/source_view/prepare.rs	Redacted private-key block(s) found in the source before selecting the window.
 shared	tools/source_view/view/page.rs	The compact view removed every selected line; use view:content to read the source.
 shared	tools/source_view/view/page.rs	This page holds {}, short of limit {limit}: the response budget sized it, no line is lost; next.nextPage reads on, and a larger responseChars lengthens the page.
+structureSearch	tools/structure_search/probe.rs	No entry matches within {bound} level(s) of path; {}{count} {} deeper: the related[] structureSearch request lists {}.
 structureSearch	tools/structure_search/probe.rs	No entry matches {}; {}{count} {} without {}: the related[] structureSearch request lists {}.
 structureSearch	tools/structure_search/probe.rs	at least 
 structureSearch	tools/structure_search/probe.rs	entries match

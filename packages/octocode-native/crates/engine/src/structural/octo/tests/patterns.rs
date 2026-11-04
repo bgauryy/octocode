@@ -201,23 +201,3 @@ fn special_patterns_share_their_source_template() {
         ));
     }
 }
-
-#[test]
-fn zz_probe_pattern_roots() {
-    for (ext, pattern) in [
-        ("ts", "$M($$$) { $$$ }"),("ts", "a() { $$$ }"),("js", "$M($$$) { $$$ }"),("tsx", "$M($$$) { $$$ }"),
-        ("java", "$M($$$) { $$$ }"),("java", "void $N($$$) { $$$ }"),("java", "$T $N($$$) { $$$ }"),("java","int $X = 1;"),("java","($$$) -> $B"),
-        ("cs", "$M($$$) { $$$ }"),("cs", "void $N($$$) { $$$ }"),("cs","($$$) => $B"),
-        ("cpp", "$M($$$) { $$$ }"),("cpp", "void $N($$$) { $$$ }"),("c", "void $N($$$) { $$$ }"),("c","int $X = 1;"),
-        ("scala", "def $N($$$) = $B"),("scala", "$M($$$) { $$$ }"),
-        ("rs", "$M($$$) { $$$ }"),("rs","let $X = g();"),("rs","const $N: $T = 1;"),("go", "$M($$$) { $$$ }"),
-        ("py", "$M($$$):\n    $$$"),("py", "def $N($$$):\n    $$$"),("py","lambda $$$: $B"),("py","class $C:\n    $$$"),
-        ("ts", "($$$) => $B"),("ts", "const $X = g()"),("ts", "if ($A) { $$$ }"),("ts","foo($X) { }"),
-    ] {
-        let lang = lang(ext);
-        match CompiledPattern::new(&lang, pattern) {
-            Ok(c) => println!("{ext} `{pattern}` => {:?}", c.debug_root()),
-            Err(e) => println!("{ext} `{pattern}` => ERR {e}"),
-        }
-    }
-}

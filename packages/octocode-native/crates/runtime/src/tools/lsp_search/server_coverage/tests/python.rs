@@ -129,3 +129,28 @@ async fn python_misses_name_unresolved_imports_apart_from_dynamic_dispatch() {
     );
     assert_eq!(dynamic["notices"], json!([PYTHON_WARNING]), "{dynamic}");
 }
+
+/// A workspace symbol is a declaration the server found: no use of it is
+/// missing, so the row says nothing of dynamic dispatch (the protocol's own
+/// lack of a completeness marker is the row's note).
+#[test]
+fn python_workspace_symbols_name_no_dynamic_dispatch() {
+    let mut row = json!({"operation":"symbols","matches":[{"path":"a.py"}]});
+    let q =
+        query(json!({"path":"/repo/pkg/a.py","operation":"workspaceSymbol","symbolQuery":"get"}));
+    let scope = Scope::new("/repo".into(), vec!["*.py".into()]);
+    annotate(
+        &mut row,
+        &q,
+        Some("python"),
+        Server {
+            anchor: "/repo/pkg/a.py",
+            root: "/repo",
+        },
+        &scope,
+    );
+    // A row with no symbolName states its reason in coverage.
+    assert!(row.pointer("/coverage/reason").is_none(), "{row}");
+    assert!(row.get("notices").is_none(), "{row}");
+    assert!(row.get("partialReasons").is_none(), "{row}");
+}

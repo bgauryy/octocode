@@ -3,7 +3,7 @@ use super::http::{
     ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse, BodySink,
     StatusFuture,
 };
-use super::release_ref::{ReleaseTags, TagFuture};
+use super::release_ref::{ReleaseTags, TagCommitFuture, TagFuture};
 use octocode_io::budget::RequestBudget;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -155,10 +155,15 @@ impl ArtifactHttp for RouteHttp {
             .or_else(|| self.otherwise.clone().map(|body| (200, body)));
         Box::pin(async move {
             Ok(match answer {
-                Some((status, body)) => ArtifactHttpResponse { status, body },
+                Some((status, body)) => ArtifactHttpResponse {
+                    status,
+                    body,
+                    headers: Vec::new(),
+                },
                 None => ArtifactHttpResponse {
                     status: 404,
                     body: b"{}".to_vec(),
+                    headers: Vec::new(),
                 },
             })
         })
@@ -195,7 +200,13 @@ impl ArtifactHttp for SequenceHttp {
     ) -> ArtifactHttpFuture<'a> {
         let call = self.calls.fetch_add(1, Ordering::Relaxed);
         let body = self.bodies[call.min(self.bodies.len() - 1)].clone();
-        Box::pin(async move { Ok(ArtifactHttpResponse { status: 200, body }) })
+        Box::pin(async move {
+            Ok(ArtifactHttpResponse {
+                status: 200,
+                body,
+                headers: Vec::new(),
+            })
+        })
     }
 }
 
@@ -234,7 +245,13 @@ impl ArtifactHttp for ChunkedHttp {
         _budget: &'a RequestBudget,
     ) -> ArtifactHttpFuture<'a> {
         let body = self.body.clone();
-        Box::pin(async move { Ok(ArtifactHttpResponse { status: 200, body }) })
+        Box::pin(async move {
+            Ok(ArtifactHttpResponse {
+                status: 200,
+                body,
+                headers: Vec::new(),
+            })
+        })
     }
 
     fn stream<'a>(
@@ -293,8 +310,31 @@ impl KnownTags {
 }
 
 impl ReleaseTags for KnownTags {
-    fn tag_exists<'a>(&'a self, owner: &'a str, repo: &'a str, tag: &'a str) -> TagFuture<'a> {
-        self.known(owner, repo, tag)
+    /// A known tag `a/b@tag` names `commit-of-tag`; `a/b@tag=<sha>` names `<sha>`.
+    fn tag_commit<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+        tag: &'a str,
+    ) -> TagCommitFuture<'a> {
+        let name = format!("{owner}/{repo}@{tag}");
+        let named = format!("{name}=");
+        let plain = format!("commit-of-{tag}");
+        let commit = match &self.answer {
+            Answer::Known(known) => Some(known.iter().find_map(|entry| {
+                if *entry == name {
+                    Some(plain.clone())
+                } else {
+                    entry.strip_prefix(named.as_str()).map(str::to_owned)
+                }
+            })),
+            Answer::Always(exists) => exists.map(|exists| exists.then(|| plain.clone())),
+        };
+        self.seen
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(name);
+        Box::pin(async move { commit })
     }
 
     fn commit_exists<'a>(

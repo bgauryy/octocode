@@ -1,8 +1,10 @@
 //! The scanning seam every read passes through: [`ContentScan`] (implemented by
-//! [`super::ContentSecurity`] and test doubles). Each read scans its own
-//! source; derived scanner results are never reused by a fresh request. Only
-//! a continuation page replays the scanned view its cursor's first page
-//! built from the same bytes (`tools::source_view::retained`).
+//! [`super::ContentSecurity`] and test doubles). A read's scan is a pure function
+//! of its source bytes, path and scanner, so a result is reused only under a key
+//! holding all of them, in this process: a range or match read reuses the source
+//! a previous read of the same bytes at the same path scanned, and a continuation
+//! page replays the view its cursor's first page built
+//! (`tools::source_view::retained`). A file whose bytes changed scans again.
 use octocode_contract_types::ErrorCode;
 use std::borrow::Cow;
 use std::path::Path;
@@ -41,23 +43,24 @@ pub(crate) fn redact_lines<'a>(
     source: &'a str,
     path: &Path,
 ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
-    redact_with(source, |text| {
+    redact_with(source, false, |text| {
         scan.sanitize(text, path).map(|(text, _)| text.into())
     })
 }
 
+/// `whole_only`: line by line cannot judge this source, so a refused whole scan
+/// refuses it.
 fn redact_with<'a>(
     source: &'a str,
+    whole_only: bool,
     sanitize: impl Fn(&'a str) -> Result<Cow<'a, str>, (ErrorCode, String)>,
 ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
     let lines = |text: &str| text.split_inclusive('\n').count();
-    if let Ok(whole) = sanitize(source) {
-        if whole == source {
-            return Ok((source.into(), false));
-        }
-        if lines(&whole) == lines(source) {
-            return Ok((whole, true));
-        }
+    match sanitize(source) {
+        Ok(whole) if whole == source => return Ok((source.into(), false)),
+        Ok(whole) if lines(&whole) == lines(source) => return Ok((whole, true)),
+        Err(refusal) if whole_only => return Err(refusal),
+        Ok(_) | Err(_) => {}
     }
     let mut out = String::with_capacity(source.len());
     for segment in source.split_inclusive('\n') {
@@ -131,7 +134,10 @@ impl ContentScan for super::ContentSecurity {
         source: &'a str,
         path: &Path,
     ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
-        redact_with(source, |text| {
+        let whole_only =
+            octocode_engine::security::WholeSourcePatterns::for_path(&path.to_string_lossy())
+                .is_some_and(|patterns| patterns.named_by(source));
+        redact_with(source, whole_only, |text| {
             checked_content(self.sanitize_text(text, Some(path)))
         })
     }

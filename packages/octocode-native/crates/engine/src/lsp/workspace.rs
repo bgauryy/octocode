@@ -3,8 +3,12 @@ use crate::text::lexical;
 use std::path::{Path, PathBuf};
 
 mod cargo;
+mod includes;
 mod modules;
 pub use cargo::{cargo_workspace_root, declares_cargo_workspace};
+#[cfg(test)]
+use includes::{PACKAGE_FILES_READ, cargo_package_build_script};
+pub use includes::{PackageIncludes, cargo_package_includes};
 
 const MARKERS: [&str; 12] = [
     "package.json",
@@ -175,149 +179,6 @@ pub fn is_workspace_manifest_root(dir: &Path) -> bool {
             .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
             .is_some_and(|manifest| manifest.get("workspaces").is_some())
         || declares_cargo_workspace(dir)
-}
-
-/// Source a Cargo package `include!`s that rust-analyzer may not load.
-/// rust-analyzer loads a package's own directory (and, once build scripts
-/// ran, their `OUT_DIR`); an `include!` it cannot load leaves every item the
-/// included file defines unknown, so uses that reach a symbol through those
-/// types (a method called through `Deref` to one, a field of one) do not
-/// resolve.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PackageIncludes {
-    /// Package files that `include!` build-script output (`env!(…)`, such
-    /// as `concat!(env!("OUT_DIR"), …)`): loaded only when the package has a
-    /// build script and rust-analyzer runs it.
-    pub generated: Vec<PathBuf>,
-    /// Literal `include!` targets outside the package directory (lexically
-    /// normalized): never loaded, whatever the build context.
-    pub outside: Vec<PathBuf>,
-    /// Package files that declare the scanned file as a module (`mod x;`,
-    /// or `#[path = "…"] mod x;`). Two or more compile it into several
-    /// crates (a bench and a test sharing a support file); rust-analyzer
-    /// analyzes it as part of one, so uses in the others' copies are not
-    /// references of the symbol it answers for.
-    pub declared_by: Vec<PathBuf>,
-    /// The request stopped the scan: more includes may exist.
-    pub has_more: bool,
-}
-
-/// [`PackageIncludes`] of the Cargo package `file` belongs to, scanning
-/// every one of its `.rs` files (nested packages and ignored files are not
-/// its sources) until `stopped` (the request's cancellation or deadline)
-/// says to stop, which `has_more` discloses: no file count bounds it.
-/// `generated` is empty when the package has no build script: without one
-/// no build-script output exists to load.
-pub fn cargo_package_includes(file: &Path, stopped: &dyn Fn() -> bool) -> Option<PackageIncludes> {
-    let package = cargo_package_dir(file.parent()?)?;
-    let build_script = cargo_package_build_script(&package);
-    let has_build_script = build_script.is_some();
-    let targets = cargo::TargetRoots::new(&package, build_script);
-    let root = package.clone();
-    let walker = ignore::WalkBuilder::new(&package)
-        .filter_entry(move |entry| {
-            entry.path() == root
-                || !entry.file_type().is_some_and(|kind| kind.is_dir())
-                || !entry.path().join(CARGO_MANIFEST).is_file()
-        })
-        .build();
-    let anchor = lexical(file);
-    let mut includes = PackageIncludes::default();
-    let mut modules = modules::ModuleSources::default();
-    for entry in walker.flatten() {
-        let path = entry.path();
-        if !entry.file_type().is_some_and(|kind| kind.is_file())
-            || path.extension().is_none_or(|ext| ext != "rs")
-        {
-            continue;
-        }
-        if stopped() {
-            includes.has_more = true;
-            break;
-        }
-        let Ok(text) = std::fs::read_to_string(path) else {
-            continue;
-        };
-        for argument in include_arguments(&text) {
-            match argument {
-                IncludeArgument::Generated => {
-                    if has_build_script && !includes.generated.iter().any(|seen| seen == path) {
-                        includes.generated.push(path.to_path_buf());
-                    }
-                }
-                IncludeArgument::Literal(target) => {
-                    let target = lexical(&path.parent().unwrap_or(path).join(target));
-                    if !target.starts_with(&package) && !includes.outside.contains(&target) {
-                        includes.outside.push(target);
-                    }
-                }
-            }
-        }
-        modules.push(path, &text);
-    }
-    includes.declared_by = modules.declared_by(&anchor, &targets);
-    Some(includes)
-}
-
-/// What an `include!` reads: a build-script value (`env!`, possibly in a
-/// `concat!`) or a literal path relative to the including file.
-#[derive(Debug, PartialEq, Eq)]
-enum IncludeArgument {
-    Generated,
-    Literal(String),
-}
-
-/// The arguments of the `include!` invocations in `text`, outside line
-/// comments. `include_str!`/`include_bytes!` read data, not source.
-fn include_arguments(text: &str) -> Vec<IncludeArgument> {
-    let mut found = Vec::new();
-    for line in text.lines() {
-        let code = line.split("//").next().unwrap_or(line);
-        for (at, _) in code.match_indices("include!") {
-            if code[..at]
-                .chars()
-                .next_back()
-                .is_some_and(|c| c.is_alphanumeric() || c == '_')
-            {
-                continue;
-            }
-            let rest = code[at + "include!".len()..].trim_start();
-            let Some(argument) = rest
-                .strip_prefix('(')
-                .or_else(|| rest.strip_prefix('{'))
-                .or_else(|| rest.strip_prefix('['))
-                .map(str::trim_start)
-            else {
-                continue;
-            };
-            if let Some(literal) = argument.strip_prefix('"') {
-                if let Some(end) = literal.find('"') {
-                    found.push(IncludeArgument::Literal(literal[..end].to_owned()));
-                }
-            } else if argument.starts_with("env!") || argument.starts_with("concat!") {
-                found.push(IncludeArgument::Generated);
-            }
-        }
-    }
-    found
-}
-
-/// The build script of the Cargo package at `package` (its manifest
-/// directory), when it has one: `[package] build = "path"`, else `build.rs`
-/// beside the manifest (Cargo's default), unless `build = false`.
-fn cargo_package_build_script(package: &Path) -> Option<PathBuf> {
-    let manifest = cargo::manifest(package)?;
-    let settings = manifest.get("package")?;
-    if settings.get("build").and_then(toml::Value::as_bool) == Some(false) {
-        return None;
-    }
-    let script = package.join(
-        settings
-            .get("build")
-            .and_then(toml::Value::as_str)
-            .unwrap_or("build.rs"),
-    );
-    script.is_file().then_some(script)
 }
 
 const CARGO_MANIFEST: &str = "Cargo.toml";

@@ -24,8 +24,8 @@ impl GitHubTransport {
     }
 
     /// How many of `requests` the code-search quota must cover: those a
-    /// resumed continuation's journal cannot answer with every provider page
-    /// they read (a replayed search costs no provider call).
+    /// resumed continuation's journal or a saved answer cannot answer with
+    /// every provider page they read (neither costs a provider call).
     pub fn code_search_unanswered(
         &self,
         requests: &[CodeSearchRequest],
@@ -38,7 +38,7 @@ impl GitHubTransport {
                 request.page,
                 request.per_page,
             )?;
-            if !specs.iter().all(|spec| context.journal_answers(spec)) {
+            if !specs.iter().all(|spec| self.answers_unasked(spec, context)) {
                 unanswered += 1;
             }
         }

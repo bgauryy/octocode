@@ -119,16 +119,9 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
             .collect::<Vec<_>>();
         let pages = file_page(
             q,
-            &group_files(
-                q,
-                &priced.files,
-                budget,
-                row_paths,
-                &Inapplicable::default(),
-                &NeverCancel,
-            )
-            .expect("grouped")
-            .groups,
+            &group_files(q, &priced.files, budget, row_paths, &NeverCancel)
+                .expect("grouped")
+                .groups,
             budget,
         );
         let file_pages = match pages.pagination["totalPages"].as_u64() {
@@ -142,24 +135,11 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                 cursor["matchPage"] = json!(match_page);
                 let query = typed(cursor);
                 let q = matched(&query);
-                let mut from_prices = group_files(
-                    q,
-                    &priced.files,
-                    budget,
-                    row_paths,
-                    &Inapplicable::default(),
-                    &NeverCancel,
-                )
-                .expect("grouped");
-                let expected = group_files(
-                    q,
-                    &held,
-                    budget,
-                    row_paths,
-                    &Inapplicable::default(),
-                    &NeverCancel,
-                )
-                .expect("grouped");
+                let mut from_prices =
+                    group_files(q, &priced.files, budget, row_paths, &NeverCancel)
+                        .expect("grouped");
+                let expected =
+                    group_files(q, &held, budget, row_paths, &NeverCancel).expect("grouped");
                 let window = file_page(q, &from_prices.groups, budget).window;
                 assert_eq!(window, file_page(q, &expected.groups, budget).window);
                 assert!(
@@ -211,15 +191,8 @@ fn a_priced_file_edited_after_its_scan_rebuilds_no_page() {
     let (scope, scan) = scan_of(q, &paths);
     let budget = 100_000;
     let row_paths = RowPaths::new(&paths, &scope.canonical, scope.is_file);
-    let mut grouped = group_files(
-        q,
-        &scan.files,
-        budget,
-        row_paths,
-        &Inapplicable::default(),
-        &NeverCancel,
-    )
-    .expect("grouped");
+    let mut grouped =
+        group_files(q, &scan.files, budget, row_paths, &NeverCancel).expect("grouped");
     let window = file_page(q, &grouped.groups, budget).window;
     std::fs::write(root.0.join("src/f0.rs"), "fn z() {}\n").expect("edit");
     let groups = &mut grouped.groups[window];
@@ -268,15 +241,8 @@ fn a_priced_file_whose_match_does_not_finish_is_shown_unevaluated() {
     std::fs::copy(&source, &renamed).expect("same bytes");
     scan.files[0].source = Some((renamed, digest));
     let row_paths = RowPaths::new(&paths, &scope.canonical, scope.is_file);
-    let mut grouped = group_files(
-        q,
-        &scan.files,
-        budget,
-        row_paths,
-        &Inapplicable::default(),
-        &NeverCancel,
-    )
-    .expect("grouped");
+    let mut grouped =
+        group_files(q, &scan.files, budget, row_paths, &NeverCancel).expect("grouped");
     let window = file_page(q, &grouped.groups, budget).window;
     assert!(window.contains(&0) && window.len() > 1, "{window:?}");
     let Ok(incomplete) = rebuild_page(

@@ -18,10 +18,15 @@ const dotenvPolicy = z.enum(['all', 'home', 'never']);
 const environmentOnly = z.strictObject({
   dotenv: dotenvPolicy.optional(),
   tokenPriority: z.int().min(0).optional(),
-  configSource: z.boolean().optional(),
+  // Sensitive: masked in every output and never resolved into configuration.
   credential: z.boolean().optional(),
-  documentation: z.boolean().optional(),
   description: z.string().optional(),
+  type: z.enum(['key', 'string', 'url', 'path']).optional(),
+  displayDefault: z.string().optional(),
+  // The provider this entry belongs to on the settings page.
+  group: z.string().min(1).optional(),
+  // Where to get a key.
+  docsUrl: z.url().optional(),
 });
 
 const envBinding = z.strictObject({
@@ -37,6 +42,8 @@ const common = {
   notes: z.string().optional(),
   env: envBinding.optional(),
   displayDefault: z.string().optional(),
+  group: z.string().min(1).optional(),
+  docsUrl: z.url().optional(),
 };
 
 const booleanField = z.strictObject({
@@ -63,7 +70,6 @@ const enumField = z.strictObject({
   type: z.literal('enum'),
   values: uniqueStrings(z.string().min(1)),
   typeName: typeName.optional(),
-  enumStyle: z.enum(['list', 'quotedOr']).optional(),
   ...common,
 });
 
@@ -72,9 +78,6 @@ const field = z.discriminatedUnion('type', [booleanField, stringField, stringArr
 const section = z.strictObject({
   title: z.string().min(1),
   typeName: typeName.optional(),
-  rustTypeName: typeName.optional(),
-  file: z.boolean(),
-  resolved: z.boolean(),
   fields: z.record(z.string().regex(/^[a-z$][A-Za-z0-9]*$/), field),
 });
 
@@ -82,7 +85,6 @@ export const contractSchema = z.strictObject({
   $schema: z.string(),
   config: z.strictObject({
     fileName: z.string().min(1),
-    schemaVersion: z.int().min(1),
     runtimeSurfaces: uniqueStrings(z.string().regex(/^[a-z][a-z0-9]*$/)),
   }),
   environment: z.record(envName, environmentOnly),

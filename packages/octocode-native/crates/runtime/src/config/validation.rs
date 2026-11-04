@@ -1,4 +1,4 @@
-use super::types::{CONFIG_FIELDS, ConfigEnumStyle, ConfigFieldKind, ConfigFieldSpec};
+use super::types::{CONFIG_FIELDS, ConfigFieldKind, ConfigFieldSpec};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -14,7 +14,7 @@ pub(super) fn get_path<'a>(root: &'a Value, field_path: &str) -> Option<&'a Valu
 
 fn section_paths() -> Vec<String> {
     let mut sections = BTreeSet::new();
-    for field in CONFIG_FIELDS.iter().filter(|field| field.file) {
+    for field in CONFIG_FIELDS.iter() {
         let parts = field.section.split('.').collect::<Vec<_>>();
         for index in 0..parts.len() {
             let path = parts[..=index].join(".");
@@ -46,6 +46,19 @@ pub(super) fn is_local_path(value: &str) -> bool {
 
 pub(super) fn is_http_url(value: &str) -> bool {
     matches!(url::Url::parse(value), Ok(url) if matches!(url.scheme(), "http" | "https"))
+}
+
+/// Whether a URL carries userinfo, a query or a fragment. Saving one is refused,
+/// since no reader accepts it and each part may hold a secret. One already in a
+/// file still resolves: its reader then refuses it, so a call fails closed
+/// instead of falling back to a default host with the same credential.
+pub(super) fn url_embeds_secret(value: &str) -> bool {
+    url::Url::parse(value).is_ok_and(|url| {
+        !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+    })
 }
 
 fn validate_path(field_path: &str, value: &str, errors: &mut Vec<String>) {
@@ -109,15 +122,7 @@ pub(super) fn validate_field(
                 return;
             };
             if !field.values.contains(&value) {
-                let expected = match field.enum_style {
-                    ConfigEnumStyle::List => format!("one of: {}", field.values.join(", ")),
-                    ConfigEnumStyle::QuotedOr => field
-                        .values
-                        .iter()
-                        .map(|value| format!("\"{value}\""))
-                        .collect::<Vec<_>>()
-                        .join(" or "),
-                };
+                let expected = format!("one of: {}", field.values.join(", "));
                 errors.push(format!("{}: Must be {expected}", field.path));
             }
         }
@@ -139,7 +144,7 @@ fn warn_unknown_keys(root: &Map<String, Value>, warnings: &mut Vec<String>) {
     let sections = section_paths();
     let mut known =
         BTreeMap::<String, BTreeSet<&str>>::from([(String::new(), BTreeSet::from(["$schema"]))]);
-    for field in CONFIG_FIELDS.iter().filter(|field| field.file) {
+    for field in CONFIG_FIELDS.iter() {
         known
             .entry(field.section.to_owned())
             .or_default()
@@ -208,7 +213,7 @@ pub(crate) fn config_issues(config: &Value) -> (Vec<ConfigIssue>, Vec<String>) {
             broken_sections.push(section);
         }
     }
-    for field in CONFIG_FIELDS.iter().filter(|field| field.file) {
+    for field in CONFIG_FIELDS.iter() {
         if broken_sections.iter().any(|section| {
             field.section == section || field.section.starts_with(&format!("{section}."))
         }) {

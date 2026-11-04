@@ -80,7 +80,7 @@ async fn materialize_never_trusts_a_foreign_directory() {
 /// the provider again, so a same-size edit on disk is overwritten with the
 /// commit's bytes and an untouched file still holds them.
 #[tokio::test]
-async fn materialize_reacquires_every_file_and_restores_its_content() {
+async fn a_second_materialize_restores_every_file_from_its_kept_answer() {
     let server = MockServer::builder().start().await;
     mount_head_at_sha(&server).await;
     Mock::given(method("GET"))
@@ -104,8 +104,9 @@ async fn materialize_reacquires_every_file_and_restores_its_content() {
                 "sha": "a".repeat(40),
                 "path": name
             })))
-            // Both materializations read each file.
-            .expect(2)
+            // A commit's file never changes: the second materialization restores
+            // it from the kept answer.
+            .expect(1)
             .mount(&server)
             .await;
     }

@@ -14,11 +14,6 @@
           "type": "string",
           "minLength": 1
         },
-        "schemaVersion": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9007199254740991
-        },
         "runtimeSurfaces": {
           "minItems": 1,
           "type": "array",
@@ -31,7 +26,6 @@
       },
       "required": [
         "fileName",
-        "schemaVersion",
         "runtimeSurfaces"
       ],
       "additionalProperties": false
@@ -58,17 +52,31 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
-          "configSource": {
-            "type": "boolean"
-          },
           "credential": {
-            "type": "boolean"
-          },
-          "documentation": {
             "type": "boolean"
           },
           "description": {
             "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "key",
+              "string",
+              "url",
+              "path"
+            ]
+          },
+          "displayDefault": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string",
+            "minLength": 1
+          },
+          "docsUrl": {
+            "type": "string",
+            "format": "uri"
           }
         },
         "additionalProperties": false
@@ -90,16 +98,6 @@
           "typeName": {
             "type": "string",
             "pattern": "^[A-Z][A-Za-z0-9]*$"
-          },
-          "rustTypeName": {
-            "type": "string",
-            "pattern": "^[A-Z][A-Za-z0-9]*$"
-          },
-          "file": {
-            "type": "boolean"
-          },
-          "resolved": {
-            "type": "boolean"
           },
           "fields": {
             "type": "object",
@@ -160,6 +158,14 @@
                     },
                     "displayDefault": {
                       "type": "string"
+                    },
+                    "group": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "docsUrl": {
+                      "type": "string",
+                      "format": "uri"
                     }
                   },
                   "required": [
@@ -230,6 +236,14 @@
                     },
                     "displayDefault": {
                       "type": "string"
+                    },
+                    "group": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "docsUrl": {
+                      "type": "string",
+                      "format": "uri"
                     }
                   },
                   "required": [
@@ -304,6 +318,14 @@
                     },
                     "displayDefault": {
                       "type": "string"
+                    },
+                    "group": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "docsUrl": {
+                      "type": "string",
+                      "format": "uri"
                     }
                   },
                   "required": [
@@ -332,13 +354,6 @@
                     "typeName": {
                       "type": "string",
                       "pattern": "^[A-Z][A-Za-z0-9]*$"
-                    },
-                    "enumStyle": {
-                      "type": "string",
-                      "enum": [
-                        "list",
-                        "quotedOr"
-                      ]
                     },
                     "description": {
                       "type": "string",
@@ -381,6 +396,14 @@
                     },
                     "displayDefault": {
                       "type": "string"
+                    },
+                    "group": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "docsUrl": {
+                      "type": "string",
+                      "format": "uri"
                     }
                   },
                   "required": [
@@ -396,8 +419,6 @@
         },
         "required": [
           "title",
-          "file",
-          "resolved",
           "fields"
         ],
         "additionalProperties": false

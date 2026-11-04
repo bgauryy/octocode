@@ -25,11 +25,14 @@ pub(super) enum Tally {
     Parsed(u32),
 }
 
-pub(super) type FileOutcome = Option<(Tally, StructuralSearchDetailedFileResult)>;
+pub(super) type FileOutcome = Option<FileTally>;
+
+/// How the scan counts a file, and its result.
+type FileTally = (Tally, StructuralSearchDetailedFileResult);
 
 /// Shared, read-only state of the parallel per-file scan.
 pub(super) struct FileScan<'a> {
-    pub(super) admit: &'a (dyn Fn(&Path) -> bool + Sync),
+    pub(super) admit: &'a super::Admit<'a>,
     pub(super) stop: &'a Stop<'a>,
     pub(super) select_extension: &'a (dyn Fn(&Path) -> String + Sync),
     pub(super) anchors: Option<AnchorFilter>,
@@ -46,10 +49,21 @@ impl FileScan<'_> {
         if (self.stop)() {
             return Err(Error::cancelled());
         }
-        if !(self.admit)(file_path) {
+        // The walk's verdict is older than this read: the entry may have been
+        // swapped for a link since, so it is judged again by what it is now.
+        let kind = std::fs::symlink_metadata(file_path)
+            .ok()
+            .map(|metadata| metadata.file_type());
+        if !(self.admit)(file_path, kind) {
             return Ok(None);
         }
         let path_string = file_path.to_string_lossy().to_string();
+        let ext = (self.select_extension)(file_path);
+        // A parser that rejects the query decides the file whatever it holds:
+        // no read, so the anchor check cannot turn this into another outcome.
+        if let Some(failure) = self.compile_failure(&path_string, &ext) {
+            return Ok(Some(failure));
+        }
         // One read serves both the anchor check and the parse.
         let prefiltered = self
             .anchors
@@ -72,7 +86,6 @@ impl FileScan<'_> {
             return Ok(Some((Tally::PreFilter, file)));
         }
 
-        let ext = (self.select_extension)(file_path);
         let Some(entry) = languages::find_entry(&ext) else {
             return Ok(Some((
                 Tally::Unsupported,
@@ -134,6 +147,29 @@ impl FileScan<'_> {
         Ok(Some((tally, file)))
     }
 
+    /// The outcome of a file whose parser the query did not compile for.
+    fn compile_failure(&self, path: &str, ext: &str) -> Option<FileTally> {
+        let Err(error) = self.matchers.get(ext)? else {
+            return None;
+        };
+        if let Some(interruption) = error.interruption() {
+            let diagnostic = interruption.diagnostic(path);
+            return Some((
+                Tally::None,
+                skipped_file(path.to_owned(), "truncated", "queryCompile", diagnostic),
+            ));
+        }
+        Some((
+            Tally::CompileFailure,
+            skipped_file(
+                path.to_owned(),
+                "parserFailed",
+                "queryCompile",
+                error.diagnostic().with_path(path.to_owned()),
+            ),
+        ))
+    }
+
     fn match_source(
         &self,
         path_string: String,
@@ -144,7 +180,7 @@ impl FileScan<'_> {
         budget: MapBudget<'_>,
     ) -> (Tally, StructuralSearchDetailedFileResult) {
         let content = admitted.text();
-        let Some(compiled) = self.matchers.get(ext) else {
+        let Some(Ok(run)) = self.matchers.get(ext) else {
             return (
                 Tally::CompileFailure,
                 skipped_file(
@@ -163,27 +199,6 @@ impl FileScan<'_> {
                     ),
                 ),
             );
-        };
-        let run = match compiled {
-            Ok(run) => run,
-            Err(error) => {
-                if let Some(interruption) = error.interruption() {
-                    let diagnostic = interruption.diagnostic(&path_string);
-                    return (
-                        Tally::None,
-                        skipped_file(path_string, "truncated", "queryCompile", diagnostic),
-                    );
-                }
-                return (
-                    Tally::CompileFailure,
-                    skipped_file(
-                        path_string.clone(),
-                        "parserFailed",
-                        "queryCompile",
-                        error.diagnostic().with_path(path_string),
-                    ),
-                );
-            }
         };
 
         let mut found = Found::new(self.demand);
@@ -315,7 +330,7 @@ pub(super) fn read_source(
     path: &Path,
     max_file_bytes: u64,
 ) -> std::result::Result<Vec<u8>, SourceSkip> {
-    match crate::text::read_source(path, max_file_bytes) {
+    match crate::text::read_regular(path, max_file_bytes) {
         Ok(source) => Ok(source.bytes),
         Err(crate::text::ReadError::TooLarge(len)) => Err(SourceSkip::Large(len)),
         Err(crate::text::ReadError::Io(err)) => Err(SourceSkip::Unreadable(err)),

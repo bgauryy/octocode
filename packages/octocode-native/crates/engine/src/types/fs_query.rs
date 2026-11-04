@@ -49,22 +49,21 @@ pub struct FileSystemQueryOptions {
     /// Inclusive access-time bounds, as absolute instants.
     pub accessed_from: Option<std::time::SystemTime>,
     pub accessed_to: Option<std::time::SystemTime>,
-    /// Inclusive file-size bounds, in bytes; directories never match.
+    /// Inclusive file-size bounds, in bytes; directories and links never match.
     pub size_min: Option<u64>,
     pub size_max: Option<u64>,
-    /// Exact octal permissions, e.g. 644.
+    /// Exact octal permissions, e.g. 644; "4755" names the special bits.
     pub permissions: Option<String>,
+    /// What the calling user can do with the entry (`access(2)`; a link
+    /// answers for its target).
     pub executable: Option<bool>,
     pub readable: Option<bool>,
     pub writable: Option<bool>,
-    /// Directory names pruned from recursive traversal. The engine has no
-    /// default list: omission prunes nothing. The native runtime's prune
-    /// policy (`policy::prune`) supplies the names for every tool walk.
-    /// Pruned directories are reported in `pruned_dirs`.
-    pub exclude_dir: Option<Vec<String>>,
     /// Default-excluded directory names (see [`Prune::at`]): pruned outside a
-    /// git work tree, and inside one only where git ignores them. Reported in
-    /// `pruned_dirs` too.
+    /// git work tree, and inside one only where git ignores them. The engine
+    /// has no default list: omission prunes nothing. The native runtime's
+    /// prune policy (`policy::prune`) supplies the names for every tool walk.
+    /// Pruned directories are reported in `pruned_dirs`.
     ///
     /// [`Prune::at`]: crate::search::walk::Prune::at
     pub default_exclude_dir: Option<Vec<String>>,
@@ -103,6 +102,10 @@ pub struct FileSystemQueryOptions {
     /// this many entries into the walk (the root entry is none), for a
     /// window that ends there ([`FileSystemQueryResult::end_at`]).
     pub window_rows: Option<u32>,
+    /// The caller reads only names and kinds: an entry's own `lstat` is left
+    /// out (its `size`, `modified_time` and `stamp` stay `None`) unless a
+    /// metadata filter needs it.
+    pub names_only: bool,
 }
 
 /// The entries a filesystem query lists ([`FileSystemQueryOptions::entry_type`]).
@@ -137,6 +140,9 @@ pub struct FileSystemEntry {
     /// counts the same way): a walk resumed at it (`skip_entries`) starts
     /// at the entry after it. 0 for the root.
     pub walk_position: u32,
+    /// The freshness stamp of the `lstat` the walk read, so a caller proving
+    /// the entry unchanged later needs no stat of its own.
+    pub stamp: Option<crate::stamp::SourceStamp>,
 }
 
 impl FileSystemEntry {
@@ -146,6 +152,22 @@ impl FileSystemEntry {
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|elapsed| elapsed.as_millis() as f64)
     }
+}
+
+/// A directory the walk entered, as its own listing showed it: what a caller
+/// watching the walk's result needs without a stat per directory.
+#[derive(Debug, Clone)]
+pub struct WalkedDir {
+    pub path: std::path::PathBuf,
+    /// The directory's stamp just before its listing was read (an entry
+    /// created, removed or renamed since moves it on); `None` when the
+    /// listing came from a resume cursor.
+    pub stamp: Option<crate::stamp::SourceStamp>,
+    /// The ignore files ([`crate::search::walk::IGNORE_FILES`]) its listing
+    /// holds, each with whether the listing shows a regular file.
+    pub ignore_files: Vec<(std::path::PathBuf, bool)>,
+    /// Its listing holds `.git`: a repository (or a worktree's pointer).
+    pub holds_git: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -164,7 +186,7 @@ pub struct FileSystemQueryResult {
     /// trailing `/` (a caller's own prune may name some of them too); a dot
     /// entry out of view is not counted.
     pub ignored: Vec<String>,
-    /// Root-relative paths of the directories `exclude_dir` pruned, in walk
+    /// Root-relative paths of the directories `default_exclude_dir` pruned, in walk
     /// order: what a listing or an empty result did not cover.
     pub pruned_dirs: Vec<String>,
     /// Root-relative path of the first entry the walk did not inspect
@@ -183,6 +205,8 @@ pub struct FileSystemQueryResult {
     pub cursor: Option<crate::types::fs_resume::WalkCursor>,
     /// Where the walk stood at the entry `window_rows` named.
     pub window_cursor: Option<crate::types::fs_resume::WalkCursor>,
+    /// The directories the walk entered, in walk order.
+    pub walked_dirs: Vec<WalkedDir>,
 }
 
 impl FileSystemQueryResult {

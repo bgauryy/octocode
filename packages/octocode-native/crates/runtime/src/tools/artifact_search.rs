@@ -11,8 +11,9 @@ use crate::providers::artifact::{
     ArtifactError, ArtifactProviderContext, ArtifactProviderPage, ReleaseTags, SystemArtifactHttp,
     execute_artifact, github_repository, github_slug, invalid_registry_url,
 };
+use crate::providers::saved_answers::{ReusedSince, disclose_reuse};
 use crate::response::paging;
-use octocode_io::budget::RequestBudget;
+use octocode_io::budget::{PROVIDER_BODY_BYTES, RequestBudget};
 use octocode_io::cancellation::Cancellation;
 use serde_json::{Value, json};
 use std::time::Instant;
@@ -30,6 +31,8 @@ pub struct ArtifactCall<'a> {
     pub timeout: std::time::Duration,
     /// The runtime's retries of a 5xx or 429 registry answer.
     pub max_retries: u8,
+    /// Registry answers kept across calls; `None` keeps none.
+    pub answers: Option<&'a dyn octocode_github::SavedAnswers>,
     /// Upstream release-tag checks through the GitHub API.
     pub tags: Option<&'a dyn ReleaseTags>,
     /// The runtime's resolved environment: the npm userconfig and its
@@ -45,9 +48,10 @@ pub async fn execute(
     let budget = RequestBudget::new(
         call.deadline.min(Instant::now() + call.timeout),
         call.cancellation,
-        16 * 1024 * 1024,
+        PROVIDER_BODY_BYTES,
     );
     let npm_registry = npm_registry(&query, call.env)?;
+    let reused = ReusedSince::default();
     let page = execute_artifact(
         &query,
         &ArtifactProviderContext {
@@ -55,12 +59,18 @@ pub async fn execute(
             budget: &budget,
             npm_registry: npm_registry.as_ref(),
             allow_private_registry: call.allow_private_registry,
+            answers: call.answers,
+            reused: &reused,
             tags: call.tags,
         },
     )
     .await
     .map_err(|error| leads::with_repair(error, &query))?;
-    respond(&query, page).map_err(|error| leads::with_repair(error, &query))
+    let mut data = respond(&query, page).map_err(|error| leads::with_repair(error, &query))?;
+    if let Some(observed) = reused.get() {
+        disclose_reuse(&mut data, observed);
+    }
+    Ok(data)
 }
 
 /// The npm registry a query reads: only the query names it (default
@@ -118,6 +128,7 @@ fn respond(
         )
         .with_status(404));
     }
+    let has_next = next_state.is_some();
     shape_rows(query, &mut artifacts);
     let mut rows = serde_json::to_value(&artifacts)
         .map_err(|_| ArtifactError::new(ErrorCode::ProviderError, "Failed to encode artifacts."))?;
@@ -162,7 +173,9 @@ fn respond(
     if let Some(limit) = terminal_limit {
         paging::terminal_limit(&mut data, limit.reason, &[limit.warning]);
     }
-    if artifacts.is_empty() {
+    // A filtered page with no row can still lead to later windows: that is not
+    // absence, so only a finished walk is empty.
+    if artifacts.is_empty() && !has_next {
         data["status"] = json!("empty");
         leads::broaden_empty(&mut data, query);
     }
@@ -252,6 +265,7 @@ fn call(deadline: Instant, allow_private_registry: bool) -> ArtifactCall<'static
         allow_private_registry,
         timeout: std::time::Duration::from_secs(300),
         max_retries: 1,
+        answers: None,
         tags: None,
         env: &NO_ENV,
     }

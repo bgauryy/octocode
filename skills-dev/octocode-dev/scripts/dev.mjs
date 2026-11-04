@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ROOT, SKILL_COLLECTIONS } from './lib/workspaces.mjs';
 import { skillTestCommand } from './lib/skill-tests.mjs';
-import { exceedsSize, NATIVE_DEBUG_LIMIT_BYTES, nativeDebugDir } from './lib/native-target.mjs';
+import { cargoIsRunning, exceedsSize, NATIVE_DEBUG_LIMIT_BYTES, nativeDebugDir } from './lib/native-target.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // CI never builds native: native artifacts are built locally (`build:all` / `build:publish`).
@@ -31,10 +31,12 @@ const SKILLS_COMMON = [yarn('workspace', '@octocodeai/skills-common', 'lint'), y
 /** task → [description, steps]; extra CLI args go to the last step. */
 const TASKS = {
   build: ['Release-mode build of every workspace (native host only, slow)', [health('run', 'build', '--parallel')]],
-  'build:dev': ['Fast debug build of every workspace (native host only, default locally); runs clean:cache first when native target/debug is over 50 GiB', () => {
+  'build:dev': ['Fast debug build of every workspace (native host only, default locally); runs clean:cache first when native target/debug is over 50 GiB and no other cargo is running', () => {
     const stale = exceedsSize(nativeDebugDir(), NATIVE_DEBUG_LIMIT_BYTES);
-    if (stale) console.log('dev build:dev: native target/debug is over 50 GiB, running clean:cache first');
-    return [...(stale ? TASKS['clean:cache'][1] : []), health('run', 'build', '--parallel', '--prefer', 'build:dev')];
+    const busy = stale && cargoIsRunning();
+    if (busy) console.log('dev build:dev: native target/debug is over 50 GiB, but another cargo is running, so skipping clean:cache');
+    else if (stale) console.log('dev build:dev: native target/debug is over 50 GiB, running clean:cache first');
+    return [...(stale && !busy ? TASKS['clean:cache'][1] : []), health('run', 'build', '--parallel', '--prefer', 'build:dev')];
   }],
   'build:ci': ['Resolution check, then release build without benchmark or native', [script('prepublish.mjs'), health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
   'build:publish': ['Resolution check, all-platform native build, MCP publish build', [script('prepublish.mjs'), yarn('workspace', '@octocodeai/octocode-native', 'build:all'), yarn('workspace', 'octocode-mcp', 'build')]],
@@ -42,9 +44,12 @@ const TASKS = {
   'test:ci': ['Skill checks, then tests without benchmark or native', () => [...skillChecks(), health('run', 'test', ...CI_EXCLUDE)]],
   'skills:check': ['Skill lint, shared report viewer, and skill script tests', () => [...skillChecks(), ...SKILLS_COMMON]],
   // Not in test:ci: it drives the built native binary, so CI runs it in its own `e2e` job after build:dev.
-  'test:tools': ['End-to-end health of every tool via CLI and MCP, hermetic: driver self-test, then every lead explored (needs build:dev; [tool,...] [--deep])', [
-    ['node', ['--test', path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/tool-health/*.test.mjs')]],
+  'test:tools': ['End-to-end health of every tool via CLI and MCP, hermetic: harness self-tests, transport and classification retry, then every lead explored (needs build:dev; [tool,...] [--deep])', [
+    ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/run-all.mjs'), 'acceptance,transport,classification-retry']],
     ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/tool-health.mjs')]],
+  ]],
+  'test:e2e': ['Every hermetic end-to-end suite, grammar battery included: slower than test:tools (needs build:dev; [suite,...])', [
+    ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/run-all.mjs')]],
   ]],
   lint: ['File-length and oxlint baselines (the one oxlint run), then every workspace lint:own script', [...BASELINES, health('run', 'lint:own')]],
   'lint:ci': ['Lint without benchmark or native workspace scripts (the oxlint baseline still covers them)', [...BASELINES, health('run', 'lint:own', ...CI_EXCLUDE)]],
@@ -59,7 +64,7 @@ const TASKS = {
   'clean:cache': ['Drop stale native build copies; compiled dependencies stay warm', [yarn('workspace', '@octocodeai/octocode-native', 'clean:cache')]],
   'docs:verify': ['Docs links, catalog, config keys, publishing contracts', [script('docs-verify.mjs')]],
   'deps:dedupe': ['One version range per external dependency (--fix rewrites)', [script('dedupe-deps.mjs')]],
-  'contracts:regen': ['Refresh the core copy (yarn install), then regenerate the tool contract', [yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract')]],
+  'contracts:regen': ['Build core if stale, refresh its copy (yarn install), then regenerate the tool contract', [script('core-build-if-stale.mjs'), yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract')]],
   setup: ['Local dev resolutions (--dry-run, --install, --reset); then yarn install', [script('dev-setup.mjs')]],
   prepublish: ['Local-resolution check (--fix strips local resolutions, --dry-run previews)', [script('prepublish.mjs')]],
   'brew:formula': ['Render the Homebrew formula from the published native npm packages ([version] [--out FILE])', [script('brew-formula.mjs')]],

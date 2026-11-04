@@ -1,4 +1,3 @@
-use crate::response::result::ToolError;
 use crate::tools::ast_rule::GlobParsers;
 use octocode_engine::structural::FileMatches;
 use octocode_engine::structural::StructuralDiagnostic;
@@ -191,8 +190,6 @@ pub(super) struct Grouped {
     pub(super) parsed_files: u32,
     /// Files the scan read: parsed, or skipped by the literal-anchor prefilter.
     pub(super) scanned_files: u32,
-    pub(super) compile_error: Option<ToolError>,
-    pub(super) compile_failed_files: u32,
     pub(super) unevaluated_files: u32,
     /// Files skipped unread: no grammar, unreadable, over the parse limit.
     pub(super) skipped_files: u32,

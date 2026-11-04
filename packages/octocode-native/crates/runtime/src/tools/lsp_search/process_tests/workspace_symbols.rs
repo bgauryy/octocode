@@ -131,6 +131,78 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
     });
 }
 
+/// A file of a member crate and the directories of any member all run from
+/// the Cargo workspace: one language server starts for all of them.
+#[test]
+fn directories_of_a_cargo_workspace_share_one_language_server() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, script) = fixture();
+    let server = FAKE_SERVER
+        .replace(
+            "    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { hoverProvider: true, textDocumentSync: 1 } } });",
+            "    fs.appendFileSync(__dirname + '/roots.txt', msg.params.rootUri + '\\n');\n    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { workspaceSymbolProvider: true, textDocumentSync: 1 } } });",
+        );
+    assert_ne!(server, FAKE_SERVER, "the root log is injected");
+    std::fs::write(&script, server).expect("fixture server");
+    std::fs::write(
+        root.join("lsp-servers.json"),
+        json!({"languageServers": {".rs": {
+            "command": script.to_string_lossy(), "args": [], "languageId": "rust"
+        }}})
+        .to_string(),
+    )
+    .expect("config");
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nmembers = ['crates/*']\n",
+    )
+    .expect("workspace");
+    for member in ["io", "runtime"] {
+        let crate_dir = root.join("crates").join(member);
+        std::fs::create_dir_all(crate_dir.join("src")).expect("crate");
+        std::fs::write(
+            crate_dir.join("Cargo.toml"),
+            format!("[package]\nname = '{member}'\n"),
+        )
+        .expect("manifest");
+        std::fs::write(crate_dir.join("src/lib.rs"), "pub fn f() {}\n").expect("source");
+    }
+    let execution = crate::tools::lsp_search::LspExecutionConfig {
+        octocode_home: Some(root.clone()),
+        ..crate::tools::lsp_search::LspExecutionConfig::default()
+    };
+    let paths = crate::tools::test_support::workspace_policy(&root);
+    let pool = LspClientPool::new(LspPoolOptions::default());
+    let runtime = tokio::runtime::Runtime::new().expect("rt");
+    for anchor in [
+        "crates/io/src/lib.rs",
+        "crates/io",
+        "crates/runtime/src",
+        ".",
+    ] {
+        let wire = json!({"operation":"workspaceSymbol","symbolQuery":"f",
+            "path": root.join(anchor).canonicalize().expect("anchor").to_string_lossy()});
+        let row = runtime
+            .block_on(crate::tools::lsp_search::execute(
+                serde_json::from_value(wire).expect("query"),
+                &NeverCancel,
+                &pool,
+                &paths,
+                &execution,
+                None,
+                crate::tools::lsp_search::test_answers(),
+            ))
+            .expect("row");
+        assert!(row.get("errorCode").is_none(), "{anchor}: {row}");
+    }
+    runtime.block_on(pool.clear_all());
+    let roots = std::fs::read_to_string(root.join("roots.txt")).expect("started");
+    let expected = octocode_engine::lsp::uri::path_to_uri(&root.to_string_lossy()).expect("uri");
+    assert_eq!(roots.lines().collect::<Vec<_>>(), [expected.as_str()]);
+}
+
 /// tsgo answers `workspace/symbol` with at most 256 symbols; an answer of
 /// exactly that many says the server capped it, one short of it does not.
 /// Only the capped answer is partial (`workspaceSymbolCoverageUnknown`).

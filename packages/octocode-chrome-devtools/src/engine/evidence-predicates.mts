@@ -2,12 +2,12 @@
 // where/select inputs that filter and project rows before pagination.
 import { compareNumeric } from './evidence-numeric.mjs';
 
-/** One --where predicate: { path, op: eq|contains|gte|lte|exists, value }. */
+/** One --where predicate: { path, op: eq|ne|contains|gte|lte|exists, value }. */
 export type Predicate = { path: string; op: string; value: unknown };
 /** A number JSON.rawJSON keeps as its exact source text. */
 type RawJson = { rawJSON: string };
 
-const OPS = ['eq', 'contains', 'gte', 'lte', 'exists'];
+const OPS = ['eq', 'ne', 'contains', 'gte', 'lte', 'exists'];
 const isRawJson = (value: unknown): value is RawJson => JSON.isRawJSON(value);
 const INTEGER = /^-?\d+$/;
 
@@ -18,6 +18,97 @@ export const parse = (text: string): unknown =>
       ? JSON.rawJSON(context.source)
       : item
   );
+
+/**
+ * A JSON pointer for a path written either way: `/response/status` stays, `response.status` and
+ * `entries.0.request` become pointers. A key that contains a dot needs the pointer form.
+ */
+export function toPointer(path: string): string {
+  if (!path || path.startsWith('/')) return path;
+  return (
+    '/' +
+    path
+      .split('.')
+      .map(part => part.replace(/~/g, '~0').replace(/\//g, '~1'))
+      .join('/')
+  );
+}
+
+const WHERE_EXAMPLE =
+  'response.status=0 && request.url~login, or JSON [{"path":"/response/status","op":"eq","value":0}]';
+
+/** A comparison's value: a JSON literal (number, true, false, null, "text") when it parses, else the text. */
+function literal(text: string): unknown {
+  try {
+    return parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function simplePredicate(clause: string): Predicate {
+  const text = clause.trim();
+  const match = /^(.+?)(!=|>=|<=|=|~)(.*)$/.exec(text);
+  if (match) {
+    const [, path, symbol, value] = match;
+    const op = {
+      '=': 'eq',
+      '!=': 'ne',
+      '>=': 'gte',
+      '<=': 'lte',
+      '~': 'contains',
+    }[symbol]!;
+    return {
+      path: toPointer(path.trim()),
+      op,
+      value: op === 'contains' ? value.trim() : literal(value.trim()),
+    };
+  }
+  if (/^[^\s=<>!~]+$/.test(text))
+    return { path: toPointer(text), op: 'exists', value: true };
+  if (/^![^\s=<>!~]+$/.test(text))
+    return { path: toPointer(text.slice(1)), op: 'exists', value: false };
+  throw new Error(`Cannot read the condition "${clause.trim()}"`);
+}
+
+/**
+ * The --where text as predicates: JSON (an array, or one object) or simple conditions joined by &&:
+ * `path=value`, `path!=value`, `path>=n`, `path<=n`, `path~text`, `path` (exists), `!path` (missing).
+ */
+export function parseWhere(text: string): unknown {
+  const trimmed = text.trim();
+  try {
+    if (trimmed.startsWith('[')) return parse(trimmed);
+    if (trimmed.startsWith('{')) return [parse(trimmed)];
+    return trimmed.split('&&').map(simplePredicate);
+  } catch (error) {
+    throw new Error(
+      `Invalid --where: ${error instanceof Error ? error.message : String(error)}. Example: ${WHERE_EXAMPLE}`,
+      { cause: error }
+    );
+  }
+}
+
+/** The --select text as pointers: a JSON array, or comma-separated paths (`request.url,/response/status`). */
+export function parseSelect(text: string): string[] {
+  const trimmed = text.trim();
+  let paths: unknown;
+  try {
+    paths = trimmed.startsWith('[')
+      ? JSON.parse(trimmed)
+      : trimmed.split(',').map(part => part.trim());
+  } catch (error) {
+    throw new Error(
+      `Invalid --select: ${error instanceof Error ? error.message : String(error)}. Example: request.url,response.status or ["/request/url"]`,
+      { cause: error }
+    );
+  }
+  if (!Array.isArray(paths) || paths.some(p => typeof p !== 'string' || !p))
+    throw new Error(
+      'Invalid --select: need paths. Example: request.url,response.status or ["/request/url"]'
+    );
+  return paths.map(toPointer);
+}
 
 /** The value at a JSON pointer, or undefined when a key is missing; an invalid pointer fails. */
 export function pointer(value: unknown, path: string): unknown {
@@ -57,7 +148,8 @@ function expectedValue(filter: Predicate, actual: unknown) {
   return expected;
 }
 
-function matchesFilter(row: unknown, filter: Predicate) {
+function matchesFilter(row: unknown, filter: Predicate): boolean {
+  if (filter.op === 'ne') return !matchesFilter(row, { ...filter, op: 'eq' });
   const actual = pointer(row, filter.path);
   if (filter.op === 'exists') return (actual !== undefined) === filter.value;
   if (filter.op === 'contains')
@@ -93,8 +185,9 @@ const isNumericValue = (value: unknown) =>
 function validatePredicate(f: Predicate) {
   if (Object.keys(f).some(key => !['path', 'op', 'value'].includes(key)))
     throw new Error('Unknown predicate field');
-  if (f.op === 'eq' && !isScalar(f.value))
-    throw new Error('eq needs a scalar value');
+  if (['eq', 'ne'].includes(f.op) && !isScalar(f.value))
+    throw new Error(`${f.op} needs a scalar value`);
+  f.path = toPointer(f.path);
   pointer({}, f.path);
   if (f.op === 'exists' && typeof f.value !== 'boolean')
     throw new Error('exists needs a boolean');
@@ -104,7 +197,7 @@ function validatePredicate(f: Predicate) {
     throw new Error('Numeric predicate needs a number or integer string');
 }
 
-/** Checks --where predicates: [{ path, op: eq|contains|gte|lte|exists, value }]. */
+/** Checks --where predicates: [{ path, op: eq|ne|contains|gte|lte|exists, value }]; dotted paths become pointers. */
 export function validatePredicates(
   filters: unknown
 ): asserts filters is Predicate[] {

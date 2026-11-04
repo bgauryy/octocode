@@ -107,9 +107,11 @@ pub(super) fn link_file(
         b.parser_fallback.push((file.clone(), producer));
     }
     push_fact_diagnostics(b, &file, &p.diagnostics, &language, lang, inputs.security);
+    let (argument_sites, argument_counts) = linkable_arguments(p.argument_sites);
     let facts = FileFacts {
         source_digest: p.source_digest.clone(),
-        argument_sites: p.argument_sites,
+        argument_sites,
+        argument_counts,
         argument_scan_complete: !p.diagnostics.iter().any(|diagnostic| {
             matches!(
                 diagnostic.code,
@@ -162,6 +164,53 @@ pub(super) fn link_file(
     facts.shrink_to_fit();
     b.facts.insert(file.clone(), facts);
     b.nodes.insert(file, node);
+}
+
+/// The sites projection links and the counts of the whole scan. A value that
+/// is not a reference links nothing, nor does a site left with no slot; most
+/// sites are that, and each holds its own occurrence ids until projection.
+fn linkable_arguments(
+    mut sites: Vec<octocode_engine::graph::GraphFactArgumentSite>,
+) -> (
+    Vec<octocode_engine::graph::GraphFactArgumentSite>,
+    ArgumentCounts,
+) {
+    use octocode_engine::graph::{GraphArgumentGroupObservation, GraphArgumentObservation};
+    let mut counts = ArgumentCounts::default();
+    for site in &mut sites {
+        counts.sites += 1;
+        counts.groups += site.groups.len() as u64;
+        site.groups
+            .retain_mut(|group| match &mut group.observation {
+                GraphArgumentGroupObservation::Unsupported { .. } => {
+                    counts.unsupported_groups += 1;
+                    true
+                }
+                GraphArgumentGroupObservation::Slots { slots } => {
+                    counts.slots += slots.len() as u64;
+                    slots.retain(|slot| match slot.observation {
+                        GraphArgumentObservation::Reference { .. } => {
+                            counts.direct_references += 1;
+                            true
+                        }
+                        GraphArgumentObservation::NonReference { .. } => {
+                            counts.non_reference_values += 1;
+                            false
+                        }
+                        GraphArgumentObservation::Unsupported { .. } => {
+                            counts.unsupported_slots += 1;
+                            true
+                        }
+                    });
+                    slots.shrink_to_fit();
+                    !slots.is_empty()
+                }
+            });
+        site.groups.shrink_to_fit();
+    }
+    sites.retain(|site| !site.groups.is_empty());
+    sites.shrink_to_fit();
+    (sites, counts)
 }
 
 pub(super) fn count_language(b: &mut BuiltGraph, language: &str, link: &str) {

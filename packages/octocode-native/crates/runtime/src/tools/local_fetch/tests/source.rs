@@ -197,7 +197,9 @@ fn each_large_source_page_prepares_its_own_bytes() {
     );
 }
 
-/// Concurrent rows own their preparation and preserve every selected view.
+/// Concurrent rows own their preparation and preserve every selected view. The
+/// range and match rows read identical bytes at two paths: rows of one path may
+/// share a kept scan (`a_race_for_one_kept_scan_gives_each_row_its_own_view`).
 #[test]
 fn concurrent_rows_own_independent_preparations() {
     struct SlowKeys(AtomicUsize);
@@ -216,8 +218,10 @@ fn concurrent_rows_own_independent_preparations() {
     }
     let t = Fixture::new();
     let p = t.0.join("shared.txt");
+    let same_bytes = t.0.join("same-bytes.txt");
     let line = format!("{}\n", "x".repeat(79));
     fs::write(&p, line.repeat(4_000)).expect("fixture");
+    fs::write(&same_bytes, line.repeat(4_000)).expect("fixture");
     let scan = SlowKeys(AtomicUsize::new(0));
     let rows = [
         q(&p),
@@ -227,7 +231,7 @@ fn concurrent_rows_own_independent_preparations() {
             serde_json::json!({"ranges":[{"startLine":10,"endLine":20}]}),
         ),
         qj(
-            &p,
+            &same_bytes,
             serde_json::json!({"matchString": ["xx"], "contextLines":{"before":0,"after":0}}),
         ),
     ];
@@ -257,4 +261,80 @@ fn concurrent_rows_own_independent_preparations() {
         rows.len(),
         "each row prepares its own source"
     );
+    assert_eq!(
+        results[2].content.as_deref(),
+        Some(line.repeat(11).as_str())
+    );
+}
+
+/// Rows racing for one key may each scan, or reuse a scan another has kept by
+/// then, whichever the scheduler gives: at least one scans, and every row gets
+/// the same redacted view it would alone.
+#[test]
+fn a_race_for_one_kept_scan_gives_each_row_its_own_view() {
+    struct Counted(AtomicUsize);
+    impl ContentScan for Counted {
+        fn sanitize(
+            &self,
+            text: &str,
+            path: &Path,
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
+            crate::security::ContentSecurity::new().sanitize(text, path)
+        }
+        fn redact_key_blocks<'a>(&self, content: &'a str) -> (std::borrow::Cow<'a, str>, bool) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            crate::security::redact_private_key_blocks(content)
+        }
+    }
+    let t = Fixture::new();
+    let p = t.0.join("shared.rs");
+    let secret = format!("ghp_{}", "q7W8e9R0t1Y2".repeat(3));
+    let source = format!(
+        "const KEY: &str = \"{secret}\";\n{}",
+        "const FILLER: u8 = 0;\n".repeat(4_000)
+    );
+    fs::write(&p, &source).expect("fixture");
+    let ranged = qj(
+        &p,
+        serde_json::json!({"ranges":[{"startLine":1,"endLine":2}]}),
+    );
+    let matched = qj(
+        &p,
+        serde_json::json!({"matchString": ["KEY"], "contextLines":{"before":0,"after":1}}),
+    );
+    let rows = [
+        &ranged, &matched, &ranged, &matched, &ranged, &matched, &ranged, &matched,
+    ];
+    let scan = Counted(AtomicUsize::new(0));
+    let start = std::sync::Barrier::new(rows.len());
+    let results = std::thread::scope(|scope| {
+        let workers = rows
+            .iter()
+            .map(|row| {
+                let (scan, start, paths) = (&scan, &start, Paths(t.0.clone()));
+                scope.spawn(move || {
+                    start.wait();
+                    execute_local_fetch(row, &paths, scan, &NeverCancel, None, None)
+                })
+            })
+            .collect::<Vec<_>>();
+        workers
+            .into_iter()
+            .map(|worker| serde_json::to_value(worker.join().expect("row")).expect("row json"))
+            .collect::<Vec<_>>()
+    });
+    assert!((1..=rows.len()).contains(&scan.0.load(Ordering::Relaxed)));
+    for pair in results.chunks(2) {
+        assert_eq!(pair[0]["error"], serde_json::Value::Null, "{pair:?}");
+        assert_eq!(pair[1]["error"], serde_json::Value::Null, "{pair:?}");
+        assert_eq!(pair[0], results[0], "the range rows differ");
+        assert_eq!(pair[1], results[1], "the match rows differ");
+    }
+    for row in &results[..2] {
+        let content = row["content"].as_str().expect("content");
+        assert!(content.starts_with("const KEY"), "{content}");
+        assert!(content.contains("REDACTED"), "{content}");
+        assert!(!content.contains(&secret), "{content}");
+        assert!(content.ends_with("const FILLER: u8 = 0;\n"), "{content}");
+    }
 }

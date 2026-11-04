@@ -1,6 +1,5 @@
 {
   "exceptions": [
-    { "file": "docs/CONFIGURATION.md", "token": "local.enableLocl", "reason": "Deliberate typo in the example of the unknown-key warning." },
     { "file": "skills-dev/octocode-dev/docs/ADDING_CONFIG.md", "token": "output.compact", "reason": "Hypothetical key in the add-a-setting walkthrough." },
     { "file": "packages/octocode-native/docs/ADDING_CLASIFY_VENDOR.md", "token": "classification.vendor", "reason": "Hypothetical key a new vendor would declare." },
     { "file": "packages/octocode-native/docs/ADDING_CLASIFY_VENDOR.md", "token": "classification.type", "reason": "Names the removed key so it is not reused." },

@@ -21,12 +21,15 @@ mod call_rows;
 mod caller_pages;
 mod continuations;
 mod diagnostics;
+mod directory_roots;
 mod empty_rows;
 mod failures;
 mod fixtures;
 mod hierarchy;
 mod hierarchy_caps;
 mod limit;
+#[cfg(unix)]
+mod loading_server;
 mod outline;
 mod pagination;
 mod receipts;

@@ -6,7 +6,7 @@ use crate::security::CheckedQuery;
 /// How many queries of one batch run at once: read-only rows fan out one
 /// thread per query; mutating and self-scheduled tools stay ordered. Each
 /// row's own parallel work (its walk, its reads) sizes itself from the
-/// process CPU budget ([`octocode_engine::search::cpu`]), which every local
+/// process CPU budget ([`octocode_engine::cpu`]), which every local
 /// row counts toward while it runs, so concurrent rows and concurrent calls
 /// split the cores instead of stacking full pools. Measured on a 5-query
 /// localSearch batch over the native crates (12 cores, optimized build): one
@@ -46,7 +46,7 @@ pub(super) fn execute_ordinary_queries(
         0
     };
     let _rows = (0..computing)
-        .map(|_| octocode_engine::search::cpu::host().enter())
+        .map(|_| octocode_engine::cpu::host().enter())
         .collect::<Vec<_>>();
     run_batch(
         width,

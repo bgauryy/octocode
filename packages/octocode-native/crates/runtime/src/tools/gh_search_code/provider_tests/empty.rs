@@ -37,7 +37,7 @@ async fn an_empty_repo_search_never_leads_to_an_unscoped_clone() {
         json!({"owner":"a","repo":"b","keywords":["zzqq"]}),
         json!({"owner":"a","repo":"b","keywords":["zzqq"],"ref":"v1"}),
         json!({"owner":"a","repo":"b","keywords":["zzqq"],"extensions":["ts"]}),
-        json!({"owner":"a","repo":"b","keywords":["zzqq"],"pathPrefix":"src"}),
+        json!({"owner":"a","repo":"b","keywords":["zzqq"],"path":"src"}),
     ] {
         let out = run_empty(row.clone()).await;
         assert!(
@@ -98,12 +98,12 @@ async fn an_empty_repo_search_also_lists_the_root_on_every_surface() {
     );
 }
 
-/// `pathPrefix` is a directory prefix, so a file path matches nothing. The
+/// `path` is a directory prefix, so a file path matches nothing. The
 /// empty names the mistake, lists the file's parent directory, and reads the
 /// file itself for the keywords.
 #[tokio::test]
 async fn a_file_path_scope_leads_to_filename_and_the_parent_listing() {
-    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["ppr"],"pathPrefix":"packages/next/src/config-shared.ts"}))
+    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["ppr"],"path":"packages/next/src/config-shared.ts"}))
     .await;
     let data = &out.data;
 
@@ -117,8 +117,7 @@ async fn a_file_path_scope_leads_to_filename_and_the_parent_listing() {
     assert_eq!(read["path"], "packages/next/src/config-shared.ts", "{data}");
     assert_eq!(read["matchString"], json!(["ppr"]), "{data}");
     // A bare file name has the repository root as its parent.
-    let out =
-        run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"pathPrefix":"Cargo.toml"})).await;
+    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"path":"Cargo.toml"})).await;
     assert_eq!(
         crate::tools::test_support::checks::related_call(
             &out.data,
@@ -130,37 +129,35 @@ async fn a_file_path_scope_leads_to_filename_and_the_parent_listing() {
         out.data
     );
     // A dotted directory is not a file.
-    let out =
-        run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"pathPrefix":"docs/v1.2"})).await;
+    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"path":"docs/v1.2"})).await;
     assert!(out.data["next"].get("read").is_none(), "{}", out.data);
-    let out =
-        run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"pathPrefix":".github"})).await;
+    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"path":".github"})).await;
     assert!(out.data["next"].get("read").is_none(), "{}", out.data);
 }
 
-/// A file `pathPrefix` names its mistake whether or not a repository narrows the
+/// A file `path` names its mistake whether or not a repository narrows the
 /// search, and a name no extension rule recognises (`LICENSE`) still learns
-/// that `pathPrefix` is a directory prefix.
+/// that `path` is a directory prefix.
 #[tokio::test]
 async fn a_file_path_scope_is_named_without_a_repo_and_for_extensionless_names() {
     let owner_wide = run_empty(
-        json!({"owner":"a","keywords":["ppr"],"pathPrefix":"packages/next/src/config-shared.ts"}),
+        json!({"owner":"a","keywords":["ppr"],"path":"packages/next/src/config-shared.ts"}),
     )
     .await;
     let hints = owner_wide.data["hints"].as_array().expect("hints");
     assert!(
         hints[0].as_str().is_some_and(|hint| hint.contains(
-            "search it by `nameContains:\"config-shared.ts\"` with `pathPrefix:\"packages/next/src\"`"
+            "search it by `nameContains:\"config-shared.ts\"` with `path:\"packages/next/src\"`"
         )),
         "{}",
         owner_wide.data
     );
     let extensionless =
-        run_empty(json!({"owner":"a","repo":"b","keywords":["MIT"],"pathPrefix":"LICENSE"})).await;
+        run_empty(json!({"owner":"a","repo":"b","keywords":["MIT"],"path":"LICENSE"})).await;
     assert!(
         extensionless.data["hints"][0]
             .as_str()
-            .is_some_and(|hint| hint.contains("`nameContains`") && hint.contains("`pathPrefix`")),
+            .is_some_and(|hint| hint.contains("`nameContains`") && hint.contains("`path`")),
         "{}",
         extensionless.data
     );
@@ -170,10 +167,9 @@ async fn a_file_path_scope_is_named_without_a_repo_and_for_extensionless_names()
 /// hint, not only under `extras:["diagnostics"]`.
 #[tokio::test]
 async fn a_path_scoped_empty_says_why_it_proves_nothing() {
-    let out = run_empty(
-        json!({"owner":"a","repo":"b","keywords":["zzqq"],"pathPrefix":"packages/next/src"}),
-    )
-    .await;
+    let out =
+        run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"path":"packages/next/src"}))
+            .await;
     crate::tools::test_support::checks::assert_leads_valid(&out.data);
     assert!(
         crate::tools::test_support::checks::find_related_call(&out.data, "ghStructure", |_| true)
@@ -183,10 +179,9 @@ async fn a_path_scoped_empty_says_why_it_proves_nothing() {
     // executable `cloneRepo` lead.
 
     // A requested ref is still named: the index covers only the default branch.
-    let out = run_empty(
-        json!({"owner":"a","repo":"b","keywords":["zzqq"],"ref":"v1","pathPrefix":"src"}),
-    )
-    .await;
+    let out =
+        run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"ref":"v1","path":"src"}))
+            .await;
     crate::tools::test_support::checks::assert_leads_valid(&out.data);
     assert!(
         crate::tools::test_support::checks::find_related_call(&out.data, "ghStructure", |_| true)
@@ -348,8 +343,7 @@ async fn a_missing_repository_labels_its_name_search_and_lists_the_owner() {
 /// the diagnostics the response stage appends to them are one list.
 #[tokio::test]
 async fn a_scoped_empty_search_states_unproven_absence_once() {
-    let out =
-        run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"pathPrefix":"src"})).await;
+    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"path":"src"})).await;
     let mut hints = out.data["hints"]
         .as_array()
         .map(|hints| {

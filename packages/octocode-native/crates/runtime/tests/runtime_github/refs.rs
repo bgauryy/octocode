@@ -46,7 +46,7 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
     let out = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"a","repo":"b","keywords":["class"],"pathPrefix":"pkg","ref":"dev"}),
+        json!({"owner":"a","repo":"b","keywords":["class"],"path":"pkg","ref":"dev"}),
     )
     .await
     .expect("search");

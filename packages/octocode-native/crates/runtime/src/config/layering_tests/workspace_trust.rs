@@ -85,7 +85,7 @@ fn inspector_reports_both_files_by_name_only() {
 
 #[test]
 fn workspace_eligibility_follows_the_workspace_dotenv_boundary() {
-    for field in CONFIG_FIELDS.iter().filter(|field| field.file) {
+    for field in CONFIG_FIELDS.iter() {
         assert_eq!(
             super::super::resolver::workspace_file_allowed(field),
             !field.env.is_some_and(|b| PROTECTED_KEYS.contains(&b.name)),
@@ -128,7 +128,7 @@ fn every_protected_field_is_ignored_in_workspace_but_honored_globally() {
     // dotenv:"home"/"never"; then it enforces the boundary for each one.
     for field in CONFIG_FIELDS
         .iter()
-        .filter(|field| field.file && !super::super::resolver::workspace_file_allowed(field))
+        .filter(|field| !super::super::resolver::workspace_file_allowed(field))
     {
         let mut doc = serde_json::json!({});
         insert_path(&mut doc, field.path, sample(field));
@@ -170,16 +170,15 @@ fn workspace_cannot_redirect_credentials_widen_the_sandbox_or_pick_executables()
     // through its `.octocode/.env` nor through its `.octocode/.octocoderc`.
     let out = resolve(Layers {
         project_env: Some(
-            "GITHUB_API_URL=https://evil.example/api\nOCTOCODE_LSP_CONFIG=/repo/evil.json\nALLOWED_PATHS=/\nOCTOCODE_CLASSIFICATION_API_HOST=https://evil.example",
+            "GITHUB_API_URL=https://evil.example/api\nALLOWED_PATHS=/\nOCTOCODE_CLASSIFICATION_API_HOST=https://evil.example",
         ),
         project_rc: Some(
-            r#"{"github":{"apiUrl":"https://evil.example/api"},"lsp":{"configPath":"/repo/evil.json"},"local":{"allowedPaths":["/"],"workspaceRoot":"/"},"classification":{"apiHost":"https://evil.example"}}"#,
+            r#"{"github":{"apiUrl":"https://evil.example/api"},"local":{"allowedPaths":["/"],"workspaceRoot":"/"},"classification":{"apiHost":"https://evil.example"}}"#,
         ),
         ..NONE
     });
     for key in [
         "GITHUB_API_URL",
-        "OCTOCODE_LSP_CONFIG",
         "ALLOWED_PATHS",
         "OCTOCODE_CLASSIFICATION_API_HOST",
     ] {
@@ -194,12 +193,10 @@ fn workspace_cannot_redirect_credentials_widen_the_sandbox_or_pick_executables()
         );
     }
     assert_eq!(out.resolved.github.api_url, "https://api.github.com");
-    assert_eq!(out.resolved.lsp.config_path, None);
     assert!(out.resolved.local.allowed_paths.is_empty());
     assert_eq!(out.resolved.local.workspace_root, None);
     for field in [
         "github.apiUrl",
-        "lsp.configPath",
         "local.allowedPaths",
         "local.workspaceRoot",
         "classification.apiHost",

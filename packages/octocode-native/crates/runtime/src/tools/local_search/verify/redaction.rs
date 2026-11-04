@@ -203,7 +203,8 @@ fn redact_file(
         }
         bytes
             .map(|bytes| {
-                let text = String::from_utf8_lossy(&bytes).into_owned();
+                // Decoded as the search decoded it.
+                let text = octocode_engine::text::decode(&bytes).text.into_owned();
                 (crate::security::private_key_block_line_ranges(&text), text)
             })
             .filter(|(ranges, _)| !ranges.is_empty())

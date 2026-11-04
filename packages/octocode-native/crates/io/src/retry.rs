@@ -96,6 +96,22 @@ pub enum BodyError {
     TooLarge,
     /// The connection failed mid-body.
     Transport,
+    /// The body arrived and does not decode as its `Content-Encoding` says:
+    /// asking again gets the same bytes.
+    Decode,
+}
+
+/// What stopped a body stream. reqwest reports every failure of the stream as
+/// a decode error, so its cause tells them apart: the decoder fails with an I/O
+/// error of its own, and the connection with the HTTP client's error.
+fn body_failure(error: &reqwest::Error) -> BodyError {
+    let decoder = std::error::Error::source(error)
+        .is_some_and(|cause| cause.downcast_ref::<std::io::Error>().is_some());
+    if error.is_decode() && decoder {
+        BodyError::Decode
+    } else {
+        BodyError::Transport
+    }
 }
 
 /// A response body read within `budget` and at most `limit` bytes. A body
@@ -112,7 +128,7 @@ pub async fn read_bounded(
         .await
         .map_err(BodyError::Stopped)?
     {
-        let chunk = chunk.map_err(|_| BodyError::Transport)?;
+        let chunk = chunk.map_err(|error| body_failure(&error))?;
         if body.len().saturating_add(chunk.len()) > limit {
             return Err(BodyError::TooLarge);
         }

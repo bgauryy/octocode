@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -52,12 +52,15 @@ pub(super) struct Registry {
     /// What issued tool continuations own, beside the handles (same
     /// directory and retention).
     evidence: Store<octocode_github::ProviderEvidence>,
-    /// What they own that the output gate would rewrite: this process's
+    /// What they own that may not be stored
+    /// ([`crate::providers::saved_answers::gate_keeps`]): this process's
     /// memory only ([`evidence`]).
     held_evidence: Store<octocode_github::ProviderEvidence>,
     policy: String,
     disk: Option<PathBuf>,
-    mutation: Mutex<()>,
+    /// Taken before the sidecar file lock, so that lock is contended across
+    /// processes only.
+    mutation: octocode_io::lock::Turnstile,
 }
 
 /// The continuations one output issues, retained together before it is
@@ -96,7 +99,7 @@ impl Registry {
             held_evidence: Store::new(config, None),
             policy,
             disk,
-            mutation: Mutex::new(()),
+            mutation: octocode_io::lock::Turnstile::new(),
         }
     }
 
@@ -126,8 +129,8 @@ impl Registry {
         if pending.issued.is_empty() {
             return Ok(());
         }
-        let _storage = self.process_lock(context)?;
         let _mutation = self.mutation_lock(context)?;
+        let _storage = self.process_lock(context)?;
         context.check()?;
         if let Some((_, owned)) = pending.evidence
             && pending
@@ -171,20 +174,11 @@ impl Registry {
     fn mutation_lock(
         &self,
         context: &ExecutionContext,
-    ) -> Result<std::sync::MutexGuard<'_, ()>, ExecutionError> {
-        loop {
-            context.check()?;
-            match self.mutation.try_lock() {
-                Ok(guard) => return Ok(guard),
-                Err(std::sync::TryLockError::Poisoned(_)) => {
-                    return Err(ExecutionError::WorkerFailed);
-                }
-                Err(std::sync::TryLockError::WouldBlock) => std::thread::sleep(
-                    octocode_io::lock::LOCK_POLL
-                        .min(context.deadline.saturating_duration_since(Instant::now())),
-                ),
-            }
-        }
+    ) -> Result<octocode_io::lock::Turn<'_>, ExecutionError> {
+        self.mutation
+            .take(context.deadline, octocode_io::lock::LOCK_POLL, || {
+                context.check()
+            })
     }
 
     fn process_lock(

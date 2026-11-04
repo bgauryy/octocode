@@ -45,26 +45,13 @@ pub(crate) fn normalized_input(tool_name: &str, input: Value) -> Value {
         if issues.is_empty() {
             return input;
         }
-        if !repair_values(tool_name, &mut input, &issues, (&defs, &operations)) {
-            return with_invalid_rows_as_sent(input, &sent, &batch.rows);
+        if !repair_values(tool_name, &mut input, &issues, (&defs, &operations))
+            && !unwrap_lone_selections(&mut input, &batch.rows)
+        {
+            return input;
         }
     }
     sent
-}
-
-/// A row that stays invalid goes back as it was sent, so its error names what
-/// the caller wrote; repaired rows keep running beside it.
-fn with_invalid_rows_as_sent(
-    mut input: Value,
-    sent: &Value,
-    issues: &[Vec<ValidationIssue>],
-) -> Value {
-    for (index, row_issues) in issues.iter().enumerate() {
-        if !row_issues.is_empty() {
-            input["queries"][index] = sent["queries"][index].clone();
-        }
-    }
-    input
 }
 
 /// The envelope a request means: a bare row or list of rows wrapped, a row
@@ -115,7 +102,32 @@ fn shaped(id: ToolId, input: Value) -> Value {
     }
     spread_row_fields(id, &mut request, &declared_envelope);
     lift_envelope_fields(id, &mut request, &declared_envelope);
+    for row in rows_mut(&mut request) {
+        complete_sort(row);
+    }
     Value::Object(request)
+}
+
+/// A sort names what to sort by; its direction has one natural reading. Names
+/// read in alphabetical order, and counts, sizes and dates read biggest first.
+/// A pair the tool does not take still fails validation.
+fn complete_sort(row: &mut Map<String, Value>) {
+    let Some(sort) = row.get_mut("sort") else {
+        return;
+    };
+    if sort.is_string() {
+        *sort = serde_json::json!({"by": sort.take()});
+    }
+    let Some(sort) = sort.as_object_mut() else {
+        return;
+    };
+    let order = match sort.get("by").and_then(Value::as_str) {
+        Some("path" | "name" | "traversal") => "asc",
+        Some(_) => "desc",
+        None => return,
+    };
+    sort.entry("order")
+        .or_insert_with(|| Value::String(order.to_owned()));
 }
 
 /// The request's own fields, `queries` aside.
@@ -183,6 +195,38 @@ fn rows_mut(request: &mut Map<String, Value>) -> impl Iterator<Item = &mut Map<S
         .into_iter()
         .flatten()
         .filter_map(Value::as_object_mut)
+}
+
+/// A filter that takes one value, sent as a one-item `{include:[value]}`, the
+/// shape its sibling query form takes (`committedAt` with and without
+/// `keywords`). Only on an invalid row, and only an object value: validation of
+/// the result decides.
+fn unwrap_lone_selections(input: &mut Value, rows: &[Vec<ValidationIssue>]) -> bool {
+    let mut changed = false;
+    for (index, issues) in rows.iter().enumerate() {
+        if issues.is_empty() {
+            continue;
+        }
+        let Some(filters) = input["queries"][index]
+            .get_mut("filters")
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        for value in filters.values_mut() {
+            let lone = value.as_object().filter(|selection| selection.len() == 1);
+            let item = lone
+                .and_then(|selection| selection.get("include"))
+                .and_then(Value::as_array)
+                .filter(|items| items.len() == 1 && items[0].is_object())
+                .map(|items| items[0].clone());
+            if let Some(item) = item {
+                *value = item;
+                changed = true;
+            }
+        }
+    }
+    changed
 }
 
 /// A filter selection is `{include, exclude}`: a bare value of it means

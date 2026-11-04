@@ -110,7 +110,7 @@ function cliCases() {
 function graphCases(run) {
   const root = path.join(REPOS, 'rust');
   if (!fs.existsSync(root)) return [];
-  const build = force => ['graphBuild', JSON.stringify({ queries: [{ path: root, excludeDirs: ['target'], ...(force ? { refresh: true } : {}) }] }), '--json'];
+  const build = force => ['graphBuild', JSON.stringify({ queries: [{ path: root, exclude: ['target'], ...(force ? { refresh: true } : {}) }] }), '--json'];
   const cold = run('graphBuild rust (forced cold)', build(true), {}, root);
   const id = (() => { try { return JSON.parse(cold.stdout).results[0].data.id; } catch { return null; } })();
   const rows = [{ ...cold, group: 'graph' }, { ...run('graphBuild rust (unchanged rebuild)', build(false), {}, root), group: 'graph' }];

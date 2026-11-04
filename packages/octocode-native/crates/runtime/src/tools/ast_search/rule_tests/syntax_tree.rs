@@ -170,7 +170,16 @@ fn syntax_tree_redacted_looking_text_keeps_original_coordinates_without_exposing
     let file = root.write("coordinates.ts", &source);
     let security = crate::security::ContentSecurity::new();
     assert_ne!(security.sanitize_text(&source, Some(&file)).content, source);
-    let out = run(&root.0, json!({"operation":"syntaxTree","path":file})).expect("tree");
+    let plain = run(&root.0, json!({"operation":"syntaxTree","path":file})).expect("plain tree");
+    assert!(
+        !plain.to_string().contains(&token),
+        "source text must not enter node rows"
+    );
+    let out = run(
+        &root.0,
+        json!({"operation":"syntaxTree","path":file,"includeProvenance":true}),
+    )
+    .expect("tree");
     let node = out["nodes"]
         .as_array()
         .expect("nodes")

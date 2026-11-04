@@ -16,7 +16,7 @@ pub const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 /// Admission bounds. Every admitted request runs at once: there is no run
 /// queue, so an independent call never waits for another to finish. Their
 /// fan-outs share the cores through the process CPU budget
-/// ([`octocode_engine::search::cpu`]), and `pending` refuses work past it.
+/// ([`octocode_engine::cpu`]), and `pending` refuses work past it.
 #[derive(Clone, Debug)]
 pub struct RequestLimits {
     /// Admitted requests (all running) before `busy`.
