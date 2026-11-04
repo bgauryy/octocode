@@ -17,13 +17,11 @@ pub(super) fn leading_binary_warning(
     groups: &[octocode_engine::types::BinaryExtensionCount],
 ) -> String {
     let total: u64 = groups.iter().map(|group| u64::from(group.count)).sum();
-    let by_extension = binary_counts(groups);
-    let noun = if total == 1 {
-        "binary file"
-    } else {
-        "binary files"
-    };
-    format!("binarySkipped: {total} {noun} not searched ({by_extension}).")
+    let total = octocode_engine::text::counted(total, "binary file", "binary files");
+    format!(
+        "binarySkipped: {total} not searched ({}).",
+        binary_counts(groups)
+    )
 }
 
 /// Most chars of exact names a binary listing's `nameRegex` spells out.

@@ -239,7 +239,7 @@ stateDiagram-v2
 | Open → Unassessed | The run ended with work left; `terminalReason` says why |
 
 Coverage counts these states per resource (`answered`, `error`, `unsupported`, `unassessed`),
-plus `totalSections`, `completedSections` and `remainingSections`.
+plus `totalSections` and `remainingSections`. An absent count is 0.
 
 > [!IMPORTANT]
 > `unassessed` and `error` cells were not judged: they are not a "no". A section hit is a
@@ -250,7 +250,7 @@ What comes back for each resource:
 
 ```text
 resources.<key>
-├─ status, source, snapshot   what was read, pinned
+├─ status, snapshot           what was read, pinned (`source` on a cursor page, or when it changed)
 ├─ read                       a handle that reads the file at that snapshot
 ├─ coverage                   cell counts (cumulative, never add them up)
 └─ sections[]
@@ -361,8 +361,8 @@ The filled matrix, one row per section, P(yes) per question:
 | `ws` | s2 | 374–473 | 0.06 | 0.08 | 0.05 |
 
 Probabilities can shift by about 0.01 between runs. Read the high-scoring sections with each
-resource's `read` handle, and follow `next.nextPage` unchanged until every resource reports
-`remainingSections: 0`.
+resource's `read` handle, and follow `next.nextPage` unchanged until no resource reports
+`remainingSections`.
 
 ### Ask one atomic follow-up
 

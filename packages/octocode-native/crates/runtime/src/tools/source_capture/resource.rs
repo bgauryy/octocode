@@ -150,7 +150,7 @@ pub(crate) fn capture(
     Ok(TextResource {
         text,
         path,
-        metadata: json!({"status":"ready","source":source,"snapshot":snapshot,"coordinateSpace":"source","read":read}),
+        metadata: json!({"status":"ready","source":source,"snapshot":snapshot,"read":read}),
         local_check,
     })
 }

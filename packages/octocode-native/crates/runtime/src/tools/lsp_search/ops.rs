@@ -283,21 +283,44 @@ impl Operation<'_, '_> {
                         .get_document_symbols_settled(self.path.to_owned(), content),
                 )
                 .await??;
-                let mut symbols = std::sync::Arc::unwrap_or_clone(symbols);
-                if octocode_engine::lsp::family::is_typescript_family(self.language_id)
-                    && let Some(source) = &source
-                {
-                    super::render::name_type_aliases(&mut symbols, &source.content);
+                if readiness.is_some() {
+                    super::session::note_server(self.client, readiness.clone());
                 }
-                let mut payload = items_payload(query, "documentSymbols", symbols, self.budget);
-                super::responses::flag_still_loading(&mut payload, query, readiness.as_deref());
-                Ok(payload)
+                Ok(outline_row(
+                    query,
+                    std::sync::Arc::unwrap_or_clone(symbols),
+                    self.language_id,
+                    source.as_ref().map(|source| source.content.as_str()),
+                    self.budget,
+                    readiness.as_deref(),
+                ))
             }
             Op::WorkspaceSymbol => self.workspace_symbol().await,
             Op::Diagnostic => self.diagnostic().await,
             Op::Callers | Op::Callees | Op::Supertypes | Op::Subtypes => self.hierarchy().await,
         }
     }
+}
+
+/// The `documentSymbols` row: the outline, with a TypeScript alias named
+/// from `content`, flagged partial when the wait the outline paid (`readiness`)
+/// timed out.
+fn outline_row(
+    query: &LspSearchQuery,
+    mut symbols: Value,
+    language_id: Option<&str>,
+    content: Option<&str>,
+    budget: usize,
+    readiness: Option<&str>,
+) -> Value {
+    if octocode_engine::lsp::family::is_typescript_family(language_id)
+        && let Some(content) = content
+    {
+        super::render::name_type_aliases(&mut symbols, content);
+    }
+    let mut payload = items_payload(query, "documentSymbols", symbols, budget);
+    super::responses::flag_still_loading(&mut payload, query, readiness);
+    payload
 }
 
 #[cfg(test)]

@@ -113,8 +113,9 @@ const SERVER_LANGUAGE_LABELS: &[(&str, &str)] = &[
 /// whose language server resolves to an executable for `workspace_root`,
 /// through the discovery ladder `lspSearch` uses (env overrides, user config,
 /// managed installs, pyright family, octocode's TypeScript server).
-/// Resolution only: no server is spawned and no command is executed (a
-/// rustup proxy counts only when a toolchain ships the component).
+/// Resolution only: no server is spawned. A rustup proxy counts only when
+/// the toolchain `rustup which` selects for the workspace ships the component,
+/// so that one bounded, auto-install-free rustup call is made for it.
 #[must_use]
 pub fn available_server_languages(
     workspace_root: &str,

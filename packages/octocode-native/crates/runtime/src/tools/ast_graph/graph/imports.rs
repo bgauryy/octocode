@@ -270,11 +270,20 @@ impl FileLink<'_, '_> {
             ),
             None => (i.imported_name.unwrap_or_default(), i.local_name),
         };
+        let packages = self.inputs.packages;
         for target in linked_targets {
+            // A plain Go import binds the name the package's clause gives it,
+            // which need not be the path's last segment.
+            let local_name = local_name.clone().or_else(|| {
+                packages
+                    .go_package_name(&target)
+                    .filter(|_| self.lang == Linker::Go)
+                    .map(str::to_owned)
+            });
             self.facts.imports.push(Import {
                 id: i.id.clone(),
                 imported_name: imported_name.clone(),
-                local_name: local_name.clone(),
+                local_name,
                 specifier: i.specifier.clone(),
                 line: i.line,
                 target: Some(target),

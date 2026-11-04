@@ -226,3 +226,46 @@ fn rust_restricted_visibility_is_not_exported() {
         assert!(!exported(name), "{name}");
     }
 }
+
+fn kinds(source: &str, path: &str) -> Vec<(String, String, bool)> {
+    extract_graph_facts_with_metadata(source, path)
+        .expect("graph facts")
+        .facts
+        .declarations
+        .iter()
+        .map(|d| (d.name.clone(), d.kind.clone(), d.exported))
+        .collect()
+}
+
+fn row(name: &str, kind: &str, exported: bool) -> (String, String, bool) {
+    (name.to_owned(), kind.to_owned(), exported)
+}
+
+#[test]
+fn rust_unions_are_declared() {
+    assert_eq!(
+        kinds("pub union U { a: u8 }\nunion P { b: u8 }\n", "a.rs"),
+        [row("U", "struct", true), row("P", "struct", false)]
+    );
+}
+
+#[test]
+fn java_annotation_types_are_declared() {
+    assert_eq!(
+        kinds("public @interface Ann { int v() default 0; }\n", "Ann.java"),
+        [row("Ann", "interface", true)]
+    );
+}
+
+#[cfg(feature = "tree-sitter-scala")]
+#[test]
+fn scala_enums_and_givens_are_declared() {
+    let declared = kinds(
+        "enum Color { case Red }\ngiven intOrd: Ord[Int] = ???\ngiven Ord[String] with { def x = 1 }\n",
+        "a.scala",
+    );
+    assert_eq!(declared[0], row("Color", "enum", true));
+    assert_eq!(declared[1], row("intOrd", "constant", true));
+    // An anonymous given has only the type it provides to name it.
+    assert_eq!(declared[2], row("Ord[String]", "constant", true));
+}

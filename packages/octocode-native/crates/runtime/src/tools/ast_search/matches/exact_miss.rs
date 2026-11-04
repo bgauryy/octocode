@@ -4,6 +4,7 @@
 use super::continuations::tree_lead;
 use super::query::MatchQuery;
 use super::reads::row_file;
+use super::rows::push_diagnostic;
 use super::scan::{scan_directory, scan_file};
 use super::scope::{resolve_scope, scope_extension};
 use super::types::{Scan, Scope};
@@ -38,7 +39,7 @@ pub(super) fn exact_miss(
     cancel: &dyn CancellationCheck,
 ) -> Option<ExactMiss> {
     let declaration = pattern_declaration(q, scope)?;
-    let mut rule = json!({"kind": declaration.kind});
+    let mut rule = kind_rule(&declaration);
     if let Some((kind, name)) = &declaration.name {
         rule["has"] = json!({"kind": kind, "regex": format!("^{}$", regex::escape(name))});
     }
@@ -89,6 +90,16 @@ pub(super) fn exact_miss(
     })
 }
 
+/// The rule listing every declaration of a pattern's kind, in the wrapper the
+/// pattern spells around it.
+fn kind_rule(declaration: &octocode_engine::structural::PatternDeclaration) -> Value {
+    let mut rule = json!({"kind": declaration.kind});
+    if let Some(inside) = &declaration.inside {
+        rule["inside"] = json!({"kind": inside});
+    }
+    rule
+}
+
 /// The declaration an empty `rule.pattern` spells in the scope's grammar.
 pub(super) fn pattern_declaration(
     q: MatchQuery<'_>,
@@ -113,8 +124,9 @@ pub(super) fn fuller_form_hint(q: MatchQuery<'_>, scope: &Scope) -> Option<Strin
     ))
 }
 
-/// `q` as a fresh `rule` query over the same scope (a directory scan pins
-/// the grammar it inferred).
+/// `q` as a fresh `rule` query that lists its nodes, over the same scope (a
+/// directory scan pins the grammar it inferred). A file view's `view` is not
+/// one a listing takes.
 pub(super) fn with_rule(
     q: MatchQuery<'_>,
     scope: &Scope,
@@ -123,6 +135,7 @@ pub(super) fn with_rule(
     let mut query = crate::response::result::fresh_query_row(ToolId::AstSearch, &q.to_value());
     let fields = query.as_object_mut()?;
     fields.insert("rule".into(), rule);
+    fields.shift_remove("view");
     if !scope.is_file
         && !fields.contains_key("parser")
         && let Some(inferred) = &scope.inferred
@@ -161,7 +174,7 @@ pub(super) fn kind_broaden(
 ) -> Option<Value> {
     let declaration = pattern_declaration(q, scope)?;
     declaration.name.as_ref()?;
-    let query = with_rule(q, scope, json!({"kind": declaration.kind}))?;
+    let query = with_rule(q, scope, kind_rule(&declaration))?;
     rule_scan(&query, paths, cancel)?
         .files
         .iter()
@@ -189,14 +202,39 @@ impl ExactMiss {
             ),
             "recovery": "Spell those parts in the pattern, or list every node of the kind with a rule.",
         });
-        match out["diagnostics"].as_array_mut() {
-            Some(diagnostics) => diagnostics.push(diagnostic),
-            None => out["diagnostics"] = json!([diagnostic]),
-        }
+        push_diagnostic(out, diagnostic);
         if let Some(tree) = tree {
             out["calls"]["viewSyntax"] = tree;
         }
         out["calls"]["broadenSearch"] =
             crate::response::result::Continuation::related_query(query).build();
+    }
+
+    /// Beside a rewritten page's hits, which are nodes of this kind: the
+    /// count of those that neither spelling matched, and the rule listing
+    /// them all. Nothing when the hits are every node of the kind.
+    pub(super) fn attach_beside_hits(self, out: &mut Value) {
+        let hits = out["matchCount"].as_u64().unwrap_or(0);
+        let left = u64::try_from(self.count)
+            .unwrap_or(u64::MAX)
+            .saturating_sub(hits);
+        if left == 0 {
+            return;
+        }
+        push_diagnostic(
+            out,
+            json!({
+                "code": "structural.pattern.exact",
+                "severity": "warning",
+                "stage": "match",
+                "message": format!(
+                    "{left} more {} node(s) match neither pattern: they differ in another part (a modifier, type parameters, the form of the return type).",
+                    self.kind
+                ),
+                "recovery": "broadenSearch lists every node of the kind.",
+            }),
+        );
+        out["calls"]["broadenSearch"] =
+            crate::response::result::Continuation::related_query(self.query).build();
     }
 }

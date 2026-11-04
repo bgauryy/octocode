@@ -94,11 +94,6 @@ async fn a_listing_states_each_file_size() {
         ])))
         .mount(&server)
         .await;
-    Mock::given(method("POST"))
-        .and(path("/api/graphql"))
-        .respond_with(DatesEcho)
-        .mount(&server)
-        .await;
     let workspace = Workspace::new();
     let runtime = github(&workspace, &server);
     let outcome = call(
@@ -110,19 +105,10 @@ async fn a_listing_states_each_file_size() {
     .expect("listing");
     let data = row_data(&outcome);
     assert_eq!(
-        undated(&data["files"][0], "files"),
+        data["files"][0]["files"],
         json!(["big (1).bin (400000)", "small.rs (10)", "src/"]),
         "{data}"
     );
-    // The size comes first, then the day: each name is written once.
-    let dates = updated(&data["files"][0]);
-    assert!(
-        dates.contains_key("small.rs")
-            && dates.contains_key("big (1).bin")
-            && dates.contains_key("src"),
-        "{data}"
-    );
-    assert!(data["files"][0].get("updated").is_none(), "{data}");
     runtime.close().await;
 }
 
@@ -189,11 +175,6 @@ async fn a_renamed_repository_is_listed_and_continued_under_its_canonical_name()
         .expect(1)
         .mount(&server)
         .await;
-    Mock::given(method("POST"))
-        .and(path("/api/graphql"))
-        .respond_with(DatesEcho)
-        .mount(&server)
-        .await;
     let workspace = Workspace::new();
     let runtime = github(&workspace, &server);
     let outcome = call(
@@ -220,8 +201,7 @@ async fn a_renamed_repository_is_listed_and_continued_under_its_canonical_name()
         (Some("c"), Some("d")),
         "{data}"
     );
-    let dates = graphql_requests(&server).await;
-    assert_eq!(dates[0]["variables"]["owner"], "c", "{dates:?}");
+    assert!(graphql_requests(&server).await.is_empty());
     runtime.close().await;
 }
 
@@ -250,11 +230,6 @@ async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([
             {"name":"lib.rs","path":"lib.rs","type":"file","size":10}
         ])))
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/api/graphql"))
-        .respond_with(DatesEcho)
         .mount(&server)
         .await;
     let workspace = Workspace::new();

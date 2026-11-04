@@ -18,7 +18,6 @@ use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::path::Path;
 
-mod dates;
 mod failures;
 mod listing;
 pub(crate) mod materialize;

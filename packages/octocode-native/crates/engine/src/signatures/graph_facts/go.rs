@@ -1,9 +1,90 @@
-//! Go-specific syntax facts: what an import binds, the type a method is
+//! Go-specific syntax facts: the package a file belongs to, what an import
+//! binds, the names a `const` or `var` spec declares, the type a method is
 //! declared on, and the types a struct or interface embeds.
 
 use tree_sitter::Node;
 
 use crate::signatures::nodes::node_text;
+
+/// What the lines above a file's declarations settle about it.
+#[derive(Default)]
+pub(super) struct PackageHeader {
+    /// The name its package clause gives the package.
+    pub(super) package: Option<String>,
+    /// A build constraint keeps the file out of every build.
+    pub(super) build_excluded: bool,
+}
+
+/// Reads the comments and package clause that open a file. Build constraints
+/// count only there.
+pub(super) fn package_header(root: Node<'_>, content: &str) -> PackageHeader {
+    let mut header = PackageHeader::default();
+    let mut cursor = root.walk();
+    for child in root.named_children(&mut cursor) {
+        match child.kind() {
+            "comment" => {
+                header.build_excluded |=
+                    node_text(child, content).is_some_and(constraint_excludes_every_build);
+            }
+            "package_clause" => {
+                let mut clause = child.walk();
+                header.package = child
+                    .named_children(&mut clause)
+                    .find(|part| part.kind() == "package_identifier")
+                    .and_then(|name| node_text(name, content))
+                    .map(str::to_owned);
+                break;
+            }
+            _ => break,
+        }
+    }
+    header
+}
+
+/// A constraint no build satisfies: the `ignore` tag every Go tool chain
+/// leaves unset, required on its own or in a conjunction. Whether any other
+/// tag holds depends on the build, so those files stay candidates.
+fn constraint_excludes_every_build(comment: &str) -> bool {
+    let comment = comment.trim();
+    if let Some(expression) = comment.strip_prefix("//go:build ") {
+        return !expression.contains("||")
+            && expression.split("&&").any(|term| term.trim() == "ignore");
+    }
+    comment
+        .strip_prefix("// +build ")
+        .or_else(|| comment.strip_prefix("//+build "))
+        .is_some_and(|options| {
+            options
+                .split_whitespace()
+                .all(|option| option.split(',').any(|term| term == "ignore"))
+        })
+}
+
+/// The names a `const_spec` or package-level `var_spec` declares, each with
+/// its kind. A function's `var`s are its locals, not the package's.
+pub(super) fn spec_names<'t>(
+    node: Node<'t>,
+    ancestors: &[Node<'t>],
+) -> Vec<(&'static str, Node<'t>)> {
+    let kind = match node.kind() {
+        "const_spec" => "constant",
+        "var_spec"
+            if ancestors
+                .iter()
+                .rev()
+                .find(|parent| !matches!(parent.kind(), "var_declaration" | "var_spec_list"))
+                .is_some_and(|parent| parent.kind() == "source_file") =>
+        {
+            "variable"
+        }
+        _ => return Vec::new(),
+    };
+    let mut cursor = node.walk();
+    node.children_by_field_name("name", &mut cursor)
+        .filter(Node::is_named)
+        .map(|name| (kind, name))
+        .collect()
+}
 
 /// `(local_name, imported_name)` of an `import_spec`: an alias binds the
 /// package under that name, `.` binds its exported names into the file (a

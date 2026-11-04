@@ -77,7 +77,8 @@ impl Continuation {
     /// The call: its input's rows without the fields that hold their
     /// contract default ([`without_defaults`]). A related call is a fresh
     /// public request, so its rows also drop the tool's private progress
-    /// ([`fresh_query_row`]); only continued work keeps it, for its cursor.
+    /// and the caller's brief ([`fresh_query_row`]); only continued work
+    /// keeps them, for its cursor.
     #[track_caller]
     fn new(tool: ToolId, input: Value, related: bool) -> Self {
         let input = if related {
@@ -258,13 +259,16 @@ impl From<Value> for ToolData {
     }
 }
 
-/// The same semantic request without private saved-work progress.
+/// The same semantic request without private saved-work progress or the
+/// caller's brief, which is the caller's to state for fresh work.
 pub(crate) fn fresh_query_row(tool: ToolId, row: &Value) -> Value {
     let mut fresh = row.clone();
     if let Some(fields) = fresh.as_object_mut() {
         for field in crate::contracts::state_fields(tool) {
             fields.remove(field);
         }
+        fields.remove("mainGoal");
+        fields.remove("reasoning");
     }
     fresh
 }

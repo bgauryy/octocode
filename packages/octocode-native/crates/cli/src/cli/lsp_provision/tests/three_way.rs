@@ -35,7 +35,7 @@ fn release_json(asset: &str, digest: &str) -> String {
 fn api(base: String) -> Option<GitHub> {
     Some(GitHub {
         api_base: base,
-        token: None,
+        ..GitHub::new(None)
     })
 }
 
@@ -129,27 +129,39 @@ async fn a_live_digest_that_differs_from_the_lock_is_refused_as_changed_upstream
     assert!(outcome.error.expect("refused").contains("changed upstream"));
 }
 
+/// Bytes of the locked size whose hash is not the locked one are refused by
+/// the hash check; bytes of another size are refused before any hashing.
 #[tokio::test(flavor = "current_thread")]
 async fn bytes_that_differ_from_the_lock_are_refused_as_corrupted() {
     let download = gz(b"locked bytes");
     let (_, asset) = locked_to(&download);
-    let live = serve(
-        200,
-        release_json(&asset.asset, &octocode_engine::digest::sha256(&download)),
-    );
-    let dir = tempfile::tempdir().expect("tempdir");
-    let outcome = provision(
-        dir.path(),
-        &download,
-        Fake {
-            live: api(live),
-            ..Fake::serving(gz(b"substituted bytes"))
-        },
-    )
-    .await;
-    let error = outcome.error.expect("refused");
-    assert!(error.contains("corrupted or substituted"), "{error}");
-    assert_eq!(install_dir_leftovers(dir.path()), Vec::<String>::new());
+    let mut same_size = download.clone();
+    *same_size.last_mut().expect("bytes") ^= 0xff;
+    let mut longer = download.clone();
+    longer.push(0);
+    for (served, refusal) in [
+        (same_size, "sha256"),
+        (longer, "bytes but managed.lock.json records"),
+    ] {
+        let live = serve(
+            200,
+            release_json(&asset.asset, &octocode_engine::digest::sha256(&download)),
+        );
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outcome = provision(
+            dir.path(),
+            &download,
+            Fake {
+                live: api(live),
+                ..Fake::serving(served)
+            },
+        )
+        .await;
+        let error = outcome.error.expect("refused");
+        assert!(error.contains("corrupted or substituted"), "{error}");
+        assert!(error.contains(refusal), "{refusal}: {error}");
+        assert_eq!(install_dir_leftovers(dir.path()), Vec::<String>::new());
+    }
 }
 
 /// GitHub unreachable (connection refused, or a rate-limit answer): the bytes
@@ -199,10 +211,7 @@ async fn an_unreachable_api_installs_from_the_lock_and_says_so() {
 async fn an_immutable_release_verifies_its_attestation() {
     let download = gz(b"rust-analyzer-binary");
     let (mut server, asset) = locked_to(&download);
-    server.release_lock = Some(octocode_engine::lsp::managed::ReleaseLock {
-        immutable: true,
-        published_at: String::new(),
-    });
+    server.release_lock = Some(octocode_engine::lsp::managed::ReleaseLock { immutable: true });
     let cases = [
         (Attestation::Verified, Ok("release attestation verified")),
         (
@@ -240,6 +249,50 @@ async fn an_immutable_release_verifies_its_attestation() {
             Err(text) => assert!(outcome.error.expect("refused").contains(text)),
         }
     }
+}
+
+/// The GitHub token authenticates the metadata request to the API host and
+/// goes nowhere else. The download path takes no token at all
+/// (`download::fetch_allowlisted(url, file)`), and a host outside the release
+/// allowlist, like this local fixture, is refused before any request is sent.
+#[tokio::test(flavor = "current_thread")]
+async fn the_token_goes_to_the_api_host_and_never_to_a_download_host() {
+    let download = gz(b"rust-analyzer-binary");
+    let (_, asset) = locked_to(&download);
+    let sha = octocode_engine::digest::sha256(&download);
+    let (base, api_requests) = serve_recording(200, release_json(&asset.asset, &sha));
+    let github = GitHub {
+        api_base: base,
+        token: Some("ghp_secret_token".to_owned()),
+        ..GitHub::new(None)
+    };
+    let live = github
+        .live_digest("rust-lang/rust-analyzer", "x", &asset.asset)
+        .await;
+    assert_eq!(live, Ok(Some(sha)));
+    {
+        let requests = api_requests.lock().expect("requests");
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .to_ascii_lowercase()
+                .contains("authorization: bearer ghp_secret_token"),
+            "{}",
+            requests[0]
+        );
+    }
+
+    let (download_base, download_requests) = serve_recording(200, "bytes".into());
+    let dir = tempfile::tempdir().expect("tempdir");
+    let spool = tokio::fs::File::from_std(
+        octocode_io::atomic::create_new(&dir.path().join("spool"), 0o600).expect("spool"),
+    );
+    let refused = github
+        .download(&format!("{download_base}/asset.gz"), spool)
+        .await
+        .expect_err("a host outside the allowlist is refused");
+    assert!(refused.contains("Blocked non-allowlisted"), "{refused}");
+    assert!(download_requests.lock().expect("requests").is_empty());
 }
 
 #[test]

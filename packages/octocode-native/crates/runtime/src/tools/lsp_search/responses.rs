@@ -198,7 +198,13 @@ pub(super) fn annotate(
     crate::response::paging::push_warnings(result, disclose_waits(&session.config, session.waits));
     let language_id = target.config.language_id.as_deref();
     inferred_project::annotate(result, query, language_id, &target.path, scope);
-    inferred_project::annotate_compile_database(result, query, &target.config, &target.path, scope);
+    inferred_project::compile_database::annotate_compile_database(
+        result,
+        query,
+        &target.config,
+        &target.path,
+        scope,
+    );
     let rust = receipt::RustAnalysis::of(&session.config);
     failure::annotate_empty_includes(result, query, rust.build_scripts, stopped);
     server_coverage::annotate(

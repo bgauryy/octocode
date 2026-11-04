@@ -248,6 +248,24 @@ pub struct TextSearchOptions {
     pub max_file_bytes: Option<u32>,
     /// How values are kept and whether each kept file's bytes are hashed.
     pub values: SourceValues,
+    /// What a [`SourceValues::Deferred`] search does with a line while its
+    /// bytes are in hand; `None` keeps only its anchors.
+    pub inspect_deferred: Option<DeferredInspector>,
+}
+
+/// Decides one deferred line from the bytes the search read: it leaves the
+/// value empty, or the text to keep, and sets [`TextSearchMatch::deferred`] to
+/// the row's price, or `Some(0)` when the line needs a source re-read.
+pub type InspectDeferred = dyn Fn(&std::path::Path, &mut TextSearchMatch) + Send + Sync;
+
+/// A shared [`InspectDeferred`].
+#[derive(Clone)]
+pub struct DeferredInspector(pub std::sync::Arc<InspectDeferred>);
+
+impl std::fmt::Debug for DeferredInspector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DeferredInspector")
+    }
 }
 
 impl TextSearchOptions {
@@ -260,6 +278,7 @@ impl TextSearchOptions {
             context: SearchContext::default(),
             sort: SearchSort::Path,
             values: SourceValues::Owned,
+            inspect_deferred: None,
             ..self.clone()
         }
     }

@@ -85,8 +85,7 @@ impl DomainResult {
     /// when the upstream answered. Rate-limit members are seconds and absent
     /// when unknown, never null or a made-up 0. There is no `status`, `type`,
     /// `rateLimitRemaining`, `rateLimitReset` sibling and no raw provider
-    /// dump. Arms add identity fields (owner/repo/path) or debug diagnostics
-    /// (`requestId`, `documentationUrl`) afterwards. Other error emitters
+    /// dump. Arms add identity fields (owner/repo/path) afterwards. Other error emitters
     /// (clasify's resource errors) mirror these field names.
     pub(crate) fn provider(
         code: ErrorCode,

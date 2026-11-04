@@ -261,6 +261,11 @@ pub struct GraphFactCommonJsBinding {
     pub declaration_id: String,
 }
 
+/// The `import_kind`/`export_kind` of a binding whose module load a parse
+/// cannot settle: a JS/TS file only the tree-sitter fallback lane read. Not
+/// `value`, which the graph reads as eager.
+pub const UNKNOWN_LOAD: &str = "unknown";
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GraphFactsDocument {
@@ -295,6 +300,13 @@ pub struct GraphFactsDocument {
     pub paths: Vec<GraphFactPath>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rust_root_unsupported: Option<bool>,
+    /// A Go file's package clause: the name a plain import of it binds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub go_package: Option<String>,
+    /// A build constraint keeps this file out of every build: it holds no
+    /// graph facts, and no package import reaches it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub build_excluded: bool,
 }
 
 impl GraphFactsDocument {

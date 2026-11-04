@@ -172,7 +172,9 @@ async fn a_directory_past_the_contents_cap_is_listed_whole_and_paged() {
     .await;
     let mut listed = Vec::new();
     let mut row = json!({"operation":"tree","owner":"a","repo":"b"});
-    for page in 1..=12 {
+    let pages =
+        1200_u64.div_ceil(crate::contracts::query_limits::gh_structure::tree::LIMIT_DEFAULT as u64);
+    for page in 1..=pages {
         let out = list(&server, row.clone()).await.expect("listing");
         let data = &out.data;
         assert!(data.get("terminalLimit").is_none(), "page {page}: {data}");
@@ -188,7 +190,7 @@ async fn a_directory_past_the_contents_cap_is_listed_whole_and_paged() {
         match next {
             Some(next) => row = next["input"]["queries"][0].clone(),
             None => {
-                assert_eq!(page, 12, "{data}");
+                assert_eq!(page, pages, "{data}");
                 break;
             }
         }
@@ -233,7 +235,7 @@ async fn a_directory_past_the_contents_cap_is_listed_whole_and_paged() {
     assert_eq!(out.data["files"][0]["dir"], "big", "{}", out.data);
     assert_eq!(
         out.data["files"][0]["files"].as_array().map(Vec::len),
-        Some(100),
+        Some(crate::contracts::query_limits::gh_structure::tree::LIMIT_DEFAULT),
         "{}",
         out.data
     );

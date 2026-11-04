@@ -1,6 +1,5 @@
 //! The last commit that touched each repository path at one commit: the
-//! one source of that fact for every tool (ghStructure's dated listings,
-//! ghGetFileContent's receipts).
+//! one source of that fact for every tool (ghGetFileContent's receipts).
 //!
 //! One GraphQL request answers up to [`MAX_PATHS_PER_REQUEST`] paths: each
 //! path is an aliased `history(first:1, path:)` on the commit object. Paths

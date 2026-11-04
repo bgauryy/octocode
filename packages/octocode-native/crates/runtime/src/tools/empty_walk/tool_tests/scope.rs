@@ -197,9 +197,11 @@ fn every_tool_discloses_unchecked_scope_and_offers_an_executable_related_search(
             (tool.run)(&root.0, &query)
         });
         assert!(
-            out["partialReasons"]
-                .as_array()
-                .is_some_and(|reasons| reasons.contains(&json!("skippedPathsUnchecked"))),
+            out.get("partialReasons").is_none() && out["isPartial"] != json!(true),
+            "{label}: the requested scope was walked whole: {out}"
+        );
+        assert!(
+            prose(&out).contains("not checked in time"),
             "{label}: {out}"
         );
         let lead = skipped_query(&out).unwrap_or_else(|| panic!("{label}: {out}"));

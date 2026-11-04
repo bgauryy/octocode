@@ -84,7 +84,21 @@ pub(super) fn object(schema: &Value, defs: &Value, received: &Value) -> Option<S
     if holds_json(received, Value::is_object) {
         return Some(SEND_ITSELF.to_owned());
     }
-    let schema = super::super::resolve_ref(schema, defs);
+    let fields = required_properties(super::super::resolve_ref(schema, defs), defs, received)?;
+    Some(format!(
+        "send {}, not {}",
+        Value::Object(fields),
+        shown(received)
+    ))
+}
+
+/// Every required property of an object `schema` set to the scalar `received`,
+/// when each takes a value of that type.
+fn required_properties(
+    schema: &Value,
+    defs: &Value,
+    received: &Value,
+) -> Option<serde_json::Map<String, Value>> {
     let required = schema.get("required")?.as_array()?;
     let properties = schema.get("properties")?.as_object()?;
     let mut fields = serde_json::Map::new();
@@ -104,7 +118,45 @@ pub(super) fn object(schema: &Value, defs: &Value, received: &Value) -> Option<S
         }
         fields.insert(name.to_owned(), received.clone());
     }
-    (!fields.is_empty()).then(|| format!("send {}, not {}", Value::Object(fields), shown(received)))
+    (!fields.is_empty()).then_some(fields)
+}
+
+/// The value `received` means where `schema` takes another type, when it has
+/// one reading: a JSON string's own value, one item as a list, a scalar as
+/// every required property of an object, a scalar's text, a one-item list's
+/// item. Validation of the result decides whether it fits.
+pub(crate) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> Option<Value> {
+    let schema = super::super::resolve_ref(schema, defs);
+    match schema.get("type").and_then(Value::as_str)? {
+        "array" => {
+            if holds_json(received, Value::is_array) {
+                return serde_json::from_str(received.as_str()?).ok();
+            }
+            (!received.is_array()).then(|| Value::Array(vec![received.clone()]))
+        }
+        "object" => {
+            if holds_json(received, Value::is_object) {
+                return serde_json::from_str(received.as_str()?).ok();
+            }
+            if schema["properties"]["include"].is_object() && !received.is_object() {
+                return Some(serde_json::json!({"include": [received]}));
+            }
+            required_properties(schema, defs, received).map(Value::Object)
+        }
+        "string" => match received {
+            Value::Number(_) | Value::Bool(_) => Some(Value::String(received.to_string())),
+            Value::Array(items) => match items.as_slice() {
+                [item @ Value::String(_)] => Some(item.clone()),
+                _ => None,
+            },
+            _ => None,
+        },
+        "integer" | "number" | "boolean" => {
+            let parsed = serde_json::from_str::<Value>(received.as_str()?).ok()?;
+            (parsed.is_number() || parsed.is_boolean()).then_some(parsed)
+        }
+        _ => None,
+    }
 }
 
 /// Lowercase without separators: `match_string`, `MatchString` and

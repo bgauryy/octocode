@@ -180,7 +180,7 @@ fn outline_diagnostics(set: &SymbolSet) -> Vec<Value> {
     if set.skipped > 0 {
         diagnostics.push(json!({
             "code":"symbols.filesSkipped",
-            "message":format!("terminalLimit: {} files were not outlined (parse byte limit, encoding or read failure); no page reaches their declarations.", set.skipped),
+            "message":format!("terminalLimit: {} not outlined (parse byte limit, encoding or read failure); no page reaches those declarations.", octocode_engine::text::counted(set.skipped, "file", "files")),
         }));
     }
     diagnostics

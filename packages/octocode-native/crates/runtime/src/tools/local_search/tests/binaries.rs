@@ -127,6 +127,44 @@ fn zero_match_binary_cut_search_leads_to_narrow_the_scope() {
     );
 }
 
+/// Binaries are not what a row with hits was asked about: `binarySkipped`
+/// states their count and no listing call follows; an empty row, whose miss
+/// they may explain, offers the listing.
+#[test]
+fn only_an_empty_row_offers_the_skipped_binaries_listing() {
+    let files = [("a.txt", "alpha\n"), ("img.jpg", "\u{0}\u{1}alpha")];
+    let hits = search_fixture(
+        &files,
+        ls_query(serde_json::json!({"matchString": ["alpha"]}), None),
+    );
+    assert_eq!(hits["binarySkipped"], 1, "{hits}");
+    let lists_binaries =
+        |input: &serde_json::Value| input["queries"][0]["extensions"] == serde_json::json!(["jpg"]);
+    assert!(
+        crate::tools::test_support::checks::find_related_call(
+            &hits,
+            "structureSearch",
+            lists_binaries
+        )
+        .is_none(),
+        "{hits}"
+    );
+    let empty = search_fixture(
+        &files,
+        ls_query(serde_json::json!({"matchString": ["zzqqxx"]}), None),
+    );
+    assert_eq!(empty["matchCount"], 0, "{empty}");
+    assert!(
+        crate::tools::test_support::checks::find_related_call(
+            &empty,
+            "structureSearch",
+            lists_binaries
+        )
+        .is_some(),
+        "{empty}"
+    );
+}
+
 /// A warning never names a lead the lead cap may drop.
 #[test]
 fn binary_warning_never_names_a_capped_lead() {
@@ -142,26 +180,25 @@ fn binary_warning_never_names_a_capped_lead() {
 
 /// The listing lead reaches the same scope the search walked: a binary
 /// skipped under `includeHidden` is one the lead lists with it, not an
-/// empty listing that contradicts `binarySkipped`.
+/// empty listing that contradicts the row's warning.
 #[test]
 fn binary_listing_lead_walks_the_hidden_scope_the_search_did() {
     for hidden in [false, true] {
         let body = search_fixture(
             &[
-                ("a.rs", "fn needle() {}\nneedle();\n"),
+                ("a.rs", "fn other() {}\n"),
                 (".img.png", "\u{0}\u{1}needle"),
             ],
             ls_query(
-                serde_json::json!({"matchString": ["needle"], "includeHidden": hidden}),
+                serde_json::json!({"matchString": ["zzqqxx"], "includeHidden": hidden}),
                 None,
             ),
         );
-        let skipped = body["binarySkipped"].as_u64().unwrap_or(0);
-        assert_eq!(skipped, u64::from(hidden), "{body}");
-        let lead =
-            crate::tools::test_support::checks::find_related_call(&body, "structureSearch", |_| {
-                true
-            });
+        let lead = crate::tools::test_support::checks::find_related_call(
+            &body,
+            "structureSearch",
+            |input| input["queries"][0]["extensions"] == serde_json::json!(["png"]),
+        );
         assert_eq!(lead.is_some(), hidden, "{body}");
         if let Some(lead) = lead {
             assert_eq!(lead["input"]["queries"][0]["includeHidden"], true, "{body}");

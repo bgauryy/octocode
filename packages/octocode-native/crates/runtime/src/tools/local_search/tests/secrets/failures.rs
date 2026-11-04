@@ -250,11 +250,11 @@ fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
 }
 
 /// Files binary from their leading bytes (a font's magic, then a NUL)
-/// are outside a text search: no partial result, a
-/// count grouped by extension instead of every path, and an exact
-/// structureSearch continuation that lists them all.
+/// are outside a text search: no partial result and a count instead of
+/// every path. A row with hits stops there; an empty row, whose miss they
+/// may explain, adds an exact structureSearch call that lists them all.
 #[test]
-fn leading_nul_binaries_are_counted_with_a_listing_continuation() {
+fn leading_nul_binaries_are_counted_and_an_empty_row_lists_them() {
     let root = tempfile::tempdir().expect("fixture directory");
     fs::create_dir_all(root.path().join("fonts/a")).expect("fixture dir");
     for index in 0..30 {
@@ -289,9 +289,30 @@ fn leading_nul_binaries_are_counted_with_a_listing_continuation() {
     let text = body.to_string();
     assert!(!text.contains("Font-0"), "{text}");
 
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&body, "structureSearch", |_| true)
+            .is_none(),
+        "{body}"
+    );
+
+    let request = ls_query(
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["zzqqxx".to_string()], "regexEngine": "literal"}),
+        None,
+    );
+    let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+        .expect("search");
+    let body = result.to_row().expect("serialize");
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("binarySkipped: 31 ")),
+        "{body}"
+    );
     let listing =
-        &crate::tools::test_support::checks::related_call(&body, "structureSearch", |_| true);
-    assert_eq!(listing["tool"], "structureSearch", "{body}");
+        &crate::tools::test_support::checks::related_call(&body, "structureSearch", |input| {
+            input["queries"][0]["extensions"].is_array()
+        });
     let query = listing["input"]["queries"][0].clone();
     assert_eq!(query["operation"], "files", "{listing}");
     assert_eq!(

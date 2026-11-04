@@ -172,6 +172,8 @@ impl FileFacts {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum DiagnosticCode {
     ParseRecovery,
+    /// oxc could not parse a JS/TS file; the tree-sitter lane read it.
+    ParserFallback,
     PathPolicyWithheld,
     ScanSkip,
     /// A bare import names a scanned file by path, but nothing links it.
@@ -185,6 +187,7 @@ impl DiagnosticCode {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::ParseRecovery => "parse-recovery",
+            Self::ParserFallback => "parser-fallback",
             Self::PathPolicyWithheld => "path-policy-withheld",
             Self::ScanSkip => "scan-skip",
             Self::UnlinkedPathImport => "unlinked-path-import",
@@ -251,6 +254,10 @@ pub(crate) struct BuiltGraph {
     pub facts: BTreeMap<String, FileFacts>,
     pub nodes: BTreeMap<String, FileGraphNode>,
     pub files_skipped: u32,
+    /// `(file, producer)` of each file read by a lane other than its owner's.
+    pub parser_fallback: Vec<(String, String)>,
+    /// Markup files holding a script no graph node represents, by extension.
+    pub markup_not_linked: BTreeMap<String, u32>,
     /// The bounds linking refuses past.
     pub limits: super::limits::Limits,
     /// Snapshot rows the build certainly projects: the scan's nodes and

@@ -130,8 +130,7 @@ pub struct SearchStats {
     #[serde(skip)]
     pub cap_reasons: Vec<octocode_engine::types::CapReason>,
     /// The coverage gaps of the scan, one per reason: the limits that ended
-    /// it early ([`cap_partial_reason`]) and unchecked skipped paths. The
-    /// row writes them through [`LocalSearchResult::to_row`].
+    /// it early ([`cap_partial_reason`]). The row writes them through [`LocalSearchResult::to_row`].
     #[serde(skip)]
     pub partial_reasons: Vec<crate::response::paging::PartialReason>,
     #[serde(skip)]

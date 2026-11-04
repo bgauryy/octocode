@@ -27,6 +27,20 @@ impl Kept {
             )),
         }
     }
+    /// A Go file's name, package clause and build exclusion.
+    pub(super) fn go_file(&self) -> Option<(&str, Option<&str>, bool)> {
+        match self {
+            Self::Spill(kept) => kept
+                .go_file
+                .as_ref()
+                .map(|(file, package, excluded)| (file.as_str(), package.as_deref(), *excluded)),
+            Self::Memory(kept) => (kept.0.facts.language == "go").then_some((
+                kept.0.relative_path.as_str(),
+                kept.0.facts.go_package.as_deref(),
+                kept.0.facts.build_excluded,
+            )),
+        }
+    }
     pub(super) fn restore(
         self,
         relative: &str,
@@ -100,6 +114,8 @@ pub(super) struct Extracted<'a> {
     pub(super) withheld: crate::policy::discovery::Withheld,
     pub(super) job: Option<checkpoint::Job<'a>>,
     pub(super) reused_files: usize,
+    /// The markup files the scan's walk leaves out: no graph node holds them.
+    pub(super) markup: Vec<octocode_engine::types::FileSystemEntry>,
     /// What the kept files certainly project.
     pub(super) tally: super::super::limits::Tally,
 }
@@ -128,16 +144,19 @@ pub(super) fn extract<'a>(
             .then(|| crate::tools::ast_rule::language_globs(&scan.language_globs)),
         ignore: octocode_engine::types::IgnorePolicy::default(),
     };
-    let discovery = crate::policy::discovery::WalkAdmission::new(
-        paths.discovery_walk(),
-        root,
-        crate::policy::discovery::WalkRules {
-            defaults: true,
-            include: &[],
-            generated: false,
-            engine_prunes: true,
-        },
-    );
+    let admission_of_walk = || {
+        crate::policy::discovery::WalkAdmission::new(
+            paths.discovery_walk(),
+            root,
+            crate::policy::discovery::WalkRules {
+                defaults: true,
+                include: &[],
+                generated: false,
+                engine_prunes: true,
+            },
+        )
+    };
+    let discovery = admission_of_walk();
     let admit = |path: &Path, file_type| discovery.admit(path, file_type, |_| true);
     let capture_error = std::sync::Mutex::new(None);
     let stop = || {
@@ -152,6 +171,15 @@ pub(super) fn extract<'a>(
         &options, &admit, &stop, registry,
     )
     .map_err(scan_error)?;
+    // Its own admission: what this walk withholds was counted by the one above.
+    let markup_discovery = admission_of_walk();
+    let markup = octocode_engine::fact_scan::walk_script_markup_files(
+        &options,
+        &|path: &Path, file_type| markup_discovery.admit(path, file_type, |_| true),
+        &stop,
+    )
+    .map_err(scan_error)?
+    .entries;
     let job = checkpoint::Job::open(scan, root, &walk.entries, paths, security, registry, cancel)?;
     let parsing = crate::tools::ast_graph::progress::Parsing::new(walk.entries.len());
     let admission = super::scope::Admission::new(scan, root, &walk.entries);
@@ -252,6 +280,7 @@ pub(super) fn extract<'a>(
         withheld: discovery.skipped().withheld,
         job,
         reused_files,
+        markup,
         tally: admission.tally(),
     })
 }

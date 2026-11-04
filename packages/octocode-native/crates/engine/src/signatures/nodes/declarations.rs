@@ -24,10 +24,12 @@ pub(super) fn declaration_kind(kind: &str) -> Option<&'static str> {
         | "abstract_class_declaration"
         | "class_specifier"
         | "class" => Some("class"),
-        "struct_item" | "struct_specifier" | "struct_declaration" => Some("struct"),
-        "enum_item" | "enum_declaration" | "enum_specifier" => Some("enum"),
+        "struct_item" | "struct_specifier" | "struct_declaration" | "union_item" => Some("struct"),
+        "enum_item" | "enum_declaration" | "enum_specifier" | "enum_definition" => Some("enum"),
         "trait_item" => Some("trait"),
-        "interface_declaration" | "interface_item" => Some("interface"),
+        "interface_declaration" | "interface_item" | "annotation_type_declaration" => {
+            Some("interface")
+        }
         "impl_item" => Some("impl"),
         "mod_item" | "module_definition" => Some("module"),
         // C#: namespaces, records, properties, delegates. TypeScript
@@ -65,6 +67,24 @@ pub(in crate::signatures) fn declaration<'t>(
     node: Node<'t>,
     content: &str,
 ) -> Option<(&'static str, Node<'t>)> {
+    declaration_given(node, || node.parent(), content)
+}
+
+/// [`declaration`] for a walk that knows `node`'s parent: `Node::parent()`
+/// searches from the root.
+pub(in crate::signatures) fn declaration_under<'t>(
+    node: Node<'t>,
+    parent: Option<Node<'t>>,
+    content: &str,
+) -> Option<(&'static str, Node<'t>)> {
+    declaration_given(node, || parent, content)
+}
+
+fn declaration_given<'t>(
+    node: Node<'t>,
+    parent: impl Fn() -> Option<Node<'t>>,
+    content: &str,
+) -> Option<(&'static str, Node<'t>)> {
     // A namespace keeps its whole qualified name. An unnamed C-family
     // namespace selects its keyword; its display label is structural, not a binder.
     if matches!(
@@ -83,13 +103,13 @@ pub(in crate::signatures) fn declaration<'t>(
             })
             .map(|name| ("namespace", name));
     }
-    // A Go `type` declaration only wraps its specs (`type X …` or a grouped
-    // `type ( … )`); each spec is the declaration.
-    if node.kind() == "type_declaration" {
+    // A Go `type` or `const` declaration only wraps its specs (`type X …`, a
+    // grouped `type ( … )`, `const ( … )`); each spec is the declaration.
+    if matches!(node.kind(), "type_declaration" | "const_declaration") {
         let mut cursor = node.walk();
         if node
             .named_children(&mut cursor)
-            .any(|child| matches!(child.kind(), "type_spec" | "type_alias"))
+            .any(|child| matches!(child.kind(), "type_spec" | "type_alias" | "const_spec"))
         {
             return None;
         }
@@ -111,6 +131,12 @@ pub(in crate::signatures) fn declaration<'t>(
             .child_by_field_name("name")
             .map(|name| ("module", name)),
         "trait_definition" => node.child_by_field_name("name").map(|name| ("trait", name)),
+        // A Scala `given` is a term; an anonymous one has only the type it
+        // provides to name it.
+        "given_definition" => node
+            .child_by_field_name("name")
+            .or_else(|| node.child_by_field_name("return_type"))
+            .map(|name| ("constant", name)),
         "val_definition" => node
             .child_by_field_name("pattern")
             .filter(|pattern| pattern.kind() == "identifier")
@@ -130,14 +156,14 @@ pub(in crate::signatures) fn declaration<'t>(
         // C/C++ prototypes (`void f(void);`, a header's API) and
         // `const`/`constexpr` variables at file or namespace scope.
         "declaration"
-            if node.parent().is_some_and(|parent| {
+            if parent().is_some_and(|parent| {
                 matches!(parent.kind(), "translation_unit" | "declaration_list")
             }) && is_function_prototype(node) =>
         {
             declarator_name(node).map(|name| ("function", name))
         }
         "declaration"
-            if node.parent().is_some_and(|parent| {
+            if parent().is_some_and(|parent| {
                 matches!(parent.kind(), "translation_unit" | "declaration_list")
             }) && has_const_qualifier(node, content) =>
         {
@@ -153,10 +179,7 @@ pub(in crate::signatures) fn declaration<'t>(
             let left = assignment
                 .child_by_field_name("left")
                 .filter(|left| left.kind() == "identifier")?;
-            if !node
-                .parent()
-                .is_some_and(|parent| parent.kind() == "module")
-            {
+            if !parent().is_some_and(|parent| parent.kind() == "module") {
                 return None;
             }
             let name = node_text(left, content)?;
@@ -174,20 +197,8 @@ pub(in crate::signatures) fn declaration<'t>(
 /// alias, and Python puts the `@decorator` lines in a `decorated_definition`
 /// around the `def` or `class`. The wrapper starts where the declaration is
 /// read from (a doc comment sits above the header), so its range is the
-/// declaration's; the name node still places `line`.
-pub(in crate::signatures) fn declaration_extent(node: Node<'_>) -> Node<'_> {
-    let mut current = node;
-    declaration_extent_from_parents(
-        node,
-        std::iter::from_fn(move || {
-            current = current.parent()?;
-            Some(current)
-        }),
-    )
-}
-
-/// As [`declaration_extent`], using an already known nearest-first parent
-/// chain so a traversal need not search from the root for each occurrence.
+/// declaration's; the name node still places `line`. `parents` is the node's
+/// nearest-first parent chain, which a traversal already knows.
 pub(in crate::signatures) fn declaration_extent_from_parents<'t>(
     node: Node<'t>,
     parents: impl Iterator<Item = Node<'t>>,

@@ -1,5 +1,6 @@
 //! Declaration and call facts of one node.
 
+use super::declarations::{declaration_fact, named_declaration, push_declaration};
 use super::imports::{
     collect_c_include, collect_csharp_using, collect_rust_include, collect_rust_module,
     collect_rust_use,
@@ -8,58 +9,16 @@ use super::positions::NodePositions;
 use super::python::collect_python_imports;
 use super::rust_macro_args::record_rust_macro;
 use super::scala::is_scala;
-use super::walk::{RustNodeContext, is_grouped_go_import, method_kind};
+use super::walk::{RustNodeContext, is_grouped_go_import};
 use super::{GraphAccumulator, heritage};
 use tree_sitter::Node;
 
-use crate::graph::{
-    GraphFactCall, GraphFactDeclaration, GraphFactEdge, GraphFactExport, GraphFactImport,
-};
+use crate::graph::{GraphFactCall, GraphFactEdge, GraphFactImport};
 
-use crate::signatures::languages::SCRIPT_BEARING_MARKUP;
-use crate::signatures::nodes::{
-    declaration, declaration_extent, declaration_label, import_specifier, is_import_node,
-    last_name_leaf,
-};
-use crate::text::{JS_TS_EXTENSIONS, extension_of};
+use crate::signatures::nodes::{import_specifier, is_import_node, last_name_leaf};
 
 /// Caller label of calls outside any declaration (matches the OXC lane).
 const MODULE_CALLER: &str = "module";
-
-/// Statement keywords that error recovery turns into declaration names:
-/// `if (x) { .. }` after a syntax error reads as a method `if() {}`.
-const STATEMENT_KEYWORDS: &[&str] = &[
-    "if", "else", "for", "while", "do", "switch", "case", "catch", "try", "finally", "return",
-    "throw", "new", "typeof", "function", "var", "let", "const", "with",
-];
-
-/// Grammars whose error recovery reads a statement as a declaration. In every
-/// other language these words are ordinary names (`fn new`, `def new`,
-/// `def case`), so filtering them silently drops real declarations.
-fn recovers_statements_as_declarations(file_path: &str) -> bool {
-    let extension = extension_of(file_path, true, "");
-    JS_TS_EXTENSIONS.contains(&extension.as_str())
-        || SCRIPT_BEARING_MARKUP.contains(&extension.as_str())
-}
-
-/// In a JS/TS-family file a keyword-named declaration is a recovery artifact
-/// unless it is a class member (`class A { if() {} }` is legal) parsed without
-/// errors around it. Membership comes from the raw node kind: the normalized
-/// declaration kind collapses methods into `function`.
-fn is_recovered_keyword_declaration(node: Node<'_>, name: &str, file_path: &str) -> bool {
-    if !STATEMENT_KEYWORDS.contains(&name) || !recovers_statements_as_declarations(file_path) {
-        return false;
-    }
-    let member = matches!(
-        node.kind(),
-        "method_definition"
-            | "method_signature"
-            | "abstract_method_signature"
-            | "public_field_definition"
-            | "property_signature"
-    );
-    !member || node.has_error() || node.parent().is_some_and(|parent| parent.is_error())
-}
 
 /// Emits declaration/edge facts for `node`.
 ///
@@ -100,6 +59,22 @@ pub(super) fn collect_node_facts(
     // can pass it as &str without any per-child heap allocation.
     let next_decl_identity: Option<(String, String)> =
         decl.map(|declaration| push_declaration(node, content, line_index, acc, declaration));
+    if acc.ext == "go" {
+        for (kind, name) in super::go::spec_names(node, ancestors) {
+            if let Some(declaration) = named_declaration(
+                kind,
+                name,
+                node,
+                ancestors,
+                content,
+                line_index,
+                acc,
+                active_decl,
+            ) {
+                push_declaration(node, content, line_index, acc, declaration);
+            }
+        }
+    }
     // Inherit the parent scope when no new declaration was established.
     let next_decl = next_decl_identity
         .as_ref()
@@ -120,9 +95,15 @@ pub(super) fn collect_node_facts(
         collect_rust_module(node, content, line_index, acc, rust);
     } else if rust.is_some() && node.kind() == "macro_invocation" {
         collect_rust_include(node, content, line_index, acc);
+    } else if acc.js_fallback && node.kind() == "import_statement" {
+        super::js_fallback::collect_import(node, content, line_index, acc);
+    } else if acc.js_fallback && node.kind() == "export_statement" {
+        super::js_fallback::collect_export(node, content, line_index, acc);
     } else if acc.ext == "py" && matches!(node.kind(), "import_statement" | "import_from_statement")
     {
         collect_python_imports(node, ancestors, content, line_index, acc);
+    } else if acc.ext == "py" && node.kind() == "assignment" {
+        acc.typing.observe_assignment(node, ancestors, content);
     } else if node.kind() == "preproc_include" {
         collect_c_include(node, content, line_index, acc);
     } else if acc.ext == "cs" && node.kind() == "using_directive" {
@@ -179,139 +160,6 @@ pub(super) fn collect_node_facts(
     }
 
     next_decl_identity
-}
-
-/// The declaration `node` introduces, if any; marks its name token as a
-/// non-reference.
-fn declaration_fact(
-    node: Node<'_>,
-    ancestors: &[Node<'_>],
-    content: &str,
-    line_index: &NodePositions<'_>,
-    acc: &mut GraphAccumulator,
-    active_decl: Option<&str>,
-) -> Option<GraphFactDeclaration> {
-    declaration(node, content).and_then(|(kind, name_token)| {
-        let kind = method_kind(kind, node, active_decl);
-        let test = super::test_adapter::test_identity(
-            node,
-            content,
-            &acc.ext,
-            name_token,
-            &acc.test_context,
-        );
-        let name_token = test
-            .as_ref()
-            .map_or(name_token, |(_, selection)| *selection);
-        let test_identity = test.map(|(identity, _)| identity);
-        test_identity
-            .as_ref()
-            .map(crate::graph::GraphTestIdentity::display_name)
-            .or_else(|| declaration_label(node, name_token, content))
-            .filter(|name| !is_recovered_keyword_declaration(node, name, &acc.file_path))
-            .map(|name| {
-                let range = line_index.declaration_range(declaration_extent(node));
-                // `line` stays where the declaration node itself starts; the
-                // range also holds its template or decorator header.
-                let line = line_index.range(node).start.line + 1;
-                // This identifies a declaration occurrence, not a canonical binding.
-                // Location distinguishes overloads, impl blocks and equal names in scopes.
-                let id = format!(
-                    "declaration:{}#{}@{}:{}",
-                    acc.file_path,
-                    name,
-                    node.start_byte(),
-                    kind
-                );
-                let exported = acc.visibility_adapter.exported(
-                    node,
-                    content,
-                    &name,
-                    active_decl,
-                    active_decl.is_some_and(|parent| acc.public_namespace_scopes.contains(parent)),
-                );
-                let parent = active_decl.map(str::to_owned);
-                let (return_type, try_type) = if acc.ext == "rs" {
-                    super::receiver::rust_return_types(node, ancestors, content)
-                } else {
-                    (None, None)
-                };
-                acc.non_reference_tokens.insert(name_token.start_byte());
-                GraphFactDeclaration {
-                    id,
-                    name,
-                    kind: kind.to_owned(),
-                    line,
-                    range,
-                    selection_range: line_index.range(name_token),
-                    source_range: Some(super::validity::byte_range(declaration_extent(node))),
-                    selection_byte_range: Some(super::validity::byte_range(name_token)),
-                    parse_assessment: super::validity::assess(node, ancestors, line_index),
-                    test_identity,
-                    exported,
-                    parent,
-                    owner: match acc.visibility_adapter {
-                        _ if acc.ext == "go" => super::go::method_owner(node, content),
-                        crate::signatures::visibility::VisibilityAdapter::CFamily => {
-                            super::c_family::out_of_line_scope(node, content)
-                        }
-                        _ => None,
-                    },
-                    doc_line: None,
-                    exported_as: Vec::new(),
-                    prototype: matches!(
-                        acc.visibility_adapter,
-                        crate::signatures::visibility::VisibilityAdapter::CFamily
-                    ) && super::c_family::is_prototype(node, kind),
-                    return_type,
-                    try_type,
-                }
-            })
-    })
-}
-
-/// Push `declaration` with its `contains` edge, export and heritage facts;
-/// returns its `(id, name)`.
-fn push_declaration(
-    node: Node<'_>,
-    content: &str,
-    line_index: &NodePositions<'_>,
-    acc: &mut GraphAccumulator,
-    declaration: GraphFactDeclaration,
-) -> (String, String) {
-    let id = declaration.id.clone();
-    let name = declaration.name.clone();
-    let line = declaration.line;
-    let exported = declaration.exported;
-    if let Some(parent) = &declaration.parent {
-        acc.edges.push(GraphFactEdge {
-            id: format!("{parent}->{id}:contains"),
-            from: parent.clone(),
-            to: id.clone(),
-            relation: "contains".to_owned(),
-            source: "ast".to_owned(),
-            line,
-            resolution: "syntactic".to_owned(),
-        });
-    }
-    if exported {
-        acc.exports.push(GraphFactExport {
-            id: format!("export:{}:{}", name, line),
-            name: name.clone(),
-            line,
-            export_kind: "language-public".to_owned(),
-            local_name: Some(name.clone()),
-            source: None,
-        });
-    }
-    if declaration.exported && acc.visibility_adapter.transparent_namespace(node) {
-        acc.public_namespace_scopes.insert(id.clone());
-    }
-    acc.declarations.push(declaration);
-    acc.declaration_spans
-        .push((node.start_byte(), node.end_byte()));
-    heritage::collect_heritage(node, content, line_index, acc, &id);
-    (id, name)
 }
 
 /// A call node's `calls` fact and edge, owned by `caller_decl` or, outside

@@ -89,7 +89,6 @@ pub(super) fn create(
                             "This resource would exceed the aggregate retained-plan budget; none of its sections were assessed.",
                             "Use its pinned raw reader or assess a narrower resource set.",
                         ));
-                        metadata["coverage"] = json!({"totalSections":null,"completedSections":0,"remainingSections":null,"answered":0,"error":0,"unsupported":0,"unassessed":null});
                         (metadata, Vec::new(), None)
                     } else {
                         retained += bytes;
@@ -97,7 +96,7 @@ pub(super) fn create(
                     }
                 }
                 Err(error) => {
-                    let mut metadata = json!({"status":if matches!(error.code, ErrorCode::FileTooLarge | ErrorCode::ClassificationContextTooLarge | ErrorCode::CapabilityUnavailable) {"unsupported"} else {"error"},"source":source,"error":error_value(&error),"coverage":{"totalSections":null,"completedSections":0,"remainingSections":null,"answered":0,"error":0,"unsupported":0,"unassessed":null}});
+                    let mut metadata = json!({"status":if matches!(error.code, ErrorCode::FileTooLarge | ErrorCode::ClassificationContextTooLarge | ErrorCode::CapabilityUnavailable) {"unsupported"} else {"error"},"source":source,"error":error_value(&error)});
                     // The requested read is offered only when repeating it
                     // can succeed (not for a missing path or a refusal).
                     if let Some(tool) = source["tool"]
@@ -223,7 +222,6 @@ fn prepare(
             "The complete section/question plan exceeds the remaining retained-plan budget; its sections were not assessed.",
             "Use the pinned raw reader or a smaller resource selection.",
         ));
-        metadata["coverage"] = json!({"totalSections":null,"completedSections":0,"remainingSections":null,"answered":0,"error":0,"unsupported":0,"unassessed":null});
         return Ok((metadata, Vec::new(), None));
     }
     let mut local_check = captured.local_check.clone();

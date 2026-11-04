@@ -56,9 +56,10 @@ Search, AST, providers, response shaping, and bulk orchestration are embedded Ru
 
 - system Git for `ghCloneRepo`: HTTPS-only remotes, bounded arguments and output, process-group cancellation, staged publication, no token in argv;
 - configured language servers, launched without a shell and owned by the native LSP pool;
-- `gh auth token`, the last GitHub credential source.
+- `gh auth token`, the last GitHub credential source;
+- `gh release verify`, for the attestation of an immutable language-server release, and `rustup which`, which asks rustup which toolchain ships `rust-analyzer` (auto-install off). Both are time-bounded and run without a shell.
 
-Language-server provisioning accepts only pinned assets from allowed HTTPS hosts, verifies SHA-256 before extraction, uses per-target locks, and publishes atomically.
+Language-server provisioning accepts only assets from allowed HTTPS hosts. Each asset is checked against `managed.lock.json`, which is generated from GitHub's own asset digests, against GitHub's live digest (skipped and disclosed when the API is unreachable), and against the SHA-256 and size of the downloaded bytes, all before extraction; an immutable release's attestation must also cover the asset when `gh` can verify it. It uses per-target locks and publishes atomically. The token reaches only the GitHub API host. Details: [LSP server lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#resolution).
 
 ## GitHub credentials
 

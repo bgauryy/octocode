@@ -125,7 +125,7 @@ fn unpaged_output_is_unchanged_and_cancellation_never_returns_a_partial_page() {
 
 #[test]
 fn immutable_replay_uses_one_plan_and_preserves_provider_facts_once() {
-    let input = json!({"results":[{"index":0,"data":{"requestId":"upstream-1","files":(0..30).map(|i|json!({"id":i,"text":"y".repeat(50)})).collect::<Vec<_>>()}}]});
+    let input = json!({"results":[{"index":0,"data":{"rateLimit":{"remaining":1},"files":(0..30).map(|i|json!({"id":i,"text":"y".repeat(50)})).collect::<Vec<_>>()}}]});
     let pages = SavedPages::default();
     let mut options = ResponsePageOptions {
         response_chars: Some(700),
@@ -149,7 +149,7 @@ fn immutable_replay_uses_one_plan_and_preserves_provider_facts_once() {
         .expect("saved page");
         let page = prepared.value;
         for row in page["results"].as_array().expect("rows") {
-            requests += usize::from(row["data"].get("requestId").is_some());
+            requests += usize::from(row["data"].get("rateLimit").is_some());
             ids.extend(
                 row["data"]["files"]
                     .as_array()

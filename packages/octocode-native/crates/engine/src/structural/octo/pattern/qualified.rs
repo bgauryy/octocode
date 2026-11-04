@@ -57,7 +57,7 @@ impl CompiledPattern {
             return None;
         }
         let at = self.pattern_offset(pattern, root, head)?;
-        let capture = free_capture(pattern);
+        let capture = free_capture(pattern, QUALIFIER);
         Some(QualifiedPattern {
             head: node_text(head, &self.source).to_owned(),
             broader: format!("{}${capture}::{}", &pattern[..at], &pattern[at..]),
@@ -74,10 +74,10 @@ impl CompiledPattern {
     }
 }
 
-/// `QUALIFIER`, else the first `QUALIFIER<n>` the pattern does not spell.
-fn free_capture(pattern: &str) -> String {
-    std::iter::once(QUALIFIER.to_owned())
-        .chain((2..).map(|n| format!("{QUALIFIER}{n}")))
+/// `name`, else the first `name<n>` the pattern does not spell.
+pub(super) fn free_capture(pattern: &str, name: &str) -> String {
+    std::iter::once(name.to_owned())
+        .chain((2..).map(|n| format!("{name}{n}")))
         .find(|name| !pattern.contains(&format!("${name}")))
         .unwrap_or_default()
 }

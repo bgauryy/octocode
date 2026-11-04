@@ -16,6 +16,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { mcpPayload } from './mcp-client.mjs';
 import { nativeBinaryPath, nativeBinaryStamp } from './native-binary.mjs';
 import { REPOS, ROOT } from './paths.mjs';
 import { allCases } from './workloads/cases.mjs';
@@ -35,19 +36,19 @@ const round = x => (x == null ? null : Math.round(x));
 const say = line => process.stdout.write(`${line}\n`);
 
 /** Row-level failures: a protocol error, an error result, or any result row with an errorCode. */
-function failure(response) {
+function failure(response, payload) {
   if (response.error) return response.error.message ?? 'rpc error';
-  const sc = response.result?.structuredContent;
-  const row = sc?.results?.find(r => r?.status === 'error' || r?.errorCode || r?.data?.errorCode);
+  const row = payload?.results?.find(r => r?.status === 'error' || r?.errorCode || r?.data?.errorCode);
   if (row) return row.errorCode ?? row.data?.errorCode ?? 'error';
-  return response.result?.isError ? (sc?.errorCode ?? 'isError') : null;
+  return response.result?.isError ? (payload?.errorCode ?? 'isError') : null;
 }
 
 async function measure(c) {
   const server = await startMeasuredServer(BIN, { cwd: c.cwd ?? ROOT, env: process.env });
   const call = async (tool, args) => {
     const response = await server.call(tool, args);
-    return { data: response.result?.structuredContent, stat: { ms: round(response.ms), bytes: response.bytes, error: failure(response) } };
+    const { raw } = mcpPayload(response);
+    return { data: raw, stat: { ms: round(response.ms), bytes: response.bytes, error: failure(response, raw) } };
   };
   const runs = [];
   let error = null;
@@ -109,7 +110,7 @@ function cliCases() {
 function graphCases(run) {
   const root = path.join(REPOS, 'rust');
   if (!fs.existsSync(root)) return [];
-  const build = force => ['graphBuild', JSON.stringify({ queries: [{ path: root, excludeDirs: ['target'], ...(force ? { force: true } : {}) }] }), '--json'];
+  const build = force => ['graphBuild', JSON.stringify({ queries: [{ path: root, excludeDirs: ['target'], ...(force ? { refresh: true } : {}) }] }), '--json'];
   const cold = run('graphBuild rust (forced cold)', build(true), {}, root);
   const id = (() => { try { return JSON.parse(cold.stdout).results[0].data.id; } catch { return null; } })();
   const rows = [{ ...cold, group: 'graph' }, { ...run('graphBuild rust (unchanged rebuild)', build(false), {}, root), group: 'graph' }];
@@ -138,9 +139,10 @@ for (const c of cases) {
   if (c.missing) { rows.push({ group: c.group, name: c.name, ok: false, error: `missing: ${c.missing}` }); continue; }
   const r = await measure(c);
   rows.push(r);
-  say(`${r.ok ? 'ok  ' : 'FAIL'} ${r.group} ${r.name}: cold ${r.coldMs} ms, warm ${r.warmP50Ms} ms, footprint ${Math.round((r.peakFootprintKb ?? 0) / 1024)} MB, server ${Math.round((r.sampledRssKb ?? 0) / 1024)} MB, tree ${Math.round((r.sampledTreeKb ?? 0) / 1024)} MB${r.error ? ` — ${String(r.error).slice(0, 160)}` : ''}`);
+  say(`${r.ok ? 'ok  ' : r.unavailable ? 'n/a ' : 'FAIL'} ${r.group} ${r.name}: cold ${r.coldMs} ms, warm ${r.warmP50Ms} ms, footprint ${Math.round((r.peakFootprintKb ?? 0) / 1024)} MB, server ${Math.round((r.sampledRssKb ?? 0) / 1024)} MB, tree ${Math.round((r.sampledTreeKb ?? 0) / 1024)} MB${r.error ? ` — ${String(r.error).slice(0, 160)}` : ''}`);
   write();
 }
 write();
-const failed = rows.filter(r => !r.ok);
-say(`${rows.length - failed.length}/${rows.length} ok; report ${path.join(OUT, 'workloads.md')}`);
+const failed = rows.filter(r => !r.ok && !r.unavailable);
+const unavailable = rows.filter(r => r.unavailable).length;
+say(`${rows.length - failed.length - unavailable}/${rows.length} ok, ${unavailable} unavailable here, ${failed.length} failed; report ${path.join(OUT, 'workloads.md')}`);

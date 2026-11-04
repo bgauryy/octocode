@@ -28,7 +28,7 @@ impl<'a> NodePositions<'a> {
         }
     }
 
-    /// A declaration's range (see [`declaration_extent`]), ending at its last character: a node that
+    /// A declaration's range (see [`declaration_extent_from_parents`]), ending at its last character: a node that
     /// owns its line terminator (C `#define`, every `preproc_*`) would
     /// otherwise end at column 0 of the next line, which a line-based
     /// reader takes as the next declaration's line.

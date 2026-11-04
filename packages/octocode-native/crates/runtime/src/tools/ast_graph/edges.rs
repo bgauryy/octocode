@@ -15,6 +15,11 @@ pub(super) const DYNAMIC_IMPORT: &str = "dynamic-import";
 pub(super) const RUST_PATH: &str = "rust-path";
 /// `include_str!`/`include_bytes!`: the target is embedded as data.
 pub(super) const RUST_INCLUDE_DATA: &str = "rust-include-data";
+/// An import or re-export of a JS/TS file only the tree-sitter fallback lane
+/// read: the edge is real, its load is not established.
+pub(super) const RECOVERED_IMPORT: &str = "recovered-import";
+pub(super) const RECOVERED_NAMED_REEXPORT: &str = "recovered-named-reexport";
+pub(super) const RECOVERED_STAR_REEXPORT: &str = "recovered-star-reexport";
 
 /// When the import an edge records takes effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +37,9 @@ pub(super) enum Load {
     CompileTime,
     /// Module structure (a Rust `mod` declaration): not a dependency.
     ModuleTree,
+    /// Not established: a parser fallback read the edge, so it may load
+    /// eagerly or be erased.
+    Unknown,
     /// Never as code: the target is embedded as text or bytes. A build
     /// input (its dependents rebuild), but it adds no names and closes no
     /// dependency cycle.
@@ -51,6 +59,9 @@ const KINDS: &[(&str, Load)] = &[
     ("type-import", Load::TypeOnly),
     ("type-named-reexport", Load::TypeOnly),
     ("type-star-reexport", Load::TypeOnly),
+    (RECOVERED_IMPORT, Load::Unknown),
+    (RECOVERED_NAMED_REEXPORT, Load::Unknown),
+    (RECOVERED_STAR_REEXPORT, Load::Unknown),
     ("rust-use", Load::CompileTime),
     (RUST_PATH, Load::CompileTime),
     ("go-import", Load::CompileTime),
@@ -105,6 +116,7 @@ mod tests {
         assert_eq!(load(PYTHON_LAZY_IMPORT), Load::Deferred);
         assert_eq!(load(RUST_INCLUDE_DATA), Load::Data);
         assert_eq!(load(RUST_INCLUDE), Load::CompileTime);
+        assert_eq!(load(RECOVERED_IMPORT), Load::Unknown);
         assert!(mounts(RUST_MODULE) && mounts(RUST_INCLUDE) && !mounts("rust-use"));
         assert_eq!(load("unparsed-target"), Load::CompileTime);
     }

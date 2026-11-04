@@ -94,6 +94,10 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
             "filesScanned": input.files_scanned,
             "filesSkipped": input.built.files_skipped,
             "excludeDir": input.exclude_dir,
+            "parserFallback": input.built.parser_fallback.iter().map(|(file, producer)| {
+                json!({"file": file, "producer": producer})
+            }).collect::<Vec<_>>(),
+            "markupNotLinked": input.built.markup_not_linked,
         },
         "counts": {
             "nodes": tables.nodes.len(),

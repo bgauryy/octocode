@@ -248,3 +248,49 @@ fn c_calls_to_assembly_symbols_stay_unlinked() {
         "{callees}"
     );
 }
+
+// ── Disabled preprocessor branches ──────────────────────────────────────────
+
+/// `#if 0` is a comment in practice: nothing in it is compiled, so it adds
+/// no include edge, no call edge and no link target; its `#else` is live.
+#[test]
+fn an_if_0_body_adds_no_edges() {
+    let temp = fixture(&[
+        ("never.h", "void never_fn(void);\n"),
+        ("live.h", "void live_fn(void);\n"),
+        ("off.h", "void off_fn(void);\n"),
+        (
+            "a.c",
+            "#if 0\n#include \"never.h\"\nvoid dead(void) { never_fn(); }\n#else\n#include \"live.h\"\nvoid up(void) { live_fn(); }\n#endif\n#if 1\nvoid on(void) { live_fn(); }\n#else\n#include \"off.h\"\nvoid off(void) { off_fn(); }\n#endif\nvoid body(void) {\n#if 0\n  never_fn();\n#endif\n  up();\n}\nvoid after(void) { dead(); }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(files(&ask(root, "deps", Some("a.c"))), ["live.h"]);
+    let symbols = ask(root, "symbols", Some("a.c"));
+    let names = result_ids(&symbols);
+    for dead in ["a.c#dead", "a.c#off"] {
+        assert!(!names.contains(&dead), "{symbols}");
+    }
+    for live in ["a.c#up", "a.c#on", "a.c#body"] {
+        assert!(names.contains(&live), "{symbols}");
+    }
+    assert_eq!(callers(root, "never.h#never_fn"), Vec::<String>::new());
+    assert_eq!(callers(root, "off.h#off_fn"), Vec::<String>::new());
+    assert_eq!(callers(root, "a.c#up"), ["a.c#body"]);
+}
+
+/// A condition only a build can evaluate stays read: both branches are
+/// candidates.
+#[test]
+fn an_undecided_if_keeps_both_branches() {
+    let temp = fixture(&[
+        ("x.h", "void x_fn(void);\n"),
+        ("y.h", "void y_fn(void);\n"),
+        (
+            "a.c",
+            "#if FEATURE\n#include \"x.h\"\n#else\n#include \"y.h\"\n#endif\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(files(&ask(root, "deps", Some("a.c"))), ["x.h", "y.h"]);
+}

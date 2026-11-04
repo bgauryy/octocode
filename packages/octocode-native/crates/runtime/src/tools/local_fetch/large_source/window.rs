@@ -176,7 +176,10 @@ pub(super) fn serve_window(
             q,
             ExtractionError::new(
                 ErrorCode::InvalidInput,
-                format!("Requested lines start past the file end ({total} lines)"),
+                format!(
+                    "Requested lines start past the file end ({})",
+                    octocode_engine::text::counted(total, "line", "lines")
+                ),
             ),
             total,
         );

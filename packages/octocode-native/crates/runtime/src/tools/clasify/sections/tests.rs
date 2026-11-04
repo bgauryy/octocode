@@ -92,9 +92,11 @@ fn partial_cells_are_held_until_the_complete_section_emits_exactly_once() {
             .map(serde_json::Map::len),
         Some(2)
     );
-    assert_eq!(
-        second["resources"]["resource"]["coverage"]["remainingSections"],
-        json!(0)
+    assert!(
+        second["resources"]["resource"]["coverage"]
+            .get("remainingSections")
+            .is_none(),
+        "an absent count is 0"
     );
     let third = emit(&mut session, &usage, None);
     assert!(
@@ -155,14 +157,29 @@ fn a_plan_no_model_answered_reports_no_model() {
     assert_eq!(output["model"], "jev-1.14.0");
 }
 
-/// Every page of a sections response carries the same row fields: the
-/// request's own operation and questions are echoes, never repeated by a
-/// later batch the first one lacks.
+/// The shared questions are every Score cell's only legend, so each batch's
+/// stored output carries them and a cursor page is self-contained; a fresh
+/// first page loses them as an echo of the request.
 #[test]
-fn a_batch_does_not_echo_the_requests_operation_and_questions() {
-    let output = emit(&mut session(), &ClassificationUsage::default(), None);
-    assert!(output.get("operation").is_none(), "{output}");
-    assert!(output.get("questions").is_none(), "{output}");
+fn every_batch_carries_the_shared_questions_and_a_fresh_first_page_drops_them() {
+    let mut session = session();
+    let first = emit(&mut session, &ClassificationUsage::default(), None);
+    assert_eq!(first["questions"], session.questions, "{first}");
+    assert!(first.get("operation").is_none(), "{first}");
+    session.batches.push(first.clone());
+    let later = emit(&mut session, &ClassificationUsage::default(), None);
+    assert_eq!(later["questions"], session.questions, "{later}");
+    let request = json!({"operation":"sections","questions":session.questions});
+    let mut page = json!({"results":[{"index":0,"data":first}]});
+    crate::response::pages::drop_echoes(&mut page, &[request], &[0]);
+    assert!(
+        page["results"][0]["data"].get("questions").is_none(),
+        "{page}"
+    );
+    assert!(
+        page["results"][0]["data"]["resources"].is_object(),
+        "{page}"
+    );
 }
 
 #[test]

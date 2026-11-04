@@ -95,6 +95,17 @@ pub(super) fn link_file(
         p.language.clone()
     };
     count_language(b, &language, lang.label());
+    if p.diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == GraphFactCode::ParserFallback)
+    {
+        let producer = p
+            .source_templates
+            .units
+            .first()
+            .map_or_else(String::new, |unit| unit.adapter.id.clone());
+        b.parser_fallback.push((file.clone(), producer));
+    }
     push_fact_diagnostics(b, &file, &p.diagnostics, &language, lang, inputs.security);
     let facts = FileFacts {
         source_digest: p.source_digest.clone(),
@@ -104,6 +115,7 @@ pub(super) fn link_file(
                 diagnostic.code,
                 octocode_engine::graph::GraphFactCode::RecoveredParse
                     | octocode_engine::graph::GraphFactCode::ParseError
+                    | octocode_engine::graph::GraphFactCode::ParserFallback
                     | octocode_engine::graph::GraphFactCode::ParseDeadline
                     | octocode_engine::graph::GraphFactCode::TraversalDeadline
             )
@@ -176,6 +188,8 @@ pub(super) fn push_fact_diagnostics(
         }
         let code = if diagnostic.code.is_linking_only() {
             DiagnosticCode::UnsupportedLinking
+        } else if diagnostic.code == GraphFactCode::ParserFallback {
+            DiagnosticCode::ParserFallback
         } else {
             DiagnosticCode::ParseRecovery
         };

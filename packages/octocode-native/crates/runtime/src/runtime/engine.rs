@@ -96,6 +96,8 @@ pub struct ToolRuntime {
     selection_available: bool,
     lsp_execution_config: Arc<crate::tools::lsp_search::LspExecutionConfig>,
     lsp_answers: Arc<crate::tools::lsp_search::ContinuationAnswers>,
+    /// Whether this session has run an lspSearch (see `lsp.prewarm`).
+    lsp_requested: Arc<std::sync::atomic::AtomicBool>,
     /// Complete graph answer rows its first page retained for continuations.
     graph_rows: Arc<crate::tools::ast_graph::store::SavedRows>,
     /// The sandbox workspace root (configured workspaceRoot, else host cwd).
@@ -168,8 +170,8 @@ impl ToolRuntime {
     /// after `initialize`): only under `lsp.prewarm` `all`, its top languages,
     /// and only while `lspSearch` is available. Each start is a whole-project
     /// index, up to gigabytes for a session that may never call `lspSearch`,
-    /// so `targeted` waits for a result that offers such a call. See
-    /// [`crate::tools::lsp_search::prewarm::workspace::schedule_workspace`].
+    /// so `targeted` waits for an lspSearch and a result that offers another.
+    /// See [`crate::tools::lsp_search::prewarm::workspace::schedule_workspace`].
     pub fn prewarm_lsp_workspace(&self, handle: &tokio::runtime::Handle) {
         let starts = match self.config.resolved.lsp.prewarm {
             crate::config::LspPrewarm::Off | crate::config::LspPrewarm::Targeted => return,

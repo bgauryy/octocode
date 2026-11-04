@@ -34,7 +34,7 @@ mod tree;
 pub const MAX_PER_PAGE: usize = 100;
 
 pub use budget::{AuthAdmission, GitHubBudget, GitHubPacing, LimiterKey};
-pub use commit_dates::{MAX_PATHS_PER_REQUEST, PathDates};
+pub use commit_dates::PathDates;
 pub use content::{
     ContentRequest, ContentResponse, GitHubProvider, Submodule, decode_content, is_full_sha,
 };

@@ -70,10 +70,12 @@ impl Found<'_> {
 
     /// Files binary from their leading bytes are outside a text search, not
     /// a coverage gap: disclosed once, on the first page, as a count by
-    /// extension with a listing.
+    /// extension. Only an empty row, whose miss they may explain, lists them.
     /// The listing also covers binary-cut files too many to name in their
-    /// own warning ([`binary_file_list`]).
-    pub(in crate::tools::local_search) fn skipped_binaries(&self) -> Option<(String, Value)> {
+    /// own warning ([`binary_file_list`]), on any row: their text is unread.
+    pub(in crate::tools::local_search) fn skipped_binaries(
+        &self,
+    ) -> Option<(String, Option<Value>)> {
         if !self.first_page() || self.root.is_file() {
             return None;
         }
@@ -91,8 +93,14 @@ impl Found<'_> {
         if skipped.is_empty() && cut_groups.is_empty() {
             return None;
         }
-        let listing =
-            leading_binary_listing(self.query, &merge_binary_groups(skipped, &cut_groups))?;
+        let listed = if self.empty {
+            merge_binary_groups(skipped, &cut_groups)
+        } else {
+            cut_groups
+        };
+        let listing = (!listed.is_empty())
+            .then(|| leading_binary_listing(self.query, &listed))
+            .flatten();
         let warning = if skipped.is_empty() {
             // The cut files' own warning carries the count.
             String::new()

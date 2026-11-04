@@ -16,9 +16,11 @@ use crate::text::LineIndex;
 mod compile;
 mod node_match;
 mod qualified;
+mod return_type;
 
 use compile::effective_pattern_root;
 pub use qualified::QualifiedPattern;
+pub(super) use return_type::with_return_types;
 
 /// Budget on `$$$` multi-metavar split attempts within a single top-level
 /// child-list match. Each `$$$` tries every split point (`for take in
@@ -39,6 +41,9 @@ pub struct PatternDeclaration {
     pub kind: String,
     /// The name node's kind and text, when the pattern spells a name.
     pub name: Option<(String, String)>,
+    /// The kind of the node that wraps the declaration, when the pattern spells
+    /// one around it (`export_statement` for `export function $N() {}`).
+    pub inside: Option<String>,
     /// The grammar's fuller forms of this declaration kind: kinds whose
     /// name words are a strict subsequence of this kind's (`function_item`
     /// for `function_signature_item`). A pattern of a smaller form matches
@@ -89,19 +94,30 @@ impl CompiledPattern {
         Some(node)
     }
 
+    #[cfg(test)]
+    pub(super) fn debug_root(&self) -> String {
+        self.root().map(|r| format!("{} {}", r.kind(), r.to_sexp())).unwrap_or_default()
+    }
+
     pub(super) fn language(&self) -> &Language {
         &self.language
     }
 
     /// The declaration a pattern spells: its root's kind when the grammar
     /// gives that node a `name` field, with the name node's kind and text
-    /// unless the name is a metavariable. `None` for any other pattern,
-    /// including the calls and paths a grammar also names by `name`.
+    /// unless the name is a metavariable. A root with no name of its own that
+    /// holds a `declaration` wraps it, and the wrapped node is the declaration.
+    /// `None` for any other pattern, including the calls and paths a grammar
+    /// also names by `name`.
     pub(super) fn declaration(&self) -> Option<PatternDeclaration> {
         let root = self
             .root()
             .filter(|root| !REFERENCE_KINDS.contains(&root.kind()))?;
-        let name = root.child_by_field_name("name")?;
+        let wrapped = root
+            .child_by_field_name("declaration")
+            .filter(|_| root.child_by_field_name("name").is_none());
+        let declared = wrapped.unwrap_or(root);
+        let name = declared.child_by_field_name("name")?;
         let named = meta_from_node(name, &self.source, self.expando)
             .is_none()
             .then(|| {
@@ -111,9 +127,10 @@ impl CompiledPattern {
                 )
             });
         Some(PatternDeclaration {
-            kind: root.kind().to_owned(),
+            kind: declared.kind().to_owned(),
             name: named,
-            fuller_kinds: self.fuller_kinds(root.kind()),
+            inside: wrapped.map(|_| root.kind().to_owned()),
+            fuller_kinds: self.fuller_kinds(declared.kind()),
         })
     }
 

@@ -81,7 +81,7 @@ export const CASES = {
     happy: { query: { path: 'src', matchString: ['healthMarker'] }, fields: ['files', 'matchCount'], rows: files, min: 4 },
     page: page({ path: 'src', matchString: ['healthMarker'] }),
     empty: { query: { path: 'src', matchString: ['zzzNoSuchToken'] } },
-    invalid: { query: { path: 'src', matchString: 'healthMarker' } },
+    invalid: { query: { path: 'src' } },
     explore: [
       { label: 'literal', query: { path: 'src', matchString: ['greet(Loudly)?('] }, class: 'empty' },
       { label: 'regex', query: { path: 'src', matchString: ['greet(Loudly)?\\('], regexEngine: 'rust' } },
@@ -131,7 +131,7 @@ export const CASES = {
     happy: { query: { ...repo, keywords: ['greet'] }, fields: ['files'], rows: data => (data.files ?? []).map(f => f.path), min: 3 },
     page: { ...page({ ...repo, keywords: ['greet'] }), rows: codeSearchRows },
     empty: { query: { ...repo, keywords: ['zzznosuchtoken'] } },
-    invalid: { query: { ...repo, keywords: 'greet' } },
+    invalid: { query: { ...repo, keywords: [] } },
   },
   ghGetFileContent: {
     budgetMs: REMOTE,
@@ -144,7 +144,7 @@ export const CASES = {
   ghStructure: {
     budgetMs: REMOTE,
     happy: { query: { ...repo, operation: 'tree', maxDepth: 3 }, fields: ['files', 'summary'], rows: treeRows, min: 7 },
-    page: { query: { ...repo, operation: 'tree', ref: 'feature-4', include: ['**/mod1*.ts'] }, lead: 'nextPage', expect: ctx => ctx.mock.model.pulls.find(pr => pr.number === 4).head.added.filter(p => /^pkg\/mod1\d*\.ts$/.test(p)) },
+    page: { query: { ...repo, operation: 'tree', ref: 'feature-4', include: ['**/mod1*.ts'], limit: 100 }, lead: 'nextPage', expect: ctx => ctx.mock.model.pulls.find(pr => pr.number === 4).head.added.filter(p => /^pkg\/mod1\d*\.ts$/.test(p)) },
     empty: { query: { ...repo, operation: 'tree', include: ['**/zzzNoSuchName*'] } },
     invalid: { query: { operation: 'tree', owner: 'octo' } },
     explore: [{ label: 'refs', query: { ...repo, operation: 'refs' }, check: data => data.tags?.includes('v1.0.0') && data.branches?.main ? null : 'fixture branch or tag missing' }],

@@ -92,7 +92,7 @@ pub use graph_scan::{GraphFactsScanDiagnostic, GraphFactsScanOptions, GraphLangu
 pub use ignore::IgnorePolicy;
 pub use test_code::{TestCodeExcluded, TestCodeScope, WHOLE_FILE, wholly_left_out};
 pub use text_search::{
-    BinaryExtensionCount, CapReason, CaseRule, PatternSyntax, SearchContext, SearchOutput,
-    SearchSort, SearchedSource, SourceValues, SpanValues, TextSearchFile, TextSearchMatch,
-    TextSearchOptions, TextSearchResult, TextSearchStats,
+    BinaryExtensionCount, CapReason, CaseRule, DeferredInspector, InspectDeferred, PatternSyntax,
+    SearchContext, SearchOutput, SearchSort, SearchedSource, SourceValues, SpanValues,
+    TextSearchFile, TextSearchMatch, TextSearchOptions, TextSearchResult, TextSearchStats,
 };

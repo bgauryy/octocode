@@ -173,6 +173,15 @@ fn run_match(
         // A capped incompatible window must retain coverage and scan onward.
         return Err(error);
     }
+    if grouped.total_matches == 0
+        && (grouped.parsed_files > 0 || scan.truncated)
+        && let Some(page) =
+            return_type::rewritten_page(q, &scope, &scan, paths, cancel, |retried| {
+                run_match(retried, paths, cancel, response_window)
+            })?
+    {
+        return Ok(page);
+    }
     let mut gaps = if scope.is_file {
         ScopeGaps::default()
     } else if grouped.total_matches == 0 && grouped.parsed_files == 0 && q.language().is_some() {
@@ -245,6 +254,7 @@ mod qualified;
 mod query;
 mod reads;
 mod render;
+mod return_type;
 mod rows;
 mod scan;
 mod scope;
@@ -273,3 +283,6 @@ mod concurrent_scan_tests;
 
 #[cfg(test)]
 mod demand_tests;
+
+#[cfg(test)]
+mod return_type_tests;

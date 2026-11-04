@@ -137,7 +137,7 @@ fn a_selection_that_keeps_no_judged_hit_is_not_absence() {
     assert_eq!((receipt.selected_items, receipt.unknown_items), (0, 0));
     assert!(
         result.warnings.iter().any(|note| note.contains(
-            "every chunk was judged and none passed the questions, so none of the 2 hit rows (1 files) is listed. An empty classified result is not absence: the unfiltered search matched those 2 rows, and `next.unfiltered` lists them."
+            "every chunk was judged and none passed the questions, so none of the 2 hit rows (1 file) is listed. An empty classified result is not absence: the unfiltered search matched them, and `next.unfiltered` lists them."
         )),
         "{:?}",
         result.warnings

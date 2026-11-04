@@ -200,6 +200,7 @@ mod empty_pages;
 mod limit;
 mod match_list;
 mod pages;
+mod regex_reading;
 mod scope;
 mod secrets;
 #[cfg(unix)]

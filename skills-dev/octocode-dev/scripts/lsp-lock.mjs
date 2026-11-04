@@ -93,7 +93,6 @@ export function buildLock(servers, releases) {
     locked[server.name] = {
       assets,
       immutable: release.immutable,
-      publishedAt: release.published_at,
       repo: server.repo,
       tag: server.tag,
     };

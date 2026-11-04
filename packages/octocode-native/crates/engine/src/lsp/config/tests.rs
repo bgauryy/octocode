@@ -27,6 +27,8 @@ mod invocation;
 #[cfg(unix)]
 mod probe;
 mod resolution;
+#[cfg(unix)]
+mod rustup_fixture;
 mod server_defaults;
 mod tsgo;
 mod workspace_root;

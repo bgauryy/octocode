@@ -60,7 +60,8 @@ impl Linker {
         }
     }
 
-    /// The edge kind of an import fact of `kind` (`value`, `type`, `module`).
+    /// The edge kind of an import fact of `kind` (`value`, `type`, `module`,
+    /// or [`octocode_engine::graph::UNKNOWN_LOAD`]).
     pub(super) fn import_edge(self, kind: &str) -> &'static str {
         match (self, kind) {
             (Self::Rust, "module") => edges::RUST_MODULE,
@@ -68,6 +69,9 @@ impl Linker {
             (Self::Rust, "include-data") => edges::RUST_INCLUDE_DATA,
             (Self::Rust, _) => "rust-use",
             (_, "type") => "type-import",
+            (Self::JsTs | Self::Unsupported, octocode_engine::graph::UNKNOWN_LOAD) => {
+                edges::RECOVERED_IMPORT
+            }
             (Self::Go, _) => "go-import",
             (Self::Java, _) => "java-import",
             (Self::Python, _) => edges::PYTHON_IMPORT,

@@ -45,6 +45,25 @@ fn ranges_with_match_string_grep_inside_the_ranges_only() {
     );
 }
 
+/// A file of one line is "1 line" in the error that names its length.
+#[test]
+fn a_range_past_a_one_line_file_counts_one_line() {
+    let t = Fixture::new();
+    let p = t.0.join("a.txt");
+    fs::write(&p, "hit\n").expect("fixture");
+    let paths = Paths(t.0.clone());
+    let mut req = q(&p);
+    amend(&mut req, serde_json::json!({"matchString":["hit"]}));
+    local_fetch_query::set_line_spans(&mut req, &[(5, 6)]).expect("ranges");
+    let past = fetch(&req, &paths);
+    assert!(
+        past.error
+            .as_deref()
+            .is_some_and(|e| e.contains("past the file end (1 line)")),
+        "{past:?}"
+    );
+}
+
 /// Ranges that all start past the file end repair to the same read of the
 /// file's last window, as wide as the widest request; a range that reaches
 /// into the file is served and carries no repair.

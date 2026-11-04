@@ -17,9 +17,12 @@ pub struct Withheld {
 }
 
 impl Withheld {
-    /// Count one entry the path policy denied.
-    pub fn record(&mut self, path: &Path, is_dir: bool) {
-        if !is_sensitive_path(path, EntryKind::stat(path)) {
+    /// Count one entry the path policy denied. One stat of `path` decides
+    /// both whether the policy withholds it and which bucket it counts in.
+    pub fn record(&mut self, path: &Path) {
+        let kind = EntryKind::stat(path);
+        let is_dir = kind == EntryKind::Dir;
+        if !is_sensitive_path(path, kind) {
             if path.is_symlink() {
                 self.symlinks += 1;
             } else {

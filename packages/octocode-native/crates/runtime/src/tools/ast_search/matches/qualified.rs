@@ -4,6 +4,7 @@
 //! to the rule that lists both.
 use super::exact_miss::{rule_scan, with_rule};
 use super::query::MatchQuery;
+use super::rows::push_diagnostic;
 use super::scan::parser_extension;
 use super::scope::scope_extension;
 use super::types::{Scan, Scope};
@@ -197,10 +198,7 @@ impl QualifiedMiss {
             ),
             "recovery": "broadenSearch lists both spellings.",
         });
-        match out["diagnostics"].as_array_mut() {
-            Some(diagnostics) => diagnostics.push(diagnostic),
-            None => out["diagnostics"] = json!([diagnostic]),
-        }
+        push_diagnostic(out, diagnostic);
         out["calls"]["broadenSearch"] =
             crate::response::result::Continuation::related_query(query).build();
     }

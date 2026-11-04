@@ -3,7 +3,10 @@
 use super::*;
 use crate::security::cut::strip_clip_markers;
 use crate::tools::local_search::sources::Expected;
-use octocode_contract_types::LocalSearchQuery;
+
+mod replay;
+
+use replay::replay_redaction;
 
 /// Make paths relative to `output_root` and redact secrets in every value.
 /// A match on an interior base64 body line of a private key would leak the
@@ -50,8 +53,13 @@ pub(in crate::tools::local_search) fn redact_scan(
     // Files redact independently: on parallel workers, merged in file order
     // so the record (and the first failure) is the one a serial pass makes.
     let workers = crate::tools::workers::workers(parsed.files.len(), None);
+    let fresh = stored.is_none();
     let outcomes = crate::tools::workers::each_parallel(&mut parsed.files, workers, |file| {
-        redact_file(scope, file)
+        if fresh && inspected_in_scan(file) {
+            inspected_file(scope, file)
+        } else {
+            redact_file(scope, file)
+        }
     });
     for (file_index, outcome) in outcomes.into_iter().enumerate() {
         let FileRedaction {
@@ -73,6 +81,66 @@ pub(in crate::tools::local_search) fn redact_scan(
         }
     }
     Ok((redacted, withheld, record))
+}
+
+/// The search's check of each deferred line, run while its bytes are in the
+/// buffer so a page need not read the file again to redact a row it never
+/// shows. It keeps what redaction changed and the row's exact price. A line
+/// that may be key material stays unpriced: its file needs the whole-file
+/// key-block scan of [`redact_file`].
+pub(in crate::tools::local_search) fn scan_inspector() -> octocode_engine::types::DeferredInspector
+{
+    let security = ContentSecurity::new();
+    octocode_engine::types::DeferredInspector(std::sync::Arc::new(move |path, hit| {
+        if crate::security::snippet_may_hold_key_material(&hit.value) {
+            hit.value = String::new();
+            hit.deferred = Some(0);
+            return;
+        }
+        let sanitized = security.sanitize_text(&hit.value, Some(path));
+        let changed = sanitized.content != hit.value;
+        if let std::borrow::Cow::Owned(text) = sanitized.content {
+            hit.value = text;
+        }
+        hit.deferred = None;
+        let price = crate::tools::local_search::layout::row_chars(hit, false);
+        hit.deferred = Some(saturating_u32(price));
+        if !changed {
+            hit.value = String::new();
+        }
+    }))
+}
+
+/// Whether the scan already redacted and priced every value of `file`.
+fn inspected_in_scan(file: &octocode_engine::types::TextSearchFile) -> bool {
+    !file.matches.is_empty()
+        && file
+            .matches
+            .iter()
+            .all(|hit| hit.deferred.is_some_and(|price| price > 0))
+}
+
+/// The redaction [`scan_inspector`] already made of `file`: no source read.
+fn inspected_file(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+) -> Result<FileRedaction, ToolError> {
+    scope.cancel.check().map_err(ToolError::cancelled)?;
+    if let Ok(relative) = std::path::Path::new(&file.path).strip_prefix(scope.output_root) {
+        file.path = relative.to_string_lossy().into_owned();
+    }
+    Ok(FileRedaction {
+        key_scan: None,
+        changes: file
+            .matches
+            .iter()
+            .enumerate()
+            .filter(|(_, hit)| !hit.value.is_empty())
+            .map(|(index, hit)| (index, hit.line, hit.column, hit.value.clone()))
+            .collect(),
+        held: Vec::new(),
+        path: file.path.clone(),
+    })
 }
 
 /// What redacting one file changed.
@@ -282,60 +350,4 @@ pub(in crate::tools::local_search) fn read_key_scan_bytes(
     octocode_engine::text::read_regular(source, MAX_KEY_SCAN_BYTES)
         .ok()
         .map(|source| source.bytes)
-}
-
-/// Replay `stored` on the stored scan it was made from. Its key-block scans
-/// read each file again, under the read policy and bound to the stored
-/// digest exactly as a fresh redaction is (a changed file restarts the
-/// snapshot). When each read hashes to the bytes the record was made from,
-/// the key-block ranges, and so every replaced value, are the ones a fresh
-/// redaction computes; `None` (no read, other bytes) redacts afresh.
-fn replay_redaction(
-    query: &LocalSearchQuery,
-    parsed: &mut octocode_engine::types::TextSearchResult,
-    output_root: &std::path::Path,
-    expected_digest: &ExpectedDigest<'_>,
-    paths: &crate::policy::path::PathPolicy,
-    stored: &Redaction,
-) -> Result<Option<Redacted>, ToolError> {
-    for &(index, made_from) in &stored.key_files {
-        let Some(file) = parsed.files.get(index) else {
-            return Ok(None);
-        };
-        let source_path = output_root.join(&file.path);
-        validate_matched(paths, &source_path)?;
-        let Some(bytes) = read_key_scan_bytes(&source_path) else {
-            return Ok(None);
-        };
-        let digest = octocode_engine::digest::sha256_digest(&bytes);
-        if let Expected::Stored(stored) = expected_digest(&source_path)
-            && stored != Some(digest)
-        {
-            return Err(changed_since_scan(query));
-        }
-        if made_from != Some(digest) {
-            return Ok(None);
-        }
-    }
-    if stored.changes.iter().any(|&(file, row, _)| {
-        parsed
-            .files
-            .get(file)
-            .is_none_or(|file| row >= file.matches.len())
-    }) {
-        return Ok(None);
-    }
-    for file in &mut parsed.files {
-        if let Ok(relative) = std::path::Path::new(&file.path).strip_prefix(output_root) {
-            file.path = relative.to_string_lossy().into_owned();
-        }
-    }
-    let mut redacted = Redacted::new();
-    for (file, row, value) in &stored.changes {
-        let file = &mut parsed.files[*file];
-        let matched = &mut file.matches[*row];
-        matched.value.clone_from(value);
-        redacted.insert((file.path.clone(), matched.line, matched.column));
-    }
-    Ok(Some(redacted))
 }

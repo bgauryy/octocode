@@ -15,6 +15,21 @@ fn github_rows_page_by_the_calls_response_window() {
     assert_eq!(context(None).row_page_chars(20_000), 20_000);
 }
 
+/// A failure row carries what an agent acts on: the code, the status and the
+/// message. GitHub's request id and documentation link give it nothing to do.
+#[test]
+fn a_failure_row_omits_provider_support_diagnostics() {
+    let mut error = ProviderError::new(ProviderErrorKind::NotFound, "Not Found");
+    error.status = Some(404);
+    error.request_id = Some("R1".into());
+    let row = search_row(error);
+    assert_eq!(row.data["errorCode"], "notFound", "{}", row.data);
+    assert_eq!(row.data["httpStatus"], 404, "{}", row.data);
+    assert!(row.data["error"].is_string(), "{}", row.data);
+    assert!(row.data.get("requestId").is_none(), "{}", row.data);
+    assert!(row.data.get("documentationUrl").is_none(), "{}", row.data);
+}
+
 #[test]
 fn authentication_errors_preserve_typed_failure_and_status() {
     let error = || ProviderError {
@@ -22,7 +37,6 @@ fn authentication_errors_preserve_typed_failure_and_status() {
         message: "Bad credentials".into(),
         status: Some(401),
         request_id: None,
-        documentation_url: None,
         rate_limit: None,
         retryable: false,
         reason: None,
@@ -55,7 +69,6 @@ fn legal_block_is_not_rendered_as_a_network_failure() {
         message: "GitHub resource blocked for legal reasons (HTTP 451)".into(),
         status: Some(451),
         request_id: None,
-        documentation_url: None,
         rate_limit: None,
         retryable: false,
         reason: None,
@@ -89,7 +102,6 @@ fn search_validation_keeps_github_detail_and_tool_specific_window_hint() {
         message: message.into(),
         status: Some(422),
         request_id: None,
-        documentation_url: None,
         rate_limit: None,
         retryable: false,
         reason,
@@ -127,7 +139,6 @@ fn permission_errors_keep_the_provider_reason_across_github_tools() {
         message: reason.into(),
         status: Some(403),
         request_id: None,
-        documentation_url: None,
         rate_limit: None,
         retryable: false,
         reason: None,
@@ -158,7 +169,6 @@ fn history_error_shapes_error_as_string() {
         message: "Validation Failed: repository rename not followed".into(),
         status: Some(422),
         request_id: None,
-        documentation_url: None,
         rate_limit: Some(Box::new(RateLimit {
             remaining: Some(11),
             reset_epoch_seconds: Some(1_700_000_000),
@@ -211,7 +221,6 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
         message: "No commit found for the ref no-such-branch".into(),
         status: Some(404),
         request_id: None,
-        documentation_url: None,
         rate_limit: None,
         retryable: false,
         reason: Some(ProviderErrorReason::RefNotFound),
@@ -251,7 +260,6 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
         message: "No commit found for SHA: no-such-branch".into(),
         status: Some(422),
         request_id: None,
-        documentation_url: None,
         rate_limit: None,
         retryable: false,
         reason: Some(ProviderErrorReason::RefNotFound),
@@ -269,7 +277,6 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
         message: "Not Found".into(),
         status: Some(404),
         request_id: None,
-        documentation_url: None,
         rate_limit: None,
         retryable: false,
         reason: None,

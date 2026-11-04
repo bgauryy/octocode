@@ -12,9 +12,10 @@ use crate::graph::{
 
 use super::languages;
 
-mod c_family;
+pub(super) mod c_family;
 mod go;
 mod heritage;
+mod js_fallback;
 mod python;
 mod receiver;
 mod rust;
@@ -24,6 +25,8 @@ mod scala;
 
 mod arguments;
 mod collect;
+mod declarations;
+mod from_tree;
 mod imports;
 mod macro_bodies;
 mod positions;
@@ -32,12 +35,11 @@ mod test_adapter;
 mod validity;
 mod walk;
 
-use rust::rust_inner_unsupported;
-
+use from_tree::facts_from_tree;
 use imports::push_language_import;
-use macro_bodies::{MacroBody, visit_macro_bodies};
-use positions::{NodePositions, syntax_error_lines};
-use references::count_name_references;
+use macro_bodies::MacroBody;
+use positions::NodePositions;
+#[cfg(test)]
 use walk::visit_node;
 
 /// The diagnostic of `code`, with the message this module states for it.
@@ -71,6 +73,12 @@ fn note(code: GraphFactCode) -> GraphFactDiagnostic {
         }
         // `js_oxc` states its parser's own errors.
         GraphFactCode::ParseError => "the parser reported a syntax error",
+        GraphFactCode::BuildExcluded => {
+            "a `//go:build` constraint no build satisfies keeps this file out of its package: it links to nothing and nothing links to it"
+        }
+        GraphFactCode::ParserFallback => {
+            "oxc did not read this file, so its facts come from the tree-sitter lane: module load is unknown unless a `type` token states it, and class fields and interface members are not declared"
+        }
     };
     GraphFactDiagnostic {
         code,
@@ -90,6 +98,8 @@ struct GraphAccumulator {
     call_adapter: Option<super::calls::CallAdapter>,
     visibility_adapter: super::visibility::VisibilityAdapter,
     export_forwarding_node: Option<&'static str>,
+    /// A JS/TS file oxc did not read: [`js_fallback`] owns its module facts.
+    js_fallback: bool,
     argument_adapter: Option<super::arguments::ArgumentAdapter>,
     argument_bindings: Option<super::arguments::binding::Bindings>,
     source_digest: String,
@@ -126,6 +136,8 @@ struct GraphAccumulator {
     /// which are most of a large file's walk and facts.
     declarations_only: bool,
     test_context: test_adapter::TestContext,
+    /// Python: the file's names for `typing.TYPE_CHECKING`.
+    typing: python::TypingBindings,
 }
 
 /// A token `count_name_references` reads: a name leaf, or (`format`) a Rust
@@ -150,6 +162,7 @@ impl GraphAccumulator {
             call_adapter: None,
             visibility_adapter: super::visibility::VisibilityAdapter::TopLevel,
             export_forwarding_node: None,
+            js_fallback: false,
             argument_adapter: None,
             argument_bindings: None,
             source_digest: String::new(),
@@ -167,6 +180,7 @@ impl GraphAccumulator {
             name_tokens: None,
             declarations_only: false,
             test_context: test_adapter::TestContext::default(),
+            typing: python::TypingBindings::default(),
             diagnostics: vec![note(GraphFactCode::SyntaxOnly)],
         }
     }
@@ -253,128 +267,6 @@ pub(crate) fn declaration_facts_from_tree(
     .map(|extraction| extraction.facts)
 }
 
-/// Graph facts from `tree` (`None`: the parse ran out of time, and the
-/// facts say they are incomplete).
-fn facts_from_tree(
-    content: &str,
-    file_path: &str,
-    extension: &str,
-    deadline: std::time::Instant,
-    declarations_only: bool,
-    tree: Option<&tree_sitter::Tree>,
-) -> Option<super::GraphFactsExtraction> {
-    // One spelling per language for every dispatch below: `pyi` is `py`,
-    // `hpp` is `cpp`, as the language registry lists them.
-    let ext = canonical_extension(extension).to_owned();
-    let entry = languages::find_entry(&ext)?.admitted(if declarations_only {
-        crate::text::analysis::AnalysisOperation::Declarations
-    } else {
-        crate::text::analysis::AnalysisOperation::GraphFacts
-    })?;
-    let mut acc = GraphAccumulator::new(file_path, &ext);
-    acc.declarations_only = declarations_only;
-    acc.argument_adapter = entry.argument_adapter;
-    acc.call_adapter = entry.call_adapter;
-    acc.visibility_adapter = entry.visibility_adapter;
-    acc.export_forwarding_node = entry.export_forwarding_node;
-    acc.source_templates = crate::text::analysis::SourceTemplates::new(
-        content,
-        crate::text::analysis::Producer::new(format!("tree-sitter-facts:{ext}"), "6"),
-        if declarations_only {
-            crate::text::analysis::AnalysisOperation::Declarations
-        } else {
-            crate::text::analysis::AnalysisOperation::GraphFacts
-        },
-    )
-    .ok()?;
-    acc.source_digest = acc
-        .source_templates
-        .root_digest()
-        .unwrap_or_default()
-        .to_owned();
-    let mut rust_root_unsupported = (ext == "rs").then_some(true);
-    let mut reference_counts = Vec::new();
-    let mut error_lines = Vec::new();
-    if let Some(tree) = tree {
-        let root = tree.root_node();
-        let line_index = NodePositions::new(content);
-        if !declarations_only && let Some(adapter) = entry.argument_adapter {
-            acc.argument_bindings = Some(super::arguments::binding::Bindings::collect(
-                root, adapter, content, deadline,
-            ));
-        }
-        rust_root_unsupported = (ext == "rs").then(|| rust_inner_unsupported(root, content));
-        if rust_root_unsupported == Some(true) {
-            acc.diagnostics
-                .push(note(GraphFactCode::RustCrateAttributes));
-        }
-        if root.has_error() {
-            acc.diagnostics.push(note(GraphFactCode::RecoveredParse));
-            error_lines = syntax_error_lines(root);
-        }
-        acc.name_tokens = (!declarations_only).then(Vec::new);
-        let visited = visit_node(root, content, &line_index, &mut acc, deadline, &[], None);
-        let name_tokens = acc.name_tokens.take().unwrap_or_default();
-        if !visited
-            || !visit_macro_bodies(content, &entry.language, &line_index, &mut acc, deadline)
-        {
-            // Facts gathered before the deadline are positive syntax facts and
-            // stay. The diagnostic marks the file incomplete, so consumers must
-            // not read a missing import, call or module as absent.
-            acc.diagnostics.push(note(GraphFactCode::TraversalDeadline));
-            rust_root_unsupported = (ext == "rs").then_some(true);
-        } else if !declarations_only {
-            let counts = count_name_references(content, &acc, &name_tokens);
-            reference_counts = acc
-                .declarations
-                .iter()
-                .map(|declaration| crate::graph::GraphReferenceCount {
-                    declaration_id: declaration.id.clone(),
-                    count: counts.get(&declaration.name).copied().unwrap_or(0),
-                })
-                .collect();
-        }
-    } else {
-        acc.diagnostics.push(note(GraphFactCode::ParseDeadline));
-    }
-
-    let lines = content.lines().collect::<Vec<_>>();
-    arguments::join_bindings(&mut acc);
-    for declaration in &mut acc.declarations {
-        declaration.doc_line =
-            super::leading_doc_line(&lines, declaration.range.start.line as usize, &ext);
-    }
-    let facts = GraphFactsDocument {
-        declarations: acc.declarations,
-        imports: acc.imports,
-        exports: acc.exports,
-        calls: acc.calls,
-        argument_sites: acc.argument_sites,
-        edges: acc.edges,
-        diagnostics: acc.diagnostics,
-        error_lines,
-        modules: acc.modules,
-        paths: {
-            let mut paths = acc.paths;
-            // An item-level macro body is read both as tokens and as items.
-            paths.sort_unstable();
-            paths.dedup();
-            paths
-        },
-        rust_root_unsupported,
-        test_lines: acc.test_lines,
-        ..super::graph_facts_document(
-            language_label(&ext, entry.language_id),
-            file_path,
-            acc.source_templates,
-        )
-    };
-    Some(super::GraphFactsExtraction {
-        facts,
-        reference_counts,
-    })
-}
-
 pub fn graph_fact_extensions() -> Vec<String> {
     let mut exts: Vec<String> = languages::supported_extensions()
         .into_iter()
@@ -383,12 +275,6 @@ pub fn graph_fact_extensions() -> Vec<String> {
     exts.sort();
     exts.dedup();
     exts
-}
-
-fn language_label(ext: &str, language_id: Option<&str>) -> String {
-    language_id
-        .unwrap_or_else(|| canonical_extension(ext))
-        .to_owned()
 }
 
 /// The first extension of the language `ext` belongs to (`pyi` → `py`).

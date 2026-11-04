@@ -70,11 +70,7 @@ impl<T> EntryEvaluator<'_, T> {
                 reference_counts: checkpoint.reference_counts,
             })
         } else if let Some(extension) = parser {
-            crate::signatures::graph_facts::extract_graph_facts_with_metadata_with_extension(
-                content,
-                relative_path,
-                extension,
-            )
+            crate::signatures::extract_graph_facts_parsed_as(content, relative_path, extension)
         } else {
             crate::signatures::extract_graph_facts_with_metadata_inner(content, relative_path)
         };

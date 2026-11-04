@@ -141,21 +141,16 @@ pub(super) fn disclose_unsearched(
             &disclosure.causes,
         ),
     );
-    // A check that ran out of time names the ignored directories a fresh
-    // bounded walk finds, with their rules; a finished one names the rules
-    // behind the files it found.
-    let (named, unchecked) = match &verdict {
-        Verdict::Skipped(diagnosis) => (diagnosis.skips().to_vec(), false),
-        _ => (unsearched_ignored(search_options, walk), true),
+    // A finished check names the rules behind the files it found. One that ran
+    // out of time found nothing to name: the walk's own skips stand, counted by
+    // cause, and the lead reaches them.
+    let named = match &verdict {
+        Verdict::Skipped(diagnosis) => diagnosis.skips().to_vec(),
+        _ => Vec::new(),
     };
-    if unchecked {
-        warnings.push(disclosure.text);
-    } else {
-        hints.insert(0, disclosure.text);
-    }
+    hints.insert(0, disclosure.text);
     Ok(Unsearched {
         may_hold_matches: true,
-        unchecked,
         observed: observed_paths(&named)?,
     })
 }
@@ -204,9 +199,6 @@ pub(super) struct Skipped<'a> {
 pub(super) struct Unsearched {
     /// Skipped paths hold a match, or may: the check did not finish.
     pub(super) may_hold_matches: bool,
-    /// The check did not finish: the skipped paths are unsearched scope
-    /// ([`crate::tools::leads::skipped::SKIPPED_UNCHECKED`]).
-    pub(super) unchecked: bool,
     /// The skipped paths the check named, each with its rule.
     pub(super) observed: Option<SkippedPaths>,
 }
@@ -233,35 +225,6 @@ fn observed_paths(
         true,
         true,
     )
-}
-
-/// The ignored directories a walk skipped that could hold a path the
-/// search's include globs match, named, within a fresh
-/// [`PROBE_BUDGET`](crate::tools::empty_walk::PROBE_BUDGET) of their own
-/// (the probe that ran out of time left none of the diagnosis' budget): the
-/// rules the lead lifts.
-fn unsearched_ignored(
-    options: &TextSearchOptions,
-    walk: Walk,
-) -> Vec<crate::tools::empty_walk::Skip> {
-    let root = std::path::Path::new(&options.path);
-    let scope = octocode_engine::search::glob::IncludeScope::new(
-        root,
-        options.include.as_deref().unwrap_or_default(),
-    );
-    let started = std::time::Instant::now();
-    let allowance = crate::tools::empty_walk::PROBE_BUDGET;
-    let mut skips = crate::tools::empty_walk::ignored_directories(root, walk, &|| {
-        started.elapsed() > allowance
-    });
-    skips.retain(|skip| {
-        scope.reaches(
-            &skip.entry,
-            skip.entry.strip_prefix(root).unwrap_or(&skip.entry),
-            true,
-        )
-    });
-    skips
 }
 
 /// Run a bounded search over the skipped scope with policy enforcement.

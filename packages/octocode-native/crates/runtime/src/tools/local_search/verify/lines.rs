@@ -164,6 +164,11 @@ pub(in crate::tools::local_search) fn materialize(
     visit_values(scope, file, rows, |_, _| Ok(()))
 }
 
+/// Every source a page re-read for its values, for the tests that count them.
+#[cfg(test)]
+pub(in crate::tools::local_search) static REREAD_FILES: std::sync::Mutex<Vec<std::path::PathBuf>> =
+    std::sync::Mutex::new(Vec::new());
+
 /// Reconstruct one value at a time, then release or consume it before reading
 /// the next. Every read is policy-checked and hashes the complete source; no
 /// result escapes when that digest differs from the search's bytes. Then a
@@ -198,6 +203,11 @@ pub(super) fn visit_values(
     wanted.sort_unstable_by_key(|&i| file.matches[i].line);
     let path = scope.output_root.join(&file.path);
     validate_matched(scope.paths, &path)?;
+    #[cfg(test)]
+    REREAD_FILES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(path.clone());
     match reread(scope, file, &path, &wanted, &mut visit)? {
         Reread::Same => Ok(Vec::new()),
         Reread::Changed => withhold(scope, file, &path, wanted),

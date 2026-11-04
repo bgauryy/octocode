@@ -160,3 +160,30 @@ fn workspace_symbols_rank_exact_before_fuzzy() {
         ]
     );
 }
+
+/// A `documentSymbols` row whose owed open wait timed out is flagged partial
+/// with `languageServerIndexing`; a confirmed or absent wait leaves it whole.
+#[test]
+fn an_outline_that_paid_a_timed_out_wait_is_flagged_still_loading() {
+    let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
+        "operation": "documentSymbols", "path": "file:///repo/src/lib.rs"
+    }))
+    .expect("query");
+    let symbols = || {
+        serde_json::json!([{
+            "name": "f", "kind": 12,
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 0}},
+            "selectionRange": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}
+        }])
+    };
+    let reasons = |readiness| {
+        let row = super::outline_row(&query, symbols(), None, None, 16_000, readiness);
+        (row["isPartial"] == true).then(|| row["partialReasons"].clone())
+    };
+    assert_eq!(
+        reasons(Some("timeout")),
+        Some(serde_json::json!(["languageServerIndexing"]))
+    );
+    assert_eq!(reasons(Some("progressIdle")), None);
+    assert_eq!(reasons(None), None);
+}

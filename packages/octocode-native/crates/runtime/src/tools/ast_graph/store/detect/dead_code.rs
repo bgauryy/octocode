@@ -71,7 +71,7 @@ pub(super) fn tier_dead_code(
         notes.push(json!({"detector": "unreachable-file", "skipped": "mention scan stopped at 512 MB of text; later files unchecked"}));
     }
     if gaps.oversized > 0 {
-        notes.push(json!({"detector": "unreachable-file", "skipped": format!("mention scan skipped {} files over 2 MiB; a mention in them is not seen", gaps.oversized)}));
+        notes.push(json!({"detector": "unreachable-file", "skipped": format!("mention scan skipped {} over 2 MiB; a mention there is not seen", octocode_engine::text::counted(gaps.oversized, "file", "files"))}));
     }
     for finding in findings.iter_mut() {
         match finding.detector {

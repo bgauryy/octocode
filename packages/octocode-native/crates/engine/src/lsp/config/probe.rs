@@ -20,21 +20,44 @@ pub(crate) fn probe_command_succeeds(
     args: &[&str],
     timeout: std::time::Duration,
 ) -> bool {
-    use std::process::Stdio;
     let mut probe = Command::new(command);
+    probe.args(args);
+    run_bounded(&mut probe, false, timeout).is_some()
+}
+
+/// Run a prepared `probe` (its stdin and stderr are nulled) and return its
+/// stdout when it exited successfully within `timeout`; `None` on a failure
+/// exit, a timeout (the child is killed) or a spawn error. Blocking, like
+/// [`probe_command_succeeds`]. The output is read after the child exits, so
+/// it must be small: a command that fills the pipe times out.
+pub(crate) fn probe_command_stdout(
+    probe: &mut Command,
+    timeout: std::time::Duration,
+) -> Option<Vec<u8>> {
+    run_bounded(probe, true, timeout)
+}
+
+fn run_bounded(
+    probe: &mut Command,
+    capture_stdout: bool,
+    timeout: std::time::Duration,
+) -> Option<Vec<u8>> {
+    use std::io::Read;
+    use std::process::Stdio;
     probe
-        .args(args)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(if capture_stdout {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stderr(Stdio::null());
-    crate::process::contain(&mut probe);
-    let Ok(mut child) = probe.spawn() else {
-        return false;
-    };
+    crate::process::contain(probe);
+    let mut child = probe.spawn().ok()?;
     let Ok(mut job) = crate::process::Job::attach(&child, None) else {
         let _ = child.kill();
         let _ = child.wait();
-        return false;
+        return None;
     };
     let deadline = std::time::Instant::now() + timeout;
     let completed = loop {
@@ -55,8 +78,12 @@ pub(crate) fn probe_command_succeeds(
     if !completed {
         let _ = child.kill();
     }
+    let mut stdout = Vec::new();
+    if completed && let Some(mut pipe) = child.stdout.take() {
+        let _ = pipe.read_to_end(&mut stdout);
+    }
     let status = child.wait();
-    completed && status.is_ok_and(|status| status.success())
+    (completed && status.is_ok_and(|status| status.success())).then_some(stdout)
 }
 
 /// Whether `command` resolves to a usable language-server executable. Bounded
@@ -95,7 +122,8 @@ pub fn is_command_available(command: &str) -> Result<bool, String> {
 }
 
 /// Whether a discovered server config would launch: its program is an
-/// executable (a node-launched script must exist too). Never executes it.
+/// executable (a node-launched script must exist too). Never runs the server;
+/// a rustup proxy costs one bounded `rustup which` call.
 pub fn server_command_resolves(config: &LspLanguageServerConfig) -> bool {
     let command = resolve_known_server_command(&config.command);
     if is_rejected_shell(&command) {
@@ -116,33 +144,17 @@ pub fn server_command_resolves(config: &LspLanguageServerConfig) -> bool {
     {
         return false;
     }
-    if is_rust_analyzer_command(&command) || is_rust_analyzer_command(&config.command) {
-        let rustup_home = crate::process_env::var_os("RUSTUP_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::home_dir().map(|home| home.join(".rustup")));
-        return rustup_proxy_component_installed(&program, rustup_home.as_deref());
+    if (is_rust_analyzer_command(&command) || is_rust_analyzer_command(&config.command))
+        && super::invocation::rustup::is_rustup_proxy(&program)
+    {
+        // A rustup proxy resolves on PATH even when the toolchain rustup
+        // selects has no such component; running it would install or fail.
+        // rustup decides, not this code: available only when it names the binary.
+        return super::invocation::rustup::selected_component(
+            &program,
+            Path::new(&config.workspace_root),
+        )
+        .is_some();
     }
     true
-}
-
-/// A rustup proxy (`~/.cargo/bin/rust-analyzer -> rustup`) resolves on PATH
-/// even when no toolchain ships the component; running it would install or
-/// fail. Treat it as available only when some toolchain has the binary. Any
-/// other executable is the real server.
-pub(super) fn rustup_proxy_component_installed(program: &Path, rustup_home: Option<&Path>) -> bool {
-    if !super::invocation::rustup::is_rustup_proxy(program) {
-        return true;
-    }
-    let Some(binary) = program.file_name() else {
-        return false;
-    };
-    let Some(toolchains) = rustup_home
-        .map(|home| home.join("toolchains"))
-        .and_then(|dir| std::fs::read_dir(dir).ok())
-    else {
-        return false;
-    };
-    toolchains
-        .filter_map(Result::ok)
-        .any(|toolchain| is_executable_path(&toolchain.path().join("bin").join(binary)))
 }

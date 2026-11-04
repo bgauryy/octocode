@@ -135,7 +135,6 @@ fn history_search_422_names_the_query() {
         message: "Validation Failed".into(),
         status: Some(422),
         request_id: None,
-        documentation_url: None,
         rate_limit: None,
         retryable: false,
         reason: None,

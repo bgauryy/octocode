@@ -4,7 +4,9 @@
 //! An install verifies three things that must agree, none typed by hand: the
 //! digest `managed.lock.json` recorded from GitHub, GitHub's live digest for
 //! the same asset (skipped, and said so, when the API cannot be reached), and
-//! the SHA-256 of the downloaded bytes. Downloads use allowed HTTPS hosts on
+//! the size and SHA-256 of the downloaded bytes. For an immutable release the
+//! release attestation must also cover the asset when `gh` can verify it.
+//! Downloads use allowed HTTPS hosts on
 //! every hop. It writes and marks completed executables atomically under
 //! per-target locks. Archive support is limited to `gz` and `zip`.
 mod commands;
@@ -202,14 +204,32 @@ async fn provision_entry(
             if let Err(e) = tokio::io::AsyncWriteExt::flush(&mut file).await {
                 return ProvisionOutcome::fail(format!("Writing the download failed: {e}"));
             }
+            // The lock records the asset's size: a different byte count is
+            // refused before any hashing or extraction.
+            match file.metadata().await {
+                Ok(meta) if meta.len() == lock.size => {}
+                Ok(meta) => {
+                    return ProvisionOutcome::fail(format!(
+                        "Checksum mismatch for {name}: the downloaded {} is {} bytes but managed.lock.json records {}, so it is corrupted or substituted.",
+                        asset.asset,
+                        meta.len(),
+                        lock.size
+                    ));
+                }
+                Err(e) => {
+                    return ProvisionOutcome::fail(format!("Reading the download failed: {e}"));
+                }
+            }
         }
         Err(e) => return ProvisionOutcome::fail(e),
     }
-    // An immutable release can carry a GitHub release attestation: verify it
-    // too. Without one, the three-way check above is the level reached.
+    // An immutable release can carry a GitHub release attestation: refuse
+    // only when a verified one does not cover this asset; when gh cannot
+    // verify, say so. Without one, the three-way check above is the level
+    // reached.
     if server.release_lock.as_ref().is_some_and(|r| r.immutable) {
         match upstream
-            .attest(server.repo, server.release_tag, &spool.0)
+            .attest(server.repo, server.release_tag, &identity.sha256)
             .await
         {
             Attestation::Verified => checks.push("release attestation verified".to_owned()),

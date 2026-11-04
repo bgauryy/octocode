@@ -122,7 +122,9 @@ pub(super) fn settle_row(
         pagination: file_paging(query, layout, total_files, page.leftover_matches),
         hints,
         next,
-        is_partial: coverage.gap() || capped || disclosed.unchecked,
+        // The requested scope was searched whole. What a probe of the skipped
+        // paths left unchecked is outside it, and the row names it.
+        is_partial: coverage.gap() || capped,
         // A retry over the skipped paths reaches the match, so no limit ends
         // this answer.
         terminal_limit: settled_terminal && !disclosed.skipped_match,

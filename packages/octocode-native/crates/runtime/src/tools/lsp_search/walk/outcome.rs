@@ -278,20 +278,23 @@ fn limit_warnings(
     let mut cut = Vec::new();
     if dropped_edges > 0 {
         cut.push(format!(
-            "{dropped_edges} edges to further nodes were not listed"
+            "{} to further nodes not listed",
+            octocode_engine::text::counted(dropped_edges, "edge", "edges")
         ));
     }
     if unexpanded_nodes > 0 {
         cut.push(format!(
-            "{unexpanded_nodes} listed results were not expanded"
+            "{} not expanded",
+            octocode_engine::text::counted(unexpanded_nodes, "listed result", "listed results")
         ));
     }
     if !cut.is_empty() {
         limits.push((
             crate::response::paging::PartialReason::HierarchyNodeLimit,
             format!(
-                "Stopped at {MAX_HIERARCHY_NODES} hierarchy nodes: {}; {parents} parents were left unexpanded {listed}.",
-                cut.join(" and ")
+                "Stopped at {MAX_HIERARCHY_NODES} hierarchy nodes: {}; {} left unexpanded {listed}.",
+                cut.join(" and "),
+                octocode_engine::text::counted(parents, "parent", "parents")
             ),
         ));
     }

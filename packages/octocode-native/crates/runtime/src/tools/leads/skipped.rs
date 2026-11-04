@@ -199,21 +199,14 @@ pub(crate) fn skipped_path_error(error: impl std::fmt::Display) -> ToolError {
     )
 }
 
-/// The `partialReasons` entry of a result whose check of the paths its walk
-/// skipped ran out of time: that scope is unchecked, absence there unproven.
-pub(crate) const SKIPPED_UNCHECKED: crate::response::paging::PartialReason =
-    crate::response::paging::PartialReason::SkippedPathsUnchecked;
-
 /// What one walk's skipped paths hold, as every local tool states it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Disclosure {
     /// The causes the lead lifts.
     pub(crate) causes: Vec<Cause>,
-    /// The sentence: a hint when the check found something, a warning when
-    /// it was cut ([`Self::unchecked`]).
+    /// The sentence: what the check found, or that it was cut.
     pub(crate) text: String,
-    /// The check ran out of time: the text is a warning and the result is
-    /// partial ([`SKIPPED_UNCHECKED`]).
+    /// The check ran out of time, so the skipped paths stay unsearched.
     pub(crate) unchecked: bool,
 }
 
@@ -284,29 +277,17 @@ pub(crate) fn lead(tool: ToolId, query: &impl serde::Serialize, causes: &[Cause]
             .map(String::as_str)
             .collect::<Vec<_>>(),
     );
-    // A related call is fresh work: its brief is the caller's to state.
-    if let Some(fields) = row.as_object_mut() {
-        fields.remove("mainGoal");
-        fields.remove("reasoning");
-    }
     lift(&mut row, causes);
     Continuation::related(tool, row).build()
 }
 
 /// Place `disclosure` on an internal result: the explicit related call in
-/// its call bundle, the sentence as a hint,
-/// or, for a cut check, as a warning with the result marked partial.
+/// its call bundle and the sentence as a hint. The requested scope was walked
+/// whole, so what a check of the skipped paths left unchecked leaves it
+/// complete.
 pub(crate) fn attach(out: &mut Value, disclosure: &Disclosure, lead: Value) {
     out["calls"]["includeSkipped"] = lead;
-    if disclosure.unchecked {
-        crate::response::paging::mark_partial(
-            out,
-            SKIPPED_UNCHECKED,
-            std::slice::from_ref(&disclosure.text),
-        );
-    } else {
-        super::push_hint(out, disclosure.text.clone());
-    }
+    super::push_hint(out, disclosure.text.clone());
 }
 
 #[cfg(test)]

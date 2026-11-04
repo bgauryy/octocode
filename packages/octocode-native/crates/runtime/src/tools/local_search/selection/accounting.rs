@@ -153,14 +153,17 @@ impl Selected {
                 format!("no chunk passed the questions and {unknown} could not be judged")
             };
             notes.push(format!(
-                "classification: {why}, so none of the {rows} hit rows ({} files) is listed. An empty classified result is not absence: the unfiltered search matched those {rows} rows, and `next.unfiltered` lists them.",
-                self.files_before,
-                rows = self.rows_before,
+                "classification: {why}, so none of the {} ({}) is listed. An empty classified result is not absence: the unfiltered search matched them, and `next.unfiltered` lists them.",
+                octocode_engine::text::counted(self.rows_before, "hit row", "hit rows"),
+                octocode_engine::text::counted(self.files_before, "file", "files"),
             ));
         } else if self.rows_kept < self.rows_before {
             notes.push(format!(
-                "classification kept {} of {} hit rows ({} of {} files) that pass the classifiers.",
-                self.rows_kept, self.rows_before, self.files_kept, self.files_before,
+                "classification kept {} of {} ({} of {}) that pass the classifiers.",
+                self.rows_kept,
+                octocode_engine::text::counted(self.rows_before, "hit row", "hit rows"),
+                self.files_kept,
+                octocode_engine::text::counted(self.files_before, "file", "files"),
             ));
         }
         notes

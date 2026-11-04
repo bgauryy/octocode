@@ -150,12 +150,18 @@ pub(super) fn cycle_preview_row(keys: &[String]) -> Value {
     row
 }
 
-/// Cycle groups as member keys, each with whether a runtime (module-load)
-/// loop runs inside it. Over import edges they are the one cycle engine's
+/// Cycle groups as member keys, each with what its edges establish about a
+/// runtime (module-load) loop inside it. Over import edges they are the one cycle engine's
 /// groups ([`crate::tools::ast_graph::algorithms::Cycles`], as the `cycle`
 /// detector reports them); over other edge kinds (calls),
 /// the strongly connected groups of those edges, with no runtime verdict.
-pub(super) fn cycle_groups(g: &Graph, filter: &EdgeFilter) -> Vec<(Vec<String>, Option<bool>)> {
+pub(super) fn cycle_groups(
+    g: &Graph,
+    filter: &EdgeFilter,
+) -> Vec<(
+    Vec<String>,
+    Option<crate::tools::ast_graph::algorithms::CycleLoad>,
+)> {
     if filter.kinds == [EdgeKind::Imports] {
         let graph = super::super::detect::file_graph(&g.t, &|_| true);
         let cycles = crate::tools::ast_graph::algorithms::Cycles::of(&graph);
@@ -166,10 +172,7 @@ pub(super) fn cycle_groups(g: &Graph, filter: &EdgeFilter) -> Vec<(Vec<String>, 
                     .iter()
                     .cloned()
                     .collect::<std::collections::BTreeSet<_>>();
-                (
-                    files.clone(),
-                    Some(!cycles.runtime_within(&members).is_empty()),
-                )
+                (files.clone(), Some(cycles.load_within(&members)))
             })
             .collect();
     }
@@ -231,7 +234,7 @@ pub(super) fn cycles(
         .map(|(keys, runtime)| {
             let mut row = cycle_preview_row(keys);
             if let Some(runtime) = runtime {
-                row["runtime"] = json!(runtime);
+                row["runtime"] = runtime.as_json();
             }
             row
         })

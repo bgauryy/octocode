@@ -160,6 +160,7 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
         target: text(row, "target").or_else(|| text(row, "cycle")),
         targets: strings(row, "target"),
         reasons: strings(row, "reasons"),
+        name: text(row, "name"),
         to: text(row, "to"),
         edges: strings(row, "edges"),
         kind: text(row, "kind"),

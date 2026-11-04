@@ -158,8 +158,7 @@ async fn materialize_sends_no_date_request() {
     )
     .await
     .expect("materialize");
-    let data = row_data(&outcome);
-    assert!(updated(&data["files"][0]).is_empty(), "{data}");
+    assert_eq!(row_status(&outcome), "success");
     assert!(graphql_requests(&server).await.is_empty());
     runtime.close().await;
 }

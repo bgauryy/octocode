@@ -24,6 +24,7 @@ pub(super) mod checkpoint;
 mod exports;
 mod imports;
 mod link;
+mod markup;
 mod resolve;
 mod rust;
 mod scan;
@@ -80,6 +81,7 @@ pub(crate) fn build_graph_with_registry(
         withheld,
         job,
         reused_files,
+        markup,
         tally,
     } = scan::extract(
         scan,
@@ -141,7 +143,8 @@ pub(crate) fn build_graph_with_registry(
     let resolve_context = ResolveContext::load(&built.root, &known, paths, security);
     let packages = PackageIndex::build(&built.root, &known, &|path| {
         super::aliases::read_config_text(paths, security, path)
-    });
+    })
+    .with_go_files(facts.kept.iter().filter_map(|(_, kept)| kept.go_file()));
     if packages.go_module_missing() {
         built.diagnostics.push(Diagnostic::new(
             ".",
@@ -187,6 +190,7 @@ pub(crate) fn build_graph_with_registry(
             link_restored(&mut built, &inputs, &known, scan, restored?)?;
         }
     }
+    markup::link_markup(&mut built, &inputs, markup, cancel)?;
     diagnose_unlinked_path_imports(&mut built, security);
     built.diagnostics.sort();
     built.diagnostics.dedup();

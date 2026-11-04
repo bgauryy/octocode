@@ -22,7 +22,7 @@ pub(super) struct WalkLeft<'a> {
     pub(super) admission: crate::policy::discovery::WalkAdmission<'a>,
     /// Entries the path policy withheld, by the walk position of the entry
     /// (and whether it is a directory).
-    pub(super) withheld: std::sync::Mutex<Vec<(u32, std::path::PathBuf, bool)>>,
+    pub(super) withheld: std::sync::Mutex<Vec<(u32, std::path::PathBuf)>>,
     /// The dot entries skipped without `includeHidden`, by walk position,
     /// root-relative (a directory's with a trailing `/`).
     pub(super) hidden: std::sync::Mutex<Vec<(u32, String)>>,
@@ -162,7 +162,7 @@ impl<'a> WalkLeft<'a> {
         self.withheld
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push((position, path.to_path_buf(), path.is_dir()));
+            .push((position, path.to_path_buf()));
     }
 
     /// Whether a `filtered` listing walked past an admitted link to a
@@ -201,14 +201,14 @@ impl<'a> WalkLeft<'a> {
             .map(str::to_owned)
             .collect::<Vec<_>>();
         let mut withheld = crate::policy::discovery::Withheld::default();
-        for (_, path, is_dir) in self
+        for (_, path) in self
             .withheld
             .into_inner()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .filter(|(position, ..)| covered(position))
         {
-            withheld.record(path, *is_dir);
+            withheld.record(path);
         }
         Uncovered {
             ignored,

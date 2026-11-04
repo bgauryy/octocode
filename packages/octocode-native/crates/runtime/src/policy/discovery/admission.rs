@@ -160,8 +160,8 @@ impl<'a> WalkAdmission<'a> {
 
     /// Count one entry the path policy withheld, or a link the walk did
     /// not follow ([`Withheld::record`]).
-    pub(crate) fn withhold(&self, path: &Path, is_dir: bool) {
-        self.note(|skips| skips.withheld.record(path, is_dir));
+    pub(crate) fn withhold(&self, path: &Path) {
+        self.note(|skips| skips.withheld.record(path));
     }
 
     /// The verdict on one walked entry: a link is never followed and a
@@ -179,7 +179,7 @@ impl<'a> WalkAdmission<'a> {
         if is_link(path, file_type) || !self.permits(path, file_type) {
             let is_dir = path.is_dir();
             if relevant(is_dir) {
-                self.withhold(path, is_dir);
+                self.withhold(path);
             }
             return false;
         }
@@ -296,6 +296,6 @@ impl octocode_engine::search::text_search::TextSearchPathFilter for WalkAdmissio
     }
 
     fn skipped_symlink(&self, path: &Path) {
-        self.withhold(path, false);
+        self.withhold(path);
     }
 }

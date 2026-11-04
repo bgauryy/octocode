@@ -80,6 +80,7 @@ impl ToolRuntime {
         input: Value,
         mcp: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
+        let input = contracts::normalized_input(&tool, input);
         let id = match self.admit_tool(&tool, mcp) {
             Ok(id) => id,
             // A setting the call lacks is reported after its input: an
@@ -190,11 +191,12 @@ impl ToolRuntime {
                 )
             };
         let mut dispatcher = self.dispatcher();
-        if let Some(evidence) = opened
+        if let Some((digest, evidence)) = opened
             .as_ref()
             .and_then(|opened| self.cursors.evidence(opened))
         {
-            dispatcher.github_access = super::super::github::ResponseAccess::resuming(evidence);
+            dispatcher.github_access =
+                super::super::github::ResponseAccess::resuming(digest, evidence);
         }
         let run = ChannelRun {
             id,
@@ -245,6 +247,7 @@ impl ToolRuntime {
             lsp_pool: self.lsp_pool.clone(),
             lsp_execution_config: self.lsp_execution_config.clone(),
             lsp_answers: self.lsp_answers.clone(),
+            lsp_requested: self.lsp_requested.clone(),
             graph_rows: self.graph_rows.clone(),
             availability: self.availability.clone(),
             selection_available: self.selection_available,

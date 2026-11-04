@@ -58,6 +58,7 @@ struct State {
 /// correspondence, which linking keeps whole, stay decoded here.
 pub(super) struct Kept {
     pub(super) modules: Option<(String, Vec<GraphFactRustModule>)>,
+    pub(super) go_file: Option<(String, Option<String>, bool)>,
     digest: String,
     stamp: Option<octocode_engine::stamp::SourceStamp>,
     storage: Storage,
@@ -237,6 +238,13 @@ impl Job<'_> {
         super::scan::Kept::Spill(Box::new(Kept {
             modules: (view.facts.language == "rust")
                 .then(|| (view.relative_path.into(), view.facts.modules.clone())),
+            go_file: (view.facts.language == "go").then(|| {
+                (
+                    view.relative_path.to_owned(),
+                    view.facts.go_package.clone(),
+                    view.facts.build_excluded,
+                )
+            }),
             digest: view.content_digest.into(),
             stamp: view.source_stamp,
             storage,

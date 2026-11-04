@@ -135,9 +135,8 @@ async fn deep_tree_is_fetched_once_at_the_resolved_commit() {
         [
             "/api/v3/repos/a/b/commits/main".to_owned(),
             format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}"),
-            "/api/graphql".to_owned(),
         ],
-        "one pinned tree request and its date metadata query"
+        "one pinned tree request"
     );
 }
 
@@ -367,9 +366,7 @@ async fn a_deep_listing_of_a_directory_reads_that_directorys_tree_once() {
         .await
         .unwrap_or_default()
         .iter()
-        .filter(|request| {
-            request.url.path() != "/api/graphql" && !request.url.path().contains("/commits/")
-        })
+        .filter(|request| !request.url.path().contains("/commits/"))
         .count();
     assert_eq!(reads, 1, "one tree read for the whole listing");
 }

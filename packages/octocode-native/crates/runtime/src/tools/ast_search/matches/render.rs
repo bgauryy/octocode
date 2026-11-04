@@ -287,7 +287,8 @@ fn narrowing_notice(matches: u64, page: &FilePage) -> Option<String> {
     let files = page.pagination["totalItems"].as_u64()?;
     (page.more && pages > 1).then(|| {
         format!(
-            "{matches} matches in {files} files fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path)."
+            "{matches} matches in {} fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).",
+            octocode_engine::text::counted(files, "file", "files")
         )
     })
 }

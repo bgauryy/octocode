@@ -219,3 +219,89 @@ fn go_test_packages_bind_like_go_test_builds_them() {
     );
     assert_eq!(call_edges(root, "store/prod.go#prod"), []);
 }
+
+/// A Go import binds the name in the package clause, which need not be the
+/// path's last segment (`gopkg.in/yaml.v3`, `.../go-lib`).
+#[test]
+fn go_imports_bind_the_package_clause_name() {
+    let temp = fixture(&[
+        GO_MOD,
+        ("internal/go-lib/l.go", "package lib\n\nfunc Named() {}\n"),
+        ("internal/yaml.v3/y.go", "package yaml\n\nfunc Parse() {}\n"),
+        ("internal/v2/v.go", "package stuff\n\nfunc V2() {}\n"),
+        (
+            "main.go",
+            "package main\n\nimport (\n\t\"example.com/app/internal/go-lib\"\n\t\"example.com/app/internal/v2\"\n\t\"example.com/app/internal/yaml.v3\"\n\ty2 \"example.com/app/internal/yaml.v3\"\n)\n\nfunc run() { lib.Named(); yaml.Parse(); stuff.V2(); y2.Parse() }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        call_edges(root, "main.go#run"),
+        [
+            edge("internal/go-lib/l.go#Named", "namespace", "high"),
+            edge("internal/v2/v.go#V2", "namespace", "high"),
+            edge("internal/yaml.v3/y.go#Parse", "namespace", "high"),
+        ]
+    );
+}
+
+/// `//go:build ignore` keeps a file out of its package: it is no import
+/// target and creates no edges, so it closes no cycle; the build says why the
+/// file holds no facts.
+#[test]
+fn a_go_build_ignore_file_creates_no_edges() {
+    let temp = fixture(&[
+        GO_MOD,
+        (
+            "app/a.go",
+            "package app\n\nimport \"example.com/app/plat\"\n\nfunc Run() { plat.Sys() }\n",
+        ),
+        ("plat/p.go", "package plat\n\nfunc Sys() {}\n"),
+        (
+            "plat/tool.go",
+            "//go:build ignore\n\npackage main\n\nimport \"example.com/app/app\"\n\nfunc main() { app.Run() }\n\nfunc Sys() {}\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(ask(root, "cycles", None)["rows"], json!([]));
+    assert_eq!(files(&ask(root, "deps", Some("app/a.go"))), ["plat/p.go"]);
+    assert_eq!(
+        files(&ask(root, "deps", Some("plat/tool.go"))),
+        Vec::<&str>::new()
+    );
+    assert_eq!(
+        call_edges(root, "app/a.go#Run"),
+        [edge("plat/p.go#Sys", "namespace", "high")]
+    );
+    let diagnostics = ask(root, "diagnostics", Some("plat/tool.go"));
+    let message = diagnostics["rows"][0]["message"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(message.contains("go:build"), "{diagnostics}");
+}
+
+/// Other constraints select a platform or a feature: those files stay in
+/// the package, as candidates.
+#[test]
+fn a_go_build_tag_file_stays_in_its_package() {
+    let temp = fixture(&[
+        GO_MOD,
+        (
+            "plat/a.go",
+            "//go:build linux\n\npackage plat\n\nfunc A() {}\n",
+        ),
+        (
+            "plat/b.go",
+            "//go:build !ignore\n\npackage plat\n\nfunc B() {}\n",
+        ),
+        (
+            "main.go",
+            "package main\n\nimport \"example.com/app/plat\"\n\nfunc run() { plat.A(); plat.B() }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        files(&ask(root, "deps", Some("main.go"))),
+        ["plat/a.go", "plat/b.go"]
+    );
+}

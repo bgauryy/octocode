@@ -21,7 +21,7 @@ The graph is syntax evidence: `astSearch`, `graphBuild` and `graphQuery` start n
 
 ## Cycle engine
 
-`ast_graph/algorithms.rs` holds the one cycle engine (`Cycles`): the dependency view of a file graph (data and module-tree edges removed), its strongly connected groups, and the groups its eager-load (runtime) edges close. The `cycles` operation, the `cycle` detector, `drift` and the health summary read it. The engine crate supplies the primitives (`engine/src/graph/algorithms.rs`): strongly connected components (iterative Tarjan) and the condensation.
+`ast_graph/algorithms.rs` holds the one cycle engine (`Cycles`): the dependency view of a file graph (data and module-tree edges removed), its strongly connected groups, and the groups its eager-load (runtime) edges close, with or without the edges of unknown load (`CycleLoad`). The `cycles` operation, the `cycle` detector, `drift` and the health summary read it. The engine crate supplies the primitives (`engine/src/graph/algorithms.rs`): strongly connected components (iterative Tarjan) and the condensation.
 
 ## Agent graph tools (CLI and beta MCP)
 
@@ -134,7 +134,7 @@ external test package), never a method, and non-test files never see
 `_test.go` files. Call traversals report their applied confidence. Stats rank called
 symbols using high-confidence production edges and report `callConfidence`.
 `cycles` and `hubs` exclude test edges. Import cycles include type imports;
-`runtime: false` means that group contains no detected eager module-loading cycle. List operations
+`runtime: false` means that group contains no detected eager module-loading cycle; `runtime: "unknown"` means a loop closes only through an edge whose load is not established (see parser fallback). List operations
 accept `limit` (default 50, maximum 1,000); `stats`, `node` and `path` do not.
 Depth is bounded to 1–20 where supported. `impact` uses its own impact analysis
 and does not accept edge or direction overrides.
@@ -510,13 +510,21 @@ and one `unsupported-linking` diagnostic counts them. A Python
 module's attributes are its top-level definitions and the names its imports
 bind, so `from pkg import X` follows `pkg/__init__.py` re-exports; `from m import
 *` binds names without a leading underscore (`__all__` is not read). Python
-`@decorator` lines are `decorates` calls owned by the enclosing scope, and
-imports under `if TYPE_CHECKING:` are type imports. A Go method is `Type.Method`:
+`@decorator` lines are `decorates` calls owned by the enclosing scope, and an
+import in a branch `typing.TYPE_CHECKING` keeps from running is a type import.
+The file's names for the constant are followed (`import typing as t`,
+`TYPE_CHECKING as TC`, a module-level `FLAG = TYPE_CHECKING`), and so are `not`,
+`and`, `or` and the `else` of a negated guard. A Go method is `Type.Method`:
 `x.M()` reads the method set of `x`'s type across its package, then the
 shallowest methods promoted through embedded fields or interfaces (`embeds`
 heritage); an unresolved embedded type keeps a found method medium. Go import
 aliases bind the package under the alias, dot imports bind like a wildcard and
-blank imports bind nothing. A constructor-shaped receiver (`T(..).m()`,
+blank imports bind nothing; a plain import binds the name in the target's
+`package` clause, not the path's last segment. A file under a `//go:build`
+constraint no build satisfies (`ignore`, alone or in a conjunction) holds no
+graph facts, no import reaches it, and an `unsupported-linking` diagnostic says
+so; its outline still reads it. Other build tags are not evaluated: those files
+stay package candidates. A constructor-shaped receiver (`T(..).m()`,
 `T::new(..).m()`, `NewT(..).m()`, a Rust unit struct value) types the call.
 Multiple targets or unresolved branches keep observed candidates at medium
 confidence.
@@ -559,7 +567,9 @@ included headers; a match only elsewhere is `low`. Template arguments
 (`f<A>(x)`) are not part of the callee, `p->m()` is a member call like `p.m()`,
 and a `<<<grid, block>>>` launch calls its kernel. An unparsable preprocessor
 branch (`else` before `#ifdef`) is recovered as one statement; its sibling
-statements keep their calls. Overloads of one scope all stay medium
+statements keep their calls. A branch a literal condition disables (`#if 0`,
+the `#else` of `#if 1`) adds no include, call or declaration to the graph; any
+other condition is not evaluated, so both its branches stay candidates. Overloads of one scope all stay medium
 candidates. Calls inside macro bodies, calls through function pointers and C
 calls to assembly symbols are not linked.
 
@@ -582,8 +592,20 @@ forms retain their source occurrence with `constructor-target-unavailable`,
 unassessed sites are excluded from the eligible linkage denominator, counted
 separately and inspectable through `unresolved`. Parser recovery takes precedence
 over binding admission. No argument becomes an invocation through this process.
-Fact schema 12, analysis version 14 and binary format 14 invalidate earlier extraction,
-binding and storage representations. Rebuild older snapshots with the current binary.
+A bump of `GRAPH_FACTS_SCHEMA_VERSION`, `ANALYSIS_VERSION` or `FORMAT_VERSION`
+invalidates earlier extraction, binding or storage representations: rebuild older
+snapshots with the current binary. A call to a name whose only declaration parsed
+recovered reports `recovered-declaration`, not `not-declared-in-repo`.
+
+oxc owns JS/TS. A file it cannot parse keeps its facts through the tree-sitter
+lane (partial facts beat none), and says so: `scan.parserFallback` lists each
+`file` with its `producer`, and a `parser-fallback` diagnostic gives oxc's error.
+That lane reads what the tree settles: a `type` token (`type-import`,
+`type-named-reexport`), re-exports, a written `export`, and module-level `const`,
+`let`, `var` and arrow functions. It makes no load claim otherwise: value imports
+and re-exports are `recovered-import`, `recovered-named-reexport` and
+`recovered-star-reexport`, and a cycle only they close is `runtime: "unknown"`.
+Class fields and interface members stay undeclared there.
 
 Every call edge keeps its `resolution` and `confidence`. `graphQuery` then
 answers bounded, paged questions without rebuilding. The code is in
@@ -630,6 +652,12 @@ A bare JS/TS import that names a scanned file by path (`vs/base/common/x` for
 package links is no edge. Ingest records it as an `unlinked-path-import`
 diagnostic naming that file, and `dependents <file>` lists those importers
 under `summary.unlinkedPathImports` (`file`, `line`, `message`).
+Markup (`.vue`, `.svelte`, `.astro`, `.mdx`, `.html`, `.htm`) has no grammar and
+no graph node. `scan.markupNotLinked` counts the files holding a script, by
+extension. Each import in a `<script>` element, Astro frontmatter or MDX import
+line that resolves to a scanned file is recorded and answered the same way, so
+such a `dependents` is never silently empty. A markup edit does not make a
+snapshot stale.
 Every answer's `graph` block carries `partialReasons` (`filesSkipped`, or
 `maxFiles` for an older snapshot whose scan stopped at a file cap) when the
 snapshot's scan was cut, and `reingest`, the ingest that walks every file, when a
@@ -637,7 +665,7 @@ file cap cut it.
 
 Large inputs are bounded:
 
-- **Over 1 MB:** a file is never parsed. It stays a file node with the
+- **Over 1,000,000 bytes:** a file is never parsed. It stays a file node with the
   `unparsed` role, and relative imports of it link through
   `unparsed-target` edges. The false unresolved diagnostics those imports would
   otherwise raise are dropped.
@@ -714,7 +742,7 @@ rather than linked by a name guess.
 | Rust | calls inside macros; untyped closure parameters. A trait default method is matched to its implementing type by name |
 | Java | method references (`Foo::bar`); untyped lambda parameters; `this(..)` and `super(..)` delegation (`constructor-binding-not-assessed`); record accessors and anonymous-class bodies |
 | C# | extension methods and literal receivers; `: base(..)` initializers; a `global using` declared in another file |
-| Scala | implicits, `given`, `summon` and extension methods; calls through the base type never reach an override |
+| Scala | implicit and `given` resolution, `summon` and extension methods (a `given` is declared, an anonymous one under the type it provides); calls through the base type never reach an override |
 | C, C++, CUDA | calls inside macros; calls through function pointers; overloads (every overload of the chosen type is a medium candidate); virtual dispatch (the static type's method only); only direct includes count as near for qualified calls |
 | Assembly | a C call into an assembly symbol: assembly is its own link family |
 

@@ -73,7 +73,7 @@ const answered = answers => answers.explicit?.status === 'answered' && answers.e
 function completeSections({ byId, lines, cells }, coverage) {
   return byId.size === 70 && lines.size === 70 && cells.size === 140
     && [...cells.values()].every(count => count === 1) && [...byId.values()].every(answered)
-    && coverage.remainingSections === 0 && coverage.answered === 140;
+    && (coverage.remainingSections ?? 0) === 0 && coverage.answered === 140;
 }
 
 export async function unreadSectionsChecks(ctx, surface, provider) {

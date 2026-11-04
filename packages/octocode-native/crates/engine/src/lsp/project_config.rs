@@ -245,4 +245,34 @@ mod tests {
         watch.observe(&source);
         assert!(!watch.changed(), "a new baseline after clear");
     }
+
+    /// Rebuilding an existing configured database (not only creating one)
+    /// reloads clangd.
+    #[test]
+    fn modifying_a_configured_database_is_a_change() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let debug = root.path().join("build/debug");
+        std::fs::create_dir_all(&debug).expect("debug");
+        let database = debug.join("compile_commands.json");
+        std::fs::write(&database, "[]").expect("database");
+        let source = root.path().join("src/a.cpp");
+        std::fs::create_dir_all(source.parent().expect("src")).expect("src");
+        std::fs::write(&source, "").expect("source");
+        let config = crate::lsp::types::LspLanguageServerConfig {
+            command: "clangd".into(),
+            args: Some(vec!["--compile-commands-dir=build/debug".into()]),
+            workspace_root: root.path().to_string_lossy().into_owned(),
+            language_id: Some("cpp".into()),
+            initialization_options: None,
+            env: None,
+            max_memory_mb: None,
+            source: crate::lsp::types::ServerSource::Path,
+        };
+        let mut watch = ProjectConfigWatch::new(NAMES)
+            .with_files(crate::lsp::clangd_database::fixed_database_files(&config));
+        watch.observe(&source);
+        assert!(!watch.changed(), "an unchanged database is no change");
+        std::fs::write(&database, "[{\"file\": \"a.cpp\"}]").expect("rebuild");
+        assert!(watch.changed(), "the rebuilt database is a change");
+    }
 }

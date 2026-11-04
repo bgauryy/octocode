@@ -24,7 +24,7 @@ async fn tree_pins_its_pages_to_the_resolved_commit() {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents"))
         .and(query_param("ref", TREE_SHA))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!((0..101).map(|i| json!({"name":format!("f{i:03}.rs"),"path":format!("f{i:03}.rs"),"type":"file","size":1})).collect::<Vec<_>>())))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!((0..=crate::contracts::query_limits::gh_structure::tree::LIMIT_DEFAULT).map(|i| json!({"name":format!("f{i:03}.rs"),"path":format!("f{i:03}.rs"),"type":"file","size":1})).collect::<Vec<_>>())))
         .mount(&server)
         .await;
     let out = run(&server, json!({"operation":"tree","owner":"a","repo":"b"}))

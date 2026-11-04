@@ -27,6 +27,11 @@ pub enum GraphFactCode {
     /// conditional or deferred `module.exports =`, or a rebound `module` or
     /// `exports`): the file exports no CommonJS names.
     UnsupportedCommonJsExports,
+    /// oxc owns this JS/TS file but could not parse it: its facts come from
+    /// the tree-sitter lane, whose import load stays unknown.
+    ParserFallback,
+    /// A build constraint keeps the file out of every build.
+    BuildExcluded,
 }
 
 impl GraphFactCode {
@@ -40,6 +45,7 @@ impl GraphFactCode {
                 | Self::RustCrateAttributes
                 | Self::UnsupportedExportForwarding
                 | Self::UnsupportedCommonJsExports
+                | Self::BuildExcluded
         )
     }
 }

@@ -228,7 +228,7 @@ function invalidShapes() {
   const row = providerQuery('Rejected field evidence');
   const source = { tool: 'localFetch', query: { path: 'src/app.ts' } };
   return Object.entries({
-    scalarContent: { ...row, content: true }, matchString: { ...row, matchString: ['evidence'] }, minify: { ...row, minify: true },
+    nullContent: { ...row, content: null }, matchString: { ...row, matchString: ['evidence'] }, minify: { ...row, minify: true },
     sourceMatcher: { operation: 'evaluate', source: { ...source, query: { ...source.query, matchString: ['export'] } }, questions: row.questions },
     sourceMinify: { operation: 'evaluate', source: { ...source, query: { ...source.query, minify: true } }, questions: row.questions },
     assetRange: { ...row, assets: { image: { source: { ...source, query: { ...source.query, ranges: [{ startLine: 1, endLine: 2 }] } } } } },

@@ -39,8 +39,8 @@ pub(super) fn scan_near_line(
         // The empty text after a final line break is no line of the file.
         let trailing = lines.len() > 1 && lines.last().is_some_and(|line| line.is_empty());
         return Err(Error::new(format!(
-            "Line {line_hint} is out of range (file has {} lines)",
-            lines.len() - usize::from(trailing)
+            "Line {line_hint} is out of range (file has {})",
+            crate::text::counted(lines.len() - usize::from(trailing), "line", "lines")
         )));
     };
 

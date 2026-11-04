@@ -67,5 +67,7 @@ mod limits;
 mod patterns;
 mod qualified;
 mod queries;
+mod return_types;
 mod search_files;
+mod unsaid;
 mod walker;

@@ -28,6 +28,37 @@ fn calls_the_contract_rejects_fail_at_their_building_site() {
     }
 }
 
+/// A related call is fresh work: its row repeats the search, and the brief
+/// (`mainGoal`, `reasoning`) is the caller's to state for it, on every tool
+/// and however the row was built.
+#[test]
+fn a_related_call_never_repeats_the_callers_brief() {
+    let brief = json!({"mainGoal":"the task","reasoning":"why this query"});
+    let with_brief = |mut row: Value| {
+        row.as_object_mut()
+            .expect("row")
+            .extend(brief.as_object().cloned().expect("brief"));
+        row
+    };
+    let lsp: octocode_contract_types::LspSearchQuery = serde_json::from_value(with_brief(
+        json!({"operation":"references","path":"a.rs","symbolName":"run","line":1}),
+    ))
+    .expect("an lspSearch row");
+    let calls = [
+        Continuation::related_query(lsp).build(),
+        Continuation::related(
+            ToolId::LocalSearch,
+            with_brief(json!({"path":"src","matchString":["needle"]})),
+        )
+        .build(),
+    ];
+    for call in calls {
+        let row = &call["input"]["queries"][0];
+        assert!(row.get("mainGoal").is_none(), "{call}");
+        assert!(row.get("reasoning").is_none(), "{call}");
+    }
+}
+
 #[test]
 fn related_calls_keep_distinct_work_once_in_first_seen_order() {
     let search = Continuation::related(

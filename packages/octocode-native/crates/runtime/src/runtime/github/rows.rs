@@ -11,8 +11,7 @@ const ANONYMOUS_RATE_LIMIT_HINT: &str =
 
 /// Every GitHub provider failure row: the shared provider row
 /// ([`DomainResult::provider`]) with the arm's own hint (a per-call fact
-/// the `errorCode` does not state), plus the debug-only request id and
-/// documentation link. A row with no hint and no lead gets the code's one
+/// the `errorCode` does not state). A row with no hint and no lead gets the code's one
 /// shared recovery from the response stage
 /// ([`crate::response::rows::apply_hint_policy`]).
 pub(super) fn provider_row(
@@ -28,12 +27,6 @@ pub(super) fn provider_row(
         rate_limit: error.rate_limit.as_deref().map(rate_limit_block),
     };
     let mut row = DomainResult::provider(code, message, hints, next, upstream);
-    if let Some(request_id) = &error.request_id {
-        row.data["requestId"] = json!(request_id);
-    }
-    if let Some(documentation_url) = &error.documentation_url {
-        row.data["documentationUrl"] = json!(documentation_url);
-    }
     if let Some(sso_url) = &error.sso_url {
         row.data["ssoUrl"] = json!(sso_url);
     }

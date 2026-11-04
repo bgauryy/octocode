@@ -118,6 +118,11 @@ impl NativeLspClient {
             .is_ok_and(|slot| slot.as_deref() == Some(readiness.as_str()))
     }
 
+    /// Where this client's server configuration came from.
+    pub fn server_source(&self) -> crate::lsp::types::ServerSource {
+        self.inner.config.source
+    }
+
     pub(crate) fn language_id(&self) -> Option<&str> {
         self.inner.config.language_id.as_deref()
     }

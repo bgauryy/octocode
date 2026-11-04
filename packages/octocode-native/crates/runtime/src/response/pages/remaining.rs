@@ -2,6 +2,7 @@ use super::WARNINGS;
 use crate::id::ToolId;
 use crate::response::result::PAGES_KEY;
 use crate::response::result::Remaining;
+pub(crate) use octocode_engine::text::counted;
 use serde_json::{Map, Value};
 
 /// The row key that carries the engine's [`Remaining`] notes until the
@@ -91,10 +92,6 @@ pub(crate) fn redisclose(data: &mut Map<String, Value>, notes: &[Remaining], mov
     if let Some(entry) = render_moved(notes, moved) {
         lead_with(data, entry);
     }
-}
-
-pub(crate) fn counted(count: u64, singular: &str, plural: &str) -> String {
-    format!("{count} {}", if count == 1 { singular } else { plural })
 }
 
 /// The first `limit` of `names` joined with `, `, then the count of the

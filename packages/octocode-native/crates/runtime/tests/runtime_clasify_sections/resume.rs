@@ -143,7 +143,11 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
         }
         assert_eq!(seen.len(), 70, "{row:#}");
         assert!(pages > 1, "70 page-sized sections need a continuation");
-        assert_eq!(row["resources"]["file"]["coverage"]["unassessed"], 0);
+        assert!(
+            row["resources"]["file"]["coverage"]
+                .get("unassessed")
+                .is_none()
+        );
     }
     runtime.close().await;
 }

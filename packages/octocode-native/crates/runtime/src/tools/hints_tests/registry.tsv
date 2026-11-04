@@ -93,10 +93,11 @@ artifactSearch	tools/artifact_search/leads.rs	Check the exact packageName spelli
 artifactSearch	tools/artifact_search/pages.rs	{artifact_type} matched {total} results; paging reaches only the first {reach} (through page {last}).
 shared	tools/ast_graph/graph/scope.rs	Build a narrower directory (files per directory, largest first), or exclude generated or vendored trees:
 shared	tools/ast_graph/graph/scope.rs	Build a narrower directory, or exclude generated or vendored trees.
-shared	tools/ast_graph/graph/scope.rs	graphBuild {}  # {count} files
+shared	tools/ast_graph/graph/scope.rs	graphBuild {}  # {}
 shared	tools/ast_graph/store/detect/reach.rs	exports of {files} production file(s) not judged ({languages}): only languages with named-import linking ({}) are checked; confirm with lspSearch references
 shared	tools/ast_graph/store/detect/reach.rs	{language}: {}
 shared	tools/ast_graph/store/ingest.rs	extraction committed so far is kept; build this scope again to resume from it
+shared	tools/ast_graph/store/tools.rs	Repeat the query with graph {successor}, or omit graph for the newest snapshot of this path. Offsets and pages of {id} do not carry over to a rebuilt snapshot.
 shared	tools/ast_graph/store/tools.rs	Use an existing snapshot ID, or run graphBuild for this path and use its returned ID.
 shared	tools/ast_rule.rs	Make each pattern one parseable node and each rule a rule object; astSearch operation:"syntaxTree" shows the shape.
 astSearch	tools/ast_search/language.rs	set parser:"cpp" (parserGlobs for a directory).
@@ -104,7 +105,7 @@ astSearch	tools/ast_search/language.rs	{} parses as C with {c} syntax error(s) a
 astSearch	tools/ast_search/language.rs	{} spells C++ `{keyword}`, which the C parser reads as a name; {repair}
 astSearch	tools/ast_search/matches/exact_miss.rs	The pattern spells a {} without the parts of a {fuller}, so it matches only the former. Spell the missing part (a body, `{{ $$$ }}`) or use rule {{"kind":"{fuller}"}}.
 astSearch	tools/ast_search/matches/render.rs	No{language} file under this path was parsed.
-astSearch	tools/ast_search/matches/render.rs	{matches} matches in {files} files fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).
+astSearch	tools/ast_search/matches/render.rs	{matches} matches in {} fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).
 astSearch	tools/ast_search/matches/types.rs	1 file skipped: no AST grammar for its name ({names}); it was not searched, so absence there is unproven; if it is source code, parserGlobs maps its name to a grammar.
 astSearch	tools/ast_search/matches/types.rs	{count} files skipped: no AST grammar for their names ({names}); they were not searched, so absence there is unproven; if they are source code, parserGlobs maps their names to a grammar.
 astSearch	tools/ast_search/matches/types.rs	{count} {noun} parsed with syntax errors that could hide a match ({names}); astSearch syntaxTree shows where.
@@ -167,7 +168,8 @@ shared	tools/judgment/batch.rs	Inspect the current clasify query schema.
 shared	tools/judgment/batch.rs	Narrow the state, reduce image bytes, or shorten the questions.
 shared	tools/leads/broaden.rs	No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.
 shared	tools/leads/skipped.rs	At least 
-shared	tools/leads/skipped.rs	Skipped paths ({}) were not checked in time, so absence there is unproven.
+shared	tools/leads/skipped.rs	Skipped paths ({}) were not checked in time, so absence there is unproven. {WALKS_ALL_SKIPPED}
+shared	tools/leads/skipped.rs	{text} {WALKS_ALL_SKIPPED}
 shared	tools/leads/skipped.rs	{}{} {} behind skipped paths ({why}).
 localFetch	tools/local_fetch/large_source/ranges.rs	; the ranges after it are read on their own
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone{after}.
@@ -205,7 +207,7 @@ lspSearch	tools/lsp_search/importers/coverage.rs	ignore rules
 lspSearch	tools/lsp_search/importers/coverage.rs	{count} import it
 lspSearch	tools/lsp_search/importers/coverage.rs	{count} nested repositories
 lspSearch	tools/lsp_search/importers/coverage.rs	{} could not be checked for an import (unreadable, larger than {} MiB, or unparsable)
-lspSearch	tools/lsp_search/inferred_project.rs	Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.
+lspSearch	tools/lsp_search/inferred_project/compile_database.rs	Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.
 lspSearch	tools/lsp_search/ops/diagnostics.rs	Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them.
 lspSearch	tools/lsp_search/ops/hierarchy.rs	{} implementation(s) are source:"{SCAN_SOURCE}" (matched by name).
 lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search found no {searched} source file to load a project; pass path for a file in the symbol's project.
@@ -225,8 +227,8 @@ lspSearch	tools/lsp_search/output.rs	Use the advertised LSP operations, or fall 
 lspSearch	tools/lsp_search/output.rs	Use the related source read or text search; semantic results remain unavailable. Retry LSP only after configuring a server for this file.
 lspSearch	tools/lsp_search/server_coverage.rs	Files that import the name are missing from the answer: the server did not resolve their import here.
 lspSearch	tools/lsp_search/server_coverage.rs	workspace/symbol has no completeness marker: declarations the server did not index or return are unknown, and no page of this list completes it; confirm with a localSearch of the name.
-lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to start; later calls reuse the running server without that wait.
 lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to load the project; later calls reuse the loaded server without that wait.
+lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to start; later calls reuse the running server without that wait.
 lspSearch	tools/lsp_search/walk/outcome.rs	{out_of_policy} hierarchy items outside the allowed read roots were omitted.
 shared	tools/selection/judge.rs	Use the explicit unfiltered continuation to inspect this evidence.
 shared	tools/source_capture.rs	Correct the source query; it is the reader's own row.
@@ -280,6 +282,7 @@ shared	tools/source_view/block/recovery.rs	The parser could not parse lines {} o
 shared	tools/source_view/no_match.rs	matchString ran on redacted text: text behind this file's [REDACTED…] placeholders cannot match.
 shared	tools/source_view/prepare.rs	Redacted private-key block(s) found in the source before selecting the window.
 shared	tools/source_view/view/page.rs	The compact view removed every selected line; use view:content to read the source.
+shared	tools/source_view/view/page.rs	This page holds {}, short of limit {limit}: the response budget sized it, no line is lost; next.nextPage reads on, and a larger responseChars lengthens the page.
 structureSearch	tools/structure_search/probe.rs	No entry matches {}; {}{count} {} without {}: the related[] structureSearch request lists {}.
 structureSearch	tools/structure_search/probe.rs	at least 
 structureSearch	tools/structure_search/probe.rs	entries match

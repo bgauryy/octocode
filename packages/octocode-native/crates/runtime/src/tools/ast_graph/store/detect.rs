@@ -25,7 +25,7 @@ use super::format::{
 };
 use super::tables::MODULE_DETAIL;
 use crate::id::ToolId;
-use crate::tools::ast_graph::algorithms::Cycles;
+use crate::tools::ast_graph::algorithms::{CycleLoad, Cycles};
 use crate::tools::ast_graph::edges::{Load, RUST_MODULE, load};
 use crate::tools::ast_graph::graph::{OUTSIDE_ROOT, rust_module_child_dir};
 use crate::tools::ast_graph::paths::dirname;

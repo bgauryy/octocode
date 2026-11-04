@@ -211,3 +211,77 @@ fn leading_bom_is_hidden_from_row_zero_columns_and_text() {
             .expect("resolves");
     assert_eq!((hit.position.line, hit.position.character), (0, 0));
 }
+
+/// `count` filler lines, so an anchor misses by more than any nearby search.
+fn filler(count: usize) -> String {
+    "// filler\n".repeat(count)
+}
+
+fn anchored(file_name: &str, source: &str, symbol_name: &str, line_hint: u32) -> crate::error::Result<u32> {
+    resolve_position_in_file_content(file_name, source, &fuzzy(symbol_name, Some(line_hint)))
+        .map(|hit| hit.found_at_line)
+}
+
+/// A line however far off names the file's one declaration of the name when
+/// nothing else in the file could be meant: the anchor moved, or the line was
+/// a guess. The receipt discloses where it landed.
+#[test]
+fn a_far_line_resolves_to_the_only_declaration_of_the_name() {
+    let source = format!(
+        "{}export function target() {{}}\nconst later = target();\n",
+        filler(40)
+    );
+    let hit = resolve_position_in_file_content("demo.ts", &source, &fuzzy("target", Some(1)))
+        .expect("one declaration");
+    assert_eq!(hit.found_at_line, 41);
+    assert_eq!(hit.line_offset, 40);
+    assert_eq!(anchored("demo.ts", &source, "target", 900).ok(), Some(41));
+}
+
+/// The only spelling of an imported name is its one site, at any distance.
+#[test]
+fn a_far_line_resolves_to_the_only_code_occurrence_of_the_name() {
+    let source = format!("{}import {{ target }} from './a';\n", filler(40));
+    assert_eq!(anchored("demo.ts", &source, "target", 1).ok(), Some(41));
+}
+
+/// Several declarations, or several uses of a name declared elsewhere, could
+/// each be the one meant: the miss names every candidate line instead of
+/// answering for one of them.
+#[test]
+fn a_far_line_never_chooses_between_occurrences() {
+    let declared_twice = format!(
+        "{}function target() {{}}\nclass A {{ target() {{}} }}\n",
+        filler(40)
+    );
+    let used_twice = format!("{}target();\ntarget();\n", filler(40));
+    for (source, lines) in [(&declared_twice, "41, 42"), (&used_twice, "41, 42")] {
+        let error = anchored("demo.ts", source, "target", 1)
+            .expect_err("ambiguous")
+            .to_string();
+        assert!(error.contains(&format!("line(s) {lines}")), "{error}");
+    }
+}
+
+/// A file with no grammar (or a parse with errors) has the same two outcomes
+/// from its text: one site resolves, several are named.
+#[test]
+fn a_far_line_in_a_file_without_a_grammar_resolves_or_names_its_sites() {
+    let one = format!("{}target = 1\n", filler(40));
+    assert_eq!(anchored("notes.unknownext", &one, "target", 1).ok(), Some(41));
+    let two = format!("{}target = 1\ntarget = 2\n", filler(40));
+    let error = anchored("notes.unknownext", &two, "target", 1)
+        .expect_err("ambiguous")
+        .to_string();
+    assert!(error.contains("line(s) 41, 42"), "{error}");
+}
+
+/// A name the file only mentions in a comment or a string anchors nothing.
+#[test]
+fn a_far_line_does_not_resolve_to_a_mention() {
+    let comment = format!("{}// target\n", filler(40));
+    let string = format!("{}const s = 'target';\n", filler(40));
+    for source in [&comment, &string] {
+        assert!(anchored("demo.ts", source, "target", 1).is_err(), "{source}");
+    }
+}

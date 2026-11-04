@@ -7,6 +7,8 @@ use super::nodes::node_text;
 #[derive(Clone, Copy)]
 pub(crate) enum VisibilityAdapter {
     TopLevel,
+    /// JS/TS read by the tree-sitter lane: `export` is written in the source.
+    EsModule,
     Rust,
     Go,
     CFamily,
@@ -29,6 +31,7 @@ impl VisibilityAdapter {
     pub(super) fn exported(
         self,
         node: Node<'_>,
+        ancestors: &[Node<'_>],
         content: &str,
         name: &str,
         parent: Option<&str>,
@@ -36,6 +39,7 @@ impl VisibilityAdapter {
     ) -> bool {
         match self {
             Self::TopLevel => parent.is_none() && !name.starts_with('_'),
+            Self::EsModule => parent.is_none() && is_written_export(ancestors),
             Self::Rust => node_text(node, content)
                 .unwrap_or("")
                 .trim_start()
@@ -77,6 +81,21 @@ impl VisibilityAdapter {
             Self::None => false,
         }
     }
+}
+
+/// Whether the declaration under `ancestors` sits in an `export` statement,
+/// directly or through the variable statement or `declare` that wraps it.
+fn is_written_export(ancestors: &[Node<'_>]) -> bool {
+    ancestors
+        .iter()
+        .rev()
+        .find(|parent| {
+            !matches!(
+                parent.kind(),
+                "lexical_declaration" | "variable_declaration" | "ambient_declaration"
+            )
+        })
+        .is_some_and(|parent| parent.kind() == "export_statement")
 }
 
 fn header_has(node: Node<'_>, content: &str, containers: &[&str], keywords: &[&str]) -> bool {

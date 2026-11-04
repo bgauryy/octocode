@@ -176,9 +176,9 @@ async fn wrong_json_types_are_rejected_without_guessed_replacements() {
     let file = workspace.write("src/a.txt", "one\ntwo\nthree\n");
     let runtime = workspace.runtime(&[]);
     for query in [
-        json!({"path":file,"ranges":[{"startLine":"1","endLine":2}]}),
-        json!({"path":file,"matchString":["two"],"contextLines":{"before":"0","after":0}}),
-        json!({"path":file,"ranges":[{"startLine":1,"endLine":2}],"block":"true"}),
+        json!({"path":file,"ranges":[{"startLine":"one","endLine":2}]}),
+        json!({"path":file,"matchString":["two"],"contextLines":{"before":"none","after":0}}),
+        json!({"path":file,"ranges":[{"startLine":1,"endLine":2}],"block":"maybe"}),
     ] {
         let error = runtime
             .run(
@@ -187,7 +187,7 @@ async fn wrong_json_types_are_rejected_without_guessed_replacements() {
                 json!({"queries":[query]}),
             )
             .await
-            .expect_err("no coercion");
+            .expect_err("no guess");
         assert_eq!(error.code, ErrorCode::InvalidInput);
         assert!(support::checks::leads(error.payload.as_deref().expect("rejection")).is_empty());
     }

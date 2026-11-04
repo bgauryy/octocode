@@ -211,7 +211,8 @@ pub(in super::super) fn describe_scan(
         "subtypes"
     };
     format!(
-        "The language server did not answer textDocument/implementation in time ({}): {noun} are the declarations whose extends/implements clause names `{base}`, read from source in the {files} files that spell it. They are direct {noun} only; run {operation} on each to descend. They are unverified: the base is matched by name, not resolved to this declaration. Retry asks the server again.",
-        failure.message
+        "The language server did not answer textDocument/implementation in time ({}): {noun} are the declarations whose extends/implements clause names `{base}`, read from source in {} spelling it. They are direct {noun} only; run {operation} on each to descend. They are unverified: the base is matched by name, not resolved to this declaration. Retry asks the server again.",
+        failure.message,
+        octocode_engine::text::counted(files, "file", "files")
     )
 }

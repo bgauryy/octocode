@@ -223,7 +223,6 @@ impl<'a> Attempts<'a> {
                 .get("x-github-request-id")
                 .and_then(|value| value.to_str().ok())
                 .map(Into::into),
-            documentation_url: None,
             rate_limit: None,
             retryable: false,
             reason: None,

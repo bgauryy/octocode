@@ -214,9 +214,9 @@ async fn github_errors_without_continuations_preserve_reason_and_recovery() {
     }
 }
 
-/// Provider diagnostics survive the same stable error shape on every call.
+/// A failure names what an agent acts on, not GitHub's support diagnostics.
 #[tokio::test]
-async fn gh_file_error_preserves_provider_diagnostics() {
+async fn gh_file_error_omits_provider_support_diagnostics() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
@@ -247,12 +247,8 @@ async fn gh_file_error_preserves_provider_diagnostics() {
         data.get("retryable").is_none(),
         "404 is not retryable: {data}"
     );
-    assert_eq!(data["requestId"], "R1", "{data}");
-    assert!(
-        data["documentationUrl"]
-            .as_str()
-            .is_some_and(|url| url.contains("get-repository-content")),
-        "{data}"
-    );
+    assert!(data["error"].is_string(), "{data}");
+    assert!(data.get("requestId").is_none(), "{data}");
+    assert!(data.get("documentationUrl").is_none(), "{data}");
     runtime.close().await;
 }

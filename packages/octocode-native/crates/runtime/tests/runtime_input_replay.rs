@@ -8,7 +8,6 @@ async fn both_surfaces_reject_invalid_requests_and_execute_the_same_typed_range(
     let file = workspace.write("source.txt", "first\nselected\nlast\n");
     let runtime = workspace.runtime(&[]);
     for input in [
-        json!({"path":file}),
         json!({"queries":[{"path":file,"ranges":["2-2"]}]}),
         json!({"queries":[{"path":file,"ranges":[{"startLine":2,"endLine":1}]}]}),
     ] {

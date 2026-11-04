@@ -53,7 +53,7 @@ fn an_out_of_range_line_counts_the_lines_the_file_has() {
         fuzzy("a", Some(3)),
     )
     .expect_err("line 3 is past the end");
-    assert!(error.to_string().contains("(file has 1 lines)"), "{error}");
+    assert!(error.to_string().contains("(file has 1 line)"), "{error}");
 }
 
 #[test]

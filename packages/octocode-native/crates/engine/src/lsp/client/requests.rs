@@ -1,6 +1,12 @@
 //! Query requests: the typed LSP methods, selected provider evidence, and the
 //! content-modified retry loop.
 
+mod methods;
+
+pub use methods::LocationRequest;
+pub(super) use methods::is_retryable_error;
+use methods::{Reuse, result_id, supports_partial_results};
+
 use super::snippets::snippets_from_locations;
 use super::{
     CONTENT_MODIFIED_RETRIES, CONTENT_MODIFIED_RETRY_DELAY_MS, NativeLspClient, REQUEST_TIMEOUT_MS,
@@ -228,8 +234,6 @@ impl NativeLspClient {
             .map(Arc::unwrap_or_clone)
     }
 
-    /// Read one method's answer from this operation's selected evidence, or
-    /// ask the server and retain it for this operation's later pages.
     /// The outline of a document [`Self::open_document`] synced, asked first
     /// without waiting for a project load: an outline is usually the file's
     /// own syntax. A server may answer an empty outline until its project
@@ -269,6 +273,8 @@ impl NativeLspClient {
         Ok((symbols, readiness))
     }
 
+    /// Read one method's answer from this operation's selected evidence, or
+    /// ask the server and retain it for this operation's later pages.
     async fn provider_request(
         &self,
         method: &str,
@@ -279,6 +285,8 @@ impl NativeLspClient {
             .await
     }
 
+    /// [`Self::provider_request`] with `reuse` choosing whether a recorded
+    /// answer may stand in for asking the server.
     async fn provider_answer(
         &self,
         method: &str,
@@ -378,63 +386,4 @@ impl NativeLspClient {
             }
         }
     }
-}
-
-/// Whether a provider request may answer from the response scope's recorded
-/// answers, or must ask the server and record the new answer.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Reuse {
-    Recorded,
-    Fresh,
-}
-
-/// Which location request [`NativeLspClient::get_locations`] sends.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LocationRequest {
-    Definition,
-    References { include_declaration: bool },
-    TypeDefinition,
-    Implementation,
-}
-
-impl LocationRequest {
-    fn method(self) -> &'static str {
-        match self {
-            Self::Definition => "textDocument/definition",
-            Self::References { .. } => "textDocument/references",
-            Self::TypeDefinition => "textDocument/typeDefinition",
-            Self::Implementation => "textDocument/implementation",
-        }
-    }
-}
-
-/// A diagnostic report's `resultId`.
-fn result_id(report: &Value) -> Option<&str> {
-    report.get("resultId").and_then(Value::as_str)
-}
-
-fn supports_partial_results(method: &str) -> bool {
-    matches!(
-        method,
-        "textDocument/definition"
-            | "textDocument/references"
-            | "textDocument/typeDefinition"
-            | "textDocument/implementation"
-            | "textDocument/documentSymbol"
-            | "workspace/symbol"
-            | "callHierarchy/incomingCalls"
-            | "callHierarchy/outgoingCalls"
-            | "typeHierarchy/supertypes"
-            | "typeHierarchy/subtypes"
-            | "textDocument/diagnostic"
-    )
-}
-
-/// A request failure worth re-sending: `ContentModified`, or
-/// `ServerCancelled` when the server asked for a retrigger. Matches the typed
-/// RPC error, never the rendered message text.
-pub(super) fn is_retryable_error(error: &Error) -> bool {
-    error
-        .rpc_error()
-        .is_some_and(crate::error::RpcError::is_retryable)
 }

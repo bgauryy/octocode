@@ -16,7 +16,7 @@ function toolInput(queries, extra) {
 }
 
 /** Decode the tool payload once; consumers validate the unchanged parsed envelope. */
-function mcpPayload(response) {
+export function mcpPayload(response) {
   const text = response.result?.content?.filter(c => c.type === 'text').map(c => c.text).join('') ?? JSON.stringify(response.error ?? '');
   let raw = response.result?.structuredContent;
   if (raw === undefined && response.result) {

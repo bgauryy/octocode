@@ -222,6 +222,14 @@ pub(super) fn diag(d: &StructuralDiagnostic) -> Value {
     crate::tools::ast_rule::diagnostic_row(d, d.path.as_deref())
 }
 
+/// `diagnostic` added to a rendered row's diagnostics.
+pub(super) fn push_diagnostic(out: &mut Value, diagnostic: Value) {
+    match out["diagnostics"].as_array_mut() {
+        Some(diagnostics) => diagnostics.push(diagnostic),
+        None => out["diagnostics"] = json!([diagnostic]),
+    }
+}
+
 pub(super) fn error_diagnostic(
     diagnostics: &[StructuralDiagnostic],
 ) -> Option<&StructuralDiagnostic> {

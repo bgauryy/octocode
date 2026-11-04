@@ -34,6 +34,9 @@ pub(crate) struct DomainDispatcher {
     pub lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
     pub lsp_execution_config: Arc<LspExecutionConfig>,
     pub lsp_answers: Arc<crate::tools::lsp_search::ContinuationAnswers>,
+    /// An lspSearch ran in this session: the agent uses language servers, so
+    /// `targeted` prewarm may start the ones later results point at.
+    pub lsp_requested: Arc<std::sync::atomic::AtomicBool>,
     pub graph_rows: Arc<crate::tools::ast_graph::store::SavedRows>,
     pub availability: Arc<crate::execution::availability::ToolAvailability>,
     /// Provider readiness and an enabled goals surface, independent of the
@@ -196,6 +199,8 @@ impl DomainDispatcher {
             Err(row) => return Ok(*row),
         };
         let requested = lsp_search_query::path(&query).map(str::to_owned);
+        self.lsp_requested
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         self.handle.block_on(async {
             match within_request(
                 context,
@@ -256,7 +261,8 @@ impl DomainDispatcher {
         };
         let selection = self.selection_runtime(&context);
         // `lsp.prewarm`: `targeted` warms the server an offered lspSearch
-        // call names; `all` also warms the file a read or search names.
+        // call names once this session has run an lspSearch; `all` warms it
+        // from the start, and also the file a read or search names.
         let prewarm_mode = self.config.resolved.lsp.prewarm;
         let prewarm_query = (prewarm_mode == crate::config::LspPrewarm::All).then_some(query);
         let lsp = &self.lsp_execution_config;
@@ -287,7 +293,15 @@ impl DomainDispatcher {
         // Start a language server in the background so a following
         // lspSearch finds a warm pooled client: for the file an offered
         // lspSearch call names, or (opt-in) the file a read or search names.
-        let lead = (prewarm_mode != crate::config::LspPrewarm::Off)
+        // A lead alone is no reason to index a whole project.
+        let warms_leads = match prewarm_mode {
+            crate::config::LspPrewarm::Off => false,
+            crate::config::LspPrewarm::Targeted => self
+                .lsp_requested
+                .load(std::sync::atomic::Ordering::Relaxed),
+            crate::config::LspPrewarm::All => true,
+        };
+        let lead = warms_leads
             .then(|| prewarm::lead_file(tool, &result.data))
             .flatten();
         if let Some(file) = lead

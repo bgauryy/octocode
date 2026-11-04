@@ -125,6 +125,56 @@ fn evidence_pages_take_several_sources_and_return_rows_from_any() {
     }
 }
 
+/// `name` keeps the rows of that target name, before paging.
+#[test]
+fn unresolved_and_witnesses_keep_rows_of_the_named_target() {
+    let dir = Fixture::new();
+    dir.write(
+        "a.ts",
+        "function here() {}\nfunction there() {}\nexport function run() { missing_one(); missing_two(); obj.missing_one(); here(); there(); }\n",
+    );
+    call(&dir.0, ToolId::GraphBuild, json!({"path":"."}));
+    let ask = |name: Option<&str>| {
+        query(
+            &QueryOptions {
+                op: "unresolved".into(),
+                workspace: Some(dir.0.clone()),
+                edges: vec!["calls".into()],
+                name: name.map(str::to_owned),
+                limit: Some(100),
+                ..Default::default()
+            },
+            &workspace_policy(&dir.0),
+        )
+        .value
+    };
+    let all = ask(None);
+    assert_eq!(all["pagination"]["totalItems"], 3, "{all}");
+    let named = ask(Some("missing_two"));
+    assert_eq!(named["pagination"]["totalItems"], 1, "{named}");
+    assert_eq!(named["rows"][0]["targetName"], "missing_two", "{named}");
+    let qualified = ask(Some("missing_one"));
+    assert_eq!(qualified["pagination"]["totalItems"], 2, "{qualified}");
+    let written = ask(Some("obj.missing_one"));
+    assert_eq!(written["pagination"]["totalItems"], 1, "{written}");
+    let none = ask(Some("nothing"));
+    assert_eq!(none["pagination"]["totalItems"], 0, "{none}");
+    let witnesses = query(
+        &QueryOptions {
+            op: "witnesses".into(),
+            workspace: Some(dir.0.clone()),
+            edges: vec!["calls".into()],
+            name: Some("here".into()),
+            limit: Some(100),
+            ..Default::default()
+        },
+        &workspace_policy(&dir.0),
+    )
+    .value;
+    assert_eq!(witnesses["pagination"]["totalItems"], 1, "{witnesses}");
+    assert_eq!(witnesses["rows"][0]["to"], "a.ts#here", "{witnesses}");
+}
+
 #[test]
 fn engine_continuations_carry_sources_reasons_and_the_provenance_choice() {
     let dir = fixture();

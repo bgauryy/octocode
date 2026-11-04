@@ -84,21 +84,17 @@ fn an_empty_listing_whose_probe_timed_out_still_leads_to_skipped_paths() {
         )
     })
     .expect("probe");
-    // The shared disclosure of a cut check: a warning, and the listing is
-    // partial.
+    // The shared disclosure of a cut check: a hint. The requested walk was
+    // whole, so the listing is not partial.
     assert_eq!(
-        out["warnings"],
+        out["hints"],
         json!([format!(
             "Skipped paths (build/) were not checked in time, so absence there is unproven. {}",
             crate::tools::leads::skipped::WALKS_ALL_SKIPPED
         )]),
         "{out}"
     );
-    assert_eq!(
-        out["partialReasons"],
-        json!(["skippedPathsUnchecked"]),
-        "{out}"
-    );
+    assert!(out.get("partialReasons").is_none(), "{out}");
     let retry = &out["calls"]["includeSkipped"]["input"]["queries"][0];
     assert_eq!(retry["defaultExcludes"], false, "{out}");
     assert!(retry.get("page").is_none(), "a fresh first page: {out}");
@@ -144,7 +140,7 @@ fn an_unproven_lead_over_ignored_paths_lifts_the_default_prune() {
         )
     })
     .expect("probe");
-    let hint = out["warnings"][0].as_str().unwrap_or_default();
+    let hint = out["hints"][0].as_str().unwrap_or_default();
     assert!(
         hint.starts_with("Skipped paths (ignored; default-excluded)"),
         "{out}"

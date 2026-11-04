@@ -22,7 +22,6 @@ pub struct ReleaseLock {
     /// GitHub's immutable-release flag: when set, the install also verifies
     /// the release attestation.
     pub immutable: bool,
-    pub published_at: String,
 }
 
 #[derive(Debug, Default)]
@@ -96,7 +95,6 @@ fn parse_release(release: &serde_json::Value) -> Option<LockedRelease> {
         tag: text("tag")?,
         summary: ReleaseLock {
             immutable: release.get("immutable")?.as_bool()?,
-            published_at: text("publishedAt").unwrap_or_default(),
         },
         assets,
     })

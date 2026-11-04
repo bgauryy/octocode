@@ -315,3 +315,55 @@ fn pattern_and_catch_scope_exit_do_not_retain_the_inner_binding() {
     );
     assert!(!matches!(observed[1], GraphArgumentBinding::NotAssessed));
 }
+
+/// C the grammar recovers ever deeper, the shape of a module API header: after
+/// a long macro-suffixed prototype, each line nests inside the previous one's
+/// error, so the tree's depth grows with its length.
+fn recovered_c(lines: usize) -> String {
+    let mut source = "REDISMODULE_API int (*RedisModule_CreateSubcommand)(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;\n".to_owned();
+    for index in 0..lines {
+        source.push_str(&format!("API int (*F{index})(Ctx *ctx) ATTR;\n"));
+    }
+    source
+}
+
+/// The fastest of three extractions of `source`: the machine's load only ever
+/// adds time, so the minimum is the cost of the work itself.
+fn extraction_cost(source: &str) -> std::time::Duration {
+    (0..3)
+        .map(|_| {
+            let started = std::time::Instant::now();
+            let extraction = extract_graph_facts_with_metadata_inner(source, "fixture.h");
+            assert!(extraction.is_some());
+            started.elapsed()
+        })
+        .min()
+        .unwrap_or_default()
+}
+
+/// Extraction stays near-linear on recovered C. A climb through `parent()`
+/// descends from the root on every hop and made this cubic: four times the
+/// input cost about sixty times the work. The bound is the growth ratio, so
+/// it needs no absolute time, and it leaves room for quadratic noise only.
+#[test]
+fn recovered_c_extraction_cost_grows_near_linearly() {
+    const BASE_LINES: usize = 50;
+    const GROWTH: usize = 4;
+    let base = extraction_cost(&recovered_c(BASE_LINES));
+    let grown = extraction_cost(&recovered_c(BASE_LINES * GROWTH));
+    let ratio = grown.as_secs_f64() / base.as_secs_f64().max(f64::MIN_POSITIVE);
+    let quadratic = (GROWTH * GROWTH) as f64;
+    assert!(
+        ratio < quadratic * 2.0,
+        "{BASE_LINES} lines took {base:?}, {} took {grown:?}: {ratio:.1}x",
+        BASE_LINES * GROWTH
+    );
+}
+
+/// `Node::parent()` searches from the root; the bindings walk carries what it
+/// needs instead.
+#[test]
+fn the_bindings_walk_never_climbs() {
+    let production = include_str!("../binding.rs");
+    assert!(!production.contains(".parent()"));
+}

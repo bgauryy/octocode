@@ -35,11 +35,60 @@ pub fn execute_local_search(
     response_window: Option<usize>,
     selection: Option<&crate::tools::selection::Runtime>,
 ) -> Result<LocalSearchResult, ToolError> {
-    cancel.check().map_err(ToolError::cancelled)?;
-    let terms = local_search_query::term_patterns(query);
-    let query = &*local_search_query::normalized(query)?;
-    let scan = scan_query(query, paths, cancel, (response_window, terms))?;
-    page_of(query, paths, security, cancel, scan, selection)
+    let run = |query: &LocalSearchQuery| {
+        cancel.check().map_err(ToolError::cancelled)?;
+        let terms = local_search_query::term_patterns(query);
+        let query = &*local_search_query::normalized(query)?;
+        let scan = scan_query(query, paths, cancel, (response_window, terms))?;
+        page_of(query, paths, security, cancel, scan, selection)
+    };
+    let found = run(query)?;
+    if found.stats.files_matched != 0 {
+        return Ok(found);
+    }
+    let Some(regex) = regex_reading(query) else {
+        return Ok(found);
+    };
+    // Its pages continue the regex query. Only a reading with hits replaces
+    // the literal answer, which names what a miss left unsearched.
+    match run(&regex) {
+        Ok(mut read) if read.stats.files_matched != 0 => {
+            read.hints.insert(
+                0,
+                "No literal match, so this ran as a regex (regexEngine:\"rust\").".to_owned(),
+            );
+            Ok(read)
+        }
+        _ => Ok(found),
+    }
+}
+
+/// `query` read as a regex: a fresh literal search with a term only a regex
+/// would spell, which compiles. Alternation and `.*` have no likely literal
+/// reading once the literal text is absent; a lone `.` or `(` does, because code
+/// is full of them, so `foo.bar` never becomes a match for `fooxbar`.
+fn regex_reading(query: &LocalSearchQuery) -> Option<LocalSearchQuery> {
+    const REGEX_ONLY: [&str; 7] = ["|", ".*", ".+", "\\b", "\\w", "\\d", "\\s"];
+    let terms = &local_search_query::patterns(query).0;
+    let reads_as_regex = terms.iter().any(|term| {
+        REGEX_ONLY
+            .iter()
+            .any(|syntax| term.as_str().contains(syntax))
+    }) && terms
+        .iter()
+        .all(|term| regex::Regex::new(term.as_str()).is_ok());
+    // A miss answers a files-without or inverted search; nothing to reread.
+    if local_search_query::regex_mode(query) != octocode_contract_types::RegexEngine::Literal
+        || local_search_query::snapshot(query).is_some()
+        || local_search_query::view(query) == local_search_query::View::FilesWithout
+        || local_search_query::invert_match(query) == Some(true)
+        || !reads_as_regex
+    {
+        return None;
+    }
+    let mut row = serde_json::to_value(query).ok()?;
+    row["regexEngine"] = serde_json::json!("rust");
+    serde_json::from_value(row).ok()
 }
 
 /// The page `query` asks for, cut from `scan` (fresh, or stored and proved

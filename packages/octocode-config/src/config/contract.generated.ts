@@ -328,7 +328,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Language-server prewarm: targeted starts the server an offered lspSearch call names; all also warms the file a read or search names and, at MCP initialize, the workspace's top three languages; off disables it. Each start indexes a whole project, so a first lspSearch under targeted can take seconds in exchange for no server in a session that never calls one.",
+    "description": "Language-server prewarm: targeted starts the server an offered lspSearch call names once the session has run an lspSearch; all warms it from the start, also warms the file a read or search names and, at MCP initialize, the workspace's top three languages; off disables it. Each start indexes a whole project, so a first lspSearch under targeted can take seconds in exchange for no server in a session that never calls one.",
     "env": {
       "name": "OCTOCODE_LSP_PREWARM",
       "normalize": "lower"

@@ -79,11 +79,7 @@ impl GitHubTransport {
 fn classify_ref_failure(error: ProviderError) -> ProviderError {
     match error.status {
         Some(404) if error.reason.is_none() => {
-            let mut error = error.with_reason(crate::ProviderErrorReason::RepositoryNotFound);
-            // GitHub links its commit docs; the failure is the repository.
-            error.documentation_url =
-                Some("https://docs.github.com/rest/repos/repos#get-a-repository".into());
-            error
+            error.with_reason(crate::ProviderErrorReason::RepositoryNotFound)
         }
         _ => error,
     }

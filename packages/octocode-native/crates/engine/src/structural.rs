@@ -116,6 +116,16 @@ pub fn pattern_qualifier(pattern: &str, ext: &str) -> Option<QualifiedPattern> {
     octo::pattern_qualifier(&AgLanguage::new(entry), pattern)
 }
 
+/// The annotated spelling of a structural `pattern` in the grammar of `ext`:
+/// a capture in the return slot of each outermost function that leaves it
+/// empty, which matches the functions that spell a return type the pattern as
+/// written does not; `None` for a pattern with no such slot, a grammar without
+/// an optional return type, or a pattern that does not compile.
+pub fn pattern_with_return_types(pattern: &str, ext: &str) -> Option<String> {
+    let entry = languages::find_entry(ext)?;
+    octo::pattern_with_return_types(&AgLanguage::new(entry), pattern)
+}
+
 /// The literals every match of `pattern` (or `rule`) spells, any one of
 /// which a reader can look for a match by; `None` when no literal is
 /// required or the query is malformed.

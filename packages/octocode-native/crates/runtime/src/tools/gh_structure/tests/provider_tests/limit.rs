@@ -52,9 +52,8 @@ async fn a_small_tree_limit_walk_lists_every_entry_once() {
 }
 
 /// The tree page holds `limit` entries, 300 when omitted (the contract
-/// default); any `limit` pages the held tree. A dated page lists at most
-/// one date request's entries, so `page` and `totalPages` count the calls of
-/// the walk; a materialized page is not dated and holds the whole `limit`.
+/// default), materialized or not; any `limit` pages the held tree, and `page`
+/// and `totalPages` count the calls of the walk.
 #[test]
 fn a_tree_page_holds_limit_entries() {
     assert_eq!(limits::tree::LIMIT_DEFAULT, 300);
@@ -75,22 +74,16 @@ fn a_tree_page_holds_limit_entries() {
         }
         serde_json::from_value::<GhStructureQueryTree>(row).expect("tree query")
     };
-    let dated = crate::tools::gh_structure::dates::DATED_PER_PAGE;
-    assert!(dated < 300, "the default page exceeds one date request");
-    for (limit, materialize, rows, pages) in [
-        (None, false, dated, entries.len().div_ceil(dated)),
-        (Some(7), false, 7, 43),
-        (Some(1_000), false, dated, entries.len().div_ceil(dated)),
-        (None, true, 300, 2),
-        (Some(1_000), true, 301, 1),
-    ] {
-        let query = tree(limit, materialize);
-        let page = ListingPage::of(&query, &entries);
-        assert_eq!(
-            (page.entries.len(), page.total_pages),
-            (rows, pages),
-            "{limit:?} materialize {materialize}"
-        );
+    for materialize in [false, true] {
+        for (limit, rows, pages) in [(None, 300, 2), (Some(7), 7, 43), (Some(1_000), 301, 1)] {
+            let query = tree(limit, materialize);
+            let page = ListingPage::of(&query, &entries);
+            assert_eq!(
+                (page.entries.len(), page.total_pages),
+                (rows, pages),
+                "{limit:?} materialize {materialize}"
+            );
+        }
     }
 }
 

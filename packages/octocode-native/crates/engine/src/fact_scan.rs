@@ -259,6 +259,41 @@ pub fn walk_graph_fact_files_with_registry(
     })
 }
 
+/// The markup files (Vue, Svelte, Astro, MDX, HTML) a graph-facts scan of
+/// `options` leaves out: they have no grammar, so its walk does not list them.
+pub fn walk_script_markup_files(
+    options: &GraphFactsScanOptions,
+    admit: &(dyn Fn(&Path, Option<fs::FileType>) -> bool + Sync),
+    stop: &Stop<'_>,
+) -> Result<crate::types::FileSystemQueryResult, GraphScanError> {
+    crate::search::fs_query::query_file_system(
+        FileSystemQueryOptions {
+            path: options.path.clone(),
+            recursive: Some(true),
+            ignore: options.ignore,
+            entry_type: Some(crate::types::EntryType::File),
+            extensions: Some(
+                crate::signatures::languages::SCRIPT_BEARING_MARKUP
+                    .iter()
+                    .map(|extension| (*extension).to_owned())
+                    .collect(),
+            ),
+            exclude_dir: options.exclude_dir.clone(),
+            default_exclude_dir: options.default_exclude_dir.clone(),
+            exclude: options.exclude.clone(),
+            stop_at_limit: Some(true),
+            limit: options.max_files,
+            ..Default::default()
+        },
+        &|path: &Path, file_type: Option<fs::FileType>, _| admit(path, file_type),
+        stop,
+    )
+    .map_err(|error| match error.kind() {
+        ErrorKind::InvalidGlob => GraphScanError::InvalidGlob(error.reason),
+        _ => GraphScanError::Failed(error.reason),
+    })
+}
+
 /// Scans the graph facts of `walked`, a [`walk_graph_fact_files`] walk of
 /// these same `options` (so `max_files` and the filters agree), handing each
 /// parsed file to `map` as soon as it is parsed and keeping only what `map`

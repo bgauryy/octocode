@@ -188,6 +188,7 @@ pub(super) fn visit_node(
         children.clear();
         cursor.reset(node);
         children.extend(node.named_children(&mut cursor));
+        retain_graph_children(acc, node, content, &mut children);
         let children_start = frames.len();
         if rust {
             let inherited = context.for_children(node);
@@ -208,6 +209,24 @@ pub(super) fn visit_node(
         frames[children_start..].reverse();
     }
     std::time::Instant::now() < deadline
+}
+
+/// An outline and an enclosing-name lookup still read a disabled preprocessor
+/// branch; a graph holds only what can compile.
+fn retain_graph_children<'t>(
+    acc: &GraphAccumulator,
+    node: Node<'t>,
+    content: &str,
+    children: &mut Vec<Node<'t>>,
+) {
+    if !acc.declarations_only
+        && matches!(
+            acc.visibility_adapter,
+            crate::signatures::visibility::VisibilityAdapter::CFamily
+        )
+    {
+        super::c_family::retain_compiled(node, content, children);
+    }
 }
 
 /// Rust traversal state for one node: its carried context and the names of

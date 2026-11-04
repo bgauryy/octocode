@@ -12,12 +12,12 @@
 
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
+#[cfg(test)]
 use oxc_span::SourceType;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::deep_stack::{job_cancelled, run_on_deep_stack, with_thread_allocator};
-use crate::text::JS_TS_EXTENSIONS;
+use crate::deep_stack::{job_cancelled, with_thread_allocator};
 
 use super::{
     js_oxc_calls::collect_program_calls,
@@ -29,12 +29,14 @@ use crate::graph::{GraphFactEdge, GraphFactsDocument, GraphRange};
 
 pub(super) mod call_sites;
 mod callers;
+mod dialect;
 mod module_facts;
 mod outline;
 mod symbols;
 mod validity;
 mod walk;
 
+use dialect::{is_oxc_dialect, on_oxc_worker, source_type_for, with_js_program};
 use outline::{module_outline, push_heritage_edges};
 use validity::assess_recovery;
 use walk::{collect_member_functions, collect_program, push_defined_exports};
@@ -74,93 +76,6 @@ impl LocalExports {
     }
 }
 
-fn source_type_for(ext: &str, file_path: &str, content: &str) -> SourceType {
-    // oxc has no Flow parser. Flow annotations are close enough to TypeScript
-    // that a TSX parse usually succeeds; when it cannot, the hard failure
-    // routes the caller to the tree-sitter TSX grammar (see `grammar_extension`).
-    if crate::text::file_extension::is_flow_source(content, ext) {
-        return SourceType::tsx();
-    }
-    // `from_path` owns the extension policy: `.cjs`/`.cts` are CommonJS (top-level
-    // `return` allowed), `.mjs`/`.mts` are ES modules, `.js`/`.ts` are
-    // unambiguous (module only with import/export), and `.d.ts`/`.d.mts`/`.d.cts`
-    // are ambient declarations. Paths without a JS/TS extension fall back to the
-    // caller's defaulted extension (`extension_of(.., "ts")`).
-    let source_type = SourceType::from_path(file_path)
-        .or_else(|_| SourceType::from_extension(ext))
-        .unwrap_or_else(|_| SourceType::ts());
-    // React components commonly live in plain `.js`/`.mjs`/`.cjs`; JSX there must
-    // not be a parse error. TypeScript stays JSX-free so `<T>x` assertions parse.
-    if source_type.is_javascript() {
-        source_type.with_jsx(true)
-    } else {
-        source_type
-    }
-}
-
-/// Cheap pre-check so non-JS/TS files never pay for the content copy and the
-/// big-stack worker thread; graph scans call this for every file in a repo.
-fn is_oxc_path(file_path: &str) -> bool {
-    JS_TS_EXTENSIONS.contains(&crate::text::extension_of(file_path, true, "ts").as_str())
-}
-
-/// Run an oxc `job` on the deep-stack pool to completion: one file cannot be
-/// paged, and input is bounded by `MAX_PARSE_SIZE` (see
-/// `extractor::whole_file_deadline`). `None` for oversized input or a
-/// non-JS/TS path. oxc can ICE on pathological input; the unwind is contained
-/// so it never aborts the process.
-fn on_oxc_worker<T: Send + 'static>(
-    content: &str,
-    file_path: &str,
-    job: impl FnOnce(&str, &str) -> Option<T> + Send + 'static,
-) -> Option<T> {
-    if content.len() > crate::signatures::MAX_PARSE_SIZE || !is_oxc_path(file_path) {
-        return None;
-    }
-    let content = content.to_owned();
-    let file_path = file_path.to_owned();
-    run_on_deep_stack(move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&content, &file_path)))
-            .unwrap_or(None)
-    })
-}
-
-/// Parse JS/TS `content` on the thread arena (`TOKENS` keeps the token
-/// stream) and hand `f` the extension and the parse. `None` for a non-JS/TS
-/// extension, a cancelled job, or a hard parse failure with nothing
-/// recovered: the caller then falls back to the more error-tolerant
-/// tree-sitter path rather than emit a stub.
-fn with_js_program<const TOKENS: bool, R>(
-    content: &str,
-    file_path: &str,
-    f: impl for<'a> FnOnce(String, oxc_parser::ParserReturn<'a>) -> Option<R>,
-) -> Option<R> {
-    let ext = crate::text::extension_of(file_path, true, "ts");
-    if !JS_TS_EXTENSIONS.contains(&ext.as_str()) {
-        return None;
-    }
-    with_thread_allocator(|allocator| {
-        let parser = Parser::new(
-            allocator,
-            content,
-            source_type_for(&ext, file_path, content),
-        );
-        let parser_ret = if TOKENS {
-            parser
-                .with_config(oxc_parser::config::TokensParserConfig)
-                .parse()
-        } else {
-            parser.parse()
-        };
-        if job_cancelled()
-            || (parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty())
-        {
-            return None;
-        }
-        f(ext, parser_ret)
-    })
-}
-
 /// Native JS/TS graph facts: a syntax-level AST inventory of declarations,
 /// imports, exports, function/class containment, and direct call expressions.
 /// It deliberately avoids type inference and cross-file resolution; callers
@@ -169,14 +84,27 @@ pub(crate) fn extract_graph_facts_with_metadata(
     content: &str,
     file_path: &str,
 ) -> Option<super::GraphFactsExtraction> {
-    on_oxc_worker(content, file_path, extract_graph_facts_with_metadata_inner)
+    extract_graph_facts_as(content, file_path, None)
+}
+
+/// [`extract_graph_facts_with_metadata`], read as `parser`'s dialect.
+pub(crate) fn extract_graph_facts_as(
+    content: &str,
+    file_path: &str,
+    parser: Option<&str>,
+) -> Option<super::GraphFactsExtraction> {
+    let dialect = parser.map(str::to_owned);
+    on_oxc_worker(content, file_path, parser, move |content, file_path| {
+        extract_graph_facts_with_metadata_inner(content, file_path, dialect.as_deref())
+    })
 }
 
 fn extract_graph_facts_with_metadata_inner(
     content: &str,
     file_path: &str,
+    parser: Option<&str>,
 ) -> Option<super::GraphFactsExtraction> {
-    with_js_program::<true, _>(content, file_path, |ext, parser_ret| {
+    with_js_program::<true, _>(content, file_path, parser, |ext, parser_ret| {
         let line_index = SpanPositions::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
@@ -312,7 +240,19 @@ fn extract_graph_facts_with_metadata_inner(
 /// outline of a large file otherwise pays for a full semantic pass and a
 /// multi-megabyte facts document it never reads.
 pub(crate) fn extract_declarations(content: &str, file_path: &str) -> Option<GraphFactsDocument> {
-    on_oxc_worker(content, file_path, extract_declarations_inner)
+    extract_declarations_as(content, file_path, None)
+}
+
+/// [`extract_declarations`], read as `parser`'s dialect.
+pub(crate) fn extract_declarations_as(
+    content: &str,
+    file_path: &str,
+    parser: Option<&str>,
+) -> Option<GraphFactsDocument> {
+    let dialect = parser.map(str::to_owned);
+    on_oxc_worker(content, file_path, parser, move |content, file_path| {
+        extract_declarations_inner(content, file_path, dialect.as_deref())
+    })
 }
 
 /// [`extract_declarations`] for a caller already on the deep-stack pool:
@@ -321,13 +261,17 @@ pub(crate) fn extract_declarations_in_place(
     content: &str,
     path: &str,
 ) -> Option<GraphFactsDocument> {
-    let parse = || extract_declarations_inner(content, path);
-    (content.len() <= crate::signatures::MAX_PARSE_SIZE && is_oxc_path(path))
+    let parse = || extract_declarations_inner(content, path, None);
+    (content.len() <= crate::signatures::MAX_PARSE_SIZE && is_oxc_dialect(path, None))
         .then(|| std::panic::catch_unwind(std::panic::AssertUnwindSafe(parse)).unwrap_or(None))?
 }
 
-fn extract_declarations_inner(content: &str, file_path: &str) -> Option<GraphFactsDocument> {
-    with_js_program::<false, _>(content, file_path, |ext, parser_ret| {
+fn extract_declarations_inner(
+    content: &str,
+    file_path: &str,
+    parser: Option<&str>,
+) -> Option<GraphFactsDocument> {
+    with_js_program::<false, _>(content, file_path, parser, |ext, parser_ret| {
         let line_index = SpanPositions::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
@@ -358,6 +302,37 @@ fn extract_declarations_inner(content: &str, file_path: &str) -> Option<GraphFac
             ..super::native_graph_facts(ext, file_path, content)
         })
     })
+}
+
+/// Why oxc gives no facts for `content` read as `parser`'s dialect: its first
+/// error, with the 1-based line it names. `None` when it reports none (it
+/// could not run, or the caller stopped).
+pub(super) fn parse_failure(
+    content: &str,
+    file_path: &str,
+    parser: &str,
+) -> Option<(String, Option<u32>)> {
+    let dialect = parser.to_owned();
+    on_oxc_worker(
+        content,
+        file_path,
+        Some(parser),
+        move |content, file_path| {
+            with_thread_allocator(|allocator| {
+                let source_type = source_type_for(&dialect, file_path, content);
+                let errors = Parser::new(allocator, content, source_type)
+                    .parse()
+                    .diagnostics;
+                let error = errors.first()?;
+                let line = error
+                    .labels
+                    .first()
+                    .and_then(|label| content.get(..usize::try_from(label.offset()).ok()?))
+                    .map(|before| crate::num::saturating_u32(before.matches('\n').count()) + 1);
+                Some((error.message.to_string(), line))
+            })
+        },
+    )
 }
 
 /// A parser error as a fact diagnostic.

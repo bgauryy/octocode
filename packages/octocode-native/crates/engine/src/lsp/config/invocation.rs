@@ -192,7 +192,7 @@ pub(super) fn is_interpreter_eval_launch(command: &str, args: &[String]) -> bool
     })
 }
 
-fn is_generic_interpreter_command(command: &str) -> bool {
+pub(crate) fn is_generic_interpreter_command(command: &str) -> bool {
     let Some(stem) = Path::new(command)
         .file_stem()
         .and_then(|name| name.to_str())

@@ -104,8 +104,8 @@ pub(super) fn ingest_with_registry(
         let tables = &projection.tables;
         let (nodes, edges) = (tables.nodes.len(), tables.edges.len());
         format!(
-            "linked {} files: {nodes} nodes, {edges} edges",
-            built.facts.len()
+            "linked {}: {nodes} nodes, {edges} edges",
+            octocode_engine::text::counted(built.facts.len(), "file", "files")
         )
     });
     let inputs = match settled_inputs(&built, &projection.tables, paths, cancel) {

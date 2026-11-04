@@ -110,6 +110,60 @@ fn a_lock_for_another_release_locks_nothing() {
     assert!(servers["rust-analyzer"].release_lock.is_some());
 }
 
+/// Name fragments a release asset uses for each OS and CPU a platform id
+/// (`<os>-<arch>[-musl]`) names.
+const OS_TOKENS: &[(&str, &[&str])] = &[
+    ("darwin", &["mac", "apple-darwin", "darwin"]),
+    ("linux", &["linux"]),
+    ("win32", &["windows"]),
+];
+const ARCH_TOKENS: &[(&str, &[&str])] = &[
+    ("x64", &["x86_64", "x64", "amd64"]),
+    ("arm64", &["aarch64", "arm64"]),
+];
+
+fn names_any(asset: &str, tokens: &[&str]) -> bool {
+    let asset = asset.to_ascii_lowercase();
+    tokens.iter().any(|token| asset.contains(token))
+}
+
+/// A platform must map to an asset built for its own OS and CPU: the lock is
+/// generated for whatever name the manifest declares, so only this catches a
+/// `darwin-x64` entry pointing at the linux build (the #481 bug class). A
+/// server whose assets name no CPU at all (clangd ships one zip per OS) is
+/// held to the OS alone; once any of its assets names a CPU, all must.
+#[test]
+fn every_platform_maps_to_an_asset_built_for_its_os_and_cpu() {
+    for (name, server) in manifest() {
+        let names_cpus = server.platforms.values().any(|asset| {
+            ARCH_TOKENS
+                .iter()
+                .any(|(_, tokens)| names_any(&asset.asset, tokens))
+        });
+        for (platform, asset) in &server.platforms {
+            let mut parts = platform.split('-');
+            let (os, arch) = (parts.next().expect("os"), parts.next().expect("arch"));
+            let musl = parts.next() == Some("musl");
+            let context = format!("{name} {platform} -> {}", asset.asset);
+            for (id, tokens) in OS_TOKENS {
+                assert_eq!(names_any(&asset.asset, tokens), *id == os, "{context}: os");
+            }
+            if names_cpus {
+                for (id, tokens) in ARCH_TOKENS {
+                    assert_eq!(
+                        names_any(&asset.asset, tokens),
+                        *id == arch,
+                        "{context}: cpu"
+                    );
+                }
+            }
+            if os == "linux" && names_cpus {
+                assert_eq!(names_any(&asset.asset, &["musl"]), musl, "{context}: libc");
+            }
+        }
+    }
+}
+
 /// Review M7: an unchanged binary is hashed once per process, not on
 /// every resolve; a changed binary is hashed again and rejected.
 #[test]

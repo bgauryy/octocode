@@ -1,9 +1,9 @@
 use crate::policy::prune;
 use octocode_engine::search::walk::{IgnoreRules, Prune};
-use std::collections::HashSet;
+
 use std::path::{Path, PathBuf};
 
-use super::{Cause, Globs, Skip, Walk};
+use super::{Cause, Skip};
 
 /// Why the walk skipped `file`, by the first of `causes` that applies;
 /// paths in the reason spelled by `shown`.
@@ -29,63 +29,6 @@ pub(super) fn skip_of(
                 reason,
             })
         })
-}
-
-/// The topmost directories under `root` that ignore rules keep `walk` out of:
-/// a probe that ran out of time can still name what it could not search.
-/// Directories only, found as the children the ignore-aware walk did not
-/// enter, within `stop`.
-pub(crate) fn ignored_directories(root: &Path, walk: Walk, stop: &dyn Fn() -> bool) -> Vec<Skip> {
-    if walk.ignored {
-        return Vec::new();
-    }
-    let pruned = prune::directories(walk.default_excludes);
-    let Ok(walker) = walk.walker(root, &pruned, Globs::default()) else {
-        return Vec::new();
-    };
-    let rules = IgnoreRules::new(root);
-    let mut walked = HashSet::new();
-    for entry in walker {
-        if stop() {
-            break;
-        }
-        if let Ok(entry) = entry
-            && entry.file_type().is_some_and(|kind| kind.is_dir())
-        {
-            walked.insert(entry.into_path());
-        }
-    }
-    let mut dirs: Vec<&PathBuf> = walked.iter().collect();
-    dirs.sort();
-    let mut skips = Vec::new();
-    for dir in dirs {
-        let Ok(children) = std::fs::read_dir(dir) else {
-            continue;
-        };
-        let mut children: Vec<_> = children.flatten().collect();
-        children.sort_by_key(std::fs::DirEntry::file_name);
-        for child in children {
-            if stop() {
-                return skips;
-            }
-            let path = child.path();
-            let name = child.file_name().to_string_lossy().into_owned();
-            let candidate = child.file_type().is_ok_and(|kind| kind.is_dir())
-                && !walked.contains(&path)
-                && !pruned.contains(&name)
-                && (walk.hidden || !name.starts_with('.'));
-            if candidate
-                && let Some(reason) = rule_shown(&rules, &path, true, &|path| below(root, path))
-            {
-                skips.push(Skip {
-                    cause: Cause::Ignored,
-                    entry: path,
-                    reason,
-                });
-            }
-        }
-    }
-    skips
 }
 
 /// The path's ancestors below `root` and itself, shortest first, each with

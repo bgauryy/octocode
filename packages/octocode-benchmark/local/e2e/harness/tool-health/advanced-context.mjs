@@ -13,7 +13,10 @@ export function advancedContext(run) {
     const index = run.advancedCalls.length;
     const codes = errorCodes(result.json);
     const invalid = suite.validateInput(tool, input);
-    run.record(`advanced.input.${surface}.${index}`, !invalid || codes.includes('invalidInput'), invalid ?? 'published input accepted');
+    // A wrong JSON type with one reading runs (`contracts/normalize.rs`); the
+    // output check below still holds it to the contract.
+    const repaired = /must be (array|string|object|integer|number|boolean)\b/.test(invalid ?? '');
+    run.record(`advanced.input.${surface}.${index}`, !invalid || repaired || codes.includes('invalidInput'), invalid ?? 'published input accepted');
     const outputError = suite.validateOutput(tool, result.json);
     run.record(`advanced.output.${surface}.${index}`, !outputError, outputError ?? 'published output accepted');
     const transport = transportProblem(surface, result);

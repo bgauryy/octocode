@@ -63,6 +63,8 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     /// The search's test-code scope and this file's path: matched lines
     /// on the other side are left out.
     pub(super) test_code: Option<(&'a crate::types::TestCodeScope, &'a std::path::Path)>,
+    /// The search's deferred-line inspector and this file's path.
+    pub(super) inspect_deferred: Option<(&'a crate::types::DeferredInspector, &'a std::path::Path)>,
     /// This file's test-only spans, read on its first matched line.
     pub(super) test_spans: Option<std::sync::Arc<Vec<[u32; 2]>>>,
     /// Matched lines the scope left out.
@@ -82,6 +84,7 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             terms,
             term_counts: vec![0; terms.len()],
             test_code: None,
+            inspect_deferred: None,
             test_spans: None,
             test_lines_excluded: 0,
             covered: 0,
@@ -284,8 +287,12 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                 if self.work.deferred_line {
                     let mut hit =
                         crate::search::text_parser::line_match(&line_text, line_number, column);
-                    hit.value = String::new();
-                    hit.deferred = Some(0);
+                    if let Some((inspector, path)) = self.inspect_deferred {
+                        (inspector.0)(path, &mut hit);
+                    } else {
+                        hit.value = String::new();
+                        hit.deferred = Some(0);
+                    }
                     self.entry.prepared.push(hit);
                 } else {
                     self.entry.raw_matches.push(RawMatch {

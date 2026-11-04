@@ -232,3 +232,63 @@ fn python_type_checking_imports_are_not_runtime_cycles() {
     let rows = cycles["rows"].as_array().cloned().unwrap_or_default();
     assert!(rows.iter().all(|row| row["runtime"] == false), "{cycles}");
 }
+
+/// `a.py` imports `b.py` at load; `b.py` imports `a.py` under `guard`. The
+/// cycle's `runtime` is what that guard means.
+fn guarded_cycle_runtime(guard: &str) -> Value {
+    let b = format!("{guard}\n\nclass B:\n    pass\n");
+    let temp = fixture(&[
+        ("pkg/__init__.py", ""),
+        ("pkg/a.py", "from pkg.b import B\n\nclass A:\n    pass\n"),
+        ("pkg/b.py", &b),
+    ]);
+    let root = ingested(&temp);
+    let cycles = ask(root, "cycles", None);
+    let rows = cycles["rows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(rows.len(), 1, "{guard}: {cycles}");
+    rows[0]["runtime"].clone()
+}
+
+/// However a file spells it, a branch `typing.TYPE_CHECKING` guards never
+/// runs: the module's own alias, the constant's, a module-level name bound to
+/// it, or a condition that is false whenever the constant is.
+#[test]
+fn every_spelling_of_type_checking_guards_a_type_import() {
+    const IMPORT: &str = "    from pkg.a import A";
+    for guard in [
+        format!("import typing as t\nif t.TYPE_CHECKING:\n{IMPORT}"),
+        format!("import typing\nif typing.TYPE_CHECKING:\n{IMPORT}"),
+        format!("import typing_extensions as te\nif te.TYPE_CHECKING:\n{IMPORT}"),
+        format!("from typing import TYPE_CHECKING as TC\nif TC:\n{IMPORT}"),
+        format!("from typing_extensions import TYPE_CHECKING as TE\nif TE:\n{IMPORT}"),
+        format!("from typing import TYPE_CHECKING\nFLAG = TYPE_CHECKING\nif FLAG:\n{IMPORT}"),
+        format!("from typing import TYPE_CHECKING\nif TYPE_CHECKING or False:\n{IMPORT}"),
+        format!("from typing import TYPE_CHECKING\nif (TYPE_CHECKING):\n{IMPORT}"),
+        format!("from typing import TYPE_CHECKING\nif TYPE_CHECKING and other:\n{IMPORT}"),
+        format!(
+            "from typing import TYPE_CHECKING\nif not TYPE_CHECKING:\n    pass\nelse:\n{IMPORT}"
+        ),
+        format!(
+            "from typing import TYPE_CHECKING\nif other:\n    pass\nelif TYPE_CHECKING:\n{IMPORT}"
+        ),
+    ] {
+        assert_eq!(guarded_cycle_runtime(&guard), false, "{guard}");
+    }
+}
+
+/// A condition that only looks alike does run: the same attribute on another
+/// module, a plain `False` variable the program may rebind, the negated
+/// branch, or an `or` whose other side can hold.
+#[test]
+fn a_lookalike_guard_stays_a_runtime_import() {
+    const IMPORT: &str = "    from pkg.a import A";
+    for guard in [
+        format!("import config as t\nif t.TYPE_CHECKING:\n{IMPORT}"),
+        format!("DEBUG = False\nif DEBUG:\n{IMPORT}"),
+        format!("from typing import TYPE_CHECKING\nif not TYPE_CHECKING:\n{IMPORT}"),
+        format!("from typing import TYPE_CHECKING\nif TYPE_CHECKING or other:\n{IMPORT}"),
+        format!("from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    pass\nelse:\n{IMPORT}"),
+    ] {
+        assert_eq!(guarded_cycle_runtime(&guard), true, "{guard}");
+    }
+}

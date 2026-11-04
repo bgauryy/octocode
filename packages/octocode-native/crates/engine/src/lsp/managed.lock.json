@@ -20,7 +20,6 @@
         }
       },
       "immutable": false,
-      "publishedAt": "2026-03-01T09:40:54Z",
       "repo": "clangd/clangd",
       "tag": "22.1.0"
     },
@@ -63,7 +62,6 @@
         }
       },
       "immutable": false,
-      "publishedAt": "2026-06-22T03:32:49Z",
       "repo": "rust-lang/rust-analyzer",
       "tag": "2026-06-22"
     }

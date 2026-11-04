@@ -176,8 +176,9 @@ pub(crate) fn narrower_scope_hints<'a>(
     hints.extend(scopes.into_iter().map(|(dir, count)| {
         let path = root.join(&dir).to_string_lossy().into_owned();
         format!(
-            "graphBuild {}  # {count} files",
-            serde_json::json!({"path": path})
+            "graphBuild {}  # {}",
+            serde_json::json!({"path": path}),
+            octocode_engine::text::counted(count, "file", "files")
         )
     }));
     hints

@@ -36,6 +36,25 @@ impl Query<'_> {
         Ok(admitted)
     }
 
+    /// Whether target-name string `id` passes `name`: the written name, or
+    /// its last segment (`f` of `a.f`, `A::f`), memoized per id.
+    fn admits_name(
+        &self,
+        id: u32,
+        seen: &mut std::collections::HashMap<u32, bool>,
+    ) -> Result<bool, GraphOutput> {
+        let Some(wanted) = self.options.name.as_deref() else {
+            return Ok(true);
+        };
+        if let Some(&admitted) = seen.get(&id) {
+            return Ok(admitted);
+        }
+        let callee = self.g.text(id, self.cancel)?;
+        let admitted = callee == wanted || callee.rsplit(['.', ':']).next() == Some(wanted);
+        seen.insert(id, admitted);
+        Ok(admitted)
+    }
+
     pub(super) fn evidence(&self) -> Result<GraphOutput, GraphOutput> {
         let mut sources = Vec::new();
         for reference in self.options.sources() {
@@ -45,6 +64,7 @@ impl Query<'_> {
         let destination = self.evidence_scope(self.options.to.as_deref())?;
         let destination = destination.as_slice();
         let mut reasons = std::collections::HashMap::new();
+        let mut names = std::collections::HashMap::new();
         let mut window = Window::budgeted(self.window(), self.g.row_budget());
         let mut keep = |row: &dyn Fn() -> Result<Value, GraphOutput>| -> Result<(), GraphOutput> {
             window.try_push(row)
@@ -59,6 +79,7 @@ impl Query<'_> {
                 if !self.within_evidence_scope(edge.src, source)
                     || !self.within_evidence_scope(edge.dst, destination)
                     || !filter.admits(edge)
+                    || !self.admits_name(self.g.t.nodes[edge.dst as usize].name, &mut names)?
                 {
                     continue;
                 }
@@ -110,6 +131,7 @@ impl Query<'_> {
                 if !self.within_evidence_scope(site.src, source)
                     || !filter.kinds.contains(&site.relation)
                     || !self.admits_reason(site.reason, &mut reasons)?
+                    || !self.admits_name(site.callee, &mut names)?
                 {
                     continue;
                 }

@@ -150,7 +150,10 @@ fn check_line(q: &AstSearchQuerySyntaxTree, line: u32, content: &str) -> Result<
     }
     let mut error = ToolError::new(
         ErrorCode::InvalidInput,
-        format!("line {line} is past the end of the file ({total} lines)."),
+        format!(
+            "line {line} is past the end of the file ({}).",
+            octocode_engine::text::counted(total, "line", "lines")
+        ),
     );
     let repaired = crate::response::result::query_row(q, &["line"]);
     error.calls = Some(Box::new(json!({

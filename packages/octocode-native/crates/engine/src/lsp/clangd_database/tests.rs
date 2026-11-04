@@ -24,6 +24,8 @@ fn database_search_follows_clangd() {
     std::fs::create_dir_all(&other).expect("other");
     let fixed = |dir: &Path| DatabaseSearch::Fixed(dir.to_path_buf());
     let absolute = debug.to_string_lossy().into_owned();
+    let file = root.join("not-a-dir");
+    std::fs::write(&file, "").expect("file");
     let cases: Vec<(&str, Vec<&str>, Option<serde_json::Value>, DatabaseSearch)> = vec![
         (
             "= form",
@@ -42,6 +44,45 @@ fn database_search_follows_clangd() {
             vec!["-compile-commands-dir=build/debug"],
             None,
             fixed(&debug),
+        ),
+        (
+            "single dash separate value",
+            vec!["-compile-commands-dir", "build/debug"],
+            None,
+            fixed(&debug),
+        ),
+        (
+            "empty = value is unset",
+            vec!["--compile-commands-dir="],
+            None,
+            DatabaseSearch::Ancestors,
+        ),
+        (
+            "empty separate value is unset",
+            vec!["--compile-commands-dir", ""],
+            None,
+            DatabaseSearch::Ancestors,
+        ),
+        (
+            "a later empty value unsets an earlier one",
+            vec![
+                "--compile-commands-dir=build/debug",
+                "--compile-commands-dir=",
+            ],
+            None,
+            DatabaseSearch::Ancestors,
+        ),
+        (
+            "flag without a value",
+            vec!["--compile-commands-dir"],
+            None,
+            DatabaseSearch::Ancestors,
+        ),
+        (
+            "a value naming an existing file is accepted",
+            vec!["--compile-commands-dir=not-a-dir"],
+            None,
+            fixed(&file),
         ),
         (
             "absolute",

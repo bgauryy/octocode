@@ -1,17 +1,7 @@
-//! Ingest: workspace roots, redaction, roles, parsers and denials.
+//! Ingest: redaction, roles and parsers; `denials` holds workspace roots and refusals.
 use super::*;
 
-#[test]
-fn default_workspace_stops_at_the_allowed_roots() {
-    let dir = fixture();
-    let sub = dir.0.as_path().join("app");
-    assert_eq!(
-        default_workspace(sub.clone(), &workspace_policy(dir.0.as_path())),
-        dir.0.as_path()
-    );
-    // A repository root above the allowed root would be denied: use cwd.
-    assert_eq!(default_workspace(sub.clone(), &workspace_policy(&sub)), sub);
-}
+mod denials;
 
 /// A credential in source text the graph keeps (here an import specifier,
 /// stored as a package name) is redacted before the snapshot reaches the
@@ -216,72 +206,6 @@ fn stored_languages_are_the_registry_selectors() {
     }
 }
 
-/// The manifest root is outside the graph digest, so a query checks it
-/// against the allowed roots before reading, hashing or scanning anything
-/// under it.
-#[test]
-fn a_manifest_root_outside_the_allowed_roots_is_refused() {
-    let dir = fixture();
-    let out = ingest_fixture(dir.0.as_path(), None);
-    let snapshot = PathBuf::from(out.value["dir"].as_str().expect("dir"));
-    let outside = crate::tools::test_support::Fixture::new();
-    outside.write("src/a.ts", "export const a = 1;\n");
-    let manifest_path = snapshot.join(MANIFEST_FILE);
-    let mut manifest: Value =
-        serde_json::from_slice(&std::fs::read(&manifest_path).expect("manifest")).expect("json");
-    manifest["root"] = json!(std::fs::canonicalize(outside.0.as_path()).expect("real"));
-    std::fs::write(&manifest_path, serde_json::to_vec(&manifest).expect("json")).expect("tamper");
-    for op in ["stale", "issues", "stats"] {
-        let refused = ask(dir.0.as_path(), op, None, |_| {});
-        assert_eq!(
-            refused.value["errorCode"], "outsideAllowedRoots",
-            "{op}: {}",
-            refused.value
-        );
-        assert!(refused.value.get("results").is_none(), "{op}");
-    }
-}
-
-/// A workspace outside the allowed roots is refused with the shared
-/// path-policy code, as the scan root is.
-#[test]
-fn ingest_denials_share_the_path_policy_codes() {
-    let dir = fixture();
-    let outside = crate::tools::test_support::Fixture::new();
-    let denied = ingest(
-        &IngestOptions {
-            path: dir.0.as_path().join("app"),
-            workspace: Some(outside.0.as_path().to_path_buf()),
-            ..Default::default()
-        },
-        &workspace_policy(dir.0.as_path()),
-        &ContentSecurity::new(),
-        &NeverCancel,
-        None,
-    );
-    assert_eq!(
-        denied.value["errorCode"], "outsideAllowedRoots",
-        "{}",
-        denied.value
-    );
-    let scan = ingest(
-        &IngestOptions {
-            path: outside.0.as_path().to_path_buf(),
-            workspace: Some(dir.0.as_path().to_path_buf()),
-            ..Default::default()
-        },
-        &workspace_policy(dir.0.as_path()),
-        &ContentSecurity::new(),
-        &NeverCancel,
-        None,
-    );
-    assert_eq!(
-        scan.value["errorCode"], "outsideAllowedRoots",
-        "{}",
-        scan.value
-    );
-}
-
 #[test]
 fn authored_lib_javascript_keeps_its_symbols() {
     let dir = fixture();
@@ -297,6 +221,60 @@ fn authored_lib_javascript_keeps_its_symbols() {
 }
 
 /// `ingest --language-glob` picks a parser by root-relative glob, as for
+/// A glob names a grammar and nothing else: a TypeScript file named for the
+/// parser it already gets keeps the extraction it gets without one, so
+/// `import type` stays erased and a re-export keeps its importer.
+#[test]
+fn a_language_glob_keeps_the_extraction_of_its_grammar() {
+    let dir = git_app(&[
+        (
+            "src/spec.ts",
+            "import type { Mapper } from './map';\nexport interface Spec { map: Mapper }\n",
+        ),
+        (
+            "src/map.ts",
+            "import type { Spec } from './spec';\nexport type Mapper = (spec: Spec) => void;\n",
+        ),
+        ("src/index.ts", "export * from './spec';\n"),
+    ]);
+    let root = dir.0.as_path();
+    let graph_with = |globs: BTreeMap<String, Vec<String>>| {
+        let built = ingest(
+            &IngestOptions {
+                path: root.join("app"),
+                workspace: Some(root.to_path_buf()),
+                language_globs: globs,
+                ..Default::default()
+            },
+            &workspace_policy(root),
+            &ContentSecurity::new(),
+            &NeverCancel,
+            None,
+        );
+        assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+        let cycles = ask(root, "cycles", None, |_| {}).value["rows"].clone();
+        let mut dependents = ids(&ask(root, "dependents", Some("src/spec.ts"), |_| {}));
+        dependents.sort();
+        (cycles, dependents)
+    };
+    let plain = graph_with(BTreeMap::new());
+    assert!(
+        plain.1.iter().any(|id| id.ends_with("src/index.ts")),
+        "a re-export is an importer: {:?}",
+        plain.1
+    );
+    let named = graph_with(BTreeMap::from([(
+        "ts".to_owned(),
+        vec!["src/**/*.ts".to_owned()],
+    )]));
+    assert_eq!(named, plain);
+    let family = graph_with(BTreeMap::from([(
+        "TypeScript".to_owned(),
+        vec!["src/**/*.ts".to_owned()],
+    )]));
+    assert_eq!(family, plain);
+}
+
 /// astSearch: a `.h` header holding C++ reads as C++ (its class is a class)
 /// until a glob parses it as C; every build applies the selected globs.
 #[test]

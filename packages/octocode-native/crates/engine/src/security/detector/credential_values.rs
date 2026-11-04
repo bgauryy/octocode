@@ -39,16 +39,23 @@ pub(super) fn assigns_a_credential(key: &str, secret: &str) -> bool {
 /// Credential words that name a value a person may choose as a phrase.
 const PHRASE_CREDENTIAL_WORDS: &[&str] = &["secret", "password", "passwd", "passphrase"];
 
+/// Marks a phrase may put around a word: punctuation outside every token
+/// alphabet. Base64's `+/=` and base64url's `-_` are not marks, so trimming
+/// never turns an encoded token's piece into a word.
+const WORD_MARKS: &[char] = &[
+    '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '<', '>', '*', '#',
+];
+
 /// Whether `secret` is a phrase of plain words (`meta form value 1`,
-/// `Enter your API key here`) assigned to a key whose credential word names
+/// `Enter your API key here`, `!!ALREADY FORMATTED!!`) assigned to a key whose credential word names
 /// an opaque machine string: `key`, `token` or `credential`. API keys,
 /// tokens and credential strings never put spaces between dictionary
 /// words, so such a phrase is a label, a placeholder or test data. A
 /// `password`, `passphrase` or `secret` may be a phrase a person chose
 /// (`correct horse battery staple`), so a key naming one keeps its phrase
 /// redacted. A plain word is a pronounceable word ([`pronounceable_word`],
-/// any case, one trailing punctuation mark) or a number of at most four
-/// digits; at least two words and no other piece (`Bearer <token>` keeps
+/// any case) or a number of at most four digits, either within
+/// [`WORD_MARKS`]; at least two words and no other piece (`Bearer <token>` keeps
 /// its token piece, so it stays a credential).
 fn is_plain_phrase(key: &str, secret: &str) -> bool {
     let name = key_name(key).to_ascii_lowercase();
@@ -62,9 +69,7 @@ fn is_plain_phrase(key: &str, secret: &str) -> bool {
     let mut pieces = 0;
     let plain = secret.split_whitespace().all(|piece| {
         pieces += 1;
-        let piece = piece
-            .strip_suffix(['.', ',', ';', ':', '!', '?'])
-            .unwrap_or(piece);
+        let piece = piece.trim_matches(WORD_MARKS);
         if !piece.is_empty() && piece.len() <= 4 && piece.bytes().all(|byte| byte.is_ascii_digit())
         {
             return true;

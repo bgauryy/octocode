@@ -203,16 +203,7 @@ async fn open_leased(
         fell_back_from,
     } = leased;
     let advertises = |capability: &str| client.has_capability(capability.to_owned());
-    let note = |readiness| {
-        octocode_engine::lsp::diagnostics::Trace::note_server(|| {
-            octocode_engine::lsp::diagnostics::ServerNote {
-                source: config.source.as_str(),
-                readiness,
-                operations: receipt::advertised_operations(&advertises),
-            }
-        });
-    };
-    note(client.readiness());
+    note_server(&client, client.readiness());
     // A readiness timeout means the live server announced progress and is
     // still indexing. Do not sync or query it yet: return the established
     // incomplete row, naming the server, with an optional same-query
@@ -254,7 +245,7 @@ async fn open_leased(
     }
     let open_readiness = sync_document(query, target, document, sources, &client, cancel).await?;
     if open_readiness.is_some() {
-        note(open_readiness.clone());
+        note_server(&client, open_readiness.clone());
     }
     Ok(Session {
         client,
@@ -264,6 +255,23 @@ async fn open_leased(
         open_readiness,
         waits: Default::default(),
     })
+}
+
+/// Record the server a traced call used, with the `readiness` it last
+/// reported; the last note wins.
+pub(super) fn note_server(
+    client: &octocode_engine::lsp::client::NativeLspClient,
+    readiness: Option<String>,
+) {
+    octocode_engine::lsp::diagnostics::Trace::note_server(|| {
+        octocode_engine::lsp::diagnostics::ServerNote {
+            source: client.server_source().as_str(),
+            readiness,
+            operations: receipt::advertised_operations(&|capability| {
+                client.has_capability(capability.to_owned())
+            }),
+        }
+    });
 }
 
 /// A pooled client leased for one operation.
@@ -285,10 +293,7 @@ async fn reporting<F: Future>(
     config: &octocode_engine::lsp::types::LspLanguageServerConfig,
     work: F,
 ) -> F::Output {
-    let server = Path::new(&config.command).file_name().map_or_else(
-        || config.command.clone(),
-        |name| name.to_string_lossy().into_owned(),
-    );
+    let server = config.display_name();
     octocode_io::budget::report_while(Box::pin(work), |elapsed| {
         format!(
             "{what} the {server} language server ({}s)",

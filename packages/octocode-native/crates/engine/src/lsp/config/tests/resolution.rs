@@ -106,32 +106,17 @@ fn managed_install_resolves_ahead_of_path_and_behind_an_override() {
     assert_eq!(unmanaged.source, ServerSource::Path);
 }
 
-/// A rustup proxy on PATH whose toolchain for the workspace ships
-/// rust-analyzer wins over a managed install; a toolchain without the
-/// component leaves the managed install in place.
+/// A rustup proxy on PATH whose selected toolchain (as `rustup which`
+/// answers, run in the workspace with auto-install off) ships rust-analyzer
+/// wins over a managed install; a toolchain without the component leaves the
+/// managed install in place.
 #[cfg(unix)]
 #[test]
 fn a_toolchain_matched_rustup_component_wins_over_the_managed_install() {
-    use std::os::unix::fs::PermissionsExt;
+    use super::rustup_fixture::{FakeRustup, toolchain_binary};
     let base = TmpDir::new();
-    let executable = |path: &std::path::Path| {
-        std::fs::create_dir_all(path.parent().expect("parent")).expect("dir");
-        std::fs::write(path, "#!/bin/sh\n").expect("write");
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-    };
-    // rustup home: `pinned` ships the component, `bare` does not.
-    let rustup_home = base.join("rustup");
-    executable(&rustup_home.join("toolchains/pinned/bin/rust-analyzer"));
-    std::fs::create_dir_all(rustup_home.join("toolchains/bare/bin")).expect("bare");
-    std::fs::write(
-        rustup_home.join("settings.toml"),
-        "default_toolchain = \"bare\"\n",
-    )
-    .expect("settings");
-    // PATH: rust-analyzer is a proxy link to rustup.
-    let cargo_bin = base.join("cargo/bin");
-    executable(&cargo_bin.join("rustup"));
-    std::os::unix::fs::symlink("rustup", cargo_bin.join("rust-analyzer")).expect("proxy");
+    let rustup = FakeRustup::install(&base);
+    let component = toolchain_binary(&base, "rustup-home/toolchains/pinned/bin/rust-analyzer");
     // A managed install exists.
     let home = base.join("home");
     let platform = crate::lsp::managed::platform_id();
@@ -152,32 +137,35 @@ fn a_toolchain_matched_rustup_component_wins_over_the_managed_install() {
         octocode_home: Some(home),
         ..LspDiscoveryOptions::default()
     };
-    let view = |toolchain: Option<&str>| RustupView {
-        path_var: Some(cargo_bin.clone().into_os_string()),
-        rustup_home: Some(rustup_home.clone()),
-        toolchain: toolchain.map(str::to_owned),
+    let view = RustupView {
+        path_var: Some(rustup.bin().as_os_str().to_owned()),
     };
     let workspace = base.join("workspace");
     std::fs::create_dir_all(&workspace).expect("workspace");
-    let workspace = workspace.to_string_lossy().into_owned();
-    let resolve = |toolchain: Option<&str>| {
-        with_view(view(toolchain), || {
-            default_server_for_file("src/lib.rs", &workspace, &options)
+    let workspace_str = workspace.to_string_lossy().into_owned();
+    let resolve = || {
+        with_view(view.clone(), || {
+            default_server_for_file("src/lib.rs", &workspace_str, &options)
         })
         .expect("rust route")
     };
 
-    // The default toolchain lacks the component: the managed install stays.
-    assert_eq!(resolve(None).source, ServerSource::Managed);
-    // The workspace's toolchain file selects one that ships it.
-    std::fs::write(
-        base.join("workspace/rust-toolchain.toml"),
-        "[toolchain]\nchannel = \"pinned\"\n",
-    )
-    .expect("toolchain file");
-    let rustup = resolve(None);
-    assert_eq!(rustup.source, ServerSource::Path);
-    assert_ne!(PathBuf::from(&rustup.command), bin);
-    // RUSTUP_TOOLCHAIN overrides the file, as it does for rustup.
-    assert_eq!(resolve(Some("bare")).source, ServerSource::Managed);
+    // rustup selects a toolchain without the component: the managed install
+    // stays.
+    assert_eq!(resolve().source, ServerSource::Managed);
+    // rustup selects one that ships it: its binary runs through the proxy.
+    rustup.ships(&component);
+    let selected = resolve();
+    assert_eq!(selected.source, ServerSource::Path);
+    assert_ne!(PathBuf::from(&selected.command), bin);
+    // The selection was asked of rustup in the workspace root, with
+    // RUSTUP_AUTO_INSTALL=0 (the fake refuses otherwise, which would have
+    // kept the managed install above).
+    assert_eq!(
+        rustup.ran_in(),
+        workspace.canonicalize().expect("canonical")
+    );
+    // The toolchain disappearing again falls back to the managed install.
+    rustup.lacks_component();
+    assert_eq!(resolve().source, ServerSource::Managed);
 }

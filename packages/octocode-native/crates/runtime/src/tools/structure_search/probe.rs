@@ -148,8 +148,8 @@ impl ProbeBound {
 /// finds entries, the shared disclosure ([`crate::tools::leads::skipped`])
 /// names the rule, entry or directory and leads to the listing with exactly
 /// those causes lifted. A probe cut before it found anything proves nothing:
-/// the lead lifts every cause the walk skipped by, and the warning says
-/// absence there is unproven (the listing is partial).
+/// the lead lifts every cause the walk skipped by, and the hint says absence
+/// there is unproven.
 pub(super) fn note_empty(
     out: &mut Value,
     query: &impl serde::Serialize,

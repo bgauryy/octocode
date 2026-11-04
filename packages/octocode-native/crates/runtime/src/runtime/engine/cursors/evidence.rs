@@ -1,33 +1,64 @@
 //! Provider evidence an issued continuation owns: the GitHub answers the
-//! call that issued it observed, so resuming it sends nothing for them.
+//! call that issued it observed, so resuming it sends nothing for them. A
+//! later page shapes the same bytes the first one did, so its rows continue
+//! the first page's exactly, however many pages the walk takes.
 //!
-//! Only an answer the output gate ([`ContentSecurity::seal_output`]) leaves
-//! unchanged is retained, as text: a later page shapes the same bytes the
-//! first one did, so its rows continue the first page's exactly, and no
-//! credential a provider returned reaches the store. An answer the gate
-//! would rewrite is dropped; its request reaches GitHub again when resumed.
+//! An answer the output gate ([`ContentSecurity::seal_output`]) leaves
+//! unchanged is retained as text where the continuation is retained. An answer
+//! the gate would rewrite (one redacted line of a whole file is enough) is held
+//! in this process's memory only, so no credential a provider returned reaches
+//! a file: it passes the same gate again on every page it answers. Memory
+//! pressure, idle expiry or a restart drop it, and its request then reaches
+//! GitHub again.
 use crate::cache::{CacheKey, Store};
 use crate::security::ContentSecurity;
 use octocode_github::{ProviderAnswer, ProviderEvidence};
 use serde_json::Value;
 use std::sync::Arc;
 
-/// Evidence as the output gate leaves it, and its content digest.
-pub(super) fn sealed(evidence: ProviderEvidence) -> Option<(String, ProviderEvidence)> {
-    let security = ContentSecurity::new();
-    let sealed = ProviderEvidence {
-        answers: evidence
-            .answers
-            .into_iter()
-            .filter(|answer| gate_keeps(&security, answer))
-            .collect(),
-        notes: evidence.notes,
-    };
-    if sealed.is_empty() {
+/// What one call's continuations own, split by the output gate.
+pub(super) struct Owned {
+    /// The digest of everything the call observed: the evidence's key.
+    pub(super) digest: String,
+    /// The call's facts and the answers the gate leaves unchanged.
+    sealed: ProviderEvidence,
+    /// The answers the gate would rewrite.
+    held: ProviderEvidence,
+}
+
+impl Owned {
+    /// Evidence already retained under `digest`: nothing to store again.
+    pub(super) fn retained(digest: &str) -> Self {
+        Self {
+            digest: digest.to_owned(),
+            sealed: ProviderEvidence::default(),
+            held: ProviderEvidence::default(),
+        }
+    }
+}
+
+/// `evidence` split by the output gate, and its content digest.
+pub(super) fn owned(evidence: ProviderEvidence) -> Option<Owned> {
+    if evidence.is_empty() {
         return None;
     }
-    let digest = crate::digest::json_sha256(&serde_json::to_value(&sealed).ok()?);
-    Some((digest, sealed))
+    let digest = crate::digest::json_sha256(&serde_json::to_value(&evidence).ok()?);
+    let security = ContentSecurity::new();
+    let (kept, held) = evidence
+        .answers
+        .into_iter()
+        .partition(|answer| gate_keeps(&security, answer));
+    Some(Owned {
+        digest,
+        sealed: ProviderEvidence {
+            answers: kept,
+            notes: evidence.notes,
+        },
+        held: ProviderEvidence {
+            answers: held,
+            notes: Default::default(),
+        },
+    })
 }
 
 /// Whether the gate leaves everything `answer` exposes unchanged: its
@@ -88,24 +119,43 @@ pub(super) fn key(policy: &str, identity: Option<&str>, digest: &str) -> CacheKe
     }
 }
 
-/// Retain `evidence`; false when the store refused it (its continuation
-/// then reads GitHub again).
+/// Retain `owned`. Evidence a store refuses costs its continuation a fresh
+/// read only.
 pub(super) fn retain(
-    store: &Store<ProviderEvidence>,
+    sealed: &Store<ProviderEvidence>,
+    held: &Store<ProviderEvidence>,
     key: CacheKey,
-    evidence: ProviderEvidence,
-) -> bool {
-    let bytes = evidence.bytes();
-    store
-        .put_confirmed(key, evidence, bytes, crate::cache::CONTINUATION_RETENTION)
-        .1
+    owned: Owned,
+) {
+    for (store, evidence) in [(held, owned.held), (sealed, owned.sealed)] {
+        if !evidence.is_empty() {
+            let bytes = evidence.bytes();
+            store.put_confirmed(
+                key.clone(),
+                evidence,
+                bytes,
+                crate::cache::CONTINUATION_RETENTION,
+            );
+        }
+    }
 }
 
+/// The evidence retained under `key`, sealed and held together.
 pub(super) fn open(
-    store: &Store<ProviderEvidence>,
+    sealed: &Store<ProviderEvidence>,
+    held: &Store<ProviderEvidence>,
     key: &CacheKey,
 ) -> Option<Arc<ProviderEvidence>> {
-    store.get(key).map(|cached| cached.value)
+    let saved = sealed.get(key).map(|cached| cached.value);
+    let Some(held) = held.get(key).map(|cached| cached.value) else {
+        return saved;
+    };
+    let Some(saved) = saved else {
+        return Some(held);
+    };
+    let mut whole = (*saved).clone();
+    whole.answers.extend(held.answers.iter().cloned());
+    Some(Arc::new(whole))
 }
 
 #[cfg(test)]
@@ -113,9 +163,9 @@ mod tests {
     use super::*;
     use base64::Engine as _;
 
-    /// A last-commit-dates answer as live GitHub GraphQL sends it (headers
-    /// and body shape captured 2026-11-02, identifiers replaced by
-    /// same-shape values) is retained verbatim: a later tree page replays it.
+    /// A last-commit answer as live GitHub GraphQL sends it (headers and body
+    /// shape captured 2026-11-02, identifiers replaced by same-shape values)
+    /// is retained verbatim.
     #[test]
     fn a_live_shaped_graphql_dates_answer_is_retained() {
         let headers = [
@@ -175,8 +225,9 @@ mod tests {
             answers: vec![live.clone()],
             notes: Default::default(),
         };
-        let (_, sealed) = sealed(evidence).expect("the dates answer is kept");
-        assert_eq!(sealed.answers, vec![live]);
+        let owned = owned(evidence).expect("the dates answer is kept");
+        assert_eq!(owned.sealed.answers, vec![live]);
+        assert!(owned.held.is_empty());
     }
 
     fn answer(request: &str, body: String) -> ProviderAnswer {
@@ -191,28 +242,66 @@ mod tests {
     }
 
     /// A credential in an answer, as text or as base64 file content, keeps
-    /// that answer out of the store; a clean answer is retained verbatim.
+    /// that answer out of what is stored and in what the process holds; a
+    /// clean answer is stored verbatim. The digest names all of it, so a
+    /// continuation of a call that observed only held answers still has a key.
     #[test]
-    fn only_answers_the_gate_leaves_unchanged_are_retained() {
+    fn only_answers_the_gate_leaves_unchanged_are_stored() {
         let secret = format!("token = \"ghp_{}\"\n", "a1B2c3D4e5F6".repeat(3));
         let clean = answer("GET /clean", "fn main() {}\n".into());
-        let evidence = ProviderEvidence {
-            answers: vec![
-                clean.clone(),
-                answer("GET /raw", secret.clone()),
-                answer(
-                    "GET /blob",
-                    serde_json::json!({
-                        "encoding": "base64",
-                        "content": base64::engine::general_purpose::STANDARD.encode(&secret),
-                    })
-                    .to_string(),
-                ),
-            ],
+        let raw = answer("GET /raw", secret.clone());
+        let blob = answer(
+            "GET /blob",
+            serde_json::json!({
+                "encoding": "base64",
+                "content": base64::engine::general_purpose::STANDARD.encode(&secret),
+            })
+            .to_string(),
+        );
+        let observed = |answers: Vec<ProviderAnswer>| ProviderEvidence {
+            answers,
             notes: Default::default(),
         };
-        let (digest, sealed) = sealed(evidence).expect("the clean answer is kept");
-        assert_eq!(sealed.answers, vec![clean]);
-        assert!(!digest.is_empty());
+        let owned_by = owned(observed(vec![clean.clone(), raw.clone(), blob.clone()]))
+            .expect("the answers are owned");
+        assert_eq!(owned_by.sealed.answers, vec![clean]);
+        assert_eq!(owned_by.held.answers, vec![raw.clone(), blob]);
+        assert!(!owned_by.digest.is_empty());
+        let only_held = owned(observed(vec![raw])).expect("a held answer is owned");
+        assert!(only_held.sealed.is_empty());
+        assert_ne!(only_held.digest, owned_by.digest);
+        assert!(owned(ProviderEvidence::default()).is_none());
+    }
+
+    /// A store of `evidence` splits by where each part may live: only the
+    /// sealed part reaches the persistent store, and a process without the
+    /// held part still opens what was sealed.
+    #[test]
+    fn held_answers_never_reach_the_persistent_store() {
+        let dir = tempfile::tempdir().expect("store");
+        let config = crate::cache::CacheConfig::derived();
+        let sealed_store: Store<ProviderEvidence> =
+            Store::new(config.clone(), Some(dir.path().to_owned()));
+        let held_store: Store<ProviderEvidence> = Store::new(config.clone(), None);
+        let secret = format!("token = \"ghp_{}\"\n", "a1B2c3D4e5F6".repeat(3));
+        let clean = answer("GET /clean", "fn main() {}\n".into());
+        let raw = answer("GET /raw", secret.clone());
+        let owned = owned(ProviderEvidence {
+            answers: vec![clean.clone(), raw.clone()],
+            notes: Default::default(),
+        })
+        .expect("owned");
+        let key = key("policy", Some("identity"), &owned.digest);
+        retain(&sealed_store, &held_store, key.clone(), owned);
+        let whole = open(&sealed_store, &held_store, &key).expect("whole");
+        assert_eq!(whole.answers, vec![clean.clone(), raw]);
+        let restarted: Store<ProviderEvidence> = Store::new(config, None);
+        let saved = open(&sealed_store, &restarted, &key).expect("sealed part");
+        assert_eq!(saved.answers, vec![clean]);
+        for entry in std::fs::read_dir(dir.path()).expect("entries").flatten() {
+            let bytes = std::fs::read(entry.path()).expect("entry");
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(!text.contains("ghp_"), "{}", entry.path().display());
+        }
     }
 }

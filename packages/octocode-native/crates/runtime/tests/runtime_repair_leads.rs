@@ -20,11 +20,6 @@ async fn invalid_inputs_preserve_caller_intent_by_rejecting_without_executable_r
         ),
         (
             "localFetch",
-            json!({"queries":"[{\"path\":\"a.rs\"}]"}),
-            "queries",
-        ),
-        (
-            "localFetch",
             json!({"queries":[{"path":"a.rs","ranges":"1-2"}]}),
             "ranges",
         ),
@@ -69,16 +64,6 @@ async fn invalid_inputs_preserve_caller_intent_by_rejecting_without_executable_r
             "branch",
         ),
         (
-            "ghSearchCode",
-            json!({"queries":[{"owner":"o","repo":"r","keywords":"[\"x\"]"}]}),
-            "keywords",
-        ),
-        (
-            "artifactSearch",
-            json!({"queries":[{"operation":"resolve","ecosystem":"npm","packageName":"react","version":18}]}),
-            "version",
-        ),
-        (
             "astSearch",
             json!({"queries":[{"operation":"symbols","path":".","pattern":"eval($X)"}]}),
             "pattern",
@@ -87,7 +72,7 @@ async fn invalid_inputs_preserve_caller_intent_by_rejecting_without_executable_r
         let error = runtime
             .run(tool.into(), tool.into(), input.clone())
             .await
-            .expect_err("strict rejection");
+            .expect_err(&format!("strict rejection of {input}"));
         assert_eq!(error.code, ErrorCode::InvalidInput, "{tool}: {input}");
         let payload = error.payload.as_deref().expect("structured rejection");
         assert!(

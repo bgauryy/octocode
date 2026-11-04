@@ -296,12 +296,21 @@ fn resolve_call(
             {
                 "constructor-binding-not-assessed"
             } else {
-                unlinked_reason(
-                    &unit.bindings,
-                    qualifier,
-                    name,
-                    linker.named(caller, name).filter(|id| accept(*id)).count(),
-                )
+                let in_repo = linker.named(caller, name).filter(|id| accept(*id)).count();
+                // A recovered declaration is no link target, but the name is
+                // declared: a bare call or one in its own file may mean it. A
+                // member call elsewhere shares only the spelling.
+                let caller_file = linker.file_of(caller);
+                let names_recovered = in_repo == 0
+                    && linker.named(caller, name).any(|id| {
+                        (linker.recovered)(id)
+                            && (qualifier.is_empty() || linker.file_of(id) == caller_file)
+                    });
+                if names_recovered {
+                    "recovered-declaration"
+                } else {
+                    unlinked_reason(&unit.bindings, qualifier, name, in_repo)
+                }
             };
             return (caller, Err(reason));
         };

@@ -6,6 +6,8 @@ use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
+mod pinned_walks;
+
 /// A persistent runtime keeps no GitHub content across a restart: the next
 /// process reads the pinned file afresh, unconditionally (no ETag round
 /// trip), and answers the same evidence.

@@ -4,7 +4,8 @@
 //! ([`lands`]). JS/TS sites read one oxc parse of their file
 //! ([`classify_sites`]); every other site, and a name the parse holds no
 //! node for, reads the text rule of its own line.
-use super::call_sites::{classify_sites, is_call_at};
+use super::call_sites::classify_sites;
+use super::call_sites::text_rule::is_call_at;
 use super::failure::LspFailure;
 use super::recovery::{Landing, lands};
 use super::render::uri_to_path;

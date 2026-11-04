@@ -224,9 +224,16 @@ fn source_type_follows_the_full_path() {
 
 #[test]
 fn non_js_files_are_rejected_before_any_oxc_work() {
-    assert!(!is_oxc_path("main.py"));
-    assert!(!is_oxc_path("lib.rs"));
-    assert!(is_oxc_path("a.tsx") && is_oxc_path("a.cjs") && is_oxc_path("types/a.d.ts"));
+    assert!(!is_oxc_dialect("main.py", None));
+    assert!(!is_oxc_dialect("lib.rs", None));
+    assert!(
+        is_oxc_dialect("a.tsx", None)
+            && is_oxc_dialect("a.cjs", None)
+            && is_oxc_dialect("types/a.d.ts", None)
+    );
+    // An override names the dialect, whatever the path says.
+    assert!(is_oxc_dialect("a.conf", Some("ts")));
+    assert!(!is_oxc_dialect("a.ts", Some("py")));
     assert!(extract_graph_facts("def f():\n    pass\n", "main.py").is_none());
 }
 

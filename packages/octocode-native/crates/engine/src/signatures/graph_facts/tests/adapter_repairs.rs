@@ -312,9 +312,15 @@ fn every_installed_call_adapter_has_a_positive_and_declaration_only_control() {
         assert!(facts.calls.iter().all(|call| call.binding
             == crate::graph::GraphCallBinding::SyntaxLookup
             && call.callee == "work"));
-        let lean =
-            crate::signatures::extract_declarations_document_with_extension(source, &path, ext)
-                .unwrap();
+        let lean = super::super::extract_facts_before(
+            source,
+            &path,
+            ext,
+            crate::signatures::extractor::whole_file_deadline(),
+            true,
+        )
+        .unwrap()
+        .facts;
         assert!(lean.calls.is_empty());
         assert!(lean.argument_sites.is_empty());
         assert_eq!(lean.declarations, facts.declarations);

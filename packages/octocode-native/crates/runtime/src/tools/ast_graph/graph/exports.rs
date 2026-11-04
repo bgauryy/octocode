@@ -1,6 +1,7 @@
 //! `FileLink`: exports, calls, path specifiers and CommonJS requires.
+use super::super::edges::{RECOVERED_NAMED_REEXPORT, RECOVERED_STAR_REEXPORT};
 use super::*;
-use octocode_engine::graph::COMMONJS_WHOLE_EXPORT;
+use octocode_engine::graph::{COMMONJS_WHOLE_EXPORT, UNKNOWN_LOAD};
 
 impl FileLink<'_, '_> {
     pub(super) fn export(&mut self, x: octocode_engine::graph::GraphFactExport) {
@@ -17,10 +18,12 @@ impl FileLink<'_, '_> {
             if let Some(t) = target {
                 let kind = if self.lang == Linker::Rust {
                     "rust-use"
-                } else if x.export_kind == "type" {
-                    "type-star-reexport"
                 } else {
-                    "star-reexport"
+                    match x.export_kind.as_str() {
+                        "type" => "type-star-reexport",
+                        UNKNOWN_LOAD => RECOVERED_STAR_REEXPORT,
+                        _ => "star-reexport",
+                    }
                 };
                 self.edge(&t, kind, x.line);
                 self.b
@@ -32,10 +35,10 @@ impl FileLink<'_, '_> {
             return;
         }
         if let Some(t) = &target {
-            let kind = if x.export_kind == "type" {
-                "type-named-reexport"
-            } else {
-                "named-reexport"
+            let kind = match x.export_kind.as_str() {
+                "type" => "type-named-reexport",
+                UNKNOWN_LOAD => RECOVERED_NAMED_REEXPORT,
+                _ => "named-reexport",
             };
             self.edge(t, kind, x.line);
         }

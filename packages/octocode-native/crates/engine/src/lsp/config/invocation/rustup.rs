@@ -2,22 +2,23 @@
 //! `PATH` is a rustup proxy and the toolchain rustup selects for the workspace
 //! ships that command, the proxy runs the toolchain's own build: a separate
 //! official origin matched to the project's Rust version, which wins over a
-//! managed download (issue #481).
+//! managed download (issue #481). Which toolchain that is, rustup decides:
+//! `rustup which` applies its own precedence (`RUSTUP_TOOLCHAIN`, directory
+//! overrides, toolchain files, the default), so none of it is re-implemented.
 use crate::lsp::commands::is_executable_path;
+use crate::lsp::config::probe::{COMMAND_PROBE_TIMEOUT, probe_command_stdout};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
-/// What rustup's selection reads, so it can be given explicitly.
+/// What finding the proxy reads, so it can be given explicitly.
 #[derive(Clone, Debug, Default)]
 pub(in crate::lsp::config) struct RustupView {
     pub(in crate::lsp::config) path_var: Option<OsString>,
-    pub(in crate::lsp::config) rustup_home: Option<PathBuf>,
-    /// `RUSTUP_TOOLCHAIN`, which overrides every toolchain file.
-    pub(in crate::lsp::config) toolchain: Option<String>,
 }
 
 impl RustupView {
-    /// This process's rustup environment.
+    /// This process's `PATH`.
     pub(in crate::lsp::config) fn current() -> Self {
         #[cfg(test)]
         if let Some(view) = TEST_VIEW.with(|view| view.borrow().clone()) {
@@ -25,19 +26,13 @@ impl RustupView {
         }
         Self {
             path_var: crate::process_env::var_os("PATH"),
-            rustup_home: crate::process_env::var_os("RUSTUP_HOME")
-                .map(PathBuf::from)
-                .or_else(|| std::env::home_dir().map(|home| home.join(".rustup"))),
-            toolchain: crate::process_env::var_os("RUSTUP_TOOLCHAIN")
-                .and_then(|value| value.into_string().ok())
-                .filter(|value| !value.trim().is_empty()),
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    /// A test's rustup environment in place of the process's.
+    /// A test's `PATH` in place of the process's.
     static TEST_VIEW: std::cell::RefCell<Option<RustupView>> = const { std::cell::RefCell::new(None) };
 }
 
@@ -72,86 +67,43 @@ pub(in crate::lsp::config) fn toolchain_component(
     command: &str,
 ) -> Option<PathBuf> {
     let proxy = which::which_in(command, view.path_var.as_ref(), workspace_root).ok()?;
-    if !is_rustup_proxy(&proxy) {
+    selected_component(&proxy, workspace_root)
+}
+
+/// The binary the rustup `proxy` (`~/.cargo/bin/rust-analyzer -> rustup`)
+/// would run for `workspace_root`, as `rustup which` reports it; `None` when
+/// `proxy` is not a rustup proxy or the selected toolchain lacks the binary
+/// or is not installed.
+///
+/// rustup runs in the workspace root, where it reads overrides and toolchain
+/// files, with `RUSTUP_AUTO_INSTALL=0`: rustup 1.29 otherwise installs a
+/// missing toolchain (a download) to answer. Bounded by
+/// [`COMMAND_PROBE_TIMEOUT`]; blocking.
+pub(in crate::lsp::config) fn selected_component(
+    proxy: &Path,
+    workspace_root: &Path,
+) -> Option<PathBuf> {
+    if !is_rustup_proxy(proxy) {
         return None;
     }
-    let home = view.rustup_home.as_deref()?;
-    let settings = std::fs::read_to_string(home.join("settings.toml"))
-        .ok()
-        .and_then(|text| text.parse::<toml::Table>().ok())
-        .unwrap_or_default();
-    let name = view
-        .toolchain
-        .clone()
-        .or_else(|| toolchain_file_channel(workspace_root))
-        .or_else(|| directory_override(&settings, workspace_root))
-        .or_else(|| {
-            settings
-                .get("default_toolchain")?
-                .as_str()
-                .map(str::to_owned)
-        })?;
-    let binary = proxy.file_name()?;
-    toolchain_dirs(home, &settings, &name)
+    let rustup = rustup_binary(proxy)?;
+    let mut which = Command::new(rustup);
+    which
+        .arg("which")
+        .arg(proxy.file_name()?)
+        .current_dir(workspace_root)
+        .env("RUSTUP_AUTO_INSTALL", "0");
+    let stdout = probe_command_stdout(&mut which, COMMAND_PROBE_TIMEOUT)?;
+    let binary = PathBuf::from(String::from_utf8(stdout).ok()?.trim());
+    is_executable_path(&binary).then_some(binary)
+}
+
+/// The `rustup` a proxy dispatches to: its link target (a bare name is a
+/// sibling in the proxy's directory), else a sibling `rustup`.
+fn rustup_binary(proxy: &Path) -> Option<PathBuf> {
+    let dir = proxy.parent()?;
+    let target = std::fs::read_link(proxy).ok()?;
+    [dir.join(target), dir.join("rustup")]
         .into_iter()
-        .map(|dir| dir.join("bin").join(binary))
         .find(|candidate| is_executable_path(candidate))
-}
-
-/// The channel of the nearest `rust-toolchain.toml` or `rust-toolchain`
-/// (TOML, or the legacy one-line form) at or above `dir`.
-fn toolchain_file_channel(dir: &Path) -> Option<String> {
-    dir.ancestors().find_map(|dir| {
-        ["rust-toolchain.toml", "rust-toolchain"]
-            .iter()
-            .find_map(|name| std::fs::read_to_string(dir.join(name)).ok())
-            .and_then(|text| match text.parse::<toml::Table>() {
-                Ok(table) => table
-                    .get("toolchain")?
-                    .get("channel")?
-                    .as_str()
-                    .map(str::to_owned),
-                Err(_) => Some(text.trim().to_owned()).filter(|line| !line.contains('\n')),
-            })
-    })
-}
-
-/// `rustup override set` entries: the deepest directory containing `dir`.
-fn directory_override(settings: &toml::Table, dir: &Path) -> Option<String> {
-    settings
-        .get("overrides")?
-        .as_table()?
-        .iter()
-        .filter(|(path, _)| dir.starts_with(path))
-        .max_by_key(|(path, _)| path.len())
-        .and_then(|(_, name)| name.as_str().map(str::to_owned))
-}
-
-/// Where toolchain `name` may be installed: as named, or with the host triple
-/// rustup appends to a channel name (`stable` -> `stable-aarch64-apple-darwin`).
-fn toolchain_dirs(home: &Path, settings: &toml::Table, name: &str) -> Vec<PathBuf> {
-    let toolchains = home.join("toolchains");
-    let mut dirs = vec![toolchains.join(name)];
-    if let Some(host) = settings
-        .get("default_host_triple")
-        .and_then(toml::Value::as_str)
-        .map(str::to_owned)
-        .or_else(host_triple)
-    {
-        dirs.push(toolchains.join(format!("{name}-{host}")));
-    }
-    dirs
-}
-
-/// This build's host triple in rustup's spelling.
-fn host_triple() -> Option<String> {
-    let arch = std::env::consts::ARCH;
-    let rest = match std::env::consts::OS {
-        "macos" => "apple-darwin",
-        "windows" => "pc-windows-msvc",
-        "linux" if cfg!(target_env = "musl") => "unknown-linux-musl",
-        "linux" => "unknown-linux-gnu",
-        _ => return None,
-    };
-    Some(format!("{arch}-{rest}"))
 }

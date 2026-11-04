@@ -155,7 +155,6 @@ pub struct ProviderError {
     pub message: Box<str>,
     pub status: Option<u16>,
     pub request_id: Option<Box<str>>,
-    pub documentation_url: Option<Box<str>>,
     pub rate_limit: Option<Box<RateLimit>>,
     pub retryable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -173,7 +172,6 @@ impl ProviderError {
             message: message.into().into_boxed_str(),
             status: None,
             request_id: None,
-            documentation_url: None,
             rate_limit: None,
             // Timeouts, dropped connections, and 5xx are transient by nature;
             // an identical retry of a 60 s timeout succeeded in 2 s in evals.

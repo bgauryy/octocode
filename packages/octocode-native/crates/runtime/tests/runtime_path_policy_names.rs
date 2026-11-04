@@ -9,6 +9,9 @@ use support::{Workspace, call, row_data};
 
 use octocode_native::runtime::ToolRuntime;
 
+#[cfg(unix)]
+mod symlinks;
+
 const AWS_KEY: &str = "AKIAIOSFODNN7EXAMPLE";
 
 /// How a fixture must read through every local tool.

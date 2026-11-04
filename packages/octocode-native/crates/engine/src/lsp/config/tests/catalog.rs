@@ -28,29 +28,39 @@ fn server_languages_keep_catalog_order_and_drop_unresolved_servers() {
 
 #[cfg(unix)]
 #[test]
-fn rustup_proxy_counts_only_when_a_toolchain_ships_the_component() {
-    use crate::lsp::config::probe::rustup_proxy_component_installed;
-    use std::os::unix::fs::PermissionsExt;
+fn a_rustup_proxy_resolves_only_when_the_toolchain_rustup_selects_ships_the_component() {
+    use super::rustup_fixture::{FakeRustup, toolchain_binary};
+    use crate::lsp::config::server_command_resolves;
     let base = TmpDir::new();
-    let bin = base.join("cargo/bin");
-    let home = base.join("rustup");
-    std::fs::create_dir_all(&bin).unwrap();
-    std::fs::create_dir_all(home.join("toolchains/stable/bin")).unwrap();
-    let executable = |path: &std::path::Path| {
-        std::fs::write(path, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let rustup = FakeRustup::install(&base);
+    let workspace = base.join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let config = |command: &std::path::Path| LspLanguageServerConfig {
+        command: command.to_string_lossy().into_owned(),
+        args: None,
+        workspace_root: workspace.to_string_lossy().into_owned(),
+        language_id: None,
+        initialization_options: None,
+        env: None,
+        max_memory_mb: None,
+        source: Default::default(),
     };
-    executable(&bin.join("rustup"));
-    let proxy = bin.join("rust-analyzer");
-    std::os::unix::fs::symlink("rustup", &proxy).unwrap();
-    assert!(!rustup_proxy_component_installed(&proxy, Some(&home)));
-    assert!(!rustup_proxy_component_installed(&proxy, None));
-    executable(&home.join("toolchains/stable/bin/rust-analyzer"));
-    assert!(rustup_proxy_component_installed(&proxy, Some(&home)));
-    // A real (non-proxy) binary is the server itself.
-    let real = base.join("real-rust-analyzer");
-    executable(&real);
-    assert!(rustup_proxy_component_installed(&real, None));
+    // rustup says the selected toolchain lacks the component, even if some
+    // other toolchain might ship it: the proxy would fail.
+    toolchain_binary(&base, "rustup-home/toolchains/other/bin/rust-analyzer");
+    assert!(!server_command_resolves(&config(&rustup.proxy())));
+    // It asked rustup in the workspace, not in this process's directory.
+    assert_eq!(rustup.ran_in(), workspace.canonicalize().unwrap());
+    rustup.ships(&toolchain_binary(
+        &base,
+        "rustup-home/toolchains/pinned/bin/rust-analyzer",
+    ));
+    assert!(server_command_resolves(&config(&rustup.proxy())));
+    // A real (non-proxy) binary is the server itself; rustup is not asked.
+    let real = toolchain_binary(&base, "bin/rust-analyzer");
+    std::fs::remove_file(rustup.bin().join("ran-in")).unwrap();
+    assert!(server_command_resolves(&config(&real)));
+    assert!(!rustup.bin().join("ran-in").exists());
 }
 
 #[test]

@@ -12,7 +12,7 @@ pub(in super::super) const FILE_LEVEL_REASONS: [crate::response::paging::Partial
     super::super::inferred_project::REASON,
     super::super::importers::CAPPED_REASON,
     super::super::inferred_project::FAILED_REASON,
-    super::super::inferred_project::NO_COMPILE_DATABASE_REASON,
+    super::super::inferred_project::compile_database::NO_COMPILE_DATABASE_REASON,
     super::super::server_coverage::BUILD_SCRIPTS_REASON,
     super::super::server_coverage::OUTSIDE_INCLUDE_REASON,
     super::super::server_coverage::SHARED_MODULE_REASON,

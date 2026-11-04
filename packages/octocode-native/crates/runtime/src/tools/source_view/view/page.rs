@@ -246,8 +246,8 @@ fn budget_cut_hint(
         && pagination.length < limit)
         .then(|| {
             format!(
-                "This page holds {} lines, short of limit {limit}: the response budget sized it, no line is lost; next.nextPage reads on, and a larger responseChars lengthens the page.",
-                pagination.length
+                "This page holds {}, short of limit {limit}: the response budget sized it, no line is lost; next.nextPage reads on, and a larger responseChars lengthens the page.",
+                octocode_engine::text::counted(pagination.length, "line", "lines")
             )
         })
 }
@@ -335,4 +335,45 @@ fn page_source_ranges(
         .collect();
     page_lines.dedup();
     compress_ranges(&page_lines)
+}
+
+#[cfg(test)]
+mod budget_cut_hint_tests {
+    use super::*;
+
+    /// One line is "1 line", and any other count its plural.
+    #[test]
+    fn the_hint_counts_a_short_page_in_the_right_number() {
+        let read: LocalFetchQuery =
+            serde_json::from_value(serde_json::json!({"path":"a.rs","limit":5}))
+                .expect("a read with a limit");
+        let hint = |length| {
+            budget_cut_hint(
+                &read,
+                &Pagination {
+                    unit: ReadProgressUnit::Lines,
+                    offset: 0,
+                    length,
+                    window: length,
+                    total_lines: 9,
+                    total_bytes: 90,
+                    has_more: true,
+                    next_offset: Some(length),
+                    resume_line: None,
+                },
+                false,
+            )
+            .expect("a short page")
+        };
+        assert!(
+            hint(1).starts_with("This page holds 1 line, "),
+            "{}",
+            hint(1)
+        );
+        assert!(
+            hint(2).starts_with("This page holds 2 lines, "),
+            "{}",
+            hint(2)
+        );
+    }
 }

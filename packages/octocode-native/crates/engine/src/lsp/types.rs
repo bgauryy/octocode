@@ -22,6 +22,24 @@ pub struct LspLanguageServerConfig {
     pub source: ServerSource,
 }
 
+impl LspLanguageServerConfig {
+    /// The name messages give this server: its command's file name, or, when
+    /// that command is an interpreter running the server's script
+    /// (`node cli.mjs`), the language it answers for.
+    #[must_use]
+    pub fn display_name(&self) -> String {
+        match &self.language_id {
+            Some(language) if crate::lsp::config::is_generic_interpreter_command(&self.command) => {
+                language.clone()
+            }
+            _ => std::path::Path::new(&self.command).file_name().map_or_else(
+                || self.command.clone(),
+                |name| name.to_string_lossy().into_owned(),
+            ),
+        }
+    }
+}
+
 /// Where a discovered language-server launch came from.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

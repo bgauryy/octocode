@@ -21,7 +21,7 @@ use issues::{internal, issue, query_label, schema_issue, sibling_requirement};
 pub use messages::{format_input_error, tool_error};
 pub use output::validate_output;
 pub(crate) use output::validate_output_in_place;
-pub(crate) use repair::queries as repair_queries;
+pub(crate) use repair::{queries as repair_queries, repaired_value};
 use schema::validate_input_schema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

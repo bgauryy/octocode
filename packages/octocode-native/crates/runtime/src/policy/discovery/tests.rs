@@ -138,9 +138,9 @@ fn withheld_notice_labels_git_files_and_unfollowed_symlinks() {
     std::fs::write(sub.join(".git"), "gitdir: ../.git/modules/sub\n").expect("gitfile");
     std::os::unix::fs::symlink(sub.join("real"), sub.join("link")).expect("link");
     let mut withheld = Withheld::default();
-    withheld.record(&sub.join(".git"), false);
-    withheld.record(&sub.join("link"), false);
-    withheld.record(&root.path().join("gone"), false);
+    withheld.record(&sub.join(".git"));
+    withheld.record(&sub.join("link"));
+    withheld.record(&root.path().join("gone"));
     let notice = withheld.notice().expect("notice");
     assert_eq!(
         notice,

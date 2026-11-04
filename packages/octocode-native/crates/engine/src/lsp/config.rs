@@ -21,7 +21,7 @@ pub use defaults::{
     rust_analyzer_headless_options, serves_requests_concurrently, workspace_symbol_limit,
 };
 pub(super) use invocation::current_node_command;
-pub(crate) use invocation::is_rust_analyzer_command;
+pub(crate) use invocation::{is_generic_interpreter_command, is_rust_analyzer_command};
 pub use probe::{is_command_available, server_command_resolves};
 pub use types::LspDiscoveryOptions;
 pub use workspace_root::{

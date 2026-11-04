@@ -28,8 +28,6 @@ mod skipped;
 pub(super) struct Disclosed {
     /// Skipped paths hold a match, or may: a retry over them reaches it.
     pub(super) skipped_match: bool,
-    /// The empty page's check of them did not finish: the row is partial.
-    pub(super) unchecked: bool,
     pub(super) skipped_paths: Option<SkippedPaths>,
 }
 
@@ -93,15 +91,17 @@ impl Found<'_> {
             );
         }
         // Binaries were never text to search: a row with hits states their
-        // count in `stats`, an empty row says it in `warnings`, where the
-        // count may explain the miss.
+        // count in `stats`, an empty row says it in `warnings` with their
+        // listing, where they may explain the miss.
         if let Some((warning, listing)) = self.skipped_binaries() {
             if self.empty {
                 warnings.extend(Some(warning).filter(|warning| !warning.is_empty()));
             } else {
                 stats.binary_skipped = self.leading_binaries();
             }
-            add("binarySkipped".into(), listing);
+            if let Some(listing) = listing {
+                add("binarySkipped".into(), listing);
+            }
         }
         // Directories the depth limit left unentered are coverage the walk
         // never had: disclosed once, with the same search at every depth.
@@ -170,11 +170,6 @@ impl Found<'_> {
             )?,
             None => Unsearched::default(),
         };
-        if unsearched.unchecked {
-            stats
-                .partial_reasons
-                .push(crate::tools::leads::skipped::SKIPPED_UNCHECKED);
-        }
         let skipped_paths = if first_disclosure {
             self.skipped_paths(unsearched.observed)?
         } else {
@@ -182,7 +177,6 @@ impl Found<'_> {
         };
         Ok(Disclosed {
             skipped_match: unsearched.may_hold_matches,
-            unchecked: unsearched.unchecked,
             skipped_paths,
         })
     }

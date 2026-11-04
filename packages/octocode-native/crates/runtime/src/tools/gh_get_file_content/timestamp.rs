@@ -4,8 +4,7 @@ use octocode_contract_types::GhGetFileContentQuery;
 use octocode_github::{GitHubProvider, RequestContext};
 
 /// Last commit touching `path` at `reference` (a resolved SHA), from the one
-/// source of that fact ([`octocode_github::GitHubTransport::path_last_commit`],
-/// which ghStructure's dated listings share).
+/// source of that fact ([`octocode_github::GitHubTransport::path_last_commit`]).
 pub(super) async fn file_timestamp(
     provider: &GitHubProvider,
     query: &GhGetFileContentQuery,

@@ -74,7 +74,7 @@ pub(super) fn detect_cycles(c: &mut Ctx) {
         }
         let set = members.iter().copied().collect::<BTreeSet<_>>();
         let names = files.iter().cloned().collect::<BTreeSet<_>>();
-        let runtime = !cycles.runtime_within(&names).is_empty();
+        let load = cycles.load_within(&names);
         let witness = witness_cycle(members[0], &set, &adj);
         let cuts = feedback_arcs(&members, &adj);
         let rust = members.iter().all(|m| v.language(*m) == "rust");
@@ -89,26 +89,32 @@ pub(super) fn detect_cycles(c: &mut Ctx) {
         };
         let evidence = json!({
             "size": members.len(),
-            "runtime": runtime,
+            "runtime": load.as_json(),
             "members": member_keys,
             "witness": witness.windows(2).map(|w| hop(w[0], w[1])).collect::<Vec<_>>(),
             "suggestedCuts": cuts.iter().map(|(a, b)| hop(*a, *b)).collect::<Vec<_>>(),
             "cutCount": cuts.len(),
         });
-        let (kind, mut confidence, mut controls) = if runtime {
-            (
+        let (kind, mut confidence, mut controls) = match load {
+            CycleLoad::Runtime => (
                 "Runtime import cycle",
                 0.85,
                 vec!["module-load imports alone close it"],
-            )
-        } else {
-            (
+            ),
+            CycleLoad::Unknown => (
+                "Import cycle of unknown load",
+                0.5,
+                vec![
+                    "it closes through a file oxc could not parse: that edge's load is unknown (see parser-fallback diagnostics)",
+                ],
+            ),
+            CycleLoad::NoLoad => (
                 "Import cycle",
                 0.35,
                 vec![
                     "no module-load loop: it closes only through type-only, deferred or compile-time imports",
                 ],
-            )
+            ),
         };
         // The groups are the `cycles` operation's over production files: a loop
         // that only test or config files close is not a production finding.

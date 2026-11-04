@@ -278,6 +278,11 @@ impl<M: Matcher> FileSearcher<'_, M> {
             (self.words, self.terms),
         );
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
+        sink.inspect_deferred = self
+            .opts
+            .inspect_deferred
+            .as_ref()
+            .map(|inspect| (inspect, path));
         // `search_file` reads through this same reader path: memory maps are
         // never used, and multiline reads the whole file under the heap limit.
         self.searcher
@@ -313,6 +318,11 @@ impl<M: Matcher> FileSearcher<'_, M> {
             (self.words, self.terms),
         );
         prefix_sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
+        prefix_sink.inspect_deferred = self
+            .opts
+            .inspect_deferred
+            .as_ref()
+            .map(|inspect| (inspect, path));
         prefix_searcher.search_slice(self.matcher, &prefix, &mut prefix_sink)?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;

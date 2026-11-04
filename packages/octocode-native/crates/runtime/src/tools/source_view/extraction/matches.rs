@@ -44,8 +44,8 @@ fn ranged_spans(
             return Err(ExtractionError::new(
                 ErrorCode::InvalidInput,
                 format!(
-                    "Requested lines start past the file end ({} lines)",
-                    lines.len()
+                    "Requested lines start past the file end ({})",
+                    octocode_engine::text::counted(lines.len(), "line", "lines")
                 ),
             ));
         }

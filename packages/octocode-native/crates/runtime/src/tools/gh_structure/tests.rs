@@ -91,7 +91,6 @@ fn materialization_page_boundary_and_pages_past_the_former_ceiling_continue() {
     let page = |current| ListingPage {
         current,
         per_page: 1,
-        capped_from: None,
         total_entries: current + 1,
         total_pages: current + 1,
         entries: &[],
@@ -250,26 +249,23 @@ fn skips_symlinks_and_submodules() {
 /// The `dir` of a row is repo-relative, the same base as `path` and `include`.
 #[test]
 fn structure_dirs_are_repo_relative() {
-    let rows = build_structure(
-        &[
-            TreeEntry {
-                path: "src/lib.rs".into(),
-                kind: EntryKind::File,
-                size: Some(1),
-            },
-            TreeEntry {
-                path: "src/nested".into(),
-                kind: EntryKind::Dir,
-                size: None,
-            },
-            TreeEntry {
-                path: "src/nested/a.rs".into(),
-                kind: EntryKind::File,
-                size: Some(1),
-            },
-        ],
-        &Default::default(),
-    );
+    let rows = build_structure(&[
+        TreeEntry {
+            path: "src/lib.rs".into(),
+            kind: EntryKind::File,
+            size: Some(1),
+        },
+        TreeEntry {
+            path: "src/nested".into(),
+            kind: EntryKind::Dir,
+            size: None,
+        },
+        TreeEntry {
+            path: "src/nested/a.rs".into(),
+            kind: EntryKind::File,
+            size: Some(1),
+        },
+    ]);
     assert_eq!(
         rows,
         vec![
@@ -277,14 +273,11 @@ fn structure_dirs_are_repo_relative() {
             json!({"dir":"src/nested","files":["a.rs (1)"]}),
         ]
     );
-    let root = build_structure(
-        &[TreeEntry {
-            path: "README.md".into(),
-            kind: EntryKind::File,
-            size: Some(1),
-        }],
-        &Default::default(),
-    );
+    let root = build_structure(&[TreeEntry {
+        path: "README.md".into(),
+        kind: EntryKind::File,
+        size: Some(1),
+    }]);
     assert_eq!(root, vec![json!({"dir":".","files":["README.md (1)"]})]);
 }
 

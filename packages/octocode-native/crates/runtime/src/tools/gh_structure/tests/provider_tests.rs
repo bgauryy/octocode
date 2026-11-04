@@ -7,9 +7,9 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-mod date_cursors;
 mod limit;
 mod listing;
+mod page_walks;
 mod refs;
 mod renamed;
 

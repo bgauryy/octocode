@@ -54,8 +54,12 @@ pub(super) fn annotate_diagnostics(
             row,
             crate::response::paging::PartialReason::DocumentAnalysisErrors,
             &[format!(
-                "The language server reported {} error diagnostics in this document. They may affect analysis beyond their own lines; this result does not establish complete semantic coverage.",
-                errors.len()
+                "The language server reported {} in this document. Errors may affect analysis beyond their own lines; this result does not establish complete semantic coverage.",
+                octocode_engine::text::counted(
+                    errors.len(),
+                    "error diagnostic",
+                    "error diagnostics"
+                )
             )],
         );
     }

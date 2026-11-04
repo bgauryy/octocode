@@ -59,6 +59,28 @@ fn dependency_graph(nodes: &BTreeMap<String, FileGraphNode>) -> BTreeMap<String,
         .collect()
 }
 
+/// What a cycle group's import edges establish about module load.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CycleLoad {
+    /// Eager edges alone close a loop inside the group.
+    Runtime,
+    /// A loop closes only with an edge of unknown load: neither proven.
+    Unknown,
+    /// No loop runs at module load.
+    NoLoad,
+}
+
+impl CycleLoad {
+    /// The `runtime` value of a cycle row.
+    pub(super) fn as_json(self) -> serde_json::Value {
+        match self {
+            Self::Runtime => serde_json::Value::Bool(true),
+            Self::Unknown => serde_json::Value::String("unknown".to_owned()),
+            Self::NoLoad => serde_json::Value::Bool(false),
+        }
+    }
+}
+
 /// The cycles of a file graph as every cycle surface reports them: the
 /// strongly connected groups of the dependency graph (module trees left
 /// out), and inside each the groups its runtime edges close.
@@ -70,6 +92,8 @@ pub(super) struct Cycles {
     pub condensed: Condensed,
     /// The cycle groups of the runtime subgraph of `uses`.
     runtime_groups: std::sync::OnceLock<Vec<Vec<String>>>,
+    /// The cycle groups with edges of unknown load counted as eager.
+    possible_groups: std::sync::OnceLock<Vec<Vec<String>>>,
 }
 
 impl Cycles {
@@ -80,6 +104,7 @@ impl Cycles {
             uses,
             condensed,
             runtime_groups: std::sync::OnceLock::new(),
+            possible_groups: std::sync::OnceLock::new(),
         }
     }
 
@@ -98,17 +123,29 @@ impl Cycles {
             })
     }
 
-    /// The runtime cycle groups inside `members` (one static group).
-    pub(super) fn runtime_within(&self, members: &BTreeSet<String>) -> Vec<Vec<String>> {
-        self.runtime_groups
-            .get_or_init(|| {
-                scc_filtered(&self.uses, true, |kinds| {
-                    kinds.keys().any(|kind| load(kind) == Load::Eager)
-                })
+    /// What the edges inside `members` (one static group) establish.
+    pub(super) fn load_within(&self, members: &BTreeSet<String>) -> CycleLoad {
+        let within = |groups: &[Vec<String>]| {
+            groups
+                .iter()
+                .any(|group| group.iter().all(|file| members.contains(file)))
+        };
+        if within(self.runtime_groups.get_or_init(|| {
+            scc_filtered(&self.uses, true, |kinds| {
+                kinds.keys().any(|kind| load(kind) == Load::Eager)
             })
-            .iter()
-            .filter(|group| group.iter().all(|file| members.contains(file)))
-            .cloned()
-            .collect()
+        })) {
+            return CycleLoad::Runtime;
+        }
+        if within(self.possible_groups.get_or_init(|| {
+            scc_filtered(&self.uses, true, |kinds| {
+                kinds
+                    .keys()
+                    .any(|kind| matches!(load(kind), Load::Eager | Load::Unknown))
+            })
+        })) {
+            return CycleLoad::Unknown;
+        }
+        CycleLoad::NoLoad
     }
 }

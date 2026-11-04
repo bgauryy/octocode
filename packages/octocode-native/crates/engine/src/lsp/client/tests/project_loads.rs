@@ -206,6 +206,16 @@ async fn outline(
     content: &str,
     answers: Vec<serde_json::Value>,
 ) -> (Arc<Value>, Option<String>, Arc<Value>, Duration, usize) {
+    outline_with(content, answers, false).await
+}
+
+/// [`outline`], where `stalls` makes the server start a project load after
+/// its first answer and never finish it.
+async fn outline_with(
+    content: &str,
+    answers: Vec<serde_json::Value>,
+    stalls: bool,
+) -> (Arc<Value>, Option<String>, Arc<Value>, Duration, usize) {
     let (_tmp, dirs) = projects(&["p"]);
     let (client, mut reader, mut writer) =
         client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
@@ -221,7 +231,7 @@ async fn outline(
             read_client_frame(&mut reader).await["method"],
             "textDocument/didOpen"
         );
-        for answer in answers {
+        for (index, answer) in answers.into_iter().enumerate() {
             let request = read_client_frame(&mut reader).await;
             assert_eq!(request["method"], "textDocument/documentSymbol");
             send(
@@ -229,6 +239,9 @@ async fn outline(
                 json!({"jsonrpc":"2.0","id":request["id"],"result":answer}),
             )
             .await;
+            if stalls && index == 0 {
+                progress(&mut writer, "stalled", "begin").await;
+            }
         }
         (reader, writer)
     });
@@ -282,4 +295,54 @@ async fn an_outline_with_symbols_or_of_a_blank_file_waits_nothing() {
     let (symbols, readiness, _, elapsed, _) = outline("  \n", vec![json!([])]).await;
     assert_eq!(*symbols, json!([]));
     assert_eq!((readiness, elapsed), (None, Duration::ZERO));
+}
+
+/// Issue #479: when the owed wait times out, the retry still asks once more
+/// and reports `timeout`, so the row can be flagged still loading.
+#[tokio::test(start_paused = true)]
+async fn a_timed_out_retry_reports_the_timeout() {
+    let symbol = json!([{"name":"f","kind":12}]);
+    let (symbols, readiness, _, elapsed, _) = outline_with(
+        "export function f() {}\n",
+        vec![json!([]), symbol.clone()],
+        true,
+    )
+    .await;
+    assert_eq!(*symbols, symbol);
+    assert_eq!(readiness.as_deref(), Some("timeout"));
+    assert!(elapsed >= Duration::from_millis(u64::from(OPEN_READY_TIMEOUT_MS)));
+}
+
+/// A client whose startup wait timed out and then resumed to idle (as a
+/// pooled client does on acquire) reports that confirmed readiness, never
+/// the stale `timeout`, for a later file whose wait was owed nothing.
+#[tokio::test(start_paused = true)]
+async fn a_resumed_client_does_not_report_a_stale_timeout() {
+    let (_tmp, dirs) = projects(&["p"]);
+    let (client, _reader, mut writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    let mut active = client.inner.progress.subscribe();
+    progress(&mut writer, "startup", "begin").await;
+    active
+        .wait_for(|count| *count == 1)
+        .await
+        .expect("indexing began");
+    assert_eq!(
+        client.wait_for_ready(Some(2_000)).await.expect("wait"),
+        "timeout"
+    );
+    let server = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        progress(&mut writer, "startup", "end").await;
+        writer
+    });
+    client.resume_timed_out_readiness(2_000).await;
+    assert_eq!(client.readiness().as_deref(), Some("progressIdle"));
+    let path = file(&dirs[0], "a.ts");
+    let readiness = client
+        .open_document_and_wait(path, "export {};\n", None, None)
+        .await
+        .expect("open");
+    assert_eq!(readiness.as_deref(), Some("progressIdle"));
+    let _writer = server.await.expect("server");
 }

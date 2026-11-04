@@ -19,6 +19,9 @@ pub struct QueryOptions {
     pub targets: Vec<String>,
     /// `unresolved`: keep only rows with these reasons, before paging.
     pub reasons: Vec<String>,
+    /// `witnesses`/`unresolved`: keep only rows of this target name, before
+    /// paging.
+    pub name: Option<String>,
     /// Characters this answer may fill: the row's share of the response
     /// page. A list page ends at `limit` rows or this budget, whichever
     /// comes first. `None`: `limit` alone.

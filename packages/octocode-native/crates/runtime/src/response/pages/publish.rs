@@ -127,6 +127,24 @@ pub(crate) fn drop_echoes(structured: &mut Value, queries: &[Value], row_indices
         };
         if let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) {
             data.retain(|key, value| query.get(key) != Some(value));
+            drop_resource_echoes(data, query);
+        }
+    }
+}
+
+/// A resource's `source` repeats the row's `resources.<key>` when unchanged.
+fn drop_resource_echoes(
+    data: &mut serde_json::Map<String, Value>,
+    query: &serde_json::Map<String, Value>,
+) {
+    let Some(resources) = data.get_mut("resources").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for (key, resource) in resources {
+        if let Some(resource) = resource.as_object_mut()
+            && query.get("resources").and_then(|asked| asked.get(key)) == resource.get("source")
+        {
+            resource.remove("source");
         }
     }
 }
@@ -204,6 +222,17 @@ mod tests {
         assert_eq!(output["results"][0]["data"], json!({}));
         assert_eq!(output["results"][1]["data"]["filesSkipped"], 2);
         assert_eq!(output["results"][1]["data"]["isPartial"], true);
+    }
+
+    #[test]
+    fn a_structured_value_the_request_stated_is_an_echo_too() {
+        let questions = json!({"a":{"type":"noul"}});
+        let queries = [json!({"questions":questions})];
+        let mut output = json!({"results":[{"index":0,"data":{
+            "questions":questions,"resources":{},
+        }}]});
+        drop_echoes(&mut output, &queries, &[0]);
+        assert_eq!(output["results"][0]["data"], json!({"resources":{}}));
     }
 
     #[test]

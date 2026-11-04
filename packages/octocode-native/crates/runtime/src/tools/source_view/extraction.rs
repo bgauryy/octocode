@@ -134,8 +134,10 @@ fn ranges_extract(
     for range in requested {
         if range.start > total {
             warnings.push(format!(
-                "Range {}-{} starts past the file end ({total} lines); skipped.",
-                range.start, range.end
+                "Range {}-{} starts past the file end ({}); skipped.",
+                range.start,
+                range.end,
+                octocode_engine::text::counted(total, "line", "lines")
             ));
             continue;
         }
@@ -153,7 +155,10 @@ fn ranges_extract(
     if kept.is_empty() {
         return Err(ExtractionError::new(
             ErrorCode::InvalidInput,
-            format!("Requested lines start past the file end ({total} lines)"),
+            format!(
+                "Requested lines start past the file end ({})",
+                octocode_engine::text::counted(total, "line", "lines")
+            ),
         ));
     }
     let mut rest = vec![];

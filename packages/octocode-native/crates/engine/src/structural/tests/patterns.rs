@@ -260,6 +260,23 @@ fn a_named_root_pattern_is_a_declaration() {
     assert_eq!(pattern_declaration("fn ???", "rs"), None);
 }
 
+/// An export wraps the declaration it exports; one that exports no named
+/// declaration is no declaration.
+#[test]
+fn an_exported_declaration_is_the_declaration_inside_its_export() {
+    let exported = pattern_declaration("export function run($$$) { $$$ }", "ts").expect("export");
+    assert_eq!(exported.kind, "function_declaration");
+    assert_eq!(exported.inside.as_deref(), Some("export_statement"));
+    assert_eq!(
+        exported.name,
+        Some(("identifier".to_owned(), "run".to_owned()))
+    );
+    let plain = pattern_declaration("function run($$$) { $$$ }", "ts").expect("plain");
+    assert_eq!(plain.inside, None);
+    assert_eq!(pattern_declaration("export const $A = 1", "ts"), None);
+    assert_eq!(pattern_declaration("export { $A }", "ts"), None);
+}
+
 /// A declaration pattern that spells no body parses as the grammar's
 /// smaller form of the declaration (a signature), which matches none of
 /// the definitions: the declaration names the fuller kinds it leaves out.

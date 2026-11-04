@@ -32,7 +32,12 @@ pub(super) struct Parsing {
 impl Parsing {
     pub(super) fn new(total: usize) -> Self {
         let sink = sink();
-        send(sink.as_ref(), || format!("parsing {total} files"));
+        send(sink.as_ref(), || {
+            format!(
+                "parsing {}",
+                octocode_engine::text::counted(total, "file", "files")
+            )
+        });
         Self {
             sink,
             total,

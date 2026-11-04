@@ -9,6 +9,7 @@ mod calls;
 pub(crate) mod extractor;
 pub mod graph_facts;
 pub(crate) mod js_oxc;
+pub mod markup;
 pub use js_oxc::call_sites::{EnclosingCallable, ReferenceSite, reference_sites};
 pub(crate) mod node_kinds;
 mod nodes;
@@ -40,8 +41,10 @@ pub(crate) mod receiver_fields;
 /// declared return types, receiver-call references, and block-level and
 /// file-level `static`/`const` receiver types. v17: TS/JS receivers
 /// destructured from a call to the file's own function take the types of
-/// the object it returns (`const { s } = make()`).
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 17;
+/// the object it returns (`const { s } = make()`). v18: the JS/TS tree-sitter
+/// lane says it is the fallback, reads `import type`, re-exports, written
+/// `export`s and module-level variables, and leaves other load unknown.
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 18;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking
@@ -107,6 +110,19 @@ pub(crate) fn extract_graph_facts_with_metadata_inner(
         .or_else(|| tree_sitter_graph_facts(content, file_path))
 }
 
+/// [`extract_graph_facts_with_metadata_inner`] parsed as `extension` (a
+/// `language` override) instead of the path's own: the override selects the
+/// grammar, and the extraction stays with that grammar's owner.
+pub(crate) fn extract_graph_facts_parsed_as(
+    content: &str,
+    file_path: &str,
+    extension: &str,
+) -> Option<GraphFactsExtraction> {
+    js_oxc::extract_graph_facts_as(content, file_path, Some(extension)).or_else(|| {
+        graph_facts::extract_graph_facts_with_metadata_with_extension(content, file_path, extension)
+    })
+}
+
 /// Tree-sitter graph facts with the grammar chosen from the path, except that
 /// Flow-typed JavaScript is read with the TSX grammar: the JS grammar recovers
 /// Flow annotations as garbage declarations (`if` "functions").
@@ -168,6 +184,9 @@ pub fn extract_declarations_document_with_extension(
 ) -> Option<crate::graph::GraphFactsDocument> {
     if content.len() > MAX_PARSE_SIZE {
         return None;
+    }
+    if let Some(facts) = js_oxc::extract_declarations_as(content, file_path, Some(extension)) {
+        return Some(facts);
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         graph_facts::extract_facts_before(

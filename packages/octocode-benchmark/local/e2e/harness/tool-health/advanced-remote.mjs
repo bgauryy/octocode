@@ -148,7 +148,7 @@ async function readerForms(ctx) {
     ['view.compactRange', { ...row, view: 'compact', ranges: [{ startLine: 6, endLine: 9 }] }, d => (d.view ?? 'compact') === 'compact' && d.content.includes('`hello ${name}`') && d.content.includes('return') && !d.content.includes('healthMarker') && !d.content.includes('class Greeter')],
     ['view.compactBlock', { ...row, view: 'compact', ranges: [{ startLine: 7, endLine: 7 }], block: true }, d => (d.view ?? 'compact') === 'compact' && d.content.includes('function greet') && d.content.includes('`hello ${name}`') && !d.content.includes('healthMarker')],
   ]);
-  for (const surface of ctx.surfaces) for (const extra of [{ minify: true }, { matchString: 'greet' }, { view: 'compact', matchString: ['greet'] }, { view: 'symbols', ranges: [{ startLine: 1, endLine: 2 }] }]) {
+  for (const surface of ctx.surfaces) for (const extra of [{ minify: true }, { view: 'compact', matchString: ['greet'] }, { view: 'symbols', ranges: [{ startLine: 1, endLine: 2 }] }]) {
     const before = readerRequests(ctx, surface).length;
     const result = await ctx.call(ctx.q({ ...row, ...extra }), surface);
     const failure = data(result).errorCode ?? result.json?.errorCode;

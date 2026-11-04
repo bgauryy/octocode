@@ -12,7 +12,7 @@ import { transportProblem } from './tool-health/compare.mjs';
 
 if (!LIVE) throw new Error('Live provider checks require OCTOCODE_LIVE=1');
 const { check, summary } = checks('remote');
-const env = { ...process.env, OCTOCODE_BETA: 'true', OCTOCODE_LSP_AUTO_INSTALL: 'off', PATH: `${path.join(ROOT, 'node_modules/.bin')}${path.delimiter}${process.env.PATH}` };
+const env = { ...process.env, OCTOCODE_BETA: 'true', OCTOCODE_ENABLE_CLONE: 'true', OCTOCODE_LSP_AUTO_INSTALL: 'off', PATH: `${path.join(ROOT, 'node_modules/.bin')}${path.delimiter}${process.env.PATH}` };
 const provenance = { contract: contract.fingerprint, native: nativeBinaryStamp() };
 const { validateInput, validateOutput } = contractValidators();
 const presentation = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/octocode-config/contract/cli-presentation.json'), 'utf8'));
@@ -58,7 +58,7 @@ async function exercise(tool, query, inspect, { label = tool, responseChars = 40
       surface, maxCalls: 1, maxPages: 24, call: (name, input) => call(surface, name, input),
     });
     check(`${label}.${surface}.flow`, !report.failures.length && !report.root.isError && !errorCodes(report.root.json).length, report.failures.map(f => f.detail).join('; ') || errorCodes(report.root.json).join(','));
-    check(`${label}.${surface}.evidence`, inspect(data(report.root), report.root), JSON.stringify(data(report.root) ?? report.root.json).slice(0, 160));
+    check(`${label}.${surface}.evidence`, inspect(data(report.root), report.root), JSON.stringify(data(report.root) ?? report.root.json ?? null).slice(0, 160));
     results[surface] = report.root;
     exercised.add(`${tool}.${surface}`);
   }
@@ -125,7 +125,7 @@ try {
   await exercise('lspSearch', { path: localPath, operation: 'hover', symbolName: symbol, line }, d => JSON.stringify(d).includes(symbol));
   const built = await exercise('graphBuild', { path: 'packages/octocode-config/src' }, d => typeof d?.id === 'string' && d?.scan?.filesScanned > 0);
   const graph = data(built.cli)?.id;
-  if (graph) await exercise('graphQuery', { operation: 'find', path: data(built.cli).root, graph, target: symbol }, d => d?.results?.some(row => row.name === symbol));
+  if (graph) await exercise('graphQuery', { operation: 'find', path: data(built.cli).root, graph, target: symbol }, d => d?.rows?.some(row => row.name === symbol));
   await exercise('clasify', { operation: 'models' }, d => d?.models?.length > 0 && d.models.some(model => model.default), { label: 'clasify.models' });
   await exercise('clasify', { operation: 'evaluate', content: 'The color is blue.', questions: { blue: { type: 'noul', instructions: 'Does the text explicitly say the color is blue?' } } }, d => typeof d?.answers?.blue?.noul === 'number' && !!d?.usage, { label: 'clasify.evaluate' });
   if (publicSource) await publicSourceChecks(publicSource);

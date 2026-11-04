@@ -114,7 +114,6 @@ pub(super) fn parse_next(
 #[derive(Deserialize, Default)]
 struct ErrorBody {
     message: Option<String>,
-    documentation_url: Option<String>,
     /// GitHub validation failures carry the specific cause here
     /// (`"abc" is not a numeric value`) under a generic `Validation Failed`.
     #[serde(default)]
@@ -182,7 +181,6 @@ pub(super) fn response_error(
             .get("x-github-request-id")
             .and_then(|v| v.to_str().ok())
             .map(Into::into),
-        documentation_url: parsed.documentation_url.map(String::into_boxed_str),
         rate_limit: None,
         retryable: classify_status(status.as_u16()).is_retryable(),
         reason: missing_ref.then_some(ProviderErrorReason::RefNotFound),

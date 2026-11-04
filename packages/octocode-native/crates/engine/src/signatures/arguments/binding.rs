@@ -9,6 +9,10 @@ use super::ArgumentAdapter;
 use crate::graph::{ByteRange, GraphArgumentBinding, ObservedSpan};
 use crate::signatures::nodes::node_text;
 
+mod kinds;
+
+use kinds::{binding_fields, is_block_scope, is_callable_scope, unknown_scope};
+
 struct Binding {
     name_range: ObservedSpan,
     scope: std::ops::Range<usize>,
@@ -36,13 +40,17 @@ impl Bindings {
             lookup_admitted: true,
             ..Self::default()
         };
-        let mut pending = vec![root];
+        // Each node carries what its ancestors settle: `Node::parent()` searches
+        // from the root on every hop, so a climb per node costs the depth squared
+        // on the deep trees recovered parses make.
+        let mut pending = vec![(root, Scopes::of_root(root))];
         let mut cursor = root.walk();
-        while let Some(node) = pending.pop() {
+        let mut children = Vec::new();
+        while let Some((node, scopes)) = pending.pop() {
             if Instant::now() >= deadline || crate::deep_stack::job_cancelled() {
                 return result;
             }
-            if let Some(scope) = local_definition_barrier(node, source) {
+            if let Some(scope) = local_definition_barrier(node, source, scopes) {
                 result.unknown.push(scope.byte_range());
             }
             if unknown_scope(adapter, node.kind()) {
@@ -60,14 +68,14 @@ impl Bindings {
                 ) {
                     node
                 } else if adapter == ArgumentAdapter::Rust && node.kind() == "macro_invocation" {
-                    lexical_scope(node, false)
+                    scopes.block
                 } else {
-                    lexical_scope(node, true)
+                    scopes.function
                 };
                 result.unknown.push(scope.byte_range());
             }
             if let Some((fields, parameter)) = binding_fields(adapter, node.kind()) {
-                let scope = binding_scope(node, adapter, parameter);
+                let scope = binding_scope(node, adapter, parameter, scopes);
                 for field in fields {
                     let mut children = node.walk();
                     for pattern in node.children_by_field_name(field, &mut children) {
@@ -115,7 +123,17 @@ impl Bindings {
                     }
                 }
             }
-            pending.extend(node.named_children(&mut cursor));
+            children.clear();
+            children.extend(node.named_children(&mut cursor));
+            if adapter.is_c_family() {
+                crate::signatures::graph_facts::c_family::retain_compiled(
+                    node,
+                    source,
+                    &mut children,
+                );
+            }
+            let below = scopes.below(node, adapter);
+            pending.extend(children.iter().map(|child| (*child, below)));
         }
         result.complete = true;
         result
@@ -158,30 +176,78 @@ impl Bindings {
     }
 }
 
-fn binding_scope(node: Node<'_>, adapter: ArgumentAdapter, parameter: bool) -> Node<'_> {
-    if parameter {
-        let mut parent = node.parent();
-        while let Some(current) = parent {
-            if matches!(current.kind(), "catch_clause" | "catch_handler") {
-                return current.child_by_field_name("body").unwrap_or(current);
-            }
-            if is_callable_scope(current.kind()) {
-                break;
-            }
-            parent = current.parent();
+/// What a node's ancestors settle for the bindings it may hold, carried down
+/// the walk so each node reads it in constant time.
+#[derive(Clone, Copy)]
+struct Scopes<'t> {
+    /// The node's parent.
+    parent: Option<Node<'t>>,
+    /// The nearest callable ancestor, else the root.
+    function: Node<'t>,
+    /// The nearest callable or block ancestor, else the root.
+    block: Node<'t>,
+    /// What the nearest catch ancestor binds its parameter in, unless a
+    /// callable lies between them.
+    catch_body: Option<Node<'t>>,
+    /// Rust: the body of the nearest ancestor that has one.
+    let_body: Option<Node<'t>>,
+}
+
+impl<'t> Scopes<'t> {
+    fn of_root(root: Node<'t>) -> Self {
+        Self {
+            parent: None,
+            function: root,
+            block: root,
+            catch_body: None,
+            let_body: None,
         }
     }
-    if adapter == ArgumentAdapter::Rust && node.kind() == "let_condition" {
-        let mut parent = node.parent();
-        while let Some(current) = parent {
-            if let Some(body) = current
-                .child_by_field_name("consequence")
-                .or_else(|| current.child_by_field_name("body"))
-            {
-                return body;
-            }
-            parent = current.parent();
+
+    /// The scopes of `node`'s children.
+    fn below(self, node: Node<'t>, adapter: ArgumentAdapter) -> Self {
+        let kind = node.kind();
+        let callable = is_callable_scope(kind);
+        Self {
+            parent: Some(node),
+            function: if callable { node } else { self.function },
+            block: if callable || is_block_scope(kind) {
+                node
+            } else {
+                self.block
+            },
+            catch_body: if matches!(kind, "catch_clause" | "catch_handler") {
+                Some(node.child_by_field_name("body").unwrap_or(node))
+            } else if callable {
+                None
+            } else {
+                self.catch_body
+            },
+            let_body: if adapter == ArgumentAdapter::Rust {
+                node.child_by_field_name("consequence")
+                    .or_else(|| node.child_by_field_name("body"))
+                    .or(self.let_body)
+            } else {
+                None
+            },
         }
+    }
+}
+
+fn binding_scope<'t>(
+    node: Node<'t>,
+    adapter: ArgumentAdapter,
+    parameter: bool,
+    scopes: Scopes<'t>,
+) -> Node<'t> {
+    if parameter && let Some(body) = scopes.catch_body {
+        return body;
+    }
+    if adapter == ArgumentAdapter::Rust
+        && node.kind() == "let_condition"
+        && let Some(body) = scopes.let_body
+    {
+        return body;
     }
     if matches!(node.kind(), "for_expression" | "enhanced_for_statement") {
         return node.child_by_field_name("body").unwrap_or(node);
@@ -191,7 +257,11 @@ fn binding_scope(node: Node<'_>, adapter: ArgumentAdapter, parameter: bool) -> N
     {
         return node;
     }
-    lexical_scope(node, parameter || adapter == ArgumentAdapter::Python)
+    if parameter || adapter == ArgumentAdapter::Python {
+        scopes.function
+    } else {
+        scopes.block
+    }
 }
 
 fn visible_from(
@@ -220,8 +290,12 @@ fn visible_from(
     }
 }
 
-fn local_definition_barrier<'a>(node: Node<'a>, source: &str) -> Option<Node<'a>> {
-    let declaration = crate::signatures::nodes::declaration(node, source);
+fn local_definition_barrier<'a>(
+    node: Node<'a>,
+    source: &str,
+    scopes: Scopes<'a>,
+) -> Option<Node<'a>> {
+    let declaration = crate::signatures::nodes::declaration_under(node, scopes.parent, source);
     let boundary = declaration.is_some_and(|(kind, _)| {
         matches!(
             kind,
@@ -238,134 +312,5 @@ fn local_definition_barrier<'a>(node: Node<'a>, source: &str) -> Option<Node<'a>
     if !boundary {
         return None;
     }
-    let scope = lexical_scope(node, true);
-    is_callable_scope(scope.kind()).then_some(scope)
-}
-
-fn is_callable_scope(kind: &str) -> bool {
-    matches!(
-        kind,
-        "function_definition"
-            | "function_item"
-            | "function_declaration"
-            | "method_declaration"
-            | "constructor_declaration"
-            | "local_function_statement"
-            | "lambda_expression"
-            | "closure_expression"
-            | "func_literal"
-    )
-}
-
-fn lexical_scope(mut node: Node<'_>, function: bool) -> Node<'_> {
-    while let Some(parent) = node.parent() {
-        node = parent;
-        if is_callable_scope(node.kind())
-            || (!function
-                && matches!(
-                    node.kind(),
-                    "block"
-                        | "compound_statement"
-                        | "statement_block"
-                        | "constructor_body"
-                        | "class_body"
-                        | "field_declaration_list"
-                        | "declaration_list"
-                        | "for_statement"
-                        | "for_expression"
-                        | "enhanced_for_statement"
-                        | "for_each_statement"
-                        | "catch_clause"
-                        | "match_arm"
-                ))
-        {
-            break;
-        }
-    }
-    node
-}
-
-fn binding_fields(adapter: ArgumentAdapter, kind: &str) -> Option<(&'static [&'static str], bool)> {
-    use ArgumentAdapter as A;
-    Some(match (adapter, kind) {
-        (A::Rust, "parameter" | "self_parameter") => (&["pattern"], true),
-        (A::Rust, "let_declaration" | "for_expression" | "let_condition" | "match_arm") => {
-            (&["pattern"], false)
-        }
-        (A::Go, "parameter_declaration" | "variadic_parameter_declaration") => (&["name"], true),
-        (A::Go, "var_spec" | "const_spec") => (&["name"], false),
-        (A::Go, "short_var_declaration" | "range_clause" | "receive_statement") => {
-            (&["left"], false)
-        }
-        (A::Python, "assignment" | "augmented_assignment" | "for_statement" | "for_in_clause") => {
-            (&["left"], false)
-        }
-        (A::Python, "named_expression") => (&["name"], false),
-        (A::Python, "function_definition" | "lambda") => (&["parameters"], true),
-        (adapter, "parameter_declaration" | "optional_parameter_declaration")
-            if adapter.is_c_family() =>
-        {
-            (&["declarator"], true)
-        }
-        (adapter, "declaration" | "init_declarator" | "field_declaration")
-            if adapter.is_c_family() =>
-        {
-            (&["declarator"], false)
-        }
-        (A::Java, "formal_parameter" | "spread_parameter" | "catch_formal_parameter") => {
-            (&["name"], true)
-        }
-        (A::Java, "variable_declarator" | "enhanced_for_statement") => (&["name"], false),
-        #[cfg(feature = "tree-sitter-c-sharp")]
-        (A::CSharp, "parameter") => (&["name"], true),
-        #[cfg(feature = "tree-sitter-c-sharp")]
-        (A::CSharp, "variable_declarator" | "catch_declaration") => (&["name"], false),
-        (A::Scala, "parameter" | "class_parameter") => (&["name"], true),
-        (A::Scala, "val_definition" | "var_definition") => (&["pattern"], false),
-        (A::JavaScript, "variable_declarator") => (&["name"], false),
-        _ => return None,
-    })
-}
-
-fn unknown_scope(adapter: ArgumentAdapter, kind: &str) -> bool {
-    use ArgumentAdapter as A;
-    match adapter {
-        // OXC supplies precise binding admission; its recovery fallback cannot.
-        A::JavaScript => true,
-        A::Python => matches!(
-            kind,
-            "global_statement"
-                | "delete_statement"
-                | "nonlocal_statement"
-                | "list_comprehension"
-                | "dictionary_comprehension"
-                | "set_comprehension"
-                | "generator_expression"
-                | "with_statement"
-                | "except_clause"
-        ),
-        A::Rust => matches!(
-            kind,
-            "closure_expression" | "macro_invocation" | "match_expression" | "let_chain"
-        ),
-        #[cfg(any(feature = "tree-sitter-cpp", feature = "tree-sitter-cuda"))]
-        A::CFamily => unknown_scope(A::C, kind),
-        A::C => matches!(
-            kind,
-            "lambda_expression" | "preproc_def" | "preproc_function_def" | "for_range_loop"
-        ),
-        A::Java => matches!(kind, "lambda_expression" | "instanceof_expression"),
-        #[cfg(feature = "tree-sitter-c-sharp")]
-        A::CSharp => matches!(
-            kind,
-            "lambda_expression"
-                | "anonymous_method_expression"
-                | "declaration_expression"
-                | "declaration_pattern"
-                | "recursive_pattern"
-                | "for_each_statement"
-        ),
-        A::Scala => matches!(kind, "lambda_expression" | "case_clause" | "for_expression"),
-        A::Go => kind == "type_switch_statement",
-    }
+    is_callable_scope(scopes.function.kind()).then_some(scopes.function)
 }

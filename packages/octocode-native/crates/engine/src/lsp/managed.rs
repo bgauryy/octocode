@@ -10,8 +10,13 @@
 //! release API by `node skills-dev/octocode-dev/scripts/dev.mjs lsp:lock`,
 //! which also reads [`SERVERS`] below: keep one string literal per field.
 mod lock;
+mod platform;
 
 pub use lock::{AssetLock, ReleaseLock};
+pub(crate) use platform::npm_platform_id;
+pub use platform::platform_id;
+#[cfg(test)]
+use platform::platform_id_for;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -249,54 +254,6 @@ fn bare_name(name: &str) -> &str {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or(name)
-}
-
-/// The canonical `{os}-{arch}[-musl]` platform id the manifest is keyed on.
-pub fn platform_id() -> String {
-    platform_id_for(
-        std::env::consts::OS,
-        std::env::consts::ARCH,
-        is_musl_linux(),
-    )
-}
-
-/// The Node-style `{platform}-{arch}` id (no musl suffix) that npm platform
-/// packages are named by, such as `@typescript/native-preview-darwin-arm64`.
-pub(crate) fn npm_platform_id() -> String {
-    platform_id_for(std::env::consts::OS, std::env::consts::ARCH, false)
-}
-
-fn platform_id_for(os: &str, arch: &str, musl: bool) -> String {
-    // Only the two shipped architectures get their npm-style names; any other
-    // keeps its Rust name, so manifest lookup reports it unsupported instead
-    // of selecting an arm64 binary.
-    let arch = match arch {
-        "x86_64" => "x64",
-        "aarch64" => "arm64",
-        other => other,
-    };
-    match os {
-        "macos" => format!("darwin-{arch}"),
-        "windows" => format!("win32-{arch}"),
-        _ => {
-            let suffix = if musl { "-musl" } else { "" };
-            format!("linux-{arch}{suffix}")
-        }
-    }
-}
-
-/// True when the current Linux runtime links musl libc (Alpine etc.).
-fn is_musl_linux() -> bool {
-    if std::env::consts::OS != "linux" {
-        return false;
-    }
-    std::fs::read_dir("/lib").is_ok_and(|entries| {
-        entries.flatten().any(|e| {
-            e.file_name()
-                .to_str()
-                .is_some_and(|n| n.starts_with("ld-musl-"))
-        })
-    })
 }
 
 /// Where a provisioned binary lives once installed:

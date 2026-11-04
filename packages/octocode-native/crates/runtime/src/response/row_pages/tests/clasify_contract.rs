@@ -39,10 +39,9 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
         resources.insert(resource.into(), json!({"status":"ready",
             "source":{"tool":"localFetch","query":{"path":format!("{resource}.ts"),
                 "ranges":[{"startLine":1,"endLine":2},{"startLine":4,"endLine":5}]}},
-            "snapshot":format!("fixed-{resource}"),"coordinateSpace":"source",
+            "snapshot":format!("fixed-{resource}"),
             "read":{"kind":"continue","tool":"localFetch","input":{"cursor":"cursor1.pinned-source"}},
-            "sections":sections,"coverage":{"totalSections":3,"completedSections":3,"remainingSections":0,
-                "answered":21,"error":0,"unsupported":0,"unassessed":0}}));
+            "sections":sections,"coverage":{"totalSections":3,"answered":21}}));
     }
     let original = json!({"operation":"sections","resources":resources,"questions":questions,
         "next":{"nextPage":{"kind":"continue","tool":"clasify","input":{"cursor":"cursor1.saved-assessment"}}}});
@@ -74,7 +73,7 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
             }
             for (key, resource) in data["resources"].as_object().expect("resources") {
                 let expected_resource = &original["resources"][key];
-                for field in ["source", "snapshot", "coordinateSpace", "read", "coverage"] {
+                for field in ["source", "snapshot", "read", "coverage"] {
                     assert_eq!(resource[field], expected_resource[field], "{key}/{field}");
                 }
                 for section in resource["sections"].as_array().expect("sections") {

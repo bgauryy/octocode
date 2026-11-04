@@ -2,9 +2,11 @@
 
 pub(crate) mod generated;
 pub(crate) mod listing_roles;
+mod normalize;
 mod prepare;
 mod private_state;
 pub mod query_limits;
+pub(crate) use normalize::normalized_input;
 pub(crate) use private_state::state_fields;
 pub(crate) mod output_fields;
 mod schema_facts;

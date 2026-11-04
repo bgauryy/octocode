@@ -8,6 +8,7 @@ use octocode_engine::lsp::config::LspDiscoveryOptions;
 use octocode_engine::lsp::managed::{
     ArchiveKind, AssetIdentity, AssetLock, ManifestAsset, marker_path,
 };
+mod attestation;
 mod commands;
 mod downloads;
 mod install;
@@ -199,7 +200,7 @@ impl Upstream for Fake {
             .map_err(|e| e.to_string())?;
         Ok(file)
     }
-    async fn attest(&self, _repo: &str, _tag: &str, _file: &std::path::Path) -> Attestation {
+    async fn attest(&self, _repo: &str, _tag: &str, _sha256: &str) -> Attestation {
         self.attestation.clone()
     }
 }
@@ -207,16 +208,29 @@ impl Upstream for Fake {
 /// A local HTTP server answering every request with `status` and `body`
 /// (the GitHub API as a fixture); its base URL.
 fn serve(status: u16, body: String) -> String {
+    serve_recording(status, body).0
+}
+
+/// [`serve`], also handing back the head (request line and headers) of every
+/// request it has received.
+fn serve_recording(
+    status: u16,
+    body: String,
+) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
     use std::io::{BufRead, BufReader};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
     let base = format!("http://{}", listener.local_addr().expect("addr"));
+    let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = std::sync::Arc::clone(&requests);
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let mut reader = BufReader::new(&stream);
-            let mut line = String::new();
+            let (mut line, mut head) = (String::new(), String::new());
             while reader.read_line(&mut line).is_ok_and(|n| n > 0) && line != "\r\n" {
+                head.push_str(&line);
                 line.clear();
             }
+            seen.lock().expect("requests").push(head);
             let response = format!(
                 "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                 body.len()
@@ -224,7 +238,7 @@ fn serve(status: u16, body: String) -> String {
             let _ = (&stream).write_all(response.as_bytes());
         }
     });
-    base
+    (base, requests)
 }
 
 /// Entries left in the per-target install directory, the lock aside.

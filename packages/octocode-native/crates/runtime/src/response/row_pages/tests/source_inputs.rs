@@ -16,7 +16,7 @@ fn section_pages_preserve_source_input_arrays() {
         })
         .collect::<Vec<_>>();
     let row = json!({"index":2,"data":{"operation":"sections","resources":{"picked":{
-        "status":"ready","source":source,"snapshot":"fixed","coordinateSpace":"source",
+        "status":"ready","source":source,"snapshot":"fixed",
         "sections":sections
     }}}});
     let plan = PreparedRows::new(vec![row], &[None], crate::id::ToolId::Clasify)

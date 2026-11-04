@@ -26,6 +26,8 @@ pub(super) struct PackageIndex {
     /// Go files were scanned but no `go.mod` names their module, at or above
     /// the scan root: every module import is unlinkable, not external.
     go_module_missing: bool,
+    /// Each Go file's package clause: the name a plain import of it binds.
+    go_package_names: HashMap<String, String>,
 }
 
 /// How a package import resolved.
@@ -158,6 +160,30 @@ impl PackageIndex {
 
     pub(super) fn go_module_missing(&self) -> bool {
         self.go_module_missing
+    }
+
+    /// What each scanned Go file's own facts say of it: the name its package
+    /// clause binds, and whether a build constraint keeps it out of its
+    /// package, so no import reaches it.
+    pub(super) fn with_go_files<'a>(
+        mut self,
+        files: impl Iterator<Item = (&'a str, Option<&'a str>, bool)>,
+    ) -> Self {
+        for (file, package, excluded) in files {
+            if let Some(package) = package {
+                self.go_package_names
+                    .insert(file.to_owned(), package.to_owned());
+            }
+            if excluded && let Some(files) = self.files_by_dir.get_mut(dirname(file)) {
+                files.retain(|known| known != file);
+            }
+        }
+        self
+    }
+
+    /// The name a plain Go import of `file`'s package binds.
+    pub(super) fn go_package_name(&self, file: &str) -> Option<&str> {
+        self.go_package_names.get(file).map(String::as_str)
     }
 
     pub(super) fn resolve(

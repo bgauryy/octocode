@@ -32,8 +32,6 @@ pub(super) async fn resolve_listing_ref(
 pub(super) struct ListingPage<'a> {
     pub(super) current: usize,
     pub(super) per_page: usize,
-    /// The caller's `limit`, when a dated page lists fewer entries than it.
-    pub(super) capped_from: Option<usize>,
     pub(super) total_entries: usize,
     pub(super) total_pages: usize,
     pub(super) entries: &'a [TreeEntry],
@@ -46,16 +44,8 @@ impl<'a> ListingPage<'a> {
             .map_or(1, |page| octocode_engine::num::saturating_usize(page.get()));
         // Entries per page: the query's `limit` (its contract default when
         // omitted); each page reads the tree afresh at the pinned commit, so
-        // any size pages it losslessly. A dated page lists at most one date
-        // request's entries ([`dates::DATED_PER_PAGE`]): every page is one
-        // call, so `page` and `totalPages` count the calls of the walk. A
-        // materialized page is not dated and keeps the whole `limit`.
-        let limit = octocode_engine::num::saturating_usize(query.limit.get());
-        let per_page = if query.materialize == Some(true) {
-            limit
-        } else {
-            limit.min(dates::DATED_PER_PAGE)
-        };
+        // any size pages it losslessly.
+        let per_page = octocode_engine::num::saturating_usize(query.limit.get());
         let total_entries = all.len();
         let total_pages = crate::response::page_windows::count_pages(total_entries, per_page);
         let start = current
@@ -66,7 +56,6 @@ impl<'a> ListingPage<'a> {
         Self {
             current,
             per_page,
-            capped_from: (per_page < limit).then_some(limit),
             total_entries,
             total_pages,
             entries: &all[start..end],
@@ -249,13 +238,9 @@ fn bare_words<'a>(include: impl IntoIterator<Item = &'a str>) -> Vec<String> {
 /// repo-relative (the same base as `path` and `include`), `"."` only for
 /// the repository root, which leads. Each listed entry carries its facts in
 /// the structureSearch entry form, `"<name> (<fields>)"` (the last `" ("`
-/// opens them): a file its size in bytes, then the day of its last commit
-/// (`dates`, keyed by repo-relative path); a folder, named `"<name>/"`, that
-/// day. Names sort within each row.
-pub(super) fn build_structure(
-    entries: &[TreeEntry],
-    dates: &std::collections::HashMap<String, String>,
-) -> Vec<Value> {
+/// opens them): a file its size in bytes; a folder is named `"<name>/"`.
+/// Names sort within each row.
+pub(super) fn build_structure(entries: &[TreeEntry]) -> Vec<Value> {
     let mut dirs = std::collections::BTreeMap::<&str, Vec<(&str, String)>>::new();
     for entry in entries {
         let path = entry.path.as_str();
@@ -266,7 +251,6 @@ pub(super) fn build_structure(
             .flatten()
             .map(|size| size.to_string())
             .into_iter()
-            .chain(dates.get(path).cloned())
             .collect::<Vec<_>>();
         let text = entry_text(name, !file, &fields);
         dirs.entry(parent).or_default().push((name, text));

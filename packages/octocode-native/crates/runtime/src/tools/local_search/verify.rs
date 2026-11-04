@@ -12,7 +12,7 @@ use octocode_engine::num::saturating_u32;
 use octocode_engine::signatures::MAX_PARSE_SIZE;
 
 mod guard;
-mod lines;
+pub(super) mod lines;
 mod redaction;
 #[cfg(test)]
 mod verification_tests;
@@ -29,7 +29,7 @@ pub(super) use lines::{VerifyReadError, materialize, read_verification_lines};
 #[cfg(all(test, unix))]
 pub(super) use redaction::read_key_scan_bytes;
 use redaction::redact_key_block_lines;
-pub(super) use redaction::redact_scan;
+pub(super) use redaction::{redact_scan, scan_inspector};
 
 /// Upper bound (bytes) on a file re-read for the private-key block scan.
 /// Matches the secret scanner's own content cap; larger files fall back to the

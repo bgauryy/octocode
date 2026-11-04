@@ -15,6 +15,8 @@ mod go;
 mod imports;
 mod java;
 mod languages;
+mod markup;
+mod parser_fallback;
 mod python;
 mod rust;
 mod rust_idioms;

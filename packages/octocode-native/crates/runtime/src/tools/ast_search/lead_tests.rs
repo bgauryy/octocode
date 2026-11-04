@@ -370,7 +370,7 @@ fn a_cut_probe_discloses_that_its_lead_walks_everything_the_causes_hide() {
     let out = crate::tools::empty_walk::with_probe_budget(std::time::Duration::ZERO, || {
         run(&root.0, request)
     });
-    let warnings = out["warnings"].to_string();
+    let warnings = out["hints"].to_string();
     assert!(warnings.contains("not checked in time"), "{out}");
     assert!(
         warnings.contains(crate::tools::leads::skipped::WALKS_ALL_SKIPPED),

@@ -22,6 +22,19 @@ pub use source::{
 pub use utf8_offsets::{LineIndex, bom_len, line_at, line_containing, line_starts};
 pub use words::identifier_words;
 
+/// `count` and its noun in the right number: `1 line`, `2 lines`, `0 lines`.
+pub fn counted<N>(count: N, singular: &str, plural: &str) -> String
+where
+    N: std::fmt::Display + PartialEq + From<u8>,
+{
+    let noun = if count == N::from(1) {
+        singular
+    } else {
+        plural
+    };
+    format!("{count} {noun}")
+}
+
 /// `path` as a string with `/` separators on every platform: the one form
 /// a path takes in rows, keys and globs.
 pub fn slash_path(path: &std::path::Path) -> String {

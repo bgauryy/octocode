@@ -33,7 +33,7 @@ use macro_bodies::MacroBodies;
 use matching::{CandidateVisitor, CaptureEnv, collect_kind_matches, visit_named_expanding_macros};
 pub(super) use matching::{Found, MatchWithKind};
 pub use matching::{MATCH_DEADLINE, PARSE_INTERRUPTED};
-use pattern::CompiledPattern;
+use pattern::{CompiledPattern, with_return_types};
 pub use pattern::{PatternDeclaration, QualifiedPattern};
 use recovery::Recovery;
 pub use rule::RULE_INVALID;
@@ -81,6 +81,11 @@ pub(super) fn pattern_declaration(lang: &AgLanguage, pattern: &str) -> Option<Pa
 /// The longer spelling of `pattern` in `lang` ([`CompiledPattern::qualifier`]).
 pub(super) fn pattern_qualifier(lang: &AgLanguage, pattern: &str) -> Option<QualifiedPattern> {
     CompiledPattern::new(lang, pattern).ok()?.qualifier(pattern)
+}
+
+/// `pattern` with its empty return slots filled in `lang` ([`with_return_types`]).
+pub(super) fn pattern_with_return_types(lang: &AgLanguage, pattern: &str) -> Option<String> {
+    with_return_types(lang, pattern)
 }
 
 pub(super) fn compile_matcher(

@@ -46,7 +46,10 @@ async fn a_github_resource_is_planned_from_its_pinned_commit() {
     let out = sections(&runtime, json!({"guide": github_source("guide.md")})).await;
     let guide = &out["resources"]["guide"];
     assert_eq!(guide["status"], "ready", "{out:#}");
-    assert_eq!(guide["coordinateSpace"], "source");
+    assert!(
+        guide.get("coordinateSpace").is_none(),
+        "original source: {guide}"
+    );
     assert_eq!(
         guide["snapshot"], SHA,
         "the requested ref is pinned to its commit"

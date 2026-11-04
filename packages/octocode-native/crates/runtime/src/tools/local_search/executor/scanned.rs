@@ -228,6 +228,7 @@ pub(crate) fn search_options(
         // A scan small enough to store for later pages keeps the digest of
         // each matched file from the read that searched it (see `manifest`).
         values: SourceValues::Deferred,
+        inspect_deferred: Some(super::super::verify::scan_inspector()),
     }
 }
 

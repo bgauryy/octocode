@@ -52,6 +52,9 @@ pub(super) struct Registry {
     /// What issued tool continuations own, beside the handles (same
     /// directory and retention).
     evidence: Store<octocode_github::ProviderEvidence>,
+    /// What they own that the output gate would rewrite: this process's
+    /// memory only ([`evidence`]).
+    held_evidence: Store<octocode_github::ProviderEvidence>,
     policy: String,
     disk: Option<PathBuf>,
     mutation: Mutex<()>,
@@ -63,10 +66,10 @@ pub(super) struct Pending {
     access: [u8; 32],
     github_identity: Option<String>,
     issued: BTreeMap<String, Member>,
-    /// The tool whose continuations own the call's sealed provider
-    /// evidence, its digest and the evidence.
-    evidence: Option<(ToolId, String, octocode_github::ProviderEvidence)>,
-    /// The call's evidence was sealed (it may have left nothing to own).
+    /// The tool whose continuations own the call's provider evidence, and
+    /// the evidence.
+    evidence: Option<(ToolId, evidence::Owned)>,
+    /// The call's evidence was taken (it may have held nothing to own).
     sealed: bool,
 }
 
@@ -89,7 +92,8 @@ impl Registry {
     pub fn new(config: CacheConfig, disk: Option<PathBuf>, policy: String) -> Self {
         Self {
             store: Store::new(config.clone(), disk.clone()),
-            evidence: Store::new(config, disk.clone()),
+            evidence: Store::new(config.clone(), disk.clone()),
+            held_evidence: Store::new(config, None),
             policy,
             disk,
             mutation: Mutex::new(()),
@@ -106,6 +110,8 @@ impl Registry {
 
     pub fn clear_memory(&self) {
         self.store.clear_memory();
+        self.evidence.clear_memory();
+        self.held_evidence.clear_memory();
     }
 
     /// Every handle in one output becomes reachable atomically, before
@@ -123,15 +129,18 @@ impl Registry {
         let _storage = self.process_lock(context)?;
         let _mutation = self.mutation_lock(context)?;
         context.check()?;
-        if let Some((_, digest, evidence)) = pending.evidence
+        if let Some((_, owned)) = pending.evidence
             && pending
                 .issued
                 .values()
-                .any(|member| member.evidence.as_ref() == Some(&digest))
+                .any(|member| member.evidence.as_ref() == Some(&owned.digest))
         {
-            let key = evidence::key(&self.policy, pending.github_identity.as_deref(), &digest);
-            // Unretained evidence costs its continuation a fresh read only.
-            evidence::retain(&self.evidence, key, evidence);
+            let key = evidence::key(
+                &self.policy,
+                pending.github_identity.as_deref(),
+                &owned.digest,
+            );
+            evidence::retain(&self.evidence, &self.held_evidence, key, owned);
         }
         for (token, member) in pending.issued {
             let key = self.key(&token);
@@ -228,13 +237,19 @@ impl Registry {
         Ok(Opened { issued })
     }
 
-    /// The provider evidence `opened` owns, while it is retained.
-    pub fn evidence(&self, opened: &Opened) -> Option<Arc<octocode_github::ProviderEvidence>> {
+    /// The provider evidence `opened` owns while it is retained, and the
+    /// digest it is retained under.
+    pub fn evidence(
+        &self,
+        opened: &Opened,
+    ) -> Option<(String, Arc<octocode_github::ProviderEvidence>)> {
         let digest = opened.issued.member.evidence.as_deref()?;
-        evidence::open(
+        let evidence = evidence::open(
             &self.evidence,
+            &self.held_evidence,
             &evidence::key(&self.policy, opened.github_identity(), digest),
-        )
+        )?;
+        Some((digest.to_owned(), evidence))
     }
 }
 
@@ -250,9 +265,16 @@ impl Pending {
     }
 
     /// The provider evidence `tool`'s own tool continuations issued by
-    /// this output own, as the output gate leaves it ([`evidence::sealed`]).
+    /// this output own ([`evidence::owned`]).
     pub fn own_evidence(&mut self, tool: ToolId, observed: octocode_github::ProviderEvidence) {
-        self.evidence = evidence::sealed(observed).map(|(digest, sealed)| (tool, digest, sealed));
+        self.evidence = evidence::owned(observed).map(|owned| (tool, owned));
+        self.sealed = true;
+    }
+
+    /// `tool`'s own tool continuations issued by this output own the evidence
+    /// already retained under `digest`.
+    pub fn keep_evidence(&mut self, tool: ToolId, digest: &str) {
+        self.evidence = Some((tool, evidence::Owned::retained(digest)));
         self.sealed = true;
     }
 
@@ -274,8 +296,8 @@ impl Pending {
     pub fn insert(&mut self, tool: ToolId, input: Value, work: SavedWork) -> String {
         let token = handle(&self.access, tool, &input, &work);
         let evidence = match (&self.evidence, &work) {
-            (Some((owner, digest, _)), SavedWork::ToolResume { .. }) if *owner == tool => {
-                Some(digest.clone())
+            (Some((owner, owned)), SavedWork::ToolResume { .. }) if *owner == tool => {
+                Some(owned.digest.clone())
             }
             _ => None,
         };

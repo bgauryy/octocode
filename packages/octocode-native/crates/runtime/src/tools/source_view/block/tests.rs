@@ -258,7 +258,7 @@ fn one_line_declarations_are_named_as_such_not_as_outside() {
 /// which names the parse recovery once.
 #[test]
 fn unenclosed_ranges_state_the_recovered_parse_once() {
-    let flow = "// @flow\ntype Dispatch<A> = A => void;\nconst a = 1;\nconst b = 2;\nexport function useState<S>(init: S): [S, Dispatch<S>] {\n  return [init, () => {}];\n}\n";
+    let flow = "// @flow\ntype Dispatch<A> = A => void;\nfirst();\nsecond();\nexport function useState<S>(init: S): [S, Dispatch<S>] {\n  return [init, () => {}];\n}\n";
     let mut warnings = vec![];
     widen_ranges(
         flow,

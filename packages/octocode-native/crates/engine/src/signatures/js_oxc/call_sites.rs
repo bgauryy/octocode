@@ -67,7 +67,7 @@ pub fn reference_sites(
     starts: &[GraphPosition],
 ) -> Option<Vec<ReferenceSite>> {
     let starts = starts.to_vec();
-    super::on_oxc_worker(content, file_path, move |content, file_path| {
+    super::on_oxc_worker(content, file_path, None, move |content, file_path| {
         classify(content, file_path, &starts)
     })
 }
@@ -77,7 +77,7 @@ fn classify(
     file_path: &str,
     starts: &[GraphPosition],
 ) -> Option<Vec<ReferenceSite>> {
-    super::with_js_program::<false, _>(content, file_path, |_, parser_ret| {
+    super::with_js_program::<false, _>(content, file_path, None, |_, parser_ret| {
         let positions = SpanPositions::new(content);
         let mut outline = Vec::new();
         collect_program(&parser_ret.program, &positions, &mut outline);

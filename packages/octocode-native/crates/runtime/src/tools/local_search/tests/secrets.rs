@@ -4,6 +4,63 @@ use octocode_contract_types::ErrorCode;
 mod failures;
 mod ranking;
 
+/// A page's cost follows the rows it shows: redacting the scan reads no file
+/// again, so a hit the page never shows costs no second read. A secret in a
+/// file the page does not show is still redacted on the page that shows it.
+#[test]
+fn a_page_rereads_only_the_files_it_shows() {
+    let dir = crate::tools::test_support::Fixture::new();
+    let root = dir.0.as_path().canonicalize().expect("root");
+    for n in 0..6 {
+        fs::write(root.join(format!("f{n}.txt")), "needle here\n").expect("fixture");
+    }
+    let token = format!("ghp_{}", "a1B2c3D4".repeat(5));
+    fs::write(root.join("f9.txt"), format!("needle {token}\n")).expect("fixture");
+    let policy = crate::tools::test_support::workspace_policy(&root);
+    let security = ContentSecurity::new();
+    let path = root.to_string_lossy().into_owned();
+    let reread = || {
+        crate::tools::local_search::verify::lines::REREAD_FILES
+            .lock()
+            .expect("reread log")
+            .iter()
+            .filter(|file| file.starts_with(&root))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    execute_local_search(
+        &ls_query(
+            serde_json::json!({"path": path, "matchString": ["needle"], "limit": 1}),
+            None,
+        ),
+        &policy,
+        &security,
+        &NeverCancel,
+        None,
+        None,
+    )
+    .expect("first page");
+    assert_eq!(reread().len(), 1, "only the shown file: {:?}", reread());
+    let whole = execute_local_search(
+        &ls_query(
+            serde_json::json!({"path": path, "matchString": ["needle"]}),
+            None,
+        ),
+        &policy,
+        &security,
+        &NeverCancel,
+        None,
+        None,
+    )
+    .expect("whole page");
+    let shown = values(&whole);
+    assert!(shown.contains("f9.txt"), "{shown}");
+    assert!(
+        !shown.contains(&token),
+        "the secret stays redacted: {shown}"
+    );
+}
+
 #[test]
 fn source_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
     let security = ContentSecurity::new();

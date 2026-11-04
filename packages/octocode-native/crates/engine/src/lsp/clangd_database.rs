@@ -4,7 +4,8 @@
 //!
 //! clangd (llvmorg-21.1.0) searches, in order: the `compilationDatabasePath`
 //! initialization option (`ClangdLSPServer.cpp`), else the
-//! `--compile-commands-dir` flag when its directory exists (`ClangdMain.cpp`;
+//! `--compile-commands-dir` flag when its value is non-empty and exists, as a
+//! file or directory (`ClangdMain.cpp`;
 //! relative to clangd's working directory, which Octocode sets to the
 //! workspace root), else every ancestor of the file. In each searched
 //! directory it reads `compile_commands.json`, `build/compile_commands.json`
@@ -31,14 +32,14 @@ const PROJECT_CONFIG: &str = ".clangd";
 /// Where clangd looks for a compilation database.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DatabaseSearch {
-    /// Only this directory (the init option, or an existing flag directory).
+    /// Only this path (the init option, or an existing flag value).
     Fixed(PathBuf),
     /// The file's directory and every ancestor (clangd's default).
     Ancestors,
 }
 
-/// clangd's lookup for `config`: the init option, then the flag (if its
-/// directory exists), else ancestors.
+/// clangd's lookup for `config`: the init option, then the flag (if its value
+/// is non-empty and exists), else ancestors.
 pub fn database_search(config: &LspLanguageServerConfig) -> DatabaseSearch {
     let root = Path::new(&config.workspace_root);
     let resolve = |dir: &str| {
@@ -60,12 +61,13 @@ pub fn database_search(config: &LspLanguageServerConfig) -> DatabaseSearch {
     }
     compile_commands_dir(config.args.as_deref().unwrap_or_default())
         .map(|dir| resolve(&dir))
-        .filter(|dir| dir.is_dir())
+        .filter(|dir| dir.exists())
         .map_or(DatabaseSearch::Ancestors, DatabaseSearch::Fixed)
 }
 
 /// The last `--compile-commands-dir` value in LLVM `cl` spellings: one or two
-/// dashes, with `=DIR` or DIR as the next argument.
+/// dashes, with `=DIR` or DIR as the next argument. An empty value means the
+/// flag is unset (`ClangdMain.cpp` tests `!CompileCommandsDir.empty()`).
 fn compile_commands_dir(args: &[String]) -> Option<String> {
     let mut found = None;
     let mut args = args.iter();
@@ -83,7 +85,7 @@ fn compile_commands_dir(args: &[String]) -> Option<String> {
             found = args.next().cloned().or(found);
         }
     }
-    found
+    found.filter(|dir| !dir.is_empty())
 }
 
 /// The clangd configuration files that apply to a file in `dir` under

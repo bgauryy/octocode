@@ -78,7 +78,19 @@ pub(super) fn emit(
             }
         }
         if metadata["status"] == "ready" {
-            metadata["coverage"] = json!({"totalSections":resource.units.len(),"completedSections":completed,"remainingSections":resource.units.len()-completed,"answered":counts[0],"error":counts[1],"unsupported":counts[2],"unassessed":counts[3]});
+            // An absent count is 0 (the output contract says so).
+            let mut coverage = json!({"totalSections":resource.units.len(),"answered":counts[0]});
+            for (name, count) in [
+                ("remainingSections", resource.units.len() - completed),
+                ("error", counts[1]),
+                ("unsupported", counts[2]),
+                ("unassessed", counts[3]),
+            ] {
+                if count > 0 {
+                    coverage[name] = json!(count);
+                }
+            }
+            metadata["coverage"] = coverage;
             // The reason explains this resource's unassessed cells; a resource
             // the terminal batch left untouched has none to explain.
             if let Some(reason) = terminal.filter(|_| counts[3] > 0) {
@@ -92,10 +104,12 @@ pub(super) fn emit(
         metadata["sections"] = json!(sections);
         resources.insert(resource.key.clone(), metadata);
     }
-    // The request's own operation and questions are never echoed: the
-    // response layer drops them from a first page, so a continuation page
-    // that repeated them would differ from page one.
-    let mut output = json!({"resources":resources,"usage":usage.output()});
+    // Score cells carry no legend, so the shared questions are the only one:
+    // every batch carries them, so a page read through a cursor is
+    // self-contained. The response layer drops them from the first page of a
+    // fresh request, whose caller stated them.
+    let mut output =
+        json!({"questions":session.questions,"resources":resources,"usage":usage.output()});
     if let Some(model) = &session.resolved_model {
         output["model"] = json!(model);
     }

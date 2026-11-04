@@ -5,8 +5,8 @@ use serde_json::Value;
 /// JS/TS document symbols as a JSON `DocumentSymbol[]`; `None` for oversized
 /// input, a hard parse failure, or a file with no top-level symbols.
 fn extract_js_symbols(content: &str, file_path: &str) -> Option<String> {
-    on_oxc_worker(content, file_path, |content, file_path| {
-        with_js_program::<false, _>(content, file_path, |_, parser_ret| {
+    on_oxc_worker(content, file_path, None, |content, file_path| {
+        with_js_program::<false, _>(content, file_path, None, |_, parser_ret| {
             let line_index = SpanPositions::new(content);
             let mut symbols = Vec::new();
             collect_program(&parser_ret.program, &line_index, &mut symbols);

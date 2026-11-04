@@ -63,7 +63,7 @@ The contract has 16 tools. [Configuration](CONFIGURATION.md#tool-availability-cl
 
 ## Configuration
 
-Start with [Configuration](CONFIGURATION.md) for setup, precedence and the complete settings reference. Its [client `env` example](CONFIGURATION.md#mcp-client-env-block) applies settings to one MCP process. Every tool result carries `structuredContent` and one text block holding its serialized JSON. Development override (`OCTOCODE_NATIVE_BIN`, a candidate binary): [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md#development-environment-variables).
+Start with [Configuration](CONFIGURATION.md) for setup, precedence and the complete settings reference. Its [client `env` example](CONFIGURATION.md#mcp-client-env-block) applies settings to one MCP process. Every tool result is one text block holding its serialized JSON, with `isError` set when it failed. Tools declare no `outputSchema`, so results carry no `structuredContent`. Development override (`OCTOCODE_NATIVE_BIN`, a candidate binary): [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md#development-environment-variables).
 
 The server shares the CLI's cache under the Octocode home and runs the same best-effort 24-hour sweep at start ([cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle)). Unknown or removed tool names in `TOOLS_TO_RUN` and `DISABLE_TOOLS` are ignored with an `unknown_tool_name` config warning; if no `TOOLS_TO_RUN` name is valid, startup fails.
 
